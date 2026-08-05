@@ -4,7 +4,6 @@ namespace App\Models\Core\Site;
 
 use App\Models\BaseModel;
 use App\Models\Core\MediaVariant;
-use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -78,10 +77,10 @@ class SiteMedia extends BaseModel
 
     /**
      * Design-pool singleton purposes — one row per (site, purpose): the two brand
-     * logos, the brand placeholder image, plus one cover image per cover-capable
-     * platform. The cover slots are DERIVED from the platform registry
-     * (PlatformDescriptor::isCoverable) so adding a cover for a new platform is a
-     * one-line descriptor flag, not a new const + list entry + migration.
+     * logos plus the brand placeholder image. Per-platform cover slots
+     * (`cover_<key>`, registry-derived via PlatformDescriptor::isCoverable) lived
+     * here until 2026-08-05, when the owner retired the whole cover feature —
+     * existing cover rows are simply no longer enumerated, validated or served.
      *
      * `placeholder` joined 2026-07-10 (surfaces/content plan): it IS a singleton —
      * the composite unique index site_media_design_singleton_purpose_uq (migration
@@ -90,13 +89,6 @@ class SiteMedia extends BaseModel
      * path — so it rides the same allowlist and reaches the public payload as
      * siteImages.placeholder, rather than a separate list shape.
      *
-     * Registry keys are hyphenated (`apple-music`) but media purposes are underscored
-     * (`cover_apple_music`): IndividualProfilePayloadBuilder derives the camelCase
-     * `siteImages` wire key by treating `_` as the word boundary, so a hyphen would
-     * leak through (`coverApple-music`) and break the partna-pages contract. Hence the
-     * convention is `cover_` + the registry key with hyphens normalized to underscores.
-     *
-     * A const can't call the runtime registry — this is a method by necessity.
      * Enforced at the DB by the composite partial unique index
      * site_media_design_singleton_purpose_uq and the app-side replace in
      * MediaUploadService::uploadSingleton. UploadDesignMediaRequest validates the
@@ -106,15 +98,7 @@ class SiteMedia extends BaseModel
      */
     public static function designSingletonPurposes(): array
     {
-        $covers = array_map(
-            static fn (string $key): string => 'cover_'.str_replace('-', '_', $key),
-            array_keys(app(PlatformRegistry::class)->coverable()),
-        );
-
-        return array_merge(
-            [self::PURPOSE_LOGO_FULL, self::PURPOSE_LOGO_SQUARE, self::PURPOSE_PLACEHOLDER],
-            array_values($covers),
-        );
+        return [self::PURPOSE_LOGO_FULL, self::PURPOSE_LOGO_SQUARE, self::PURPOSE_PLACEHOLDER];
     }
 
     /**

@@ -159,7 +159,7 @@ it('sends an svg to the raster gate for non-logo singletons even with the pipeli
     $pro->loadMissing('site');
 
     expect(fn () => app(MediaUploadService::class)->uploadSingleton(
-        pro: $pro, site: $pro->site, file: svgLogoUploadedFile(), purpose: 'cover_youtube',
+        pro: $pro, site: $pro->site, file: svgLogoUploadedFile(), purpose: 'placeholder',
     ))->toThrow(OriginalStoreFailedException::class);
 });
 
@@ -176,12 +176,12 @@ it('routes a logo through the removal pipeline when the flag is on', function ()
     Bus::assertNotDispatchedSync(ProcessImageVariantsJob::class);
 });
 
-it('keeps integration covers on the standard pipeline even when the flag is on', function () {
+it('keeps non-logo singletons on the standard pipeline even when the flag is on', function () {
     Bus::fake([ProcessLogoVariantsJob::class, ProcessImageVariantsJob::class]);
     config(['partna.logo_removal.enabled' => true]);
     mockLogoImageService();
 
-    uploadDesignSingleton(createTenant('routecover'), 'cover_youtube', 'cover.png');
+    uploadDesignSingleton(createTenant('routecover'), 'placeholder', 'placeholder.png');
 
     Bus::assertDispatchedSync(ProcessImageVariantsJob::class);
     Bus::assertNotDispatchedSync(ProcessLogoVariantsJob::class);

@@ -76,39 +76,26 @@ it('accepts a logo upload with a valid purpose + image', function () {
     expect($result['errors'] ?? [])->not->toHaveKeys(['purpose', 'image']);
 });
 
-it('accepts every integration cover purpose', function () {
-    foreach (['cover_youtube', 'cover_apple_music', 'cover_apple_podcast', 'cover_eventbrite'] as $purpose) {
+it('rejects every retired cover purpose (feature removed 2026-08-05)', function () {
+    foreach (['cover_youtube', 'cover_apple_music', 'cover_apple_podcast', 'cover_eventbrite', 'cover_shopify'] as $purpose) {
         $result = validateDesignMediaRequest(
             ['purpose' => $purpose],
             ['image' => UploadedFile::fake()->image('cover.png', 400, 200)],
         );
 
-        expect($result['errors'] ?? [])->not->toHaveKey('purpose');
+        expect($result['valid'])->toBeFalse();
+        expect($result['errors'])->toHaveKey('purpose');
     }
 });
 
-it('rejects the retired cover_shopify slot', function () {
-    $result = validateDesignMediaRequest(
-        ['purpose' => 'cover_shopify'],
-        ['image' => UploadedFile::fake()->image('x.png')],
-    );
-
-    expect($result['valid'])->toBeFalse();
-    expect($result['errors'])->toHaveKey('purpose');
-});
-
-it('derives the design singleton purposes from the registry (2 logos + placeholder + 4 covers, no dead shopify)', function () {
+it('holds the design singleton purposes at 2 logos + placeholder (covers retired 2026-08-05)', function () {
     $purposes = SiteMedia::designSingletonPurposes();
     sort($purposes);
 
-    $expected = [
-        'logo_full', 'logo_square', 'placeholder',
-        'cover_youtube', 'cover_apple_music', 'cover_apple_podcast', 'cover_eventbrite',
-    ];
+    $expected = ['logo_full', 'logo_square', 'placeholder'];
     sort($expected);
 
     expect($purposes)->toBe($expected);
-    expect($purposes)->not->toContain('cover_shopify'); // retired dead slot — no shopify platform exists
 });
 
 it('accepts the brand placeholder purpose (singleton since 2026-07-10)', function () {
@@ -258,41 +245,41 @@ it('deletes a design singleton by purpose and purges its variants', function () 
     $pro = createTenant('deletehost');
     $site = $pro->site;
 
-    $id = seedReadyDesignSingleton($site->id, 'cover_youtube', 'img/yt.webp');
+    $id = seedReadyDesignSingleton($site->id, 'placeholder', 'img/ph.webp');
 
     $imageService = Mockery::mock(ImageVariantService::class);
     $imageService->shouldReceive('deleteVariants')->once()->andReturnNull();
     app()->instance(ImageVariantService::class, $imageService);
 
-    $request = Request::create('/api/design-media/cover_youtube', 'DELETE');
+    $request = Request::create('/api/design-media/placeholder', 'DELETE');
     $request->attributes->set('professional', $pro);
 
-    $response = app(UserDesignMediaController::class)->destroy($request, 'cover_youtube');
+    $response = app(UserDesignMediaController::class)->destroy($request, 'placeholder');
 
     expect($response->getStatusCode())->toBe(200);
     expect(SiteMedia::withTrashed()->find($id)?->trashed())->toBeTrue();
     expect(
-        SiteMedia::query()->where('site_id', $site->id)->where('purpose', 'cover_youtube')->exists()
+        SiteMedia::query()->where('site_id', $site->id)->where('purpose', 'placeholder')->exists()
     )->toBeFalse();
 });
 
 it('404s a delete for an empty slot and an unknown purpose', function () {
     $pro = createTenant('deleteempty');
 
-    $request = Request::create('/api/design-media/cover_youtube', 'DELETE');
+    $request = Request::create('/api/design-media/placeholder', 'DELETE');
     $request->attributes->set('professional', $pro);
 
     // Empty slot: a real purpose with nothing uploaded.
     expect(
-        app(UserDesignMediaController::class)->destroy($request, 'cover_youtube')->getStatusCode()
+        app(UserDesignMediaController::class)->destroy($request, 'placeholder')->getStatusCode()
     )->toBe(404);
 
-    // Unknown purpose: never a design singleton (and the retired shopify slot).
+    // Unknown purposes: never a design singleton, plus the retired cover slots.
     expect(
         app(UserDesignMediaController::class)->destroy($request, 'gallery_image')->getStatusCode()
     )->toBe(404);
     expect(
-        app(UserDesignMediaController::class)->destroy($request, 'cover_shopify')->getStatusCode()
+        app(UserDesignMediaController::class)->destroy($request, 'cover_youtube')->getStatusCode()
     )->toBe(404);
 });
 
@@ -303,6 +290,8 @@ it('reads back current design singletons by purpose (null for empty slots)', fun
     $site = $pro->site;
 
     seedReadyDesignSingleton($site->id, 'logo_full', 'img/logo.webp');
+    // A leftover cover row from before the 2026-08-05 retirement: the read
+    // must skip it, not resurrect the slot.
     seedReadyDesignSingleton($site->id, 'cover_youtube', 'img/yt.webp');
 
     $request = Request::create('/api/design-media', 'GET');
@@ -311,10 +300,9 @@ it('reads back current design singletons by purpose (null for empty slots)', fun
     $data = app(UserDesignMediaController::class)->index($request)->getData(true);
 
     expect($data['images']['logo_full']['url'])->toBe('https://cdn.example.com/img/logo.webp');
-    expect($data['images']['cover_youtube']['url'])->toBe('https://cdn.example.com/img/yt.webp');
     expect($data['images']['logo_square'])->toBeNull();
-    expect($data['images']['cover_eventbrite'])->toBeNull(); // a still-live cover slot, empty
-    expect($data['images'])->not->toHaveKey('cover_shopify'); // retired — not enumerated anymore
+    expect($data['images']['placeholder'])->toBeNull();
+    expect($data['images'])->not->toHaveKey('cover_youtube'); // retired — not enumerated anymore
 });
 
 // ── Public payload exposure ─────────────────────────────────────────────────
@@ -336,12 +324,13 @@ it('exposes design singletons as camelCase siteImages in the public profile payl
     $site = $pro->site;
 
     seedReadyDesignSingleton($site->id, 'logo_full', 'img/logo.webp');
+    // A leftover pre-retirement cover row must not reach the public wire.
     seedReadyDesignSingleton($site->id, 'cover_apple_music', 'img/am.webp');
 
     $payload = app(IndividualProfilePayloadBuilder::class)->build($pro->fresh('site'), $site);
 
     expect($payload['siteImages']['logoFull']['url'])->toBe('https://cdn.example.com/img/logo.webp');
-    expect($payload['siteImages']['coverAppleMusic']['url'])->toBe('https://cdn.example.com/img/am.webp');
+    expect($payload['siteImages'])->not->toHaveKey('coverAppleMusic');
 });
 
 it('exposes a placeholder-purpose row in the payload siteImages (gap fix 2026-07-10)', function () {

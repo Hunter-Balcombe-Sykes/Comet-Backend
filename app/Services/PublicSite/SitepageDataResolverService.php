@@ -612,18 +612,18 @@ class SitepageDataResolverService
             ->all();
     }
 
-    // ── Design singletons (logos + placeholder + integration covers) ────
+    // ── Design singletons (logos + placeholder) ─────────────────────────
 
     /**
      * Design-pool singleton images keyed by purpose — the brand logos
-     * (logo_full / logo_square), the brand placeholder image (placeholder)
-     * and the per-integration cover images
-     * (cover_youtube, cover_apple_music, ...; registry-derived). Each maps to {url, url_hd, url_svg}
-     * from the ready WebP variants (url_svg only for vectorized logos); purposes
-     * with no uploaded/ready image are absent.
+     * (logo_full / logo_square) and the brand placeholder image (placeholder).
+     * Per-integration covers rode this map until 2026-08-05 (owner retired the
+     * feature); leftover cover rows are excluded by the shrunken allowlist.
+     * Each maps to {url, url_hd, url_svg} from the ready WebP variants
+     * (url_svg only for vectorized logos); purposes with no uploaded/ready
+     * image are absent.
      *
-     * Consumed by the public profile payload's siteImages map: partna-pages
-     * reads the logos for the profile and the covers per integration. Rendering
+     * Consumed by the public profile payload's siteImages map. Rendering
      * is the theme's concern — this only makes the URLs available.
      *
      * @return array<string, array{url: string, url_hd: string|null, url_svg: string|null, url_icon: string|null}>

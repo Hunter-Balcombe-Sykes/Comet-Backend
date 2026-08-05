@@ -291,15 +291,13 @@ class IndividualProfilePayloadBuilder
     }
 
     /**
-     * Site image singletons — brand logos, the brand placeholder image +
-     * per-integration cover images, keyed by camelCase purpose (logoFull,
-     * logoSquare, placeholder, coverYoutube, coverAppleMusic,
-     * coverApplePodcast, coverEventbrite). Each value is
-     * {url, urlHd, urlSvg, urlIcon} (urlSvg only for vectorized logos; urlIcon
-     * only for square logos — the sitepage favicon source); absent purposes
-     * have no uploaded/ready image. Empty object when nothing is set. partna-pages
-     * reads logos for the profile and covers per integration; the theme decides
-     * how (if at all) to render them.
+     * Site image singletons — brand logos + the brand placeholder image, keyed
+     * by camelCase purpose (logoFull, logoSquare, placeholder). The cover*
+     * keys left the wire 2026-08-05 when the owner retired per-integration
+     * covers. Each value is {url, urlHd, urlSvg, urlIcon} (urlSvg only for
+     * vectorized logos; urlIcon only for square logos — the sitepage favicon
+     * source); absent purposes have no uploaded/ready image. Empty object when
+     * nothing is set. The theme decides how (if at all) to render them.
      *
      * @return array<string, array{url: string, urlHd: string|null, urlSvg: string|null, urlIcon: string|null}>
      */

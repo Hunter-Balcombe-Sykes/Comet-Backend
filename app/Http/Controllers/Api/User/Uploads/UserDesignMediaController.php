@@ -15,12 +15,11 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 // Design-layer singleton images: the two brand logos (logo_full, logo_square)
-// edited in /account/design, the brand placeholder image (placeholder), and one
-// cover image per cover-capable platform
-// (cover_youtube, cover_apple_music, cover_apple_podcast, cover_eventbrite —
-// registry-derived, see SiteMedia::designSingletonPurposes()). One row per
-// (site, purpose); re-uploading replaces. Free ratio — the pipeline resizes
-// preserving aspect, the display frame is the frontend's concern.
+// and the brand placeholder image (placeholder) — see
+// SiteMedia::designSingletonPurposes(). Per-platform covers were retired
+// 2026-08-05 (owner); a cover_* purpose is a 404/validation failure now. One
+// row per (site, purpose); re-uploading replaces. Free ratio — the pipeline
+// resizes preserving aspect, the display frame is the frontend's concern.
 // Reuses the gallery image pipeline (MediaUploadService::uploadSingleton → WebP
 // variants); the public sitepage reads these via the profile payload's
 // siteImages map.
@@ -61,7 +60,7 @@ class UserDesignMediaController extends ApiController
 
     /**
      * POST /api/design-media — upload (or replace) one purpose's image.
-     *   { purpose: logo_full|logo_square|cover_*, image: <file> }
+     *   { purpose: logo_full|logo_square|placeholder, image: <file> }
      */
     public function upload(UploadDesignMediaRequest $request): JsonResponse
     {
