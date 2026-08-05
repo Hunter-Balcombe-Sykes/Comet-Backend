@@ -74,15 +74,28 @@ setting on a project about to carry customers, and it should be observable in is
 than tangled with a middleware change. If both ship together and sessions start behaving oddly,
 there are two suspects instead of one.
 
-**Not done. No dashboard edit was made on either project.** Josh's call, 2026-08-05: report only.
+### APPLIED ON DEV — 2026-08-05
 
-### If it is applied later
+Josh's initial call was report-only; he then approved the recommendation. **Dev
+(`glncumufgaqcmqhzwrxm`) is now `jwt_exp = 900`.** Verified two ways, not one:
 
-1. Dev (`glncumufgaqcmqhzwrxm`) first. Watch for unexpected 401s and for refresh loops in the
-   frontend console.
-2. Confirm `ensureFreshAccessToken`'s 90 s threshold is still in the frontend before touching
-   prod — if that number ever rises toward `jwt_exp`, the margin disappears.
-3. Prod (`edplucmvkcnokyygxqsb`) only after dev has soaked.
+- Config re-read after the PATCH: `jwt_exp = 900`, `refresh_token_rotation_enabled = true`,
+  `security_refresh_token_reuse_interval = 10` (unchanged).
+- **A real token minted from dev GoTrue decodes to `exp - iat = 900`** — the setting is not just
+  stored, it is being issued.
+
+**Prod (`edplucmvkcnokyygxqsb`) deliberately left at 3600**, confirmed by a control read in the
+same run. The whole point of the recommendation was dev-first-then-soak; changing both at once
+would discard the only signal that makes the prod change safe.
+
+### Before applying to prod
+
+1. Let dev soak. Watch for unexpected 401s and for refresh loops in the frontend console.
+2. **Re-confirm `ensureFreshAccessToken`'s 90 s threshold is still in the frontend**
+   (`lib/auth-session.ts`, `minValiditySeconds ?? 90`). If that number ever rises toward
+   `jwt_exp`, the margin disappears and the client refreshes continuously.
+3. Then `PATCH /v1/projects/edplucmvkcnokyygxqsb/config/auth` with `{"jwt_exp": 900}` — see
+   [[reference_supabase_management_api_token]] for the keychain token encoding.
 
 `sessions_timebox` and `sessions_inactivity_timeout` are both **off** and were not evaluated here.
 They are a separate lever (absolute session length vs. idle expiry) and would be a genuine product

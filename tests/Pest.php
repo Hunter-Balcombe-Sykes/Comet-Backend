@@ -15,7 +15,9 @@ use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Services\BotProtection\Providers\FakeProvider;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
@@ -313,6 +315,154 @@ function attachTestSchemas(): void
             // already attached — ignore
         }
     }
+}
+
+/**
+ * Swap the cache repository for one that throws on every operation, the way a
+ * dead Redis does.
+ *
+ * Shared here rather than in a test file because more than one suite needs it and
+ * cross-file global function definitions depend on Pest's load order — a
+ * single-file run would fatal on the missing function.
+ *
+ * FIDELITY NOTE. A real dead Redis still hands back working manager/store/lock
+ * OBJECTS and throws only when a command reaches the wire. A bare Repository
+ * implementation raises `Error: call to undefined method` for store()/lock()/
+ * driver()/tags() instead, which downstream `catch (Throwable)` arms absorb
+ * identically — so a test could pass while exercising the wrong exception class,
+ * and would not catch a layer that narrowed its catch to RedisException. __call()
+ * routes those to the same throw so the failure mode is at least the right one.
+ */
+function throwingCacheRepository(): Repository
+{
+    return new class implements Repository
+    {
+        private function boom(): never
+        {
+            throw new RedisException('Connection refused');
+        }
+
+        public function get($key, $default = null): mixed
+        {
+            $this->boom();
+        }
+
+        public function put($key, $value, $ttl = null): bool
+        {
+            $this->boom();
+        }
+
+        public function add($key, $value, $ttl = null): bool
+        {
+            $this->boom();
+        }
+
+        public function increment($key, $value = 1)
+        {
+            $this->boom();
+        }
+
+        public function decrement($key, $value = 1)
+        {
+            $this->boom();
+        }
+
+        public function forever($key, $value): bool
+        {
+            $this->boom();
+        }
+
+        public function forget($key): bool
+        {
+            $this->boom();
+        }
+
+        public function has($key): bool
+        {
+            $this->boom();
+        }
+
+        public function many(array $keys): array
+        {
+            $this->boom();
+        }
+
+        public function putMany(array $values, $ttl = null): bool
+        {
+            $this->boom();
+        }
+
+        public function pull($key, $default = null): mixed
+        {
+            $this->boom();
+        }
+
+        public function remember($key, $ttl, Closure $callback): mixed
+        {
+            $this->boom();
+        }
+
+        public function sear($key, Closure $callback): mixed
+        {
+            $this->boom();
+        }
+
+        public function rememberForever($key, Closure $callback): mixed
+        {
+            $this->boom();
+        }
+
+        public function missing($key): bool
+        {
+            $this->boom();
+        }
+
+        public function clear(): bool
+        {
+            $this->boom();
+        }
+
+        public function delete($key): bool
+        {
+            $this->boom();
+        }
+
+        public function deleteMultiple($keys): bool
+        {
+            $this->boom();
+        }
+
+        public function getMultiple($keys, $default = null): iterable
+        {
+            $this->boom();
+        }
+
+        public function setMultiple($values, $ttl = null): bool
+        {
+            $this->boom();
+        }
+
+        public function set($key, $value, $ttl = null): bool
+        {
+            $this->boom();
+        }
+
+        public function getStore()
+        {
+            $this->boom();
+        }
+
+        public function __call($method, $parameters)
+        {
+            $this->boom();
+        }
+    };
+}
+
+/** Swap the Cache facade for the throwing repository above. */
+function bindThrowingCacheStore(): void
+{
+    Cache::swap(throwingCacheRepository());
 }
 
 /**

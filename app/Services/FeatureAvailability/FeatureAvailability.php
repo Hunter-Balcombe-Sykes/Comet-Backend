@@ -62,14 +62,95 @@ final class FeatureAvailability
         $lock = app(CacheLockService::class);
         $failopenKey = "feature-availability:failopen:{$user->id}";
 
-        // A DB fault very recently parked a short-lived sentinel here (see the
-        // catch below) — skip straight to fail-open instead of re-attempting
-        // (and re-faulting on) the same query on every request during a blip.
-        if (Cache::get($failopenKey) !== null) {
-            return new UserFeatureAvailability([]);
-        }
+        // These two reads USED TO SIT OUTSIDE any try. That was a
+        // guard-one-line-too-late bug: the try below was written for a DB fault,
+        // under which these two lines are fine — but under a CACHE fault they are
+        // the first thing to throw, and they threw straight past the fail-open
+        // handler written to absorb exactly this. Drill 03 (2026-08-05) caught it
+        // as a raw 500 on GET /api/site during a Redis outage.
+        //
+        // Both values are optimisations, not inputs: the sentinel only avoids
+        // re-faulting on a query we are about to fail open on anyway, and the
+        // version token only namespaces the cache key. Neither is worth a 500.
+        try {
+            // A DB fault very recently parked a short-lived sentinel here (see the
+            // catch below) — skip straight to fail-open instead of re-attempting
+            // (and re-faulting on) the same query on every request during a blip.
+            if (Cache::get($failopenKey) !== null) {
+                return new UserFeatureAvailability([]);
+            }
 
-        $version = (int) Cache::get(self::CACHE_VERSION_KEY, 0);
+            $version = (int) Cache::get(self::CACHE_VERSION_KEY, 0);
+        } catch (Throwable $e) {
+            // Store unreachable. DO NOT fail open here.
+            //
+            // It is tempting to return an empty override set and be done — an
+            // earlier draft of this fix did exactly that, reasoning that
+            // rememberLocked() below would fault on the same store anyway. That
+            // reasoning is FALSE and the mistake is expensive: rememberLocked()
+            // catches store faults itself and falls through to
+            // computeWithoutCache(), which runs the query directly against
+            // Postgres (CacheLockService::rememberLocked ~:106 →
+            // computeWithoutCache ~:351). With a dead cache and a healthy DB it
+            // returns the TRUE rule set.
+            //
+            // Failing open here would therefore silently re-enable every
+            // staff-disabled feature and integration — including kill-switches
+            // pulled for legal reasons — for the whole duration of a Valkey blip,
+            // while the authoritative answer sat one healthy query away.
+            //
+            // Guarded: config/logging.php's `stack` sets 'ignore_exceptions' => false
+            // and LOG_STACK includes nightwatch, so a broken handler here would throw
+            // out of the very catch that exists to stop this path 500ing.
+            // escalateIfSustained is already catch-all internally.
+            try {
+                Log::warning('feature_availability.cache_unavailable', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+            } catch (Throwable) {
+                // Breadcrumb lost; the resolve below is unaffected.
+            }
+            self::escalateIfSustained($e, 'cache_unavailable');
+
+            // DO NOT guess a namespace and fall through. `$version = 0` reads as
+            // harmless — "a dead store has no entry under any version" — and a
+            // previous revision of this method did exactly that. It is wrong,
+            // because this catch does not establish that the store is DEAD. It
+            // fires on ANY throwable from either read, including the transient
+            // shape documented in GuardedPhpRedisConnection:52-54: "op 1 fails,
+            // Laravel reconnects, and ops 2..N succeed". Then rememberLocked()
+            // reads the LIVE `:v0` key while the real version is N, and serves a
+            // pre-flush snapshot — silently lifting a staff kill-switch, the exact
+            // outcome this method was rewritten to prevent.
+            //
+            // That is not theoretical: ArmRedisRequestBreaker deliberately never
+            // arms outside HTTP (its docblock), and for() is called from
+            // ConnectFetchJob, ShopBrandConnectJob, FreshaConnectFetch and
+            // CustomLinkSeeder — all queue paths, where nothing stops op 2
+            // succeeding.
+            //
+            // Resolve directly: no namespace, no cache, one query. Which is what
+            // computeWithoutCache() would have done for us anyway.
+            try {
+                return new UserFeatureAvailability(self::resolveOverrides($user));
+            } catch (Throwable $dbEx) {
+                // Cache unreachable AND the query failed — now we genuinely cannot
+                // know, so the absence-==-enabled fail-open applies. No sentinel
+                // write: the store that would hold it is the one that just failed.
+                try {
+                    Log::warning('feature_availability.resolve_overrides_failed', [
+                        'user_id' => $user->id,
+                        'error' => $dbEx->getMessage(),
+                    ]);
+                } catch (Throwable) {
+                    // Breadcrumb lost; the fail-open below is unaffected.
+                }
+                self::escalateIfSustained($dbEx, 'resolve_overrides');
+
+                return new UserFeatureAvailability([]);
+            }
+        }
 
         // Single-flight via CacheLockService — without this, a staff flush() bumping
         // the version token cold-misses every concurrent reader at once and they all
@@ -88,13 +169,31 @@ final class FeatureAvailability
             // TTL. Fail open here too — same absence-=-enabled contract — but via the
             // dedicated short-TTL sentinel above, never the primary key. Escalate on a
             // sustained run (a single blip stays a Log::warning breadcrumb).
-            Log::warning('feature_availability.resolve_overrides_failed', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-            ]);
+            // Guarded for the same reason as the cache catch above: the `stack`
+            // channel has 'ignore_exceptions' => false, so a broken log handler
+            // would throw out of a catch whose whole contract is that nothing
+            // escapes it.
+            try {
+                Log::warning('feature_availability.resolve_overrides_failed', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+            } catch (Throwable) {
+                // Breadcrumb lost; the fail-open below is unaffected.
+            }
             self::escalateIfSustained($e, 'resolve_overrides');
 
-            $lock->rememberLockedNullable($failopenKey, self::FAILOPEN_TTL_SECONDS, fn () => null);
+            // Writing the sentinel is a courtesy to the NEXT request, not part of
+            // serving this one. rememberLockedNullable() already absorbs read and
+            // lock faults internally, so this guard is belt-and-braces rather than
+            // a live failure mode — kept because this catch's contract is that
+            // NOTHING escapes it, and that should not depend on the internals of a
+            // collaborator. Losing the sentinel only costs a repeated fault.
+            try {
+                $lock->rememberLockedNullable($failopenKey, self::FAILOPEN_TTL_SECONDS, fn () => null);
+            } catch (Throwable) {
+                // Sentinel unwritable — the fail-open return below is unaffected.
+            }
 
             return new UserFeatureAvailability([]);
         }

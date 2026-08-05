@@ -1,9 +1,17 @@
 <?php
 
+use App\Http\Middleware\Auth\RequireVerifiedRevocation;
+use App\Http\Middleware\Auth\VerifySupabaseJwt;
+use App\Http\Middleware\IdempotencyKey;
+use App\Providers\AppServiceProvider;
 use App\Services\Auth\TokenRevocationService;
 use App\Services\Cache\CacheLockService;
 use App\Services\Redis\Exceptions\RedisUnavailableException;
 use App\Services\Redis\RedisRequestBreaker;
+use Illuminate\Cache\RateLimiter;
+use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -230,6 +238,106 @@ it('503s when the strict gate is reached with no verifier ahead of it', function
     $this->getJson('/api/__test/strict-unguarded')
         ->assertStatus(503)
         ->assertHeader('Retry-After', '5');
+});
+
+it('answers from the GATE, not the rate limiter, on a throttled strict route', function () {
+    // Drill 03's actual finding, pinned at route level.
+    //
+    // RevocationUnverifiableException and RateLimiterUnavailableException are
+    // byte-identical on the wire — both 503, same message, same Retry-After: 5. So
+    // on a throttled route the STATUS cannot say which layer answered, and the
+    // drill nearly recorded a false PASS on exactly that. The gate's own log line
+    // is the only honest discriminator.
+    //
+    // MAKING THE LIMITER ACTUALLY FAIL took three non-obvious steps. Earlier
+    // attempts (array store, Cache::swap, replacing the whole RateLimiter,
+    // clearResolvedInstance) all left the test passing with the priority pin
+    // REMOVED, i.e. proving nothing:
+    //
+    //   1. `.env` ships SIDEST_THROTTLE_ENABLED=false, so every named limiter
+    //      returns Limit::none() BEFORE touching a store — the store was never
+    //      reached, which is why attacking it did nothing. (Note the divergence:
+    //      throttling is OFF locally and ON in CI, which uses .env.example.)
+    //   2. The limiters were registered at boot under that false flag, so flipping
+    //      config alone is not enough — configureRateLimiting() must re-run.
+    //   3. Only the limiter's $cache may be swapped. forgetInstance /
+    //      clearResolvedInstance rebuild the singleton and wipe $limiters, which
+    //      resurfaces as MissingRateLimiterException (see ResilientRateLimiter's
+    //      docblock).
+    //
+    // DECLARED ORDER: throttle before the gate, deliberately. Unlisted middleware
+    // keep their declared position, so writing the gate first would make it run
+    // first even without the pin. Real strict routes inherit throttle from a group
+    // ahead of the route-level gate, which is how the gate ended up last in
+    // production. This reproduces that.
+    Route::middleware(['api', 'supabase.jwt', 'throttle:authenticated', 'revocation.strict'])
+        ->get('/api/__test/strict-throttled', fn () => response()->json(['ok' => true]));
+
+    config(['partna.throttle.enabled' => true]);
+    $provider = new AppServiceProvider(app());
+    $configure = new ReflectionMethod($provider, 'configureRateLimiting');
+    $configure->setAccessible(true);
+    $configure->invoke($provider);
+
+    // Break ONLY the store, keeping the singleton (and its $limiters map) intact.
+    $limiter = app(RateLimiter::class);
+    $cacheProp = new ReflectionProperty(RateLimiter::class, 'cache');
+    $cacheProp->setAccessible(true);
+    $cacheProp->setValue($limiter, throwingCacheRepository());
+
+    $jwt = bindStrictRevocationAuth(new RedisException('Connection refused'));
+
+    Log::spy();
+
+    $this->withHeader('Authorization', 'Bearer '.$jwt)
+        ->getJson('/api/__test/strict-throttled')
+        ->assertStatus(503)
+        ->assertHeader('Retry-After', '5');
+
+    // Both layers would have produced an identical 503. This assertion is the only
+    // thing that says the GATE did, and it fails if the priority pin is removed.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($msg, $ctx = []) => $msg === 'auth.revocation_unverified_on_strict_route')
+        ->atLeast()->once();
+});
+
+/**
+ * Ordering guard for the priority-list pin added 2026-08-05.
+ *
+ * `revocation.strict` used to be UNLISTED, which left it last — after both
+ * throttles. Drill 03 measured the consequence: during a Redis outage every
+ * strict route 503'd from FailOpenThrottleRequests before the gate ran, so the
+ * protection observed in production was the rate limiter's, not this gate's, and
+ * was one FAIL_OPEN_LIMITERS edit from vanishing.
+ *
+ * Three orderings matter and all three are asserted as RELATIVE positions rather
+ * than fixed indices, so unrelated middleware moving does not break this:
+ *
+ *   VerifySupabaseJwt < RequireVerifiedRevocation   (gate reads its attribute)
+ *   RequireVerifiedRevocation < IdempotencyKey      (a replay must not bypass it)
+ *   RequireVerifiedRevocation < ThrottleRequests    (the drill finding)
+ */
+it('pins revocation.strict after the JWT verifier and before idempotency and throttling', function () {
+    $kernel = app(Kernel::class);
+    $method = new ReflectionMethod($kernel, 'getMiddlewarePriority');
+    $method->setAccessible(true);
+    $priority = array_values($method->invoke($kernel));
+
+    $at = function (string $class) use ($priority) {
+        $i = array_search($class, $priority, true);
+        expect($i)->not->toBeFalse("{$class} is missing from the middleware priority list");
+
+        return $i;
+    };
+
+    $jwt = $at(VerifySupabaseJwt::class);
+    $gate = $at(RequireVerifiedRevocation::class);
+    $idem = $at(IdempotencyKey::class);
+    $throttle = $at(ThrottleRequests::class);
+
+    expect($jwt)->toBeLessThan($gate);
+    expect($gate)->toBeLessThan($idem);
+    expect($gate)->toBeLessThan($throttle);
 });
 
 /**

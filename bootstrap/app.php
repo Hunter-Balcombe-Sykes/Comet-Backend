@@ -105,6 +105,41 @@ return Application::configure(basePath: dirname(__DIR__))
             IdempotencyKey::class,
         );
 
+        // Pin the strict-revocation gate ahead of IdempotencyKey (and therefore
+        // ahead of ThrottleRequests too, which IdempotencyKey already precedes).
+        //
+        // WHY THIS IS NOT COSMETIC. Unlisted middleware keep their natural
+        // position, which put this gate LAST — after both throttles. Drill 03
+        // (2026-08-05) measured the consequence: during a Redis outage every
+        // strict route 503'd from FailOpenThrottleRequests before the gate ever
+        // ran, because no strict route's limiter is in
+        // FailOpenThrottleRequests::FAIL_OPEN_LIMITERS (all five are public).
+        // The protection looked correct and was entirely accidental — one
+        // allow-list edit away from silently vanishing. Ahead of throttle, the
+        // gate is the layer that answers, and it decides from one request
+        // attribute rather than from a Redis round-trip.
+        //
+        // Precisely: the PASS-THROUGH branch touches nothing. The DENY branch does
+        // one `cache_locks` write to throttle its Nightwatch report. That write is
+        // itself short-circuited in the outage case, because RedisRequestBreaker is
+        // one breaker for all connections and VerifySupabaseJwt will already have
+        // tripped it — but "the gate never touches Redis" would be too strong a
+        // claim, and this pin should not rest on one.
+        //
+        // Ahead of IdempotencyKey specifically so a replayed Idempotency-Key
+        // cannot re-serve a cached response for a session whose revocation
+        // status is unknown.
+        //
+        // It still runs AFTER VerifySupabaseJwt: that middleware is pinned
+        // earlier in the list by the call above, and the gate depends on the
+        // `supabase_revocation_verified` attribute it sets. An invalid token
+        // therefore still 401s from the verifier and never reaches this.
+        // StrictRevocationTest pins all three orderings.
+        $middleware->prependToPriorityList(
+            IdempotencyKey::class,
+            RequireVerifiedRevocation::class,
+        );
+
         $middleware->alias([
             'supabase.jwt' => VerifySupabaseJwt::class,
             'require.email_verified' => RequireEmailVerified::class,

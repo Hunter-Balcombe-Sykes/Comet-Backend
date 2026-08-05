@@ -27,12 +27,39 @@ use Symfony\Component\HttpFoundation\Response;
  * re-introduce the very timeout this design routes around. Because it only
  * reads a request attribute, this middleware cannot itself fail.
  *
- * ORDERING. Depends on the `supabase_revocation_verified` attribute, so it must
- * run after VerifySupabaseJwt. It is unlisted in bootstrap/app.php's priority
- * list and applied at route level, which places it after the route group's
- * `supabase.jwt`. An invalid or absent token therefore still 401s from the
- * verifier and never reaches this class — pinned by
- * tests/Feature/Auth/StrictRevocationTest.php rather than left to trust.
+ * ORDERING. Pinned in bootstrap/app.php's priority list, immediately after
+ * VerifySupabaseJwt (whose attribute it depends on) and ahead of IdempotencyKey
+ * and ThrottleRequests. It was UNLISTED until 2026-08-05, which left it last;
+ * drill 03 measured the cost — during a Redis outage the rate limiter 503'd every
+ * strict route first and this gate never ran, so the protection in production was
+ * the limiter's and only accidentally so. An invalid or absent token still 401s
+ * from the verifier and never reaches this class. All three orderings are pinned
+ * by tests/Feature/Auth/StrictRevocationTest.php rather than left to trust.
+ *
+ * Two knock-ons on staff routes, where this now runs ahead of `require.aal2`,
+ * `staff` and `SubstituteBindings`:
+ *
+ *   - A non-AAL2 staff session gets 503 during an outage rather than 401
+ *     `mfa_required`. Correct — see RevocationUnverifiableException for why a 401
+ *     during a store outage is a lie with a harmful consequence.
+ *
+ *   - A blocked staff request STILL WRITES an audit row, with exactly two fields
+ *     degraded. RecordStaffAuditEntry writes in terminate(), and
+ *     Kernel::terminateMiddleware iterates the gathered stack unconditionally —
+ *     it has no idea the pipeline short-circuited. But `partna_staff` (set by
+ *     EnsurePartnaStaff) and the resolved `{professional}` binding come from
+ *     middleware that now run AFTER this one, so:
+ *
+ *       `staff_id`                     → NULL   ← the real loss: WHO acted
+ *       `professional_handle_snapshot` → null
+ *       `user_id`                      → preserved, via RecordStaffAuditEntry's
+ *                                        raw-string fallback (:80-91)
+ *       route, method, status (503), payload_summary, ip, user_agent → intact
+ *
+ *     So the row says what was attempted against whom, but not by which staff
+ *     member. Worth knowing before an incident rather than during one.
+ *     (Two earlier revisions of this docblock got this wrong in both directions —
+ *     first claiming no row is written, then that the row is anonymous.)
  *
  * THE DEFAULT IS THE BYPASS DEFENCE. The attribute defaults to false when
  * ABSENT, not just when false. A strict route reachable by some path that skips
