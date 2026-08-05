@@ -55,6 +55,7 @@ class IndividualProfileResource extends ApiResource
      *     gallery?: list<array<string, mixed>>,
      *     curatedGallery?: list<array<string, mixed>>,
      *     links?: list<array<string, mixed>>,
+     *     pools?: array<string, array{items: list<array<string, mixed>>, latestItemId: string|null}>,
      *     services?: list<array<string, mixed>>,
      *     document?: array<string, mixed>|null,
      *     newsletter?: array<string, mixed>|null,

@@ -67,12 +67,6 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/CustomLinksController.php
 
 		-
-			message: '#^Offset ''default'' on array\{key\: string, label\: string, description\: string, siteColumn\?\: string\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/DisplaySettingsController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>display_settings" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
