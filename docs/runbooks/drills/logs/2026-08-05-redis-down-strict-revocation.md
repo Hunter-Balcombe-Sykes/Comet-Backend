@@ -122,11 +122,13 @@ None of this argues against C. It does mean the honest claim is "second line of 
    ordering globally — out of scope for the signed-off change, and it needs its own review.
    **Filed, not fixed.**
 2. **🟡 P2 — `GET /api/site` returns 500, not a degraded response, when the throttle layer does
-   not preempt it.** Traced to an unguarded Redis dependency in
-   `app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php`. In production the
-   limiter masks it as a 503, so this is latent rather than live — but it is a raw 500 the moment
-   the limiter's behaviour changes. **Pre-existing; not introduced by this branch** (the branch
-   adds no code to that path, and `/api/site` carries no strict gate).
+   not preempt it.** First traced only as far as
+   `app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php` (the request path). The
+   actual throw is one level down, in `FeatureAvailability::for()` — see the follow-up section for
+   the real root cause. In production the limiter masks it as a 503, so this is latent rather than
+   live — but it is a raw 500 the moment the limiter's behaviour changes. **Pre-existing; not
+   introduced by this branch** (the branch adds no code to that path, and `/api/site` carries no
+   strict gate).
 3. **🟢 Informational — an inline `throttle:N,M` ignores `PARTNA_THROTTLE_ENABLED`.** Documented
    in `FailOpenThrottleRequests` already; worth remembering when designing probes, because it
    makes `data-export` a poor isolation probe.
@@ -147,9 +149,47 @@ None of this argues against C. It does mean the honest claim is "second line of 
 
 Horizon: **5 supervisors still running** after the outage — no crash, no manual repair needed.
 
+## ✅ FOLLOW-UP — both P2s fixed and re-verified, 2026-08-05
+
+Fixed on `feature/auth-followups-2026-08-05` (@`6d5eb099`) and re-probed against a real Redis
+outage on the same local stack, with a real minted Supabase JWT.
+
+**Finding 1 — gate ordering. FIXED.** `revocation.strict` is now pinned in the priority list ahead
+of `IdempotencyKey` (and therefore `ThrottleRequests`). Resolved order is
+`VerifySupabaseJwt → RequireVerifiedRevocation → IdempotencyKey → ThrottleRequests`.
+
+Re-probe, Redis down, **throttle ON** (the production shape that previously hid the gate):
+
+| Probe | Status | Time | Layer that answered |
+|---|---|---|---|
+| STRICT `logout-others` | 503 | **0.040 s** | **`auth.revocation_unverified_on_strict_route`** — the gate |
+| `GET /api/site` (non-strict, control) | 503 | 0.023 s | `RateLimiterUnavailableException` — unchanged |
+
+`RateLimiterUnavailableException` no longer appears on the strict probe **at all**. Compare the
+original run above, where it was the only thing that fired and the gate never ran. The strict
+route is also ~3.7× faster (0.145 s → 0.040 s), because the gate answers from a request attribute
+without touching Redis, whereas the limiter had to fail a connection first.
+
+The non-strict control being unchanged is the important half: the priority-list edit is global, so
+"did it move anything else" needed an answer, not an assumption.
+
+**Finding 2 — `GET /api/site` 500. FIXED.** Root cause was in
+`FeatureAvailability::for()`: its try/catch was written for a DB fault, but the two `Cache::get()`
+calls above the `try` threw first under a *cache* fault and escaped the fail-open handler entirely
+— a guard placed one line too late. Both reads are optimisations (a re-fault sentinel and a
+key-namespacing version token), so neither justifies a 500. The catch block's own sentinel write
+is now guarded too, since it targets the same store that may have just failed.
+
+Re-probe, Redis down, **throttle OFF** (the configuration that exposed the 500):
+
+| Probe | Before | After |
+|---|---|---|
+| `GET /api/site` | **500** (unhandled `RedisException`) | **200**, with a `feature_availability.cache_unavailable` breadcrumb |
+| STRICT `logout-others` | 503 (from the inline limiter) | 503 from the gate |
+
 ## Verdict
 
-**PASS, with the attribution caveat recorded above.** The strict gate does what it was built to
+**PASS, with the attribution caveat recorded above — and both P2s now FIXED (see the follow-up section).** The strict gate does what it was built to
 do, proven by its own log line rather than by a status code. The drill's most useful output is not
 that pass — it is finding 1, which says the gate cannot currently be reached on a full outage and
 that the protection observed in production today is the rate limiter's, not C's.
