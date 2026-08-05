@@ -48,11 +48,11 @@ All endpoints below are served under the Laravel API base URL, with the default 
 
 - API base URL is your APP_URL (Laravel). Example: https://api.sidest.co
 - All API routes live under /api. Example: https://api.sidest.co/api/me Public mini-site domain rules Public mini-site routes are domain-scoped. They MUST be called on the mini-site host, not the API host.
-- Host pattern: https://{subdomain}.{SIDEST_PUBLIC_DOMAIN}
-- Public API base URL: https://{subdomain}.{SIDEST_PUBLIC_DOMAIN}/api
+- Host pattern: https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}
+- Public API base URL: https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api
 - Example: https://joshbarber.localtest.me/api/public/site Local development tip
 - Use a wildcard-friendly domain such as localtest.me or lvh.me so subdomains resolve to 127.0.0.1.
-- Set SIDEST_PUBLIC_DOMAIN=localtest.me and APP_URL=http://api.localtest.me (or similar).
+- Set PARTNA_PUBLIC_DOMAIN=localtest.me and APP_URL=http://api.localtest.me (or similar).
 
 ## 2) Authentication (Supabase JWT)
 
@@ -338,8 +338,8 @@ All images (gallery showcase and content/branding) live in the `site_images` tab
 | deleted_at | datetime | yes      | `null`                                          | Soft delete                                                      |
 
 **Pool limits** (configurable via env):
-- `gallery`: max 5 images (env `SIDEST_GALLERY_IMAGE_MAX`)
-- `content`: max 5 images (env `SIDEST_CONTENT_IMAGE_MAX`)
+- `gallery`: max 5 images (env `PARTNA_GALLERY_IMAGE_MAX`)
+- `content`: max 5 images (env `PARTNA_CONTENT_IMAGE_MAX`)
 
 ### ImageVariant (core.image_variants)
 
@@ -364,8 +364,8 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 
 | Variant   | Resolution policy   | Quality policy                                  | Typical use                             |
 |-----------|---------------------|--------------------------------------------------|-----------------------------------------|
-| optimized | Preserve original   | Adaptive quality, targets `SIDEST_IMAGE_TARGET_KB` (default 500KB) | Fast page loads / default display |
-| maximized | Preserve original   | Highest quality (`SIDEST_IMAGE_MAXIMIZED_QUALITY`, default 100)    | Zoom/full-detail display          |
+| optimized | Preserve original   | Adaptive quality, targets `PARTNA_IMAGE_TARGET_KB` (default 500KB) | Fast page loads / default display |
+| maximized | Preserve original   | Highest quality (`PARTNA_IMAGE_MAXIMIZED_QUALITY`, default 100)    | Zoom/full-detail display          |
 
 ### Customer
 | Name                      | Type     | Nullable | Example                | Constraints / Notes                                                         |
@@ -569,16 +569,16 @@ All routes below are unauthenticated.
 Frontend can connect in 2 modes:
 
 1. Domain-scoped mini-site host  
-`https://{subdomain}.{SIDEST_PUBLIC_DOMAIN}/api/public/...`
+`https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api/public/...`
 2. Header-based API host fallback (no subdomain DNS needed)  
-`https://api.{SIDEST_PUBLIC_DOMAIN}/api/public/...` with header `X-Site-Subdomain: {subdomain}`
+`https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...` with header `X-Site-Subdomain: {subdomain}`
 
 For analytics endpoints, provide either `site_id` in the JSON body OR `X-Site-Subdomain` header. Ingest additionally requires an `Origin` or `Referer` header whose host is `{subdomain}.{public_domain}` or the site's active custom domain — a request with neither header is rejected with 404 (SEC-1).
 
 Frontend quick-start (header-based API host):
 
 ```ts
-const API_BASE = "https://api.<SIDEST_PUBLIC_DOMAIN>/api/public";
+const API_BASE = "https://api.<PARTNA_PUBLIC_DOMAIN>/api/public";
 const subdomain = "fadez";
 const visitorId = localStorage.getItem("comet_visitor_id") ?? crypto.randomUUID();
 localStorage.setItem("comet_visitor_id", visitorId);
@@ -776,7 +776,7 @@ await fetch(`${API_BASE}/analytics/pageviews`, {
 #### Header-Based Slug Routing
 
 For frontends that cannot use subdomain DNS routing, the following endpoints accept the subdomain via the `X-Site-Subdomain` header and are accessed on the API host:
-`https://api.{SIDEST_PUBLIC_DOMAIN}/api/public/...`
+`https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...`
 
 #### `GET /api/public/site-by-slug`
 
@@ -1329,7 +1329,7 @@ Images and videos share the same per-pool cap.
 
 ### Video processing
 
-- Requires `SIDEST_VIDEO_UPLOADS_ENABLED=true` and `ffmpeg`/`ffprobe` on the worker's `$PATH`
+- Requires the `video_uploads` feature flag (FeatureFlagService — DB registry, falling back to `partna.features.video_uploads`; there is no env var for this) and `ffmpeg`/`ffprobe` on the worker's `$PATH`
 - Outputs per video:
   - **MP4:** `variants.optimized` (720p / 2 Mbps), `variants.maximized` (1080p / 5 Mbps)
   - **HLS:** `streams.optimized` (720p playlist), `streams.maximized` (1080p playlist), `streams.adaptive` (master playlist for ABR)
@@ -1356,9 +1356,46 @@ Images and videos share the same per-pool cap.
 
 ### Supported file types
 
-**Images:** JPEG, PNG, WebP — max `SIDEST_IMAGE_MAX_UPLOAD_KB` (default 10 MB)
+**Images:** JPEG, PNG, WebP — max `PARTNA_IMAGE_MAX_UPLOAD_KB` (default 10 MB)
 
-**Videos:** MP4, MOV, WebM, AVI — max `SIDEST_VIDEO_MAX_UPLOAD_KB` (default 500 MB), max duration `SIDEST_VIDEO_MAX_DURATION_SECONDS` (default 300s)
+**Videos:** MP4, MOV, WebM, AVI — max `PARTNA_VIDEO_MAX_UPLOAD_KB` (default 200 MB), max duration `PARTNA_VIDEO_MAX_DURATION_SECONDS` (default 30s)
+
+### Design-layer singleton images (brand logos + integration covers)
+
+Separate from the pool-based gallery/content uploads above: one row per `(site, purpose)` for the two brand logos, the brand placeholder image, and one cover image per cover-capable platform. Cover slots are registry-derived, not gated on whether the site has actually connected that platform. There is no ordering and no pool cap — uploading into an occupied `purpose` replaces it.
+
+- GET /api/design-media
+- POST /api/design-media
+- DELETE /api/design-media/{purpose}
+
+**Valid `purpose` values:** `logo_full`, `logo_square`, `placeholder`, plus `cover_<platform>` for every cover-capable platform in the social/integration registry (currently `cover_youtube`, `cover_apple_music`, `cover_apple_podcast`, `cover_eventbrite`) — this list is registry-derived, not fixed, so a new coverable platform adds a new valid `cover_*` value without a doc/schema change.
+
+**`GET /api/design-media`** — every design purpose, keyed by purpose; `null` where a slot is empty.
+
+Response (200):
+
+```json
+{
+  "images": {
+    "logo_full": { "id": "uuid", "purpose": "logo_full", "processing_state": "ready", "processing": false, "url": "https://.../optimized.webp", "svg_url": null, "variants": { "optimized": "...", "maximized": "..." } },
+    "logo_square": null,
+    "placeholder": null,
+    "cover_youtube": null
+  }
+}
+```
+
+**`POST /api/design-media`** — upload or replace one purpose's image. `multipart/form-data`: `purpose` (required, one of the values above), `image` (required file, JPEG/PNG/WebP, max `PARTNA_IMAGE_MAX_UPLOAD_KB` — same limits as the pool uploads above).
+
+- `201` — the uploaded image object, same shape as one entry of `GET`'s `images` map above
+- `422` — `purpose` missing/not in the allowlist, or `image` missing/wrong type/too large
+- `409` — lost a race against a concurrent upload/replace of the *same* `purpose` (two distinct races underneath — an insert-time unique-violation and a mid-upload conditional claim — both surface identically). Body carries `code: "SINGLETON_UPLOAD_CONFLICT"`; nothing from the losing request is left in storage, so it's safe to just resubmit.
+
+**`DELETE /api/design-media/{purpose}`** — clear a slot without replacing it (until this endpoint existed, the only way to empty a slot was to upload something else into it).
+
+Response (200): `{ "purpose": "logo_full", "removed": true }`
+
+- `404` — `purpose` is not one of the valid values above (`message: "Unknown design image slot."`), **or** it is valid but the slot is already empty (`message: "Nothing uploaded for this slot."`) — same status both times, distinguishable only by `message` text, no machine-readable `code` like the 409 above carries
 
 ## 11) Test users and getting tokens
 
@@ -1422,26 +1459,28 @@ Note: The frontend does not need any storage credentials — all image URLs come
 
 ### Partna app settings
 
-- SIDEST_PUBLIC_DOMAIN (used for domain-scoped public routes)
-- SIDEST_MEDIA_DISK (default: media — the Laravel filesystem disk name)
-- SIDEST_GALLERY_IMAGE_MAX (default: 5)
-- SIDEST_CONTENT_IMAGE_MAX (default: 5)
-- SIDEST_IMAGE_MAX_UPLOAD_KB (default: 10240 = 10 MB)
-- SIDEST_WAITLIST_ENABLED (default: `false`; when true, blocks bootstrap for new users)
+- PARTNA_PUBLIC_DOMAIN (used for domain-scoped public routes)
+- PARTNA_MEDIA_DISK (default: media — the Laravel filesystem disk name)
+- PARTNA_GALLERY_IMAGE_MAX (default: 6)
+- PARTNA_CONTENT_IMAGE_MAX (default: 6)
+- PARTNA_IMAGE_MAX_UPLOAD_KB (default: 10240 = 10 MB)
+- PARTNA_VIDEO_MAX_UPLOAD_KB (default: 204800 = 200 MB)
+- PARTNA_VIDEO_MAX_DURATION_SECONDS (default: 30)
+- PARTNA_WAITLIST_ENABLED (default: `false`; when true, blocks bootstrap for new users)
 - SOFT_DELETE_RETENTION_DAYS (default: 30)
 
 ### Pre-launch account gating
 
-- Set `SIDEST_WAITLIST_ENABLED=true` to block new account creation at `POST /api/bootstrap`.
+- Set `PARTNA_WAITLIST_ENABLED=true` to block new account creation at `POST /api/bootstrap`.
 - Existing professionals are unaffected by this gate.
 - Also disable public signups in Supabase Auth (Dashboard -> Authentication -> Providers -> Email -> Disable Signups) to prevent new auth accounts during waitlist-only mode.
 
 ### Media disk (Laravel Cloud Object Storage / Cloudflare R2)
 
 **On Laravel Cloud:** No manual env vars needed. Create a bucket in the Cloud dashboard, and set:
-- `SIDEST_MEDIA_DISK` = the disk name from `LARAVEL_CLOUD_DISK_CONFIG` (e.g., `public_dev`)
+- `PARTNA_MEDIA_DISK` = the disk name from `LARAVEL_CLOUD_DISK_CONFIG` (e.g., `public_dev`)
 
-Laravel Cloud auto-injects credentials via `LARAVEL_CLOUD_DISK_CONFIG`. The image system reads `SIDEST_MEDIA_DISK` to find the right disk.
+Laravel Cloud auto-injects credentials via `LARAVEL_CLOUD_DISK_CONFIG`. The image system reads `PARTNA_MEDIA_DISK` to find the right disk.
 
 **Self-managed (standalone R2 / AWS S3):** Configure the `media` disk manually:
 - MEDIA_DISK_KEY (S3 access key)
@@ -1461,8 +1500,8 @@ Laravel Cloud auto-injects credentials via `LARAVEL_CLOUD_DISK_CONFIG`. The imag
 
 ### Domain-scoped public routes
 
-- If you call /api/public/site on the API host instead of {subdomain}.{SIDEST_PUBLIC_DOMAIN}, the route may not match or may return 404.
-- Always use public_api_base_url = https://{subdomain}.{SIDEST_PUBLIC_DOMAIN}/api for public routes.
+- If you call /api/public/site on the API host instead of {subdomain}.{PARTNA_PUBLIC_DOMAIN}, the route may not match or may return 404.
+- Always use public_api_base_url = https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api for public routes.
 
 ### Analytics timestamps
 
@@ -1471,7 +1510,7 @@ Laravel Cloud auto-injects credentials via `LARAVEL_CLOUD_DISK_CONFIG`. The imag
 
 ### Gallery limits and ordering
 
-- Gallery pool: max 5 active images (configurable via `SIDEST_GALLERY_IMAGE_MAX`). Content pool: max 5 (via `SIDEST_CONTENT_IMAGE_MAX`).
+- Gallery pool: max 5 active images (configurable via `PARTNA_GALLERY_IMAGE_MAX`). Content pool: max 5 (via `PARTNA_CONTENT_IMAGE_MAX`).
 - Pool limits are enforced server-side with PostgreSQL advisory locks for race safety.
 - `POST /api/uploads` validates the pool limit before creating a new image.
 - Reorder endpoint (`POST /api/gallery/reorder`) accepts an `ids` array; any omitted ids will be appended in existing order.

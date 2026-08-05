@@ -143,7 +143,7 @@ Run in this order. Units are sequential — later units touch files earlier ones
     - **Technical:** The comment says "Same match arms as PlacementPolicy — change BOTH or they drift." The two copies are currently identical (verified), so nothing bad ships today. No test would catch drift: every `SuggestionsInboxTest` fixture uses a `partna` account where the denial branch can't fire. Retiered P1 → P2 — maintainability risk, not shipped bad behaviour.
     - `[CONFIRMED]`
 
-- [ ] **#API-1** · P2 — `DELETE /api/design-media/{purpose}` is undocumented
+- [x] **#API-1** · P2 — `DELETE /api/design-media/{purpose}` is undocumented
     - **Where:** `docs/api.md`
     - **Effort:** S (~0.5–1h)
     - **What to do:** Document the route, its 404 (unknown slot / empty slot) and the 409 conflict contract on the sibling POST.
