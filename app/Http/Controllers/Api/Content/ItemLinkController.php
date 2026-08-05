@@ -45,13 +45,13 @@ class ItemLinkController extends ApiController
             return $this->error('That link does not look like a '.str_replace('-', ' ', $platform).' address.', 422);
         }
 
-        $updated = DB::table('content.item_links')
+        $updated = DB::connection('pgsql')->table('content.item_links')
             ->where('item_id', (string) $item->id)
             ->where('platform', $platform)
             ->update(['url' => $data['url'], 'updated_at' => now()]);
 
         if ($updated === 0) {
-            DB::table('content.item_links')->insert([
+            DB::connection('pgsql')->table('content.item_links')->insert([
                 'id' => (string) Str::uuid(),
                 'item_id' => (string) $item->id,
                 'platform' => $platform,
@@ -73,7 +73,7 @@ class ItemLinkController extends ApiController
         $site = $this->currentSite($user);
         $item = $this->findItem((string) $user->id, $itemId);
 
-        $deleted = DB::table('content.item_links')
+        $deleted = DB::connection('pgsql')->table('content.item_links')
             ->where('item_id', (string) $item->id)
             ->where('platform', $platform)
             ->delete();

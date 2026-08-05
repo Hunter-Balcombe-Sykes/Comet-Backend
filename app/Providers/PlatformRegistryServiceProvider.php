@@ -539,13 +539,43 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 ['key' => 'location', 'label' => 'Location & map', 'description' => 'Your address, map and directions.'],
                 ['key' => 'menu', 'label' => 'Menu', 'description' => 'Your food and drink menu.'],
             ]);
-            // Instagram's gallery toggle is UNIFIED with the Content/Media
-            // "Latest content auto sync" switch: both read/write the site column
-            // `content_instagram_auto_enabled`, so the two settings are one value
-            // and turning it off hides ALL auto Instagram content (the curated
-            // reel/post slots AND this integration card).
+            // Instagram (2026-08-05, platforms-as-sources): the old site-column
+            // gallery toggle (content_instagram_auto_enabled) migrated into the
+            // connection's own display_settings under the ONE auto-sync key.
+            // Turning it off still hides ALL auto Instagram content — the
+            // curated reel/post slots and the integration card read the same
+            // value through AutoSyncSetting.
             $r->get('instagram')->displayToggles([
-                ['key' => 'gallery', 'label' => 'Gallery', 'description' => 'Your latest Instagram photo and reel.', 'siteColumn' => 'content_instagram_auto_enabled'],
+                ['key' => 'auto_sync_latest', 'label' => 'Latest post', 'description' => 'Your newest post joins your site automatically.'],
+            ]);
+
+            // The pools' auto half (2026-08-05): every source with a
+            // time-ordered item stream carries the SAME toggle. Read at pool
+            // resolve time (latest_per_auto_source), NOT as a fetch gate —
+            // syncing keeps filling the library either way; the switch only
+            // decides whether the newest item auto-joins the site.
+            $r->get('youtube')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest upload joins your site automatically.'],
+            ]);
+            $r->get('vimeo')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest video joins your site automatically.'],
+            ]);
+            $r->get('twitch')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest video joins your site automatically.'],
+            ]);
+            $r->get('youtube-music')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest release', 'description' => 'Your newest release joins your site automatically.'],
+            ]);
+            $r->get('apple-music')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest release', 'description' => 'Your newest release joins your site automatically.'],
+            ]);
+            $r->get('apple-podcast')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest episode', 'description' => 'Your newest episode joins your site automatically.'],
+            ]);
+            // Shop: the old site-wide shop_auto_latest column, same key, same
+            // site-wide effect (AutoSyncSetting writes every store connection).
+            $r->get('shop')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest products', 'description' => 'Each store keeps showing its newest products automatically.'],
             ]);
             // Tickets & Events: per-user "auto sync latest from each organiser"
             // switch. Not a payload-suppression toggle (no DisplaySettingsFilter

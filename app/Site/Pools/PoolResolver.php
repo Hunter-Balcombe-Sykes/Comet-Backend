@@ -44,7 +44,7 @@ class PoolResolver
     {
         $section = $this->provisioner->ensure($site, $pool);
 
-        $curation = DB::table('site.section_items')
+        $curation = DB::connection('pgsql')->table('site.section_items')
             ->where('section_id', $section->id)
             ->get();
 
@@ -63,7 +63,7 @@ class PoolResolver
             }
         }
 
-        $libraryIds = DB::table('content.items')
+        $libraryIds = DB::connection('pgsql')->table('content.items')
             ->where('user_id', $site->user_id)
             ->whereIn('kind', PoolRegistry::kinds($pool))
             ->whereNull('removed_at')
@@ -150,7 +150,7 @@ class PoolResolver
             return [];
         }
 
-        $items = DB::table('content.items')
+        $items = DB::connection('pgsql')->table('content.items')
             ->whereIn('id', $ids)
             ->where('user_id', $site->user_id)
             ->whereNull('removed_at')
@@ -163,7 +163,7 @@ class PoolResolver
         }
 
         // Headline overrides: the user's edit beats every cache.
-        $overrides = DB::table('content.manual_overrides')
+        $overrides = DB::connection('pgsql')->table('content.manual_overrides')
             ->whereIn('item_id', $ids)
             ->where('facet', 'f_text')
             ->where('column_name', 'headline')
@@ -172,7 +172,7 @@ class PoolResolver
 
         // Source links, each carrying its connection's platform key. Ordered
         // by source priority so ->first() per item IS the primary source.
-        $sourceLinks = DB::table('content.f_link')
+        $sourceLinks = DB::connection('pgsql')->table('content.f_link')
             ->join('content.sources', 'content.sources.id', '=', 'content.f_link.source_id')
             ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->whereIn('content.f_link.item_id', $ids)
@@ -185,38 +185,38 @@ class PoolResolver
             ])
             ->groupBy('item_id');
 
-        $manualLinks = DB::table('content.item_links')
+        $manualLinks = DB::connection('pgsql')->table('content.item_links')
             ->whereIn('item_id', $ids)
             ->get(['item_id', 'platform', 'url'])
             ->groupBy('item_id');
 
-        $published = DB::table('content.f_published')
+        $published = DB::connection('pgsql')->table('content.f_published')
             ->whereIn('item_id', $ids)
             ->whereNotNull('published_from')
             ->selectRaw('item_id, MAX(published_from) as published_from')
             ->groupBy('item_id')
             ->pluck('published_from', 'item_id');
 
-        $durations = DB::table('content.f_duration')
+        $durations = DB::connection('pgsql')->table('content.f_duration')
             ->whereIn('item_id', $ids)
             ->whereNotNull('seconds')
             ->selectRaw('item_id, MAX(seconds) as seconds')
             ->groupBy('item_id')
             ->pluck('seconds', 'item_id');
 
-        $creators = DB::table('content.f_authored')
+        $creators = DB::connection('pgsql')->table('content.f_authored')
             ->whereIn('item_id', $ids)
             ->whereNotNull('creator')
             ->get(['item_id', 'creator'])
             ->keyBy('item_id');
 
-        $channels = DB::table('content.f_channel')
+        $channels = DB::connection('pgsql')->table('content.f_channel')
             ->whereIn('item_id', $ids)
             ->whereNotNull('handle')
             ->get(['item_id', 'handle'])
             ->keyBy('item_id');
 
-        $covers = DB::table('content.item_media')
+        $covers = DB::connection('pgsql')->table('content.item_media')
             ->join('content.media_assets', 'content.media_assets.id', '=', 'content.item_media.asset_id')
             ->whereIn('content.item_media.item_id', $ids)
             ->whereIn('content.item_media.role', ['cover', 'poster', 'gallery'])

@@ -39,9 +39,7 @@ use Illuminate\Support\Facades\DB;
  * @property bool|null $services_auto_sync_enabled FOUND-16 promoted toggle; null == off.
  * @property string|null $booking_mode One of BOOKING_MODES ('manual'|'none'), or NULL (sites_booking_mode_check) — no DB CHECK enforces the NULL branch's meaning, validated at the request layer.
  * @property string|null $manual_booking_url
- * @property bool|null $content_instagram_auto_enabled Reserves gallery slots 1-2 for the latest IG reel + post; null == off.
  * @property string $shop_link_mode One of SHOP_LINK_MODES ('checkout'|'product'); DEFAULT 'checkout'. Applied to every connected store — no per-brand override.
- * @property bool $shop_auto_latest Global auto-latest toggle for every non-individual connected store; DEFAULT true.
  * @property-read User|null $user
  * @property-read Workplace|null $workplace 1:1 workplace card (FOUND-4); see workplace() below.
  * @property-read Collection<int, Block> $blocks
@@ -119,13 +117,11 @@ class Site extends BaseModel
         'manual_booking_url',
         // Content Selection: when true, slots 1–2 are reserved for the latest
         // Instagram reel + post. null == off (mirrors the other toggles above).
-        'content_instagram_auto_enabled',
         // GLOBAL shop link controls (2026-07-08) — one choice each, applied to
         // every connected store. shop_link_mode: 'checkout'|'product' (the
         // public payload stamps each brand's linkMode from this). shop_auto_latest:
         // every non-individual store auto-tracks its newest products when true.
         'shop_link_mode',
-        'shop_auto_latest',
     ];
 
     protected $casts = [
@@ -142,9 +138,7 @@ class Site extends BaseModel
         'charlie_enabled' => 'boolean',
         'services_auto_sync_enabled' => 'boolean',
         // null == off; cast so reads/writes are clean booleans.
-        'content_instagram_auto_enabled' => 'boolean',
         // Global shop auto-latest toggle — clean boolean reads/writes.
-        'shop_auto_latest' => 'boolean',
     ];
 
     /** @return BelongsTo<User, $this> */

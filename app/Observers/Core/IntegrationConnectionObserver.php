@@ -15,7 +15,9 @@ use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Site\ContentSelectionService;
+use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 // Purges the user's public sitepage edge cache on a MEANINGFUL platform-connection
@@ -390,10 +392,21 @@ class IntegrationConnectionObserver
     private function enableContentInstagramAuto(IntegrationConnection $connection): void
     {
         try {
-            $site = $connection->user?->site;
-            if ($site instanceof Site && ! $site->content_instagram_auto_enabled) {
-                $site->content_instagram_auto_enabled = true;
-                $site->save();
+            // 2026-08-05: the switch is the connection's own sparse
+            // display_settings.auto_sync_latest (absent = ON). A fresh
+            // connect turns it back on — same semantics the old site-column
+            // flip had — by stripping a lingering false from THIS row.
+            // Direct DB write: this runs inside the model's own saved event,
+            // and a model save here would re-enter the observer.
+            $settings = (array) ($connection->display_settings ?? []);
+            if (($settings[AutoSyncSetting::KEY] ?? null) === false) {
+                unset($settings[AutoSyncSetting::KEY]);
+                DB::connection('pgsql')->table('site.platform_connections')
+                    ->where('id', $connection->id)
+                    ->update([
+                        'display_settings' => $settings === [] ? null : json_encode($settings),
+                        'updated_at' => now(),
+                    ]);
             }
         } catch (\Throwable $e) {
             report($e);
@@ -423,12 +436,10 @@ class IntegrationConnectionObserver
                 return;
             }
 
-            // The user->site relation may have been memoized on this model
-            // instance before the user toggled auto off (connect placeholder →
-            // payload update within one request/job) — a stale true here would
-            // resurrect slots the user just removed. Re-read before gating.
-            $site->refresh();
-            if (! $site->content_instagram_auto_enabled) {
+            // Fresh read by nature (2026-08-05): AutoSyncSetting queries the
+            // connection rows directly, so the memoized-relation staleness the
+            // old site-column read had to refresh() around cannot occur.
+            if (! AutoSyncSetting::isOn((string) $connection->user_id, 'instagram')) {
                 return;
             }
 

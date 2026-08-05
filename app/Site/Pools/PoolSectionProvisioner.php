@@ -23,7 +23,7 @@ class PoolSectionProvisioner
     {
         $sectionKey = PoolRegistry::sectionKey($pool);
 
-        $existing = DB::table('site.sections')
+        $existing = DB::connection('pgsql')->table('site.sections')
             ->where('site_id', $site->id)
             ->where('key', $sectionKey)
             ->first();
@@ -35,7 +35,7 @@ class PoolSectionProvisioner
         $pageId = $this->ensurePage($site, $pool);
 
         try {
-            DB::table('site.sections')->insert([
+            DB::connection('pgsql')->table('site.sections')->insert([
                 'id' => (string) Str::uuid(),
                 'page_id' => $pageId,
                 'site_id' => $site->id,
@@ -63,7 +63,7 @@ class PoolSectionProvisioner
             // Lost the first-read race — the winner's row is the section.
         }
 
-        return DB::table('site.sections')
+        return DB::connection('pgsql')->table('site.sections')
             ->where('site_id', $site->id)
             ->where('key', $sectionKey)
             ->first();
@@ -73,7 +73,7 @@ class PoolSectionProvisioner
     {
         $pageKey = PoolRegistry::PAGE_KEYS[$pool] ?? $pool;
 
-        $existing = DB::table('site.pages')
+        $existing = DB::connection('pgsql')->table('site.pages')
             ->where('site_id', $site->id)
             ->where('key', $pageKey)
             ->value('id');
@@ -85,7 +85,7 @@ class PoolSectionProvisioner
         $id = (string) Str::uuid();
 
         try {
-            DB::table('site.pages')->insert([
+            DB::connection('pgsql')->table('site.pages')->insert([
                 'id' => $id,
                 'site_id' => $site->id,
                 'key' => $pageKey,
@@ -96,7 +96,7 @@ class PoolSectionProvisioner
             ]);
         } catch (QueryException) {
             // Concurrent create — read the winner.
-            return (string) DB::table('site.pages')
+            return (string) DB::connection('pgsql')->table('site.pages')
                 ->where('site_id', $site->id)
                 ->where('key', $pageKey)
                 ->value('id');

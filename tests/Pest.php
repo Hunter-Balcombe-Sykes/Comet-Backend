@@ -694,11 +694,9 @@ function setupSitesTable(): void
         show_branding INTEGER NULL,
         charlie_enabled INTEGER NULL,
         services_auto_sync_enabled INTEGER NULL,
-        content_instagram_auto_enabled INTEGER NULL,
         booking_mode TEXT NULL CHECK (booking_mode IS NULL OR booking_mode IN (\'manual\',\'none\')),
         manual_booking_url TEXT NULL,
         shop_link_mode TEXT NOT NULL DEFAULT \'checkout\',
-        shop_auto_latest INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
@@ -732,13 +730,11 @@ function setupSitesTable(): void
         'show_branding' => 'INTEGER NULL',
         'charlie_enabled' => 'INTEGER NULL',
         'services_auto_sync_enabled' => 'INTEGER NULL',
-        'content_instagram_auto_enabled' => 'INTEGER NULL',
         'booking_mode' => 'TEXT NULL',
         'manual_booking_url' => 'TEXT NULL',
         // Global shop link controls (2026-07-08) — site-level columns read by
         // the shop-settings endpoint + the public payload's linkMode stamp.
         'shop_link_mode' => "TEXT NULL DEFAULT 'checkout'",
-        'shop_auto_latest' => 'INTEGER NULL DEFAULT 1',
     ];
     foreach ($promotedCols as $col => $type) {
         try {

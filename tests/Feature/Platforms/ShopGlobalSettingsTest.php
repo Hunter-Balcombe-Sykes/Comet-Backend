@@ -8,6 +8,7 @@ use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
+use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -57,6 +58,12 @@ it('GET shop settings returns the direct-to-checkout + auto-latest-on defaults',
 
 it('PATCH shop settings persists linkMode + autoLatest to the site row', function () {
     $user = shopSettingsUser('gset2');
+    // 2026-08-05: autoLatest persists on the store connection's own
+    // display_settings — a store must exist to carry it.
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'], 'is_active' => true,
+    ]);
 
     actingAsUser($user)->patchJson('/api/platforms/shop/settings', [
         'linkMode' => 'product',
@@ -67,8 +74,9 @@ it('PATCH shop settings persists linkMode + autoLatest to the site row', functio
 
     $row = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->first();
     expect($row->shop_link_mode)->toBe('product');
-    // SQLite stores the boolean as 0/1 — cast-agnostic truthiness check.
-    expect((bool) $row->shop_auto_latest)->toBeFalse();
+    // 2026-08-05: auto-latest lives on the store connection's own sparse
+    // display_settings now (one toggle grammar) — the site column is gone.
+    expect(AutoSyncSetting::isOn((string) $user->id, 'shop'))->toBeFalse();
 });
 
 it('PATCH shop settings applies only the field present (partial update)', function () {
@@ -116,12 +124,12 @@ it('the shop link mode + auto-latest columns are aliased under /shopify too', fu
 /** A shop connection + a non-individual brand for the ShopFetch strategy. */
 function shopFetchConnection(User $user, bool $autoLatest): IntegrationConnection
 {
-    DB::connection('pgsql')->table('site.sites')
-        ->where('user_id', $user->id)
-        ->update(['shop_auto_latest' => $autoLatest]);
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
+        // 2026-08-05: the auto-latest gate reads the connection's own sparse
+        // display_settings (absent = ON) — the site column is gone.
+        'display_settings' => $autoLatest ? null : ['auto_sync_latest' => false],
     ]);
     ShopBrand::create([
         'connection_id' => $conn->id, 'brand_id' => 'sf-brand', 'provider' => 'shopify',

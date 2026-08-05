@@ -63,7 +63,7 @@ class ItemLinkRules
      */
     public static function syncedPlatformsFor(string $itemId): array
     {
-        return DB::table('content.f_link')
+        return DB::connection('pgsql')->table('content.f_link')
             ->join('content.sources', 'content.sources.id', '=', 'content.f_link.source_id')
             ->join('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->where('content.f_link.item_id', $itemId)

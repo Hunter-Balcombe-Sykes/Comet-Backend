@@ -149,7 +149,7 @@ class PoolController extends ApiController
 
         $section = $this->provisioner->ensure($site, $pool);
 
-        DB::transaction(function () use ($section, $ids) {
+        DB::connection('pgsql')->transaction(function () use ($section, $ids) {
             SectionItem::query()
                 ->where('section_id', $section->id)
                 ->whereIn('item_id', $ids)

@@ -335,8 +335,8 @@ class DataExportPayloadBuilder
                 'custom_domain', 'custom_domain_status', 'custom_domain_verified_at',
                 'custom_domain_cf_id', 'custom_domain_primary',
                 'show_branding', 'charlie_enabled', 'services_auto_sync_enabled',
-                'booking_mode', 'manual_booking_url', 'content_instagram_auto_enabled',
-                'shop_link_mode', 'shop_auto_latest',
+                'booking_mode', 'manual_booking_url',
+                'shop_link_mode',
             ])
             ->where('user_id', $userId)
             ->first();
