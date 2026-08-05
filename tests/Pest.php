@@ -2503,6 +2503,17 @@ function setupContentTables(): void
         tag_type TEXT NULL
     )');
 
+    // Hand-saved cross-platform links (migration 20260805090000).
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_links (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        url TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (item_id, platform)
+    )');
+
     $pg->statement('CREATE TABLE IF NOT EXISTS content.f_action (
         id TEXT PRIMARY KEY NOT NULL,
         item_id TEXT NOT NULL,
