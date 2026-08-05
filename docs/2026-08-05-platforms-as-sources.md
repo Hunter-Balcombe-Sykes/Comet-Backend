@@ -208,6 +208,36 @@ inventory — only after P2/P3 verified live).
 8. Popularity: start computing `watch_item`/`listen_item` once the public
    sections emit item beacons keyed to pool items.
 
+## Phase 2 design (settled inline, 2026-08-05 late)
+
+Chain: resolve-site-content.ts builds SectionItem[] per page →
+staple.astro mediaItems() maps to ItemGridItem tiles (title/image/href/
+external/trailingIcon/attrs) → ItemsGrid → ui/Card.
+
+1. resolve-site-content.ts: profile.pools?.[pool] (the payload's profile
+   object; public route wraps everything in `data`). New
+   poolSectionItems(profile, pool, pop, platformFilter?) adapting pool
+   items to the engine media shape: {kind:'media', platform, name:
+   headline, link: url, thumbnail, date: publishedAt, durationSeconds,
+   latest: id===latestItemId, links}. listen = pools.listen minus
+   bandcamp; shop-tracks = the bandcamp subset (preserves the 2026-07-17
+   commerce split); watch = pools.watch. LEGACY FALLBACK when the pools
+   key is absent/empty — an account with no pool content keeps the old
+   connection-derived rendering until its pools fill (removal of the
+   legacy path is Phase 4). Twitch embed rail untouched. scoringId stays
+   URL-keyed so accrued listen_item/watch_item ranks carry.
+2. staple mediaItems(): Latest chip via item.data.latest; platform
+   buttons via item.data.links. CONSTRAINT: Card renders as one anchor —
+   nested <a> is invalid, so buttons must live OUTSIDE the card's anchor
+   (Card grows an actions row outside its link wrapper, or the buttons
+   ride the row/subtitle strip as the card's sibling). Tokens-only CSS.
+3. Media pool's public rendering stays the gallery lane for now — the
+   Latest tag renders on watch/listen/shop-tracks in P2; media joins when
+   its pool surface exists publicly.
+4. Gates: monorepo tokens-only audit + astro build; deploy npm run
+   deploy:pages; live verify on ollies (pools render, badge, buttons,
+   Latest matches the dashboard's tag).
+
 ## Phase 2 — Pages app: render pools
 
 - `platform-sections.ts` engines stop reading connection payloads for item
