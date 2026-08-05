@@ -6,12 +6,10 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
-use App\Http\Requests\Platforms\PlatformHighlightsRequest;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\ConnectResolver;
-use App\Services\Platforms\HighlightsPicker;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Registry\PlatformDescriptor;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -36,7 +34,6 @@ class GenericPlatformController extends ApiController
     public function __construct(
         private readonly PlatformRegistry $registry,
         private readonly ConnectResolver $connectResolver,
-        private readonly HighlightsPicker $picker,
     ) {}
 
     // The platform key for the ManagesIntegrationConnection trait. Read from the
@@ -102,18 +99,13 @@ class GenericPlatformController extends ApiController
         $accountKey = $result->accountKey;
 
         // PWL-2: ConnectFetchJob and ScheduledRefresh both write this same row
-        // behind platformConnectionLock — the read (preserveHighlights) through
-        // the write (writeAccountConnection/writeConnection) must serialise
-        // against them the same way highlights() already does, or a background
+        // behind platformConnectionLock — the write (writeAccountConnection/
+        // writeConnection) must serialise against them, or a background
         // refresh can clobber this connect.
         return $this->withConnectionLock($user, function () use ($user, $descriptor, $selection, $resourceClass, $accountKey): JsonResponse {
             if ($descriptor->multiAccount()) {
                 $key = $accountKey ?? $this->defaultAccountKey($selection);
                 if ($key !== null) {
-                    if ($descriptor->hasHighlights()) {
-                        // Re-adding an already-connected account keeps its curated highlights.
-                        $selection['highlights'] = $this->preserveHighlights($user, $key);
-                    }
                     $row = $this->writeAccountConnection($user, $key, $selection);
                     if ($row === null) {
                         return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
@@ -168,14 +160,6 @@ class GenericPlatformController extends ApiController
                     // identity key on success (DeferredConnectParityTest) — defensive only.
                     return $this->error($descriptor->connectErrorMessage() ?? 'Enter a valid link.', 422);
                 }
-                if ($descriptor->hasHighlights()) {
-                    // Same carry-forward as the sync path: on a reconnect, curated
-                    // highlights survive. Redundant with the merge below (which would
-                    // preserve an untouched 'highlights' key anyway) but kept explicit
-                    // to mirror the sync branch exactly and avoid a second code path
-                    // to reason about.
-                    $selection['highlights'] = $this->preserveHighlights($user, $key);
-                }
                 $row = $this->writeAccountConnection($user, $key, $selection, pending: true);
                 if ($row === null) {
                     return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
@@ -223,8 +207,7 @@ class GenericPlatformController extends ApiController
     // the platform's one row). 404, never 403, for a resource that doesn't
     // exist or isn't the caller's: requestedAccountRow() is already scoped to
     // $user->integrationConnections(), so another user's row is never visible
-    // to look up in the first place — no separate policy check needed (mirrors
-    // recent()/highlights() above).
+    // to look up in the first place — no separate policy check needed.
     public function connectStatus(Request $request): JsonResponse
     {
         $descriptor = $this->descriptor();
@@ -267,92 +250,6 @@ class GenericPlatformController extends ApiController
         // always safe to display verbatim; it never carries internal scraper
         // detail.
         return $this->success(['status' => 'failed', 'error' => $row->last_refresh_error]);
-    }
-
-    // GET /api/platforms/{platform}/recent?account={id} — picker items for the
-    // requested account (first account when no id is given). Served from the
-    // connection's `recent` snapshot when fresh (HighlightsPicker), so opening
-    // the modal repeatedly no longer live-scrapes the vendor every time
-    // (LIFE-21..24).
-    public function recent(Request $request): JsonResponse
-    {
-        $strategy = $this->descriptor()->highlightsStrategy();
-        abort_if($strategy === null, 404);
-
-        $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
-        if ($row === null) {
-            return $this->error($strategy->notConnectedMessage(), 404);
-        }
-
-        $identity = $strategy->identity($row->payload);
-        if ($identity === null) {
-            return $this->error($strategy->notConnectedMessage(), 404);
-        }
-
-        $items = $this->picker->items($strategy, $row, $identity);
-        if ($items === null) {
-            return $this->error($strategy->loadErrorMessage(), 422);
-        }
-
-        return $this->success([$strategy->responseKey() => $items]);
-    }
-
-    // POST /api/platforms/{platform}/highlights?account={id} — snapshot the
-    // chosen items onto that account's stored selection (empty list clears).
-    //
-    // W3 / LIFE-21 lock-boundary fix: everything vendor-facing (the picker's
-    // live-fetch fallback, and any PreparesHighlightItems::prepare() pricing
-    // call) now runs OUTSIDE the per-user connection lock. A lock is a
-    // deliberate bottleneck — it serialises concurrent work — and holding one
-    // across a call to someone else's server lets a stranger's latency decide
-    // how long that bottleneck lasts. Mirrors ScheduledRefresh::run()'s
-    // fetch-outside/write-inside shape exactly.
-    public function highlights(PlatformHighlightsRequest $request): JsonResponse
-    {
-        $descriptor = $this->descriptor();
-        $strategy = $descriptor->highlightsStrategy();
-        abort_if($strategy === null, 404);
-
-        $validated = $request->validated();
-        $user = $this->currentUser($request);
-        $accountId = $request->query('account');
-        $chosenIds = $validated[$strategy->requestField()];
-        $resourceClass = $descriptor->resourceClass();
-
-        $row = $this->requestedAccountRow($user, $accountId);
-        if (! $row || ! $row->payload) {
-            return $this->error($strategy->notConnectedMessage(), 404);
-        }
-
-        $identity = $strategy->identity($row->payload);
-        if ($identity === null) {
-            return $this->error($strategy->notConnectedMessage(), 404);
-        }
-
-        $items = $this->picker->items($strategy, $row, $identity);
-        if ($items === null) {
-            return $this->error($strategy->loadErrorMessage(), 422);
-        }
-        $items = $this->picker->prepared($strategy, $items, $chosenIds);
-
-        return $this->withConnectionLock($user, function () use ($user, $strategy, $items, $chosenIds, $accountId, $resourceClass): JsonResponse {
-            // Authoritative re-read UNDER the lock. Load-bearing: reading
-            // outside the lock and writing inside it, off the OUTSIDE read,
-            // would reintroduce the lost update the lock exists to prevent —
-            // another highlights save (or a scheduled refresh) landing in the
-            // gap between the read above and the lock being acquired would be
-            // silently overwritten by this write's stale $row->payload. This
-            // re-read is what makes fetch-outside/write-inside safe.
-            $fresh = $this->requestedAccountRow($user, $accountId);
-            if (! $fresh || ! $fresh->payload) {
-                return $this->error($strategy->notConnectedMessage(), 404);
-            }
-
-            $selection = $strategy->apply($fresh->payload, $items, $chosenIds);
-            $this->writeConnection($user, $selection, $fresh->resource_id);
-
-            return $this->success(['id' => $fresh->resource_id, ...(new $resourceClass($selection))->resolve()]);
-        });
     }
 
     /** Canonical per-account key of a freshly-built selection (mirrors the

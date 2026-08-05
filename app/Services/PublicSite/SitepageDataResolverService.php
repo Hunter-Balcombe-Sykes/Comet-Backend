@@ -14,6 +14,7 @@ use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Site\ContentSelectionService;
+use App\Site\Pools\PoolResolver;
 use App\Support\UrlSafety;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
@@ -308,6 +309,28 @@ class SitepageDataResolverService
                 ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
                 ->exists(), false, 'ready_gallery_media_exists', $site)) {
                 $present['gallery'] = true;
+            }
+
+            // Content-pool presence (presence-via-pools, 2026-08-06): a
+            // non-empty pool selection means the page has content whatever
+            // its source — a hand-added item has no connection to advertise
+            // it, and an excluded-everything pool shouldn't advertise a page
+            // its connection heuristic above still vouches for is fine to
+            // keep (embed-only platforms like Spotify carry the Listen page
+            // with no pool items at all, so pools ADD presence, never veto
+            // it). Media's pool joins when its public surface exists.
+            foreach (['watch' => 'watch', 'listen' => 'listen'] as $pool => $poolPage) {
+                if (isset($present[$poolPage])) {
+                    continue;
+                }
+                if ($this->safeQuery(
+                    fn () => app(PoolResolver::class)->hasSelection($site, $pool),
+                    false,
+                    "pool_{$pool}_has_selection",
+                    $site,
+                )) {
+                    $present[$poolPage] = true;
+                }
             }
         }
 

@@ -187,7 +187,7 @@ class PoolController extends ApiController
     private function poolChanged(Site $site): void
     {
         BuildState::bump((string) $site->id);
-        if (is_string($site->subdomain) && $site->subdomain !== '') {
+        if ($site->subdomain !== '') {
             CloudflareCachePurgeJob::dispatch($site->subdomain);
         }
     }

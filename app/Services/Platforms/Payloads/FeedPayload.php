@@ -7,7 +7,7 @@ namespace App\Services\Platforms\Payloads;
 // apple-podcast, strava). Each platform stores a SUBSET of these keys; this is their union.
 // `channelId` (YouTube Music) and `apiPath` (Vimeo) are private re-fetch inputs the
 // resources never emit — carried so the fetch strategies + Plan 6's refresher read
-// them typed. `latest`/`items`/`highlights` hold nested scraper items, passed through
+// them typed. `latest`/`items` hold nested scraper items, passed through
 // verbatim. Single home for the tolerant `?? null` hydration scattered across the
 // controllers, PlatformRefresher's per-platform methods, and the resources (spec §8).
 //
@@ -38,7 +38,6 @@ final readonly class FeedPayload
         public int|string|null $members,
         public ?array $latest,
         public ?array $items,
-        public ?array $highlights,
     ) {}
 
     /** @param array<string,mixed> $payload */
@@ -64,7 +63,6 @@ final readonly class FeedPayload
             members: self::intStringOrNull($payload['members'] ?? null),
             latest: self::arrayOrNull($payload['latest'] ?? null),
             items: self::arrayOrNull($payload['items'] ?? null),
-            highlights: self::arrayOrNull($payload['highlights'] ?? null),
         );
     }
 
@@ -91,7 +89,6 @@ final readonly class FeedPayload
             'members' => $this->members,
             'latest' => $this->latest,
             'items' => $this->items,
-            'highlights' => $this->highlights,
         ];
     }
 

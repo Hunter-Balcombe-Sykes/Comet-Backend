@@ -112,7 +112,7 @@ it('freezes the youtube accounts list contract', function () {
 
 dataset('multi_account_unpinned', [
     // apple/music: AppleMusicConnectionResource (TileConnectionResource subclass)
-    // emits {input, name, thumbnail, releaseDate, link, latest, highlights}.
+    // emits {input, name, thumbnail, releaseDate, link, latest}.
     'apple-music' => [
         'apple/music',
         'apple-music',
@@ -131,7 +131,6 @@ dataset('multi_account_unpinned', [
             'releaseDate' => '2024-04-19T00:00:00+00:00',
             'link' => 'https://music.apple.com/au/album/1',
             'latest' => ['collectionId' => 'a1', 'name' => 'The Tortured Poets Department'],
-            'highlights' => [],
         ],
     ],
     // apple/podcast: ApplePodcastConnectionResource adds `description` to the tile shape.
@@ -155,10 +154,9 @@ dataset('multi_account_unpinned', [
             'releaseDate' => '2026-03-01T00:00:00+00:00',
             'link' => 'https://podcasts.apple.com/au/podcast/1',
             'latest' => ['trackId' => 'e1', 'name' => 'Dr. Andrew Huberman'],
-            'highlights' => [],
         ],
     ],
-    // bandcamp: BandcampConnectionResource — {url, artist, name, thumbnail, link, latest, highlights}.
+    // bandcamp: BandcampConnectionResource — {url, artist, name, thumbnail, link, latest}.
     'bandcamp' => [
         'bandcamp',
         'bandcamp',
@@ -175,7 +173,6 @@ dataset('multi_account_unpinned', [
             'thumbnail' => 'https://f4.bcbits.com/img/t.jpg',
             'link' => 'https://artist.bandcamp.com/album/test',
             'latest' => ['name' => 'Album Name', 'link' => 'https://artist.bandcamp.com/album/test'],
-            'highlights' => [],
         ],
     ],
     // soundcloud: MusicEmbedConnectionResource — the shared 5-key music-embed shape.
@@ -196,7 +193,7 @@ dataset('multi_account_unpinned', [
             'link' => 'https://soundcloud.com/artist',
         ],
     ],
-    // vimeo: VimeoConnectionResource — {url, name, thumbnail, link, latest, items, highlights}.
+    // vimeo: VimeoConnectionResource — {url, name, thumbnail, link, latest, items}.
     'vimeo' => [
         'vimeo',
         'vimeo',
@@ -210,10 +207,10 @@ dataset('multi_account_unpinned', [
         [
             'url' => 'https://vimeo.com/pat', 'name' => 'Pat',
             'thumbnail' => 't', 'link' => 'https://vimeo.com/pat',
-            'latest' => ['itemId' => 'v1'], 'items' => [['itemId' => 'v1']], 'highlights' => [],
+            'latest' => ['itemId' => 'v1'], 'items' => [['itemId' => 'v1']],
         ],
     ],
-    // youtube-music: YoutubeMusicConnectionResource — {url, name, thumbnail, link, latest, items, highlights}.
+    // youtube-music: YoutubeMusicConnectionResource — {url, name, thumbnail, link, latest, items}.
     // channelId is internal and must not appear (asserted separately below in the selection test).
     'youtube-music' => [
         'youtube-music',
@@ -228,7 +225,7 @@ dataset('multi_account_unpinned', [
         [
             'url' => 'https://music.youtube.com/channel/UC', 'name' => 'Artist',
             'thumbnail' => 't', 'link' => 'https://music.youtube.com/channel/UC',
-            'latest' => ['itemId' => 'i1'], 'items' => [['itemId' => 'i1']], 'highlights' => [],
+            'latest' => ['itemId' => 'i1'], 'items' => [['itemId' => 'i1']],
         ],
     ],
 ]);
@@ -264,7 +261,7 @@ it('freezes the youtube selection contract', function () {
 
     expect($selection)->toEqual([
         'handle' => 'mychannel', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
-        'latest' => ['videoId' => 'v1'], 'highlights' => [],
+        'latest' => ['videoId' => 'v1'],
     ]);
 });
 
@@ -281,7 +278,7 @@ it('freezes the youtube-music selection contract', function () {
     expect($sel)->toEqual([
         'url' => 'https://music.youtube.com/channel/UC', 'name' => 'Artist', 'thumbnail' => 't',
         'link' => 'https://music.youtube.com/channel/UC', 'latest' => ['itemId' => 'i1'],
-        'items' => [['itemId' => 'i1']], 'highlights' => [],
+        'items' => [['itemId' => 'i1']],
     ]);
     expect($sel)->not->toHaveKey('channelId'); // internal — never emitted
 });
@@ -295,7 +292,6 @@ it('freezes the bandcamp selection contract', function () {
         'thumbnail' => 'https://f4.bcbits.com/img/t.jpg',
         'link' => 'https://artist.bandcamp.com/album/test',
         'latest' => ['name' => 'Album Name', 'thumbnail' => 'https://f4.bcbits.com/img/t.jpg', 'link' => 'https://artist.bandcamp.com/album/test'],
-        'highlights' => [],
         '_leak' => 'must-not-appear',
     ]);
 
@@ -309,7 +305,6 @@ it('freezes the bandcamp selection contract', function () {
         'thumbnail' => 'https://f4.bcbits.com/img/t.jpg',
         'link' => 'https://artist.bandcamp.com/album/test',
         'latest' => ['name' => 'Album Name', 'thumbnail' => 'https://f4.bcbits.com/img/t.jpg', 'link' => 'https://artist.bandcamp.com/album/test'],
-        'highlights' => [],
     ]);
     expect($sel)->not->toHaveKey('_leak');
 });
@@ -327,7 +322,7 @@ it('freezes the vimeo selection contract', function () {
     expect($sel)->toEqual([
         'url' => 'https://vimeo.com/pat', 'name' => 'Pat', 'thumbnail' => 't',
         'link' => 'https://vimeo.com/pat', 'latest' => ['itemId' => 'v1'],
-        'items' => [['itemId' => 'v1']], 'highlights' => [],
+        'items' => [['itemId' => 'v1']],
     ]);
     expect($sel)->not->toHaveKey('apiPath'); // internal — never emitted
 });
@@ -402,7 +397,7 @@ it('freezes the strava selection contract', function () {
 // after Task 8 the GET selection/accounts routes are served by GenericPlatformController
 // (platform=apple-music / apple-podcast) via FeedPayload → the platform's resource.
 // Routes live at /api/platforms/apple/music/selection and /podcast/selection.
-// Music header: {input,name,thumbnail,releaseDate,link,latest,highlights}.
+// Music header: {input,name,thumbnail,releaseDate,link,latest}.
 // Podcast adds description between thumbnail and releaseDate.
 it('freezes the apple-music selection contract', function () {
     $user = gmUser('gmamsel');
@@ -414,7 +409,6 @@ it('freezes the apple-music selection contract', function () {
         'releaseDate' => '2024-04-19T00:00:00+00:00',
         'link' => 'https://music.apple.com/au/album/1',
         'latest' => $album,
-        'highlights' => [],
         '_leak' => 'must-not-appear',
     ]);
 
@@ -427,7 +421,6 @@ it('freezes the apple-music selection contract', function () {
         'releaseDate' => '2024-04-19T00:00:00+00:00',
         'link' => 'https://music.apple.com/au/album/1',
         'latest' => $album,
-        'highlights' => [],
     ]);
     expect($sel)->not->toHaveKey('_leak');
 });
@@ -443,7 +436,6 @@ it('freezes the apple-podcast selection contract', function () {
         'releaseDate' => '2026-03-01T00:00:00+00:00',
         'link' => 'https://podcasts.apple.com/au/podcast/1',
         'latest' => $episode,
-        'highlights' => [],
         '_leak' => 'must-not-appear',
     ]);
 
@@ -457,7 +449,6 @@ it('freezes the apple-podcast selection contract', function () {
         'releaseDate' => '2026-03-01T00:00:00+00:00',
         'link' => 'https://podcasts.apple.com/au/podcast/1',
         'latest' => $episode,
-        'highlights' => [],
     ]);
     expect($sel)->not->toHaveKey('_leak');
 });

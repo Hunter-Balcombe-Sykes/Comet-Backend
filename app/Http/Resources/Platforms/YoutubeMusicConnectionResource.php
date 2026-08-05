@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 /**
  * YouTube Music artist card: canonical music.youtube.com profile URL, the
  * latest releases (each linking into YouTube Music with a standard YouTube
- * embed), and the user-curated highlight releases.
+ * embed).
  *
  * `$this->resource` is the selection ARRAY. `channelId` is the private
  * re-fetch input and is deliberately not emitted.
@@ -27,7 +27,6 @@ class YoutubeMusicConnectionResource extends ApiResource
             'link' => $this->resource['link'] ?? null,
             'latest' => $this->resource['latest'] ?? null,
             'items' => $this->resource['items'] ?? null,
-            'highlights' => $this->resource['highlights'] ?? [],
         ];
     }
 }

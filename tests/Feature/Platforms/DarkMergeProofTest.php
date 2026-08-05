@@ -120,7 +120,6 @@ it('DELIBERATELY VACUOUS — flag off: apple music connect is a 200 with today\'
             'releaseDate' => '2026-01-01',
             'link' => 'l',
             'latest' => $album,
-            'highlights' => [],
         ]);
 
     Queue::assertNothingPushed();
@@ -128,7 +127,7 @@ it('DELIBERATELY VACUOUS — flag off: apple music connect is a 200 with today\'
     $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'apple-music')->firstOrFail();
     expect($row->last_refresh_status)->toBe('ok');
     expect($row->last_refreshed_at)->not->toBeNull();
-    expect(array_keys($row->payload))->toBe(['input', 'name', 'thumbnail', 'releaseDate', 'link', 'latest', 'highlights']);
+    expect(array_keys($row->payload))->toBe(['input', 'name', 'thumbnail', 'releaseDate', 'link', 'latest']);
 });
 
 it('DELIBERATELY VACUOUS — flag off: apple podcast connect is a 200 with today\'s exact body and pushes nothing', function () {
@@ -151,14 +150,13 @@ it('DELIBERATELY VACUOUS — flag off: apple podcast connect is a 200 with today
             'releaseDate' => '2026-02-02T00:00:00Z',
             'link' => 'l',
             'latest' => $episode,
-            'highlights' => [],
         ]);
 
     Queue::assertNothingPushed();
 
     $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'apple-podcast')->firstOrFail();
     expect($row->last_refresh_status)->toBe('ok');
-    expect(array_keys($row->payload))->toBe(['input', 'name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest', 'highlights']);
+    expect(array_keys($row->payload))->toBe(['input', 'name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest']);
 });
 
 // ── 3/7. Skool (single-selection; a vendor miss is a 404 TODAY) ─────────────

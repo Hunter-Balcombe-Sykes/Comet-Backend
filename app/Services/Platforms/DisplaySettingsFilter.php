@@ -8,7 +8,7 @@ use Illuminate\Support\Arr;
  * Single source of truth for how a connected platform's per-section display
  * toggles (PlatformDescriptor::displayToggles, stored sparsely in
  * site.platform_connections.display_settings — absent key = the toggle's
- * declared default, ON unless TOGGLE_DEFAULTS below says otherwise) translate
+ * declared default, ON for every current toggle) translate
  * into payload-key suppression.
  *
  * This map historically lived in PublicIntegrationConnectionResource and only
@@ -44,26 +44,6 @@ final class DisplaySettingsFilter
         'instagram' => [
             'auto_sync_latest' => ['images', 'videoUrl', 'videoPoster', 'imagesDropped'],
         ],
-        // The full releases list is stored on every scrape but only SERVED when
-        // the owner opted in — show_all_releases is default-OFF (see
-        // TOGGLE_DEFAULTS), so an absent key suppresses, the inverse of every
-        // other toggle. Flipping the switch is therefore instant (read-time
-        // reveal), no re-scrape needed.
-        'bandcamp' => [
-            'show_all_releases' => ['releases'],
-        ],
-    ];
-
-    /**
-     * Per-toggle defaults for the suppression check. Absent = ON (the historical
-     * rule); a false entry makes the toggle opt-IN — its keys are suppressed
-     * until the owner explicitly enables it. Kept in lockstep with the
-     * 'default' field on the registry's displayToggles defs.
-     *
-     * @var array<string, array<string, bool>>
-     */
-    private const TOGGLE_DEFAULTS = [
-        'bandcamp' => ['show_all_releases' => false],
     ];
 
     /**
@@ -97,12 +77,10 @@ final class DisplaySettingsFilter
 
         $out = [];
         foreach (self::SUPPRESSIONS[$platform] ?? [] as $toggle => $keys) {
-            // Absent = the toggle's declared default (ON unless TOGGLE_DEFAULTS
-            // says otherwise); a stored value always wins. The old empty-settings
-            // early-return is gone: a default-OFF toggle must suppress even when
-            // nothing was ever stored.
-            $default = self::TOGGLE_DEFAULTS[$platform][$toggle] ?? true;
-            if ((bool) ($settings[$toggle] ?? $default) === false) {
+            // Absent = ON (every current toggle defaults on; show_all_releases,
+            // the one default-OFF toggle, left with Featured 2026-08-06); a
+            // stored value always wins.
+            if ((bool) ($settings[$toggle] ?? true) === false) {
                 foreach ($keys as $key) {
                     $out[] = $key;
                 }

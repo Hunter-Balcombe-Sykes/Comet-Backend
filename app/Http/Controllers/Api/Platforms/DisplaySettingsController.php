@@ -23,8 +23,7 @@ use Illuminate\Http\Request;
 //
 // Sparse storage is deviation-from-default: saving a toggle AT its default
 // removes the key, saving the opposite stores it — so the JSONB map stays a
-// list of deviations whatever each toggle's default is (bandcamp's
-// show_all_releases is the first default-OFF toggle).
+// list of deviations whatever each toggle's default is.
 // Either write saves a model whose observer purges the edge cache + busts the
 // backend cache, so a flip reflects on the sitepage within seconds.
 class DisplaySettingsController extends ApiController

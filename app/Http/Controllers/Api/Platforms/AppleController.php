@@ -7,27 +7,24 @@ use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
-use App\Http\Requests\Platforms\SaveAppleMusicHighlightsRequest;
-use App\Http\Requests\Platforms\SaveApplePodcastHighlightsRequest;
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Models\Core\User\User;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\Concerns\RefreshesLatestTile;
-use App\Services\Platforms\Payloads\FeedPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 // Endpoints for Apple Music + Apple Podcasts (fully authenticated — 'user.api'
 // middleware on the route group, routes/api/platforms.php). One controller, two
-// independent selections (music = latest album + highlights, podcast = latest
-// episode + highlights), both backed by the unauthenticated iTunes Search API
+// independent selections (music = latest album, podcast = latest
+// episode), both backed by the unauthenticated iTunes Search API
 // via App\Services\Platforms\AppleSearch — no third-party auth/key needed
 // there. Two keys, so this controller keeps its own storage rather than the
 // single-key trait.
-// Music and Podcast flows share generic helpers (connectFor, recentFor,
-// highlightsFor, forgetFor) driven by musicConfig()/podcastConfig() — a fix
+// Music and Podcast flows share generic helpers (connectFor, forgetFor)
+// driven by musicConfig()/podcastConfig() — a fix
 // to one platform can't silently miss the other (the `latest`-key drift that
 // motivated CONS-39 was exactly that failure mode).
 // Spec: ~/Developer/platform link capabilites/apple-implementation.md
@@ -44,8 +41,6 @@ class AppleController extends ApiController
     private const MUSIC = 'apple-music';
 
     private const PODCAST = 'apple-podcast';
-
-    private const MAX_HIGHLIGHTS = 5;
 
     // Per-request mutable platform selector. Every generic op sets this property
     // as its first line before any trait call. Safe because Laravel resolves a
@@ -84,18 +79,6 @@ class AppleController extends ApiController
         );
     }
 
-    // GET /api/platforms/apple/music/recent — last 15 albums for the picker.
-    public function musicRecent(Request $request): JsonResponse
-    {
-        return $this->recentFor($request, $this->musicConfig());
-    }
-
-    // POST /api/platforms/apple/music/highlights — snapshot up to 5 chosen albums.
-    public function musicHighlights(SaveAppleMusicHighlightsRequest $request): JsonResponse
-    {
-        return $this->highlightsFor($request, $this->musicConfig(), $request->validated());
-    }
-
     // ── Podcast ───────────────────────────────────────────────────
 
     // POST /api/platforms/apple/podcast/connect
@@ -116,18 +99,6 @@ class AppleController extends ApiController
             fn (array $payload) => $this->wrapAppleSelection(self::PODCAST, $payload),
             perAccount: true,
         );
-    }
-
-    // GET /api/platforms/apple/podcast/recent — last 15 episodes for the picker.
-    public function podcastRecent(Request $request): JsonResponse
-    {
-        return $this->recentFor($request, $this->podcastConfig());
-    }
-
-    // POST /api/platforms/apple/podcast/highlights — snapshot up to 5 chosen episodes.
-    public function podcastHighlights(SaveApplePodcastHighlightsRequest $request): JsonResponse
-    {
-        return $this->highlightsFor($request, $this->podcastConfig(), $request->validated());
     }
 
     // DELETE /api/platforms/apple — clear both. Retained for back-compat;
@@ -172,9 +143,9 @@ class AppleController extends ApiController
 
     /**
      * The handful of values that differ between Music and Podcast; everything else
-     * (storage, locking, tile-refresh, snapshotting) is shared.
+     * (storage, locking, tile-refresh) is shared.
      *
-     * @return array{platform:string, pathSegment:string, inputField:string, idsField:string, idField:string, fetch:callable, flatFields:list<string>, recentKey:string, notFound:string, connectFirst:string, loadError:string}
+     * @return array{platform:string, pathSegment:string, inputField:string, idsField:string, idField:string, fetch:callable, flatFields:list<string>, notFound:string, connectFirst:string}
      */
     private function musicConfig(): array
     {
@@ -193,10 +164,8 @@ class AppleController extends ApiController
             // has a source. Music-only — apple-podcast (category Content) is never
             // read by the factor. Absent (null) resolver = no genre capture.
             'genreResolver' => fn (string $input): ?string => $this->apple->fetchGenre($input),
-            'recentKey' => 'albums',
             'notFound' => 'Could not find that Apple Music artist or an album.',
             'connectFirst' => 'Connect an Apple Music artist first.',
-            'loadError' => 'Could not load recent albums.',
         ];
     }
 
@@ -210,10 +179,8 @@ class AppleController extends ApiController
             'idField' => 'trackId',
             'fetch' => fn (string $input) => $this->apple->fetchEpisodes($input),
             'flatFields' => ['name', 'thumbnail', 'description', 'releaseDate', 'link'],
-            'recentKey' => 'episodes',
             'notFound' => 'Could not find that Apple Podcast or an episode.',
             'connectFirst' => 'Connect an Apple Podcast first.',
-            'loadError' => 'Could not load recent episodes.',
         ];
     }
 
@@ -241,7 +208,7 @@ class AppleController extends ApiController
         // the closure (null) rather than returned directly, so the 404 stays
         // identical whether it came from an empty fetch or a budget exhaustion.
         $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
-        $selection = $this->budget->open($seconds, function () use ($user, $cfg, $input) {
+        $selection = $this->budget->open($seconds, function () use ($cfg, $input) {
             $items = ($cfg['fetch'])($input);
             if (empty($items)) {
                 return null;
@@ -253,7 +220,6 @@ class AppleController extends ApiController
                 // canonical shape the dashboard reads for the "Most recent" tile.
                 ...$this->flatTileFields($latest, $cfg['flatFields']),
                 'latest' => $latest,
-                'highlights' => $this->keptHighlights($user, $cfg['platform'], $input),
             ];
 
             // #76: enrich music selections with the artist's genre (best-effort — a
@@ -266,8 +232,7 @@ class AppleController extends ApiController
             return $this->error($cfg['notFound'], 404);
         }
 
-        // PWL-3: this write races highlightsFor() (already locked) and
-        // ScheduledRefresh (locks on the same platform+user key). The fetch +
+        // PWL-3: this write races ScheduledRefresh (locks on the same platform+user key). The fetch +
         // genre resolver above are network calls to AppleSearch and stay
         // OUTSIDE the lock; only the read→mutate→write against the stored
         // row is wrapped.
@@ -321,78 +286,13 @@ class AppleController extends ApiController
         );
     }
 
-    private function recentFor(Request $request, array $cfg): JsonResponse
-    {
-        $this->activePlatform = $cfg['platform'];
-        $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
-        $input = FeedPayload::fromArray($row?->payload ?? [])->input;
-        if (! $input) {
-            return $this->error($cfg['connectFirst'], 404);
-        }
-        $items = ($cfg['fetch'])($input);
-        if ($items === null) {
-            return $this->error($cfg['loadError'], 422);
-        }
-
-        return $this->success([$cfg['recentKey'] => $items]);
-    }
-
-    // $validated is the pre-validated input (from the typed Form Request on the
-    // public action). The helper no longer calls $request->validate().
-    //
-    // PWL-D1: mirrors GenericPlatformController::highlights() — the network
-    // call (AppleSearch fetch, via $cfg['fetch']) runs OUTSIDE the lock, keyed
-    // off an identity read that also happens outside it. The lock then wraps
-    // only the authoritative RE-READ of the account row + the write: writing
-    // off the outside-lock $row would reintroduce the lost update the lock
-    // exists to prevent (a concurrent save or ScheduledRefresh landing in the
-    // gap between that read and the lock being acquired would be silently
-    // clobbered). $items themselves are NOT re-fetched inside the lock — only
-    // the row they're applied to is re-read fresh.
-    private function highlightsFor(Request $request, array $cfg, array $validated): JsonResponse
-    {
-        $this->activePlatform = $cfg['platform'];
-        $user = $this->currentUser($request);
-        $accountId = $request->query('account');
-
-        $row = $this->requestedAccountRow($user, $accountId);
-        $selection = $row?->payload;
-        if (! $row || ! $selection) {
-            return $this->error($cfg['connectFirst'], 404);
-        }
-        $items = ($cfg['fetch'])(data_get($selection, 'input'));
-        if ($items === null) {
-            return $this->error($cfg['loadError'], 422);
-        }
-
-        return $this->withConnectionLock($user, function () use ($user, $cfg, $validated, $accountId, $items): JsonResponse {
-            $fresh = $this->requestedAccountRow($user, $accountId);
-            $selection = $fresh?->payload;
-            if (! $fresh || ! $selection) {
-                return $this->error($cfg['connectFirst'], 404);
-            }
-
-            // Refresh the "Most recent" tile too — a release/episode published since
-            // connect would otherwise leave `latest` (and the flat back-compat fields)
-            // stale while only highlights updated.
-            if (isset($items[0])) {
-                $selection = $this->refreshLatestTile($selection, $items[0], $cfg['flatFields']);
-            }
-
-            $selection['highlights'] = $this->snapshot($items, $cfg['idField'], $validated[$cfg['idsField']]);
-            $this->writeConnection($user, $selection, $fresh->resource_id);
-
-            return $this->success(['id' => $fresh->resource_id, ...$this->wrapAppleSelection($cfg['platform'], $selection)]);
-        });
-    }
-
     private function forgetFor(Request $request, string $platform, string $responseKey): JsonResponse
     {
         $this->activePlatform = $platform;
         $user = $this->currentUser($request);
 
-        // PWL-3: races connectFor()/highlightsFor() (both locked) +
-        // ScheduledRefresh, all on this same platform+user key.
+        // PWL-3: races connectFor() (locked) + ScheduledRefresh, all on this
+        // same platform+user key.
         return $this->withConnectionLock($user, function () use ($user, $responseKey): JsonResponse {
             $this->forgetAllConnections($user);
 
@@ -432,16 +332,6 @@ class AppleController extends ApiController
         return $selection;
     }
 
-    // Preserve existing highlights only when re-adding an already-connected input.
-    private function keptHighlights(User $user, string $platform, string $input): array
-    {
-        // Temporarily set activePlatform for the read; reset is implicit since
-        // connectFor already set it before calling this.
-        $this->activePlatform = $platform;
-
-        return FeedPayload::fromArray($this->matchAccountByCanonical($user, $input)?->payload ?? [])->highlights ?? [];
-    }
-
     /** Resolve the selection array through the platform-appropriate tile Resource. */
     private function wrapAppleSelection(string $platform, array $selection): array
     {
@@ -452,18 +342,5 @@ class AppleController extends ApiController
         };
 
         return $resource->resolve();
-    }
-
-    // Snapshot the chosen items (by $idField) in the order the user posted them, capped.
-    private function snapshot(array $items, string $idField, array $ids): array
-    {
-        $byId = collect($items)->keyBy($idField);
-
-        return collect($ids)
-            ->map(fn (string $id) => $byId->get($id))
-            ->filter()
-            ->take(self::MAX_HIGHLIGHTS)
-            ->values()
-            ->all();
     }
 }

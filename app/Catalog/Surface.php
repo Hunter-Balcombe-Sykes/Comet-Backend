@@ -13,7 +13,7 @@ use InvalidArgumentException;
  * 'tiktok.profile' or 'spotify.embed'. $key is namespaced '{brand}.{product}'
  * so two brands can each expose a same-named product surface without
  * collision. $capabilities maps strategy roles (connect/connectFetch/fetch/
- * normalize/highlights/gate/completeness) to the concrete capability name
+ * normalize/gate/completeness) to the concrete capability name
  * implementing that role for this surface; a surface with no 'fetch' role is
  * link-only (isLinkOnly()).
  */

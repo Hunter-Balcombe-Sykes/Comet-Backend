@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Log;
 
 it('tags a presence-probe failure with the services-probe label and the site/user id', function () {
     $pro = createTenant('probe-services');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupBlocksTable();
     setupMediaTables();
     // Deliberately no setupServicesTable() — Service::query() faults.
@@ -37,6 +38,7 @@ it('tags a presence-probe failure with the services-probe label and the site/use
 
 it('tags a presence-probe failure with a DIFFERENT label for the links probe', function () {
     $pro = createTenant('probe-links');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupServicesTable();
     setupMediaTables();
     // Deliberately no setupBlocksTable() — the live-link-block Block::query() faults.
@@ -56,6 +58,7 @@ it('tags a presence-probe failure with a DIFFERENT label for the links probe', f
 
 it('threads two distinct probe labels when two different probes fault in the same call, proving the labels are not hardcoded once', function () {
     $pro = createTenant('probe-multi');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupMediaTables();
     // Neither services nor blocks exists — both probes must fault, each with
     // its own label. Collected via a real listener (not Log::spy's cardinality
@@ -84,6 +87,7 @@ it('threads two distinct probe labels when two different probes fault in the sam
 
 it('tags a curated-gallery probe failure distinctly from the presentPageIds probes', function () {
     $pro = createTenant('probe-curated');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     // Deliberately no setupContentSelectionTable() — ContentSelection::query() faults.
 
     Log::spy();
