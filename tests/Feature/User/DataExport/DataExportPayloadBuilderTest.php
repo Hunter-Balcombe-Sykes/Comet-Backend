@@ -883,34 +883,6 @@ it('exports auth.factor_events joined by auth_user_id', function () {
     expect($payload['auth']['factor_events'])->toHaveCount(2);
 });
 
-it('exports user_confirmation_preferences for the user', function () {
-    $pro = seedProForPayload((string) Str::uuid());
-
-    DB::connection('pgsql')->table('core.user_confirmation_preferences')->insert([
-        [
-            'id' => (string) Str::uuid(),
-            'user_id' => $pro->id,
-            'action_key' => 'delete_customer',
-            'skip_confirmation' => 1,
-            'created_at' => '2026-04-01T00:00:00Z',
-            'updated_at' => '2026-04-01T00:00:00Z',
-        ],
-        [
-            'id' => (string) Str::uuid(),
-            'user_id' => (string) Str::uuid(),
-            'action_key' => 'delete_service',
-            'skip_confirmation' => 0,
-            'created_at' => '2026-04-02T00:00:00Z',
-            'updated_at' => '2026-04-02T00:00:00Z',
-        ],
-    ]);
-
-    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
-
-    expect($payload['ui_preferences']['confirmation_preferences'])->toHaveCount(1);
-    expect($payload['ui_preferences']['confirmation_preferences'][0]['action_key'])->toBe('delete_customer');
-});
-
 it('exports feedback submissions excluding ip_hash and user_agent fingerprints (#P1-06)', function () {
     $pro = seedProForPayload((string) Str::uuid());
 

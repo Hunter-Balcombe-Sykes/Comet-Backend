@@ -134,7 +134,7 @@ class DataExportPayloadBuilder
      * tests and small-tenant scenarios. It iterates the same generators
      * stream() exposes, so memory usage scales with the largest section.
      *
-     * @return array{metadata: array, profile: array, site: array, early_access: array, pre_account_build: array, media: array, design_kit: array, integrations: array, analytics: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, moderation_evidence: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
+     * @return array{metadata: array, profile: array, site: array, early_access: array, pre_account_build: array, media: array, design_kit: array, integrations: array, analytics: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, moderation_evidence: array, email_subscriptions: array, notifications: array, notification_preferences: array, auth: array, audit: array}
      */
     public function build(string $userId): array
     {
@@ -159,7 +159,7 @@ class DataExportPayloadBuilder
      *   ['name' => string, 'kind' => 'value', 'value' => mixed]
      *   ['name' => string, 'kind' => 'rows',  'rows' => Generator, 'csv_columns' => ?array<string>]
      *
-     * For nested groups (notifications, ui_preferences, notification_preferences,
+     * For nested groups (notifications, notification_preferences,
      * auth, audit, media) the descriptor's 'name' uses dotted form (e.g.
      * 'audit.handle_change_log'); the writer reassembles the group structure
      * when emitting JSON, preserving the order each group is first encountered.
@@ -273,7 +273,6 @@ class DataExportPayloadBuilder
             ['name' => 'email_subscriptions', 'kind' => 'rows', 'resolve' => fn () => $this->streamEmailSubscriptions($userId, $lookupEmail)],
             ['name' => 'notifications.messages', 'kind' => 'rows', 'resolve' => fn () => $this->streamNotifications($userId)],
             ['name' => 'notifications.receipts', 'kind' => 'rows', 'resolve' => fn () => $this->streamNotificationReceipts($userId)],
-            ['name' => 'ui_preferences.confirmation_preferences', 'kind' => 'rows', 'resolve' => fn () => $this->streamConfirmationPreferences($userId)],
             ['name' => 'notification_preferences.category_preferences', 'kind' => 'rows', 'resolve' => fn () => $this->streamNotificationPreferences($userId)],
             ['name' => 'notification_preferences.staff_policy_overrides', 'kind' => 'rows', 'resolve' => fn () => $this->streamNotificationPolicies($userId)],
             ['name' => 'auth.factor_events', 'kind' => 'rows', 'resolve' => fn () => $this->streamAuthFactorEvents($professional->auth_user_id)],
@@ -1255,23 +1254,6 @@ class DataExportPayloadBuilder
                 ->select(['id', 'notification_id', 'user_id', 'read_at', 'dismissed_at', 'created_at', 'updated_at'])
                 ->where('user_id', $userId)
                 ->orderBy('updated_at')
-        );
-    }
-
-    /**
-     * Per-action UI confirmation preferences. Same shape as
-     * notification_email_preferences (which is already exported); structural
-     * symmetry makes inclusion the consistent choice.
-     *
-     * PRIV-2: explicit allow-list, equal to the table's current full column set.
-     */
-    private function streamConfirmationPreferences(string $userId): Generator
-    {
-        return $this->lazyRows(
-            DB::connection('pgsql')
-                ->table('core.user_confirmation_preferences')
-                ->select(['id', 'user_id', 'action_key', 'skip_confirmation', 'created_at', 'updated_at'])
-                ->where('user_id', $userId)
         );
     }
 

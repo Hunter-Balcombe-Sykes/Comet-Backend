@@ -82,7 +82,7 @@ it('writeStreaming produces a zip containing data.json with builder-defined sect
         'metadata', 'profile', 'site', 'early_access',
         'media', 'integrations', 'customers', 'services', 'service_categories',
         'enquiries', 'lead_submissions', 'email_subscriptions',
-        'notifications', 'ui_preferences', 'notification_preferences',
+        'notifications', 'notification_preferences',
         'auth', 'audit',
     ]);
 

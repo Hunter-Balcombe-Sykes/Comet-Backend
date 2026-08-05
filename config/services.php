@@ -14,10 +14,6 @@ return [
     |
     */
 
-    'postmark' => [
-        'key' => env('POSTMARK_API_KEY'),
-    ],
-
     // Google Maps / Places — client-side key for the professional dashboard's
     // address autocomplete, returned by the AUTHENTICATED GET /api/config/integrations
     // (moved off the public/CDN route — audit public-surface/SEC-1). Defence-in-depth:
@@ -62,13 +58,6 @@ return [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
-    ],
-
-    'slack' => [
-        'notifications' => [
-            'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
-            'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
-        ],
     ],
 
     // Cloudflare DNS + KV — DNS provisions subdomains; KV holds the subdomain
@@ -131,11 +120,6 @@ return [
             'opentable_resy' => 'crawlerbros~opentable-resy-scraper',
             'ra_events' => 'crawlerbros~resident-advisor-scraper',
         ],
-    ],
-
-    'ticketmaster' => [
-        'consumer_key' => env('TICKETMASTER_CONSUMER_KEY'),
-        'consumer_secret' => env('TICKETMASTER_CONSUMER_SECRET'),
     ],
 
     // Mistral — hosted OCR (menu photo → markdown text). Same account/key as

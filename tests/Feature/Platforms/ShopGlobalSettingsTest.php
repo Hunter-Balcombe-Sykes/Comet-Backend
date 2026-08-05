@@ -111,12 +111,12 @@ it('PATCH shop settings purges the sitepage edge cache when a shop is connected'
     Bus::assertDispatched(CloudflareCachePurgeJob::class);
 });
 
-it('the shop link mode + auto-latest columns are aliased under /shopify too', function () {
+it('the legacy /shopify alias prefix is gone', function () {
+    // Removed 2026-08-05 (platform audit): no caller anywhere used the alias.
     $user = shopSettingsUser('gset6');
 
     actingAsUser($user)->getJson('/api/platforms/shopify/settings')
-        ->assertOk()
-        ->assertJson(['linkMode' => 'checkout', 'autoLatest' => true]);
+        ->assertNotFound();
 });
 
 // ── ShopFetch: the global auto-latest gate drives the scheduled sync ──────────

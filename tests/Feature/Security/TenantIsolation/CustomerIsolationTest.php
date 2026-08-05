@@ -81,7 +81,11 @@ it('customer show refuses a customer belonging to another professional', functio
     }
 });
 
-it('enquiry update refuses an enquiry belonging to another professional', function () {
+// AUDIT-2026-08-05: UserEnquiryController::update() (PATCH /api/enquiries/{id})
+// was removed as an orphaned endpoint — markRead() (POST /api/enquiries/{id}/read)
+// is the surviving status-transition verb and exercises the same
+// transition()-helper ownership gate.
+it('enquiry markRead refuses an enquiry belonging to another professional', function () {
     [$a, $b] = createTwoTenants();
     $now = now()->toDateTimeString();
 
@@ -95,10 +99,11 @@ it('enquiry update refuses an enquiry belonging to another professional', functi
         'updated_at' => $now,
     ]);
 
-    $req = tenantRequestAs($b, ['read' => true], 'PATCH');
-    $response = app(UserEnquiryController::class)->update($req, $enqId);
+    $req = tenantRequestAs($b, [], 'POST');
+    $response = app(UserEnquiryController::class)->markRead($req, $enqId);
 
-    // Controller scopes by user_id — Brand B's query returns null → 404.
+    // transition() scopes by user_id and returns a 404 JsonResponse — Brand
+    // B's query finds nothing.
     expect($response->getStatusCode())->toBe(404);
 
     // Original enquiry must be untouched.

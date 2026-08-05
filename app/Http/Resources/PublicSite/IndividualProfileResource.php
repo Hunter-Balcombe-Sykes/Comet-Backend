@@ -15,7 +15,7 @@ use stdClass;
  *   - `profile` — content (engine fields + base profile)
  *   - `designKit` — per-user design vars (nested camelCase), partial
  *   - `designMedia` — content-pool media (polymorphic image/video, camelCase, ordered)
- *   - `architectureId` — picks which code-side architecture renders (skeletonId is a transition alias)
+ *   - `architectureId` — picks which code-side architecture renders
  *   - `publicConfig` — analytics endpoint + platform-wide keys
  *
  * partna-pages does the read-time merge of the partial `designKit` with
@@ -167,7 +167,6 @@ class IndividualProfileResource extends ApiResource
             // renders this site — always 'staple' (single-architecture platform).
             'architectureId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,
             // TRANSITION ALIAS — drop once apps/pages deploy reading architectureId is confirmed.
-            'skeletonId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,
 
             // Platform-wide knobs the skeleton needs at render time (analytics
             // endpoint, etc.). Always an object.

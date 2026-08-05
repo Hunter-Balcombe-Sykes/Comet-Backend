@@ -214,8 +214,8 @@ it('stores Apple Music + Podcast as independent per-user connections', function 
 });
 
 it('requires auth on the shopify dashboard routes', function () {
-    $this->getJson('/api/platforms/shopify/brands')->assertUnauthorized();
-    $this->getJson('/api/platforms/shopify/selection')->assertUnauthorized();
+    $this->getJson('/api/platforms/shop/brands')->assertUnauthorized();
+    $this->getJson('/api/platforms/shop/selection')->assertUnauthorized();
 });
 
 it('adds Shopify brands per-user (one row, brand map) and caps at 5', function () {
@@ -239,10 +239,10 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
     });
 
     foreach (['a', 'b', 'c', 'd', 'e'] as $s) {
-        actingAsUser($user)->postJson('/api/platforms/shopify/brands', ['url' => "https://{$s}.example.com"])->assertOk();
+        actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => "https://{$s}.example.com"])->assertOk();
     }
     // A 6th distinct brand exceeds the cap.
-    actingAsUser($user)->postJson('/api/platforms/shopify/brands', ['url' => 'https://f.example.com'])
+    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://f.example.com'])
         ->assertStatus(422);
 
     $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first();

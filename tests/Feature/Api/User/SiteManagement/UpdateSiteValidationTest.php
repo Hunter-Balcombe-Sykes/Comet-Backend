@@ -118,26 +118,17 @@ it('rejects a genuinely unknown architecture id', function () {
         ->assertJsonValidationErrors(['architecture_id']);
 });
 
-it('collapses every historical architecture id to one on write', function () {
-    // The platform is single-architecture (2026-07-10). Any stale dashboard/chat
-    // build sending an old id must succeed and store 'staple' — never 422, never
-    // persist a layout that no longer renders.
+it('rejects retired legacy architecture ids now the alias window is closed', function () {
+    // The skeleton_id field alias and LEGACY_ARCHITECTURE_IDS collapse were
+    // removed 2026-08-05 (platform audit: no client anywhere still sent them).
+    // A legacy VALUE now 422s like any other unknown id, and the legacy FIELD
+    // is simply ignored.
     $pro = createTenant('legacy-architecture-pro');
 
-    foreach (['skeleton-3', 'hub', 'sheet', 'bento', 'deck', 'atlas'] as $legacy) {
-        actingAsUser($pro)
-            ->patchJson('/api/site', ['architecture_id' => $legacy])
-            ->assertOk();
-
-        expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-            ->toBe('staple', "legacy id {$legacy} must collapse to 'staple'");
-    }
-});
-
-it('accepts the legacy skeleton_id field name and collapses it (transition alias)', function () {
-    // Old clients (pre-rename dashboards) still send skeleton_id. prepareForValidation
-    // merges it into architecture_id, so the write must succeed and store 'staple'.
-    $pro = createTenant('legacy-field-pro');
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['architecture_id' => 'bento'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['architecture_id']);
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['skeleton_id' => 'bento'])

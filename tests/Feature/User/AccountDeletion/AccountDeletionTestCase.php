@@ -51,7 +51,6 @@ class AccountDeletionTestCase
             account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
             status TEXT DEFAULT "active",
             onboarding_step INTEGER DEFAULT 0,
-            stripe_manual_balance_cents INTEGER DEFAULT 0,
             deletion_token_hash TEXT,
             deletion_requested_at TEXT,
             deletion_confirmed_at TEXT,

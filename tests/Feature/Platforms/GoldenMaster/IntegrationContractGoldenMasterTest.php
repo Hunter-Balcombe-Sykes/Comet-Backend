@@ -601,7 +601,9 @@ it('covers every integration GET read-route in the golden master', function () {
     // this is purely a new route appearing in the enumeration. 78 -> 80.
     // 2026-07-28: Pinterest platform decommissioned — its 2 routes
     // (.../connect/status + .../selection) are gone entirely, not migrated. 80 -> 78.
-    expect($readRoutes->count())->toBe(78);
+    // 2026-08-05: the legacy /platforms/shopify alias prefix was removed
+    // (audit: zero callers) — its 4 GET mirrors vanish from the enumeration. 78 -> 74.
+    expect($readRoutes->count())->toBe(74);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/connect/status',
@@ -648,10 +650,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/shop/brands/{id}/connect/status',
         'api/platforms/shop/selection',
         'api/platforms/shop/settings',
-        'api/platforms/shopify/brands',
-        'api/platforms/shopify/brands/{id}/connect/status',
-        'api/platforms/shopify/selection',
-        'api/platforms/shopify/settings',
         'api/platforms/skool/connect/status',
         'api/platforms/skool/selection',
         'api/platforms/snapchat/selection',

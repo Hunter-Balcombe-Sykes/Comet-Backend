@@ -30,7 +30,6 @@ function seedRequestedUser(string $rawToken = 'a-raw-token-64-chars-long-for-tes
         'display_name' => 'Pro',
         'primary_email' => 'pro-'.substr($id, 0, 6).'@example.com',
         'status' => 'active',
-        'stripe_manual_balance_cents' => 0,
         'deletion_token_hash' => hash('sha256', $rawToken),
         'deletion_requested_at' => now()->toIso8601String(),
     ], $overrides);

@@ -261,7 +261,7 @@ it('reuses the warmed catalog on Shopify setProducts (no re-scrape)', function (
     // Catalog is warm — the controller must NOT hit the scraper.
     $this->mock(ShopifyScraper::class, fn ($m) => $m->shouldNotReceive('fetchProducts'));
 
-    $res = actingAsUser($user)->putJson('/api/platforms/shopify/brands/b1/selection', ['productIds' => ['p2']]);
+    $res = actingAsUser($user)->putJson('/api/platforms/shop/brands/b1/selection', ['productIds' => ['p2']]);
 
     $res->assertOk();
     expect($res->json('products'))->toHaveCount(1);
@@ -276,7 +276,7 @@ it('re-scrapes on Shopify setProducts only when the catalog cache is cold', func
         ['productId' => 'p2', 'title' => 'B'],
     ]));
 
-    $res = actingAsUser($user)->putJson('/api/platforms/shopify/brands/b1/selection', ['productIds' => ['p1']]);
+    $res = actingAsUser($user)->putJson('/api/platforms/shop/brands/b1/selection', ['productIds' => ['p1']]);
 
     $res->assertOk();
     expect($res->json('products'))->toHaveCount(1);

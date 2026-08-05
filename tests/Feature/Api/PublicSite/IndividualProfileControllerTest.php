@@ -119,17 +119,17 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     $res = $this->getJson('/api/public/profiles/solo1')->assertOk();
     $data = $res->json('data');
 
-    // Top-level keys are now { profile, designKit, architectureId, skeletonId,
-    // publicConfig } — architectureId is the canonical key; skeletonId is a
+    // Top-level keys are now { profile, designKit, architectureId,
+    // publicConfig } — architectureId is the canonical key; skeletonId was a
     // transition alias kept until apps/pages reads architectureId. No more legacy
     // themeMode/accent/fontFamily/design.
-    expect($data)->toHaveKeys(['profile', 'designKit', 'architectureId', 'skeletonId', 'publicConfig']);
+    expect($data)->toHaveKeys(['profile', 'designKit', 'architectureId', 'publicConfig']);
+    expect($data)->not->toHaveKey('skeletonId');
     expect($data)->not->toHaveKey('design');
     expect($data)->not->toHaveKey('themeMode');
 
     expect($data['architectureId'])->toBe('staple');
     // Transition alias — must mirror architectureId until apps/pages migrates.
-    expect($data['skeletonId'])->toBe('staple');
     // Empty designKit decodes to [] under json() because PHP can't tell
     // {} from [] post-decode; the wire byte-level check happens below.
     expect($data['designKit'])->toEqual([]);
@@ -201,11 +201,10 @@ it('omits publicConfig.claim entirely for a claimed (active) profile', function 
     expect($data['publicConfig'])->not->toHaveKey('claim');
 });
 
-it('returns the user-selected architecture_id (with skeletonId transition alias)', function () {
+it('returns the user-selected architecture_id', function () {
     seedIndividualProfile('solo-sk2', 'staple');
     $data = $this->getJson('/api/public/profiles/solo-sk2')->assertOk()->json('data');
     expect($data['architectureId'])->toBe('staple');
-    expect($data['skeletonId'])->toBe('staple');
 });
 
 it('groups stored design_kit columns into nested camelCase wire shape', function () {
@@ -1202,7 +1201,6 @@ it('single-flights concurrent requests so only one payload is built', function (
             'profile' => ['handle' => 'singleflight-pro'],
             'designKit' => new stdClass,
             'architectureId' => 'staple',
-            'skeletonId' => 'staple',
             'publicConfig' => ['analyticsEndpoint' => '/api/analytics'],
             'designMedia' => [],
         ]);
