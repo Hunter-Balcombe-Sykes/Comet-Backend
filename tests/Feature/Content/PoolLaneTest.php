@@ -3,6 +3,8 @@
 use App\Http\Controllers\Api\Content\ItemController;
 use App\Http\Controllers\Api\Content\ItemLinkController;
 use App\Http\Controllers\Api\Content\PoolController;
+use App\Models\Core\Site\Site;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -301,4 +303,32 @@ it('serves render-ready payloads: override headline, synced link, platform', fun
     expect($item['headlineEdited'])->toBeTrue();
     expect($item['url'])->toBe('https://youtube.com/watch?v=abc');
     expect($item['platform'])->toBe('youtube');
+});
+
+// ── The public wire ─────────────────────────────────────────────────────────
+
+it('serves the pool selection on the public payload with the Latest tag', function () {
+    setupMediaTables();
+    setupContentSelectionTable();
+    setupBlocksTable();
+    setupServicesTable();
+    setupDesignKitsTable();
+
+    [$pro] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id));
+    poolItem($pro->id, $source, 'video', 'Older upload', now()->subDays(5)->toDateTimeString());
+    $latest = poolItem($pro->id, $source, 'video', 'Latest upload', now()->toDateTimeString());
+
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+    $payload = app(IndividualProfilePayloadBuilder::class)
+        ->build($pro->fresh(), $site);
+
+    // The resource casts pools to an object so an empty map serializes {}.
+    $watch = $payload['profile']['pools']->watch ?? null;
+    expect($watch)->not->toBeNull();
+    expect(array_column($watch['items'], 'headline'))->toBe(['Latest upload']);
+    expect($watch['latestItemId'])->toBe($latest);
+    // Dashboard-only flags stay off the public wire.
+    expect($watch['items'][0])->not->toHaveKey('selected');
+    expect($watch['items'][0]['origin'])->toBe('auto');
 });

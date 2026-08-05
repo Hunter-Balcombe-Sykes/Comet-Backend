@@ -63,7 +63,7 @@ it('emits exactly the documented top-level and profile-nested key set', function
 
     expect(array_keys($array['profile']))->toBe([
         'handle', 'displayName', 'accountType', 'site_id',
-        'gallery', 'curatedGallery', 'links', 'services',
+        'gallery', 'curatedGallery', 'links', 'pools', 'services',
         'document', 'newsletter', 'contact', 'publicContact', 'workplace',
     ]);
 
@@ -108,4 +108,6 @@ it('coerces empty designKit/publicConfig/siteImages sections to an object, not a
     expect($json)->toContain('"designKit":{}');
     expect($json)->toContain('"publicConfig":{}');
     expect($json)->toContain('"siteImages":{}');
+    // The pools map serializes as an object even when no pool has a selection.
+    expect($json)->toContain('"pools":{}');
 });

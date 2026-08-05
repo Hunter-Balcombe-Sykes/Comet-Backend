@@ -108,6 +108,15 @@ class IndividualProfileResource extends ApiResource
                 // Always an array.
                 'curatedGallery' => $this->sections['curatedGallery'] ?? [],
                 'links' => $this->sections['links'] ?? [],
+                // The content pools (platforms-as-sources, 2026-08-05):
+                // {watch|listen|media: {items: [...], latestItemId}} — the
+                // SELECTION each pool renders publicly, resolved LIVE (owner
+                // chose no document cache: the site follows a pool edit
+                // instantly). Items are render-ready — headline, url,
+                // platform, creator, publishedAt, durationSeconds, thumbnail,
+                // links[{platform,url,source}] for the per-item platform
+                // buttons, origin. Always an object.
+                'pools' => (object) ($this->sections['pools'] ?? []),
                 'services' => $this->sections['services'] ?? [],
                 'document' => $this->sections['document'] ?? null,
                 'newsletter' => $this->sections['newsletter'] ?? null,
