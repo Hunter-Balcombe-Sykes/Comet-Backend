@@ -238,6 +238,30 @@ external/trailingIcon/attrs) → ItemsGrid → ui/Card.
    deploy:pages; live verify on ollies (pools render, badge, buttons,
    Latest matches the dashboard's tag).
 
+## P2 CHECKPOINT (2026-08-05 ~21:40 AEST) — LIVE-VERIFIED
+
+- partna-monorepo `128d4de` (amended): resolve-site-content pool adapter
+  (listen minus bandcamp / shop-tracks bandcamp subset / watch; legacy
+  fallback until P4), ui/Card `flag` chip, ItemsGrid per-item `actions`
+  strip OUTSIDE the card anchor, staple maps latest→flag + alternate
+  links→actions. astro build + tokens audit clean; worker deployed
+  (96a933f0, service-binding consumer — "no targets" is normal).
+- Backend `e8684f6c` (deployed): pool mutations now dispatch
+  CloudflareCachePurgeJob — FOUND VERIFYING P2: Option B was live on the
+  payload but the CDN held the rendered page, so a pool edit never
+  reached visitors until TTL. The full loop is now proven ON THE LIVE
+  SITE: pool write → purge → ollies.partna.au/watch re-rendered with the
+  pool's two videos and the Latest chip on the newer one.
+- NOTED (pre-existing, not a regression): 'listen' is absent from Maha's
+  pageOrder — the OLD presence machinery (connections/blocks) gates it,
+  while the listen POOL serves 19→4 items on the wire. Presence-via-pools
+  ("pool selection non-empty ⇒ page present") belongs in P4 when the
+  legacy path dies. cell-actions render but no item carries alternates
+  yet (none saved) — the dashboard add-a-link UI lands in P3.
+- CI: two runs pending verdict at checkpoint time (7f2ca6ca watched,
+  e8684f6c queued); local full suite was green modulo known flake
+  families.
+
 ## Phase 2 — Pages app: render pools
 
 - `platform-sections.ts` engines stop reading connection payloads for item
