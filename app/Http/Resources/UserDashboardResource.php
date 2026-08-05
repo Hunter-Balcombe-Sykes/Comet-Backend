@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Http\Request;
@@ -68,6 +69,21 @@ class UserDashboardResource extends ApiResource
             'custom_domain' => $this->site?->custom_domain,
             'custom_domain_status' => $this->site?->custom_domain_status,
             'custom_domain_primary' => (bool) ($this->site?->custom_domain_primary ?? false),
+            // Handles this professional renamed away from that are still inside
+            // their reclaim grace window (core.user_handle_aliases lifecycle:
+            // GRACE 0-14d). POST /me/site/reclaim-handle takes one back; the
+            // dashboard shows the affordance only when this list is non-empty.
+            // Added 2026-08-06 — the endpoint predates any UI (audit decision 6).
+            'reclaimable_handles' => UserHandleAlias::query()
+                ->where('user_id', $this->id)
+                ->where('reclaim_until', '>', now())
+                ->orderBy('reclaim_until')
+                ->get(['handle', 'reclaim_until'])
+                ->map(fn (UserHandleAlias $alias) => [
+                    'handle' => $alias->handle,
+                    'reclaim_until' => $alias->reclaim_until?->toIso8601String(),
+                ])
+                ->all(),
             'first_name' => $this->first_name,
             'last_name' => $this->last_name,
             'phone' => $this->phone,
