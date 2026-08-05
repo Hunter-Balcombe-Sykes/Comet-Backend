@@ -1837,12 +1837,6 @@ parameters:
 			path: app/Models/Core/Site/SiteMedia.php
 
 		-
-			message: '#^Parameter \#1 \$array \(list\<non\-falsy\-string\>\) of array_values is already a list, call has no effect\.$#'
-			identifier: arrayValues.list
-			count: 1
-			path: app/Models/Core/Site/SiteMedia.php
-
-		-
 			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\<Illuminate\\Database\\Eloquent\\Model\>\:\:withTrashed\(\)\.$#'
 			identifier: method.notFound
 			count: 1

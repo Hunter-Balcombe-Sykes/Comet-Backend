@@ -148,8 +148,8 @@ class MediaUploadService
     }
 
     /**
-     * Upload a purpose-scoped singleton design image (a brand logo or an
-     * integration cover). Images only — no pool count limit: each purpose holds
+     * Upload a purpose-scoped singleton design image (a brand logo or the
+     * placeholder). Images only — no pool count limit: each purpose holds
      * exactly one row per site (DB partial unique indexes + the app-side replace
      * here). Re-uploading replaces: the existing row of that purpose is
      * soft-deleted and its variant + original files purged, then the new row
@@ -625,7 +625,7 @@ class MediaUploadService
     /**
      * Route singleton processing: design-pool LOGOS (logo_full / logo_square) run
      * through the background-removal + vectorization pipeline when it's enabled;
-     * everything else (integration covers) keeps the standard WebP path.
+     * everything else (the placeholder) keeps the standard WebP path.
      */
     private function dispatchSingletonProcessing(
         string $mediaId,

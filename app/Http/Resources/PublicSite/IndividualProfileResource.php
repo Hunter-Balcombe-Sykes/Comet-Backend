@@ -163,10 +163,10 @@ class IndividualProfileResource extends ApiResource
             // endpoint, etc.). Always an object.
             'publicConfig' => $publicConfigOut,
 
-            // Site image singletons — brand logos + per-integration cover
-            // images, keyed by camelCase purpose (logoFull, coverFresha, ...).
-            // Always an object. partna-pages reads logos for the profile and
-            // covers per integration; rendering is the theme's concern.
+            // Site image singletons — brand logos + the placeholder, keyed by
+            // camelCase purpose (logoFull, logoSquare, placeholder). Always an
+            // object. Per-integration covers left the wire 2026-08-05;
+            // rendering is the theme's concern.
             'siteImages' => $siteImagesOut,
 
             // Resolved site policies — {privacy, terms}, each {mode, text,

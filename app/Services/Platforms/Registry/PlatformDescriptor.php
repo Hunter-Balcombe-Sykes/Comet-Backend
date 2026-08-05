@@ -33,8 +33,6 @@ class PlatformDescriptor
     /** Per-platform refresh cadence in seconds; null = fall back to config('partna.refresh.default_ttl_seconds'). */
     private ?int $refreshInterval = null;
 
-    private bool $coverable = false;
-
     /** @var array<int, array{key: string, label: string, description: string}> */
     private array $displayToggles = [];
 
@@ -181,19 +179,6 @@ class PlatformDescriptor
         return $this->displayToggles !== [];
     }
 
-    /**
-     * Cover-image capability — whether this platform has a design-pool cover-image
-     * singleton slot (`cover_<key>`). Drives SiteMedia::designSingletonPurposes() so
-     * adding a cover for a new platform is this one flag, not a new const + list +
-     * migration. Mirrors refreshable(): identity metadata, no behaviour attached.
-     */
-    public function coverable(bool $coverable = true): self
-    {
-        $this->coverable = $coverable;
-
-        return $this;
-    }
-
     /** Attach the smart-detect URL matcher (booking/reservations/events providers). */
     public function detect(Detection $detection): self
     {
@@ -243,11 +228,6 @@ class PlatformDescriptor
     public function refreshInterval(): ?int
     {
         return $this->refreshInterval;
-    }
-
-    public function isCoverable(): bool
-    {
-        return $this->coverable;
     }
 
     /**

@@ -8,8 +8,8 @@ use App\Models\Core\Site\SiteMedia;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Validation\Rule;
 
-// Validates a single design-layer singleton image upload (a brand logo or an
-// integration cover). `purpose` must be one of the design singleton allowlist;
+// Validates a single design-layer singleton image upload (a brand logo or the
+// placeholder). `purpose` must be one of the design singleton allowlist;
 // the file is an image only (free ratio — no dimension constraints).
 class UploadDesignMediaRequest extends BaseFormRequest
 {

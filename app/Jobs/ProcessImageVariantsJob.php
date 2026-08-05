@@ -179,7 +179,7 @@ class ProcessImageVariantsJob implements ShouldQueue
             // Purge the sitepage edge cache now that the image is READY (and thus
             // publicly visible). The ready transition above is a query-builder
             // update, so it bypasses SiteMediaObserver — without this purge, a
-            // just-processed gallery / content image OR per-integration cover
+            // just-processed gallery / content image OR design singleton
             // doesn't appear until the s-maxage window lapses. Wrapped so a purge
             // hiccup can't fail the already-successful job; CloudflareCachePurgeJob
             // is ShouldBeUnique per handle, so concurrent variant jobs dedupe.
