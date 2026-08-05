@@ -18,6 +18,9 @@
 
 BEGIN;
 
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
+
 UPDATE "site"."platform_connections" pc
 SET "display_settings" = COALESCE(pc."display_settings", '{}'::jsonb)
         || '{"auto_sync_latest": false}'::jsonb,
