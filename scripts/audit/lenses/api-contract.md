@@ -92,7 +92,7 @@ For every finding:
 
 ### Group D — Catalog contracts + content/section wire shapes
 ```
---scope app/Catalog/Contracts
+--scope app/Catalog/Enums
 --scope app/Catalog/Enums
 --scope app/Content
 --scope app/Site

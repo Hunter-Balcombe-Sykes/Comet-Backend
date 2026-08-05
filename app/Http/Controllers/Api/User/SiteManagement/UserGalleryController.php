@@ -11,7 +11,6 @@ use App\Http\Resources\GalleryImageResource;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
 use App\Services\Site\ReorderService;
-use App\Services\User\ConfirmationPreferenceService;
 use App\Support\Concerns\NormalisesOptionalString;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -130,14 +129,6 @@ class UserGalleryController extends ApiController
 
         $this->mediaService->deleteVariants($image->id, $image->path);
         $image->delete();
-
-        $confirmationService = app(ConfirmationPreferenceService::class);
-        if ($confirmationService->shouldRemember($request)) {
-            $confirmationService->enableForProfessional(
-                (string) $pro->id,
-                ConfirmationPreferenceService::ACTION_DELETE_MEDIA
-            );
-        }
 
         return $this->success(['deleted' => true]);
     }

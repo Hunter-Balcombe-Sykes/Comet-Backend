@@ -38,7 +38,6 @@ beforeEach(function () {
         'deletion_previous_status TEXT NULL',
         'deletion_mail_sent_at TEXT NULL',
         'admin_notes TEXT NULL',
-        'stripe_manual_balance_cents INTEGER NULL DEFAULT 0',
     ] as $col) {
         try {
             DB::connection('pgsql')->statement('ALTER TABLE core.users ADD COLUMN '.$col);

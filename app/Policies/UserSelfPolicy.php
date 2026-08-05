@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * V2: Authorization for records where the actor can only access their own data.
  *
- * Covers Professional (id-based), UserConfirmationPreference (user_id),
+ * Covers Professional (id-based),
  * and UserDeletionAuditEntry (read-only).
  *
  * Audit-log models (UserDeletionAuditEntry) are immutable — update/delete

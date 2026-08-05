@@ -28,7 +28,6 @@ function makeDeletionTestUser(array $overrides = []): User
         'display_name' => 'Test Pro',
         'primary_email' => 'test-'.substr($id, 0, 8).'@example.com',
         'status' => 'active',
-        'stripe_manual_balance_cents' => 0,
     ], $overrides);
 
     DB::connection('pgsql')->table('core.users')->insert($data);

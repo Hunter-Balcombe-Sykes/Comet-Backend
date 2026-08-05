@@ -7,7 +7,6 @@ use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
 use App\Models\Analytics\LeadSubmission;
-use App\Models\Content\IdentityCandidate;
 use App\Models\Content\Item as ContentItem;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Models\Core\FeatureAvailabilityRule;
@@ -26,7 +25,6 @@ use App\Models\Core\Site\Block;
 use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\DesignKitRestyle;
 use App\Models\Core\Site\Enquiry;
-use App\Models\Core\Site\FieldBinding;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\Page;
@@ -41,7 +39,6 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
-use App\Models\Core\User\UserConfirmationPreference;
 use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Moderation\Decision;
 use App\Models\Moderation\ModerationCase;
@@ -215,7 +212,6 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Service::class, ServicePolicy::class);
         Gate::policy(ServiceCategory::class, ServicePolicy::class);
         Gate::policy(User::class, UserSelfPolicy::class);
-        Gate::policy(UserConfirmationPreference::class, UserSelfPolicy::class);
         Gate::policy(UserDeletionAuditEntry::class, UserSelfPolicy::class);
         Gate::policy(Notification::class, NotificationPolicy::class);
         Gate::policy(NotificationEmailPreference::class, NotificationPolicy::class);
@@ -250,13 +246,9 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Section::class, SectionPolicy::class);
         // Design-kit restyles (plan §13): carry site_id, same ownership shape.
         Gate::policy(DesignKitRestyle::class, DesignKitRestylePolicy::class);
-        // Field bindings (plan §14): another site_id-owned child — SectionPolicy
-        // is the generic site-relation ownership policy (Page reuses it too).
-        Gate::policy(FieldBinding::class, SectionPolicy::class);
         // Content spine (plan §5/§6): items and the duplicates queue carry
         // user_id directly; manual_overrides go via the parent item.
         Gate::policy(ContentItem::class, ContentItemPolicy::class);
-        Gate::policy(IdentityCandidate::class, ContentItemPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.
@@ -735,7 +727,7 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
-        // Webhook endpoints (Square, Fresha, Stripe Connect)
+        // Webhook endpoints (Square, Fresha)
         RateLimiter::for('webhooks', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return Limit::none();

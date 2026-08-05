@@ -10,7 +10,6 @@ use App\Http\Resources\Content\ManualOverrideResource;
 use App\Models\Content\Item;
 use App\Models\Content\ManualOverride;
 use App\Models\Core\User\User;
-use App\Services\Content\FacetRegistry;
 use App\Site\Documents\BuildState;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,27 +35,6 @@ use Illuminate\Support\Facades\DB;
 class ManualOverrideController extends ApiController
 {
     use ResolveCurrentUser;
-
-    public function index(Request $request, string $itemId): JsonResponse
-    {
-        $user = $this->currentUser($request);
-        $item = $this->findItem($user, $itemId);
-
-        $this->authorizeForUser($user, 'view', $item);
-
-        $overrides = ManualOverride::query()
-            ->where('item_id', $item->id)
-            ->orderBy('facet')
-            ->orderBy('column_name')
-            ->get();
-
-        return $this->success([
-            'overrides' => ManualOverrideResource::collection($overrides),
-            // What CAN be overridden on this item, so the dashboard can render
-            // the provenance chip on every field rather than only edited ones.
-            'editableColumns' => FacetRegistry::columnsForFacets(FacetRegistry::facets()),
-        ]);
-    }
 
     public function upsert(UpsertManualOverrideRequest $request, string $itemId): JsonResponse
     {

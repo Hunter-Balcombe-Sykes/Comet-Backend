@@ -38,5 +38,7 @@ it('keeps preview in the serveIndividual bypass condition', function () {
 
     expect($params[1])->toContain('preview')
         ->and($params[1])->toContain('architecture')
-        ->and($params[1])->toContain('skeleton');
+        // 2026-08-05 audit: the legacy ?skeleton= bypass predicate was removed
+        // (no client sends it); pin its absence so it can't quietly return.
+        ->and($params[1])->not->toContain('skeleton');
 });

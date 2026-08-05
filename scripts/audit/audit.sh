@@ -370,13 +370,13 @@ user-api|app/Http/Resources app/Http/Controllers/Api/User app/Http/Controllers/A
 public-staff-api|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal
 platforms-api|app/Http/Controllers/Api/Platforms
 catalog-routing-api|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
-catalog-content-payloads|app/Catalog/Contracts app/Catalog/Enums app/Content app/Site
+catalog-content-payloads|app/Catalog/Enums app/Content app/Site
 payload-services|app/Services/PublicSite app/Services/Site app/Services/Analytics
 EOF
         ;;
         configuration-hygiene) cat <<'EOF'
 config-files|config .env.example routes bootstrap/app.php bootstrap/providers.php .github/workflows deploy
-consumers-catalog|app/Catalog/Contracts app/Catalog/Enums bootstrap/catalog
+consumers-catalog|app/Catalog/Enums bootstrap/catalog
 consumers-ingest-routing|app/Ingest app/Routing
 consumers-jobs|app/Jobs
 consumers-console-mw|app/Console app/Http/Middleware

@@ -59,7 +59,6 @@ $searchPathFunctions = [
     ['public', 'set_updated_at'],
     ['core', 'set_updated_at'],
     ['core', 'set_media_variants_updated_at'],
-    ['core', 'set_user_confirmation_preferences_updated_at'],
     ['core', 'reject_staff_audit_log_mutation'],
     ['core', 'trg_handle_change_log_append_only'],
     ['core', 'trg_user_handle_alias_check'],

@@ -360,7 +360,7 @@ it('shopify addBrand returns the canonical brand object shape', function () {
         ]);
     });
 
-    actingAsUser($user)->postJson('/api/platforms/shopify/brands', ['url' => 'https://b.example.com'])
+    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://b.example.com'])
         ->assertOk()
         ->assertExactJson([
             'id' => 'brand-1',
@@ -391,7 +391,7 @@ it('shopify brands list strips unknown per-brand keys', function () {
         'favicon' => null, 'logo' => null, 'discount_code' => 'SAVE',
     ]);
 
-    actingAsUser($user)->getJson('/api/platforms/shopify/brands')
+    actingAsUser($user)->getJson('/api/platforms/shop/brands')
         ->assertOk()
         ->assertExactJson(['brands' => [[
             'id' => 'brand-1', 'provider' => 'shopify', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',

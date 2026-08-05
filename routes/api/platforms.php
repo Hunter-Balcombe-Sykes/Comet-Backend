@@ -77,32 +77,30 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::delete('/', [SquareController::class, 'forget']);
         });
 
-    // Provider-agnostic shop endpoints. Registered under BOTH the canonical
-    // /shop prefix and the legacy /shopify prefix (same controller — the
-    // dashboard flips to /shop; the alias covers the deploy gap).
-    foreach (['shop', 'shopify'] as $shopAlias) {
-        Route::prefix("{$base}/{$shopAlias}")
-            ->middleware($middleware)
-            ->group(function () {
-                Route::get('/brands', [ShopController::class, 'brands']);
-                Route::post('/brands', [ShopController::class, 'addBrand']);
-                Route::get('/brands/{id}/connect/status', [ShopController::class, 'connectStatus'])->where('id', '[A-Za-z0-9._-]+');
-                Route::patch('/brands/{id}', [ShopController::class, 'updateBrand'])->where('id', '[A-Za-z0-9._-]+');
-                Route::delete('/brands/{id}', [ShopController::class, 'removeBrand'])->where('id', '[A-Za-z0-9._-]+');
-                Route::get('/brands/{id}/products', [ShopController::class, 'brandProducts'])->where('id', '[A-Za-z0-9._-]+');
-                Route::post('/brands/{id}/catalog', [ShopController::class, 'catalog'])->where('id', '[A-Za-z0-9._-]+');
-                Route::put('/brands/{id}/selection', [ShopController::class, 'setProducts'])->where('id', '[A-Za-z0-9._-]+');
-                // Individual products (no parent store) — add by product-page URL.
-                Route::post('/products', [ShopController::class, 'addProduct']);
-                Route::delete('/products/{productId}', [ShopController::class, 'removeProduct'])->where('productId', '[A-Za-z0-9._-]+');
-                Route::get('/selection', [ShopController::class, 'selection']);
-                // GLOBAL shop link controls (2026-07-08) — one site-level choice
-                // each (link mode + auto-latest), applied to every connected store.
-                Route::get('/settings', [ShopController::class, 'settings']);
-                Route::patch('/settings', [ShopController::class, 'updateSettings']);
-                Route::delete('/', [ShopController::class, 'forget']);
-            });
-    }
+    // Provider-agnostic shop endpoints. (The legacy /shopify alias prefix was
+    // removed 2026-08-05 — both dashboards and the sitepage read /shop; the
+    // 2026 audit confirmed no caller anywhere still used the alias.)
+    Route::prefix("{$base}/shop")
+        ->middleware($middleware)
+        ->group(function () {
+            Route::get('/brands', [ShopController::class, 'brands']);
+            Route::post('/brands', [ShopController::class, 'addBrand']);
+            Route::get('/brands/{id}/connect/status', [ShopController::class, 'connectStatus'])->where('id', '[A-Za-z0-9._-]+');
+            Route::patch('/brands/{id}', [ShopController::class, 'updateBrand'])->where('id', '[A-Za-z0-9._-]+');
+            Route::delete('/brands/{id}', [ShopController::class, 'removeBrand'])->where('id', '[A-Za-z0-9._-]+');
+            Route::get('/brands/{id}/products', [ShopController::class, 'brandProducts'])->where('id', '[A-Za-z0-9._-]+');
+            Route::post('/brands/{id}/catalog', [ShopController::class, 'catalog'])->where('id', '[A-Za-z0-9._-]+');
+            Route::put('/brands/{id}/selection', [ShopController::class, 'setProducts'])->where('id', '[A-Za-z0-9._-]+');
+            // Individual products (no parent store) — add by product-page URL.
+            Route::post('/products', [ShopController::class, 'addProduct']);
+            Route::delete('/products/{productId}', [ShopController::class, 'removeProduct'])->where('productId', '[A-Za-z0-9._-]+');
+            Route::get('/selection', [ShopController::class, 'selection']);
+            // GLOBAL shop link controls (2026-07-08) — one site-level choice
+            // each (link mode + auto-latest), applied to every connected store.
+            Route::get('/settings', [ShopController::class, 'settings']);
+            Route::patch('/settings', [ShopController::class, 'updateSettings']);
+            Route::delete('/', [ShopController::class, 'forget']);
+        });
 
     Route::prefix("{$base}/instagram")
         ->middleware($middleware)
