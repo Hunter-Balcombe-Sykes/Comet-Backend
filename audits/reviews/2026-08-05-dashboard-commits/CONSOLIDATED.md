@@ -26,8 +26,8 @@
 ## Progress
 
 - **Total findings:** 11
-- **Closed:** 6 / 11
-- P1 1/2 · P2 5/5 · P3 0/4
+- **Closed:** 10 / 11
+- P1 1/2 · P2 5/5 · P3 4/4
 
 ## Suggested Bundled Sessions
 
@@ -151,22 +151,22 @@ Run in this order. Units are sequential — later units touch files earlier ones
 
 ## P3
 
-- [ ] **#PERF-1** · P3 — `UserDesignMediaController::destroy()` runs the same query twice
+- [x] **#PERF-1** · P3 — `UserDesignMediaController::destroy()` runs the same query twice
     - **Where:** `UserDesignMediaController.php:116-121` + `MediaUploadService.php:272-277`
     - **What to do:** Pass the already-fetched `$rows` into `removeSingleton()`. A design singleton is 0-or-1 row on a rare explicit action — retiered P2 → P3.
     - `[CONFIRMED]`
 
-- [ ] **#PERF-2** · P3 — `$user->site()->value('id')` forces a query on an already-loaded relation
+- [x] **#PERF-2** · P3 — `$user->site()->value('id')` forces a query on an already-loaded relation
     - **Where:** `ShopController.php:1012`, `CustomLinksController.php:243-244`
     - **What to do:** Use `$user->site?->id`. `UserCacheService::getByAuthId()` eager-loads `site` and its docblock states the relation stays marked loaded; calling the relation *method* bypasses that.
     - `[CONFIRMED]`
 
-- [ ] **#CFG-1** · P3 — `max:9` hardcoded beside a nine-element `POOL_KEYS`
+- [x] **#CFG-1** · P3 — `max:9` hardcoded beside a nine-element `POOL_KEYS`
     - **Where:** `SiteOrderingValidationRules.php:32-35,72`
     - **What to do:** `'max:'.count(self::POOL_KEYS)`. **Note:** the draft's proposed "derive from `SitepageId`" fix is wrong — `SitepageId` is a different, larger 15-case taxonomy. No backend pool registry exists; this is the first one. The file already hardcodes `max:16`/`max:26` beside their consts, so this matches local convention.
     - `[CONFIRMED]`
 
-- [ ] **#SLOP-1** · P3 — Orphaned docblock separates `LEGACY_BUTTON_REF_TO_ACTION_ID` from its constant
+- [x] **#SLOP-1** · P3 — Orphaned docblock separates `LEGACY_BUTTON_REF_TO_ACTION_ID` from its constant
     - **Where:** `SiteOrderingValidationRules.php:16-37`
     - **What to do:** Absorb opportunistically next time the file is open.
     - `[CONFIRMED]`

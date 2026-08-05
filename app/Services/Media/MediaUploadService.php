@@ -14,6 +14,7 @@ use App\Services\Media\Exceptions\PoolLimitExceededException;
 use App\Services\Media\Exceptions\SingletonConflictException;
 use App\Services\Media\Exceptions\VideoDispatchFailedException;
 use App\Support\Concerns\NormalisesOptionalString;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -274,10 +275,14 @@ class MediaUploadService
      * the purge is never collateral — the delete removes what existed when
      * the user clicked, and an upload it does catch mid-store surfaces as
      * that upload's own 409 via the conditional path-claim above.
+     *
+     * @param  Collection<int, SiteMedia>|null  $rows  the caller's own inspection-time
+     *                                                 read (e.g. the rows it just authorized against), to avoid running this
+     *                                                 query twice. Defaults to re-querying for callers that don't have it.
      */
-    public function removeSingleton(Site $site, string $purpose): bool
+    public function removeSingleton(Site $site, string $purpose, ?Collection $rows = null): bool
     {
-        $rows = SiteMedia::query()
+        $rows ??= SiteMedia::query()
             ->where('site_id', $site->id)
             ->where('pool', SiteMedia::POOL_DESIGN)
             ->where('purpose', $purpose)

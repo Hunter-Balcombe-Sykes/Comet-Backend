@@ -243,7 +243,7 @@ class CustomLinksController extends ApiController
         // silently meant "stored order". Fail-open: a read fault degrades to
         // null ranks.
         $ranks = app(ContentPopularityReader::class)
-            ->forSite($user->site()->value('id'));
+            ->forSite($user->site?->id);
         $linkRanks = $ranks['link_item'] ?? [];
 
         return $this->linkRows($user)->map(function (IntegrationConnection $row) use ($linkRanks): array {
