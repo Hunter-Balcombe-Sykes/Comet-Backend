@@ -125,6 +125,31 @@ platforms have no item stream: they stay pure links/embeds, untouched.
   PoolResolver inside IndividualProfilePayloadBuilder (owner chose Option
   B — site follows edits instantly; site_documents stays unused by us).
 
+## CHECKPOINT (giant run, 2026-08-05 evening — branch feature/platforms-as-sources)
+
+DONE (committed, all local suites green):
+- `565d693d` SectionCandidates extraction (ONE rule executor; fixed the
+  tracer's operator drift as found) + `latest_per_auto_source` operator +
+  content.item_links migration (20260805090000).
+- `35ec0634` Pool lane: PoolRegistry/Provisioner/Resolver (live),
+  PoolController (GET/select/deselect/reorder), ItemController (removed_at),
+  ItemLinkController (+ItemLinkRules), routes, authz expectations, SQLite
+  mirror, 12-test PoolLaneTest (owner semantics pinned).
+- `da9367ed` Toggle unification: 8 registry declarations, AutoSyncSetting,
+  site columns dropped (migration 20260805100000), readers swapped
+  (ShopFetch/ShopController/ContentSelectionService/PublicIntegration/
+  ContentController/observer), siteColumn bridge deleted, suites updated.
+- `b167cc6f` profile.pools on the public payload, live via PoolResolver.
+
+REMAINING Phase 1: instagram→media extraction into content items (task
+#36; check InstagramConnector's current kinds first); then task #38 —
+PHPStan + Pint + ONE full --parallel run, merge → development, deploy,
+LIVE smoke (pool GET against dev-api with a real account; SQLite-drift
+rule: dry-run every new Postgres writer live). Then P2 (pages renders
+pools + Latest badge + platform buttons), P3 (dashboard pools live, Posts
+folds into Media, add-a-link sheet UI), P4 (Featured teardown, only after
+P1–P3 verified live).
+
 ## Phase 1 — Backend: the pool serve/curate lane
 
 1. **Pool selection store**: one `site.sections` row per pool (watch,
