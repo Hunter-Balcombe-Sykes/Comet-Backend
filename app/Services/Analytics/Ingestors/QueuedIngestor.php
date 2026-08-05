@@ -27,7 +27,16 @@ class QueuedIngestor implements AnalyticsIngestor
     public function ingest(AnalyticsEvent $event): void
     {
         try {
-            $this->bus->dispatch(new RecordAnalyticsEventJob($event->toArray()));
+            $job = new RecordAnalyticsEventJob($event->toArray());
+
+            // Request-path dispatch takes the 3.0s-bounded `app` Redis connection, not `default`'s
+            // 15.0s worker bound (drill 03, 2026-08-05: 15.06s beacon against a hung Redis). Gated on
+            // the driver so `sync`/`database` queues in tests and local dev keep dispatching inline.
+            if (config('queue.connections.'.config('queue.default').'.driver') === 'redis') {
+                $job->onConnection('redis_request');
+            }
+
+            $this->bus->dispatch($job);
         } catch (Throwable $e) {
             Log::warning('analytics.ingest.dispatch_failed', [
                 'type' => $event->type,

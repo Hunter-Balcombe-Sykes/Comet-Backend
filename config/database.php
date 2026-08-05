@@ -164,6 +164,17 @@ return [
     | The request path can take the tight bound because nothing on it issues a
     | server-side blocking command: `Cache::lock()->block()` is a PHP-side usleep
     | poll (Illuminate\Cache\Lock::block), so each op is a single short SET NX.
+    |
+    | READ_TIMEOUT BOUNDS ONE OPERATION, NOT ONE REQUEST. Do not read "3.0" as
+    | "requests are capped at 3s". Drill 03 (2026-08-05) measured a warm public
+    | profile request issuing TEN Redis commands on `cache` alone (six of them
+    | the rate limiter's, before the controller runs) — every one independently
+    | bounded, every layer failing open, so the request paid ~3s per touch:
+    | 18.11s total against a hung Redis. What bounds a REQUEST is
+    | App\Services\Redis\RedisRequestBreaker, which trips on the first transport
+    | failure and skips the rest of that request's Redis work, collapsing
+    | N x read_timeout to 1 x read_timeout (measured 18.12s -> 3.10s). Raising
+    | or lowering these values is not a substitute for it in either direction.
     */
     'redis' => [
 

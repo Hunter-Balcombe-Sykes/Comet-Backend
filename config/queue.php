@@ -81,6 +81,39 @@ return [
             'after_commit' => false,
         ],
 
+        // DISPATCH-ONLY. Nothing ever consumes this connection — no worker, no Horizon
+        // supervisor points here. It exists so the request path can PUSH a job without
+        // inheriting `redis`'s `default` Redis connection and its 15.0s read_timeout,
+        // sized for queue workers' BLPOP (see config/database.php). Drill 03 (2026-08-05)
+        // measured POST /api/public/analytics/pageviews at 15.06s against a hung Redis —
+        // ~one 15s op: QueuedIngestor dispatching RecordAnalyticsEventJob through `redis`,
+        // whose `connection` resolves to `default`.
+        //
+        // `connection` is hardcoded to `app`, not env-driven — the whole point is that
+        // this is the request-path view, not a configurable choice. `app` and `default`
+        // are two views of the SAME Redis DB 0 with the same `laravel_database_` prefix
+        // (see config/database.php's `app` connection comment), so a job pushed here
+        // lands on byte-identical queue keys to one pushed via `redis`, and Horizon's
+        // existing `redis` supervisors consume it unchanged — nothing about the queue
+        // NAME or keyspace changes, only which Redis connection performs the push.
+        //
+        // `block_for` is null, not omitted or copied from `redis`: a consumer would
+        // BLPOP and busy-poll against a connection with no read_timeout headroom for
+        // blocking reads, which is a signal that something started consuming here by
+        // mistake, not a config value to tune. `queue`, `retry_after` and `after_commit`
+        // are mirrored byte-for-byte from `redis`, reading the SAME env vars with the
+        // SAME defaults, purely so the two blocks can never drift apart and stay
+        // comparable — the CONSUMING worker's `redis` block is what actually governs
+        // reservation and re-queue timing; this connection is never reserved from.
+        'redis_request' => [
+            'driver' => 'redis',
+            'connection' => 'app',
+            'queue' => env('REDIS_QUEUE', 'default'),
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 360),
+            'block_for' => null,
+            'after_commit' => false,
+        ],
+
         // Dedicated connection for video transcoding jobs.
         // Higher retry_after to accommodate long-running ffmpeg encodes.
         // Run workers with: php artisan queue:work redis_video --queue=videos --timeout=3600

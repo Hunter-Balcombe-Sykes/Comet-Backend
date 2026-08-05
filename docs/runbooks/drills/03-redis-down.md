@@ -243,7 +243,30 @@ wait
 Also re-measure each probe **alone**, one per hang, to rule out contention as an explanation
 before trusting the parallel numbers.
 
-**Measured reality (2026-08-05) — only `enquiry` is fast; everything else is not:**
+**Expected as of 2026-08-05 (post per-request breaker) — every request-path probe lands at ~one
+`read_timeout`:**
+
+| Probe | Expect (against a ~40s hang) |
+|---|---|
+| `health` | **< 0.1s** — issues zero Redis commands (unthrottled since 2026-08-05) |
+| `enquiry` | **~3s** |
+| `authed` | **~3s** (503, the designed degradation) |
+| `profile` | **~3s** |
+| `pageview` (beacon) | **~3–4s** |
+
+Anything materially above ~3s means the breaker did not arm or did not trip — check
+`ArmRedisRequestBreaker` is still `$middleware->prepend`ed in `bootstrap/app.php`, that
+`Redis::connection('cache')` resolves to `App\Services\Redis\GuardedPhpRedisConnection`, and that
+`storage/logs/laravel.log` shows one `redis.request_breaker.opened` breadcrumb per degraded request.
+Full method and numbers: [logs/2026-08-05-redis-breaker.md](logs/2026-08-05-redis-breaker.md).
+
+⚠️ **`DEBUG SLEEP` cannot exercise the connect-timeout path.** A sleeping server still completes the
+TCP handshake, so failures surface as `read error on connection` at `SELECT`. A packet-drop outage
+(security group, fenced node, partition) instead throws `Operation timed out` from `connect()`. Both
+are in `RedisRequestBreaker::TRANSPORT_FAILURE_FRAGMENTS`, but only the first is reachable from this
+drill — a green Scenario C is not evidence about the second.
+
+**Historical — the measurement that motivated the breaker (2026-08-05, before it existed):**
 
 | Probe | Time (against a ~40s hang) |
 |---|---|
