@@ -42,7 +42,7 @@ final class DisplaySettingsFilter
             'menu' => ['menu'],
         ],
         'instagram' => [
-            'gallery' => ['images', 'videoUrl', 'videoPoster', 'imagesDropped'],
+            'auto_sync_latest' => ['images', 'videoUrl', 'videoPoster', 'imagesDropped'],
         ],
         // The full releases list is stored on every scrape but only SERVED when
         // the owner opted in — show_all_releases is default-OFF (see

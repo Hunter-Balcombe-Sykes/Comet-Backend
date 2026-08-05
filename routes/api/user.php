@@ -3,7 +3,10 @@
 use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
 use App\Http\Controllers\Api\Content\ContentKindController;
 use App\Http\Controllers\Api\Content\IdentityCandidateController;
+use App\Http\Controllers\Api\Content\ItemController;
+use App\Http\Controllers\Api\Content\ItemLinkController;
 use App\Http\Controllers\Api\Content\ManualOverrideController;
+use App\Http\Controllers\Api\Content\PoolController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Controllers\Api\Routing\ConnectionsController;
@@ -172,6 +175,27 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->whereUuid('item')->name('content.items.overrides.upsert');
         Route::delete('/content/items/{item}/overrides/{facet}/{column}', [ManualOverrideController::class, 'destroy'])
             ->whereUuid('item')->name('content.items.overrides.destroy');
+
+        // ── Pools (platforms-as-sources, 2026-08-05). ──────────────────────
+        // One GET for the whole pool (selection + library + Latest tag); the
+        // selection verbs write pins/excludes on the pool's section — the
+        // only curation store. DELETE items/{item} is the C8 library delete.
+        Route::get('/content/pools/{pool}', [PoolController::class, 'show'])
+            ->name('content.pools.show');
+        Route::post('/content/pools/{pool}/selection/{item}', [PoolController::class, 'select'])
+            ->whereUuid('item')->name('content.pools.select');
+        Route::delete('/content/pools/{pool}/selection/{item}', [PoolController::class, 'deselect'])
+            ->whereUuid('item')->name('content.pools.deselect');
+        Route::put('/content/pools/{pool}/order', [PoolController::class, 'reorder'])
+            ->name('content.pools.reorder');
+        Route::delete('/content/items/{item}', [ItemController::class, 'destroy'])
+            ->whereUuid('item')->name('content.items.destroy');
+
+        // Hand-saved cross-platform links on a pool item (alternates only).
+        Route::put('/content/items/{item}/links/{platform}', [ItemLinkController::class, 'upsert'])
+            ->whereUuid('item')->name('content.items.links.upsert');
+        Route::delete('/content/items/{item}/links/{platform}', [ItemLinkController::class, 'destroy'])
+            ->whereUuid('item')->name('content.items.links.destroy');
 
         // Profile sector/industry — curated picker options + manual set. The
         // sector is also fillable by the Google Business precedence sync

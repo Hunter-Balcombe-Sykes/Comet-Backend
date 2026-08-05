@@ -22,6 +22,7 @@ use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Site\ContentSelectionService;
+use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -256,7 +257,7 @@ class ContentController extends ApiController
     {
         return [
             'selection' => $this->selection->resolve($site),
-            'instagramAutoEnabled' => (bool) $site->content_instagram_auto_enabled,
+            'instagramAutoEnabled' => AutoSyncSetting::isOn((string) $pro->id, Platform::Instagram->value),
             'instagramConnected' => $this->hasActiveConnection($pro, Platform::Instagram->value),
             // WS-B2.1: the Google-photos content-inclusion toggle (stored on the GB
             // connection's display_settings). googlePhotosConnected lets the

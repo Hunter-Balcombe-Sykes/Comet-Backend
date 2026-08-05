@@ -47,7 +47,7 @@ function shopSyncUser(string $h): User
     ]);
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => (string) Str::uuid(), 'user_id' => $user->id, 'subdomain' => $h,
-        'shop_auto_latest' => 1, 'created_at' => now(), 'updated_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
     ]);
 
     return $user->fresh();

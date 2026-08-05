@@ -151,15 +151,12 @@ class PlatformDescriptor
      * synced content the owner can hide from their sitepage (e.g. Google
      * Business reviews). Declared here so the settings UI, the PATCH
      * validation, and the public-payload suppression all read one source; a
-     * platform without toggles renders no Display card. Every toggle
-     * defaults ON (null display_settings = show everything).
+     * platform without toggles renders no Display card. A toggle defaults ON
+     * unless the def carries 'default' => false; storage is the connection's
+     * sparse display_settings JSONB. (The `siteColumn` bridge died 2026-08-05
+     * with the site columns it served — see AutoSyncSetting.)
      *
-     * An optional `siteColumn` backs the toggle by a boolean column on
-     * site.sites instead of the per-connection display_settings JSONB — used
-     * to unify a display toggle with a site-level setting (Instagram gallery ↔
-     * content_instagram_auto_enabled).
-     *
-     * @param  array<int, array{key: string, label: string, description: string, siteColumn?: string}>  $toggles
+     * @param  array<int, array{key: string, label: string, description: string, default?: bool}>  $toggles
      */
     public function displayToggles(array $toggles): self
     {
@@ -168,7 +165,7 @@ class PlatformDescriptor
         return $this;
     }
 
-    /** @return array<int, array{key: string, label: string, description: string, siteColumn?: string}> */
+    /** @return array<int, array{key: string, label: string, description: string, default?: bool}> */
     public function displayToggleDefs(): array
     {
         return $this->displayToggles;

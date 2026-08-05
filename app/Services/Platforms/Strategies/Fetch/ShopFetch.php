@@ -32,13 +32,10 @@ final readonly class ShopFetch implements FetchStrategy
 
     public function fetch(IntegrationConnection $connection): array
     {
-        // Global auto-latest gate (2026-07-08): off → no store auto-tracks
-        // latest. Defaults ON when the site row predates the column. One
-        // indexed lookup keyed by the connection's owner.
-        $autoLatest = Site::query()
-            ->where('user_id', $connection->user_id)
-            ->value('shop_auto_latest');
-        if ($autoLatest !== null && ! $autoLatest) {
+        // Auto-latest gate (2026-08-05: moved off the dropped site column and
+        // onto the connection's own sparse display_settings — absent = ON,
+        // the same predicate every fetch gate uses).
+        if (data_get($connection->display_settings, 'auto_sync_latest') === false) {
             throw new FetchNotModifiedException('shop');
         }
 

@@ -84,6 +84,20 @@
   fixture: { item: unknown, facet: unknown, column: unknown }
 - route: "api/content/identity/candidates/{candidate}/dismiss"
   fixture: { candidate: unknown }
+# Pools (2026-08-05): {pool} is a registry key (watch|listen|media) validated
+# against PoolRegistry, never an identity; items resolve owner-scoped so an
+# identity-B id is a 404, not a hit.
+- route: "api/content/pools/{pool}"
+  fixture: { pool: watch }
+- route: "api/content/pools/{pool}/selection/{item}"
+  fixture: { pool: watch, item: unknown }
+- route: "PUT api/content/pools/{pool}/order"
+  body: { itemIds: [] }
+  fixture: { pool: watch }
+- route: "api/content/items/{item}"
+  fixture: { item: unknown }
+- route: "api/content/items/{item}/links/{platform}"
+  fixture: { item: unknown, platform: spotify }
 
 # ── Design media ─────────────────────────────────────────────────────────────
 - route: "api/design-media/{purpose}"

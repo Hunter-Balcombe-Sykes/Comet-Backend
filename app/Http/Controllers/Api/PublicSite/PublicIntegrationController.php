@@ -97,24 +97,12 @@ class PublicIntegrationController extends ApiController
             ->get(['id', 'platform', 'resource_id', 'resource_kind', 'payload', 'display_settings', 'last_refreshed_at'])
             ->groupBy('platform');
 
-        // Instagram: the gallery card is UNIFIED with the Content/Media "auto
-        // sync" switch — one field (sites.content_instagram_auto_enabled) governs
-        // ALL auto IG content. Strip the card payload ONLY when the switch is
-        // explicitly OFF (false): reflect it as an in-memory display_settings
-        // override (not persisted) so the shared DisplaySettingsFilter drops the
-        // gallery keys. null (never set) keeps the card's historical show-by-
-        // default — the connect-time seed sets it true for real connections, so
-        // this never silently hides a connected user's content.
-        if ($connections->has('instagram')) {
-            $site = Site::query()->where('user_id', $userId)->first(['content_instagram_auto_enabled']);
-            if ($site?->content_instagram_auto_enabled === false) {
-                foreach ($connections->get('instagram') as $row) {
-                    $ds = (array) ($row->display_settings ?? []);
-                    $ds['gallery'] = false;
-                    $row->display_settings = $ds;
-                }
-            }
-        }
+        // Instagram (2026-08-05): the auto switch lives on the connection's
+        // own display_settings (auto_sync_latest — the one toggle grammar),
+        // which already rides the rows fetched above, so the shared
+        // DisplaySettingsFilter suppresses the gallery keys with no in-memory
+        // override. The old sites.content_instagram_auto_enabled column and
+        // its translation block are gone.
 
         // GLOBAL shop link mode (2026-07-08): one site-level choice applied to
         // every connected store. Resolved once (single indexed lookup) and

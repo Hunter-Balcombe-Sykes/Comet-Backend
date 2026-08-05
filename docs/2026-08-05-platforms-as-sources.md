@@ -78,6 +78,78 @@ Source roster (platforms with selectable item streams → pool):
 Embed-only (spotify, soundcloud, mixcloud, tidal) and the ~40 link/card
 platforms have no item stream: they stay pure links/embeds, untouched.
 
+## Phase 1 design (settled inline 2026-08-05, giant run — Option B: LIVE)
+
+- **Scope**: watch/listen/media pools move onto the content library now.
+  Events/Sell/Services/Menu keep their existing live lanes (already
+  sources→pool shaped: hiddenEventIds, shop selections, hiddenServiceIds);
+  unifying them onto content.* is future work. Bandcamp releases = Listen.
+- **Pool→kinds**: watch→[video] · listen→[track,release,episode] ·
+  media→[media]. Kinds are the schema's closed 14.
+- **Selection = one section per pool** (kind collection, key `pool:{key}`,
+  mode mixed, order_by recency, rule
+  `{all:[{op:kind_is,…},{op:latest_per_auto_source,…}]}`), provisioned
+  on demand (find-or-create, idempotent). Pins = hand-picks (sort_key =
+  drag order); excludes = removals; rule = the auto half. C4 holds: no
+  engine ever writes pins — rolling latest is READ-TIME.
+- **New rule operator `latest_per_auto_source`** (8th): item is the newest
+  (f_published.published_from, fallback first_seen_at) non-removed item of
+  its connection-source among the rule kinds, AND that connection's
+  `display_settings.auto_sync_latest` ≠ false. Registered in
+  EXECUTED_OPERATORS + validator + DocumentBuilderRuleOpsTest. Owner
+  semantics fall out: excludes apply AFTER candidates, so excluding the
+  current latest leaves nothing until a newer item lands.
+- **PoolResolver service** (live, shared by dashboard + public payload):
+  render-ready items — headline (manual_overrides-aware), link (f_link),
+  platform (source→connection), creator (f_authored/f_channel),
+  publishedAt, durationSeconds, thumbnail (item_media cover→media_assets),
+  price (offers, sell-adjacent kinds), origin (pin=manual, rule=auto),
+  popularityRank, platformLinks, latest flag (selection-wide, newest
+  released; watch/listen/media only).
+- **Endpoints** (PoolController + routes): GET /content/pools/{pool}
+  (selection + library + latestItemId) · POST/DELETE
+  /content/pools/{pool}/selection/{item} (pin / unpin-or-exclude: removing
+  an auto item writes an exclude) · PUT /content/pools/{pool}/order
+  (rewrites pin sort keys; dragging an auto item pins it) ·
+  DELETE /content/items/{id} → removed_at. All bump BuildState.
+- **item_links**: NEW table content.item_links (item_id, platform, url,
+  UNIQUE(item,platform)) + PUT/DELETE /content/items/{id}/links/{platform}
+  + ItemMerger repoint + payload join. Server enforces alternates-only +
+  platform-domain URL validation.
+- **Toggles**: descriptor auto_sync_latest for youtube, vimeo, twitch,
+  youtube-music, apple-music, apple-podcast, instagram (eventbrite/
+  humanitix/bandcamp already have it). Site columns shop_auto_latest +
+  content_instagram_auto_enabled migrate into connection display_settings,
+  readers swapped, columns dropped.
+- **Public payload**: `pools.{watch,listen,media}` arrays resolved LIVE by
+  PoolResolver inside IndividualProfilePayloadBuilder (owner chose Option
+  B — site follows edits instantly; site_documents stays unused by us).
+
+## CHECKPOINT (giant run, 2026-08-05 evening — branch feature/platforms-as-sources)
+
+DONE (committed, all local suites green):
+- `565d693d` SectionCandidates extraction (ONE rule executor; fixed the
+  tracer's operator drift as found) + `latest_per_auto_source` operator +
+  content.item_links migration (20260805090000).
+- `35ec0634` Pool lane: PoolRegistry/Provisioner/Resolver (live),
+  PoolController (GET/select/deselect/reorder), ItemController (removed_at),
+  ItemLinkController (+ItemLinkRules), routes, authz expectations, SQLite
+  mirror, 12-test PoolLaneTest (owner semantics pinned).
+- `da9367ed` Toggle unification: 8 registry declarations, AutoSyncSetting,
+  site columns dropped (migration 20260805100000), readers swapped
+  (ShopFetch/ShopController/ContentSelectionService/PublicIntegration/
+  ContentController/observer), siteColumn bridge deleted, suites updated.
+- `b167cc6f` profile.pools on the public payload, live via PoolResolver.
+
+REMAINING Phase 1: instagram→media extraction into content items (task
+#36; check InstagramConnector's current kinds first); then task #38 —
+PHPStan + Pint + ONE full --parallel run, merge → development, deploy,
+LIVE smoke (pool GET against dev-api with a real account; SQLite-drift
+rule: dry-run every new Postgres writer live). Then P2 (pages renders
+pools + Latest badge + platform buttons), P3 (dashboard pools live, Posts
+folds into Media, add-a-link sheet UI), P4 (Featured teardown, only after
+P1–P3 verified live).
+
 ## Phase 1 — Backend: the pool serve/curate lane
 
 1. **Pool selection store**: one `site.sections` row per pool (watch,

@@ -6,6 +6,7 @@ use App\Models\Core\Site\Section;
 use App\Site\Documents\BuildState;
 use App\Site\Documents\DocumentBuilder;
 use App\Site\Sections\RuleOperator;
+use App\Site\Sections\SectionCandidates;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -246,42 +247,21 @@ final class SectionTracer
     }
 
     /**
-     * Mirrors DocumentBuilder::ruleCandidates() exactly — including which
-     * operators it silently skips.
+     * Delegates to the ONE rule executor. This method used to keep a "mirror"
+     * of DocumentBuilder::ruleCandidates() that executed two of the seven
+     * operators — and filtered published_within on last_seen_at while the
+     * builder used the published facet — so the trace enumerated candidates
+     * the live page never had. Exactly the drift this class's header warns
+     * about; fixed 2026-08-05 by extracting {@see SectionCandidates} and
+     * pointing builder, tracer and pools at the same query.
      *
      * @param  list<string>  $alreadyPinned
      * @return list<string>
      */
     private function ruleCandidateIds(Section $section, array $alreadyPinned): array
     {
-        $query = DB::table('content.items')
-            ->join('site.sites', 'site.sites.user_id', '=', 'content.items.user_id')
-            ->where('site.sites.id', $section->site_id)
-            ->whereNull('content.items.removed_at');
-
-        foreach ($section->ruleObject()->predicates as $predicate) {
-            match ($predicate->operator) {
-                RuleOperator::KindIs => $predicate->negated
-                    ? $query->whereNotIn('content.items.kind', $predicate->values)
-                    : $query->whereIn('content.items.kind', $predicate->values),
-                RuleOperator::PublishedWithin => $query->where(
-                    'content.items.last_seen_at', '>=',
-                    now()->subDays((int) ($predicate->values[0] ?? 30)),
-                ),
-                default => null,
-            };
-        }
-
-        $ordered = match ($section->order_by) {
-            'alphabetical' => $query->orderBy('content.items.headline_cache'),
-            default => $query->orderByDesc('content.items.last_seen_at'),
-        };
-
-        return array_values($ordered
-            ->whereNotIn('content.items.id', $alreadyPinned ?: ['00000000-0000-0000-0000-000000000000'])
-            ->limit(self::CANDIDATE_SCAN_LIMIT)
-            ->pluck('content.items.id')
-            ->all());
+        return app(SectionCandidates::class)
+            ->ruleCandidates($section, $alreadyPinned, self::CANDIDATE_SCAN_LIMIT);
     }
 
     /**
