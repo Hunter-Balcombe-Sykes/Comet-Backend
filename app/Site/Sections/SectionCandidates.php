@@ -267,9 +267,16 @@ class SectionCandidates
                                 : $newer->whereIn('i2.kind', $values);
                             // "Newer": published when a source dated it,
                             // first-seen otherwise — same fallback the
-                            // published_within arm uses.
+                            // published_within arm uses. Ties break on id:
+                            // a bulk first-ingest stamps one first_seen_at
+                            // across a whole catalogue, and without a total
+                            // order NOTHING is "newer", so EVERY item won
+                            // (live smoke, ollies: 15 undated releases all
+                            // wearing auto). Exactly one item must win a tie.
                             $newer->whereRaw(
                                 'COALESCE(p2.published_from, i2.first_seen_at) > COALESCE(p1.published_from, content.items.first_seen_at)'
+                                .' OR (COALESCE(p2.published_from, i2.first_seen_at) = COALESCE(p1.published_from, content.items.first_seen_at)'
+                                .' AND i2.id > content.items.id)'
                             );
                         });
                 });

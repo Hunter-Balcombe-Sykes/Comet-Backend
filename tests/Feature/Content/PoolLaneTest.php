@@ -332,3 +332,28 @@ it('serves the pool selection on the public payload with the Latest tag', functi
     expect($watch['items'][0])->not->toHaveKey('selected');
     expect($watch['items'][0]['origin'])->toBe('auto');
 });
+
+it('breaks a full timestamp tie to exactly one auto item per source', function () {
+    [$pro] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    // A bulk first-ingest: same first_seen_at, NO published facet — the live
+    // smoke found a 15-way tie where every item won. Exactly one must.
+    $stamp = now()->subDays(3);
+    foreach (['One', 'Two', 'Three'] as $headline) {
+        $id = (string) Str::uuid();
+        DB::connection('pgsql')->table('content.items')->insert([
+            'id' => $id, 'user_id' => $pro->id, 'kind' => 'video',
+            'headline_cache' => $headline, 'facets_cache' => '[]', 'eligible_cache' => '[]',
+            'first_seen_at' => $stamp, 'last_seen_at' => $stamp,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::connection('pgsql')->table('content.source_items')->insert([
+            'id' => (string) Str::uuid(), 'source_id' => $source,
+            'coord' => 'x:'.Str::random(8), 'item_id' => $id, 'kind' => 'video',
+            'first_seen_at' => now(), 'last_seen_at' => now(),
+        ]);
+    }
+
+    expect(poolGet($pro)['selection'])->toHaveCount(1);
+});
