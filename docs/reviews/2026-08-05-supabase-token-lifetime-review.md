@@ -84,18 +84,36 @@ Josh's initial call was report-only; he then approved the recommendation. **Dev
 - **A real token minted from dev GoTrue decodes to `exp - iat = 900`** — the setting is not just
   stored, it is being issued.
 
-**Prod (`edplucmvkcnokyygxqsb`) deliberately left at 3600**, confirmed by a control read in the
-same run. The whole point of the recommendation was dev-first-then-soak; changing both at once
-would discard the only signal that makes the prod change safe.
+### APPLIED ON PROD — 2026-08-05, same day
 
-### Before applying to prod
+Josh elected to skip the soak and apply prod immediately. Reasonable: prod carries **no customer
+data yet** (`core.users` = 0), the two projects were configured identically, and the change is
+reversible with a single PATCH. The soak existed to protect customers who do not exist yet.
 
-1. Let dev soak. Watch for unexpected 401s and for refresh loops in the frontend console.
-2. **Re-confirm `ensureFreshAccessToken`'s 90 s threshold is still in the frontend**
-   (`lib/auth-session.ts`, `minValiditySeconds ?? 90`). If that number ever rises toward
-   `jwt_exp`, the margin disappears and the client refreshes continuously.
-3. Then `PATCH /v1/projects/edplucmvkcnokyygxqsb/config/auth` with `{"jwt_exp": 900}` — see
-   [[reference_supabase_management_api_token]] for the keychain token encoding.
+**Prod (`edplucmvkcnokyygxqsb`) is now `jwt_exp = 900`.** Verified the same two ways as dev:
+
+- Config re-read after the PATCH: `jwt_exp = 900`. `refresh_token_rotation_enabled` (true),
+  `security_refresh_token_reuse_interval` (10 s) and `sessions_timebox` (0) all unchanged.
+- **A real token minted from prod GoTrue decodes to `exp - iat = 900`** — being issued, not just
+  stored.
+
+Both projects are now at 900 and identical again.
+
+### If this needs reverting
+
+`PATCH /v1/projects/edplucmvkcnokyygxqsb/config/auth` with `{"jwt_exp": 3600}` — see
+[[reference_supabase_management_api_token]] for the keychain token encoding. No deploy, no code
+change; it takes effect on newly issued tokens.
+
+### What to watch now that it is live
+
+1. Unexpected 401s, and refresh loops in the frontend console.
+2. **`ensureFreshAccessToken`'s 90 s threshold** (`lib/auth-session.ts`,
+   `minValiditySeconds ?? 90`). 900 s leaves 10× margin; if that number ever rises toward
+   `jwt_exp`, the margin disappears and the client refreshes continuously. Re-check it before any
+   further shortening.
+3. Refresh volume against Supabase GoTrue — ~4× the previous rate per active session. No cost to
+   this backend, which never sees those calls.
 
 `sessions_timebox` and `sessions_inactivity_timeout` are both **off** and were not evaluated here.
 They are a separate lever (absolute session length vs. idle expiry) and would be a genuine product
