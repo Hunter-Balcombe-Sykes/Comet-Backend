@@ -37,10 +37,10 @@ class ScheduledRefresh implements RefreshStrategy
         // Platform-wide key, NOT per-account (2026-07-21 fix): for a
         // multi-account platform this connection's account row and any other
         // account row of the same platform+user now serialise on the SAME
-        // lock as highlights()/ConnectFetchJob — that's the whole point.
+        // lock as ConnectFetchJob — that's the whole point.
         // Two accounts briefly waiting on each other here is imperceptible
         // (rare, human-paced writes); a mismatched key that lets a refresh
-        // silently clobber a just-saved highlight is not.
+        // silently clobber a just-landed connect write is not.
         $key = CacheKeyGenerator::platformConnectionLock($connection->platform, $connection->user_id);
 
         try {

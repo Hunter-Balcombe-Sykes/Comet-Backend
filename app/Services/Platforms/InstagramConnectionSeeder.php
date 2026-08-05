@@ -210,7 +210,7 @@ class InstagramConnectionSeeder
         // PWL-7 (job/seeder half): the media mirroring + auto-sync + identity-sync
         // above are all vendor I/O / heavy work — they stay OUTSIDE the lock, same
         // discipline as ConnectFetchJob::handle(). Only the authoritative row write
-        // below is contended (a dashboard highlights save or a scheduled refresh can
+        // below is contended (a scheduled refresh can
         // race it via the SAME platformConnectionLock key), so only it is locked.
         $key = CacheKeyGenerator::platformConnectionLock($connection->platform, (string) $connection->user_id);
         try {

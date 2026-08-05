@@ -126,8 +126,6 @@ $registerIntegrationRoutes = function (string $base): void {
             // bespoke group can't reach): a route that appears/disappears with an
             // env var is worse to debug than one that always 404s a nonexistent row.
             Route::get('/music/connect/status', [AppleController::class, 'musicConnectStatus']);
-            Route::get('/music/recent', [AppleController::class, 'musicRecent']);
-            Route::post('/music/highlights', [AppleController::class, 'musicHighlights']);
             // music reads → generic (platform=apple-music)
             Route::get('/music/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $musicPlatform);
             Route::delete('/music/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
@@ -135,8 +133,6 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::get('/music/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $musicPlatform);
             Route::post('/podcast/connect', [AppleController::class, 'connectPodcast'])->defaults('platform', $podcastPlatform)->middleware('platform.available');
             Route::get('/podcast/connect/status', [AppleController::class, 'podcastConnectStatus']);
-            Route::get('/podcast/recent', [AppleController::class, 'podcastRecent']);
-            Route::post('/podcast/highlights', [AppleController::class, 'podcastHighlights']);
             // podcast reads → generic (platform=apple-podcast)
             Route::get('/podcast/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $podcastPlatform);
             Route::delete('/podcast/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
@@ -337,12 +333,6 @@ $registerIntegrationRoutes = function (string $base): void {
                     Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $slug);
                     Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
                         ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $slug);
-                }
-
-                // Picker platforms: recent + curated highlights, strategy-driven.
-                if ($descriptor->hasHighlights()) {
-                    Route::get('/recent', [GenericPlatformController::class, 'recent'])->defaults('platform', $slug);
-                    Route::post('/highlights', [GenericPlatformController::class, 'highlights'])->defaults('platform', $slug);
                 }
             });
     }

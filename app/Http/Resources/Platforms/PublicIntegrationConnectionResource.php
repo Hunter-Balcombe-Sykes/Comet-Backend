@@ -78,9 +78,9 @@ class PublicIntegrationConnectionResource extends ApiResource
      */
     private const ALLOWLIST = [
         'instagram' => ['username', 'fullName', 'profilePicUrl', 'businessCategory', 'followersCount', 'postsCount', 'mode', 'images', 'videoUrl', 'videoPoster', 'imagesDropped'],
-        'youtube' => ['handle', 'name', 'description', 'link', 'thumbnail', 'latest', 'highlights'],
-        'apple-music' => ['input', 'name', 'thumbnail', 'releaseDate', 'link', 'latest', 'highlights'],
-        'apple-podcast' => ['input', 'name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest', 'highlights'],
+        'youtube' => ['handle', 'name', 'description', 'link', 'thumbnail', 'latest'],
+        'apple-music' => ['input', 'name', 'thumbnail', 'releaseDate', 'link', 'latest'],
+        'apple-podcast' => ['input', 'name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest'],
         // Events platforms carry two row kinds: account rows ({url, organiser,
         // next, upcoming}) and standalone-event rows ({kind:'event', id, ...flat
         // event fields}). hiddenEventIds stays private (dashboard-only state).
@@ -140,13 +140,12 @@ class PublicIntegrationConnectionResource extends ApiResource
         'tidal' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         // square: a single user-pasted booking URL. No scraping — only `url` is stored.
         'square' => ['url'],
-        // bandcamp: `releases` (the full grid) is allowlisted but only SURVIVES
-        // when the owner's show_all_releases toggle is on — DisplaySettingsFilter
-        // suppresses it by default (the toggle is default-OFF, see TOGGLE_DEFAULTS).
-        'bandcamp' => ['url', 'artist', 'name', 'thumbnail', 'link', 'latest', 'highlights', 'releases'],
-        'vimeo' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items', 'highlights'],
+        // bandcamp: which releases appear is the Listen pool's selection now —
+        // the stored `releases` grid stays off the wire.
+        'bandcamp' => ['url', 'artist', 'name', 'thumbnail', 'link', 'latest'],
+        'vimeo' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items'],
         // youtube-music: channelId (the re-fetch input) stays private.
-        'youtube-music' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items', 'highlights'],
+        'youtube-music' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items'],
         'twitch' => ['url', 'login', 'name', 'image', 'description'],
         'skool' => ['url', 'name', 'image', 'description'],
         'strava' => ['url', 'name', 'location', 'image', 'description', 'members'],

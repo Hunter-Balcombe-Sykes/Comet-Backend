@@ -7,7 +7,6 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Http\FetchBudget;
 use App\Services\Notifications\Dispatchers\IntegrationNotifier;
-use App\Services\Platforms\HighlightsPicker;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
@@ -93,7 +92,7 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         return [];
     }
 
-    public function handle(PlatformRegistry $registry, HighlightsPicker $picker, FetchBudget $budget, IntegrationNotifier $notifier): void
+    public function handle(PlatformRegistry $registry, FetchBudget $budget, IntegrationNotifier $notifier): void
     {
         // ::find() respects the soft-delete scope — a null result already
         // covers both "never existed" and "user disconnected while queued"
@@ -117,9 +116,9 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         }
 
         // FETCH OUTSIDE THE LOCK — multi-second, touches nothing shared. Same
-        // discipline as ScheduledRefresh::run() and HighlightsPicker::items().
+        // discipline as ScheduledRefresh::run().
         //
-        // E-1: wrapped in the SAME wall-clock budget ConnectResolver/HighlightsPicker
+        // E-1: wrapped in the SAME wall-clock budget ConnectResolver
         // open around every other vendor call reachable from a connect — this job
         // was the one gap (identify() at 202-time was bounded, the fetch that
         // completes it here was not). FetchBudget is a SCOPED container binding
@@ -165,18 +164,6 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // Warm the highlights picker snapshot, ALSO outside the lock — though
-        // in practice there is nothing to wait on here: warmInto() is a pure
-        // array merge (backfills `recent` from the stored row only when the
-        // fresh fetch payload doesn't already carry one), never a vendor call
-        // or a HighlightsStrategy method. Must still happen before the write
-        // below: warmInto() shapes the payload without touching the DB
-        // specifically so content + `recent` land in ONE locked write (see
-        // HighlightsPicker::warmInto's docblock).
-        if ($descriptor->hasHighlights()) {
-            $next = $picker->warmInto($next, $connection);
-        }
-
         // C: re-check the staff kill switch AT WRITE TIME. This job's write never
         // goes through ManagesIntegrationConnection::upsertConnection() — the only
         // place assertPlatformAvailable() normally runs — so nothing stops a staff
@@ -201,9 +188,7 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         }
 
         // SINGLE LOCKED WRITE — same platform-wide key as ScheduledRefresh::
-        // run(), so this job can never race a dashboard highlights save or a
-        // scheduled refresh. Taking the lock twice (once for content, once for
-        // `recent`) would open a window for a highlights save to land between.
+        // run(), so this job can never race a scheduled refresh.
         //
         // NOT per-account (2026-07-21 fix): CacheKeyGenerator::platformConnectionLock()
         // no longer takes a suffix, so this can no longer drift from

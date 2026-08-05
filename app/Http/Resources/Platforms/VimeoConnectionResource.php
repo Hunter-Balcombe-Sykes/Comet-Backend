@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 /**
  * Vimeo profile card: canonical page URL + Simple-API profile, the latest
  * uploads (each with a public player embed URL), and the user-curated
- * highlight videos.
+ * the latest tile.
  *
  * `$this->resource` is the selection ARRAY.
  */
@@ -26,7 +26,6 @@ class VimeoConnectionResource extends ApiResource
             'link' => $this->resource['link'] ?? null,
             'latest' => $this->resource['latest'] ?? null,
             'items' => $this->resource['items'] ?? null,
-            'highlights' => $this->resource['highlights'] ?? [],
         ];
     }
 }

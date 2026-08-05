@@ -143,39 +143,6 @@ it('connects youtube-music from a music.youtube.com artist channel url', functio
     expect($conn->payload['channelId'])->toBe(YTM_CHANNEL);
 });
 
-it('runs the youtube-music recent + highlights picker flow', function () {
-    fakeYtmFeed();
-    $user = iv4User('ytm2');
-
-    actingAsUser($user)->postJson('/api/platforms/youtube-music/connect', [
-        'url' => 'music.youtube.com/channel/'.YTM_CHANNEL,
-    ])->assertOk();
-
-    actingAsUser($user)->getJson('/api/platforms/youtube-music/recent')
-        ->assertOk()
-        ->assertJsonCount(3, 'videos')
-        ->assertJsonPath('videos.0.itemId', 'vid00000001')
-        ->assertJsonPath('videos.0.date', '2026-03-03T10:00:00+00:00');
-
-    // Picks save in posted order; unknown ids drop silently.
-    actingAsUser($user)->postJson('/api/platforms/youtube-music/highlights', [
-        'itemIds' => ['vid00000003', 'vid00000002', 'unknown-id'],
-    ])->assertOk()
-        ->assertJsonCount(2, 'highlights')
-        ->assertJsonPath('highlights.0.itemId', 'vid00000003')
-        ->assertJsonPath('highlights.1.itemId', 'vid00000002');
-
-    // Reconnecting the SAME channel keeps the picks.
-    actingAsUser($user)->postJson('/api/platforms/youtube-music/connect', [
-        'url' => 'https://music.youtube.com/channel/'.YTM_CHANNEL,
-    ])->assertOk()->assertJsonCount(2, 'highlights');
-
-    // An empty save clears them.
-    actingAsUser($user)->postJson('/api/platforms/youtube-music/highlights', ['itemIds' => []])
-        ->assertOk()
-        ->assertJsonCount(0, 'highlights');
-});
-
 it('exposes youtube-music and the socials on the public endpoint, allowlisted', function () {
     $user = iv4User('ytm3pub');
 

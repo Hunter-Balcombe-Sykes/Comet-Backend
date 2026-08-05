@@ -29,7 +29,7 @@ trait RefreshesLatestTile
 
     /**
      * Overwrite a selection's `latest` + flat tile fields from the newest item, so
-     * the auto-latest tile doesn't go stale when only the curated highlights change.
+     * the auto-latest tile doesn't go stale on a partial payload rewrite.
      *
      * @param  list<string>  $flatFields
      * @return array<string,mixed>

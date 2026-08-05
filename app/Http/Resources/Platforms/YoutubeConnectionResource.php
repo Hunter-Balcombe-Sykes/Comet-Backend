@@ -4,7 +4,7 @@ namespace App\Http\Resources\Platforms;
 
 /**
  * YouTube channel selection: flat header fields + the latest-video tile and the
- * chosen highlights. Shape/tail defined by TileConnectionResource.
+ * Shape/tail defined by TileConnectionResource.
  */
 class YoutubeConnectionResource extends TileConnectionResource
 {

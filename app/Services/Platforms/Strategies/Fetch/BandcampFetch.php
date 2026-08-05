@@ -7,7 +7,7 @@ use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 
 // Re-pulls a Bandcamp artist's latest release by stored url (origin). Preserves
-// url + curated highlights; refreshes artist name + the auto-latest tile (flat
+// url; refreshes artist name + the auto-latest tile (flat
 // fields mirror the connect shape) + the full releases grid. Mirrors
 // PlatformRefresher::bandcampPayload EXACTLY (releases capture + the
 // auto_sync_latest gate are the two additions since).

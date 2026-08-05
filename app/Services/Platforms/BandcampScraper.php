@@ -93,7 +93,7 @@ class BandcampScraper extends PlatformScraper
      * Enrich release tiles with their buy price by fetching each release page
      * and reading its schema.org offers / embedded TralbumData. Bounded +
      * concurrent — only the handful of tiles that actually render on the
-     * sitepage (latest + curated highlights) are ever passed in. price/currency
+     * sitepage (the latest tile) are ever passed in. price/currency
      * stay absent for "name your price", free, or unreadable releases, so
      * callers never regress to broken tiles.
      *

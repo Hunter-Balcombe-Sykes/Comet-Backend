@@ -72,7 +72,7 @@ trait ManagesIntegrationConnection
      *
      * $canonicalKey stamps the normalized account-identity column (FOUND-14) —
      * only the account path (writeAccountConnection) passes it, at connect time.
-     * Omitted (null) on every other call site (highlights saves, tile refreshes,
+     * Omitted (null) on every other call site (tile refreshes,
      * single-selection writes) so those updates never clobber an already-stored
      * canonical_key back to NULL.
      *
@@ -536,20 +536,6 @@ trait ManagesIntegrationConnection
             mergePayload: $pending,
             canonicalKey: $needle,
         );
-    }
-
-    /**
-     * Return the highlights array preserved from an existing account row, or [] when
-     * there is no matching row or no saved highlights yet. Used by connect() actions to
-     * carry highlights across a same-account re-add without resetting curation choices.
-     *
-     * @return list<array<string, mixed>>
-     */
-    protected function preserveHighlights(User $user, string $canonicalKey): array
-    {
-        $existing = $this->matchAccountByCanonical($user, $canonicalKey)?->payload;
-
-        return data_get($existing, 'highlights', []);
     }
 
     /** First account row whose canonical_key matches (normalized). */

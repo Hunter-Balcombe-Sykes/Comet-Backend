@@ -5,7 +5,7 @@ use App\Services\Platforms\Registry\PlatformRouteShape;
 
 // FOUND-24 regression guard. There is exactly ONE way to add a platform:
 // a PlatformDescriptor in PlatformRegistryServiceProvider (connectInput +
-// connect strategy + routes(...) — plus highlights(...) for picker platforms).
+// connect strategy + routes(...)).
 // Hand-written per-platform controllers are reserved for the bespoke set below;
 // adding a controller file = add a descriptor instead, or justify a new
 // allowlist entry in this file.

@@ -34,6 +34,40 @@ class PoolResolver
     ) {}
 
     /**
+     * Whether this pool's resolved selection has at least one item — the
+     * page-presence probe (presence-via-pools, 2026-08-06). Same pins →
+     * rule-candidates → excludes arithmetic as resolve(), without hydrating
+     * a single payload, so the payload builder's presence gate can afford
+     * to ask per pool.
+     */
+    public function hasSelection(Site $site, string $pool): bool
+    {
+        $section = $this->provisioner->ensure($site, $pool);
+
+        $curation = DB::connection('pgsql')->table('site.section_items')
+            ->where('section_id', $section->id)
+            ->get();
+
+        $excluded = $curation->where('state', 'excluded')
+            ->pluck('item_id')->flip()->all();
+        $pinned = $curation->where('state', 'pinned')
+            ->sortBy('sort_key')->pluck('item_id')->values()->all();
+
+        foreach ($pinned as $itemId) {
+            if (! isset($excluded[$itemId])) {
+                return true;
+            }
+        }
+        foreach ($this->candidates->ruleCandidates($section, $pinned) as $itemId) {
+            if (! isset($excluded[$itemId])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @return array{
      *   selection: list<array<string, mixed>>,
      *   library: list<array<string, mixed>>,

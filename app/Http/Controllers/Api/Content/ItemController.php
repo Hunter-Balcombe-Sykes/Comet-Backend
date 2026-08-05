@@ -41,7 +41,7 @@ class ItemController extends ApiController
         $item->save();
 
         BuildState::bump((string) $site->id);
-        if (is_string($site->subdomain) && $site->subdomain !== '') {
+        if ($site->subdomain !== '') {
             // The pools serve LIVE (Option B) but the sitepage edge cache
             // does not — purge so the visitor page follows the edit.
             CloudflareCachePurgeJob::dispatch($site->subdomain);

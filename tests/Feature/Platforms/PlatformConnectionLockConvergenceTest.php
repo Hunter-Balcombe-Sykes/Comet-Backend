@@ -4,12 +4,12 @@
 // Before this fix, ScheduledRefresh::run() / ConnectFetchJob::handle() /
 // GoogleBusinessEnrichJob::persist() suffixed CacheKeyGenerator::
 // platformConnectionLock() by the connection's resource_id, while
-// GenericPlatformController::highlights() (via ManagesIntegrationConnection::
+// the dashboard save path (via ManagesIntegrationConnection::
 // withConnectionLock()) never did. For a MULTI-ACCOUNT platform (an account
 // row's resource_id is 'acct-<hash>', never equal to the platform slug) those
 // two writer groups therefore built DIFFERENT key strings and never mutually
 // excluded each other — a background scheduled refresh (or a deferred connect
-// completion) could silently clobber a user's just-saved highlights.
+// completion) could silently clobber a user's just-saved connection write.
 //
 // CacheKeyGenerator::platformConnectionLock() no longer accepts a suffix at
 // all (see its docblock + ManagesIntegrationConnection::withConnectionLock's),
@@ -36,8 +36,8 @@
 // FAST (no 5s wait) — the differently-keyed lock never contends, so the
 // writer's own Cache::lock()->block() acquires immediately and overwrites the
 // row despite the pre-held "someone else is writing" lock. The third test
-// (highlights()) was never on the buggy side — GenericPlatformController::
-// highlights() never passed a suffix — so it passes both before and after;
+// (the since-removed Featured save) was never on the buggy side — it never
+// passed a suffix — so it passed both before and after;
 // it exists here to establish the ground-truth key the other two must match.
 
 use App\Jobs\Platforms\ConnectFetchJob;
@@ -98,7 +98,7 @@ it("ScheduledRefresh's write takes the SAME lock key as an account-scoped writer
     Log::spy();
 
     // The ONLY formula left after the fix — no suffix parameter exists to
-    // diverge with. Simulates a concurrent writer (e.g. a highlights save)
+    // diverge with. Simulates a concurrent writer (e.g. a dashboard save)
     // already holding the platform-wide lock for this user+platform.
     $lock = Cache::lock(CacheKeyGenerator::platformConnectionLock('bandcamp', (string) $user->id), 10);
     expect($lock->get())->toBeTrue();
@@ -174,48 +174,4 @@ it("ConnectFetchJob's write takes the SAME lock key as an account-scoped writer 
         ->withArgs(fn (string $m, array $c) => $m === 'platform.connect_job.lock_timeout'
             && ($c['connection_id'] ?? null) === $connection->id
             && ($c['platform'] ?? null) === 'bandcamp');
-});
-
-it("highlights()'s lock is the SAME platform-wide key (ground truth the other two writers now match)", function () {
-    $user = plcUser('plc3');
-    $connection = IntegrationConnection::create([
-        'user_id' => $user->id,
-        'platform' => 'bandcamp',
-        'resource_id' => 'acct-plc3',
-        'payload' => [
-            'url' => 'https://someartist.bandcamp.com',
-            'artist' => 'Original Artist',
-            'highlights' => [],
-            'recent' => [
-                ['itemId' => 'album-1', 'name' => 'Album One', 'thumbnail' => 't1', 'link' => 'https://someartist.bandcamp.com/album/one'],
-            ],
-        ],
-        'is_active' => true,
-        'last_refresh_status' => 'ok',
-        // Fresh snapshot so HighlightsPicker::items() serves the stored
-        // 'recent' array and never calls fetchProfile.
-        'last_refreshed_at' => now(),
-    ]);
-
-    // BandcampHighlights::prepare() (PreparesHighlightItems) always calls
-    // enrichPrices() outside the lock, regardless of snapshot freshness.
-    $this->mock(BandcampScraper::class, function ($m) {
-        $m->shouldNotReceive('fetchProfile');
-        $m->shouldReceive('enrichPrices')->andReturnUsing(fn (array $items) => $items);
-    });
-
-    $lock = Cache::lock(CacheKeyGenerator::platformConnectionLock('bandcamp', (string) $user->id), 10);
-    expect($lock->get())->toBeTrue();
-
-    try {
-        actingAsUser($user)
-            ->postJson('/api/platforms/bandcamp/highlights', ['itemIds' => ['album-1']])
-            ->assertStatus(423)
-            ->assertJson(['message' => 'Another change is still saving — please retry in a moment.']);
-    } finally {
-        $lock->release();
-    }
-
-    // Untouched — the save never got past the lock.
-    expect($connection->fresh()->payload['artist'])->toBe('Original Artist');
 });

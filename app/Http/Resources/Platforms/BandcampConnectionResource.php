@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 
 /**
  * Bandcamp selection: artist origin + name, the latest release tile (flat
- * back-compat fields mirror Apple Music), and curated highlight releases.
+ * back-compat fields mirror Apple Music).
  *
  * `$this->resource` is the selection ARRAY.
  */
@@ -25,7 +25,6 @@ class BandcampConnectionResource extends ApiResource
             'thumbnail' => $this->resource['thumbnail'] ?? null,
             'link' => $this->resource['link'] ?? null,
             'latest' => $this->resource['latest'] ?? null,
-            'highlights' => $this->resource['highlights'] ?? [],
         ];
     }
 }

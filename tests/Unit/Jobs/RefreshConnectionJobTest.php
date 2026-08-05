@@ -65,7 +65,7 @@ it('refreshes a stale YouTube connection through PlatformRefresher', function ()
 
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'youtube',
-        'payload' => ['handle' => 'chan', 'name' => 'Old Video', 'highlights' => [['videoId' => 'h1']]],
+        'payload' => ['handle' => 'chan', 'name' => 'Old Video'],
         'last_refreshed_at' => now()->subWeek(),
     ]);
 
@@ -73,8 +73,7 @@ it('refreshes a stale YouTube connection through PlatformRefresher', function ()
 
     $conn->refresh();
     expect($conn->payload['latest']['videoId'])->toBe('v9')
-        ->and($conn->last_refresh_status)->toBe('ok')
-        ->and($conn->payload['highlights'])->toHaveCount(1); // curated picks preserved
+        ->and($conn->last_refresh_status)->toBe('ok');
 });
 
 it('records unavailable + increments failures when the scraper returns nothing', function () {

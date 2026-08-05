@@ -101,9 +101,9 @@ it('flag on: apple music connect returns 202 with status/id/input/statusUrl, and
     expect($id)->toStartWith('acct-');
     expect($response->json('statusUrl'))->toBe(url("/api/platforms/apple/music/connect/status?account={$id}"));
 
-    // name/thumbnail/releaseDate/link/latest/highlights are NOT present at all
+    // name/thumbnail/releaseDate/link/latest are NOT present at all
     // (not even null) — the pending write never derived them.
-    foreach (['name', 'thumbnail', 'releaseDate', 'link', 'latest', 'highlights'] as $absentKey) {
+    foreach (['name', 'thumbnail', 'releaseDate', 'link', 'latest'] as $absentKey) {
         expect($response->json())->not->toHaveKey($absentKey);
     }
 
@@ -137,7 +137,7 @@ it('flag on: apple podcast connect returns 202 with status/id/input/statusUrl, a
     expect($id)->toStartWith('acct-');
     expect($response->json('statusUrl'))->toBe(url("/api/platforms/apple/podcast/connect/status?account={$id}"));
 
-    foreach (['name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest', 'highlights'] as $absentKey) {
+    foreach (['name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest'] as $absentKey) {
         expect($response->json())->not->toHaveKey($absentKey);
     }
 

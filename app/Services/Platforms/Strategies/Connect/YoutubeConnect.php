@@ -8,8 +8,7 @@ use App\Services\Platforms\Strategies\Contracts\DeferredConnect;
 use App\Services\Platforms\YoutubeScraper;
 
 // YouTube connect: channel handle/URL → channel's auto-latest video tile.
-// Moved verbatim from YoutubeController; the curated-highlights preservation
-// happens in GenericPlatformController (hasHighlights + preserveHighlights).
+// Moved verbatim from YoutubeController.
 class YoutubeConnect implements DeferredConnect
 {
     use RefreshesLatestTile;

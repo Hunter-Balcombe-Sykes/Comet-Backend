@@ -59,7 +59,7 @@ it('stores a normalized canonical_key on the account row when connecting', funct
     expect($conn->canonical_key)->toBe('https://artist.bandcamp.com');
 });
 
-it('reconnecting the same account with different case/whitespace updates in place and preserves highlights', function () {
+it('reconnecting the same account with different case/whitespace updates in place', function () {
     $user = canonicalKeyTestUser('ck2');
 
     // Bind BOTH normalizeOrigin outcomes up front — the SEC-1 saving guard
@@ -74,19 +74,13 @@ it('reconnecting the same account with different case/whitespace updates in plac
     });
 
     actingAsUser($user)->postJson('/api/platforms/bandcamp/connect', ['url' => 'https://artist.bandcamp.com/music'])
-        ->assertOk()
-        ->assertJsonPath('highlights', []);
-
-    actingAsUser($user)->postJson('/api/platforms/bandcamp/highlights', ['itemIds' => ['album-1']])
-        ->assertOk()
-        ->assertJsonPath('highlights.0.itemId', 'album-1');
+        ->assertOk();
 
     // Reconnect with a differently-cased, whitespace-padded canonical value.
     $before = IntegrationConnection::where('user_id', $user->id)->where('platform', 'bandcamp')->first();
 
     actingAsUser($user)->postJson('/api/platforms/bandcamp/connect', ['url' => 'HTTPS://ARTIST.BANDCAMP.COM/MUSIC'])
-        ->assertOk()
-        ->assertJsonPath('highlights.0.itemId', 'album-1');
+        ->assertOk();
 
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'bandcamp')->count())->toBe(1);
 
@@ -126,7 +120,7 @@ it('falls back to matching by stored canonical_key when the resource_id hash doe
         'user_id' => $user->id,
         'platform' => 'bandcamp',
         'resource_id' => 'acct-legacyfallback01',
-        'payload' => ['url' => 'https://artist.bandcamp.com', 'highlights' => [['itemId' => 'album-1']]],
+        'payload' => ['url' => 'https://artist.bandcamp.com', 'artist' => 'Legacy Artist'],
         'canonical_key' => 'https://artist.bandcamp.com',
     ]);
 
@@ -137,8 +131,7 @@ it('falls back to matching by stored canonical_key when the resource_id hash doe
     });
 
     actingAsUser($user)->postJson('/api/platforms/bandcamp/connect', ['url' => 'https://artist.bandcamp.com/music'])
-        ->assertOk()
-        ->assertJsonPath('highlights.0.itemId', 'album-1');
+        ->assertOk();
 
     // Updated the legacy row in place — no second row created.
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'bandcamp')->count())->toBe(1);

@@ -5,7 +5,7 @@ namespace App\Http\Resources\Platforms;
 /**
  * Apple Podcasts selection. Flat fields expose `description` plus `releaseDate`
  * (the latter for chronological sorting on the sitepage); the latest tile +
- * highlights tail comes from TileConnectionResource.
+ * tail comes from TileConnectionResource.
  */
 class ApplePodcastConnectionResource extends TileConnectionResource
 {

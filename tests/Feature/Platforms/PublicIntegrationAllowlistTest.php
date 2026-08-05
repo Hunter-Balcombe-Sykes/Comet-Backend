@@ -334,7 +334,7 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
             'link' => 'https://vimeo.com/mockuser',
             'latest' => null,
             'items' => [],
-            'highlights' => [['itemId' => '1', 'name' => 'Pick', 'thumbnail' => null, 'link' => 'https://vimeo.com/1', 'embedUrl' => 'https://player.vimeo.com/video/1']],
+            'highlights' => [['itemId' => '1', 'name' => 'Stale Featured Leftover']],
         ],
         'is_active' => true,
         'last_refresh_status' => 'ok',
@@ -353,7 +353,9 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
     ]);
     expect($platforms['vimeo'][0]['payload'])->not->toHaveKey('apiPath');
     expect($platforms['vimeo'][0]['payload']['url'])->toBe('https://vimeo.com/mockuser');
-    expect($platforms['vimeo'][0]['payload']['highlights'])->toHaveCount(1);   // curated picks are public
+    // Featured is gone (2026-08-06): a stale stored highlights key never
+    // reaches the public wire.
+    expect($platforms['vimeo'][0]['payload'])->not->toHaveKey('highlights');
 });
 
 it('passes the enriched event fields to the public wire and keeps hiddenEventIds private', function () {
@@ -433,8 +435,11 @@ it('passes the enriched event fields to the public wire and keeps hiddenEventIds
         'venue' => 'The Depot',
     ]);
 });
-
-it('serves the bandcamp releases list only when show_all_releases is enabled', function () {
+it('keeps the stored bandcamp releases grid and stale highlights off the public wire', function () {
+    // Which releases appear publicly is the Listen pool's selection now
+    // (platforms-as-sources P4): the stored scrape keeps `releases` for
+    // internal use, and older rows may still carry a `highlights` leftover —
+    // neither is served, with or without any display_settings stored.
     $payload = [
         'url' => 'https://artist.bandcamp.com',
         'artist' => 'Artist',
@@ -449,28 +454,26 @@ it('serves the bandcamp releases list only when show_all_releases is enabled', f
         ],
     ];
 
-    // Default (nothing stored): show_all_releases is OFF → releases suppressed,
-    // the capped latest+highlights selection is all the public wire carries.
-    $off = allowlistUser('allowbc1');
+    $plain = allowlistUser('allowbc1');
     IntegrationConnection::create([
-        'user_id' => $off->id, 'platform' => 'bandcamp', 'resource_id' => 'bandcamp',
+        'user_id' => $plain->id, 'platform' => 'bandcamp', 'resource_id' => 'bandcamp',
         'payload' => $payload, 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $served = $this->getJson('/api/public/profiles/allowbc1/integrations')->assertOk()->json('data.platforms.bandcamp.0.payload');
     expect($served)->not->toHaveKey('releases');
+    expect($served)->not->toHaveKey('highlights');
     expect($served['latest']['name'])->toBe('Latest Album');
-    expect($served['highlights'])->toHaveCount(1);
 
-    // Owner opted in (stored true) → the full grid is served.
-    $on = allowlistUser('allowbc2');
+    // A legacy stored opt-in changes nothing — the toggle is gone.
+    $legacy = allowlistUser('allowbc2');
     IntegrationConnection::create([
-        'user_id' => $on->id, 'platform' => 'bandcamp', 'resource_id' => 'bandcamp',
+        'user_id' => $legacy->id, 'platform' => 'bandcamp', 'resource_id' => 'bandcamp',
         'payload' => $payload, 'display_settings' => ['show_all_releases' => true],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    $served = $this->getJson('/api/public/profiles/allowbc2/integrations')->assertOk()->json('data.platforms.bandcamp.0.payload');
-    expect($served['releases'])->toHaveCount(2);
-    expect($served['releases'][1]['name'])->toBe('Curated Pick');
+    $servedLegacy = $this->getJson('/api/public/profiles/allowbc2/integrations')->assertOk()->json('data.platforms.bandcamp.0.payload');
+    expect($servedLegacy)->not->toHaveKey('releases');
+    expect($servedLegacy)->not->toHaveKey('highlights');
 });
 
 it('returns an empty payload array (fail-closed) for a platform with no allowlist entry', function () {

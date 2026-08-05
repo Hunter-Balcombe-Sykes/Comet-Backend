@@ -49,6 +49,9 @@ final class DsarPayloadFilter
 
     /**
      * Per-platform allowlist of payload keys included in a DSAR export.
+     * `highlights` stays listed even though Featured was removed (2026-08-06):
+     * older stored payloads still carry the key until a refresh rewrites them,
+     * and a DSAR export must disclose what is actually held.
      * Derived from PublicIntegrationConnectionResource::ALLOWLIST — see the
      * class docblock for the exact derivation rule. Platforms not listed
      * here fail CLOSED (see filter() below).

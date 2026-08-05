@@ -7,7 +7,7 @@ use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 
 // Re-pulls an Apple Music artist's latest album by stored input. Preserves input +
-// curated highlights; refreshes the "most recent" tile. Mirrors
+// refreshes the "most recent" tile. Mirrors
 // PlatformRefresher::appleMusicPayload EXACTLY.
 final readonly class AppleMusicFetch implements FetchStrategy
 {

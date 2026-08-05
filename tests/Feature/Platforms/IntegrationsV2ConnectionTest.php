@@ -172,7 +172,7 @@ it('rejects non-platform URLs on the music embed connects', function () {
 
 // ── Bandcamp ─────────────────────────────────────────────────────────────────
 
-it('bandcamp connect stores the latest release tile and preserves same-page highlights', function () {
+it('bandcamp connect stores the latest release tile', function () {
     $user = iv2User('bc1');
 
     $items = [
@@ -191,16 +191,7 @@ it('bandcamp connect stores the latest release tile and preserves same-page high
         ->assertOk()
         ->assertJsonPath('artist', 'Mock Artist')
         ->assertJsonPath('name', 'New Record')
-        ->assertJsonPath('latest.itemId', 'album-2')
-        ->assertJsonPath('highlights', []);
-
-    // Pick a highlight, then reconnect the SAME page — the highlight survives.
-    actingAsUser($user)->postJson('/api/platforms/bandcamp/highlights', ['itemIds' => ['album-1']])
-        ->assertOk()
-        ->assertJsonPath('highlights.0.itemId', 'album-1');
-    actingAsUser($user)->postJson('/api/platforms/bandcamp/connect', ['url' => 'https://artist.bandcamp.com'])
-        ->assertOk()
-        ->assertJsonPath('highlights.0.itemId', 'album-1');
+        ->assertJsonPath('latest.itemId', 'album-2');
 });
 
 it('bandcamp connect 404s when the page has no releases', function () {

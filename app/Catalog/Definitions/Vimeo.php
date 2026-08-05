@@ -39,7 +39,6 @@ class Vimeo
                 ->refreshEvery(43200)
                 ->connect('connect.vimeo.url.v1')
                 ->fetch('fetch.vimeo.api.v1')
-                ->highlights('highlights.vimeo.v1')
                 ->multiAccount(5)
                 ->detect(
                     Detector::url('vimeo.com')

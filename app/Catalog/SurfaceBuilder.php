@@ -147,13 +147,6 @@ final class SurfaceBuilder
         return $this;
     }
 
-    public function highlights(string $capabilityName): self
-    {
-        $this->capabilities['highlights'] = $capabilityName;
-
-        return $this;
-    }
-
     public function gate(string $capabilityName): self
     {
         $this->capabilities['gate'] = $capabilityName;
