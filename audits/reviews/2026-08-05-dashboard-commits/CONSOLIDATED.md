@@ -26,8 +26,8 @@
 ## Progress
 
 - **Total findings:** 11
-- **Closed:** 2 / 11
-- P1 1/2 · P2 1/5 · P3 0/4
+- **Closed:** 4 / 11
+- P1 1/2 · P2 3/5 · P3 0/4
 
 ## Suggested Bundled Sessions
 
@@ -94,7 +94,7 @@ Run in this order. Units are sequential — later units touch files earlier ones
 
 ## P2
 
-- [ ] **#SILENT-1** · P2 — A capability-blocked apply returns HTTP 200 and the item silently vanishes
+- [x] **#SILENT-1** · P2 — A capability-blocked apply returns HTTP 200 and the item silently vanishes
     - **Where:** `app/Services/Platforms/Concerns/BuildsAutoSyncFindings.php:170-178`
     - **Affects:** Any user whose booking/reservations capability lapsed between a finding being recorded and applied.
     - **Effort:** S (~0.5–1h)
@@ -124,7 +124,7 @@ Run in this order. Units are sequential — later units touch files earlier ones
     - **Plain English:** The test that's supposed to protect this feature checks that the answer is "nothing" — which is exactly what the bug produces. It's a smoke alarm wired to go off only when there's no fire.
     - `[CONFIRMED]`
 
-- [ ] **#LOG-1** · P2 — The new 409 lost-race path logs nothing, unlike its sibling in the same file
+- [x] **#LOG-1** · P2 — The new 409 lost-race path logs nothing, unlike its sibling in the same file
     - **Where:** `app/Services/Media/MediaUploadService.php:219-224`
     - **Affects:** Fleet-wide visibility of upload races (e.g. a client double-submit bug) — the individual user is fine, engineers are blind.
     - **Effort:** S (~0.5–1h)

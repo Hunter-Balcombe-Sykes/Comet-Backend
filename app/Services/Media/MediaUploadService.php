@@ -219,6 +219,11 @@ class MediaUploadService
         if ($claimed === 0) {
             $this->imageService->deleteVariants($media->id, $originalPath);
 
+            Log::warning('Singleton upload lost a concurrent-replace race (conditional claim)', [
+                'site_id' => $site->id,
+                'purpose' => $purpose,
+            ]);
+
             throw new SingletonConflictException(
                 'This image slot changed while the upload was storing — try again.'
             );

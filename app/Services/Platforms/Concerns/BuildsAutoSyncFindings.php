@@ -10,6 +10,7 @@ use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use Closure;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -146,6 +147,11 @@ trait BuildsAutoSyncFindings
      *              lock was contended within SEED_LOCK_BLOCK seconds and
      *              NOTHING changed — the caller must NOT flip the finding to
      *              seeded, and should surface a 423 instead
+     *
+     * @throws AuthorizationException when a booking/reservations-slot finding
+     *                                fails its apply-time capability re-check (see #SILENT-1: a
+     *                                bare `true` here used to look like success while nothing
+     *                                was written).
      */
     public function applyFinding(string $userId, array $finding): bool
     {
@@ -164,16 +170,27 @@ trait BuildsAutoSyncFindings
         // account's sector — hence its capability set — can change between
         // record and apply. Without this, a stale conflict finding was a
         // ticket to install a booking/reservations connection the connect
-        // controllers themselves would 403. Mirrors the seed-time gate; a
-        // blocked apply reports true ("nothing to apply") rather than 423 —
-        // the finding is obsolete, not contended.
+        // controllers themselves would 403. Mirrors the seed-time gate.
+        //
+        // #SILENT-1 (2026-08-05): this used to `return true` on denial. Both
+        // callers read true as "applied", flipped the finding to 'seeded' and
+        // returned 200 — but nothing was written, so the next read's
+        // shapeFinding() found no connection and silently dropped the item.
+        // Throwing instead makes this identical to its twin, SuggestionApplier
+        // ::apply() — the call sits outside both controllers' lock closures
+        // (and outside InstagramController's try, which only catches
+        // LockTimeoutException), so it reaches the global handler untouched:
+        // AuthorizationException -> AccessDeniedHttpException -> 403 +
+        // Log::warning('Access denied'), for free.
         if ($looksBooking || $looksReservations) {
             $user = User::find($userId);
             $capabilities = $user ? AccountCapabilities::for($user) : null;
-            if ($capabilities === null
-                || ($looksBooking && ! $capabilities->can_use_booking)
-                || ($looksReservations && ! $capabilities->can_use_reservations)) {
-                return true;
+            $bookingDenied = $looksBooking && ($capabilities === null || ! $capabilities->can_use_booking);
+            $reservationsDenied = $looksReservations && ($capabilities === null || ! $capabilities->can_use_reservations);
+            if ($bookingDenied || $reservationsDenied) {
+                throw new AuthorizationException(
+                    $bookingDenied ? 'booking is not available for this account' : 'reservations are not available for this account'
+                );
             }
         }
 
