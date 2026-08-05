@@ -26,8 +26,8 @@
 ## Progress
 
 - **Total findings:** 11
-- **Closed:** 5 / 11
-- P1 1/2 · P2 4/5 · P3 0/4
+- **Closed:** 6 / 11
+- P1 1/2 · P2 5/5 · P3 0/4
 
 ## Suggested Bundled Sessions
 
@@ -104,7 +104,7 @@ Run in this order. Units are sequential — later units touch files earlier ones
     - **Plain English:** You click "change this to X", the app says it worked, and then X quietly disappears from the list. Nothing is recorded anywhere, so nobody would ever find out this is happening.
     - `[CONFIRMED]`
 
-- [ ] **#TEST-1** · P2 — None of the four substantive fixes has a test that would fail if reverted
+- [x] **#TEST-1** · P2 — None of the four substantive fixes has a test that would fail if reverted
     - **Where:** `tests/Feature/Media/DesignSingletonMediaTest.php`, `tests/Feature/Routing/SuggestionsInboxTest.php`, `tests/Feature/Platforms/CustomLinksControllerTest.php`
     - **Affects:** The 409 lost-race claim, both capability re-checks, and the reorder site-touch are all unguarded against regression.
     - **Effort:** M (~2–4h)

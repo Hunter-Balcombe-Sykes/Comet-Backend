@@ -205,10 +205,13 @@ class MediaUploadService
         // $media->update() would still succeed (save() uses newModelQuery(),
         // which carries no SoftDeletingScope). The result was a 201 for a row
         // no read can see: silent data loss, reclaimed only by the 30-day
-        // sweep. Guarding on deleted_at IS the optimistic-concurrency token
-        // the KNOWN-UNFIXED-RACE docblock below asks for — a lost race now
-        // surfaces as the same 409 the unique-violation half already throws,
-        // and the stored original is cleaned up rather than orphaned.
+        // sweep. What fixes it is going through SiteMedia::query(), which DOES
+        // apply SoftDeletingScope — the explicit whereNull below is redundant
+        // with that scope and kept only to state the intent at the call site.
+        // Either way the 0-row result is the optimistic-concurrency token the
+        // KNOWN-UNFIXED-RACE docblock below asks for: a lost race surfaces as
+        // the same 409 the unique-violation half already throws, and the
+        // stored original is cleaned up rather than orphaned.
         // (Query-builder update skips SiteMediaObserver::updated, which is
         // fine here: the page can't render this media until the processing
         // job flips it to ready, and THAT update still fires the observer.)

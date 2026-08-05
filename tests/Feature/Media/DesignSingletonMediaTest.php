@@ -9,6 +9,7 @@ use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -188,6 +189,67 @@ it('replaces the existing singleton of the same purpose on re-upload', function 
 
     expect($active)->toHaveCount(1);
     expect($active->first()->id)->not->toBe($oldId);
+});
+
+// #TEST-1 / #LOG-1: the mid-store soft-delete race guarded by
+// MediaUploadService::uploadSingleton()'s CONDITIONAL claim (~:215-230),
+// distinct from DesignSingletonMediaConcurrencyTest's INSERT-time unique-
+// violation race (createSingletonRowOrConflict, from 9534da25). This one
+// fires AFTER the row exists, while storeOriginal() is still doing its R2
+// round-trip: a concurrent replace/delete soft-deletes the row mid-store, and
+// the conditional `whereKey(...)->whereNull('deleted_at')->update(...)`
+// claims 0 rows instead of silently succeeding on a row no read can see.
+it('409s and logs when the row is soft-deleted during storeOriginal (mid-store lost race)', function () {
+    Queue::fake();
+    Log::spy();
+
+    $pro = createTenant('raceloser');
+    $site = $pro->site;
+
+    // storeOriginal's return simulates the concurrent winner: while THIS
+    // request's original is (notionally) still being written to R2, another
+    // request's purge/delete soft-deletes the row createSingletonRowOrConflict
+    // just inserted for this (site, purpose). No pre-existing singleton is
+    // seeded — this race needs only one in-flight upload plus one concurrent
+    // deleter, not two competing uploads.
+    $imageService = Mockery::mock(ImageVariantService::class);
+    $imageService->shouldReceive('storeOriginal')->once()->andReturnUsing(function () use ($site) {
+        SiteMedia::query()
+            ->where('site_id', $site->id)
+            ->where('pool', 'design')
+            ->where('purpose', 'logo_full')
+            ->whereNull('deleted_at')
+            ->update(['deleted_at' => now()]);
+
+        return 'images/new/original.png';
+    });
+    $imageService->shouldReceive('deleteVariants')->once()->andReturnNull();
+    $imageService->shouldReceive('resolvedDiskName')->andReturn('test_disk');
+    app()->instance(ImageVariantService::class, $imageService);
+
+    $base = Request::create('/api/design-media', 'POST', ['purpose' => 'logo_full'], [], [
+        'image' => UploadedFile::fake()->image('logo.png', 200, 200),
+    ]);
+    $request = UploadDesignMediaRequest::createFromBase($base);
+    $request->setContainer(app())->setRedirector(app('redirect'));
+    $request->attributes->set('professional', $pro);
+    $request->validateResolved();
+
+    $response = app(UserDesignMediaController::class)->upload($request);
+
+    expect($response->getStatusCode())->toBe(409);
+    expect($response->getData(true)['code'] ?? null)->toBe('SINGLETON_UPLOAD_CONFLICT');
+
+    // No live row for this purpose — the loser's row stayed soft-deleted, no
+    // second row was created, and nothing 201'd for a row no read can see.
+    expect(
+        SiteMedia::query()->where('site_id', $site->id)->where('purpose', 'logo_full')->exists()
+    )->toBeFalse();
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $m, array $c) => $m === 'Singleton upload lost a concurrent-replace race (conditional claim)'
+            && $c['site_id'] === $site->id
+            && $c['purpose'] === 'logo_full');
 });
 
 // ── Delete endpoint (2026-08-04: clear a slot without replacing it) ─────────
