@@ -26,8 +26,8 @@
 ## Progress
 
 - **Total findings:** 11
-- **Closed:** 4 / 11
-- P1 1/2 · P2 3/5 · P3 0/4
+- **Closed:** 5 / 11
+- P1 1/2 · P2 4/5 · P3 0/4
 
 ## Suggested Bundled Sessions
 
@@ -134,7 +134,7 @@ Run in this order. Units are sequential — later units touch files earlier ones
     - **Plain English:** When two uploads collide, the user gets a clear "try again". But nothing is written down, so if this started happening to hundreds of people there'd be no trace to find it by. The near-identical case ten lines away does record it.
     - `[CONFIRMED]`
 
-- [ ] **#DRIFT-1** · P2 — Duplicated capability match-arms with no guard, as the code comment itself admits
+- [x] **#DRIFT-1** · P2 — Duplicated capability match-arms with no guard, as the code comment itself admits
     - **Where:** `app/Routing/SuggestionApplier.php:26-31` vs `app/Routing/PlacementPolicy.php:127-136`
     - **Affects:** Future divergence between record-time and apply-time gating.
     - **Effort:** S (~0.5–1h)
