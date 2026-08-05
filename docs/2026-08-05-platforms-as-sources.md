@@ -141,14 +141,35 @@ DONE (committed, all local suites green):
   ContentController/observer), siteColumn bridge deleted, suites updated.
 - `b167cc6f` profile.pools on the public payload, live via PoolResolver.
 
-REMAINING Phase 1: instagram→media extraction into content items (task
-#36; check InstagramConnector's current kinds first); then task #38 —
-PHPStan + Pint + ONE full --parallel run, merge → development, deploy,
-LIVE smoke (pool GET against dev-api with a real account; SQLite-drift
-rule: dry-run every new Postgres writer live). Then P2 (pages renders
-pools + Latest badge + platform buttons), P3 (dashboard pools live, Posts
-folds into Media, add-a-link sheet UI), P4 (Featured teardown, only after
-P1–P3 verified live).
+PHASE 1 IS LIVE ON DEV (2026-08-05 ~21:20 AEST):
+- Merged to development (`a4e83d29`), deployed; migrations 20260805090000
+  + 20260805100000 applied to the live dev DB via Supabase MCP with
+  matching schema_migrations rows (CLI history consistent). Instagram→
+  media extraction needed NO new build — InstagramConnector's 'media'
+  stream already projects posts as media-kind items.
+- LIVE SMOKE (ollies, real ingested content): listen library 110 items;
+  selection = one rolling auto per source with the Latest tag on the true
+  newest; pin→verify→unpin write cycle green on real Postgres; public
+  /public/profiles payload carries profile.pools (data envelope!) and
+  reflected a fix INSTANTLY (Option B proven).
+- Smoke FOUND + FIXED (`2fc8776d`): bulk first-ingest ties (one
+  first_seen_at across a catalogue, no published facet) made EVERY item
+  "newest" — 15 undated releases all auto. Ties now break on id; pinned
+  by a 3-way-tie test. Post-fix live: listen = 4 autos (one per source),
+  watch = 2.
+- CI green-up (`7f2ca6ca`): lock/statement timeouts in the unify
+  migration (Master Pattern 20) + authz fixtures use the 'unknown'
+  literal for slot params. Earlier CI failures were exactly these two.
+  The full local --parallel run: 7057 passed; 19 non-mine failures are
+  the known parallel-flake families (all pass serially), 2 were mine and
+  fixed (dropped-column refs in RefreshFetchBudget/ReconcileTakedown).
+
+NEXT: P2 (pages renders profile.pools — note the `data` envelope on the
+public route; Latest badge watch/listen/media; per-item platform buttons;
+kill the YT-Music unread-items asymmetry by construction), P3 (dashboard
+pools live on /content/pools/*, Posts pool folds into Media, add-a-link
+sheet UI, Auto/Latest chips), P4 (Featured teardown per the Phase 4
+inventory — only after P2/P3 verified live).
 
 ## Phase 1 — Backend: the pool serve/curate lane
 
