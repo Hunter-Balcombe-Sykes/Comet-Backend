@@ -43,15 +43,23 @@ use Symfony\Component\HttpFoundation\Response;
  *     `mfa_required`. Correct — see RevocationUnverifiableException for why a 401
  *     during a store outage is a lie with a harmful consequence.
  *
- *   - A blocked staff request STILL WRITES an audit row, but a degraded one.
- *     RecordStaffAuditEntry writes in terminate(), and Kernel::terminateMiddleware
- *     iterates the gathered stack unconditionally — it has no idea the pipeline
- *     short-circuited. But `partna_staff` (set by EnsurePartnaStaff) and the
- *     resolved `{professional}` binding are both populated by middleware that now
- *     run AFTER this one, so the row lands with `staff_id = null` and no
- *     professional. Forensics on a gate-blocked staff request are therefore
- *     anonymous — worth knowing before an incident, not during one. (An earlier
- *     revision of this docblock claimed no row was written at all; that was wrong.)
+ *   - A blocked staff request STILL WRITES an audit row, with exactly two fields
+ *     degraded. RecordStaffAuditEntry writes in terminate(), and
+ *     Kernel::terminateMiddleware iterates the gathered stack unconditionally —
+ *     it has no idea the pipeline short-circuited. But `partna_staff` (set by
+ *     EnsurePartnaStaff) and the resolved `{professional}` binding come from
+ *     middleware that now run AFTER this one, so:
+ *
+ *       `staff_id`                     → NULL   ← the real loss: WHO acted
+ *       `professional_handle_snapshot` → null
+ *       `user_id`                      → preserved, via RecordStaffAuditEntry's
+ *                                        raw-string fallback (:80-91)
+ *       route, method, status (503), payload_summary, ip, user_agent → intact
+ *
+ *     So the row says what was attempted against whom, but not by which staff
+ *     member. Worth knowing before an incident rather than during one.
+ *     (Two earlier revisions of this docblock got this wrong in both directions —
+ *     first claiming no row is written, then that the row is anonymous.)
  *
  * THE DEFAULT IS THE BYPASS DEFENCE. The attribute defaults to false when
  * ABSENT, not just when false. A strict route reachable by some path that skips
