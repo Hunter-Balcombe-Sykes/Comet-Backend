@@ -62,14 +62,37 @@ final class FeatureAvailability
         $lock = app(CacheLockService::class);
         $failopenKey = "feature-availability:failopen:{$user->id}";
 
-        // A DB fault very recently parked a short-lived sentinel here (see the
-        // catch below) — skip straight to fail-open instead of re-attempting
-        // (and re-faulting on) the same query on every request during a blip.
-        if (Cache::get($failopenKey) !== null) {
+        // These two reads USED TO SIT OUTSIDE any try. That was a
+        // guard-one-line-too-late bug: the try below was written for a DB fault,
+        // under which these two lines are fine — but under a CACHE fault they are
+        // the first thing to throw, and they threw straight past the fail-open
+        // handler written to absorb exactly this. Drill 03 (2026-08-05) caught it
+        // as a raw 500 on GET /api/site during a Redis outage.
+        //
+        // Both values are optimisations, not inputs: the sentinel only avoids
+        // re-faulting on a query we are about to fail open on anyway, and the
+        // version token only namespaces the cache key. Neither is worth a 500.
+        try {
+            // A DB fault very recently parked a short-lived sentinel here (see the
+            // catch below) — skip straight to fail-open instead of re-attempting
+            // (and re-faulting on) the same query on every request during a blip.
+            if (Cache::get($failopenKey) !== null) {
+                return new UserFeatureAvailability([]);
+            }
+
+            $version = (int) Cache::get(self::CACHE_VERSION_KEY, 0);
+        } catch (Throwable $e) {
+            // The cache store itself is unreachable. rememberLocked() below would
+            // fault on the same store, so there is nothing to attempt — fail open
+            // directly, on the same absence-==-enabled contract as the catch below.
+            Log::warning('feature_availability.cache_unavailable', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+            self::escalateIfSustained($e, 'cache_unavailable');
+
             return new UserFeatureAvailability([]);
         }
-
-        $version = (int) Cache::get(self::CACHE_VERSION_KEY, 0);
 
         // Single-flight via CacheLockService — without this, a staff flush() bumping
         // the version token cold-misses every concurrent reader at once and they all
@@ -94,7 +117,16 @@ final class FeatureAvailability
             ]);
             self::escalateIfSustained($e, 'resolve_overrides');
 
-            $lock->rememberLockedNullable($failopenKey, self::FAILOPEN_TTL_SECONDS, fn () => null);
+            // Writing the sentinel is a courtesy to the NEXT request, not part of
+            // serving this one — and it targets the same store that may be the
+            // thing that just failed. A throw here would escape the very handler
+            // that exists to fail open, so it is guarded separately: losing the
+            // sentinel only costs a repeated fault, never a 500.
+            try {
+                $lock->rememberLockedNullable($failopenKey, self::FAILOPEN_TTL_SECONDS, fn () => null);
+            } catch (Throwable) {
+                // Sentinel unwritable — the fail-open return below is unaffected.
+            }
 
             return new UserFeatureAvailability([]);
         }

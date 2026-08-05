@@ -1,9 +1,14 @@
 <?php
 
+use App\Http\Middleware\Auth\RequireVerifiedRevocation;
+use App\Http\Middleware\Auth\VerifySupabaseJwt;
+use App\Http\Middleware\IdempotencyKey;
 use App\Services\Auth\TokenRevocationService;
 use App\Services\Cache\CacheLockService;
 use App\Services\Redis\Exceptions\RedisUnavailableException;
 use App\Services\Redis\RedisRequestBreaker;
+use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -230,6 +235,45 @@ it('503s when the strict gate is reached with no verifier ahead of it', function
     $this->getJson('/api/__test/strict-unguarded')
         ->assertStatus(503)
         ->assertHeader('Retry-After', '5');
+});
+
+/**
+ * Ordering guard for the priority-list pin added 2026-08-05.
+ *
+ * `revocation.strict` used to be UNLISTED, which left it last — after both
+ * throttles. Drill 03 measured the consequence: during a Redis outage every
+ * strict route 503'd from FailOpenThrottleRequests before the gate ran, so the
+ * protection observed in production was the rate limiter's, not this gate's, and
+ * was one FAIL_OPEN_LIMITERS edit from vanishing.
+ *
+ * Three orderings matter and all three are asserted as RELATIVE positions rather
+ * than fixed indices, so unrelated middleware moving does not break this:
+ *
+ *   VerifySupabaseJwt < RequireVerifiedRevocation   (gate reads its attribute)
+ *   RequireVerifiedRevocation < IdempotencyKey      (a replay must not bypass it)
+ *   RequireVerifiedRevocation < ThrottleRequests    (the drill finding)
+ */
+it('pins revocation.strict after the JWT verifier and before idempotency and throttling', function () {
+    $kernel = app(Kernel::class);
+    $method = new ReflectionMethod($kernel, 'getMiddlewarePriority');
+    $method->setAccessible(true);
+    $priority = array_values($method->invoke($kernel));
+
+    $at = function (string $class) use ($priority) {
+        $i = array_search($class, $priority, true);
+        expect($i)->not->toBeFalse("{$class} is missing from the middleware priority list");
+
+        return $i;
+    };
+
+    $jwt = $at(VerifySupabaseJwt::class);
+    $gate = $at(RequireVerifiedRevocation::class);
+    $idem = $at(IdempotencyKey::class);
+    $throttle = $at(ThrottleRequests::class);
+
+    expect($jwt)->toBeLessThan($gate);
+    expect($gate)->toBeLessThan($idem);
+    expect($gate)->toBeLessThan($throttle);
 });
 
 /**
