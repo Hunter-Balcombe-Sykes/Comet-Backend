@@ -198,7 +198,7 @@ re-validates `account_type`/`source_type` pairing.
 }
 ```
 
-`subdomain` and `site_url` are present only once `build_state` is `ready` (see poll endpoint). `failure_code` is omitted when null.
+`subdomain` is present from `pending` — it's guessable-by-design (spec §"Claim reference"), so there's no reason to withhold the identifier itself, and the frontend needs it pre-ready to call `POST /api/claim` now that claim no longer waits for ready. `site_url` stays ready-gated: that's the "go visit a real site" signal, which should wait for actual content (see poll endpoint). `failure_code` is omitted when null.
 
 **Errors:**
 - `422 SOURCE_PAIRING_INVALID` — `source_type` isn't configured for that `account_type` (or `source_type` isn't a known generator)
@@ -230,7 +230,7 @@ All four error bodies put the machine-readable code at the **top level**: `{ "me
 ```
 
 - `build_state`: `pending` | `building` | `ready` | `failed`
-- `subdomain` / `site_url` appear **only** when `build_state = "ready"`
+- `subdomain` appears from `build_state = "pending"` — guessable-by-design, and the frontend needs it pre-ready to call `POST /api/claim`. `site_url` appears **only** when `build_state = "ready"` — that's the "go visit a real site" signal, which waits for actual content
 - `failure_code` appears only when `build_state = "failed"` (e.g. `source_not_found`, `scrape_failed`)
 - No scraped content leaks through this endpoint — content is only visible via the normal public site payload once the build is ready
 
@@ -253,7 +253,8 @@ All four error bodies put the machine-readable code at the **top level**: `{ "me
 **Errors** (all put `code` at the top level, same convention as the build endpoint):
 - `404 CLAIM_NOT_FOUND` — no site exists for that subdomain
 - `409 ALREADY_CLAIMED` — this site was claimed by someone else already
-- `409 BUILD_NOT_READY` — the build hasn't finished (`build_state != ready`)
+- `409 BUILD_FAILED` — no build row exists, or it's in `failed` state (`pending`/`building` claim fine — claim no longer waits for `ready`)
+- `409 CLAIM_EMAIL_MISMATCH` — the build has a `contact_email` and the JWT's verified email doesn't match it
 - `409 ACCOUNT_EXISTS` — this Supabase user already owns a different account
 - `409 EMAIL_ALREADY_REGISTERED` — the verified email is already bound to a different auth user
 - `422 EMAIL_VERIFICATION_REQUIRED` — the JWT carries no verified email claim
@@ -313,12 +314,45 @@ All ids are UUID strings. Timestamps are ISO 8601 strings when returned by the A
 |-----------------|----------|----------|---------------------------|-------------------------------------------------------------------------------------------------------------------|
 | id              | uuid     | no       | b8e7...                   | Primary Key                                                                                                       |
 | user_id         | uuid     | no       | 4db0...                   | FK → core.users.id                                                                                                |
-| subdomain       | string   | no       | joshbarber                | unqiue (case-sensitive), 3-63,lowercase letters/numbers/hyphen; no leading/trailing hyphen; reserved list blocked |
-| is_published    | boolean  | no       | false                     | if false, public site endpoint returns 404 or 403 depending on route                                              |
-| theme_id        | uuid     | yes      | 9f23                      | Must exist in themes table                                                                                        |
+| subdomain       | string   | no       | joshbarber                | unique (case-sensitive), 3-63,lowercase letters/numbers/hyphen; no leading/trailing hyphen; reserved list blocked |
+| is_published    | boolean  | no       | false                     | Dashboard-level flag — NOT a public-visibility control on every read path; see "Public visibility vs. is_published" below |
 | settings        | object   | yes      | {...}                     | Freeform JSON object merged on PATCH                                                                              |
 | created_at      | datetime | yes      | 2026-01...                |                                                                                                                   |
 | updated_at      | datetime | yes      | 2026-01...                |                                                                                                                   |
+
+### Public visibility vs. `is_published`
+
+`is_published` is a dashboard-level flag, not a public-visibility control. Pre-account sites (post-signup,
+pre-claim) render publicly at `<handle>.partna.au` and via `GET /api/public/profiles/{handle}` regardless
+of `is_published` — deliberate, so a visitor can see their site before claiming it. Some public-facing
+paths gate on it and some do not; there is no single rule, so check this table rather than assuming:
+
+| Path | Gates on `is_published`? |
+|---|---|
+| `GET /api/public/profiles/{handle}` (`IndividualProfileController`) — the live `<handle>.partna.au` sitepage | No |
+| `GET /api/public/profiles/{handle}/integrations` and `/platforms` (`PublicIntegrationController`) | No |
+| `GET /api/public/profiles/{handle}/menu` (`PublicMenuController`) | No |
+| `SyncSubdomainToKvJob` (Cloudflare KV write) — gates on `isActive() \|\| isUnclaimed()` instead | No |
+| `PublicSiteResolver` (lead/enquiry/subscribe site lookup) | Yes |
+| `PublicDocumentDownloadController` | Yes |
+| `AnalyticsController` (pageview/click/dwell tracking) | Yes |
+| `QrCodeController` | Yes |
+| `GET /api/public/site` (`PublicSiteController`, subdomain-resolved) | Yes — **in the view, not in PHP** |
+
+The last one gates in SQL: `site.public_site_payload`'s `WHERE` clause is
+`s.is_published = true AND p.status IN ('active','unclaimed') AND p.deleted_at IS NULL`, so an
+unpublished site yields no row and the controller 404s. Grepping `app/` for `is_published` will not
+lead you to it — the one PHP hit in that class (`PublicSiteController::showByHeader`'s alias-redirect
+canonical lookup) is a different sub-path. Check the view definitions in `supabase/migrations/` before
+concluding a read path is ungated.
+
+Note the three ungated profile sub-resources above carry third-party-sourced content — scraped menu
+items, and platform connection payloads including Google Business data. They are public pre-claim by
+the same design decision; see `SIGNUP-3` and the `LEGAL-2` privacy-policy item in
+`docs/checklists/launch-readiness-checklist.md`.
+
+Do not add a gate to the profiles route or the KV write to "fix" this — it is intended. See audit
+finding `SIGNUP-3` for the decision record.
 
 ### SiteImage (core.site_images)
 
@@ -433,7 +467,6 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 | published    | boolean | no       | `true`                                                    | Derived from site is_published                            |
 | site         | object  | no       | `{ id, subdomain, settings, gallery, content_images }` | Includes gallery + content image pools with variant URLs  |
 | professional | object  | no       | `{ id, handle, display_name, bio, ... }` | Includes public-facing location fields                    |
-| theme        | object  | yes      | `{ id, key, name, config }`                               | theme.config is an object                                 |
 | blocks       | array   | no       | `[ LinkBlock \| SectionBlock ]`                           | Only active blocks are returned                           |
 | gallery      | array   | no       | `[ { id, pool, alt_text, sort_order, variants: {...} } ]` | Only active gallery-pool images; variants are URL maps    |
 | services     | array   | no       | `[ { id, title, price_cents, ... } ]`                     | Only active services returned                             |
@@ -613,7 +646,6 @@ await fetch(`${API_BASE}/analytics/pageviews`, {
   "published": true,
   "site": { "id": "uuid", "subdomain": "fadez", "settings": {}, "gallery": [], "content_images": [], "gallery_videos": [], "content_videos": [] },
   "professional": { "id": "uuid", "handle": "fadez", "display_name": "Fadez Studio", "bio": null },
-  "theme": { "id": "uuid", "key": "modern", "name": "Modern", "config": {} },
   "links": [],
   "sections": [],
   "blocks": [],
@@ -621,7 +653,11 @@ await fetch(`${API_BASE}/analytics/pageviews`, {
 }
 ```
 
-**Common status codes:** 200, 403 (site not published), 404 (site not found), 429
+**Common status codes:** 200, 404 (site not found, unpublished, or owner not active/unclaimed), 429
+
+An unpublished site returns **404, not 403** — `site.public_site_payload` simply yields no row
+(see "Public visibility vs. `is_published`"), and public endpoints answer 404 rather than 403 so a
+caller cannot enumerate which subdomains exist.
 
 **Notes:**
 - `blocks` is a combined, sort-ordered array of both `links` and `sections` and includes `block_group` on each item.
@@ -882,8 +918,8 @@ HTTP 423 Locked
 
 ### `PATCH /api/site`
 
-- Purpose: update site settings, subdomain, and theme_id
-- Request body: `{ "subdomain": "joshbarber", "theme_id": "uuid or null", "settings": { "primary_color": "#000000" } }`
+- Purpose: update site settings, subdomain, and design kit
+- Request body: `{ "subdomain": "joshbarber", "design_kit": { "theme_mode": "dust", "color_accent": "#000000" }, "settings": { "primary_color": "#000000" } }`
 - Response (200): `{ "site": { ... } }`
 - Common status codes: 200, 401, 403, 422
 - Banners are managed via `POST /api/uploads` (pool=content) and the frontend picks from `optimized` / `maximized`. No banner fields are accepted on this endpoint.
@@ -1097,13 +1133,6 @@ Allowed section block types are defined in config: `gallery`, `services`, `shop`
 - Setting to `true` enables marketing emails
 - Setting to `false` disables marketing emails
 - Cache auto-syncs when EmailSubscription status changes
-
-### Themes
-
-- `GET /api/themes`
-- `POST /api/themes/{theme}/select`
-- Select response: `{ "site": { ... } }`
-
 
 ### Notifications
 

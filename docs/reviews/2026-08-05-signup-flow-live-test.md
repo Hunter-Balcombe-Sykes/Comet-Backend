@@ -184,7 +184,7 @@ throughout, which is why the suite stayed green across the whole regression wind
 actor, and adding it means a new `InstagramPayload` field plus a `InstagramConnectionResource` key,
 i.e. a wire change. Tracked separately, not fixed here.
 
-### - [ ] `SIGNUP-3` · P1 · unpublished sites are fully public
+### - [x] `SIGNUP-3` · P1 · unpublished sites are fully public — **DOCUMENTED 2026-08-06, no gate added**
 
 > **DECIDED by Josh 2026-08-05 — settled, do not relitigate.** **Accept and document as intended.**
 > Pre-account sites are public by design so a visitor can see their site before claiming.
@@ -209,6 +209,20 @@ the CLAUDE.md note that unclaimed sites render "when published". **May be delibe
 Gates (`is_published` checked): `PublicSiteResolver.php:24`, `PublicDocumentDownloadController.php:29`,
 `AnalyticsController.php:414`, `QrCodeController.php:34`. Non-gates (zero references to `is_published`):
 `IndividualProfilePayloadBuilder`, `IndividualProfileController`, `SyncSubdomainToKvJob`.
+
+**Two further paths found while documenting — the finding's list was not exhaustive:**
+
+- A **fifth gate**, and it is invisible to a PHP grep: `GET /api/public/site` gates in **SQL**.
+  `site.public_site_payload`'s WHERE clause is
+  `s.is_published = true AND p.status IN ('active','unclaimed') AND p.deleted_at IS NULL`
+  (baseline `:2080`), so an unpublished site yields no row and `PublicSiteController` 404s.
+- **Two further NON-gates**, both unauthenticated profile sub-resources with zero `is_published`
+  references: `PublicIntegrationController` (`/profiles/{handle}/integrations` and `/platforms`) and
+  `PublicMenuController` (`/profiles/{handle}/menu`).
+
+⚠️ Those two matter for LEGAL-2 specifically: the menu is **scraped** third-party content and the
+integrations payload carries **Google Business data**. They are the exposure surface, and neither was
+on the finding's list.
 
 #### ⚠️ LEGAL-2 interaction — it interacts, and materially. Flagged, NOT actioned.
 
@@ -262,7 +276,7 @@ two owners; nulls there are correct for a scraped pre-account build.
 **No code change.** Closed as resolved-as-a-question. Open product question, NOT actioned here:
 should the dashboard surface the workplace address when the user's own `location_*` is empty?
 
-### - [ ] `SIGNUP-5` · P3 · `docs/api.md` §3 drifted from the code
+### - [x] `SIGNUP-5` · P3 · `docs/api.md` §3 drifted from the code — **FIXED 2026-08-06**
 
 - Doc: "`subdomain` and `site_url` are present only once `build_state` is `ready`". Code: measured
   `subdomain` present at `pending`. `PreAccountBuildStatusResource` documents this as **deliberate**
