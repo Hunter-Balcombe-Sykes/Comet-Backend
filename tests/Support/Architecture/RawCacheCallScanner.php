@@ -126,6 +126,10 @@ final class RawCacheCallScanner
         // on them. Each key is scoped/content-addressed — vetted, not a leak):
         'app/Jobs/Moderation/Concerns/DedupesRecipientSends.php', // RV-10 per-recipient Cache::add SETNX claim + Cache::forget rollback; key is action-log-scoped and content-addressed (sha256 of "<actionLogId>|<recipient>"), same pattern as SendFeedbackEmailJob
         'app/Services/Platforms/MenuApifyScraper.php', // negative-cache "blocked/hard_error" marker + its recovery forget, key via CacheKeyGenerator::menuScrapeBlocked(platform, url) (same shape as YoutubeThumbnailResolver/AppleSearch)
+        // STALE — code drift, NOT the token migration: the legacy shop-brand
+        // pipeline was deleted outright (WAVE-2C, 2026-08-06) — CommerceProbeJob
+        // now cuts over to StoreBrandSeeder (App\Services\Brand), which carries
+        // no picker-catalog warm of its own. The file this entry names is gone.
         'app/Services/Platforms/ShopBrandSeeder.php', // picker-catalog warm mirroring addBrand()'s, key via CacheKeyGenerator::shopifyBrandCatalog($id); ShopController is already allowlisted for this exact cache
 
         // File-level exceptions (audited 2026-07-28 — a FOURTH round of the same

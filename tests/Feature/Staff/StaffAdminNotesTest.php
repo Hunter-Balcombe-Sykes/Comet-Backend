@@ -17,6 +17,11 @@ beforeEach(function () {
     } catch (Throwable) {
     }
 
+    // UserDashboardResource reads core.user_handle_aliases on every
+    // serialization (reclaimable_handles) — this lane builds its own tables
+    // rather than using setupUsersTable, so the ride-along comes explicitly.
+    setupHandleAliasesTable();
+
     $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY,
         handle TEXT,

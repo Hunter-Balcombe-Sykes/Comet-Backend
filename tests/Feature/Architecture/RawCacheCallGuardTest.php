@@ -82,6 +82,7 @@ it('has no UNEXPECTED stale allowlist entries', function () {
         'app/Http/Controllers/Api/PublicSite/IndividualProfileController.php',
         'app/Services/Design/Presets/Factors/OwnMediaAccentFactor.php',
         'app/Services/Design/Presets/Factors/StorePricePointFactor.php',
+        'app/Services/Platforms/ShopBrandSeeder.php',
         'app/Routing/Probes/ProbeBudget.php',
     ];
 

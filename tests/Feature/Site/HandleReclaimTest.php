@@ -119,3 +119,49 @@ it('throws 404 for a handle alias that belongs to a different professional', fun
     expect(fn () => app(ReclaimHandleAction::class)->execute($self, 'wantedhandle'))
         ->toThrow(NotFoundHttpException::class);
 });
+
+// ── /me surfaces reclaimable handles (UserDashboardResource, 2026-08-06) ─────
+
+it('lists in-window aliases as reclaimable_handles on the dashboard resource', function () {
+    [$proId] = array_values(makeReclaimPro('reclaim-listing'));
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $proId,
+            'handle' => 'old-handle-live',
+            'reclaim_until' => now()->addDays(10)->toDateTimeString(),
+            'expires_at' => now()->addDays(80)->toDateTimeString(),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ],
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $proId,
+            'handle' => 'old-handle-lapsed',
+            'reclaim_until' => now()->subDay()->toDateTimeString(),
+            'expires_at' => now()->addDays(60)->toDateTimeString(),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ],
+    ]);
+
+    $pro = User::query()->find($proId);
+    $payload = (new \App\Http\Resources\UserDashboardResource($pro))
+        ->resolve(\Illuminate\Http\Request::create('/'));
+
+    expect($payload['reclaimable_handles'])->toHaveCount(1)
+        ->and($payload['reclaimable_handles'][0]['handle'])->toBe('old-handle-live')
+        ->and($payload['reclaimable_handles'][0]['reclaim_until'])->not->toBeNull();
+});
+
+it('reclaimable_handles is an empty list when nothing is in window', function () {
+    [$proId] = array_values(makeReclaimPro('reclaim-empty'));
+
+    $pro = User::query()->find($proId);
+    $payload = (new \App\Http\Resources\UserDashboardResource($pro))
+        ->resolve(\Illuminate\Http\Request::create('/'));
+
+    expect($payload['reclaimable_handles'])->toBe([]);
+});

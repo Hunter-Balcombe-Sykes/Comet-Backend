@@ -476,6 +476,10 @@ function bindThrowingCacheStore(): void
 function setupUsersTable(): void
 {
     attachTestSchemas();
+    // user_handle_aliases rides along: UserDashboardResource reads it on every
+    // /me serialization (reclaimable_handles, 2026-08-06), so any lane that
+    // seeds users can now serialize them without a bespoke setup call.
+    setupHandleAliasesTable();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY NOT NULL,
         auth_user_id TEXT NULL,
@@ -2925,10 +2929,15 @@ function setupAuthFactorEventsTable(): void
 function setupHandleAliasesTable(): void
 {
     attachTestSchemas();
+    // handle_lc included: this helper now also runs via setupUsersTable's
+    // ride-along, and CREATE IF NOT EXISTS means whichever runs first wins —
+    // so this shared shape must be the SUPERSET of every lane's needs
+    // (BootstrapHandleAliasUniquenessTest inserts handle_lc).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.user_handle_aliases (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         handle TEXT NULL,
+        handle_lc TEXT NULL,
         reclaim_until TEXT NULL,
         expires_at TEXT NULL,
         notified_t3_at TEXT NULL,

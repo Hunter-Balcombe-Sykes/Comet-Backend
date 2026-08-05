@@ -30,6 +30,10 @@ beforeEach(function () {
     Bus::fake();
 });
 
+afterEach(function () {
+    Mockery::close();
+});
+
 function storeResponds(array $meta = ['id' => 4242, 'name' => 'The Store', 'currency' => 'AUD']): void
 {
     Http::fake([
@@ -174,4 +178,91 @@ it('queues the store logo for ingest when the store path is on', function () {
             && $job->role === 'logo_full'
             && $job->sourceUrl === 'https://cdn.example.com/logo.png',
     );
+});
+
+// MAX_BRANDS is an AGGREGATE cap across every one of the user's stores, of
+// any provider — the same shape ShopController::MAX_BRANDS enforces on the
+// picker. It is deliberately tested apart from SourceReconciler's own
+// per-SURFACE cap (max_accounts, default 1 — see Surface::$maxAccounts):
+// that one blocks a second store on the SAME provider surface (e.g. two
+// distinct own-domain Shopify stores) and is a pre-existing, unrelated
+// mechanism this WAVE-2C unit does not touch. Seeding five real stores
+// through five real probes to reach the aggregate cap would, today,
+// coincidentally collide with the per-surface cap first (there are exactly
+// five probe surfaces — shopify/woocommerce/squarespace/bigcartel/generic —
+// each capped at one), which would test the wrong mechanism. Five
+// directly-inserted brand rows isolate the property under test: the
+// aggregate count StoreBrandSeeder itself now guards.
+function seedExistingStores(object $user, int $count): void
+{
+    for ($i = 0; $i < $count; $i++) {
+        $connectionId = (string) Str::uuid();
+        DB::table('site.platform_connections')->insert([
+            'id' => $connectionId,
+            'user_id' => $user->id,
+            'surface_key' => "fixture.store{$i}",
+            'routing_class' => 'shop',
+            'resource_id' => "fixture-{$i}",
+            'payload' => '{}',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        ShopBrand::create([
+            'connection_id' => $connectionId,
+            'brand_id' => "fixture-brand-{$i}",
+            'provider' => 'fixture',
+            'url' => "https://fixture{$i}.example.com",
+            'source_url' => "https://fixture{$i}.example.com",
+            'is_individual' => false,
+            'position' => $i,
+        ]);
+    }
+}
+
+it('caps a 6th store the same way the legacy seeder did (MAX_BRANDS parity, WAVE-2C)', function () {
+    // Mirrors ShopController::MAX_BRANDS / the legacy ShopBrandSeeder's own
+    // copy. StoreBrandSeeder never decides placement itself — but a brand-row
+    // cap is genuinely its own concern (the shop_brands row is "the only
+    // thing left that is genuinely its own"), so this one thing IS
+    // reimplemented here rather than sourced from PlacementPolicy.
+    $pro = createTenant('store-capped');
+    seedExistingStores($pro, 5);
+    storeResponds(['id' => 9999, 'name' => 'The 6th Store', 'currency' => 'AUD']);
+
+    $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
+
+    expect($result['outcome'])->toBe('capped')
+        ->and($result['reason'])->toBe('max_brands')
+        ->and($result['connectionId'])->toBeNull()
+        ->and($result['brandId'])->toBeNull();
+
+    // The placement itself still applies — SourceReconciler's single-writer
+    // property is untouched, only the 6th brand row was refused, mirroring
+    // the legacy seeder's own ordering (its connection upsert always ran;
+    // only the brand write was skipped past the cap).
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->exists())->toBeTrue()
+        ->and(ShopBrand::where('is_individual', false)->count())->toBe(5)
+        ->and(ShopBrand::where('brand_id', '9999')->exists())->toBeFalse();
+});
+
+it('never counts a re-scan of an already-connected store against the cap', function () {
+    $pro = createTenant('store-recheck-capped');
+    // Four existing stores plus this one lands exactly ON the cap (5), never
+    // over it — the interesting case for "a re-scan doesn't count against
+    // the cap" is being AT the boundary, not comfortably under it.
+    seedExistingStores($pro, 4);
+    storeResponds();
+
+    $first = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
+    expect($first['outcome'])->toBe('placed');
+    expect(ShopBrand::where('is_individual', false)->count())->toBe(5);
+
+    // Re-scanning the SAME store while the account sits exactly at MAX_BRANDS
+    // must still succeed — it's a re-scan of an existing row, not a new one.
+    Cache::flush();
+    storeResponds();
+    $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
+
+    expect($result['outcome'])->toBe('placed')
+        ->and(ShopBrand::where('is_individual', false)->count())->toBe(5);
 });
