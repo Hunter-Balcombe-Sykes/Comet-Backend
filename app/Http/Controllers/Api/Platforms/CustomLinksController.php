@@ -235,11 +235,13 @@ class CustomLinksController extends ApiController
     /** @return list<array<string,mixed>> */
     private function linksData(User $user): array
     {
-        // link_item ranks (keyed by the link's resource_id — how the scoring
-        // command seeds custom links). The dashboard's Smart order switch
-        // sorts on popularityRank; until 2026-08-04 this payload never
-        // carried it, so "engagement order" silently meant "stored order".
-        // Fail-open: a read fault degrades to null ranks.
+        // link_item ranks are keyed by the link's URL (payload.url) — what
+        // ContentFreshness/ComputeContentPopularityScores write as the
+        // link_item content_key, not the connection's resource_id. The
+        // dashboard's Smart order switch sorts on popularityRank; until
+        // 2026-08-04 this payload never carried it, so "engagement order"
+        // silently meant "stored order". Fail-open: a read fault degrades to
+        // null ranks.
         $ranks = app(ContentPopularityReader::class)
             ->forSite($user->site()->value('id'));
         $linkRanks = $ranks['link_item'] ?? [];
@@ -254,7 +256,7 @@ class CustomLinksController extends ApiController
                 'description' => $card->description(),
                 'favicon' => $card->favicon(),
                 'logo' => $card->logo(),
-                'popularityRank' => $linkRanks[(string) $row->resource_id] ?? null,
+                'popularityRank' => $linkRanks[(string) $card->url()] ?? null,
             ];
         })->values()->all();
     }

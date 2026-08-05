@@ -4,6 +4,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -86,6 +87,51 @@ it('shop selection returns the compat flat view of the first brand with products
             // the site has no ranks) — the Smart order switch sorts on it.
             'products' => [['productId' => 'p1', 'url' => 'https://f/p1', 'popularityRank' => null]],
         ]]);
+});
+
+it('shop selection surfaces a seeded popularityRank keyed by product handle', function () {
+    // Covers the dashboard route (shop_product ranks were ALREADY correctly
+    // keyed by handle — ShopBrand::toBrandArray():135 — unlike custom/links'
+    // resource_id mismatch, RANK-1). ShopRelationalStorageTest pins the same
+    // keying on the PUBLIC wire only; this is the /api/platforms/shop/selection
+    // half.
+    setupContentPopularityScoresTable();
+    $user = shopPayloadUser('shp4');
+    $siteId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $user->id,
+        'subdomain' => 'shp4',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    $brand = ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'full', 'provider' => 'shopify',
+        'url' => 'https://f', 'discount_code' => 'SAVE', 'position' => 0,
+    ]);
+    ShopProduct::create([
+        'brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0,
+        'data' => ['productId' => 'p1', 'handle' => 'mug', 'url' => 'https://f/p1'],
+    ]);
+
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+        'id' => (string) Str::uuid(),
+        'site_id' => $siteId,
+        'content_type' => 'shop_product',
+        'content_key' => 'mug',
+        'score' => 8.0,
+        'rank' => 1,
+        'computed_at' => now()->toDateTimeString(),
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/shop/selection')
+        ->assertOk()
+        ->assertJsonPath('selection.products.0.popularityRank', 1);
 });
 
 it('shop selection is null when no brand has products', function () {
