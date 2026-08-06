@@ -27,9 +27,7 @@ class DesignRationaleService
      * @var array<string, string>
      */
     private const COLUMN_AREAS = [
-        'theme_mode' => 'Colours',
         'color_accent' => 'Colours',
-        'theme_contrast' => 'Colours',
         'text_body' => 'Typography',
         'text_desktop_body' => 'Typography',
         'weight_regular' => 'Typography',
@@ -37,15 +35,11 @@ class DesignRationaleService
         'typography_line_height' => 'Typography',
         'typography_logo_height' => 'Typography',
         'typography_font_family' => 'Typography',
-        'typography_uppercase' => 'Typography',
-        'typography_tracking' => 'Typography',
         'border_thickness' => 'Layout',
         'border_radius' => 'Layout',
         'space_regular' => 'Layout',
         'space_desktop_regular' => 'Layout',
         'layout_density' => 'Layout',
-        'border_style' => 'Layout',
-        'motion_pace' => 'Motion',
         'effect_shadow_style' => 'Style',
         'effect_link_style' => 'Style',
         'effect_image_treatment' => 'Style',

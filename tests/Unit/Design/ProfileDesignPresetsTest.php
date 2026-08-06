@@ -30,7 +30,7 @@ it('merges the slug refinement over the bucket base', function () {
 
     expect($out)->toBe($expected)
         ->and($out['color_accent'])->toBe('#0f766e')      // spa teal beats bucket rose
-        ->and($out['typography_font_family'])->toBe('helvetica-now'); // bucket font survives
+        ->and($out['typography_font_family'])->toBe('helvetica-neue'); // bucket font survives
 });
 
 it('styles a google-sourced sector too — fields, not sources', function () {

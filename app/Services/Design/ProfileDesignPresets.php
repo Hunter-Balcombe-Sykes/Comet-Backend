@@ -29,15 +29,15 @@ final class ProfileDesignPresets
      * manual pick still wins per the universal manual-over-preset rule.
      * theme_night_shift_auto is the ONE remaining user-only field (a
      * functional day/night toggle, not an aesthetic choice) — never preset.
-     * typography_uppercase (boolean) IS presettable: the old TEXT-valued
-     * contribution rows couldn't carry it, but the read-time PHP overlay can.
+     *
+     * Narrowed 2026-08-06: theme_mode, theme_contrast, typography_tracking,
+     * typography_uppercase, motion_pace and border_style left the schema with
+     * the design-kit simplification, so there is nothing to target.
      *
      * @var list<string>
      */
     private const TARGETABLE = [
-        'theme_mode',
         'color_accent',
-        'theme_contrast',
         'text_body',
         'text_desktop_body',
         'weight_regular',
@@ -45,15 +45,11 @@ final class ProfileDesignPresets
         'typography_line_height',
         'typography_logo_height',
         'typography_font_family',
-        'typography_uppercase',
-        'typography_tracking',
         'border_thickness',
         'border_radius',
         'space_regular',
         'space_desktop_regular',
         'layout_density',
-        'border_style',
-        'motion_pace',
         'effect_shadow_style',
         'effect_link_style',
         'effect_image_treatment',

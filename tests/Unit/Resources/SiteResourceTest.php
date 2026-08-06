@@ -149,9 +149,8 @@ describe('withResolvedDesignKit', function () {
             ->resolve();
 
         // preset values show through untouched
-        expect($array['design_kit']->typography_font_family)->toBe('general-sans')
+        expect($array['design_kit']->typography_font_family)->toBe('monument-grotesk')
             ->and($array['design_kit']->weight_regular)->toBe('300')
-            ->and($array['design_kit']->motion_pace)->toBe('fast')
             ->and($array['design_kit']->effect_image_treatment)->toBe('warm')
             // manual column wins over the preset's own accent (#e0491f)
             ->and($array['design_kit']->color_accent)->toBe('#105030')
