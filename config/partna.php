@@ -1858,6 +1858,25 @@ return [
         'max_ms' => (int) env('PARTNA_FORM_TIMING_MAX_MS', env('FORM_TIMING_MAX_MS', 43200000)),  // 12h max (stale form)
     ],
 
+    // Enquiry notification reconciliation (drill 03, 2026-08-06). Drains
+    // site.enquiries rows whose notification dispatch failed because Redis was
+    // unreachable — see ReconcileEnquiryNotifications.
+    'enquiry' => [
+        // Past this age, the VISITOR's "we received your message" confirmation
+        // is skipped: a receipt arriving hours late reads worse than none. The
+        // professional's own notification has no such staleness problem and is
+        // always re-dispatched.
+        'confirmation_reconcile_window_minutes' => (int) env('PARTNA_ENQUIRY_CONFIRMATION_RECONCILE_WINDOW_MINUTES', 60),
+
+        // Rows drained per run, so a long outage spreads over several ticks
+        // instead of flooding the queue on the first tick after recovery.
+        'reconcile_batch_size' => (int) env('PARTNA_ENQUIRY_RECONCILE_BATCH_SIZE', 200),
+
+        // A marker older than this means leads were captured and nobody was
+        // told. That is the condition worth paging on.
+        'notifications_pending_alert_minutes' => (int) env('PARTNA_ENQUIRY_NOTIFICATIONS_PENDING_ALERT_MINUTES', 30),
+    ],
+
     'notification_retention_days' => [
         'policy_update' => 365,
         'incident' => 14,

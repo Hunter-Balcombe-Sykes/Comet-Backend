@@ -538,3 +538,14 @@ Schedule::command('site:build-documents --stale')
     ->withoutOverlapping(10)
     ->runInBackground()
     ->onFailure($reportScheduledFailure('site:build-documents'));
+
+// Drains enquiries whose notification dispatch failed during a Redis outage
+// (PublicEnquiryController stamps notifications_pending_since). Every five
+// minutes: the lead is already safe in Postgres, so this is recovery latency,
+// not data safety. Drill 03 (2026-08-06).
+Schedule::command('enquiries:reconcile-notifications')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(10)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('enquiries:reconcile-notifications'));
