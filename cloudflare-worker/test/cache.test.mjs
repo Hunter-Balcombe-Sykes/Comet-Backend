@@ -136,15 +136,26 @@ describe("preview bypass", () => {
         expect(await h.waitForCache("https://t12.partna.au/", {absent: true})).toBeNull();
     });
 
-    it("T12b: ?architecture= and ?skeleton= bypass the same way", async () => {
+    it("T12b: ?architecture= bypasses the same way", async () => {
         await h.seedKv("t12b", {type: "individual"});
 
-        for (const param of ["architecture=other", "skeleton=legacy"]) {
-            const res = await h.fetch(`https://t12b.partna.au/?${param}`);
-            expect(res.headers.get("cache-control")).toBe("no-store");
-            expect(res.headers.get("x-partna-cache")).toBeNull();
-        }
+        const res = await h.fetch("https://t12b.partna.au/?architecture=other");
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        expect(res.headers.get("x-partna-cache")).toBeNull();
 
         expect(await h.waitForCache("https://t12b.partna.au/", {absent: true})).toBeNull();
+    });
+
+    // The legacy ?skeleton= predicate was removed as dead-with-zero-callers in
+    // 1917be75b (audit cleanup wave). This asserts the removal rather than just
+    // dropping the old case: ?skeleton= must now be an ORDINARY request, so a
+    // re-add would fail here. It matters because cacheKeyFor() strips the query
+    // — an un-bypassed preview param pins its response under the PLAIN url's key
+    // for the full primary TTL, which is exactly why these params bypass at all.
+    it("T12c: ?skeleton= is no longer a bypass — it caches like any other request", async () => {
+        await h.seedKv("t12c", {type: "individual"});
+
+        const res = await h.fetch("https://t12c.partna.au/?skeleton=legacy");
+        expect(res.headers.get("cache-control")).not.toBe("no-store");
     });
 });
