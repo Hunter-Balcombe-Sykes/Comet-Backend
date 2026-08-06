@@ -39,12 +39,13 @@ class ReconcileEnquiryNotifications extends Command
         DB::connection('pgsql')->transaction(function () use ($batch, $confirmationWindow, &$reconciled, &$oldestPending) {
             // SKIP LOCKED so an overlapping run (or a second server) takes a
             // different slice rather than blocking — mirrors the claim-vs-prune
-            // pattern in PreAccountBuildService.
+            // pattern in PreAccountBuildService. SQLite ignores the lock clause
+            // (Feature suite unaffected); the Postgres behavior is the contract.
             $pending = Enquiry::query()
                 ->whereNotNull('notifications_pending_since')
                 ->orderBy('notifications_pending_since')
                 ->limit($batch)
-                ->lockForUpdate()
+                ->lock('for update skip locked')
                 ->get();
 
             foreach ($pending as $enquiry) {
@@ -71,6 +72,15 @@ class ReconcileEnquiryNotifications extends Command
                 } catch (Throwable $e) {
                     // Queue still down. Leave the marker so the next tick
                     // retries rather than losing the notification entirely.
+                    //
+                    // Deliberately ONE catch for both dispatch() calls, not two —
+                    // one marker column means a partial failure (job 1 enqueues,
+                    // job 2 throws) re-dispatches BOTH on the next tick, including
+                    // the one that already made it onto the queue. That is safe,
+                    // not just tolerated: DispatchEnquiryNotificationsJob claims an
+                    // atomic Cache::add SETNX before its side-effect (handle()) and
+                    // SendEnquiryConfirmationJob is ShouldBeUnique and checks
+                    // confirmation_sent_at — a re-dispatch of either is a no-op.
                     Log::warning('enquiry.notify.reconcile_failed', [
                         'enquiry_id' => (string) $enquiry->id,
                         'error' => $e->getMessage(),

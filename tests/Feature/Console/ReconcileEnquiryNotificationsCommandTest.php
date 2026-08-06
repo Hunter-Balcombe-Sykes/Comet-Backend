@@ -79,6 +79,39 @@ it('leaves the marker in place when the queue is still down', function () {
         ->not->toBeNull();
 });
 
+it('leaves the marker set when job 1 enqueues but job 2 throws', function () {
+    // Regression for a partial-failure gap: one shared try/catch covers both
+    // dispatch() calls (deliberate — one marker column, spec §5.2), so if the
+    // professional's job reaches the queue but the confirmation job's push
+    // throws, the marker stays set and BOTH re-dispatch on the next tick —
+    // including the one that already succeeded. Distinguishing the two push()
+    // calls by job type (rather than call count) keeps this independent of
+    // dispatch order inside the command.
+    $pro = createTenant('reconcile-partial-failure');
+    $enquiry = createEnquiryFor($pro, ['notifications_pending_since' => now()->subMinutes(5)->toDateTimeString()]);
+
+    Queue::shouldReceive('connection')->andReturnSelf();
+    Queue::shouldReceive('push')
+        ->once()
+        ->withArgs(fn ($job) => $job instanceof DispatchEnquiryNotificationsJob)
+        ->andReturn(null);
+    Queue::shouldReceive('push')
+        ->once()
+        ->withArgs(fn ($job) => $job instanceof SendEnquiryConfirmationJob)
+        ->andThrow(new RuntimeException('read error on connection to 127.0.0.1:6379'));
+
+    $this->artisan('enquiries:reconcile-notifications')->assertSuccessful();
+
+    // Both Mockery ->once() expectations above already prove job 1 was pushed
+    // and job 2 threw. What this asserts is the consequence: the marker is
+    // NOT cleared despite job 1's successful push — safe to re-dispatch both
+    // next tick because DispatchEnquiryNotificationsJob claims an atomic
+    // Cache::add SETNX before its side-effect, and SendEnquiryConfirmationJob
+    // is ShouldBeUnique and checks confirmation_sent_at.
+    expect(DB::connection('pgsql')->table('site.enquiries')->where('id', $enquiry->id)->value('notifications_pending_since'))
+        ->not->toBeNull();
+});
+
 it('skips soft-deleted enquiries', function () {
     $pro = createTenant('reconcile-deleted');
     createEnquiryFor($pro, [
