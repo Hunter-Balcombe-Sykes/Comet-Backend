@@ -105,6 +105,46 @@ incoming subdomain), so provisioning was the only creator of divergence.
 2026-08-06: still `12 / 37`. **6 of the 12 hold active `core.user_handle_aliases` rows** (8 rows) —
 those are the only ones needing a KV write, since the primary KV key is the handle and does not change.
 
+#### ✅ BACKFILL APPLIED to dev 2026-08-06 — `12 diverged → 1`
+
+Ran via `cloud command:run development --cmd="php artisan partna:converge-site-subdomains"` (dry run
+first, then `--apply`). Both exited 0.
+
+**Result: converged 11, skipped 1.** Verified from the DB, not from the command's own output:
+
+```sql
+select count(*) filter (where lower(u.handle) <> lower(s.subdomain)) as still_diverged, count(*) as total
+from core.users u join site.sites s on s.user_id = u.id where u.deleted_at is null;
+-- still_diverged: 1, total: 37
+```
+
+The survivor is deliberate: handle `admin` / subdomain `tobiasindarwin-fableqa1`. `admin` is a
+**reserved subdomain**, so converging would park a site on a name `ResolvesSubdomainFromHost` rejects.
+The command skips it and says so. **Fix that row by renaming the handle, not the subdomain.**
+
+**KV, as predicted:** zero writes to any `<handle>` key — every non-alias row reported
+`KV: none — the main entry is keyed on the handle, which is not changing`. Only 5 users took alias
+`redirect` updates (7 keys: `tobiasindarwin-fablebiz1`, `tobiasindarwin-fableqa3`,
+`tobiasindarwin-fableqa6`, `tobiasindarwin-fableqa7`, `tobias`, `user-aazovq`, `ceo`). Those entries
+already existed pointing at now-dead hosts, so this **corrected** them rather than adding anything to
+the namespace prod shares with dev. The 6th alias-holder was the skipped `admin` row.
+
+**Side effects verified:** `core.users.partna_url` was recomputed by the `sites_url_sync_aiu` trigger
+on every converged row (e.g. `https://simondoylehair-3.partna.au` → `https://simondoylehair2.partna.au`),
+and `sites.subdomain_changed_at` is still `NULL` throughout — the repair did not spend anyone's 30-day
+rename cooldown.
+
+**The P0 symptom is gone end to end**, re-running the finding's own commands:
+
+```
+$ curl -o /dev/null -w '%{http_code}\n' https://simondoylehair-3.partna.au/   # the OLD returned site_url
+404                                                                          # nothing owns it now
+$ curl -o /dev/null -w '%{http_code}\n' https://simondoylehair2.partna.au/    # what the API returns now
+200                                                                          # 22385 bytes — matches the original measurement
+$ curl -o /dev/null -w '%{http_code}\n' https://inspire-me-hair-artistry.partna.au/
+200
+```
+
 ```sql
 select count(*) filter (where u.handle <> s.subdomain) as diverged, count(*) as total
 from core.users u join site.sites s on s.user_id = u.id where u.deleted_at is null;
