@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\Logging\LogLeadRateLimits;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Http\Response as IlluminateResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -170,4 +171,40 @@ it('throttles report() to once per window across repeated analytics-write failur
 
     // Three separate failures, but only the first acquires the report-throttle lock.
     Exceptions::assertReportedCount(1);
+});
+
+// --- Drill 03: dedup cache outage must not silence the abuse signal ---
+
+it('still records the abuse row when the dedup cache is unreachable', function () {
+    // Redis-dead: Cache::add() throws. The dedup is a nice-to-have; the row is
+    // the point. Losing both means the abuse table goes blind during exactly
+    // the outage window an attacker would choose.
+    Cache::shouldReceive('add')
+        ->once()
+        ->andThrow(new RuntimeException('read error on connection to 127.0.0.1:6379'));
+
+    $request = Request::create('https://blind-site.'.config('partna.public_domain').'/api/public/enquiry', 'POST');
+    $response = new Response('', 429);
+
+    (new LogLeadRateLimits)->terminate($request, $response);
+
+    expect(DB::connection('pgsql')->table('analytics.lead_submissions')->count())->toBe(1);
+    expect(DB::connection('pgsql')->table('analytics.lead_submissions')->first()->outcome)
+        ->toBe('rate_limited');
+});
+
+it('emits a breadcrumb when the dedup cache is unreachable', function () {
+    Cache::shouldReceive('add')
+        ->once()
+        ->andThrow(new RuntimeException('read error on connection to 127.0.0.1:6379'));
+
+    Log::spy();
+
+    $request = Request::create('https://blind-site.'.config('partna.public_domain').'/api/public/enquiry', 'POST');
+
+    (new LogLeadRateLimits)->terminate($request, new Response('', 429));
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message) => $message === 'lead.rate_limit_dedup_unavailable')
+        ->once();
 });
