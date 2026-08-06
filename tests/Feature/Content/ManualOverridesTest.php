@@ -75,8 +75,11 @@ it('replaces the value on a second edit of the same field', function () {
         'facet' => 'f_text', 'column' => 'headline', 'value' => 'Second',
     ])->assertOk();
 
+    // AUDIT-2026-08-05: GET /api/content/items/{item}/overrides (the index
+    // route) was removed as an orphaned endpoint — read the stored row
+    // directly through the model instead.
     expect(DB::table('content.manual_overrides')->where('item_id', $itemId)->count())->toBe(1)
-        ->and(actingAsUser($pro)->getJson("/api/content/items/{$itemId}/overrides")->json('overrides.0.value'))
+        ->and(ManualOverride::query()->where('item_id', $itemId)->firstOrFail()->value)
         ->toBe('Second');
 });
 
@@ -175,7 +178,6 @@ it('never lets one user edit another user\'s item', function () {
     $theirs = createTenant('override-theirs');
     $theirItem = seedContentItem($theirs->id);
 
-    actingAsUser($mine)->getJson("/api/content/items/{$theirItem}/overrides")->assertStatus(404);
     actingAsUser($mine)->putJson("/api/content/items/{$theirItem}/overrides", [
         'facet' => 'f_text', 'column' => 'headline', 'value' => 'Pwned',
     ])->assertStatus(404);
@@ -186,9 +188,13 @@ it('never lets one user edit another user\'s item', function () {
 it('404s an item that does not exist', function () {
     $pro = createTenant('override-nonexistent');
 
-    actingAsUser($pro)->getJson('/api/content/items/'.Str::uuid().'/overrides')->assertStatus(404);
+    actingAsUser($pro)->putJson('/api/content/items/'.Str::uuid().'/overrides', [
+        'facet' => 'f_text', 'column' => 'headline', 'value' => 'x',
+    ])->assertStatus(404);
 });
 
 it('requires authentication', function () {
-    $this->getJson('/api/content/items/'.Str::uuid().'/overrides')->assertStatus(401);
+    $this->putJson('/api/content/items/'.Str::uuid().'/overrides', [
+        'facet' => 'f_text', 'column' => 'headline', 'value' => 'x',
+    ])->assertStatus(401);
 });

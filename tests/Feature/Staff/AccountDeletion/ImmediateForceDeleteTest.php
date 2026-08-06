@@ -104,7 +104,6 @@ function seedImmediateForceDeletePro(array $overrides = []): User
         'display_name' => 'Pro User',
         'primary_email' => 'pro-'.substr($id, 0, 6).'@example.com',
         'status' => 'active',
-        'stripe_manual_balance_cents' => 0,
     ], $overrides);
 
     DB::connection('pgsql')->table('core.users')->insert($data);

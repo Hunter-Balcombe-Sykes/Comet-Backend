@@ -12,7 +12,6 @@ use App\Http\Requests\Api\User\Customer\StoreCustomerRequest;
 use App\Http\Requests\Api\User\Customer\UpdateCustomerRequest;
 use App\Http\Resources\CustomerResource;
 use App\Models\Core\User\Customer;
-use App\Services\User\ConfirmationPreferenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -148,14 +147,6 @@ class UserCustomerController extends ApiController
 
         if (! $customer->trashed()) {
             $customer->delete();
-        }
-
-        $confirmationService = app(ConfirmationPreferenceService::class);
-        if ($confirmationService->shouldRemember($request)) {
-            $confirmationService->enableForProfessional(
-                (string) $pro->id,
-                ConfirmationPreferenceService::ACTION_DELETE_CUSTOMER
-            );
         }
 
         return $this->success(['archived' => true]);

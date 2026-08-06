@@ -6,7 +6,7 @@ use App\Services\Cache\CacheKeyGenerator;
 it('builds the platform connection lock key as platform-wide only (no per-account suffix)', function () {
     // 2026-07-21: platformConnectionLock() no longer accepts a suffix — a
     // per-account key was the root cause of a lost-update bug (ScheduledRefresh/
-    // ConnectFetchJob suffixed by resource_id, highlights() never did, so the
+    // ConnectFetchJob suffixed by resource_id, the dashboard save never did, so the
     // two writers built different strings and never mutually excluded). This
     // pins that the same (platform, userId) pair always yields the same key,
     // regardless of which account triggered the write.

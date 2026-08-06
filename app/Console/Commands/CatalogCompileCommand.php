@@ -14,8 +14,8 @@ use Illuminate\Console\Command;
 /**
  * Compiles the four-plane catalog (app/Catalog/Definitions) into the single
  * content-addressed artefact the router and runtime read:
- * bootstrap/catalog/compiled.php. Every SurfaceContract asserts, every
- * capability name must exist in the manifest, keys and detector ids must be
+ * bootstrap/catalog/compiled.php. Every capability name must exist in the
+ * manifest, keys and detector ids must be
  * unique — a definition that can't pass doesn't compile, so a bad surface is
  * unshippable rather than discovered in production.
  */

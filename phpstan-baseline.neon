@@ -43,12 +43,6 @@ parameters:
 			path: app/Http/Controllers/Api/Internal/CspReportController.php
 
 		-
-			message: '#^Using nullsafe property access "\?\-\>payload" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/AppleController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -65,12 +59,6 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/CustomLinksController.php
-
-		-
-			message: '#^Offset ''default'' on array\{key\: string, label\: string, description\: string, siteColumn\?\: string\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/DisplaySettingsController.php
 
 		-
 			message: '#^Using nullsafe property access "\?\-\>display_settings" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
@@ -423,29 +411,11 @@ parameters:
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$customer_id\.$#'
 			identifier: property.notFound
-			count: 2
+			count: 1
 			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$historyForDetailView\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$notification_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$status\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php

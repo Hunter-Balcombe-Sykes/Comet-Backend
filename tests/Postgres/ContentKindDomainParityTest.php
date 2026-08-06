@@ -9,7 +9,7 @@
 // the SECOND write, not the first").
 //
 // Both CHECK clauses are EXTRACTED from the real migration files at runtime
-// (same discipline as FieldBindingsManualPriorityTest::fieldBindingsCheckClause)
+// (same live-clause discipline the retired FieldBindings postgres test used)
 // so this test binds the actual migration text, not a hand-copy that can
 // drift silently.
 

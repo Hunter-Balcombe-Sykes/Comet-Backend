@@ -21,8 +21,17 @@ class InstagramIdentitySync
 
     public function applyIdentity(User $user, array $payload): void
     {
-        $this->applySector($user, $this->stringOrNull($payload['businessCategoryName'] ?? null));
-        $this->applyDisplayName($user, $this->stringOrNull($payload['fullName'] ?? null));
+        // InstagramConnectionSeeder passes the RAW Apify profile node here, not
+        // the normalised $selection array — so this reads the same two shapes
+        // InstagramScraper already tolerates for other fields: the figue actor's
+        // raw Instagram GraphQL snake_case, and the legacy camelCase actor's
+        // shape. Legacy first, matching that precedent.
+        $this->applySector($user, $this->stringOrNull(
+            $payload['businessCategoryName'] ?? $payload['business_category_name'] ?? null
+        ));
+        $this->applyDisplayName($user, $this->stringOrNull(
+            $payload['fullName'] ?? $payload['full_name'] ?? null
+        ));
         $this->applyHandle($user, $this->stringOrNull($payload['username'] ?? null));
         $this->applyContactFields($user, $payload);
     }
@@ -73,8 +82,14 @@ class InstagramIdentitySync
 
     private function applyContactFields(User $user, array $payload): void
     {
-        $email = $this->stringOrNull($payload['businessEmail'] ?? null);
-        $phone = $this->stringOrNull($payload['businessPhoneNumber'] ?? null);
+        // DEFENSIVE, not a demonstrated fix (2026-08-06 SIGNUP-2 review): unlike
+        // businessCategoryName/fullName, no dev site.workplaces row has ever
+        // carried an instagram-sourced contact field, so there is no "before"
+        // case proving these two regressed under the actor swap. Tolerating
+        // the raw GraphQL snake_case here just matches the sibling fields above
+        // in case the actor emits it the same way.
+        $email = $this->stringOrNull($payload['businessEmail'] ?? $payload['business_email'] ?? null);
+        $phone = $this->stringOrNull($payload['businessPhoneNumber'] ?? $payload['business_phone_number'] ?? null);
         if ($email === null && $phone === null) {
             return;
         }

@@ -15,7 +15,7 @@ use stdClass;
  *   - `profile` — content (engine fields + base profile)
  *   - `designKit` — per-user design vars (nested camelCase), partial
  *   - `designMedia` — content-pool media (polymorphic image/video, camelCase, ordered)
- *   - `architectureId` — picks which code-side architecture renders (skeletonId is a transition alias)
+ *   - `architectureId` — picks which code-side architecture renders
  *   - `publicConfig` — analytics endpoint + platform-wide keys
  *
  * partna-pages does the read-time merge of the partial `designKit` with
@@ -55,6 +55,7 @@ class IndividualProfileResource extends ApiResource
      *     gallery?: list<array<string, mixed>>,
      *     curatedGallery?: list<array<string, mixed>>,
      *     links?: list<array<string, mixed>>,
+     *     pools?: array<string, array{items: list<array<string, mixed>>, latestItemId: string|null}>,
      *     services?: list<array<string, mixed>>,
      *     document?: array<string, mixed>|null,
      *     newsletter?: array<string, mixed>|null,
@@ -108,6 +109,15 @@ class IndividualProfileResource extends ApiResource
                 // Always an array.
                 'curatedGallery' => $this->sections['curatedGallery'] ?? [],
                 'links' => $this->sections['links'] ?? [],
+                // The content pools (platforms-as-sources, 2026-08-05):
+                // {watch|listen|media: {items: [...], latestItemId}} — the
+                // SELECTION each pool renders publicly, resolved LIVE (owner
+                // chose no document cache: the site follows a pool edit
+                // instantly). Items are render-ready — headline, url,
+                // platform, creator, publishedAt, durationSeconds, thumbnail,
+                // links[{platform,url,source}] for the per-item platform
+                // buttons, origin. Always an object.
+                'pools' => (object) ($this->sections['pools'] ?? []),
                 'services' => $this->sections['services'] ?? [],
                 'document' => $this->sections['document'] ?? null,
                 'newsletter' => $this->sections['newsletter'] ?? null,
@@ -157,7 +167,6 @@ class IndividualProfileResource extends ApiResource
             // renders this site — always 'staple' (single-architecture platform).
             'architectureId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,
             // TRANSITION ALIAS — drop once apps/pages deploy reading architectureId is confirmed.
-            'skeletonId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,
 
             // Platform-wide knobs the skeleton needs at render time (analytics
             // endpoint, etc.). Always an object.

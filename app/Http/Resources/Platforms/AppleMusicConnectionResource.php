@@ -4,7 +4,7 @@ namespace App\Http\Resources\Platforms;
 
 /**
  * Apple Music selection. Flat fields expose `releaseDate` (the podcast sibling
- * exposes `description` instead); the latest tile + highlights tail comes from
+ * exposes `description` instead); the latest tile tail comes from
  * TileConnectionResource.
  */
 class AppleMusicConnectionResource extends TileConnectionResource

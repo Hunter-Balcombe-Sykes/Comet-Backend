@@ -15,6 +15,9 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Design\ProfileDesignPresets;
 use App\Services\Site\ContentSelectionService;
 use App\Services\Site\SitePolicyResolver;
+use App\Site\Pools\PoolRegistry;
+use App\Site\Pools\PoolResolver;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -66,6 +69,7 @@ class IndividualProfilePayloadBuilder
         private readonly SiteActionsService $actions,
         private readonly ContentSelectionService $selection,
         private readonly SitePolicyResolver $policies,
+        private readonly PoolResolver $pools,
     ) {}
 
     /**
@@ -138,6 +142,7 @@ class IndividualProfilePayloadBuilder
             // Engine outputs — flat, camelCase, no envelope wrapper.
             'gallery' => $this->buildGallery($site, $sections, $ranks['gallery_item'] ?? []),
             'curatedGallery' => $this->resolver->buildCuratedGalleryData($site),
+            'pools' => $this->buildPools($site),
             'links' => $this->buildLinks($site, $booking, $ranks['block'] ?? []),
             'services' => $this->buildServices($site, $pro->id, $sections, $ranks['service'] ?? []),
             'document' => $this->buildDocument($site),
@@ -284,6 +289,52 @@ class IndividualProfilePayloadBuilder
                 'caption' => null,
                 'poster' => $entry['poster'] ?? null,
                 'durationMs' => null,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The content pools (platforms-as-sources, 2026-08-05): each pool's
+     * public SELECTION — pins + every auto-source's rolling latest, minus
+     * removals — resolved LIVE by the same PoolResolver the dashboard reads,
+     * so what the owner curates and what a visitor sees cannot diverge. The
+     * library never ships publicly; a pool with nothing selected is simply
+     * absent. Wire: {watch|listen|media: {items, latestItemId}}.
+     *
+     * @return array<string, array{items: list<array<string, mixed>>, latestItemId: string|null}>
+     */
+    private function buildPools(?Site $site): array
+    {
+        if (! $site) {
+            return [];
+        }
+
+        $out = [];
+        foreach (array_keys(PoolRegistry::POOLS) as $pool) {
+            try {
+                $resolved = $this->pools->resolve($site, $pool);
+            } catch (QueryException) {
+                // Partial test envs may not provision the content/sections
+                // tables (the getContentMedia precedent); in production they
+                // always exist. A missing lane yields no pools, never a 500.
+                return [];
+            }
+            if ($resolved['selection'] === []) {
+                continue;
+            }
+            $out[$pool] = [
+                'items' => array_map(
+                    // The dashboard-only flags stay off the public wire.
+                    static function (array $item): array {
+                        unset($item['selected']);
+
+                        return $item;
+                    },
+                    $resolved['selection'],
+                ),
+                'latestItemId' => $resolved['latestItemId'],
             ];
         }
 

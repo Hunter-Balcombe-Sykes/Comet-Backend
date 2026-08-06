@@ -200,14 +200,7 @@ class DataExportTestCase
             created_at TEXT
         )');
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.user_confirmation_preferences (
-            id TEXT PRIMARY KEY,
-            user_id TEXT,
-            action_key TEXT,
-            skip_confirmation INTEGER,
-            created_at TEXT,
-            updated_at TEXT
-        )');
+
 
         $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_integrations (
             id TEXT PRIMARY KEY,

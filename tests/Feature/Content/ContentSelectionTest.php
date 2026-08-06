@@ -17,6 +17,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Services\Site\ContentSelectionService;
+use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -299,14 +300,11 @@ it('PUT selection rejects more than 15 entries', function () {
 
 it('PUT selection rejects an instagram row at position 3 when auto is enabled', function () {
     [$user, $site] = contentUserWithSite('sel3');
-    $site->content_instagram_auto_enabled = true;
-    $site->save();
+    // 2026-08-05: auto lives on the ig connection's display_settings; with no
+    // connection (or a sparse one) the default is ON — no flag flip needed.
     $m1 = contentUpload($site);
     $m2 = contentUpload($site);
 
-    // Reload so the auth-resolved user carries the current site state (in
-    // production every request loads a fresh User via LoadCurrentUser; the test
-    // fixture holds a site relation captured before the flag flip).
     actingAsUser($user->fresh()->load('site'))->putJson('/api/content/selection', [
         'entries' => [
             ['type' => 'upload', 'mediaId' => $m1->id],
@@ -318,8 +316,6 @@ it('PUT selection rejects an instagram row at position 3 when auto is enabled', 
 
 it('PUT selection allows an instagram row at position 1 when auto is enabled', function () {
     [$user, $site] = contentUserWithSite('sel4');
-    $site->content_instagram_auto_enabled = true;
-    $site->save();
     $m1 = contentUpload($site);
 
     actingAsUser($user)->putJson('/api/content/selection', [
@@ -353,7 +349,7 @@ it('instagram-auto enable inserts ig-reel@1 and ig-post@2', function () {
     expect($rows[1]->entry_type)->toBe('ig-post');
     expect($rows[1]->position)->toBe(2);
 
-    expect($site->fresh()->content_instagram_auto_enabled)->toBeTrue();
+    expect(AutoSyncSetting::isOn((string) $user->id, 'instagram'))->toBeTrue();
 });
 
 it('instagram-auto disable removes ig-* rows and compacts positions', function () {
@@ -399,6 +395,18 @@ it('instagram-auto enable only reserves slots for the kinds the user has', funct
 
 it('instagram-auto toggle rolls back the flag when slot rebuild fails', function () {
     [$user, $site] = contentUserWithSite('ig4');
+    // Explicit OFF starting state (2026-08-05: the toggle is the connection's
+    // sparse display_settings; absent means ON, so off must be stored).
+    // fresh() first: the created instance still carries wasRecentlyCreated,
+    // and the observer's connect path strips a false toggle on that flag —
+    // a user's off-flip is always a later request, i.e. a fresh model.
+    $ig = igConnection($user)->fresh();
+    $ig->display_settings = ['auto_sync_latest' => false];
+    $ig->save();
+    // The setup save above legitimately purges (display_settings changed).
+    // Re-fake so the no-purge-on-rollback assertion below only sees the
+    // failing toggle attempt, which is the thing under test.
+    Queue::fake();
     $upload = contentUpload($site);
     $original = ContentSelection::forceCreate([
         'site_id' => $site->id,
@@ -418,7 +426,7 @@ it('instagram-auto toggle rolls back the flag when slot rebuild fails', function
 
     // The flag flip and the slot rebuild are one transaction — a persist()
     // failure must roll back the flag too, not leave it durably true.
-    expect($site->fresh()->content_instagram_auto_enabled)->not->toBeTrue();
+    expect(AutoSyncSetting::isOn((string) $user->id, 'instagram'))->toBeFalse();
 
     // persist()'s delete rolled back with it — the original manual row survives.
     $rows = ContentSelection::query()->where('site_id', $site->id)->get();
@@ -470,11 +478,12 @@ it('GB connect does NOT seed when the selection already has real content', funct
 
 it('IG connect flips the content instagram-auto toggle on', function () {
     [$user, $site] = contentUserWithSite('hook3');
-    expect($site->content_instagram_auto_enabled)->toBeNull();
+    // Pre-connect there is nothing to read the toggle from; the sparse
+    // default reads ON, which is exactly what the connect flow relies on.
 
     igConnection($user, ['images' => ['https://r2/post.jpg'], 'videoUrl' => 'https://r2/reel.mp4']);
 
-    expect($site->fresh()->content_instagram_auto_enabled)->toBeTrue();
+    expect(AutoSyncSetting::isOn((string) $user->id, 'instagram'))->toBeTrue();
 });
 
 it('IG connect with an already-filled payload reserves ig slots 1-2 immediately', function () {
@@ -523,7 +532,7 @@ it('the ig-slot reconcile never resurrects slots the user removed by disabling a
 
     $ig->update(['payload' => ['images' => ['https://r2/post.jpg'], 'videoUrl' => 'https://r2/reel.mp4']]);
 
-    expect($site->fresh()->content_instagram_auto_enabled)->toBeFalse();
+    expect(AutoSyncSetting::isOn((string) $user->id, 'instagram'))->toBeFalse();
     expect(ContentSelection::query()->where('site_id', $site->id)->whereIn('entry_type', ContentSelection::IG_TYPES)->count())->toBe(0);
 });
 

@@ -149,9 +149,14 @@ class InstagramConnectionSeeder
 
         $selection = [
             'username' => $username,
-            'fullName' => data_get($profile, 'fullName'),
+            // Field-name drift across actor versions: the figue actor returns raw
+            // Instagram GraphQL snake_case, older shapes used camelCase. Read both,
+            // legacy camelCase first (matches InstagramScraper::profilePicUrl()'s
+            // established precedent for this same actor swap).
+            'fullName' => data_get($profile, 'fullName') ?? data_get($profile, 'full_name'),
             'profilePicUrl' => $profilePic,
-            'businessCategory' => data_get($profile, 'businessCategoryName'),
+            'businessCategory' => data_get($profile, 'businessCategoryName')
+                ?? data_get($profile, 'business_category_name'),
             'followersCount' => data_get($profile, 'followersCount'),
             'postsCount' => data_get($profile, 'postsCount'),
             'mode' => 'automatic',
@@ -210,7 +215,7 @@ class InstagramConnectionSeeder
         // PWL-7 (job/seeder half): the media mirroring + auto-sync + identity-sync
         // above are all vendor I/O / heavy work — they stay OUTSIDE the lock, same
         // discipline as ConnectFetchJob::handle(). Only the authoritative row write
-        // below is contended (a dashboard highlights save or a scheduled refresh can
+        // below is contended (a scheduled refresh can
         // race it via the SAME platformConnectionLock key), so only it is locked.
         $key = CacheKeyGenerator::platformConnectionLock($connection->platform, (string) $connection->user_id);
         try {

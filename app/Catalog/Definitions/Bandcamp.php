@@ -18,8 +18,6 @@ use App\Catalog\SurfaceBuilder;
  * lives in the SUBDOMAIN (artist.bandcamp.com), verbatim from
  * BandcampScraper::normalizeOrigin() (BandcampScraper.php:17-30), so the
  * detector captures from IdentifierSource::Subdomain rather than Path.
- * Also has a highlights strategy (BandcampHighlights) — the only brand in
- * this half with all three of connect/fetch/highlights capabilities.
  */
 class Bandcamp
 {
@@ -41,7 +39,6 @@ class Bandcamp
                 ->canonicalUrl('https://{handle}.bandcamp.com')
                 ->connect('connect.bandcamp.url.v1')
                 ->fetch('fetch.bandcamp.scrape.v1')
-                ->highlights('highlights.bandcamp.v1')
                 ->multiAccount(5)
                 ->detect(
                     Detector::url('bandcamp.com')

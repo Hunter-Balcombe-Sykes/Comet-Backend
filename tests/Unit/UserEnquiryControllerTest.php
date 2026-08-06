@@ -1,8 +1,6 @@
 <?php
 
-use App\Enums\EnquiryStatus;
 use App\Http\Controllers\Api\User\Customers\UserEnquiryController;
-use App\Models\Core\Site\Enquiry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -56,57 +54,7 @@ it('does not leak other professionals enquiries', function () {
     expect($body['data'])->toHaveCount(0);
 });
 
-it('marks an enquiry as read', function () {
-    $pro = makeInboxUser();
-    $enquiryId = seedInboxEnquiry($pro->id, (string) Str::uuid());
-
-    app(UserEnquiryController::class)->update(requestAs($pro, 'PATCH', '/api/me/enquiries', ['read' => true]), $enquiryId);
-
-    $fresh = Enquiry::query()->find($enquiryId);
-    expect($fresh->read_at)->not->toBeNull();
-});
-
-it('marks an enquiry as unread', function () {
-    $pro = makeInboxUser();
-    $enquiryId = seedInboxEnquiry($pro->id, (string) Str::uuid(), [
-        'status' => 'read',
-        'read_at' => now()->toDateTimeString(),
-    ]);
-
-    app(UserEnquiryController::class)->update(requestAs($pro, 'PATCH', '/api/me/enquiries', ['read' => false]), $enquiryId);
-
-    // status is not fillable — the controller's forceFill() must still persist
-    // 'new' here, not silently leave the row on its prior status.
-    $fresh = Enquiry::query()->find($enquiryId);
-    expect($fresh->read_at)->toBeNull();
-    expect($fresh->status)->toBe(EnquiryStatus::New);
-});
-
-it('soft-deletes an enquiry', function () {
-    $pro = makeInboxUser();
-    $enquiryId = seedInboxEnquiry($pro->id, (string) Str::uuid());
-
-    app(UserEnquiryController::class)->destroy(requestAs($pro, 'DELETE'), $enquiryId);
-
-    expect(Enquiry::query()->find($enquiryId))->toBeNull();
-    expect(Enquiry::withTrashed()->find($enquiryId))->not->toBeNull();
-});
-
-it('returns 404 when acting on another professionals enquiry', function () {
-    $me = makeInboxUser();
-
-    $otherId = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $otherId,
-        'handle' => 'other2',
-        'handle_lc' => 'other2',
-        'display_name' => 'Other 2',
-        'first_name' => 'Other 2',
-        'primary_email' => 'other2@e.com',
-        'status' => 'active',
-    ]);
-    $enquiryId = seedInboxEnquiry($otherId, (string) Str::uuid());
-
-    $response = app(UserEnquiryController::class)->update(requestAs($me, 'PATCH', '/api/me/enquiries', ['read' => true]), $enquiryId);
-    expect($response->getStatusCode())->toBe(404);
-});
+// AUDIT-2026-08-05: update()/destroy() (PATCH/DELETE /api/enquiries/{id}) were
+// removed as orphaned endpoints — this file's index()-only coverage is
+// unaffected; markRead/markReplied/archive/restore/markSpam keep their own
+// coverage in EnquiryInboxControllerTest.php and the tenant-isolation suites.

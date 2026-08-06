@@ -45,6 +45,7 @@ function payloadCacheKeys(object $pro): array
 
 it('does not report degradation when every probe answers from the database', function () {
     $pro = createTenant('degrade-clean');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupBlocksTable();
     setupMediaTables();
     setupServiceCategoriesTable();
@@ -58,6 +59,7 @@ it('does not report degradation when every probe answers from the database', fun
 
 it('reports degradation when a probe answers from a fault', function () {
     $pro = createTenant('degrade-faulted');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupBlocksTable();
     setupMediaTables();
     // Deliberately no setupServicesTable() — Service::query() faults, and the
@@ -77,6 +79,7 @@ it('expires a degraded payload — and its stale twin — within the short TTL',
     config(['partna.public_profile.degraded_cache_ttl_seconds' => 10]);
 
     $pro = createTenant('degrade-ttl');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupBlocksTable();
     setupMediaTables();
     // No services table — the probe faults, so this build is degraded.
@@ -100,6 +103,7 @@ it('leaves a clean payload on the full TTL', function () {
     config(['partna.public_profile.degraded_cache_ttl_seconds' => 10]);
 
     $pro = createTenant('degrade-control');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupBlocksTable();
     setupMediaTables();
     setupServiceCategoriesTable();
@@ -118,6 +122,7 @@ it('keeps the flag scoped to one build rather than leaking across resolvers', fu
     // transient. If it were shared, one site's blip would shorten every other
     // site's cache entry for the rest of the process.
     $faulted = createTenant('degrade-scope-a');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupBlocksTable();
     setupMediaTables();
 
@@ -129,6 +134,7 @@ it('keeps the flag scoped to one build rather than leaking across resolvers', fu
     setupServicesTable();
 
     $clean = createTenant('degrade-scope-b');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     $second = app(SitepageDataResolverService::class);
     $second->presentPageIds($clean->site, AccountCapabilities::for($clean), collect());
 

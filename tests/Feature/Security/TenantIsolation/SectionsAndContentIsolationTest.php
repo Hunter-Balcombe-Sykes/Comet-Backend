@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /*
 |--------------------------------------------------------------------------
@@ -101,40 +100,10 @@ it('never reads or writes overrides on another user\'s item', function () {
     [$a, $b] = createTwoTenants();
     $aItem = seedContentItem($a->id);
 
-    actingAsUser($b)->getJson("/api/content/items/{$aItem}/overrides")->assertStatus(404);
     actingAsUser($b)->putJson("/api/content/items/{$aItem}/overrides", [
         'facet' => 'f_text', 'column' => 'headline', 'value' => 'Pwned',
     ])->assertStatus(404);
     actingAsUser($b)->deleteJson("/api/content/items/{$aItem}/overrides/f_text/headline")->assertStatus(404);
 
     expect(DB::table('content.manual_overrides')->where('item_id', $aItem)->exists())->toBeFalse();
-});
-
-it('never lists or rules on another user\'s duplicates', function () {
-    [$a, $b] = createTwoTenants();
-    $left = seedContentItem($a->id, ['first_seen_at' => now()->subDay()]);
-    $right = seedContentItem($a->id);
-    $candidateId = (string) Str::uuid();
-
-    DB::table('content.identity_candidates')->insert([
-        'id' => $candidateId,
-        'user_id' => $a->id,
-        'left_item_id' => $left,
-        'right_item_id' => $right,
-        'score' => 50,
-        'evidence' => '{}',
-        'created_at' => now(),
-    ]);
-
-    expect(actingAsUser($b)->getJson('/api/content/identity/candidates')->json('candidates'))->toBeEmpty();
-
-    actingAsUser($b)->postJson("/api/content/identity/candidates/{$candidateId}/rule", ['verdict' => 'same'])
-        ->assertStatus(404);
-    actingAsUser($b)->postJson("/api/content/identity/candidates/{$candidateId}/dismiss")->assertStatus(404);
-
-    // The merge must not have run: both of A's items still exist, and nothing
-    // was written to the decision log.
-    expect(DB::table('content.items')->whereIn('id', [$left, $right])->count())->toBe(2)
-        ->and(DB::table('content.identity_decisions')->count())->toBe(0)
-        ->and(DB::table('content.identity_candidates')->where('id', $candidateId)->value('dismissed_at'))->toBeNull();
 });

@@ -335,7 +335,7 @@ it('a lock timeout does not throw, does not silently rely on release(), and mark
     ]);
 
     // The fetch succeeds normally — only the final locked write is contended,
-    // simulating a concurrent highlights save / scheduled refresh holding the
+    // simulating a concurrent scheduled refresh holding the
     // same per-user/platform lock past the job's 5s block().
     $this->mock(BandcampScraper::class, function ($m) {
         $m->shouldReceive('fetchProfile')->once()->andReturn([
@@ -398,7 +398,7 @@ it('a lock timeout does not throw, does not silently rely on release(), and mark
 });
 
 // Sanity check on the lock key computation the job shares with ScheduledRefresh
-// and GenericPlatformController::highlights() — not a behavioural test, just
+// and the platform write lane — not a behavioural test, just
 // pins the formula so a future edit to any of the three sites is caught by a
 // diff instead of silently drifting apart.
 //
@@ -406,7 +406,7 @@ it('a lock timeout does not throw, does not silently rely on release(), and mark
 // per-account suffix formula (CacheKeyGenerator::platformConnectionLock's
 // third parameter, since REMOVED). That formula was the root cause of a
 // lost-update bug: ScheduledRefresh/ConnectFetchJob suffixed by resource_id
-// while highlights() never did, so a multi-account platform's writers built
+// while the dashboard save never did, so a multi-account platform's writers built
 // DIFFERENT key strings and never mutually excluded each other. See
 // PlatformConnectionLockConvergenceTest.php for the behavioural (real lock
 // contention) proof that the three sites now converge.

@@ -18,7 +18,7 @@ class PreAccountBuildStatusResource extends ApiResource
         $ready = $this->build_state === PreAccountBuild::STATE_READY;
 
         // Subdomain exists from the moment the build is requested
-        // (SiteProvisioningService::createSiteWithRetry runs synchronously in
+        // (SiteProvisioningService::createSiteForHandle runs synchronously in
         // PreAccountBuildService::requestBuild(), well before build_state
         // reaches 'ready') and is guessable-by-design per spec §"Claim
         // reference" — no reason to withhold the identifier itself. The

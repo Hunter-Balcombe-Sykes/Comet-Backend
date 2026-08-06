@@ -57,23 +57,20 @@ it('emits exactly the documented top-level and profile-nested key set', function
 
     expect(array_keys($array))->toBe([
         'profile', 'pageOrder', 'popularity', 'rankedActions', 'ordering',
-        'designKit', 'designMedia', 'architectureId', 'skeletonId',
+        'designKit', 'designMedia', 'architectureId',
         'publicConfig', 'siteImages', 'policies',
     ]);
 
     expect(array_keys($array['profile']))->toBe([
         'handle', 'displayName', 'accountType', 'site_id',
-        'gallery', 'curatedGallery', 'links', 'services',
+        'gallery', 'curatedGallery', 'links', 'pools', 'services',
         'document', 'newsletter', 'contact', 'publicContact', 'workplace',
     ]);
 
-    // `skeletonId` is a DELIBERATE transition alias of `architectureId` (see
-    // the class docblock) — kept until the apps/pages deploy reading
-    // architectureId is confirmed. This is correct and desirable: pinning it
-    // here means whoever eventually drops the alias must touch this test's
-    // key-set snapshot, making the removal a visible, deliberate change
-    // instead of a silent one.
-    expect($array['skeletonId'])->toBe($array['architectureId']);
+    // (The skeletonId transition alias was dropped 2026-08-05 — apps/pages
+    // reads architectureId first and had no remaining fallback traffic; this
+    // key-set snapshot made that removal the visible, deliberate change the
+    // alias's own comment asked for.)
 
     // No PII leaks through — confirms the allowlist shape, though the real
     // guarantee here is the key-set equality above: PII has no code path in
@@ -98,7 +95,7 @@ it('coerces empty designKit/publicConfig/siteImages sections to an object, not a
 
     expect(array_keys($array))->toBe([
         'profile', 'pageOrder', 'popularity', 'rankedActions', 'ordering',
-        'designKit', 'designMedia', 'architectureId', 'skeletonId',
+        'designKit', 'designMedia', 'architectureId',
         'publicConfig', 'siteImages', 'policies',
     ]);
 
@@ -108,4 +105,6 @@ it('coerces empty designKit/publicConfig/siteImages sections to an object, not a
     expect($json)->toContain('"designKit":{}');
     expect($json)->toContain('"publicConfig":{}');
     expect($json)->toContain('"siteImages":{}');
+    // The pools map serializes as an object even when no pool has a selection.
+    expect($json)->toContain('"pools":{}');
 });

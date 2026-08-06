@@ -4,7 +4,7 @@ namespace App\Services\Platforms;
 
 // Feed videos → the music item shape: links land on music.youtube.com and each
 // item carries the standard YouTube embed for inline playback. Shared by the
-// YouTube Music connect/highlights strategies and YoutubeMusicFetch (refresh).
+// YouTube Music connect strategy and YoutubeMusicFetch (refresh).
 final class YoutubeMusicItems
 {
     /**

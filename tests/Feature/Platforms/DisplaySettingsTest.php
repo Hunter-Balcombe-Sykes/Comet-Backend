@@ -73,28 +73,27 @@ it('exposes the events auto_sync_latest toggle on both tickets platforms, defaul
     expect(IntegrationConnection::query()->find($rowId)->display_settings)->toBe(['auto_sync_latest' => false]);
 });
 
-it('exposes bandcamp settings with per-toggle defaults (show_all OFF, auto sync ON) and stores deviations', function () {
+it('exposes bandcamp settings as the one auto-sync toggle (show_all_releases left with Featured)', function () {
     $pro = createTenant('toggles-bandcamp');
     $id = displaySeedConnection($pro->id, ['url' => 'https://artist.bandcamp.com', 'artist' => 'Artist'], 'bandcamp');
 
-    // Defaults: show_all_releases is the first default-OFF toggle; auto sync ON.
+    // Which releases appear is the Listen pool's selection now — the only
+    // bandcamp toggle is auto_sync_latest, default ON.
     $toggles = collect(actingAsUser($pro)->getJson('/api/platforms/bandcamp/display-settings')->assertOk()->json('toggles'));
-    expect($toggles->pluck('key')->all())->toBe(['show_all_releases', 'auto_sync_latest']);
-    expect($toggles->firstWhere('key', 'show_all_releases')['enabled'])->toBeFalse();
+    expect($toggles->pluck('key')->all())->toBe(['auto_sync_latest']);
     expect($toggles->firstWhere('key', 'auto_sync_latest')['enabled'])->toBeTrue();
 
-    // Enabling a default-OFF toggle stores TRUE (a deviation), not nothing.
+    // Flipping it off stores the deviation; back on removes the key (sparse).
     actingAsUser($pro)
-        ->patchJson('/api/platforms/bandcamp/display-settings', ['toggles' => ['show_all_releases' => true]])
-        ->assertOk()
-        ->assertJsonPath('toggles.0.enabled', true);
-    expect(IntegrationConnection::query()->find($id)->display_settings)->toBe(['show_all_releases' => true]);
-
-    // Saving a toggle back AT its default removes the key (sparse deviations only).
-    actingAsUser($pro)
-        ->patchJson('/api/platforms/bandcamp/display-settings', ['toggles' => ['show_all_releases' => false]])
+        ->patchJson('/api/platforms/bandcamp/display-settings', ['toggles' => ['auto_sync_latest' => false]])
         ->assertOk()
         ->assertJsonPath('toggles.0.enabled', false);
+    expect(IntegrationConnection::query()->find($id)->display_settings)->toBe(['auto_sync_latest' => false]);
+
+    actingAsUser($pro)
+        ->patchJson('/api/platforms/bandcamp/display-settings', ['toggles' => ['auto_sync_latest' => true]])
+        ->assertOk()
+        ->assertJsonPath('toggles.0.enabled', true);
     expect(IntegrationConnection::query()->find($id)->display_settings)->toBeNull();
 });
 
@@ -123,19 +122,19 @@ it('persists a toggle flip sparsely and reports it disabled', function () {
 });
 
 // ── SEC-107: authorize every write up front, before any save ──────────────
-// update() now authorizes every connection + the site BEFORE the first save,
-// specifically so a denial can never leave a half-applied write (site column
-// saved, connections never touched, or vice versa). Ownership is already
-// structurally guaranteed here (both queries are scoped to $user->id), so
-// this can't deny through a real request today — prove atomicity instead by
-// forcing the connection-level gate to deny and asserting the site-column
-// write it precedes never landed.
+// update() authorizes every connection BEFORE the first save, so a denial can
+// never leave a half-applied write across a multi-connection platform. The
+// site-column half of the original test died with the siteColumn bridge
+// (2026-08-05 — instagram is a plain connection toggle now); the atomicity
+// property still holds and is proven against the connection rows themselves.
 
-it('does not persist the site-column write when a connection-level authorize denies (atomicity)', function () {
+it('does not persist any connection write when the authorize gate denies (atomicity)', function () {
     $pro = createTenant('toggles-atomic');
     displaySeedConnection($pro->id, ['username' => 'artist'], 'instagram');
 
-    $before = $pro->site->fresh()->content_instagram_auto_enabled;
+    $before = DB::table('site.platform_connections')
+        ->where('user_id', $pro->id)->where('platform', 'instagram')
+        ->value('display_settings');
 
     $this->app->bind(IntegrationConnectionPolicy::class, fn () => new class extends IntegrationConnectionPolicy
     {
@@ -145,13 +144,13 @@ it('does not persist the site-column write when a connection-level authorize den
         }
     });
 
-    // instagram's only toggle ('gallery') is siteColumn-backed — flipping it
-    // is exactly the write that must not land while the connection gate denies.
     actingAsUser($pro)
-        ->patchJson('/api/platforms/instagram/display-settings', ['toggles' => ['gallery' => ! (bool) $before]])
+        ->patchJson('/api/platforms/instagram/display-settings', ['toggles' => ['auto_sync_latest' => false]])
         ->assertStatus(404);
 
-    expect($pro->site->fresh()->content_instagram_auto_enabled)->toEqual($before);
+    expect(DB::table('site.platform_connections')
+        ->where('user_id', $pro->id)->where('platform', 'instagram')
+        ->value('display_settings'))->toEqual($before);
 });
 
 it('rejects unknown toggle keys and untoggleable platforms', function () {

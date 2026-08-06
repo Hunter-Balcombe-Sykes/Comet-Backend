@@ -101,7 +101,7 @@ For every finding:
 
 ### Group F — Catalog / ingest / routing config consumers
 ```
---scope app/Catalog/Contracts
+--scope app/Catalog/Enums
 --scope app/Catalog/Enums
 --scope bootstrap/catalog
 --scope app/Ingest

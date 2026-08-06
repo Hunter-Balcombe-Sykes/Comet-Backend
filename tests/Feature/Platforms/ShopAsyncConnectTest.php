@@ -898,9 +898,9 @@ it('T21: poll 404s for an unknown brand id and for another users brand, never 40
         ->assertJsonPath('message', 'Brand not found.');
 });
 
-// ── T22 — the poll route is registered under both aliases ───────────────────
+// ── T22 — the poll route lives under /shop only (alias removed 2026-08-05) ──
 
-it('T22: the poll route is registered under both /shop and /shopify prefixes', function () {
+it('T22: the poll route answers under /shop and the old /shopify alias 404s', function () {
     $user = shopAsyncUser('t22');
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
@@ -911,5 +911,5 @@ it('T22: the poll route is registered under both /shop and /shopify prefixes', f
     actingAsUser($user)->getJson('/api/platforms/shop/brands/dual-brand/connect/status')
         ->assertOk()->assertJsonPath('status', 'ready');
     actingAsUser($user)->getJson('/api/platforms/shopify/brands/dual-brand/connect/status')
-        ->assertOk()->assertJsonPath('status', 'ready');
+        ->assertNotFound();
 });

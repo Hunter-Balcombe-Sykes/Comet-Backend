@@ -35,6 +35,7 @@ use App\Services\Platforms\ShopProviderDetector;
 use App\Services\Platforms\StrandedPendingWindow;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -910,11 +911,14 @@ class ShopController extends ApiController
         if (array_key_exists('linkMode', $validated)) {
             $updates['shop_link_mode'] = $validated['linkMode'];
         }
-        if (array_key_exists('autoLatest', $validated)) {
-            $updates['shop_auto_latest'] = (bool) $validated['autoLatest'];
-        }
         if ($updates !== []) {
             $site->update($updates);
+        }
+        if (array_key_exists('autoLatest', $validated)) {
+            // 2026-08-05: auto-latest lives on the store connections' own
+            // display_settings now (one toggle grammar); still site-wide in
+            // effect because the setter writes every store connection.
+            AutoSyncSetting::set((string) $user->id, 'shop', (bool) $validated['autoLatest']);
         }
 
         // Propagate the new public linkMode to the CDN — the shop connection's
@@ -939,7 +943,7 @@ class ShopController extends ApiController
     {
         return [
             'linkMode' => $site->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE,
-            'autoLatest' => (bool) ($site->shop_auto_latest ?? true),
+            'autoLatest' => AutoSyncSetting::isOn((string) $site->user_id, 'shop'),
         ];
     }
 

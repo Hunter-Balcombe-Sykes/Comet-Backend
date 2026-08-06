@@ -79,29 +79,6 @@ describe('pending-deletion gate on trait controllers', function () {
             ->assertStatus(423);
     });
 
-    it('returns 423 on YouTube highlights for a pending-deletion user (update path)', function () {
-        $user = authzUser('pd-yt-highlights');
-        // Seed an active connection so the update path fires.
-        IntegrationConnection::create([
-            'user_id' => $user->id,
-            'platform' => 'youtube',
-            'resource_id' => 'youtube',
-            'payload' => ['handle' => 'mychannel', 'highlights' => []],
-            'is_active' => true,
-        ]);
-        $user = makePendingDeletion($user);
-
-        $this->mock(YoutubeScraper::class, function ($m) {
-            $m->shouldReceive('fetchRecentVideos')->andReturn([
-                ['videoId' => 'v1', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't'],
-            ]);
-        });
-
-        actingAsUser($user)
-            ->postJson('/api/platforms/youtube/highlights', ['videoIds' => []])
-            ->assertStatus(423);
-    });
-
     it('returns 423 on Eventbrite forget for a pending-deletion user', function () {
         $user = authzUser('pd-eb-forget');
         IntegrationConnection::create([
@@ -147,50 +124,6 @@ describe('pending-deletion gate on Apple (migrated trait path)', function () {
 
         actingAsUser($user)
             ->postJson('/api/platforms/apple/podcast/connect', ['show' => 'Show'])
-            ->assertStatus(423);
-    });
-
-    it('returns 423 on Apple Music highlights for a pending-deletion user (update path)', function () {
-        $user = authzUser('pd-apple-music-hl');
-        IntegrationConnection::create([
-            'user_id' => $user->id,
-            'platform' => 'apple-music',
-            'resource_id' => 'apple-music',
-            'payload' => ['input' => 'Artist', 'highlights' => []],
-            'is_active' => true,
-        ]);
-        $user = makePendingDeletion($user);
-
-        $this->mock(AppleSearch::class, function ($m) {
-            $m->shouldReceive('fetchAlbums')->andReturn([
-                ['collectionId' => 'a1', 'name' => 'Album', 'thumbnail' => 't', 'releaseDate' => '2026-01-01', 'link' => 'l'],
-            ]);
-        });
-
-        actingAsUser($user)
-            ->postJson('/api/platforms/apple/music/highlights', ['albumIds' => []])
-            ->assertStatus(423);
-    });
-
-    it('returns 423 on Apple Podcast highlights for a pending-deletion user (update path)', function () {
-        $user = authzUser('pd-apple-pod-hl');
-        IntegrationConnection::create([
-            'user_id' => $user->id,
-            'platform' => 'apple-podcast',
-            'resource_id' => 'apple-podcast',
-            'payload' => ['input' => 'Show', 'highlights' => []],
-            'is_active' => true,
-        ]);
-        $user = makePendingDeletion($user);
-
-        $this->mock(AppleSearch::class, function ($m) {
-            $m->shouldReceive('fetchEpisodes')->andReturn([
-                ['trackId' => 'e1', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'link' => 'l'],
-            ]);
-        });
-
-        actingAsUser($user)
-            ->postJson('/api/platforms/apple/podcast/highlights', ['episodeIds' => []])
             ->assertStatus(423);
     });
 });
@@ -255,7 +188,7 @@ describe('reads survive pending deletion', function () {
             'user_id' => $user->id,
             'platform' => 'apple-music',
             'resource_id' => 'apple-music',
-            'payload' => ['input' => 'Artist', 'highlights' => []],
+            'payload' => ['input' => 'Artist'],
             'is_active' => true,
         ]);
         $user = makePendingDeletion($user);
@@ -272,7 +205,7 @@ describe('reads survive pending deletion', function () {
             'user_id' => $user->id,
             'platform' => 'youtube',
             'resource_id' => 'youtube',
-            'payload' => ['handle' => 'mychannel', 'highlights' => []],
+            'payload' => ['handle' => 'mychannel'],
             'is_active' => true,
         ]);
         $user = makePendingDeletion($user);
@@ -371,7 +304,7 @@ describe('cross-user isolation — scoped query hides other users\' rows', funct
             'user_id' => $userA->id,
             'platform' => 'youtube',
             'resource_id' => 'youtube',
-            'payload' => ['handle' => 'channelA', 'highlights' => []],
+            'payload' => ['handle' => 'channelA'],
             'is_active' => true,
         ]);
 
@@ -402,14 +335,6 @@ describe('Form Request validation returns 422', function () {
             ->assertStatus(422);
     });
 
-    it('returns 422 when YouTube highlights is missing the videoIds field', function () {
-        $user = authzUser('frq-yt-highlights');
-
-        actingAsUser($user)
-            ->postJson('/api/platforms/youtube/highlights', [])
-            ->assertStatus(422);
-    });
-
     it('returns 422 when Apple Music connect is missing the artist field', function () {
         $user = authzUser('frq-apple-music');
 
@@ -423,14 +348,6 @@ describe('Form Request validation returns 422', function () {
 
         actingAsUser($user)
             ->postJson('/api/platforms/apple/podcast/connect', [])
-            ->assertStatus(422);
-    });
-
-    it('returns 422 when Apple Music highlights is missing the albumIds field', function () {
-        $user = authzUser('frq-apple-music-hl');
-
-        actingAsUser($user)
-            ->postJson('/api/platforms/apple/music/highlights', [])
             ->assertStatus(422);
     });
 

@@ -265,7 +265,7 @@ class GoogleBusinessController extends ApiController
     // (reservation/ordering/social) and — under a sync queue connection — can run
     // an Instagram Apify scrape inline (up to ~110s). It never touches THIS row,
     // so it now runs OUTSIDE the lock entirely (mirrors
-    // GenericPlatformController::highlights()'s fetch-outside/write-inside
+    // the platform lane's fetch-outside/write-inside
     // shape): holding a 10s-TTL lock across a ~110s foreign call would let it
     // expire mid-call and reopen the exact lost-update window this lock exists
     // to close. Only the final authoritative re-read → flip → write sits inside

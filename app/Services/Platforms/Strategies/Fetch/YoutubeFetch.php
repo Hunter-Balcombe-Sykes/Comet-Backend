@@ -7,7 +7,7 @@ use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 use App\Services\Platforms\YoutubeScraper;
 
 // Re-pulls a YouTube channel's latest video by stored handle. Preserves handle +
-// curated highlights via the spread; refreshes only the auto-latest tile + the flat
+// refreshes only the auto-latest tile + the flat
 // header. Mirrors PlatformRefresher::youtubePayload EXACTLY.
 final readonly class YoutubeFetch implements FetchStrategy
 {

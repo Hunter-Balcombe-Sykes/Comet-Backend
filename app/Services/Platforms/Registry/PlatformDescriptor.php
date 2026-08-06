@@ -9,7 +9,6 @@ use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
 use App\Services\Platforms\Strategies\Contracts\Detection;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
-use App\Services\Platforms\Strategies\Contracts\HighlightsStrategy;
 use App\Services\Platforms\Strategies\Contracts\RefreshStrategy;
 use App\Services\Platforms\Strategies\Refresh\NoRefresh;
 use App\Services\Platforms\Strategies\Refresh\ScheduledRefresh;
@@ -83,9 +82,6 @@ class PlatformDescriptor
     /** @var (Closure(): FetchStrategy)|null Lazily builds the CONNECT-only fetch strategy (see connectFetch()). */
     private ?Closure $connectFetchFactory = null;
 
-    /** @var (Closure(): HighlightsStrategy)|null Lazily builds the highlights strategy (same rationale as fetch()). */
-    private ?Closure $highlightsFactory = null;
-
     /** @var (Closure(User): bool)|null Optional capability predicate consulted by availableFor(). Null = always available (every platform's default). */
     private ?Closure $capabilityGate = null;
 
@@ -151,15 +147,12 @@ class PlatformDescriptor
      * synced content the owner can hide from their sitepage (e.g. Google
      * Business reviews). Declared here so the settings UI, the PATCH
      * validation, and the public-payload suppression all read one source; a
-     * platform without toggles renders no Display card. Every toggle
-     * defaults ON (null display_settings = show everything).
+     * platform without toggles renders no Display card. A toggle defaults ON
+     * unless the def carries 'default' => false; storage is the connection's
+     * sparse display_settings JSONB. (The `siteColumn` bridge died 2026-08-05
+     * with the site columns it served — see AutoSyncSetting.)
      *
-     * An optional `siteColumn` backs the toggle by a boolean column on
-     * site.sites instead of the per-connection display_settings JSONB — used
-     * to unify a display toggle with a site-level setting (Instagram gallery ↔
-     * content_instagram_auto_enabled).
-     *
-     * @param  array<int, array{key: string, label: string, description: string, siteColumn?: string}>  $toggles
+     * @param  array<int, array{key: string, label: string, description: string, default?: bool}>  $toggles
      */
     public function displayToggles(array $toggles): self
     {
@@ -168,7 +161,7 @@ class PlatformDescriptor
         return $this;
     }
 
-    /** @return array<int, array{key: string, label: string, description: string, siteColumn?: string}> */
+    /** @return array<int, array{key: string, label: string, description: string, default?: bool}> */
     public function displayToggleDefs(): array
     {
         return $this->displayToggles;
@@ -249,33 +242,6 @@ class PlatformDescriptor
         return $this->connectFactory !== null ? ($this->connectFactory)() : null;
     }
 
-    /**
-     * Attach the strategy that drives this platform's recent-items picker and
-     * curated-highlights save. Same lazy-Closure-factory rationale as fetch()/
-     * connect(): the registry singleton is built at boot (the route loop calls
-     * hasHighlights() while emitting routes), so eagerly resolving a strategy
-     * that wraps a scraper here would bake it in before a test can mock it.
-     */
-    public function highlights(HighlightsStrategy|Closure $strategy): self
-    {
-        $this->highlightsFactory = $strategy instanceof Closure ? $strategy : fn () => $strategy;
-
-        return $this;
-    }
-
-    /** Resolve the highlights strategy fresh (lazy — see highlights()); null when none attached. */
-    public function highlightsStrategy(): ?HighlightsStrategy
-    {
-        return $this->highlightsFactory !== null ? ($this->highlightsFactory)() : null;
-    }
-
-    /** Boot-safe: the route loop calls this while emitting routes — it must
-     *  never resolve the factory (that would eager-load the scraper). */
-    public function hasHighlights(): bool
-    {
-        return $this->highlightsFactory !== null;
-    }
-
     public function connectErrorMessage(): ?string
     {
         return $this->connectErrorMessage;
@@ -287,9 +253,7 @@ class PlatformDescriptor
      * route loop iterating the registry at boot to decide whether to emit a
      * connect-status route CANNOT call connectStrategy() to find out — that
      * resolves the lazy factory and bakes a real scraper into the descriptor
-     * before any test can mock it (the same reason hasHighlights() is a flag
-     * rather than a null-check/instanceof on the resolved strategy — see that
-     * method's docblock). This is a declared flag, never an `instanceof`.
+     * before any test can mock it. This is a declared flag, never an `instanceof`.
      *
      * RegistryConnectCoverageTest asserts flag ⇔ instanceof for every
      * descriptor, so a descriptor can't declare deferredConnect() without its

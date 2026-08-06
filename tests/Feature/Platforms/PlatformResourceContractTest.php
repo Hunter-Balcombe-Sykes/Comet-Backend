@@ -118,7 +118,6 @@ it('youtube connect returns the canonical tile shape with latest passed through 
             'thumbnail' => 't',
             // `date` rides through verbatim inside the nested latest tile.
             'latest' => ['videoId' => 'v1', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'date' => '2026-03-03T00:00:00+00:00', 'thumbnail' => 't'],
-            'highlights' => [],
         ]);
 });
 
@@ -126,7 +125,7 @@ it('youtube selection strips unknown top-level keys but keeps nested latest verb
     $user = platformContractUser('yt2');
     seedPlatformConnection($user, 'youtube', [
         'handle' => 'mychannel', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
-        'latest' => ['videoId' => 'v1', 'extraNested' => 'kept'], 'highlights' => [],
+        'latest' => ['videoId' => 'v1', 'extraNested' => 'kept'], 'highlights' => [['videoId' => 'stale']],
         '_internal' => 'leak',
     ]);
 
@@ -135,7 +134,6 @@ it('youtube selection strips unknown top-level keys but keeps nested latest verb
         ->assertExactJson(['selection' => [
             'handle' => 'mychannel', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
             'latest' => ['videoId' => 'v1', 'extraNested' => 'kept'],
-            'highlights' => [],
         ]]);
 });
 
@@ -158,7 +156,6 @@ it('apple music + podcast connect return their per-platform flat fields', functi
             'id' => 'acct-'.substr(sha1('artist'), 0, 16),
             'input' => 'Artist', 'name' => 'Album', 'thumbnail' => 't', 'releaseDate' => '2026-01-01', 'link' => 'l',
             'latest' => ['collectionId' => 'a1', 'name' => 'Album', 'thumbnail' => 't', 'releaseDate' => '2026-01-01', 'link' => 'l'],
-            'highlights' => [],
         ]);
 
     actingAsUser($user)->postJson('/api/platforms/apple/podcast/connect', ['show' => 'Show'])
@@ -167,7 +164,6 @@ it('apple music + podcast connect return their per-platform flat fields', functi
             'id' => 'acct-'.substr(sha1('show'), 0, 16),
             'input' => 'Show', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'releaseDate' => '2026-02-02T00:00:00Z', 'link' => 'l',
             'latest' => ['trackId' => 'e1', 'name' => 'Ep', 'thumbnail' => 't', 'description' => 'd', 'releaseDate' => '2026-02-02T00:00:00Z', 'link' => 'l'],
-            'highlights' => [],
         ]);
 });
 
@@ -360,7 +356,7 @@ it('shopify addBrand returns the canonical brand object shape', function () {
         ]);
     });
 
-    actingAsUser($user)->postJson('/api/platforms/shopify/brands', ['url' => 'https://b.example.com'])
+    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://b.example.com'])
         ->assertOk()
         ->assertExactJson([
             'id' => 'brand-1',
@@ -391,7 +387,7 @@ it('shopify brands list strips unknown per-brand keys', function () {
         'favicon' => null, 'logo' => null, 'discount_code' => 'SAVE',
     ]);
 
-    actingAsUser($user)->getJson('/api/platforms/shopify/brands')
+    actingAsUser($user)->getJson('/api/platforms/shop/brands')
         ->assertOk()
         ->assertExactJson(['brands' => [[
             'id' => 'brand-1', 'provider' => 'shopify', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',

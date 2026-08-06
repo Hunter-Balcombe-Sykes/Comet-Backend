@@ -852,6 +852,53 @@ it('does not overwrite already-set identity fields as part of the connect job', 
     expect($user->fresh()->display_name)->toBe('Igidentity2');
 });
 
+// ── SIGNUP-2 (2026-08-06): the figue actor's raw snake_case shape, through
+// the REAL seam — InstagramConnectJob → InstagramConnectionSeeder::seed()
+// passing the RAW $profile straight into InstagramIdentitySync::applyIdentity(),
+// not a normalised array. Every fixture above this point is camelCase, which
+// is exactly why this suite stayed green through the three-week production
+// regression where every Instagram-built site came out nameless (fullName /
+// businessCategoryName null, display_name falling back to the handle).
+
+it('applies instagram identity fields from the raw actor snake_case shape end-to-end (SIGNUP-2 regression)', function () {
+    Storage::fake('media');
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'full_name' => 'Snake Case Cafe',
+        'business_category_name' => 'Cafe',
+        'username' => 'snake_cafe_ig',
+        'latestPosts' => [],
+    ]], 201)]);
+
+    $user = User::create([
+        'handle' => 'igidentity3', 'handle_lc' => 'igidentity3', 'display_name' => '',
+        'first_name' => 'Igidentity3',
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
+        'primary_email' => 'igidentity3@example.com', 'sector' => null, 'sector_source' => null,
+    ]);
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => [], 'is_active' => false, 'last_refresh_status' => 'pending',
+    ]);
+
+    (new InstagramConnectJob($user->id, 'snake_cafe_ig', $connection->id))
+        ->handle(app(InstagramScraper::class), app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
+
+    // The user record — proves the raw $profile reached applyIdentity() and
+    // its snake_case reads worked, not just the stored payload's own keys.
+    $fresh = $user->fresh();
+    expect($fresh->display_name)->toBe('Snake Case Cafe');
+    expect($fresh->sector)->toBe('cafe');
+    expect($fresh->sector_source)->toBe('instagram');
+
+    // The stored connection payload — always normalised to camelCase keys
+    // regardless of what the actor sent, so InstagramPayload/
+    // InstagramConnectionResource need no changes for this fix.
+    $connection->refresh();
+    expect($connection->payload['fullName'])->toBe('Snake Case Cafe');
+    expect($connection->payload['businessCategory'])->toBe('Cafe');
+});
+
 // ── A2.2 → signup-v2 C4: unmatched bio links get a commerce probe first ──────
 // An unclassified bio link used to become a custom link immediately; it now
 // dispatches CommerceProbeJob (could be the business's store or a product page),

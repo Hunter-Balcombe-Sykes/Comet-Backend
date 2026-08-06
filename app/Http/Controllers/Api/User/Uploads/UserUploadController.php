@@ -19,7 +19,6 @@ use App\Services\Media\Exceptions\PoolLimitExceededException;
 use App\Services\Media\Exceptions\VideoDispatchFailedException;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\MediaUploadService;
-use App\Services\User\ConfirmationPreferenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -325,14 +324,6 @@ class UserUploadController extends ApiController
         }
 
         $image->delete();
-
-        $confirmationService = app(ConfirmationPreferenceService::class);
-        if ($confirmationService->shouldRemember($request)) {
-            $confirmationService->enableForProfessional(
-                (string) $pro->id,
-                ConfirmationPreferenceService::ACTION_DELETE_MEDIA
-            );
-        }
 
         return $this->success(['deleted' => true]);
     }

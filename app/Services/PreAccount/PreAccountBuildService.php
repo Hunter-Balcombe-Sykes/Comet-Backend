@@ -3,6 +3,7 @@
 namespace App\Services\PreAccount;
 
 use App\Enums\AccountType;
+use App\Exceptions\Site\SubdomainUnavailableException;
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
@@ -112,11 +113,31 @@ class PreAccountBuildService
 
                 // Real subdomain at build time, unpublished for signup builds; the
                 // staff publish knob flips AFTER generation succeeds (in the job).
-                $this->siteProvisioning->createSiteWithRetry(
-                    $user->id,
-                    $this->siteProvisioning->subdomainBaseFromHandle($seed),
-                    published: false,
-                );
+                //
+                // SIGNUP-1: the subdomain is the handle the user was ACTUALLY
+                // allocated on the line above — not the raw $seed re-normalised.
+                // subdomainBaseFromHandle() replaces dots/apostrophes with hyphens
+                // where Str::slug() drops them, and suffixes '-2' where
+                // HandleAllocator suffixes '2', so re-deriving from $seed produced
+                // a subdomain that disagreed with the handle and a site_url that
+                // 404'd. handle_lc is the honest target: it is the routing key
+                // (SyncSubdomainToKvJob lowercases the handle to key KV).
+                // The handle here is machine-allocated by HandleAllocator, which
+                // already required it to be free as a subdomain — so a refusal means
+                // that guarantee broke, which is an alarm, not bad input. Report at
+                // this call site (the bootstrap path deliberately does not) and
+                // re-throw so the outer transaction still rolls back.
+                try {
+                    $this->siteProvisioning->createSiteForHandle(
+                        $user->id,
+                        (string) $user->handle_lc,
+                        published: false,
+                    );
+                } catch (SubdomainUnavailableException $e) {
+                    report($e);
+
+                    throw $e;
+                }
 
                 $build = new PreAccountBuild([
                     'source_type' => $sourceType,

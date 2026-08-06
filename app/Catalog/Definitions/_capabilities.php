@@ -39,10 +39,6 @@ use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
-use App\Services\Platforms\Strategies\Highlights\BandcampHighlights;
-use App\Services\Platforms\Strategies\Highlights\VimeoHighlights;
-use App\Services\Platforms\Strategies\Highlights\YoutubeHighlights;
-use App\Services\Platforms\Strategies\Highlights\YoutubeMusicHighlights;
 
 // Capability manifest data: versioned name => [class, namedCtorArgs] | Closure.
 // Read via App\Catalog\CapabilityManifest — never require this directly.
@@ -106,8 +102,4 @@ return [
     'fetch.youtube_music.scrape.v1' => [YoutubeMusicFetch::class, []],
 
     // ── Highlights ───────────────────────────────────────────────────────────
-    'highlights.bandcamp.v1' => [BandcampHighlights::class, []],
-    'highlights.vimeo.v1' => [VimeoHighlights::class, []],
-    'highlights.youtube.v1' => [YoutubeHighlights::class, []],
-    'highlights.youtube_music.v1' => [YoutubeMusicHighlights::class, []],
 ];

@@ -5,11 +5,9 @@ namespace App\Http\Controllers\Api\User\SiteManagement;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
 use App\Http\Resources\SectionBlockResource;
 use App\Models\Core\Site\Block;
-use App\Services\Site\ReorderService;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -24,7 +22,6 @@ class UserSectionBlockController extends ApiController
 
     public function __construct(
         private readonly SectionVisibilityService $visibilityService,
-        private readonly ReorderService $reorderService,
     ) {}
 
     public function index(Request $request)
@@ -240,46 +237,6 @@ class UserSectionBlockController extends ApiController
         return $this->success([
             'section' => new SectionBlockResource($block->fresh()),
         ], $block->wasRecentlyCreated ? 201 : 200);
-    }
-
-    /**
-     * Reorder section blocks for the current professional. Accepts an `ids` array
-     * representing the new order; any sections owned by this site that aren't in
-     * the array keep their current relative order and follow the supplied ids.
-     *
-     * The two-pass renumber (offset by max+1000, then 0..n) avoids transient
-     * unique-violation collisions if a unique index on sort_order is ever added.
-     */
-    public function reorder(ReorderBlocksRequest $request)
-    {
-        $pro = $this->currentUser($request);
-        $site = $this->currentSite($pro);
-
-        // SEC-2: skeleton pattern (pre-create ownership + pending-deletion gate
-        // via SitePolicy::create), matching UserLinkBlockController::reorder.
-        // user_id/site_id removed from $fillable (S4 Tier 2b) — set directly so
-        // SitePolicy::ownerMatches() (reads the raw attribute) doesn't silently
-        // 403 every request.
-        $skeleton = new Block;
-        $skeleton->user_id = $pro->id;
-        $skeleton->site_id = $site->id;
-        $this->authorizeForUser($pro, 'create', $skeleton);
-
-        // Mass-update via the query builder bypasses BlockObserver. Explicit
-        // Site touch in afterCommit fires SiteObserver::saved → CloudflareCachePurgeJob
-        // + §28.8 cache key rotation. Without this, sort_order changes don't
-        // reflect at <handle>.partna.au for up to 5 min.
-        $this->reorderService->reorder(
-            $request->input('ids', []),
-            Block::query()
-                ->where('user_id', $pro->id)
-                ->where('site_id', $site->id)
-                ->where('block_group', Block::GROUP_SECTIONS),
-            "blocks-sections:{$site->id}",
-            fn () => $site->touch(),
-        );
-
-        return $this->success(['ok' => true]);
     }
 
     public function remove(Request $request, string $blockType)

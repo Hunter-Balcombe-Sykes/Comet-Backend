@@ -96,10 +96,6 @@ use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
-use App\Services\Platforms\Strategies\Highlights\BandcampHighlights;
-use App\Services\Platforms\Strategies\Highlights\VimeoHighlights;
-use App\Services\Platforms\Strategies\Highlights\YoutubeHighlights;
-use App\Services\Platforms\Strategies\Highlights\YoutubeMusicHighlights;
 use App\Services\Platforms\StravaClubScraper;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
@@ -217,12 +213,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('youtube')->fetch(fn () => new YoutubeFetch(
                 app(YoutubeScraper::class),
             ));
-            // Connect + highlights strategies (FOUND-24, Task 7) — the first picker
-            // platform migrated onto Task 6's HighlightsStrategy seam. Moved verbatim
-            // from the deleted YoutubeController; parse-fail message is the frozen
+            // Connect strategy (FOUND-24, Task 7) — moved verbatim from the
+            // deleted YoutubeController; parse-fail message is the frozen
             // 422 contract.
             $r->get('youtube')->connect(fn () => new YoutubeConnect(app(YoutubeScraper::class)), 'Enter your YouTube channel.');
-            $r->get('youtube')->highlights(fn () => new YoutubeHighlights(app(YoutubeScraper::class)));
             // Deferred-connect seam (Phase 2, W4) — YoutubeConnect implements
             // DeferredConnect. Message copied verbatim from resolve()'s
             // fetch-stage failure.
@@ -233,11 +227,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('youtube-music')->fetch(fn () => new YoutubeMusicFetch(
                 app(YoutubeScraper::class),
             ));
-            // Connect + highlights strategies (FOUND-24, Task 8) — moved verbatim from
+            // Connect strategy (FOUND-24, Task 8) — moved verbatim from
             // the deleted YoutubeMusicController; parse-fail message is the frozen 422
             // contract.
             $r->get('youtube-music')->connect(fn () => new YoutubeMusicConnect(app(YoutubeScraper::class)), 'Enter your YouTube Music artist URL (music.youtube.com/channel/…) or your channel @handle.');
-            $r->get('youtube-music')->highlights(fn () => new YoutubeMusicHighlights(app(YoutubeScraper::class)));
             // Deferred-connect seam (Phase 2, W4) — YoutubeMusicConnect
             // implements DeferredConnect. Message copied verbatim from
             // resolve()'s fetch-stage failure.
@@ -248,10 +241,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('vimeo')->fetch(fn () => new VimeoFetch(
                 app(VimeoApi::class),
             ));
-            // Connect + highlights strategies (FOUND-24, Task 8) — moved verbatim from
+            // Connect strategy (FOUND-24, Task 8) — moved verbatim from
             // the deleted VimeoController; parse-fail message is the frozen 422 contract.
             $r->get('vimeo')->connect(fn () => new VimeoConnect(app(VimeoApi::class)), 'Enter your Vimeo profile or channel URL (vimeo.com/yourname).');
-            $r->get('vimeo')->highlights(fn () => new VimeoHighlights(app(VimeoApi::class)));
             // Deferred-connect seam (Phase 2, W4) — VimeoConnect implements
             // DeferredConnect. Message copied verbatim from resolve()'s
             // fetch-stage failure.
@@ -275,10 +267,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('bandcamp')->fetch(fn () => new BandcampFetch(
                 app(BandcampScraper::class),
             ));
-            // Connect + highlights strategies (FOUND-24, Task 9, last picker platform) —
-            // moved verbatim from the deleted BandcampController.
+            // Connect strategy (FOUND-24, Task 9) — moved verbatim from the
+            // deleted BandcampController.
             $r->get('bandcamp')->connect(fn () => new BandcampConnect(app(BandcampScraper::class)), 'Enter your Bandcamp page URL (yourname.bandcamp.com).');
-            $r->get('bandcamp')->highlights(fn () => new BandcampHighlights(app(BandcampScraper::class)));
             // Deferred-connect seam (Phase 2, W4) — BandcampConnect implements
             // DeferredConnect. Message copied verbatim from resolve()'s
             // fetch-stage failure.
@@ -539,13 +530,43 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 ['key' => 'location', 'label' => 'Location & map', 'description' => 'Your address, map and directions.'],
                 ['key' => 'menu', 'label' => 'Menu', 'description' => 'Your food and drink menu.'],
             ]);
-            // Instagram's gallery toggle is UNIFIED with the Content/Media
-            // "Latest content auto sync" switch: both read/write the site column
-            // `content_instagram_auto_enabled`, so the two settings are one value
-            // and turning it off hides ALL auto Instagram content (the curated
-            // reel/post slots AND this integration card).
+            // Instagram (2026-08-05, platforms-as-sources): the old site-column
+            // gallery toggle (content_instagram_auto_enabled) migrated into the
+            // connection's own display_settings under the ONE auto-sync key.
+            // Turning it off still hides ALL auto Instagram content — the
+            // curated reel/post slots and the integration card read the same
+            // value through AutoSyncSetting.
             $r->get('instagram')->displayToggles([
-                ['key' => 'gallery', 'label' => 'Gallery', 'description' => 'Your latest Instagram photo and reel.', 'siteColumn' => 'content_instagram_auto_enabled'],
+                ['key' => 'auto_sync_latest', 'label' => 'Latest post', 'description' => 'Your newest post joins your site automatically.'],
+            ]);
+
+            // The pools' auto half (2026-08-05): every source with a
+            // time-ordered item stream carries the SAME toggle. Read at pool
+            // resolve time (latest_per_auto_source), NOT as a fetch gate —
+            // syncing keeps filling the library either way; the switch only
+            // decides whether the newest item auto-joins the site.
+            $r->get('youtube')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest upload joins your site automatically.'],
+            ]);
+            $r->get('vimeo')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest video joins your site automatically.'],
+            ]);
+            $r->get('twitch')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest video joins your site automatically.'],
+            ]);
+            $r->get('youtube-music')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest release', 'description' => 'Your newest release joins your site automatically.'],
+            ]);
+            $r->get('apple-music')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest release', 'description' => 'Your newest release joins your site automatically.'],
+            ]);
+            $r->get('apple-podcast')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest episode', 'description' => 'Your newest episode joins your site automatically.'],
+            ]);
+            // Shop: the old site-wide shop_auto_latest column, same key, same
+            // site-wide effect (AutoSyncSetting writes every store connection).
+            $r->get('shop')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest products', 'description' => 'Each store keeps showing its newest products automatically.'],
             ]);
             // Tickets & Events: per-user "auto sync latest from each organiser"
             // switch. Not a payload-suppression toggle (no DisplaySettingsFilter
@@ -559,15 +580,12 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                     ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest from each organiser', 'description' => 'Automatically refresh each connected organiser\'s upcoming events.'],
                 ]);
             }
-            // Bandcamp (Listen section): releases visibility + latest-tile sync.
-            // show_all_releases defaults OFF ('default' => false — the one toggle
-            // whose absent state means disabled): ON reveals the stored full
-            // `releases` list on the public wire (DisplaySettingsFilter stops
-            // suppressing it); OFF keeps today's capped latest+highlights
-            // selection. auto_sync_latest defaults ON and gates BandcampFetch's
-            // scheduled re-pull, mirroring the events toggle semantics.
+            // Bandcamp (Listen section): latest-tile sync. show_all_releases
+            // left with Featured (2026-08-06) — which releases appear is the
+            // Listen pool's selection now, not a wire-visibility switch.
+            // auto_sync_latest defaults ON and gates BandcampFetch's scheduled
+            // re-pull, mirroring the events toggle semantics.
             $r->get('bandcamp')->displayToggles([
-                ['key' => 'show_all_releases', 'label' => 'Show all releases', 'description' => 'Show every release from your Bandcamp page, not just the latest and your highlights.', 'default' => false],
                 ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest release', 'description' => 'Automatically refresh your newest release.'],
             ]);
 
@@ -613,10 +631,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // (Task 4) — its stored payload hydrates through FeedPayload instead of the
             // deleted StravaController. OpenTable keeps its bespoke suggestion() endpoint
             // (routes/api/platforms.php) — it reads across platforms (Google Business),
-            // which this generic shape has no seam for. YouTube (Task 7), Vimeo + YouTube
-            // Music (Task 8) are the platforms whose HighlightsStrategy activates the
-            // loop's /recent + /highlights emission — hasHighlights() was a boot-safe
-            // no-op until then.
+            // which this generic shape has no seam for.
             $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('twitch')->routes(PlatformRouteShape::MultiAccount, null, true);

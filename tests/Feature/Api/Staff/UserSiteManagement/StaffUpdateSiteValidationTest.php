@@ -78,7 +78,7 @@ it('accepts a valid architecture and settings (negative tests are not over-rejec
     $pro = createTenant('staff-valid');
 
     patchStaffSite($staff, $pro, [
-        'architecture_id' => 'dock', // legacy id — must collapse to 'staple'
+        'architecture_id' => 'staple',
         'settings' => ['booking_mode' => 'manual'],
     ])->assertOk();
 
@@ -86,11 +86,15 @@ it('accepts a valid architecture and settings (negative tests are not over-rejec
         ->toBe('staple');
 });
 
-it('accepts the legacy skeleton_id field name and collapses it (transition alias)', function () {
-    // Old staff-dashboard builds still send skeleton_id — prepareForValidation
-    // merges it into architecture_id, so the write succeeds and stores 'staple'.
+it('rejects retired legacy ids and ignores the dropped skeleton_id field', function () {
+    // The skeleton_id alias + LEGACY_ARCHITECTURE_IDS collapse were removed
+    // 2026-08-05 (platform audit — no client sends either any more).
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-legacy-field');
+
+    patchStaffSite($staff, $pro, ['architecture_id' => 'dock'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['architecture_id']);
 
     patchStaffSite($staff, $pro, ['skeleton_id' => 'dock'])->assertOk();
 
@@ -198,5 +202,5 @@ it('allows an admin-role staffer the site edit', function () {
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-site-admin');
 
-    patchStaffSite($staff, $pro, ['architecture_id' => 'dock'])->assertOk();
+    patchStaffSite($staff, $pro, ['architecture_id' => 'staple'])->assertOk();
 });

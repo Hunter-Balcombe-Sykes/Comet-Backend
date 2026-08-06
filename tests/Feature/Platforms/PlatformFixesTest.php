@@ -5,12 +5,10 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
-use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ShopifyScraper;
-use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -143,95 +141,6 @@ it('keeps an event with no dates at all in the Eventbrite selection', function (
     expect($res->json('selection.next.name'))->toBe('Dateless gig');
 });
 
-// Apple "most recent" tile refreshes when highlights are updated (mock the
-// iTunes Search fetch so no live call is made).
-
-it('refreshes the Apple Music "most recent" tile when highlights are updated', function () {
-    $this->mock(AppleSearch::class, function ($m) {
-        $m->shouldReceive('fetchAlbums')->andReturn([
-            ['collectionId' => '111', 'name' => 'New Album', 'thumbnail' => 't1', 'releaseDate' => '2026-06-01', 'link' => 'l1'],
-            ['collectionId' => '222', 'name' => 'Old Album', 'thumbnail' => 't2', 'releaseDate' => '2025-01-01', 'link' => 'l2'],
-        ]);
-    });
-
-    $user = fbActingUser();
-    IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'apple-music', 'resource_id' => 'apple-music',
-        'payload' => [
-            'input' => 'someartist',
-            'name' => 'Stale Album',
-            'latest' => ['collectionId' => '999', 'name' => 'Stale Album'],
-            'highlights' => [],
-        ],
-    ]);
-
-    $res = actingAsUser($user)->postJson('/api/platforms/apple/music/highlights', ['albumIds' => ['222']]);
-
-    $res->assertOk();
-    expect($res->json('latest.name'))->toBe('New Album');   // refreshed from the newest re-fetch
-    expect($res->json('name'))->toBe('New Album');          // flat back-compat field too
-    expect($res->json('highlights'))->toHaveCount(1);       // chosen highlight still snapshotted
-    expect($res->json('highlights.0.collectionId'))->toBe('222');
-});
-
-it('refreshes the Apple Podcast "most recent" tile when highlights are updated', function () {
-    $this->mock(AppleSearch::class, function ($m) {
-        $m->shouldReceive('fetchEpisodes')->andReturn([
-            ['trackId' => '111', 'name' => 'New Episode', 'thumbnail' => 't1', 'description' => 'd1', 'link' => 'l1'],
-            ['trackId' => '222', 'name' => 'Old Episode', 'thumbnail' => 't2', 'description' => 'd2', 'link' => 'l2'],
-        ]);
-    });
-
-    $user = fbActingUser();
-    IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'apple-podcast', 'resource_id' => 'apple-podcast',
-        'payload' => [
-            'input' => 'someshow',
-            'name' => 'Stale Episode',
-            'latest' => ['trackId' => '999', 'name' => 'Stale Episode'],
-            'highlights' => [],
-        ],
-    ]);
-
-    $res = actingAsUser($user)->postJson('/api/platforms/apple/podcast/highlights', ['episodeIds' => ['222']]);
-
-    $res->assertOk();
-    expect($res->json('latest.name'))->toBe('New Episode');
-    expect($res->json('name'))->toBe('New Episode');
-    expect($res->json('highlights'))->toHaveCount(1);
-    expect($res->json('highlights.0.trackId'))->toBe('222');
-});
-
-// YouTube "most recent" tile refreshes when highlights are updated (mock the
-// scrape so no live call is made) — parity with the Apple tiles above.
-it('refreshes the YouTube "most recent" tile when highlights are updated', function () {
-    $this->mock(YoutubeScraper::class, function ($m) {
-        $m->shouldReceive('fetchRecentVideos')->andReturn([
-            ['videoId' => '111', 'name' => 'New Video', 'description' => 'd1', 'link' => 'l1', 'thumbnail' => 't1'],
-            ['videoId' => '222', 'name' => 'Old Video', 'description' => 'd2', 'link' => 'l2', 'thumbnail' => 't2'],
-        ]);
-    });
-
-    $user = fbActingUser();
-    IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'youtube',
-        'payload' => [
-            'handle' => 'mychannel',
-            'name' => 'Stale Video',
-            'latest' => ['videoId' => '999', 'name' => 'Stale Video'],
-            'highlights' => [],
-        ],
-    ]);
-
-    $res = actingAsUser($user)->postJson('/api/platforms/youtube/highlights', ['videoIds' => ['222']]);
-
-    $res->assertOk();
-    expect($res->json('latest.name'))->toBe('New Video');   // refreshed from the newest re-fetch
-    expect($res->json('name'))->toBe('New Video');          // flat back-compat field too
-    expect($res->json('highlights'))->toHaveCount(1);       // chosen highlight still snapshotted
-    expect($res->json('highlights.0.videoId'))->toBe('222');
-});
-
 // Shopify: PUT /selection reuses the picker-warmed catalog instead of
 // re-scraping the whole store on every save.
 
@@ -261,7 +170,7 @@ it('reuses the warmed catalog on Shopify setProducts (no re-scrape)', function (
     // Catalog is warm — the controller must NOT hit the scraper.
     $this->mock(ShopifyScraper::class, fn ($m) => $m->shouldNotReceive('fetchProducts'));
 
-    $res = actingAsUser($user)->putJson('/api/platforms/shopify/brands/b1/selection', ['productIds' => ['p2']]);
+    $res = actingAsUser($user)->putJson('/api/platforms/shop/brands/b1/selection', ['productIds' => ['p2']]);
 
     $res->assertOk();
     expect($res->json('products'))->toHaveCount(1);
@@ -276,7 +185,7 @@ it('re-scrapes on Shopify setProducts only when the catalog cache is cold', func
         ['productId' => 'p2', 'title' => 'B'],
     ]));
 
-    $res = actingAsUser($user)->putJson('/api/platforms/shopify/brands/b1/selection', ['productIds' => ['p1']]);
+    $res = actingAsUser($user)->putJson('/api/platforms/shop/brands/b1/selection', ['productIds' => ['p1']]);
 
     $res->assertOk();
     expect($res->json('products'))->toHaveCount(1);

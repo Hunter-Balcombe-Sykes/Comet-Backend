@@ -43,7 +43,6 @@ function seedUserWithToken(string $rawToken): User
         'display_name' => 'Test Pro',
         'primary_email' => 'pro-'.substr($id, 0, 6).'@example.com',
         'status' => 'active',
-        'stripe_manual_balance_cents' => 0,
         'deletion_token_hash' => hash('sha256', $rawToken),
         'deletion_requested_at' => now()->toIso8601String(),
     ]);

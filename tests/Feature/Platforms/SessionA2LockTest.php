@@ -3,8 +3,8 @@
 // PWL-3 / PWL-4: AppleController and EventsPlatformController (Eventbrite +
 // Humanitix) wrote to site.platform_connections without taking
 // ManagesIntegrationConnection::withConnectionLock() on most paths — only
-// AppleController::highlightsFor() and EventsPlatformController::removeEvent()
-// locked before this fix. Those unlocked writers raced each other, a sibling
+// EventsPlatformController::removeEvent() (and the since-removed Featured
+// save) locked before this fix. Those unlocked writers raced each other, a sibling
 // locked writer, and ScheduledRefresh (which always locks), risking a
 // last-write-wins clobber of a just-saved row.
 //
@@ -54,7 +54,7 @@ it('apple music connect (writeAccountConnection write in connectFor) is blocked 
         'platform' => 'apple-music',
         'resource_id' => $rid,
         'canonical_key' => 'artist',
-        'payload' => ['input' => 'Artist', 'name' => 'Original Album', 'highlights' => []],
+        'payload' => ['input' => 'Artist', 'name' => 'Original Album'],
         'is_active' => true,
         'last_refresh_status' => 'ok',
     ]);
@@ -88,7 +88,7 @@ it('apple forgetMusic (forgetAllConnections write in forgetFor) is blocked by a 
         'user_id' => $user->id,
         'platform' => 'apple-music',
         'resource_id' => 'apple-music',
-        'payload' => ['input' => 'Artist', 'name' => 'Album', 'highlights' => []],
+        'payload' => ['input' => 'Artist', 'name' => 'Album'],
         'is_active' => true,
         'last_refresh_status' => 'ok',
     ]);
@@ -115,7 +115,7 @@ it('apple music account removal (GenericPlatformController::removeAccount) is bl
         'platform' => 'apple-music',
         'resource_id' => $rid,
         'canonical_key' => 'artist',
-        'payload' => ['input' => 'Artist', 'name' => 'Album', 'highlights' => []],
+        'payload' => ['input' => 'Artist', 'name' => 'Album'],
         'is_active' => true,
         'last_refresh_status' => 'ok',
     ]);

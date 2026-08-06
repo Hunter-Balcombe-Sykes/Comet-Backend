@@ -23,7 +23,6 @@ use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Mockery\MockInterface;
 use Pest\Support\HigherOrderTapProxy;
-use Stripe\StripeClient;
 use Tests\TestCase;
 
 /*
@@ -103,7 +102,7 @@ function something()
  * request attributes before the controller sees the request — exactly
  * what the two middleware would have done in production.
  *
- * Usage: actingAsUser($pro)->getJson('/api/stripe/payouts')
+ * Usage: actingAsUser($pro)->getJson('/api/me')
  */
 function actingAsUser(
     User $professional,
@@ -477,6 +476,10 @@ function bindThrowingCacheStore(): void
 function setupUsersTable(): void
 {
     attachTestSchemas();
+    // user_handle_aliases rides along: UserDashboardResource reads it on every
+    // /me serialization (reclaimable_handles, 2026-08-06), so any lane that
+    // seeds users can now serialize them without a bespoke setup call.
+    setupHandleAliasesTable();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY NOT NULL,
         auth_user_id TEXT NULL,
@@ -694,11 +697,9 @@ function setupSitesTable(): void
         show_branding INTEGER NULL,
         charlie_enabled INTEGER NULL,
         services_auto_sync_enabled INTEGER NULL,
-        content_instagram_auto_enabled INTEGER NULL,
         booking_mode TEXT NULL CHECK (booking_mode IS NULL OR booking_mode IN (\'manual\',\'none\')),
         manual_booking_url TEXT NULL,
         shop_link_mode TEXT NOT NULL DEFAULT \'checkout\',
-        shop_auto_latest INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
@@ -732,13 +733,11 @@ function setupSitesTable(): void
         'show_branding' => 'INTEGER NULL',
         'charlie_enabled' => 'INTEGER NULL',
         'services_auto_sync_enabled' => 'INTEGER NULL',
-        'content_instagram_auto_enabled' => 'INTEGER NULL',
         'booking_mode' => 'TEXT NULL',
         'manual_booking_url' => 'TEXT NULL',
         // Global shop link controls (2026-07-08) — site-level columns read by
         // the shop-settings endpoint + the public payload's linkMode stamp.
         'shop_link_mode' => "TEXT NULL DEFAULT 'checkout'",
-        'shop_auto_latest' => 'INTEGER NULL DEFAULT 1',
     ];
     foreach ($promotedCols as $col => $type) {
         try {
@@ -1273,7 +1272,7 @@ function setupBlocksTable(): void
 }
 
 /**
- * notifications.notification_preferences for ConfirmationPreferenceServiceTest.
+ * notifications.notification_preferences for the email-preference tests.
  */
 function setupNotificationPreferencesTable(): void
 {
@@ -1450,20 +1449,6 @@ function signShopifyBody(string $body, string $secret): string
 function signSquareBody(string $notificationUrl, string $body, string $key): string
 {
     return base64_encode(hash_hmac('sha256', $notificationUrl.$body, $key, true));
-}
-
-/**
- * Generate a valid Stripe-Signature header for a raw body string.
- * Uses the official Stripe SDK so we exercise the real verification path,
- * not a hand-rolled approximation.
- */
-function signStripeBody(string $body, string $secret, ?int $timestamp = null): string
-{
-    $timestamp = $timestamp ?? time();
-    $signedPayload = $timestamp.'.'.$body;
-    $signature = hash_hmac('sha256', $signedPayload, $secret);
-
-    return 't='.$timestamp.',v1='.$signature;
 }
 
 /**
@@ -2503,6 +2488,17 @@ function setupContentTables(): void
         tag_type TEXT NULL
     )');
 
+    // Hand-saved cross-platform links (migration 20260805090000).
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_links (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        url TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (item_id, platform)
+    )');
+
     $pg->statement('CREATE TABLE IF NOT EXISTS content.f_action (
         id TEXT PRIMARY KEY NOT NULL,
         item_id TEXT NOT NULL,
@@ -2789,102 +2785,6 @@ function setupSubdomainAliasesTable(): void
     )');
 }
 
-/*
-|--------------------------------------------------------------------------
-| Stripe Test Helpers
-|--------------------------------------------------------------------------
-|
-| Helpers for testing Stripe-integrated code paths. The Stripe service
-| classes self-instantiate StripeClient (not via the container), so
-| mockStripeClient() returns a Mockery mock you pass to the service
-| constructor directly. stripeWebhookEvent() / postStripeWebhook() handle
-| the webhook layer.
-|
-| Note: buildTestStripeSignature() is an alias for the existing
-| signStripeBody() — provided so tests that import from the task plan
-| can call either name without confusion.
-|
-*/
-
-/**
- * Build a Mockery mock of StripeClient with getService() stubbed so that
- * property-access like $stripe->paymentIntents works correctly.
- *
- * Pass per-service sub-mocks via $services. Keys: 'paymentIntents',
- * 'transfers', 'refunds', 'charges', 'accounts' etc.
- *
- * Usage:
- *   $stripe = mockStripeClient(['paymentIntents' => $piMock]);
- *   $service = new CommissionPayoutService($stripe);
- *
- * @param  array<string, object>  $services
- */
-function mockStripeClient(array $services = []): MockInterface
-{
-    $mock = Mockery::mock(StripeClient::class);
-
-    foreach ($services as $name => $stub) {
-        $mock->shouldReceive('getService')->with($name)->andReturn($stub);
-    }
-
-    // Default: any un-stubbed service returns a bare mock so tests that
-    // don't care about a specific sub-service don't explode on access.
-    $mock->shouldReceive('getService')->andReturn(Mockery::mock())->byDefault();
-
-    return $mock;
-}
-
-/**
- * Build a minimal Stripe event array suitable for posting to a webhook endpoint.
- *
- * @param  array<string, mixed>  $object  The event data.object payload.
- * @return array<string, mixed>
- */
-function stripeWebhookEvent(string $type, array $object): array
-{
-    return [
-        'id' => 'evt_'.Str::random(24),
-        'object' => 'event',
-        'type' => $type,
-        'data' => ['object' => $object],
-        'account' => $object['id'] ?? 'acct_test',
-        'created' => now()->timestamp,
-        'livemode' => false,
-        'api_version' => '2024-04-10',
-    ];
-}
-
-/**
- * Post a Stripe Connect webhook event to /api/webhooks/stripe-connect
- * with a valid Stripe-Signature header computed from the connect webhook secret.
- *
- * The connect secret must be set before calling this:
- *   Config::set('services.stripe.connect_webhook_secret', 'whsec_test')
- *
- * @param  array<string, mixed>  $event
- */
-function postStripeWebhook(array $event): TestResponse
-{
-    $body = json_encode($event);
-    $secret = (string) config('services.stripe.connect_webhook_secret', 'whsec_test');
-    $sig = buildTestStripeSignature($body, $secret);
-
-    return test()->call('POST', '/api/webhooks/stripe-connect', [], [], [], [
-        'CONTENT_TYPE' => 'application/json',
-        'HTTP_STRIPE_SIGNATURE' => $sig,
-    ], $body);
-}
-
-/**
- * Build a Stripe-Signature header value for the given raw body and secret.
- * Alias for signStripeBody() — provided for naming consistency with the
- * task plan; prefer signStripeBody() in existing tests.
- */
-function buildTestStripeSignature(string $body, string $secret, ?int $timestamp = null): string
-{
-    return signStripeBody($body, $secret, $timestamp);
-}
-
 /**
  * site.enquiries — visitor PII from contact-form submissions.
  */
@@ -3029,10 +2929,15 @@ function setupAuthFactorEventsTable(): void
 function setupHandleAliasesTable(): void
 {
     attachTestSchemas();
+    // handle_lc included: this helper now also runs via setupUsersTable's
+    // ride-along, and CREATE IF NOT EXISTS means whichever runs first wins —
+    // so this shared shape must be the SUPERSET of every lane's needs
+    // (BootstrapHandleAliasUniquenessTest inserts handle_lc).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.user_handle_aliases (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         handle TEXT NULL,
+        handle_lc TEXT NULL,
         reclaim_until TEXT NULL,
         expires_at TEXT NULL,
         notified_t3_at TEXT NULL,
@@ -3509,32 +3414,6 @@ function seedPageWithSection(string $siteId, array $sectionOverrides = []): arra
     ], $sectionOverrides));
 
     return [$pageId, (string) $sectionId];
-}
-
-/**
- * site.field_bindings (migration 20260728150000) — SQLite mirror for the §14
- * per-field priority bindings. SQLite enforces the declared CHECKs (manual =
- * priority 0), matching the Postgres DDL.
- */
-function setupFieldBindingsTable(): void
-{
-    attachTestSchemas();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.field_bindings (
-        id TEXT PRIMARY KEY NOT NULL,
-        site_id TEXT NOT NULL,
-        field TEXT NOT NULL,
-        source_key TEXT NOT NULL,
-        priority INTEGER NOT NULL DEFAULT 100,
-        mode TEXT NOT NULL DEFAULT \'fill_blank\' CHECK (mode IN (\'overwrite\', \'fill_blank\')),
-        is_enabled INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        UNIQUE (site_id, field, source_key),
-        CHECK (
-            (source_key = \'manual\' AND priority = 0)
-            OR (source_key <> \'manual\' AND priority > 0)
-        )
-    )');
 }
 
 /**

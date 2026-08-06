@@ -130,7 +130,7 @@ Renames → old subdomain saved to `site.site_subdomain_aliases`, old handle to 
 `POST /api/public/signup/build` creates provisional `core.users` (`status='unclaimed'`, no auth/email) + unpublished `site.sites` + `core.pre_account_builds`. `GeneratePreAccountSiteJob` populates via IG: `InstagramConnectionSeeder` (scrape→R2→connection); GBP: Places fetch + `IdentitySync` fold via `IntegrationConnectionObserver::saved` (never call `IdentitySync` directly). Claim: `POST /api/claim` (first-come, email-OTP JWT). Staff/ManyChat: `POST /api/staff/builds` (published). `POST /api/bootstrap` → **410 `SIGNUP_MOVED`** for no-`core.users` JWTs.
 
 Hard rules:
-- `'unclaimed'` is first-class. Public read paths render it when published (KV TTL from `pre_account_builds.expires_at`). Capability/notification/deletion gates fail-closed. Gating log: `tests/Feature/PreAccount/UnclaimedGatingTest.php`.
+- `'unclaimed'` is first-class. The profiles route and the KV write render/route it regardless of `is_published` — a pre-account site is public pre-claim by design, not gated on the publish flag (KV TTL from `pre_account_builds.expires_at`). Capability/notification/deletion gates fail-closed. Gating log: `tests/Feature/PreAccount/UnclaimedGatingTest.php`.
 - `config('partna.pre_account.*')` is the single registry. Adding a source = one `SiteSourceGenerator` + config entry + `source_type` CHECK migration.
 - `PreAccountBuildService::requestBuild` dedupes **before** pairing map — deliberate (spec §4.1). Do not reorder.
 - One LIVE build per source (`pre_account_builds_live_source_unique`, partial on `claimed_at IS NULL`). Failed builds reset, re-run.

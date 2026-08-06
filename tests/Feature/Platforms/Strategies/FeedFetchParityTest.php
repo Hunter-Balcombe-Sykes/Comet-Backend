@@ -30,15 +30,15 @@ beforeEach(function () {
     setupSitesTable();
 });
 
-it('YoutubeFetch produces the same success payload as the refresher (preserves handle + highlights)', function () {
+it('YoutubeFetch produces the same success payload as the refresher (preserves handle)', function () {
     $videos = [
         ['videoId' => 'v1', 'name' => 'Fresh', 'description' => 'nd', 'link' => 'nl', 'date' => '2026-03-03T00:00:00+00:00', 'thumbnail' => 'nt'],
         ['videoId' => 'v0', 'name' => 'Older', 'description' => 'od', 'link' => 'ol', 'date' => '2026-01-01T00:00:00+00:00', 'thumbnail' => 'ot'],
     ];
     $this->mock(YoutubeScraper::class, fn ($m) => $m->shouldReceive('fetchRecentVideos')->andReturn($videos));
 
-    // Curated highlights + handle MUST survive the refresh (the bug youtubePayload fixes).
-    $stored = ['handle' => 'mychannel', 'name' => 'Old', 'description' => 'od', 'link' => 'ol', 'thumbnail' => 'ot', 'highlights' => [['videoId' => 'h1']]];
+    // The handle MUST survive the refresh (the bug youtubePayload fixes).
+    $stored = ['handle' => 'mychannel', 'name' => 'Old', 'description' => 'od', 'link' => 'ol', 'thumbnail' => 'ot'];
 
     $refresherRow = gmSeed(gmUser('gmyt1'), 'youtube', $stored);
     app(PlatformRefresher::class)->refresh($refresherRow);
@@ -47,7 +47,6 @@ it('YoutubeFetch produces the same success payload as the refresher (preserves h
     $result = (new YoutubeFetch(app(YoutubeScraper::class)))->fetch($strategyRow);
 
     expect($result)->toEqual($refresherRow->fresh()->payload);
-    expect($result['highlights'])->toBe([['videoId' => 'h1']]); // curated highlights preserved
     expect($result['latest'])->toBe($videos[0]);
     // Private picker snapshot (LIFE-21..24): up to 15, matching the picker width.
     expect($result['recent'])->toBe(array_slice($videos, 0, 15));
@@ -87,7 +86,7 @@ it('YoutubeMusicFetch produces the same success payload as the refresher', funct
     $this->mock(YoutubeScraper::class, fn ($m) => $m->shouldReceive('fetchUploadsFeed')->with('UC123', 15, Mockery::any())
         ->andReturn(['title' => 'Artist - Topic', 'videos' => $videos]));
 
-    $stored = ['url' => 'https://music.youtube.com/channel/UC123', 'channelId' => 'UC123', 'name' => 'Old', 'highlights' => [['itemId' => 'h1']]];
+    $stored = ['url' => 'https://music.youtube.com/channel/UC123', 'channelId' => 'UC123', 'name' => 'Old'];
 
     $refresherRow = gmSeed(gmUser('gmym1'), 'youtube-music', $stored);
     app(PlatformRefresher::class)->refresh($refresherRow);
@@ -129,7 +128,7 @@ it('VimeoFetch produces the same success payload as the refresher', function () 
         $m->shouldReceive('fetchProfile')->andReturn(['name' => 'Pat', 'thumbnail' => 'nt']);
     });
 
-    $stored = ['url' => 'https://vimeo.com/pat', 'apiPath' => 'pat', 'name' => 'Old', 'highlights' => [['id' => 'h']]];
+    $stored = ['url' => 'https://vimeo.com/pat', 'apiPath' => 'pat', 'name' => 'Old'];
 
     $refresherRow = gmSeed(gmUser('gmvi1'), 'vimeo', $stored);
     app(PlatformRefresher::class)->refresh($refresherRow);
@@ -161,7 +160,7 @@ it('VimeoFetch throws FetchUnavailableException when no videos', function () {
         ->toThrow(FetchUnavailableException::class);
 });
 
-it('BandcampFetch produces the same success payload as the refresher (preserves url + highlights)', function () {
+it('BandcampFetch produces the same success payload as the refresher (preserves url)', function () {
     $profile = ['name' => 'X', 'items' => [['name' => 'Album', 'thumbnail' => 't', 'link' => 'l']], 'thumbnail' => 'pt'];
     // enrichPrices echoes its argument — the strategy calls enrichPrices([$items[0]]) and reads [0],
     // so the mock receives a single-element array and returns it unchanged.
@@ -170,7 +169,7 @@ it('BandcampFetch produces the same success payload as the refresher (preserves 
         $m->shouldReceive('enrichPrices')->andReturnUsing(fn (array $items) => $items);
     });
 
-    $stored = ['url' => 'https://artist.bandcamp.com', 'highlights' => [['itemId' => 'h1']]];
+    $stored = ['url' => 'https://artist.bandcamp.com'];
 
     $refresherRow = gmSeed(gmUser('gmbc1'), 'bandcamp', $stored);
     app(PlatformRefresher::class)->refresh($refresherRow);
@@ -182,8 +181,7 @@ it('BandcampFetch produces the same success payload as the refresher (preserves 
     expect($result['artist'])->toBe('X');
     expect($result['name'])->toBe('Album');
     expect($result['thumbnail'])->toBe('t');
-    expect($result['highlights'])->toBe([['itemId' => 'h1']]); // curated highlights preserved
-    // Full releases grid captured from the same fetch (show_all_releases source).
+    // Full releases grid captured from the same fetch (kept stored for internal use).
     expect($result['releases'])->toBe($profile['items']);
     // Private picker snapshot: up to 15 (here just the 1 seeded release).
     expect($result['recent'])->toBe(array_slice($profile['items'], 0, 15));
@@ -314,15 +312,15 @@ it('StravaFetch throws FetchUnavailableException when the club page is unreadabl
     expect(fn () => (new StravaFetch(app(StravaClubScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
 });
 
-it('AppleMusicFetch produces the same success payload as the refresher (preserves input + highlights)', function () {
+it('AppleMusicFetch produces the same success payload as the refresher (preserves input)', function () {
     $albums = [
         ['collectionId' => 'c1', 'name' => 'Album One', 'thumbnail' => 'nt', 'releaseDate' => '2026-03-01T00:00:00+00:00', 'link' => 'https://music.apple.com/au/album/1'],
         ['collectionId' => 'c0', 'name' => 'Album Two', 'thumbnail' => 'ot', 'releaseDate' => '2026-01-01T00:00:00+00:00', 'link' => 'https://music.apple.com/au/album/0'],
     ];
     $this->mock(AppleSearch::class, fn ($m) => $m->shouldReceive('fetchAlbums')->andReturn($albums));
 
-    // input + curated highlights MUST survive the refresh.
-    $stored = ['input' => 'Taylor Swift', 'highlights' => [['collectionId' => 'h1']]];
+    // input MUST survive the refresh.
+    $stored = ['input' => 'Taylor Swift'];
 
     $refresherRow = gmSeed(gmUser('gmam1'), 'apple-music', $stored);
     app(PlatformRefresher::class)->refresh($refresherRow);
@@ -331,7 +329,6 @@ it('AppleMusicFetch produces the same success payload as the refresher (preserve
     $result = (new AppleMusicFetch(app(AppleSearch::class)))->fetch($strategyRow);
 
     expect($result)->toEqual($refresherRow->fresh()->payload);
-    expect($result['highlights'])->toBe([['collectionId' => 'h1']]); // curated highlights preserved
     expect($result['latest'])->toBe($albums[0]);
 });
 
@@ -387,15 +384,15 @@ it('AppleMusicFetch throws FetchUnavailableException when no albums (refresher s
     expect(fn () => (new AppleMusicFetch(app(AppleSearch::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
 });
 
-it('ApplePodcastFetch produces the same success payload as the refresher (preserves input + highlights)', function () {
+it('ApplePodcastFetch produces the same success payload as the refresher (preserves input)', function () {
     $episodes = [
         ['trackId' => 'e1', 'name' => 'Episode One', 'thumbnail' => 'et1', 'description' => 'Great episode', 'releaseDate' => '2026-03-01T00:00:00+00:00', 'link' => 'https://podcasts.apple.com/ep/1'],
         ['trackId' => 'e0', 'name' => 'Episode Two', 'thumbnail' => 'et0', 'description' => 'Another ep', 'releaseDate' => '2026-01-01T00:00:00+00:00', 'link' => 'https://podcasts.apple.com/ep/0'],
     ];
     $this->mock(AppleSearch::class, fn ($m) => $m->shouldReceive('fetchEpisodes')->andReturn($episodes));
 
-    // input + curated highlights MUST survive the refresh.
-    $stored = ['input' => 'Huberman Lab', 'highlights' => [['trackId' => 'h1']]];
+    // input MUST survive the refresh.
+    $stored = ['input' => 'Huberman Lab'];
 
     $refresherRow = gmSeed(gmUser('gmap1'), 'apple-podcast', $stored);
     app(PlatformRefresher::class)->refresh($refresherRow);
@@ -404,7 +401,6 @@ it('ApplePodcastFetch produces the same success payload as the refresher (preser
     $result = (new ApplePodcastFetch(app(AppleSearch::class)))->fetch($strategyRow);
 
     expect($result)->toEqual($refresherRow->fresh()->payload);
-    expect($result['highlights'])->toBe([['trackId' => 'h1']]); // curated highlights preserved
     expect($result['latest'])->toBe($episodes[0]);
 });
 

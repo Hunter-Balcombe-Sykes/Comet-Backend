@@ -27,31 +27,6 @@ class UpdateSiteRequest extends BaseFormRequest
         'staple',
     ];
 
-    /**
-     * Every historical architecture id, all generations (skeleton-N → named →
-     * bento-class renames → 'one' → the 2026-07-15 collapse to 'staple').
-     * Accepted on write and normalized to 'staple' so a stale dashboard/chat
-     * build can never 422 on a value that used to be valid — the layout is
-     * fixed regardless.
-     */
-    public const LEGACY_ARCHITECTURE_IDS = [
-        'skeleton-1' => 'staple',
-        'skeleton-2' => 'staple',
-        'skeleton-3' => 'staple',
-        'skeleton-4' => 'staple',
-        'hub' => 'staple',
-        'stories' => 'staple',
-        'flow' => 'staple',
-        'sheet' => 'staple',
-        'thread' => 'staple',
-        'bento' => 'staple',
-        'dock' => 'staple',
-        'flick' => 'staple',
-        'deck' => 'staple',
-        'atlas' => 'staple',
-        'one' => 'staple',
-    ];
-
     public function rules(): array
     {
         $professional = $this->attributes->get('professional');

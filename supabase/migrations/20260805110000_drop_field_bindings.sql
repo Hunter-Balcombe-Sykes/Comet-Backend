@@ -1,0 +1,11 @@
+-- Decommission site.field_bindings (2026-08-05 platform audit).
+--
+-- The §14 field-bindings feature (WAVE-2C, migration 20260728150000) never
+-- gained a production caller: FieldBindingResolver had zero references, the
+-- table held zero rows on dev, and prod never received the migration. The
+-- code chain (resolver, seeder, preset instantiator/library, model, policy
+-- binding) is deleted in the same change set.
+DROP TABLE IF EXISTS "site"."field_bindings";
+-- ROLLBACK: NONE. The table held zero rows on dev and was never created on
+-- prod; the feature lane that owned it is deleted in the same change set, so
+-- there is no state to restore and nothing that could write to a recreated table.

@@ -33,8 +33,6 @@
 # Spec: docs/superpowers/specs/2026-07-30-authz-test-harness-design.md
 
 # ── Enquiries — UserEnquiryController scopes by user_id then finds by id ──────
-- route: "api/enquiries/{id}"
-  fixture: { id: "App\\Models\\Core\\Site\\Enquiry" }
 - route: "api/enquiries/{id}/read"
   fixture: { id: "App\\Models\\Core\\Site\\Enquiry" }
 - route: "api/enquiries/{id}/replied"
@@ -82,8 +80,23 @@
 # ── Content ──────────────────────────────────────────────────────────────────
 - route: "api/content/items/{item}/overrides/{facet}/{column}"
   fixture: { item: unknown, facet: unknown, column: unknown }
-- route: "api/content/identity/candidates/{candidate}/dismiss"
-  fixture: { candidate: unknown }
+# Pools (2026-08-05): {pool} is a registry key (watch|listen|media) validated
+# against PoolRegistry and {platform} a roster key — neither is an identity;
+# items resolve owner-scoped so an identity-B id is a 404, not a hit.
+- route: "api/content/pools/{pool}"
+  fixture: { pool: unknown }
+- route: "api/content/pools/{pool}/selection/{item}"
+  fixture: { pool: unknown, item: unknown }
+- route: "PUT api/content/pools/{pool}/order"
+  body: { itemIds: [] }
+  fixture: { pool: unknown }
+- route: "POST api/content/pools/{pool}/items"
+  body: { url: "https://example.com/x" }
+  fixture: { pool: unknown }
+- route: "api/content/items/{item}"
+  fixture: { item: unknown }
+- route: "api/content/items/{item}/links/{platform}"
+  fixture: { item: unknown, platform: unknown }
 
 # ── Design media ─────────────────────────────────────────────────────────────
 - route: "api/design-media/{purpose}"
@@ -203,9 +216,6 @@
 - route: "PUT api/site/sections/{section}/items/{item}"
   body: { state: excluded }                      # UpsertSectionItemRequest: state required|in:pinned,excluded
   fixture: { section: "App\\Models\\Core\\Site\\Section", item: unknown }
-- route: "POST api/content/identity/candidates/{candidate}/rule"
-  body: { verdict: different }                   # RuleIdentityCandidateRequest: verdict required|in:same,different
-  fixture: { candidate: unknown }
 # `value` is `present`, not `required` — an explicit null is the user clearing
 # the field — so the key must appear even though it is null. (facet, column)
 # must be a real FacetRegistry pair or the closure rule fails it.
@@ -243,5 +253,3 @@
   fixture: { category: unknown }
 - route: "api/site/sections/{section}/items/{item}"
   fixture: { section: "App\\Models\\Core\\Site\\Section", item: unknown }
-- route: "api/content/items/{item}/overrides"
-  fixture: { item: unknown }

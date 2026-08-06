@@ -56,6 +56,7 @@ function lifeProbeResolver(): SitepageDataResolverService
 
 it('keeps a single probe fault a quiet breadcrumb and still degrades the page gracefully', function () {
     $pro = createTenant('probe-esc-single');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupBlocksTable();
     setupMediaTables();
     // Deliberately no setupServicesTable() — Service::query() genuinely faults.
@@ -72,6 +73,7 @@ it('keeps a single probe fault a quiet breadcrumb and still degrades the page gr
 
 it('escalates to Nightwatch exactly once when one probe sustains faults across the threshold, and does not re-fire within the window', function () {
     $pro = createTenant('probe-esc-sustained');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupBlocksTable();
     setupMediaTables();
     // Deliberately no setupServicesTable().
@@ -103,6 +105,7 @@ it('escalates to Nightwatch exactly once when one probe sustains faults across t
 
 it('keeps two different probe labels in separate buckets so their faults never sum toward the same threshold', function () {
     $pro = createTenant('probe-esc-partition');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupMediaTables();
     // Deliberately no setupServicesTable() AND no setupBlocksTable() — BOTH
     // the services probe and the live-link-block probe fault on every call,
@@ -125,6 +128,7 @@ it('keeps two different probe labels in separate buckets so their faults never s
 
 it('collapses platform_complete_{platform} faults from different platforms into a single escalation bucket', function () {
     $pro = createTenant('probe-esc-cardinality');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupBlocksTable();
     setupMediaTables();
     setupServicesTable();
@@ -197,6 +201,7 @@ it('collapses platform_complete_{platform} faults from different platforms into 
 
 it('never turns a fault into a 500 even when the exception reporter itself throws', function () {
     $pro = createTenant('probe-esc-broken-reporter');
+    setupContentTables(); // pool presence probes (P4) need the pool tables
     setupBlocksTable();
     setupMediaTables();
     // Deliberately no setupServicesTable() — faults on every call.
@@ -235,6 +240,7 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
     // from other already-existing fail-open paths.
     setupPublicSitePayloadTable();
     setupHandleAliasesTable();
+    setupContentTables(); // pool presence probes (P4) must not add faults of their own
     // Deliberately no setupServicesTable() — Service::query() genuinely faults
     // inside presentPageIds() on every request below.
 
@@ -292,6 +298,7 @@ it('suppresses the GB-derived Menu page on a display-settings probe fault, even 
     // account would never show it regardless of the fault, which would make
     // this assertion pass for the wrong reason.
     $pro = createTenant('gb-fault-suppress-menu', ['account_type' => 'business']);
+    setupContentTables(); // pool presence probes (P4) need the pool tables
 
     // A REAL fetched menu exists — absent the fault below, the Menu page
     // would be present (mirrors DisplaySettingsTest's dsFetchedMenu helper).
@@ -318,6 +325,7 @@ it('suppresses the GB-derived Menu page on a display-settings probe fault, even 
 
 it('still shows the Menu page on a legitimate (non-faulting) absent display_settings row — the fault sentinel does not leak into the normal path', function () {
     $pro = createTenant('gb-no-fault-menu-shown', ['account_type' => 'business']);
+    setupContentTables(); // pool presence probes (P4) need the pool tables
 
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),

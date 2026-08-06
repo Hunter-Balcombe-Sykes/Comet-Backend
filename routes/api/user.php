@@ -1,9 +1,11 @@
 <?php
 
 use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
-use App\Http\Controllers\Api\Content\ContentKindController;
-use App\Http\Controllers\Api\Content\IdentityCandidateController;
+use App\Http\Controllers\Api\Content\ItemController;
+use App\Http\Controllers\Api\Content\ItemLinkController;
 use App\Http\Controllers\Api\Content\ManualOverrideController;
+use App\Http\Controllers\Api\Content\PoolController;
+use App\Http\Controllers\Api\Content\PoolItemCreateController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Controllers\Api\Routing\ConnectionsController;
@@ -27,7 +29,6 @@ use App\Http\Controllers\Api\User\Content\ContentController;
 use App\Http\Controllers\Api\User\Customers\UserCustomerController;
 use App\Http\Controllers\Api\User\Customers\UserEnquiryController;
 use App\Http\Controllers\Api\User\Feedback\FeedbackController;
-use App\Http\Controllers\Api\User\Notifications\ConfirmationPreferenceController;
 use App\Http\Controllers\Api\User\Notifications\NotificationController;
 use App\Http\Controllers\Api\User\Notifications\NotificationEmailPreferenceController;
 use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
@@ -38,7 +39,6 @@ use App\Http\Controllers\Api\User\Site\HandleReclaimController;
 use App\Http\Controllers\Api\User\Site\SubdomainAvailabilityController;
 use App\Http\Controllers\Api\User\SiteManagement\CustomDomainController;
 use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
-use App\Http\Controllers\Api\User\SiteManagement\UserLinkBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceCategoryController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
@@ -151,27 +151,34 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->whereUuid('section')->name('site.sections.groups.destroy');
 
         // ── Content library (plan §5/§6). ──────────────────────────────────
-        // The kind registry the LibraryView builds its columns from. Its
-        // pinnable/editable flags are what make Reviews show/hide-only.
-        Route::get('/content/kinds', [ContentKindController::class, 'index'])
-            ->name('content.kinds');
-
-        // Possible-duplicates queue: the declared recovery path for the
-        // resolver's false-split-over-false-merge bias.
-        Route::get('/content/identity/candidates', [IdentityCandidateController::class, 'index'])
-            ->name('content.identity.candidates');
-        Route::post('/content/identity/candidates/{candidate}/rule', [IdentityCandidateController::class, 'rule'])
-            ->whereUuid('candidate')->name('content.identity.candidates.rule');
-        Route::post('/content/identity/candidates/{candidate}/dismiss', [IdentityCandidateController::class, 'dismiss'])
-            ->whereUuid('candidate')->name('content.identity.candidates.dismiss');
-
         // Per-column manual edits — the "edited" chip and its reset-to-source.
-        Route::get('/content/items/{item}/overrides', [ManualOverrideController::class, 'index'])
-            ->whereUuid('item')->name('content.items.overrides.index');
         Route::put('/content/items/{item}/overrides', [ManualOverrideController::class, 'upsert'])
             ->whereUuid('item')->name('content.items.overrides.upsert');
         Route::delete('/content/items/{item}/overrides/{facet}/{column}', [ManualOverrideController::class, 'destroy'])
             ->whereUuid('item')->name('content.items.overrides.destroy');
+
+        // ── Pools (platforms-as-sources, 2026-08-05). ──────────────────────
+        // One GET for the whole pool (selection + library + Latest tag); the
+        // selection verbs write pins/excludes on the pool's section — the
+        // only curation store. DELETE items/{item} is the C8 library delete.
+        Route::get('/content/pools/{pool}', [PoolController::class, 'show'])
+            ->name('content.pools.show');
+        Route::post('/content/pools/{pool}/selection/{item}', [PoolController::class, 'select'])
+            ->whereUuid('item')->name('content.pools.select');
+        Route::delete('/content/pools/{pool}/selection/{item}', [PoolController::class, 'deselect'])
+            ->whereUuid('item')->name('content.pools.deselect');
+        Route::put('/content/pools/{pool}/order', [PoolController::class, 'reorder'])
+            ->name('content.pools.reorder');
+        Route::post('/content/pools/{pool}/items', [PoolItemCreateController::class, 'store'])
+            ->name('content.pools.items.store');
+        Route::delete('/content/items/{item}', [ItemController::class, 'destroy'])
+            ->whereUuid('item')->name('content.items.destroy');
+
+        // Hand-saved cross-platform links on a pool item (alternates only).
+        Route::put('/content/items/{item}/links/{platform}', [ItemLinkController::class, 'upsert'])
+            ->whereUuid('item')->name('content.items.links.upsert');
+        Route::delete('/content/items/{item}/links/{platform}', [ItemLinkController::class, 'destroy'])
+            ->whereUuid('item')->name('content.items.links.destroy');
 
         // Profile sector/industry — curated picker options + manual set. The
         // sector is also fillable by the Google Business precedence sync
@@ -349,18 +356,8 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // `professional/` segment to read as a scoped dev tool; still a plain authed GET.
         Route::get('/professional/dev-insights', [DevInsightsController::class, 'index']);
 
-        // Links
-        Route::get('/links', [UserLinkBlockController::class, 'index']);
-        Route::post('/links', [UserLinkBlockController::class, 'store']);
-        Route::patch('/links/{linkBlock}', [UserLinkBlockController::class, 'update'])
-            ->whereUuid('linkBlock');
-        Route::delete('/links/{linkBlock}', [UserLinkBlockController::class, 'destroy'])
-            ->whereUuid('linkBlock');
-        Route::post('/links/reorder', [UserLinkBlockController::class, 'reorder']);
-
         // Sections
         Route::get('/sections', [UserSectionBlockController::class, 'index']);
-        Route::post('/sections/reorder', [UserSectionBlockController::class, 'reorder']);
         Route::put('/sections/{blockType}', [UserSectionBlockController::class, 'upsert'])
             ->where('blockType', '[a-z0-9_-]+');
         Route::delete('/sections/{blockType}', [UserSectionBlockController::class, 'remove'])
@@ -380,22 +377,12 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->withTrashed();
 
         // Contact section enquiry inbox
-        Route::get('/enquiries/counts', [UserEnquiryController::class, 'counts']);
         Route::get('/enquiries', [UserEnquiryController::class, 'index']);
-        Route::get('/enquiries/{id}', [UserEnquiryController::class, 'show'])->whereUuid('id');
-        Route::patch('/enquiries/{id}', [UserEnquiryController::class, 'update'])
-            ->whereUuid('id');
-        Route::delete('/enquiries/{id}', [UserEnquiryController::class, 'destroy'])
-            ->whereUuid('id');
         Route::post('/enquiries/{id}/read', [UserEnquiryController::class, 'markRead'])->whereUuid('id');
         Route::post('/enquiries/{id}/replied', [UserEnquiryController::class, 'markReplied'])->whereUuid('id');
         Route::post('/enquiries/{id}/archive', [UserEnquiryController::class, 'archive'])->whereUuid('id');
         Route::post('/enquiries/{id}/restore', [UserEnquiryController::class, 'restore'])->whereUuid('id');
         Route::post('/enquiries/{id}/spam', [UserEnquiryController::class, 'markSpam'])->whereUuid('id');
-
-        // UI Confirmation Preferences ("don't ask again" toggles)
-        Route::get('/confirmation-preferences', [ConfirmationPreferenceController::class, 'show']);
-        Route::patch('/confirmation-preferences', [ConfirmationPreferenceController::class, 'update']);
 
         // Image Upload (server-side processing → WebP variants via queue)
         Route::post('/uploads', [UserUploadController::class, 'upload']);

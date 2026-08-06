@@ -9,6 +9,7 @@ use App\Models\Core\Site\SiteMedia;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -177,7 +178,7 @@ class ContentSelectionService
             );
         }
 
-        $autoEnabled = (bool) $site->content_instagram_auto_enabled;
+        $autoEnabled = AutoSyncSetting::isOn((string) $site->user_id, 'instagram');
 
         $rows = [];
         foreach ($entries as $index => $entry) {
@@ -247,8 +248,9 @@ class ContentSelectionService
         // this wrap a persist() failure left the flag durably flipped with no
         // slots reserved/cleared to match.
         DB::connection('pgsql')->transaction(function () use ($site, $enabled) {
-            $site->content_instagram_auto_enabled = $enabled;
-            $site->save();
+            // 2026-08-05: the flag lives on the instagram connection's own
+            // display_settings now (one toggle grammar, AutoSyncSetting).
+            AutoSyncSetting::set((string) $site->user_id, 'instagram', $enabled);
 
             $existing = ContentSelection::query()
                 ->where('site_id', $site->id)

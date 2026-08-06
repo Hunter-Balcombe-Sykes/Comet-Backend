@@ -41,7 +41,6 @@ class Youtube
                 ->canonicalUrl('https://www.youtube.com/@{handle}')
                 ->connect('connect.youtube.url.v1')
                 ->fetch('fetch.youtube.scrape.v1')
-                ->highlights('highlights.youtube.v1')
                 ->multiAccount(5)
                 ->detect(
                     Detector::url('youtube.com')
