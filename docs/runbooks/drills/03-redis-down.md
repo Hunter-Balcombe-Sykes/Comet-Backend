@@ -113,6 +113,12 @@ curl -s -o /dev/null -w "health   %{http_code}  %{time_total}s\n" "$BASE/api/hea
 #        invent one. "Drill" is rejected with "Invalid subject."
 #      - the site needs an active `contact` block in the `sections` group (see Preconditions).
 #    Also: `throttle:leads` allows 3/min per IP, so this probe cannot be fired freely.
+#    ⚠️ Updated 2026-08-06: during an outage this probe used to return 503 (drill 03 finding
+#    3 — the throttle store fault dropped the write). It now returns 2xx: `throttle:leads`
+#    falls back to a Postgres-backed counter (`LeadSubmissionRateLimiter`, still 3/min per
+#    IP) instead of failing closed, and the row lands in `site.enquiries` with
+#    `notifications_pending_since` set instead of being lost. See the "Enquiry survival"
+#    check in OBSERVE below.
 STARTED=$(( $(date +%s) * 1000 - 8000 ))
 curl -s -o /dev/null -w "enquiry  %{http_code}  %{time_total}s\n" \
   -X POST "$BASE/api/public/enquiry" \
@@ -198,8 +204,23 @@ time them**. For each, record `http_code` + `time_total`. Then:
    a bonus. The *breadcrumbs* are the required evidence.
 7. **`POST $BASE/api/public/enquiry`** — standard probe, not optional. Sits behind
    `throttle:leads` + `bot.token:enquiry`, both potential Redis touchpoints, and dispatches
-   notification jobs to Redis. Does the enquiry save-then-500, save-cleanly-without-email, or
-   fail entirely? This is a data-loss-shape judgment call — record exactly what happened.
+   notification jobs to Redis. **Expected since 2026-08-06:** `throttle:leads` falls back to
+   the Postgres-backed `LeadSubmissionRateLimiter` (still 3/min per IP) instead of failing
+   closed, and the enquiry row saves with `notifications_pending_since` set instead of being
+   dropped — see the verification step immediately below. Record exactly what happened; a
+   503 or a silently dropped enquiry is a REGRESSION of finding 3, not the documented
+   behaviour.
+
+   **Enquiry survival (added 2026-08-06).** During the outage, submit one enquiry probe
+   and confirm:
+   - the response is 2xx, not 503 and not 500
+   - `SELECT count(*) FROM site.enquiries WHERE notifications_pending_since IS NOT NULL` is ≥ 1
+   - the log carries `throttle.store_unavailable` with `mode=fallback`, plus
+     `enquiry.notify.dispatch_failed`
+
+   After recovery, run `php artisan enquiries:reconcile-notifications` and confirm the
+   marker clears and the notification job runs. A 503 here is a REGRESSION of drill 03
+   finding 3, not the documented behaviour.
 
 ## RECOVER
 
@@ -329,7 +350,7 @@ to within ~40ms; single-worker "parallel" was off by up to 12s.)
 | Probe | Expect (against a ~40s hang) |
 |---|---|
 | `health` | **< 0.1s** — issues zero Redis commands (unthrottled since 2026-08-05) |
-| `enquiry` | **~3s** |
+| `enquiry` | **~3s** (2xx since 2026-08-06 — falls back to Postgres; was 503, finding 3) |
 | `authed` | **~3s** (503, the designed degradation) |
 | `profile` | **~3s** |
 | `pageview` (beacon) | **~3–4s** |
@@ -384,7 +405,13 @@ is the more likely explanation.
 - [ ] Beacon fail-open works end-to-end (2xx) OR the blocking layer is identified precisely
 - [ ] Breadcrumb trail exists; escalation behavior matches the trait's documented tiers
 - [ ] Recovery is hands-off (except possibly Horizon restart — note it)
-- [ ] No non-analytics data loss
+- [ ] No non-analytics data loss — the 2026-08-06 pre-fix run recorded this **PARTIAL**
+      (enquiries submitted during the outage were lost — clean fail-closed, but lost; see
+      finding 3, `logs/2026-08-06-redis-down.md`). The cause was fixed 2026-08-06: the
+      enquiry write now falls back to Postgres instead of failing closed (see
+      `docs/superpowers/specs/2026-08-06-enquiry-path-redis-resilience-design.md`). The
+      **next drill run is expected to show PASS** via the "Enquiry survival" check above —
+      do not mark this PASS until that run actually happens.
 
 ## RESTORE
 
