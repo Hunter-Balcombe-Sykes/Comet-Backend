@@ -710,10 +710,7 @@ async function serveIndividual(env, ctx, request, handleOverride) {
     // guessable. Cloudflare bot protection sits in front; origin rate-limiting
     // for bypass params is separate, out-of-scope work.
     const previewParams = new URL(request.url).searchParams;
-    if (
-        previewParams.has("preview") ||
-        previewParams.has("architecture")
-    ) {
+    if (previewParams.has("preview") || previewParams.has("architecture")) {
         return finalize(await env.PARTNA_PAGES.fetch(originRequest), {
             sitepage: true,
             noStore: true,
