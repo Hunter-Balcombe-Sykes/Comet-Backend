@@ -10,8 +10,15 @@ use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 
 // V2: A visitor-submitted enquiry from a site's contact section block. read_at=null means unread.
+/**
+ * @property Carbon|null $notifications_pending_since Set when PublicEnquiryController's
+ *                                                    notification dispatch throws (Redis outage); cleared by
+ *                                                    ReconcileEnquiryNotifications once re-dispatch succeeds. Nullable timestamptz,
+ *                                                    no default (supabase/migrations/20260806100000_add_enquiry_notifications_pending_since.sql).
+ */
 class Enquiry extends BaseModel
 {
     use HasUuids, SoftDeletes;
@@ -46,6 +53,7 @@ class Enquiry extends BaseModel
         'archived_at',
         'spam_at',
         'redacted_at',
+        'notifications_pending_since',
     ];
 
     // Submitter PII + request telemetry hidden from default model serialization.
@@ -72,6 +80,7 @@ class Enquiry extends BaseModel
         'archived_at' => 'datetime',
         'spam_at' => 'datetime',
         'redacted_at' => 'datetime',
+        'notifications_pending_since' => 'datetime',
     ];
 
     public function user(): BelongsTo

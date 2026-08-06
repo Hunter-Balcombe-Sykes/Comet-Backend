@@ -51,10 +51,24 @@ class LogLeadRateLimits
             // Dedup auto-retry bursts. Cache::add is atomic SETNX — returns false if the key
             // already exists, meaning we already logged this source within the dedup window.
             // CFG-5: window is config-driven so it's tunable without a redeploy.
+            //
+            // Guarded SEPARATELY from the insert below: with Redis dead this throws, and
+            // letting it reach the outer catch would mean NO abuse row at all — the
+            // monitoring table going blind during precisely the outage an attacker would
+            // pick. A duplicate row from a browser auto-retry burst is strictly better
+            // than no row. Drill 03 (2026-08-06).
             $dedupSeconds = (int) config('partna.analytics.lead_rate_limit_dedup_seconds', 10);
             $dedupKey = "partna:rate-limit-logged:{$ipHash}:".($subdomain ?? 'unknown');
-            if (! Cache::add($dedupKey, 1, $dedupSeconds)) {
-                return;
+
+            try {
+                if (! Cache::add($dedupKey, 1, $dedupSeconds)) {
+                    return;
+                }
+            } catch (Throwable $dedupError) {
+                Log::warning('lead.rate_limit_dedup_unavailable', [
+                    'exception' => $dedupError->getMessage(),
+                ]);
+                // Fall through to the insert.
             }
 
             LeadSubmission::query()->create([
