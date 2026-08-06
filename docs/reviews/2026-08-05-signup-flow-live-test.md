@@ -118,9 +118,47 @@ from core.users u join site.sites s on s.user_id = u.id where u.deleted_at is nu
 -- still_diverged: 1, total: 37
 ```
 
-The survivor is deliberate: handle `admin` / subdomain `tobiasindarwin-fableqa1`. `admin` is a
+The survivor was deliberate: handle `admin` / subdomain `tobiasindarwin-fableqa1`. `admin` is a
 **reserved subdomain**, so converging would park a site on a name `ResolvesSubdomainFromHost` rejects.
-The command skips it and says so. **Fix that row by renaming the handle, not the subdomain.**
+The command skips it and says so.
+
+**Resolved 2026-08-06 by deleting the account** (Josh's call). It was a QA fixture —
+`tobiasindarwin+fableqa1@gmail.com`, not staff, no builds, no custom domain. Purged via the supported
+path, `AccountDeletionService::adminPurgeNow()` (pseudonymise → delete the Supabase auth user →
+hard-delete → retire KV), not raw SQL. Verified: user row, site row and handle-alias rows all gone; no
+`admin` handle remains anywhere.
+
+**dev is now `0 / 36` diverged — full convergence.**
+
+#### ⚠️ The deletion exposed a SIXTH consequence of divergence: a self-referential 301 loop
+
+After the purge, `tobiasindarwin-fableqa1.partna.au` returned **301 redirecting to itself**, and
+`admin.partna.au` returned 522 — the exact symptom `SyncSubdomainToKvJob`'s docblock describes for a
+malformed alias entry ("infinite self-loop that surfaces to the visitor as a 522").
+
+Cause: this user had renamed their handle to `admin` while the subdomain stayed
+`tobiasindarwin-fableqa1`, so `writeAliasEntries()` wrote the alias key `tobiasindarwin-fableqa1` with
+`redirect: $pro->partna_url` — and `partna_url` is computed from the **subdomain**, i.e.
+`https://tobiasindarwin-fableqa1.partna.au`. **The alias pointed at itself.** Any diverged row that
+also holds a handle alias produces this.
+
+It then became an *orphan*: `SyncSubdomainToKvJob::retire()` deletes only the handle key and the
+custom-domain pointer — its docblock says "Aliases are left to expire via their own TTL / the
+`handles:prune-expired-aliases` sweep" — but the alias DB rows were hard-deleted with the user, so that
+sweep could never see them. The KV entry would have served a redirect loop until its TTL lapsed (up to
+90 days), in the namespace **prod shares with dev**.
+
+Cleared explicitly via `CloudflareKvService::delete()`. `tobiasindarwin-fableqa1.partna.au` now 404s,
+matching a never-existed host.
+
+**Generalisation worth acting on separately:** hard-deleting a user orphans their alias KV entries,
+because retirement is TTL-driven off DB rows that no longer exist. Not specific to this account.
+
+**Still unexplained, and NOT caused by the deletion:** `admin.partna.au` returns **522 on every path,
+including cache-busted**, while a never-existed host 404s and `api.partna.au` (also reserved) 404s. Its
+KV key is confirmed deleted (`CloudflareKvService::delete()` calls `->throw()`, and the call succeeded)
+and DNS resolves to the same Cloudflare IPs as every other host. So this is a Cloudflare-side artifact
+for that hostname, independent of KV and of the account. Needs a look in the Cloudflare dashboard.
 
 **KV, as predicted:** zero writes to any `<handle>` key — every non-alias row reported
 `KV: none — the main entry is keyed on the handle, which is not changing`. Only 5 users took alias
@@ -350,7 +388,7 @@ The **doc** is wrong, not the code.
   `theme_mode`.
 - `docs/api.md:316` — typo, "unqiue".
 
-### - [ ] `SIGNUP-6` · P3 · log noise
+### - [x] `SIGNUP-6` · P3 · log noise — **RESOLVED 2026-08-06, env var set by Josh**
 
 `PARTNA_MEDIA_DISK not set (legacy fallback: SIDEST_MEDIA_DISK); using filesystems.default disk`
 fires ~20× per build on dev (`configured_media_disk: media`, `fallback_disk: public_dev`).
@@ -371,15 +409,24 @@ So dev media is landing on a different disk than the config names, and this "noi
 evidence of it. The `public_dev` disk is documented in `config/filesystems.php:91-95` as a legacy
 alias that mirrors `media`, so nothing is broken today — but the override is silent by design.
 
-#### ✅ DECIDED by Josh 2026-08-06 — set the env var; Josh applies it. No code change.
+#### ✅ RESOLVED 2026-08-06 — `PARTNA_MEDIA_DISK=public_dev` set on dev by Josh. No code change.
 
-**Action, assigned to Josh:** set `PARTNA_MEDIA_DISK=public_dev` on the dev environment.
-`$configured` then equals what the resolver already returns, so **behaviour is unchanged** and the
-warning stops. ⚠️ `cloud environment:variables` **REPLACES ALL** — a partial push drops the other 92
-vars, so this must go out as a full set.
+Verified, not taken on trust:
 
-**This box stays unticked until that lands** — the diagnosis is settled but the condition is still
-live on dev.
+```
+$ cloud environment:get development --json --fields=environmentVariables --show-sensitive
+[{'key': 'PARTNA_MEDIA_DISK', 'value': 'public_dev'}]
+```
+
+`config('partna.media_disk')` now equals what `MediaDiskResolver` already returned, so **behaviour is
+unchanged** and the `$configured === 'media'` branch — the one that logged the warning ~20× per build —
+is no longer reachable. The config now states what actually happens rather than being silently
+overridden.
+
+Note this does **not** fix the underlying seam: `MediaDiskResolver` still reads only `$_ENV`/`$_SERVER`,
+which Laravel Cloud leaves unpopulated, so any *future* `PARTNA_MEDIA_DISK` change will again be
+invisible to the explicit-override branch and take effect only via `config()`. Left as-is deliberately —
+see the rejected alternatives below.
 
 Rejected alternatives, recorded so they are not relitigated:
 - *Change `MediaDiskResolver` to consult `config('partna.media_disk')`.* Behaviour DOES change — dev
@@ -419,9 +466,9 @@ Effort: **XL.** Needs its own spec, its own branch, and a frontend change landed
 
 ## Progress
 
-`5 / 7` resolved — P0 `1/1` · P1 `2/3` · P2 `1/1` · P3 `1/2`
+`6 / 7` resolved — P0 `1/1` · P1 `2/3` · P2 `1/1` · P3 `2/2`
 (`SIGNUP-7` is out of scope for the `SIGNUP-1..6` run — tracked, not executed, and is the only
-unresolved P1.)
+unresolved item. **The `SIGNUP-1..6` run is complete.**)
 
 Worked 2026-08-06 on `audit-fix/signup-flow-live-test-2026-08-05`, plan → implement → independent
 review per `scripts/audit/fix-flow.md`.
@@ -433,7 +480,7 @@ review per `scripts/audit/fix-flow.md`.
 | `SIGNUP-3` | documented, no gate added (Josh's decision) | `eff63a082` |
 | `SIGNUP-4` | closed — premise error, the fold was already correct | `71e981ff5` |
 | `SIGNUP-5` | fixed — docs corrected to match the code | `eff63a082` |
-| `SIGNUP-6` | **OPEN — decided, awaiting Josh: set `PARTNA_MEDIA_DISK=public_dev` on dev** | — |
+| `SIGNUP-6` | resolved — `PARTNA_MEDIA_DISK=public_dev` set on dev, verified; no code change | — |
 | `SIGNUP-7` | not executed, by design | — |
 
 **Three of the six premises were wrong as written** and were corrected in place rather than
