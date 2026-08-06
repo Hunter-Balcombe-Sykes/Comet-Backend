@@ -91,6 +91,18 @@ it('rejects a request at the per-IP limit', function () {
     expect(app(LeadSubmissionRateLimiter::class)->exceeded(degradedLeadRequest()))->toBeTrue();
 });
 
+it('rejects everything when the degraded limit is clamped to 0', function () {
+    // Finding 4 (2026-08-06 final review): `> 0` treated a limit of 0 as "no
+    // limit configured" and skipped the bucket entirely, admitting every
+    // request — the opposite of `Limit::perMinute(0)`'s healthy-mode meaning
+    // and the exact opposite of the "clamp mid-incident" escape hatch the
+    // config comment promises. `>= 0` fixes it: count is never negative, so a
+    // limit of 0 always blocks, with zero prior submissions required.
+    config(['partna.throttle.leads_degraded_per_minute_ip' => 0]);
+
+    expect(app(LeadSubmissionRateLimiter::class)->exceeded(degradedLeadRequest()))->toBeTrue();
+});
+
 it('ignores submissions older than the window', function () {
     seedDegradedLeadSubmission(['occurred_at' => now()->subMinutes(2)->toDateTimeString()]);
     seedDegradedLeadSubmission(['occurred_at' => now()->subMinutes(2)->toDateTimeString()]);

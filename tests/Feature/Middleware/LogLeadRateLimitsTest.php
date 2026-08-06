@@ -2,7 +2,6 @@
 
 use App\Http\Middleware\Logging\LogLeadRateLimits;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\Http\Response as IlluminateResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -184,7 +183,7 @@ it('still records the abuse row when the dedup cache is unreachable', function (
         ->andThrow(new RuntimeException('read error on connection to 127.0.0.1:6379'));
 
     $request = Request::create('https://blind-site.'.config('partna.public_domain').'/api/public/enquiry', 'POST');
-    $response = new Response('', 429);
+    $response = new IlluminateResponse('', 429);
 
     (new LogLeadRateLimits)->terminate($request, $response);
 
@@ -202,7 +201,7 @@ it('emits a breadcrumb when the dedup cache is unreachable', function () {
 
     $request = Request::create('https://blind-site.'.config('partna.public_domain').'/api/public/enquiry', 'POST');
 
-    (new LogLeadRateLimits)->terminate($request, new Response('', 429));
+    (new LogLeadRateLimits)->terminate($request, new IlluminateResponse('', 429));
 
     Log::shouldHaveReceived('warning')
         ->withArgs(fn (string $message) => $message === 'lead.rate_limit_dedup_unavailable')

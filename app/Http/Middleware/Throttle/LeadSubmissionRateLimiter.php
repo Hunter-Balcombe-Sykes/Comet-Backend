@@ -34,7 +34,7 @@ class LeadSubmissionRateLimiter
     use HashesClientData;
     use ResolvesSubdomainFromHost;
 
-    /** Rows written by the limiter's OWN rejections. See excluded() below. */
+    /** Rows written by the limiter's OWN rejections. See countSince() below. */
     private const SELF_INFLICTED_OUTCOME = 'rate_limited';
 
     /**
@@ -53,7 +53,16 @@ class LeadSubmissionRateLimiter
         $ipHash = $this->hashIp($request->ip());
         if ($ipHash !== null) {
             $limit = (int) config('partna.throttle.leads_degraded_per_minute_ip', 3);
-            if ($limit > 0 && $this->countSince('ip_hash', $ipHash, $since) >= $limit) {
+            // `>= 0`, not `> 0`. A limit of exactly 0 is the natural "stop all
+            // lead traffic now" mid-incident clamp the config comment promises —
+            // `Limit::perMinute(0)` blocks everything in healthy mode, so this
+            // fallback must match. Since countSince() can never return a
+            // negative count, `$limit === 0` makes the `>= $limit` comparison
+            // always true, i.e. always block, with no special case needed.
+            // Negative/garbage config is left bypassing this bucket (as before)
+            // rather than reinterpreted as "block everything", which would turn
+            // a typo into a silent full outage on a public write path.
+            if ($limit >= 0 && $this->countSince('ip_hash', $ipHash, $since) >= $limit) {
                 return true;
             }
         }
@@ -61,7 +70,7 @@ class LeadSubmissionRateLimiter
         $subdomain = $this->resolveSiteSubdomain($request);
         if ($subdomain !== null) {
             $limit = (int) config('partna.throttle.leads_degraded_per_minute_subdomain', 100);
-            if ($limit > 0 && $this->countSince('subdomain', $subdomain, $since) >= $limit) {
+            if ($limit >= 0 && $this->countSince('subdomain', $subdomain, $since) >= $limit) {
                 return true;
             }
         }

@@ -211,6 +211,19 @@ time them**. For each, record `http_code` + `time_total`. Then:
    503 or a silently dropped enquiry is a REGRESSION of finding 3, not the documented
    behaviour.
 
+   ⚠️ **Updated 2026-08-06 (final whole-branch review, before merge).** The controller upserts
+   the submitter as a `Customer` BEFORE saving the enquiry (step 5,
+   `PublicEnquiryController::submit()`), and that write fires `CustomerObserver` →
+   `UserCacheService::invalidateCustomerCount()` → `Cache::deleteMultiple()` — a fifth Redis
+   gate, found unguarded in the same review, sitting BEFORE `$enquiry->save()`. Unguarded, it
+   turned a dead cache store into a raw 500 with **no lead saved at all**, worse than the
+   original finding-3 503. It is now guarded the same way as the gates above (best-effort,
+   logged, never propagated) — see `app/Observers/Core/CustomerObserver.php` — and this single
+   enquiry probe already exercises it, since the upsert runs on every submission regardless of
+   outcome. `POST $BASE/api/public/customers` hits the identical `CustomerObserver` path via
+   its own create/update calls, so a probe against that endpoint during the outage is worth
+   adding here too if you have time, though it is not yet a standard probe in this runbook.
+
    **Enquiry survival (added 2026-08-06).** During the outage, submit one enquiry probe
    and confirm:
    - the response is 2xx, not 503 and not 500
@@ -219,8 +232,11 @@ time them**. For each, record `http_code` + `time_total`. Then:
      `enquiry.notify.dispatch_failed`
 
    After recovery, run `php artisan enquiries:reconcile-notifications` and confirm the
-   marker clears and the notification job runs. A 503 here is a REGRESSION of drill 03
-   finding 3, not the documented behaviour.
+   marker clears and the notification job runs. A 503 or 500 here is a REGRESSION — of drill 03
+   finding 3 if it is the throttle or dispatch layer, or of the fifth-gate fix above if it is a
+   raw 500 with `$enquiry->save()` never reached — not the documented behaviour. **This has not
+   been re-run against a live outage as of this fix** — the fix and its Pest-level reproduction
+   landed in the same final review that found it; only an actual drill run can mark this PASS.
 
 ## RECOVER
 

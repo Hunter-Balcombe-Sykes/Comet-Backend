@@ -10,7 +10,7 @@ code landed, not that a live outage has confirmed it.
 
 ## 1. Problem
 
-The filed finding understates the failure. `throttle:leads` is the **first of four Redis gates**
+The filed finding understates the failure. `throttle:leads` is the **first of five Redis gates**
 on `POST /public/enquiry` and `POST /public/customers`. Adding `leads` to
 `FailOpenThrottleRequests::FAIL_OPEN_LIMITERS` does not save the lead — it moves the failure
 downstream and makes it dirtier.
@@ -22,10 +22,21 @@ downstream and makes it dirtier.
 | 3 | `bot.token:enquiry` (`VerifyBotToken`) | Yes, breaker-unavailable → fail-open already | Safe |
 | 4a | `EnquirySpamBlocklist::contains()` — `Redis::connection('app')->zscore()` | Yes, **unguarded** | **500** |
 | 4b | `DispatchEnquiryNotificationsJob` + `SendEnquiryConfirmationJob` `::dispatch()` | Redis queue | **500, after `$enquiry->save()` has committed** |
+| 5 | `CustomerObserver::created()`/`updated()` → `UserCacheService::invalidateCustomerCount()` → `Cache::deleteMultiple()` | Yes, **unguarded** | **500, BEFORE `$enquiry->save()` runs** — no lead saved at all, worse than gates 2/4a/4b's failure modes |
 
-Gates 4a and 4b are **enquiry-only**. `PublicCustomerLeadController` makes no `dispatch()` call and
-touches neither `Redis::` nor `Cache::` directly, so `POST /public/customers` is fully repaired by
-gate 2 alone (§4). Verified 2026-08-06.
+Gates 4a and 4b are **enquiry-only** — `PublicCustomerLeadController` makes no `dispatch()` call and
+touches neither `Redis::` nor `Cache::` directly in its own body. **Gate 5 is not enquiry-only.**
+Both controllers upsert a `Customer` on the hot path (`PublicEnquiryController::submit()` step 5;
+`PublicCustomerLeadController::store()`'s create/update calls around lines 102 and 111), and both
+routes go through the same `CustomerObserver`, so gate 5 hit `/public/customers` exactly as hard as
+`/public/enquiry`.
+
+**Correction, 2026-08-06 (final whole-branch review, before merge to `development`):** the sentence
+that used to stand here — *"`POST /public/customers` is fully repaired by gate 2 alone (§4).
+Verified 2026-08-06."* — was wrong. It was written before gate 5 was found; gate 5 was unguarded on
+both endpoints until this review's fix landed. See `app/Observers/Core/CustomerObserver.php` and
+`tests/Feature/Resilience/DeadCacheStoreTest.php`'s "commits the enquiry when the customer-count
+cache invalidation dies" test.
 
 `PublicEnquiryController::submit()` has no surrounding transaction. Fixing gate 2 alone therefore
 produces: enquiry row committed → visitor sees a 500 → nobody is ever notified → visitor retries →
@@ -49,7 +60,7 @@ write path during an outage.
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Scope | End-to-end enquiry survival (all four gates) | Fixing gate 2 alone is a net regression (§1) |
+| Scope | End-to-end enquiry survival (all five gates) | Fixing gate 2 alone is a net regression (§1) |
 | Rate limiting without Redis | Count `analytics.lead_submissions` in Postgres | Substrate already exists; `lead_submissions_ip_time_idx` already indexed; both controllers on this limiter already write rows |
 | Degraded limits | Same numbers, separate config keys | Unchanged visitor behaviour; clampable mid-incident from an env var |
 | Bucket disambiguation | Combined question (§4.3 option b) | Avoids coupling to Laravel's limiter-key derivation internals |
@@ -124,10 +135,17 @@ Three constraints encoded in that query:
    would keep them locked out indefinitely. Excluding them matches Redis semantics exactly.
 3. **`ip_hash` is comparable to the limiter key.** `bootstrap/app.php:74` sets
    `trustProxies(at: '*')`, so `$request->ip()` already resolves to the real client IP from
-   `X-Forwarded-For`; `hashIp()` is a deterministic HMAC. The Postgres-side and Redis-side counters
-   describe the same client. The service re-derives its inputs from the `Request` (CF-Connecting-IP,
-   `route('subdomain')`), mirroring the `RateLimiter::for('leads', …)` closure in
-   `AppServiceProvider`.
+   `X-Forwarded-For`; `hashIp()` is a deterministic HMAC over that value. The Postgres-side and
+   Redis-side counters describe the same client because `LeadSubmissionRateLimiter` re-derives its
+   inputs from the `Request` using the **same two traits the controllers use in `logLead()`** —
+   `HashesClientData::hashIp()` (over `$request->ip()`) and
+   `ResolvesSubdomainFromHost::resolveSiteSubdomain()`.
+   **Correction, 2026-08-06 final review:** this bullet previously claimed the fallback
+   "mirror[s] the `RateLimiter::for('leads', …)` closure in `AppServiceProvider`", which uses
+   CF-Connecting-IP and `route('subdomain')` — the OPPOSITE of what shipped, and of what the
+   class's own docblock says. The fallback must match `logLead()`, not the healthy-path limiter
+   closure: `logLead()` is what actually wrote the rows this class counts, and using a different
+   IP/subdomain source would read a bucket nobody filled.
 
 The fallback covers `POST /public/customers` for free — it shares `throttle:leads`, and
 `PublicCustomerLeadController::logLead()` writes the same rows on every outcome.
