@@ -2793,6 +2793,7 @@ function setupEnquiriesTable(): void
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         site_id TEXT NULL,
+        customer_id TEXT NULL,
         name TEXT NULL,
         email TEXT NULL,
         phone TEXT NULL,
@@ -2802,6 +2803,8 @@ function setupEnquiriesTable(): void
         user_agent TEXT NULL,
         read_at TEXT NULL,
         email_sent_at TEXT NULL,
+        confirmation_sent_at TEXT NULL,
+        notifications_pending_since TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
