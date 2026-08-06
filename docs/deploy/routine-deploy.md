@@ -286,12 +286,14 @@ standing rule for every deploy — a rule for *this* set, and it stays required 
 **What:** a manual `pg_dump` of the prod database, taken with nothing else in flight, held on hand (not
 deleted when the push goes green) until the pilot has run without incident.
 
-**Why:** 69 migrations are pending against prod, and 20 of them state no usable reverse path — nineteen
+**Why:** 71 migrations are pending against prod, and 20 of them state no usable reverse path — nineteen
 `-- ROLLBACK: NONE` and `20260728100000_retire_pinterest`, whose note reads
 "ONE-WAY IN PRACTICE, two different ways." Two are unrecoverable *in kind*, not merely inconvenient:
 
 > **Re-derive these two numbers before every deploy — they only ever grow.** Verified 2026-08-06; they
-> were 53 and 13 on 2026-07-30, so the pending set grew by 16 migrations in one week.
+> were 53 and 13 on 2026-07-30, so the pending set grew by 18 migrations in one week. It moved by two
+> *within the hour* this figure was last written, when a branch merged — treat any number here as
+> stale on sight and re-run the commands.
 > ```bash
 > comm -23 <(git ls-tree -r --name-only origin/development -- supabase/migrations/ | grep '\.sql$' | sort) \
 >          <(git ls-tree -r --name-only origin/production  -- supabase/migrations/ | grep '\.sql$' | sort) \
