@@ -154,11 +154,30 @@ matching a never-existed host.
 **Generalisation worth acting on separately:** hard-deleting a user orphans their alias KV entries,
 because retirement is TTL-driven off DB rows that no longer exist. Not specific to this account.
 
-**Still unexplained, and NOT caused by the deletion:** `admin.partna.au` returns **522 on every path,
-including cache-busted**, while a never-existed host 404s and `api.partna.au` (also reserved) 404s. Its
-KV key is confirmed deleted (`CloudflareKvService::delete()` calls `->throw()`, and the call succeeded)
-and DNS resolves to the same Cloudflare IPs as every other host. So this is a Cloudflare-side artifact
-for that hostname, independent of KV and of the account. Needs a look in the Cloudflare dashboard.
+#### `admin.partna.au` returns 522 — EXPECTED, by design, unrelated to any of this
+
+Recorded because it looks alarming and cost a detour. `cloudflare-worker/src/index.js:879-881`:
+
+```js
+// Multi-level subdomains and reserved labels pass through.
+if (subdomain === "" || subdomain.includes(".") || RESERVED.has(subdomain)) {
+    return passThrough(request);
+}
+```
+
+`admin` is in the Worker's `RESERVED` set (`:72`, mirroring `config/partna.php`), so the request is
+`fetch()`ed straight to origin **before any KV lookup**. No origin exists for `admin.partna.au`, so the
+TCP connect fails and Cloudflare renders 522. Every observation fits: `api` is also reserved but has a
+real Laravel origin (404), `www` has one (200), and a never-existed host is *not* reserved so it takes
+the KV → Astro path (404).
+
+**Corollary worth keeping:** a reserved label can never route to a user's site — the Worker
+short-circuits it ahead of KV. So handle `admin` was unroutable regardless of the subdomain, which is
+exactly why `ConvergeSiteSubdomainsCommand` refuses to converge onto a reserved name.
+
+⚠️ Diagnostic note: `dig` cannot distinguish these cases. Every **proxied** Cloudflare record resolves
+to the same anycast IPs, so identical `dig` output says nothing about which origin (or Worker branch)
+serves the host. Read the Worker source, not DNS.
 
 **KV, as predicted:** zero writes to any `<handle>` key — every non-alias row reported
 `KV: none — the main entry is keyed on the handle, which is not changing`. Only 5 users took alias
