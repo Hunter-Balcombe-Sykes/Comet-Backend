@@ -23,16 +23,18 @@ final class ProfileDesignPresets
 {
     /**
      * design_kits columns a profile preset may set — VALUE/SELECTION vars
-     * only, never inferred vars (they derive at render time). theme_mode
-     * IS presettable (owner override 2026-07-22 — the palette is the site's
-     * colour identity and industries have a clear room-tone); the user's own
-     * manual pick still wins per the universal manual-over-preset rule.
+     * only, never inferred vars (they derive at render time). The user's own
+     * manual pick always wins, per the universal manual-over-preset rule.
      * theme_night_shift_auto is the ONE remaining user-only field (a
      * functional day/night toggle, not an aesthetic choice) — never preset.
      *
-     * Narrowed 2026-08-06: theme_mode, theme_contrast, typography_tracking,
-     * typography_uppercase, motion_pace and border_style left the schema with
-     * the design-kit simplification, so there is nothing to target.
+     * Narrowed 2026-08-06 by the design-kit simplification. theme_contrast,
+     * typography_tracking, typography_uppercase, motion_pace and border_style
+     * left the schema entirely. theme_mode KEPT its column but lost its
+     * roster — 'bleach' is the only legal value, so presetting it could only
+     * ever write the default, and it drops off this list too. (It had been
+     * presettable since an owner override on 2026-07-22, back when industries
+     * could be given a room-tone.)
      *
      * @var list<string>
      */
