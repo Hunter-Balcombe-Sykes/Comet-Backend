@@ -66,7 +66,7 @@ it('falls back to defaults when display_name/handle are missing', function () {
 
     expect($brand->proName)->toBe('the team')
         ->and($brand->siteUrl)->toBe("https://{$domain}")
-        ->and($brand->palette->accent)->toBe('#3a6efc');
+        ->and($brand->palette->accent)->toBe('#1367fb');
 });
 
 it('uses a ready design-pool logo url when present', function () {

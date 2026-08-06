@@ -61,16 +61,13 @@ trait DesignKitValidationRules
             'design_kit.color_contrasting_text' => $hex,
 
             // Typography — fontFamily is a slug resolved by
-            // @partnaau/design-system/design-assets. tracking is the
-            // letter-spacing register selection (2026-07-15 axis); weight is
-            // the overall weight register selection (2026-07-17 axis — the
-            // renderer shifts the whole weight system one rung).
+            // @partnaau/design-system/design-assets, from the four-font roster
+            // (nb-architekt, helvetica-neue, monument-grotesk, forma-djr). The
+            // tracking, weight-register and uppercase axes were removed
+            // 2026-08-06 with the design-kit simplification.
             'design_kit.typography_font_family' => ['sometimes', 'nullable', 'string', 'max:64'],
             'design_kit.typography_line_height' => $len,
             'design_kit.typography_logo_height' => $len,
-            'design_kit.typography_uppercase' => ['sometimes', 'nullable', 'boolean'],
-            'design_kit.typography_tracking' => ['sometimes', 'nullable', 'string', 'in:tight,normal,wide'],
-            'design_kit.typography_weight' => ['sometimes', 'nullable', 'string', 'in:light,regular,bold'],
 
             // Text scale — semantic slots (2026-07-10): body is the value
             // base; the rest are inferred but keep nullable columns for
@@ -125,7 +122,6 @@ trait DesignKitValidationRules
             // Motion — pace is the selection; durations/curve are inferred
             // from pace but keep columns for promotion. (Entrance removed
             // entirely in the 2026-07-10 rework.)
-            'design_kit.motion_pace' => ['sometimes', 'nullable', 'string', 'in:slow,normal,fast'],
             'design_kit.motion_fade_duration' => $len,
             'design_kit.motion_expand_duration' => $len,
             'design_kit.motion_spin_duration' => $len,
@@ -139,16 +135,15 @@ trait DesignKitValidationRules
 
             // Layout + border character axes.
             'design_kit.layout_density' => ['sometimes', 'nullable', 'string', 'regex:/^(0\.(8[5-9]|9\d)|1(\.([01]\d|2[0-5]))?)$/'],
-            'design_kit.border_style' => ['sometimes', 'nullable', 'string', 'in:solid,double,none'],
 
-            // Theme — mode is the user-picked palette that owns bg/text/border
-            // anchors. Night Shift Auto switches day/night palette variants by
-            // visitor clock; user-only, default true code-side.
-            'design_kit.theme_mode' => ['sometimes', 'nullable', 'string', 'in:bleach,dust,warm,dusk,midnight'],
+            // Theme — mode owns the bg/text/border anchors. One palette
+            // survives the 2026-08-06 simplification, so the column stays (the
+            // anchors still key off it server-side, and a second palette would
+            // want it back) but 'bleach' is its only legal value. Night Shift
+            // Auto switches day/night variants by visitor clock; user-only,
+            // default true code-side.
+            'design_kit.theme_mode' => ['sometimes', 'nullable', 'string', 'in:bleach'],
             'design_kit.theme_night_shift_auto' => ['sometimes', 'nullable', 'boolean'],
-            // Contrast register (2026-07-15 axis) — the dispatcher transforms
-            // the mode's palette variants server-side.
-            'design_kit.theme_contrast' => ['sometimes', 'nullable', 'string', 'in:soft,normal,stark'],
         ];
     }
 }

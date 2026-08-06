@@ -9,7 +9,7 @@ it('returns the static defaults when the kit is empty', function () {
     // bg/text are the bleach (default theme-mode) palette anchors since the
     // 2026-07-10 rework — color_bg/color_text no longer feed the email palette.
     expect($p)->toBeInstanceOf(EmailPalette::class)
-        ->and($p->accent)->toBe('#3a6efc')
+        ->and($p->accent)->toBe('#1367fb')
         ->and($p->accentContrast)->toBe('#ffffff')
         ->and($p->bg)->toBe('#ffffff')
         ->and($p->text)->toBe('#181818')
@@ -31,24 +31,24 @@ it('derives button tokens from accent/accent-contrast when the kit leaves them n
 it('prefers stored values over defaults and over derivation', function () {
     $p = EmailBrandDefaults::palette([
         'color_accent' => '#aa0000',
-        'theme_mode' => 'midnight',   // bg comes from the mode's palette anchors
         'button_primary_bg' => '#00ff00',
         'button_primary_text' => '#0000ff',
         'border_radius' => '2px',
     ]);
 
     expect($p->accent)->toBe('#aa0000')
-        ->and($p->bg)->toBe('#181818')           // midnight default-variant anchor
         ->and($p->buttonBg)->toBe('#00ff00')     // stored wins over derived accent
         ->and($p->buttonText)->toBe('#0000ff')
         ->and($p->borderRadius)->toBe('2px');
 });
 
 it('takes bg and text from the theme-mode palette anchors', function () {
-    $p = EmailBrandDefaults::palette(['theme_mode' => 'dusk']);
+    // One mode survives the 2026-08-06 simplification, so this asserts the
+    // lookup still runs rather than that it can pick between palettes.
+    $p = EmailBrandDefaults::palette(['theme_mode' => 'bleach']);
 
-    expect($p->bg)->toBe('#262626')
-        ->and($p->text)->toBe('#f2f2f2');
+    expect($p->bg)->toBe('#ffffff')
+        ->and($p->text)->toBe('#181818');
 });
 
 it('falls back to bleach anchors for an unknown theme_mode', function () {
@@ -60,5 +60,5 @@ it('falls back to bleach anchors for an unknown theme_mode', function () {
 
 it('ignores empty-string stored values and falls back', function () {
     $p = EmailBrandDefaults::palette(['color_accent' => '']);
-    expect($p->accent)->toBe('#3a6efc');
+    expect($p->accent)->toBe('#1367fb');
 });

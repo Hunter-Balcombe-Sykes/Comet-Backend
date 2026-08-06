@@ -169,53 +169,13 @@ it('sites_shop_link_mode_check matches Site::SHOP_LINK_MODES and the hardcoded e
     lockstepAssertSameSet(Site::SHOP_LINK_MODES, $expected, 'Site::SHOP_LINK_MODES (app vs hardcoded)');
 });
 
-// ─── site.design_kits.typography_tracking / theme_contrast (DINT-101) ───────
-
-it('design_kits_typography_tracking_check matches DesignKitValidationRules and the hardcoded expected set', function () {
-    $expected = ['tight', 'normal', 'wide'];
-
-    $sql = lockstepMigrationSql('20260720100100_design_kits_aesthetic_axis_checks.sql');
-    $migrationList = lockstepExtractInList($sql, 'typography_tracking');
-
-    $rules = (new class
-    {
-        use DesignKitValidationRules;
-
-        /** @return array<string, list<string>> */
-        public function rules(): array
-        {
-            return $this->designKitRules();
-        }
-    })->rules();
-
-    $appList = lockstepExtractInRule($rules['design_kit.typography_tracking']);
-
-    lockstepAssertSameSet($migrationList, $expected, 'design_kits_typography_tracking_check (migration vs hardcoded)');
-    lockstepAssertSameSet($appList, $expected, 'DesignKitValidationRules typography_tracking (app vs hardcoded)');
-});
-
-it('design_kits_theme_contrast_check matches DesignKitValidationRules and the hardcoded expected set', function () {
-    $expected = ['soft', 'normal', 'stark'];
-
-    $sql = lockstepMigrationSql('20260720100100_design_kits_aesthetic_axis_checks.sql');
-    $migrationList = lockstepExtractInList($sql, 'theme_contrast');
-
-    $rules = (new class
-    {
-        use DesignKitValidationRules;
-
-        /** @return array<string, list<string>> */
-        public function rules(): array
-        {
-            return $this->designKitRules();
-        }
-    })->rules();
-
-    $appList = lockstepExtractInRule($rules['design_kit.theme_contrast']);
-
-    lockstepAssertSameSet($migrationList, $expected, 'design_kits_theme_contrast_check (migration vs hardcoded)');
-    lockstepAssertSameSet($appList, $expected, 'DesignKitValidationRules theme_contrast (app vs hardcoded)');
-});
+// ─── site.design_kits (DINT-101) ────────────────────────────────────────────
+//
+// The typography_tracking and theme_contrast lockstep pairs were removed on
+// 2026-08-06: both columns and both CHECK constraints left the schema with the
+// design-kit simplification (20260806090001), so there is no vocabulary left
+// to keep in step. theme_mode's single legal value lives in the request rule
+// alone — it never had a CHECK constraint to pair with.
 
 // ─── site.shop_brands.selection_mode / link_mode (SCHEMA-4) ─────────────────
 

@@ -206,14 +206,12 @@ it('sites_shop_link_mode_check constraint exists and is validated', function () 
 });
 
 // ─── site.design_kits (DINT-101) ─────────────────────────────────────────────
-
-it('design_kits_typography_tracking_check constraint exists and is validated', function () {
-    assertCheckConstraintExists('site', 'design_kits', 'design_kits_typography_tracking_check');
-});
-
-it('design_kits_theme_contrast_check constraint exists and is validated', function () {
-    assertCheckConstraintExists('site', 'design_kits', 'design_kits_theme_contrast_check');
-});
+//
+// Both design_kits CHECK constraints were dropped on 2026-08-06 with their
+// columns (typography_tracking and theme_contrast left the schema in the
+// design-kit simplification — see 20260806090001). No design_kits column
+// carries a CHECK today; theme_mode's single legal value is enforced by the
+// request rule, not the database.
 
 // ─── site.shop_brands (SCHEMA-4) ──────────────────────────────────────────────
 
