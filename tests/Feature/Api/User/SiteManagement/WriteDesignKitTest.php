@@ -366,7 +366,9 @@ it('rejects the retired 2-value theme_mode over HTTP with a 422', function () {
     DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $pro->site->id]);
 
     // 'dark' was valid pre-rework; the migration remapped stored rows to
-    // 'midnight' and the trait now only accepts the 5 palette modes.
+    // 'midnight'. The trait accepted 5 palette modes after that, then
+    // narrowed to 'bleach' alone with the 2026-08-06 design-kit
+    // simplification — 'dark' still fails, now for the stricter reason.
     actingAsUser($pro)
         ->patchJson('/api/site', [
             'design_kit' => ['theme_mode' => 'dark'],
