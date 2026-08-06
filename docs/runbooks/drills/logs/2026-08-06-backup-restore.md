@@ -148,6 +148,91 @@ finding that only doing it by hand could have surfaced.
    A DB backup does not include object storage. Runbook Phase 1 asks exactly this question and the
    answer is "it would not survive". **Filed** — the setup is dashboard-only work.
 
+   **Addendum, post-drill 2026-08-06.** The last open question blocking that setup — which account
+   owns the prod bucket — is now answered, and the answer changed the plan. Both envs resolve
+   `AWS_BUCKET=fls-a1334790-…` at endpoint `…367be3a2035528943240074d0096e0cd.r2.cloudflarestorage.com`,
+   which is **Laravel Cloud's** Cloudflare account, not ours (`e1a594b2…`). So the mirror needs
+   **two rclone remotes**, and the source credential comes from Laravel Cloud's key API
+   (`cloud bucket-key:create … --permission read_only`) rather than a Cloudflare API token — the
+   secret is shown once, at creation, and never again. `media-backup-setup.md` has been rewritten
+   accordingly (Step 1, the workflow, and Open decision 1).
+
+   **Second addendum, same day — partially closed.** `weekly-media-backup.yml` is now committed
+   (`567d1082`, workflow id `328413731`) and `partna-media-backup` exists. Outstanding: the 30-day
+   `deleted/` lifecycle rule, six GitHub secrets, and the prod bucket attach (finding 5). Scoped to
+   the **prod bucket only** by decision, which makes the attach load-bearing — the workflow carries a
+   `MIN_OBJECTS` floor (0 today, **raise to 1 at first pilot upload**) so an unattached prod fails the
+   run rather than reporting a green mirror of an empty bucket.
+
+   **Third addendum — substantially closed.** Bucket, lifecycle rule, both credentials and all six
+   secrets are in place, and run `31086678346` completed green with every step executing, including
+   the fail-closed verify. Both credentials authenticate and both buckets are reachable.
+   **Deliberately NOT marked resolved.** Prod holds 0 media, so `rclone sync` copied nothing and
+   `rclone check --one-way` was *vacuously* true — the destination token's **write** permission is
+   still untested, and a read-only token would have produced an identical green. The remaining step
+   is a real object round-trip (upload probe → run → confirm in `current/` → delete → run → confirm
+   in `deleted/<date>/`), which also exercises the tombstone path the GDPR position depends on.
+   Calling this closed on a vacuous green would repeat F6 exactly.
+
+   **Deferred to prod go-live by decision (Josh, 2026-08-06)** rather than closed with a synthetic
+   probe. Defensible: the deferred failure is loud — a destination token without write permission
+   makes `rclone sync` error on the first real object — and the one silent mode, mirroring nothing
+   while green, is already guarded by `MIN_OBJECTS`. Tracked as a single trigger in
+   `media-backup-setup.md` ("DO THESE TOGETHER, at the first real media in prod"): raise
+   `MIN_OBJECTS` 0→1 *and* verify a real object round-trips. **This finding stays open until both
+   are done** — the workflow is connected but unexercised, which is not the same as a working
+   backup.
+
+5. **🔴 P2 (new, post-drill 2026-08-06) — prod and dev share ONE media bucket, so the media-loss
+   blast radius is a single control-plane action.** `AWS_BUCKET` and `AWS_ENDPOINT` are byte-identical
+   across both Laravel Cloud envs: one managed storage resource attached twice. The cutover explicitly
+   required otherwise — `prod-cutover-change-checklist.md` §C "Media / storage (R2)" asks for "a
+   **separate prod R2 bucket + its own keys**" and is still `[ ]`, so this is an unclosed cutover step,
+   not a design choice. Same class of fault as the shared KV namespace two sections above it.
+   **Failure scenario:** every dev-side destructive path deletes objects out of the bucket prod serves
+   — the 30-day soft-delete purge (`config/partna.php:1026`, `routes/console.php:53`), synchronous
+   erasure (`AccountDeletionService.php:733-738`), `media:gc-orphaned-video-artifacts` — and detaching
+   or deleting that one resource takes prod and dev media together. Exposure is zero today
+   (`core.users = 0` in prod) and becomes real at the first pilot upload. **Blocks finding 2**: there
+   is no point mirroring a bucket that is about to be replaced.
+
+   **🟢 CLOSED same day.** A prod bucket already existed unattached (`partna_production` /
+   `fls-a1bab29a-…`, created 2026-05-08) and prod held no media, so the split needed no object
+   migration. Flipped it to public (it was created `private` with `url: null`, which would have
+   broken every sitepage image), then attached it in the dashboard. Verified from the control plane —
+   no deploy required: prod now reads `AWS_BUCKET=fls-a1bab29a-…` with `AWS_ACCESS_KEY_ID` matching
+   `partna_production / default_access_key`, dev unchanged, and **the two environments no longer
+   share a bucket or a credential**. `prod-cutover-change-checklist.md` §C steps 1–3 ticked.
+
+6. **🟡 P3 (new, post-drill 2026-08-06) — two unidentified credentials on the dev media bucket.**
+   Surfaced while verifying the split. Dev's injected `AWS_ACCESS_KEY_ID` matches *neither* key that
+   `bucket-key:list` reports on `partna_development`, and the bucket also carries an unaccounted
+   second `read_write` key named `newacesskey` (created 2026-06-24). Dev media serves fine, so the
+   credential is valid but unenumerated — most likely a stale value predating a key rotation.
+   Before the split, prod carried the *same* unidentified value; the attach fixed prod's side only.
+   **Failure scenario:** credentials with unknown scope and unknown ownership hold read-write access
+   to the bucket that currently holds every byte of Partna media, and neither can be rotated or
+   revoked with confidence because nobody knows what would break. Low urgency — dev data is
+   disposable — but it is the kind of thing that is cheap to resolve now and expensive to untangle
+   later.
+
+   **Usage search, 2026-08-06 — no consumer found for `newacesskey`.** Searched by access-key id
+   across: the backend repo (no hit), the local `.env` (`AWS_ACCESS_KEY_ID` is *empty* — local dev
+   does not use R2 at all), the `partna-frontend` and `partna-frontend-main` checkouts (no hit, and
+   neither references `AWS_ACCESS_KEY_ID` / `R2_ACCESS` / `S3_ACCESS` anywhere), and the dev Laravel
+   Cloud env (its injected key matches *neither* bucket key, so it is not this one either). Laravel
+   Cloud exposes no per-key usage telemetry and the bucket lives in their Cloudflare account, so
+   last-used cannot be checked — absence of a found consumer is not proof of absence.
+
+   **Fix path — two halves, both need Josh:**
+   - *Dev on an unenumerated credential:* re-attach `partna_development` to the dev env in the
+     dashboard, exactly as was done for prod. That re-injects the bucket's own `default_access_key`.
+     Dev is running, so the app keeps using the old baked config until the next deploy — safe to do
+     at any time, verify afterwards with the same control-plane check used for prod.
+   - *`newacesskey`:* delete once the above lands and dev is verified on `default_access_key`.
+     Deletion is irreversible — an R2 secret cannot be regenerated — so it should follow the
+     re-attach, not precede it.
+
 3. **🟡 P2 (carried, still open) — worst-case RPO ≈ 7 days is an unrecorded policy decision.**
    Unchanged from 2026-08-05. Prod still holds no customer data, so exposure is currently zero, but
    the pilot changes that. A daily cron costs roughly the same as the weekly one. Josh's call.
@@ -162,6 +247,10 @@ finding that only doing it by hand could have surfaced.
    connection form still needs a real scratch project to rehearse.
 2. **`04-backup-restore.md` Phase 1** — the media question now has a definite answer: not
    implemented, no workflow committed. State it rather than re-asking each quarter.
+3. **`04-backup-restore.md` Phase 1** — add a second media question the drill does not currently ask:
+   *which* bucket, in *whose* account, and is it shared with dev? Asking only "is media backed up?"
+   would never have surfaced finding 5. Both facts are one `environment:get` away and both change the
+   recovery story.
 
 ## Next run due
 
