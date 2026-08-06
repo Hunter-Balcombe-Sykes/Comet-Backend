@@ -46,6 +46,7 @@ class Enquiry extends BaseModel
         'archived_at',
         'spam_at',
         'redacted_at',
+        'notifications_pending_since',
     ];
 
     // Submitter PII + request telemetry hidden from default model serialization.
@@ -72,6 +73,7 @@ class Enquiry extends BaseModel
         'archived_at' => 'datetime',
         'spam_at' => 'datetime',
         'redacted_at' => 'datetime',
+        'notifications_pending_since' => 'datetime',
     ];
 
     public function user(): BelongsTo
