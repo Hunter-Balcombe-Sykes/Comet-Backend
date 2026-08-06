@@ -260,17 +260,34 @@ under foreground instrumentation. Also: **`queue:work` prints nothing until a jo
 an empty worker log is not evidence that nothing ran — it is the *normal* state of a worker that
 is waiting. Prefer:
 
+🔴🔴 **DERIVE the key — do NOT paste a literal one. The prefix is `partna_database_`, not
+`laravel_database_`, and getting it wrong produces this runbook's most serious FAIL signal against
+a perfectly healthy system.** The 2026-08-06 re-run sampled Scenario A with a hardcoded
+`laravel_database_queues:cloudflare` and read `ready=0, reserved=0` — "the job vanished from both
+the queue and the reserved set". The correct key showed `ready=6, reserved=0`: six jobs properly
+held for the next worker, a clean Pass A. A one-word prefix mismatch inverts a PASS into a P1, and
+`redis-cli` reports a missing key as `0` rather than erroring, so nothing warns you.
+
 ```bash
+# Derive it — step 2 above already told you to; do not then paste a literal.
+QKEY=$(redis-cli -n 0 --scan --pattern '*queues:cloudflare' | head -1)
+echo "$QKEY"    # expect partna_database_queues:cloudflare
 redis-cli -n 0 eval "return {redis.call('llen', KEYS[1]), redis.call('zcard', KEYS[2])}" 2 \
-  laravel_database_queues:cloudflare laravel_database_queues:cloudflare:reserved
+  "$QKEY" "${QKEY}:reserved"
 # and run the recovery worker in the foreground with a bounded lifetime:
 php artisan queue:work redis --queue=cloudflare --max-time=110 -v
 ```
 
 Note also that `ShouldBeUniqueUntilProcessing`'s lock lives on the **`cache_locks` connection,
-Redis DB 4** (`laravel_database_laravel-cache-laravel_unique_job:<Job>:<id>`) — not DB 0 and not
-the cache DB. Scanning the wrong DB makes the lock look absent and the silent-drop behaviour
-inexplicable.
+Redis DB 4** — not DB 0 and not the cache DB. Same prefix trap: the real key is
+`partna_database_partna-cache-laravel_unique_job:<Job>:<id>`. Scan for it rather than typing it:
+
+```bash
+redis-cli -n 4 --scan --pattern '*unique_job*'
+```
+
+Scanning the wrong DB — or the wrong prefix — makes the lock look absent and the silent-drop
+behaviour inexplicable.
 
 5. **Observe convergence:**
    - Start the worker FIRST, then watch — see the Preconditions warning above; `:reserved`
