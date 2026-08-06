@@ -218,11 +218,21 @@ time them**. For each, record `http_code` + `time_total`. Then:
    gate, found unguarded in the same review, sitting BEFORE `$enquiry->save()`. Unguarded, it
    turned a dead cache store into a raw 500 with **no lead saved at all**, worse than the
    original finding-3 503. It is now guarded the same way as the gates above (best-effort,
-   logged, never propagated) — see `app/Observers/Core/CustomerObserver.php` — and this single
-   enquiry probe already exercises it, since the upsert runs on every submission regardless of
-   outcome. `POST $BASE/api/public/customers` hits the identical `CustomerObserver` path via
-   its own create/update calls, so a probe against that endpoint during the outage is worth
-   adding here too if you have time, though it is not yet a standard probe in this runbook.
+   logged, never propagated) — see `app/Observers/Core/CustomerObserver.php`.
+
+   🔴 **Corrected 2026-08-06 by the re-run: the enquiry probe does NOT exercise this gate
+   unless you use a FRESH email address.** An earlier version of this line claimed the probe
+   "already exercises it, since the upsert runs on every submission regardless of outcome."
+   That is wrong. `upsertEnquiryCustomer()` is an *upsert*: when the submitter's `Customer`
+   already exists with identical attributes, Eloquent fires no `updated` event, `CustomerObserver`
+   never runs, and the cache call never happens. The re-run's first outage probe reported
+   `customer.count_invalidation_failed = 0` for exactly this reason — the BASELINE probe had
+   already created that customer. **Vary the email per probe** (e.g.
+   `drill-$(date +%s)@example.com`) to force a `Customer` create, then expect one
+   `customer.count_invalidation_failed` breadcrumb per fresh submitter.
+   `POST $BASE/api/public/customers` hits the identical `CustomerObserver` path via its own
+   create/update calls, so a probe against that endpoint during the outage is worth adding here
+   too if you have time, though it is not yet a standard probe in this runbook.
 
    **Enquiry survival (added 2026-08-06).** During the outage, submit one enquiry probe
    and confirm:
@@ -421,13 +431,17 @@ is the more likely explanation.
 - [ ] Beacon fail-open works end-to-end (2xx) OR the blocking layer is identified precisely
 - [ ] Breadcrumb trail exists; escalation behavior matches the trait's documented tiers
 - [ ] Recovery is hands-off (except possibly Horizon restart — note it)
-- [ ] No non-analytics data loss — the 2026-08-06 pre-fix run recorded this **PARTIAL**
-      (enquiries submitted during the outage were lost — clean fail-closed, but lost; see
-      finding 3, `logs/2026-08-06-redis-down.md`). The cause was fixed 2026-08-06: the
-      enquiry write now falls back to Postgres instead of failing closed (see
-      `docs/superpowers/specs/2026-08-06-enquiry-path-redis-resilience-design.md`). The
-      **next drill run is expected to show PASS** via the "Enquiry survival" check above —
-      do not mark this PASS until that run actually happens.
+- [x] No non-analytics data loss — **PASS as of the 2026-08-06 re-run**
+      (`logs/2026-08-06-redis-down-rerun.md`). History: the 2026-08-06 pre-fix run recorded
+      **PARTIAL** (enquiries submitted during the outage were lost — clean fail-closed, but lost;
+      finding 3, `logs/2026-08-06-redis-down.md`). Fixed 2026-08-06 — the enquiry write falls back
+      to a Postgres-backed counter instead of failing closed (see
+      `docs/superpowers/specs/2026-08-06-enquiry-path-redis-resilience-design.md`) — and the
+      re-run against a **real** `brew services stop redis` outage confirmed it end to end:
+      `enquiry 200 · 0.023s`, row persisted with `notifications_pending_since`, all five gates
+      breadcrumbed, `enquiries:reconcile-notifications` drained 4 → 0 with all 8 jobs delivered
+      and zero failed. An over-limit burst still returned **429**, so the gate degrades without
+      opening. Finding 3 is CLOSED.
 
 ## RESTORE
 
