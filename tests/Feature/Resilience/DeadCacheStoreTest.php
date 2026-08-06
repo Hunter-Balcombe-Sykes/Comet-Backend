@@ -228,26 +228,139 @@ it('does not soften SEC-1 origin binding when the cache store is dead', function
 // Fail-closed set — 503, never 500, never unmetered
 // ─────────────────────────────────────────────────────────────────────────────
 
-it('fails a public write form closed as 503 with the cache store dead', function () {
+// ─────────────────────────────────────────────────────────────────────────────
+// Fallback set — `leads` keeps limiting from Postgres, never opens
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Stand-in for the table the degraded counter reads.
+ *
+ * File-local, matching the six existing test files that each declare their own.
+ * Do NOT promote this to tests/Pest.php: NoLocalCanonicalTableDdlTest would
+ * then flag all six of those as local-canonical violations, because Pest.php's
+ * copy runs first in setup order and IF NOT EXISTS makes theirs a silent no-op.
+ */
+function setupDeadStoreLeadSubmissions(): void
+{
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.lead_submissions (
+        id TEXT PRIMARY KEY,
+        occurred_at TEXT NULL,
+        subdomain TEXT NULL,
+        site_id TEXT NULL,
+        user_id TEXT NULL,
+        customer_id TEXT NULL,
+        ip_hash TEXT NULL,
+        user_agent TEXT NULL,
+        referrer TEXT NULL,
+        outcome TEXT NULL,
+        form_started_at_ms INTEGER NULL
+    )');
+    DB::connection('pgsql')->table('analytics.lead_submissions')->delete();
+}
+
+it('admits an under-limit enquiry with the cache store dead', function () {
     tenantHelpersEnsureTables();
+    setupDeadStoreLeadSubmissions();
     createTenant('deadstore-leads');
 
     killTheCacheStore();
 
-    // `leads` is deliberately absent from FAIL_OPEN_LIMITERS: unmetered during
-    // an outage means spam straight into site.customers / enquiry mail. What
-    // this asserts is the SHAPE of the refusal — a 503 the client can retry,
-    // not the leaked RedisException 500 the drill measured.
+    // `leads` is in FALLBACK_LIMITERS, not FAIL_OPEN_LIMITERS. The gate stays
+    // shut against abuse but answers from Postgres instead of Redis, so a real
+    // visitor's enquiry is no longer thrown away. This replaces the pre-2026-08-06
+    // assertion that this endpoint 503s — see drill 03 finding 3.
     $response = $this->withHeader('Origin', 'https://deadstore-leads.'.config('partna.public_domain'))
+        ->postJson('/api/public/enquiry', [
+            'site_id' => (string) Str::uuid(),
+            'name' => 'Real Visitor',
+            'email' => 'visitor@example.test',
+            'message' => 'hello',
+        ]);
+
+    // NOT 503 and NOT 500. The limiter let it through; whatever status the
+    // controller then returns (422 for a missing contact block here) is the
+    // controller's business, not the limiter's.
+    expect($response->status())->not->toBe(503)
+        ->and($response->status())->not->toBe(500);
+});
+
+it('rejects an over-limit enquiry with 429 rather than opening', function () {
+    tenantHelpersEnsureTables();
+    setupDeadStoreLeadSubmissions();
+    createTenant('deadstore-leads-over');
+
+    config(['partna.throttle.leads_degraded_per_minute_ip' => 2]);
+
+    // Two prior submissions from this IP inside the window.
+    foreach (range(1, 2) as $ignored) {
+        DB::connection('pgsql')->table('analytics.lead_submissions')->insert([
+            'id' => (string) Str::uuid(),
+            'occurred_at' => now()->toDateTimeString(),
+            'subdomain' => 'deadstore-leads-over',
+            'ip_hash' => hash_hmac('sha256', '127.0.0.1', config('app.key')),
+            'outcome' => 'created',
+        ]);
+    }
+
+    killTheCacheStore();
+
+    $this->withHeader('Origin', 'https://deadstore-leads-over.'.config('partna.public_domain'))
         ->postJson('/api/public/enquiry', [
             'site_id' => (string) Str::uuid(),
             'name' => 'Spam Bot',
             'email' => 'bot@example.test',
             'message' => 'hello',
+        ])
+        ->assertStatus(429);
+});
+
+it('falls back to 503 when Postgres is dead too', function () {
+    tenantHelpersEnsureTables();
+    createTenant('deadstore-leads-nodb');
+
+    killTheCacheStore();
+
+    // No analytics.lead_submissions table => the counter throws. With both
+    // stores gone there is no lead worth saving and no way to meter, so a
+    // retryable 503 is the honest answer — never an open gate.
+    DB::connection('pgsql')->statement('DROP TABLE IF EXISTS analytics.lead_submissions');
+
+    $response = $this->withHeader('Origin', 'https://deadstore-leads-nodb.'.config('partna.public_domain'))
+        ->postJson('/api/public/enquiry', [
+            'site_id' => (string) Str::uuid(),
+            'name' => 'Visitor',
+            'email' => 'visitor@example.test',
+            'message' => 'hello',
         ]);
 
     $response->assertStatus(503);
     expect($response->headers->get('Retry-After'))->not->toBeNull();
+});
+
+it('reports fallback mode in the throttle breadcrumb', function () {
+    tenantHelpersEnsureTables();
+    setupDeadStoreLeadSubmissions();
+    createTenant('deadstore-leads-crumb');
+
+    killTheCacheStore();
+
+    Log::spy();
+
+    $this->withHeader('Origin', 'https://deadstore-leads-crumb.'.config('partna.public_domain'))
+        ->postJson('/api/public/enquiry', [
+            'site_id' => (string) Str::uuid(),
+            'name' => 'Visitor',
+            'email' => 'visitor@example.test',
+            'message' => 'hello',
+        ]);
+
+    // A degraded limiter that says nothing is worse than a loud 500 — the next
+    // outage would be silent. `mode` must distinguish fallback from open.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context = []) => $message === 'throttle.store_unavailable'
+            && ($context['limiter'] ?? null) === 'leads'
+            && ($context['mode'] ?? null) === 'fallback')
+        ->atLeast()->once();
 });
 
 it('resolves multi-limiter routes strictest-wins', function () {
