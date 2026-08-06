@@ -1,7 +1,8 @@
 # Enquiry path Redis resilience — design
 
 **Date:** 2026-08-06
-**Status:** Implemented 2026-08-06 — see `docs/superpowers/plans/2026-08-06-enquiry-path-redis-resilience.md`.
+**Status:** Implemented 2026-08-06, merged at `759fb7c52` (11 commits). The plan that drove it has been
+deleted per the plans-die-on-ship convention; `git show 759fb7c52` is the record.
 Drill 03's re-run (the plan's real acceptance criterion — see
 `docs/runbooks/drills/03-redis-down.md`) has not happened yet; this line records that the
 code landed, not that a live outage has confirmed it.
