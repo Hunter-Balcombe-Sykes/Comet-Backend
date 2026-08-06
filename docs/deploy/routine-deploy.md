@@ -69,7 +69,7 @@ Work down this list. Any "no" is a stop.
 - [ ] **Does it need a prod migration?** If yes, that is a two-step deploy with a `db push --dry-run` in
       between — give it its own session, not a drive-by at the end of another task. For the **current
       pending set** it also requires a manual `pg_dump` of prod first (see the pre-flight under Rollback);
-      19 of those migrations have no usable reverse path.
+      20 of those migrations have no usable reverse path.
 - [ ] **Is `production` 0 ahead?** The invariant above.
 - [ ] **Is now a sane time?** Prod carries no customer data yet, so blast radius is small — but this will
       stop being true. Once it does, avoid deploying with nobody watching.
@@ -286,16 +286,22 @@ standing rule for every deploy — a rule for *this* set, and it stays required 
 **What:** a manual `pg_dump` of the prod database, taken with nothing else in flight, held on hand (not
 deleted when the push goes green) until the pilot has run without incident.
 
-**Why:** 67 migrations are pending against prod, and 19 of them state no usable reverse path — eighteen
+**Why:** 69 migrations are pending against prod, and 20 of them state no usable reverse path — nineteen
 `-- ROLLBACK: NONE` and `20260728100000_retire_pinterest`, whose note reads
 "ONE-WAY IN PRACTICE, two different ways." Two are unrecoverable *in kind*, not merely inconvenient:
 
-> **Re-derive these two numbers before every deploy — they only ever grow.** Verified 2026-08-03; they
-> were 53 and 13 on 2026-07-30, so the pending set grew by 14 migrations in four days.
+> **Re-derive these two numbers before every deploy — they only ever grow.** Verified 2026-08-06; they
+> were 53 and 13 on 2026-07-30, so the pending set grew by 16 migrations in one week.
 > ```bash
-> git diff --name-only origin/production origin/development -- supabase/migrations/ | grep -c '\.sql$'
-> grep -l 'ROLLBACK: NONE' supabase/migrations/*.sql | wc -l   # + retire_pinterest, worded differently
+> comm -23 <(git ls-tree -r --name-only origin/development -- supabase/migrations/ | grep '\.sql$' | sort) \
+>          <(git ls-tree -r --name-only origin/production  -- supabase/migrations/ | grep '\.sql$' | sort) \
+>   | tee /tmp/pending.txt | wc -l
+> xargs grep -l 'ROLLBACK: NONE' < /tmp/pending.txt | wc -l  # + retire_pinterest, worded differently
 > ```
+> Compare **filenames**, not `git diff`. The baseline is already applied to prod, but its file still
+> differs between the branches (a `ROLLBACK:` comment was added to it after the cutover), so a
+> content diff lists it as pending and its own `ROLLBACK: NONE` inflates the second number — the
+> earlier command over-reported both counts by exactly one.
 
 | Migration | What a bad apply destroys |
 |---|---|
