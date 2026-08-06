@@ -39,6 +39,14 @@ return [
     // anchors and delimiters are mandatory.
     'allowed_origins_patterns' => [
         '#^https://([a-z0-9-]+\.)?partna\.au$#i',
+        //   - Vercel PREVIEW deployments of our own team's dashboard
+        //     (<project>-<hash>-partnateam.vercel.app). Without this, a preview
+        //     build renders but every /me call is browser-blocked and the
+        //     dashboard reports "We couldn't load your account". Scoped to the
+        //     partnateam suffix so arbitrary vercel.app sites cannot match;
+        //     supports_credentials stays false, so an allowed origin only
+        //     gains what any Bearer-holding caller already has.
+        '#^https://[a-z0-9-]+-partnateam\.vercel\.app$#i',
     ],
     // Wildcard request headers remain safe: supports_credentials => false means the
     // browser's wildcard+credentials restriction does not apply. If supports_credentials
