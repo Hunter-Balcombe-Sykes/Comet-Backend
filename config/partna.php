@@ -1128,6 +1128,21 @@ return [
         'analytics_click_per_minute' => (int) env('PARTNA_THROTTLE_ANALYTICS_CLICK_PER_MINUTE', 5),
         'leads_per_minute_ip' => (int) env('PARTNA_THROTTLE_LEADS_PER_MINUTE_IP', 3),
         'leads_per_minute_subdomain' => (int) env('PARTNA_THROTTLE_LEADS_PER_MINUTE_SUBDOMAIN', 100),
+
+        // Degraded-mode lead limits, used ONLY when Redis is unreachable and
+        // LeadSubmissionRateLimiter counts analytics.lead_submissions instead
+        // (see FailOpenThrottleRequests::FALLBACK_LIMITERS). Default to the
+        // primary values so visitor behaviour is identical; the separate env
+        // vars exist so the limit can be clamped mid-incident without touching
+        // the healthy-path numbers.
+        'leads_degraded_per_minute_ip' => (int) env(
+            'PARTNA_THROTTLE_LEADS_DEGRADED_PER_MINUTE_IP',
+            env('PARTNA_THROTTLE_LEADS_PER_MINUTE_IP', 3),
+        ),
+        'leads_degraded_per_minute_subdomain' => (int) env(
+            'PARTNA_THROTTLE_LEADS_DEGRADED_PER_MINUTE_SUBDOMAIN',
+            env('PARTNA_THROTTLE_LEADS_PER_MINUTE_SUBDOMAIN', 100),
+        ),
         'authenticated_per_minute' => (int) env('PARTNA_THROTTLE_AUTHENTICATED_PER_MINUTE', 300),
         'staff_per_minute' => (int) env('PARTNA_THROTTLE_STAFF_PER_MINUTE', 300),
         'webhooks_per_minute' => (int) env('PARTNA_THROTTLE_WEBHOOKS_PER_MINUTE', 200),
