@@ -1,11 +1,24 @@
 <?php
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
+
+uses(SchemaTestCase::class)->in(__FILE__);
 
 /**
- * Runs in the APPLIED-SCHEMA lane (composer test:schema), not composer test.
- * A green Feature suite says nothing about either of these — the SQLite
- * stand-in has no indexes at all.
+ * Runs in the APPLIED-SCHEMA lane (phpunit.schema.xml / `composer
+ * test:schema`, see Tests\SchemaTestCase), against a container the real
+ * supabase/migrations/ set has been applied to by
+ * scripts/db/apply-migrations.sh. A green Feature suite says nothing about
+ * either of these — the SQLite stand-in has no indexes at all.
+ *
+ * Moved here from tests/Postgres/ 2026-08-06 (fix round 1): that directory is
+ * a DIFFERENT lane (phpunit.pg.xml / `composer test:pg`), scanning a database
+ * the migrations have NOT been applied to, whose tests self-provision the
+ * tables they need. This file asserts what two already-applied migrations
+ * produced, so it belongs in the applied-schema lane, not that one. Do not
+ * move it back — see tests/Schema/IndexCoverageTest.php's header for what
+ * happens to a schema-assertion test left running in the wrong lane.
  */
 it('has the partial pending-notifications index on site.enquiries', function () {
     $row = DB::connection('pgsql')->selectOne(
