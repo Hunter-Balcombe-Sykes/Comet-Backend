@@ -377,6 +377,7 @@ This is the **business + operational** counterpart to the audit checklists. It c
     - **When:** Before public launch
     - **Cost:** DIY (~2–3 days)
     - **What:** `composer audit` + `npm audit` blocking on critical CVEs in CI. Critical-path coverage gates (e.g., webhook handlers must have idempotency tests). Codeowners file. Branch protection.
+    - **Progress:** ✅ **Branch protection DONE** — `development` 2026-08-03, `production` 2026-08-05; both require the same 9 status checks (`test`, `schema-tests`, `postgres-tests`, `worker-tests`, `worker-static`, `schema-drift`, `outbound-http-guard`, `supply-chain`, `checkpoint-suppressions`), `production` also `enforce_admins: true`. ✅ **`composer audit` + `npm audit`** ship in the required `supply-chain` job. ⬜ Still open: critical-path coverage gates, CODEOWNERS.
 
 - [ ] **TECH-S3-5 · P1** — Operational runbooks tightened
     - **When:** Before public launch
