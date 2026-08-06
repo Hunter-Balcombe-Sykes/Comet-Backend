@@ -34,9 +34,12 @@ runbooks, not CI scripts.
 ## Where drills run — non-negotiable
 
 - **01–03 run on the LOCAL stack only** (Herd + local Horizon + local Redis). Never against
-  the deployed `development` env: it serves BOTH `dev-api.partna.au` and `api.partna.au`
-  (it *is* production right now), and it can't even express these drills — it runs
+  the deployed `development` env: it cannot express these drills — it runs
   `QUEUE_CONNECTION=sync` with zero Horizon masters and managed Redis you can't stop.
+  (Until the 2026-07-26 cutover this rule was also justified by "deployed development serves
+  BOTH `dev-api.partna.au` and `api.partna.au` — it *is* production right now". That premise
+  is dead: prod is `edplucmvkcnokyygxqsb` and dev is a genuinely separate env. **The rule is
+  unchanged** — the reason is now solely the sync-queue / managed-Redis one above.)
 - **04 never restores INTO a live project.** It restores the dev Supabase's backup into a
   throwaway scratch project, verifies it, and deletes the scratch project.
 - **Drill data uses dedicated drill users** (handle prefix `drill-`), created at the start

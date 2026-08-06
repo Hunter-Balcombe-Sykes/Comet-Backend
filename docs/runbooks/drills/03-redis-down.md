@@ -56,9 +56,22 @@ manual repair?
       under test — with it off, every probe passes and the drill proves nothing. Verify:
       `php artisan tinker --execute='var_dump(config("partna.throttle.enabled"));'`
 - [ ] A drill user with an active site (reuse the pattern from drill 01) — note its
-      `handle` and `site_id`.
-- [ ] Horizon running (`php artisan horizon`) — part of the drill is watching it die and
-      come back.
+      `handle` and `site_id`. For the enquiry probe the site also needs an **active `contact`
+      block** in the `sections` group, or every enquiry returns 422 "This site is not accepting
+      enquiries" (`PublicEnquiryController` step 3). A freshly provisioned site has zero blocks.
+- [ ] 🔴 **Horizon running — and check the RIGHT process.** `ps aux | grep -c '[h]orizon:work'`
+      is **wrong** and will read a perfectly healthy Horizon as dead. Horizon's long-lived
+      processes are the master (`artisan horizon`) and its `horizon:supervisor` children;
+      `horizon:work` are short-lived worker grandchildren that **exit during a Redis outage and
+      respawn on recovery**. Checking `horizon:work` mid-outage returns 0 and looks exactly like
+      a master crash — the 2026-08-06 run nearly filed that as a P1. Use:
+
+      ```bash
+      ps -eo command | grep -c '[a]rtisan horizon$'      # master, expect 1
+      ps -eo command | grep -c '[h]orizon:supervisor'    # supervisors, expect 5 locally
+      ```
+
+      Part of the drill is watching the workers die and come back — that is expected, not a finding.
 - [ ] `BASE=<local site URL>` (from `herd links`), e.g. `export BASE=https://backend.test`.
 
 ## BASELINE — record before injecting
@@ -94,16 +107,47 @@ curl -s -o /dev/null -w "health   %{http_code}  %{time_total}s\n" "$BASE/api/hea
 #    dispatch-heavy (notification jobs to Redis), and the one probe that measured closest to
 #    its `read_timeout` in the 2026-08-05 run, so it's the cleanest signal for "did the
 #    timeout actually take effect on this path".
+#    ⚠️ Three ways this silently returns 422 instead of 2xx, measuring nothing:
+#      - `form_started_at_ms` is REQUIRED (bot-protection timing rule, WithBotProtection).
+#      - `subject` must be one of config('partna.contact_subject_defaults') — read it, don't
+#        invent one. "Drill" is rejected with "Invalid subject."
+#      - the site needs an active `contact` block in the `sections` group (see Preconditions).
+#    Also: `throttle:leads` allows 3/min per IP, so this probe cannot be fired freely.
+STARTED=$(( $(date +%s) * 1000 - 8000 ))
 curl -s -o /dev/null -w "enquiry  %{http_code}  %{time_total}s\n" \
   -X POST "$BASE/api/public/enquiry" \
   -H 'Content-Type: application/json' \
   -H "Origin: http://<handle>.partna-drill.test" \
-  -d '{"name": "Drill", "email": "drill@example.com", "subject": "Drill", "message": "drill drill drill"}'
+  -d "{\"name\": \"Drill\", \"email\": \"drill@example.com\", \"subject\": \"General enquiry\", \"message\": \"drill drill drill\", \"form_started_at_ms\": $STARTED}"
+
+# 6. STRICT revocation route — since 2026-08-05 this is the probe the drill most exists for.
+#    `revocation.strict` sits on 111 routes and fails CLOSED during an outage (503 +
+#    Retry-After: 5) BY DESIGN. Do not record that as a regression.
+#    ⚠️ Use `logout-others`, NOT `/api/me/data-export`: data-export is POST (a GET returns 405)
+#    and carries an inline `throttle:1,1440` — one call per day — so it cannot be re-probed
+#    per phase, and its inline limiter also ignores PARTNA_THROTTLE_ENABLED.
+curl -s -o /dev/null -w "strict   %{http_code}  %{time_total}s\n" \
+  -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$BASE/api/sessions/logout-others"
 ```
 
-All should be 2xx with sub-second times. Record them. `health` and `enquiry` are part of the
-standard probe set alongside `profile`/`pageview`/`authed` — carry all five through OBSERVE and
-Scenario C, not just the original three.
+All should be 2xx with sub-second times. Record them. `health`, `enquiry` and the strict route are
+part of the standard probe set alongside `profile`/`pageview`/`authed` — carry all six through
+OBSERVE and Scenario C, not just the original three.
+
+🔴 **A 503 cannot tell you which layer answered.** `RevocationUnverifiableException` (the gate) and
+`RateLimiterUnavailableException` (the limiter) are byte-identical on the wire — both 503, both
+*"Service temporarily unavailable. Please try again shortly."*, both `Retry-After: 5`. The only
+honest attribution is to truncate `storage/logs/laravel.log`, fire **one** probe, and grep:
+
+| Log line | Layer that answered |
+|---|---|
+| `auth.revocation_unverified_on_strict_route` | the revocation gate |
+| `RateLimiterUnavailableException` | the rate limiter |
+
+Since 2026-08-05 the gate is pinned ahead of `ThrottleRequests`, so a strict route during an outage
+must be answered by the **gate**. If the limiter answers instead, the priority pin has regressed —
+that is a real finding.
 
 ## INJECT
 
@@ -214,12 +258,45 @@ unsetting it in the child process — so `REDIS_READ_TIMEOUT=0 php artisan serve
 the *unmodified* config. Put overrides in `.env` and confirm with
 `php artisan tinker --execute='var_dump(config("database.redis.cache.read_timeout"));'` first.
 
-🔴 **Fire all five probes in PARALLEL, not in sequence.** Sequential probes consume the hang
-window themselves — five curls run one after another against a 30–40s hang means the later
+🔴 **Fire all the probes in PARALLEL, not in sequence.** Sequential probes consume the hang
+window themselves — curls run one after another against a 30–40s hang means the later
 ones execute after Redis has already recovered, and silently measure a healthy Redis instead
 (a fourth variant of the same trap this section already warns about for the witness). This is
 not hypothetical: the 2026-08-05 run's first sequential attempt produced `authed 200 · 0.05s`,
-which was meaningless. Background every probe, plus the witness, then `wait`:
+which was meaningless.
+
+🔴🔴 **…and backgrounding the curls is NOT sufficient — `php artisan serve` serialises them
+anyway, and the result looks exactly like the bug this scenario hunts for.** Laravel's
+`ServeCommand` reads `PHP_CLI_SERVER_WORKERS` with a default of **1**, and *silently refuses to
+honour any higher value unless `--no-reload` is also passed* — it only warns, into the serve log,
+which nobody reads mid-drill. With one worker the probes queue behind each other and each adds one
+`read_timeout` to the next, producing:
+
+```
+health   0.03s | profile 3.09s | authed 6.14s | pageview 9.17s | strict 12.22s | enquiry 15.26s
+```
+
+That is the textbook signature of N × `read_timeout` stacking — *the* headline finding of this
+drill — against a system that was in fact bounding every request at exactly one `read_timeout`.
+The 2026-08-06 run produced precisely this table and would have filed a false P0 had the solo
+control not been run. **The tell is evenly-spaced increments** (3.06 / 3.04 / 3.04 / 3.05 s here):
+real independent bounds cluster, serialisation forms a metronome.
+
+Start the server for Scenario C as:
+
+```bash
+# in .env
+PHP_CLI_SERVER_WORKERS=8
+# then
+php artisan serve --host=127.0.0.1 --port=8000 --no-reload
+grep -c WARN storage/logs/serve-drill.log     # MUST be 0 — a WARN means still single-worker
+pgrep -f 'php.*-S 127.0.0.1:8000' | wc -l     # MUST be > 1 (expect workers + 1)
+```
+
+With real concurrency the same round returns `health 0.028s` and every other probe at
+**3.05–3.10s** — one `read_timeout` each, matching the solo control to within ~40ms.
+
+Background every probe, plus the witness, then `wait`:
 
 ```bash
 (redis-cli -t 60 DEBUG SLEEP 40 &) ; sleep 0.3
@@ -241,7 +318,10 @@ wait
 ```
 
 Also re-measure each probe **alone**, one per hang, to rule out contention as an explanation
-before trusting the parallel numbers.
+before trusting the parallel numbers. Treat the solo round as the **authoritative** control: it is
+immune to both the serialisation trap above and to genuine contention, and if the parallel and solo
+numbers disagree it is the parallel round that is wrong. (2026-08-06: solo and truly-parallel agreed
+to within ~40ms; single-worker "parallel" was off by up to 12s.)
 
 **Expected as of 2026-08-05 (post per-request breaker) — every request-path probe lands at ~one
 `read_timeout`:**

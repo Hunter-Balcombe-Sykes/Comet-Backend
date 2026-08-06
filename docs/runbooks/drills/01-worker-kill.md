@@ -49,6 +49,24 @@ Two scenarios, because "worker dies" happens two ways with different semantics:
   - **Unconfigured (queue-semantics-only):** `CloudflareKvService` no-ops without
     credentials (`guardUnconfigured`) — the drill still proves SIGTERM/SIGKILL/retry
     semantics, but KV checks below become no-ops. Note the mode in the log.
+
+    🔴 **This mode requires `APP_ENV` to be `local`/`dev`/`test`. Under `staging` or
+    `production` the guard THROWS, by design** — "Refusing to silently no-op put in staging"
+    (`CloudflareKvService::guardUnconfigured()`; missing creds must page outside local, or an
+    unrouted subdomain stays hidden until a user reports it). A worker started under `staging`
+    therefore fails **every** `SyncSubdomainToKvJob` with a `RuntimeException` and writes a
+    `failed_jobs` row — which this runbook lists below as a **FAIL signal**. The result is a
+    drill that reports a P1 queue-integrity failure against a perfectly healthy system.
+
+    This is not hypothetical, and it is easy to walk into: drill 03 mandates `APP_ENV=staging`,
+    so running 03 then 01 in the same session inherits it. The 2026-08-06 run hit exactly this.
+    Worse, it can disagree with itself — Horizon started under `local` (per drill 03's own
+    ordering trap) keeps no-opping happily while a freshly-started bare worker under `staging`
+    fails the same job. **Assert before Scenario B:**
+
+    ```bash
+    php artisan tinker --execute='echo config("app.env");'   # must NOT be staging/production
+    ```
 - [ ] Optional but recommended: shrink the crash-recovery wait for the session —
   `REDIS_QUEUE_RETRY_AFTER=90` in `.env`, then `php artisan config:clear`. **Revert after.**
 - [ ] Export helpers for the KV curl checks (real-KV mode):
@@ -108,10 +126,36 @@ DB::table('core.user_handle_aliases')->insert([
 
 ⚠️ **A single dispatch cannot enter this race window.** A ~10ms job is over before any
 terminate command can boot, `horizon:terminate` included — the 2026-07-31 run terminated
-167ms after a 32ms job and never actually raced it. Use a batch instead (one job per drill
-user, so `ShouldBeUniqueUntilProcessing` doesn't dedupe them into a single queue entry) and signal the
-Horizon master directly rather than shelling out: `posix_kill()` landed the signal 12.2ms
-after the first dispatch in the 2026-08-05 run, vs. 167ms for `horizon:terminate`.
+167ms after a 32ms job and never actually raced it. Signal the Horizon master directly rather
+than shelling out: `posix_kill()` landed the signal 12.2ms after the first dispatch in the
+2026-08-05 run, and **7.5ms** in the 2026-08-06 run, vs. 167ms for `horizon:terminate`.
+
+🔴 **…and a one-shot batch cannot enter it either — being FAST is not enough.** The 2026-08-06
+run signalled at 7.5ms and again at 39.3ms; both times all six jobs were still sitting on the
+ready list, nothing had been reserved, and the "in-flight job finishes after the signal" half of
+Pass A was never exercised. Cause, measured: the supervisor covers **10 queues**, so its workers
+cannot `BLPOP` on `cloudflare` alone and pickup latency is up to **~3s** — hundreds of times
+longer than any achievable signal delay against a ~5ms job. The 2026-08-05 run caught one
+in-flight job by luck, not by design.
+
+✅ **Use sustained dispatch instead** — which is also the realistic deploy shape (a busy queue at
+deploy time). Feed the queue continuously for ~4s, signal mid-stream, then keep feeding:
+
+```php
+// tinker or a small script; $users = the drill users
+$masterPid = (int) trim(shell_exec("pgrep -f 'artisan horizon\$' | head -1"));
+$t0 = microtime(true); $signalled = false;
+while (microtime(true) - $t0 < 8.0) {
+    foreach ($users as $u) { \App\Jobs\Cloudflare\SyncSubdomainToKvJob::dispatch($u->id); }
+    if (! $signalled && microtime(true) - $t0 >= 4.0) { posix_kill($masterPid, SIGTERM); $signalled = true; }
+    usleep(50000);
+}
+```
+
+Expect the dispatch count to collapse hard — the 2026-08-06 run turned **888 dispatches into 12
+queue entries** via `ShouldBeUniqueUntilProcessing`. Count `RUNNING` vs `DONE` vs `FAIL` lines in
+the Horizon log: they must pair exactly, with `DONE`s continuing for a second or two *after* the
+signal. That is the evidence Pass A actually wants.
 
 1. Start Horizon in its own terminal: `php artisan horizon`, and note its master PID
    (`horizon:status` or `pgrep -f 'horizon'`).
@@ -206,6 +250,27 @@ php watcher.php "$WORKER_PID" "$QKEY"
      slow job) releases the lock first, so that re-dispatch *does* queue. Wait out `uniqueFor`,
      or rely on re-delivery, if you can't tell which happened — do not assume a re-dispatch
      failed just because nothing seemed to happen.
+
+🔴 **Sample `ready` and `reserved` ATOMICALLY, and watch convergence in the FOREGROUND.** Two
+separate `redis-cli` calls can straddle a job that is in flight between them and report
+`ready=0 reserved=0` — which reads as "the job vanished from both the queue and the reserved
+set", this runbook's most serious FAIL signal. Killing the worker right after that sample
+compounds it. The 2026-08-06 run briefly produced exactly that false P1; it did not reproduce
+under foreground instrumentation. Also: **`queue:work` prints nothing until a job completes**, so
+an empty worker log is not evidence that nothing ran — it is the *normal* state of a worker that
+is waiting. Prefer:
+
+```bash
+redis-cli -n 0 eval "return {redis.call('llen', KEYS[1]), redis.call('zcard', KEYS[2])}" 2 \
+  laravel_database_queues:cloudflare laravel_database_queues:cloudflare:reserved
+# and run the recovery worker in the foreground with a bounded lifetime:
+php artisan queue:work redis --queue=cloudflare --max-time=110 -v
+```
+
+Note also that `ShouldBeUniqueUntilProcessing`'s lock lives on the **`cache_locks` connection,
+Redis DB 4** (`laravel_database_laravel-cache-laravel_unique_job:<Job>:<id>`) — not DB 0 and not
+the cache DB. Scanning the wrong DB makes the lock look absent and the silent-drop behaviour
+inexplicable.
 
 5. **Observe convergence:**
    - Start the worker FIRST, then watch — see the Preconditions warning above; `:reserved`
