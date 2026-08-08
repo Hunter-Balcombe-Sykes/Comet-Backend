@@ -22,9 +22,26 @@ die() {
     exit 1
 }
 
-# audits/dast/<date>/ — creates it if missing, echoes the path.
+# audits/dast/<date>-<lane>/ — creates it if missing, echoes the path.
+#
+# The lane suffix is load-bearing, not cosmetic. This used to be <date> alone,
+# which meant BOTH lanes on the same day shared one directory — and since
+# audits/dast/.gitignore whitelists exactly one file per directory
+# (*/REPORT.md), the second lane's report silently replaced the first's. You
+# could never keep both lanes' results for a single day.
+#
+# It was also the shared mutable location behind a containment bug (2026-08-07):
+# a second run on the same date inherited the previous run's bring-up.env, and
+# zap-active.sh's readiness poll — which tests only for that file's existence —
+# passed instantly against a stack that was still booting. See the `rm -f` at
+# the top of zap-active.sh, which remains the direct guard for that.
+#
+# Both consumers of this path glob on the directory name rather than matching
+# <date>, so neither needed changing: audits/dast/.gitignore's `!*/` +
+# `!*/REPORT.md`, and dast-edge.yml's `audits/dast/*/REPORT.md` artifact path.
 dast_outdir() {
-    local dir="$DAST_ROOT/audits/dast/$(date +%F)"
+    local lane="${1:-run}"
+    local dir="$DAST_ROOT/audits/dast/$(date +%F)-${lane}"
     mkdir -p "$dir"
     echo "$dir"
 }

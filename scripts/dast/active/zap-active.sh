@@ -26,6 +26,26 @@ teardown() {
 }
 trap teardown EXIT INT TERM
 
+# --- Clear the stale readiness file BEFORE starting bring-up. OUTDIR is
+# per-date-and-lane (lib/common.sh's dast_outdir), so any RE-run of this lane
+# on the same date inherits the previous run's bring-up.env — and the poll
+# below only tests for that file's EXISTENCE, never its freshness. Without
+# this rm, the second run short-circuits the readiness gate instantly, then
+# seeds and probes against a stack that is still booting.
+#
+# Do NOT assume the lane suffix in dast_outdir fixed this: it separates the
+# two LANES, it does not separate two runs of the SAME lane on one day, which
+# is the exact case that bit (runs 2-5 of 2026-08-07).
+#
+# That is not a flake, it is a containment failure: .env.dast does not exist
+# yet at that point, `--env=dast` silently falls back to the repo's real
+# .env, and the "local" seeder points at whatever SUPABASE_URL/DB_HOST the
+# developer's real environment holds. Observed 2026-08-07 — run 3 POSTed to
+# a REMOTE *.supabase.co admin endpoint and only failed because that host
+# was unreachable. seed-identities.php now fail-closes on this too; both
+# guards are deliberate (this one prevents it, that one contains it).
+rm -f "$OUTDIR/bring-up.env"
+
 # --- Bring up the isolated stack as a background child; teardown() above
 # signals it on any exit path (mirrors bring-up.sh's own trap, one layer
 # up) — this is the composition bring-up.sh's header documents: start it,
@@ -70,9 +90,11 @@ EMAIL_A=$(jq -r .A.email "$OUTDIR/identities.json")
 PASS_A=$(jq -r .A.password "$OUTDIR/identities.json")
 EMAIL_B=$(jq -r .B.email "$OUTDIR/identities.json")
 PASS_B=$(jq -r .B.password "$OUTDIR/identities.json")
+# Both identities' ids: B's drive the IDOR probes, A's drive the paired
+# CONTROLS. A control per probe is not redundancy — see the requestor job.
+CUST_A=$(jq -r .A.customer_id "$OUTDIR/identities.json")
+ENQUIRY_A=$(jq -r .A.enquiry_id "$OUTDIR/identities.json")
 CUST_B=$(jq -r .B.customer_id "$OUTDIR/identities.json")
-SITE_B=$(jq -r .B.site_id "$OUTDIR/identities.json")
-MEDIA_B=$(jq -r .B.media_id "$OUTDIR/identities.json")
 ENQUIRY_B=$(jq -r .B.enquiry_id "$OUTDIR/identities.json")
 
 TOKEN_A=$(php "$HERE/active/mint-jwt.php" "$EMAIL_A" "$PASS_A")
@@ -84,11 +106,11 @@ ZAP_WORK="$OUTDIR/zap"
 mkdir -p "$ZAP_WORK"
 cp "$OUTDIR/seed-openapi.json" "$ZAP_WORK/seed-openapi.json"
 
-# --- Template zap-context.yaml (contexts + exclusions + replacer) with the
-# live target and real tokens.
+# --- Template zap-context.yaml (contexts + exclusions) with the live target.
+# Tokens are NOT substituted here any more — they go into the replacer JOBS
+# below. zap-context.yaml's top-level `replacer:` block was dead config (a
+# plan has only `env:` and `jobs:`); see that file's header.
 sed -e "s|__TARGET_URL__|${ZAP_TARGET_URL}|g" \
-    -e "s|__TOKEN_A__|${TOKEN_A}|g" \
-    -e "s|__TOKEN_B__|${TOKEN_B}|g" \
     "$HERE/active/zap-context.yaml" > "$ZAP_WORK/zap-context-filled.yaml"
 
 # --- Curated active-scan policy — SQLi, XSS (reflected + persistent),
@@ -126,12 +148,48 @@ cat > "$ZAP_WORK/scan-policy.yaml" <<'POLICY'
       threshold: "MEDIUM"
 POLICY
 
-# --- Assemble the full plan: context/replacer (filled) + import + per-
-# context spider/activeScan + cross-identity IDOR requests + report.
+# --- Assemble the full plan: contexts (filled) + per-pass replacer + import
+# + per-context spider/activeScan + cross-identity IDOR requests + report.
+#
+# AUTH INJECTION — three mechanics, each verified empirically 2026-08-06
+# against a header-echoing HTTP server (NOT inferred from a clean run; the
+# previous implementation looked clean while injecting nothing for months):
+#
+#  1. The field is `replacementString`, NOT `replacement`. ZAP 2.17.0's own
+#     schema (`zap.sh -cmd -autogenmax`) lists description/url/matchType/
+#     matchString/matchRegex/replacementString/tokenProcessing/initiators.
+#     A wrong key is logged as "Unrecognised parameter for job replacer"
+#     — a WARNING, so the plan still runs and still reports success, with
+#     every request going out unauthenticated. Grep-guarded at the end of
+#     this script so that can never silently recur.
+#  2. There is NO per-rule `enabled` field. The old design defined both
+#     identities' rules once and flipped `enabled: true/false` per pass;
+#     that concept does not exist in the automation framework. Identity
+#     switching is instead one replacer JOB per pass carrying ONLY that
+#     pass's rule, with `deleteAllRules: true` to evict the previous
+#     pass's rule. Without deleteAllRules, rules accumulate and two rules
+#     race to set the same header.
+#  3. `matchType: req_header` ADDS the header when absent (it is not a
+#     replace-only-if-present match), which is what makes injection work
+#     against a scanner that sends no Authorization header of its own.
+#     `deleteAllRules: true` with NO rules list is how the unauth pass gets
+#     a genuinely bare request.
+#
+# Ordering is load-bearing: the replacer job must precede the jobs it is
+# meant to authenticate. The old plan's first replacer sat AFTER identity-a's
+# openapi/spider/activeScan, so that pass had no auth applied even in intent.
 {
     cat "$ZAP_WORK/zap-context-filled.yaml"
     cat <<EOF
 jobs:
+  - type: replacer
+    parameters:
+      deleteAllRules: true
+    rules:
+      - description: "auth-identity-a"
+        matchType: req_header
+        matchString: "Authorization"
+        replacementString: "Bearer ${TOKEN_A}"
   - type: openapi
     parameters:
       apiFile: "/zap/wrk/seed-openapi.json"
@@ -148,19 +206,16 @@ jobs:
     policyDefinition:
 $(sed 's/^/      /' "$ZAP_WORK/scan-policy.yaml")
 
+  # Swap to identity B: deleteAllRules evicts A's rule, so exactly one
+  # Authorization rule is ever live.
   - type: replacer
-    parameters: {}
+    parameters:
+      deleteAllRules: true
     rules:
-      - description: "auth-identity-a"
-        enabled: false
-        matchType: req_header
-        matchString: "Authorization"
-        replacement: "Bearer ${TOKEN_A}"
       - description: "auth-identity-b"
-        enabled: true
         matchType: req_header
         matchString: "Authorization"
-        replacement: "Bearer ${TOKEN_B}"
+        replacementString: "Bearer ${TOKEN_B}"
   - type: spider
     parameters:
       context: "identity-b"
@@ -171,47 +226,68 @@ $(sed 's/^/      /' "$ZAP_WORK/scan-policy.yaml")
     policyDefinition:
 $(sed 's/^/      /' "$ZAP_WORK/scan-policy.yaml")
 
-  # Cross-identity IDOR pass: re-enable A's replacer (still points at A's
-  # token from the first block) and hit B's seeded resource ids directly —
-  # a 200 where 404 is expected is the finding.
+  # --- Cross-identity IDOR pass. Clear every replacer rule first, then carry
+  # A's token as an EXPLICIT per-request header. Two reasons this is per-
+  # request rather than another global replacer: it removes the ordering
+  # dependency that broke the old plan, and it leaves no rule installed for
+  # the unauth pass below to inherit.
+  #
+  # Each probe asserts \`responseCode\`, which the old plan omitted entirely —
+  # it sent four requests and checked nothing, so a successful cross-tenant
+  # read would have gone unreported. 404 (not 403) is the app's deliberate
+  # convention for a resource that exists but is not yours, confirmed in
+  # source: CustomerPolicy::view -> BasePolicy::denyAsNotFound(), and
+  # UserEnquiryController::transition's own \`->where('user_id', ...)->find()\`
+  # then 404. A 200 here means broken tenant isolation.
+  #
+  # EVERY probe is paired with a CONTROL on identity A's OWN equivalent
+  # resource expecting 200. Without it the probes are vacuous three ways
+  # over: a dead app 404s everything, a rejected token 401s everything
+  # (which is NOT 200, so a naive "not 200" check would pass), and — the
+  # trap that actually bit here — a route that does not exist 404s too. The
+  # old plan probed /api/sites/{id}, /api/media/{id} and /api/enquiries/{id};
+  # \`route:list\` has NONE of those three, so they returned 404 for "no such
+  # route" and would have passed a 404 assertion while testing nothing. Only
+  # surfaces with a real by-id route AND a seeded fixture are probed here;
+  # sites and site-media have no by-id user route at all, so they carry no
+  # IDOR surface to test. Adding one means seeding a fixture for it and
+  # confirming its route exists FIRST — not assuming, which is how three
+  # phantom probes survived this long.
   - type: replacer
-    parameters: {}
-    rules:
-      - description: "auth-identity-a"
-        enabled: true
-        matchType: req_header
-        matchString: "Authorization"
-        replacement: "Bearer ${TOKEN_A}"
-      - description: "auth-identity-b"
-        enabled: false
-        matchType: req_header
-        matchString: "Authorization"
-        replacement: "Bearer ${TOKEN_B}"
+    parameters:
+      deleteAllRules: true
   - type: requestor
     parameters: {}
     requests:
+      - url: "${ZAP_TARGET_URL}/api/customers/${CUST_A}"
+        method: GET
+        name: control-own-customer-a
+        headers:
+          - "Authorization: Bearer ${TOKEN_A}"
+        responseCode: 200
       - url: "${ZAP_TARGET_URL}/api/customers/${CUST_B}"
         method: GET
         name: idor-customer-b
-      - url: "${ZAP_TARGET_URL}/api/sites/${SITE_B}"
-        method: GET
-        name: idor-site-b
-      - url: "${ZAP_TARGET_URL}/api/media/${MEDIA_B}"
-        method: GET
-        name: idor-media-b
-      - url: "${ZAP_TARGET_URL}/api/enquiries/${ENQUIRY_B}"
-        method: GET
+        headers:
+          - "Authorization: Bearer ${TOKEN_A}"
+        responseCode: 404
+      - url: "${ZAP_TARGET_URL}/api/enquiries/${ENQUIRY_A}/read"
+        method: POST
+        name: control-own-enquiry-a
+        headers:
+          - "Authorization: Bearer ${TOKEN_A}"
+        responseCode: 200
+      - url: "${ZAP_TARGET_URL}/api/enquiries/${ENQUIRY_B}/read"
+        method: POST
         name: idor-enquiry-b
+        headers:
+          - "Authorization: Bearer ${TOKEN_A}"
+        responseCode: 404
 
-  # Unauth pass — no Authorization header at all.
-  - type: replacer
-    parameters: {}
-    rules:
-      - description: "auth-identity-a"
-        enabled: false
-        matchType: req_header
-        matchString: "Authorization"
-        replacement: "Bearer ${TOKEN_A}"
+  # Unauth pass — the replacer was cleared above and the IDOR tokens were
+  # per-request, so nothing is installed and these requests are genuinely
+  # bare. Verified: a \`deleteAllRules: true\` job with no rules list yields a
+  # null Authorization header at the server.
   - type: spider
     parameters:
       context: "unauth"
@@ -263,7 +339,47 @@ log "zap-active: ZAP automation run exited $ZAP_EXIT (informational only) — se
 # fuzzed requests per URL, none individually logged) — a narrower grep
 # would silently pass even if the active scanner itself hit an excluded
 # path, since the site tree it draws from is what excludePaths governs.
-if grep -qE "api/(platforms|staff/builds|site/custom-domain|me/site/reclaim-handle|staff/sites)/" "$ZAP_WORK/zap-run.log"; then
+# Keep this alternation in sync with zap-context.yaml's excludePaths — the two
+# lists are the same contract stated twice (there is intentionally no shared
+# source: the YAML needs regexes per context, this needs one grep). The
+# `sessions|me/deletion|account/mfa` entries are the self-destruction group
+# added 2026-08-07; `api/sessions/` with the trailing slash deliberately does
+# NOT match the in-scope `GET api/sessions` collection read.
+if grep -qE "api/(platforms|staff/builds|site/custom-domain|me/site/reclaim-handle|staff/sites|sessions|me/deletion|account/mfa)/" "$ZAP_WORK/zap-run.log"; then
     die "exclusion verification FAILED: an excluded path appears in the run log — see $ZAP_WORK/zap-run.log"
 fi
 log "zap-active: exclusion check passed — zero references to excluded paths in the run log"
+
+# --- Plan-integrity guard. ZAP treats an unknown job/rule field as a WARNING,
+# not an error: it logs "Unrecognised parameter for job X : y", drops the
+# field, runs the rest of the plan and still writes a clean report. That is
+# exactly how the replacer's `replacement`/`enabled` fields silently disabled
+# ALL token injection for months while this lane reported PASS — every
+# "authenticated" scan was anonymous and nothing anywhere said so. Any
+# unrecognised parameter now fails the lane: in a plan this tool generates
+# itself, an ignored field is always a bug, never an intentional spare.
+if grep -q "Unrecognised parameter" "$ZAP_WORK/zap-run.log"; then
+    die "plan integrity FAILED: ZAP ignored a parameter it did not recognise — the plan is not doing what it says. Offending lines:
+$(grep "Unrecognised parameter" "$ZAP_WORK/zap-run.log" | sort -u)
+see $ZAP_WORK/zap-run.log"
+fi
+log "zap-active: plan integrity check passed — ZAP recognised every parameter in the plan"
+
+# --- IDOR assertion gate. requestor `responseCode` mismatches surface ONLY as
+# "Difference in response code values for message ..." warnings in the run log
+# — they do NOT become report alerts, and diff-baseline.sh gates purely on the
+# JSON report's alerts, so without this check a failed cross-tenant assertion
+# would leave the lane green. Message format confirmed empirically against ZAP
+# 2.17.0 (2026-08-06). Fires for BOTH directions, and that symmetry is the
+# point: an `idor-*` mismatch means a foreign resource was readable (broken
+# tenant isolation); a `control-*` mismatch means the probes proved nothing
+# because the token, the app or the route was not working. Both invalidate the
+# run, so both must fail it.
+if grep -q "Difference in response code values" "$ZAP_WORK/zap-run.log"; then
+    die "IDOR/control assertion FAILED — a cross-identity probe or its control returned an unexpected status:
+$(grep "Difference in response code values" "$ZAP_WORK/zap-run.log" | sort -u)
+A 'control-*' line means the pass was vacuous (bad token / dead app / missing route), NOT that authorization is fine.
+An 'idor-*' line means a foreign resource was reachable — treat as a P0 authorization finding, never relax the assertion.
+see $ZAP_WORK/zap-run.log"
+fi
+log "zap-active: IDOR assertions passed — foreign resources 404'd and every control returned 200"

@@ -1,18 +1,19 @@
-# Active lane: ZAP automation-framework context + replacer definitions for
-# the three passes — context A (token A), context B (token B), and unauth
-# (no Authorization header). This is a TEMPLATE, not a runnable plan on its
-# own: __TARGET_URL__, __TOKEN_A__, __TOKEN_B__ are substituted by
-# active/zap-active.sh (Phase 4) with the live bring-up.sh base URL and
-# freshly-minted tokens before being merged with the actual scan jobs
-# (import/spider/activeScan/report) into one automation plan.
+# Active lane: ZAP automation-framework context definitions for the three
+# passes — context A (token A), context B (token B), and unauth (no
+# Authorization header). This is a TEMPLATE, not a runnable plan on its own:
+# __TARGET_URL__ is substituted by active/zap-active.sh (Phase 4) with the
+# live bring-up.sh base URL before being merged with the actual scan jobs
+# (replacer/import/spider/activeScan/requestor/report) into one plan.
 #
-# The cross-identity IDOR pass (Phase 4) reuses context A's replacer
-# (token A) against context B's seeded resource ids — a 200 where 404 is
-# expected on a foreign resource is the finding. Verified manually
-# 2026-07-26 (see plan Phase 3 done-when) that token A correctly gets 200
-# on its own customer resource and 404 (not 403 — matches the app's public
-# 404-not-403 convention) on identity B's, both via ZAP's own proxy with
-# this exact replacer mechanism, not just direct curl.
+# THIS FILE NO LONGER DEFINES THE REPLACER. It used to carry a top-level
+# `replacer:` block, which was silently dead: a ZAP automation plan has
+# exactly two top-level keys, `env:` and `jobs:`, so a sibling `replacer:`
+# key was parsed as unknown and dropped without comment. Token injection now
+# lives in real `- type: replacer` JOBS emitted by zap-active.sh, one before
+# each pass. Do not reintroduce a top-level block here — see that script's
+# "Auth injection" note for the three mechanics that make it work, all
+# verified empirically 2026-08-06 against a header-echoing server rather
+# than inferred from a clean-looking run.
 
 # External-side-effect exclusions (Phase 4 Step 1) — the served app runs
 # QUEUE_CONNECTION=sync, so any un-excluded mutating route runs its jobs
@@ -32,6 +33,32 @@
 #     rename triggers SyncSubdomainToKvJob (SiteObserver/UserObserver on a
 #     dirty subdomain/handle) — the ONLY KV writer (CLAUDE.md) — a real
 #     Cloudflare KV write from a "local" scan.
+#
+# SELF-DESTRUCTION exclusions (added 2026-08-07). A SECOND category, and one
+# that only exists now that the scan is genuinely authenticated — the original
+# list guarded external side effects only, because before the replacer was
+# fixed every request was anonymous and nothing the scanner did could revoke
+# its own credentials. An authenticated fuzzer will cheerfully log itself out.
+#   - api/sessions/.* — POST /logout, POST /logout-others and
+#     DELETE /{sessionId} revoke the scanner's OWN session. This was the
+#     literal cause of run 4's failure: identity A's active scan hit one of
+#     these mid-pass and every request afterwards — including the IDOR probes
+#     at the end of the plan — returned 401. The trailing `/` is deliberate:
+#     `GET api/sessions` (the harmless collection read) stays in scope.
+#   - api/me/deletion/.* — request/confirm/cancel account deletion. `confirm`
+#     removes the scanning identity outright, after which every subsequent
+#     request 401s or 404s and the whole pass is meaningless.
+#   - api/account/mfa/.* — enrolling/removing a factor mutates aal/amr, i.e.
+#     the auth state the rest of the scan depends on.
+# NOT excluded, deliberately: PATCH api/me (UpdateUserRequest keeps `handle`
+# out, so no KV write — and it is a high-value fuzz target), and
+# POST api/me/data-export (runs inline under QUEUE_CONNECTION=sync but
+# MAIL_MAILER=log contains it; slow, not destructive).
+#
+# Adding an authenticated route that revokes credentials, deletes the account,
+# or changes auth state means adding it here — nothing detects that class
+# automatically, and the symptom is a late-plan 401 cascade that looks like a
+# broken token rather than a self-inflicted logout.
 env:
   contexts:
     - name: "identity-a"
@@ -42,6 +69,9 @@ env:
         - ".*api/site/custom-domain.*"
         - ".*api/me/site/reclaim-handle.*"
         - ".*api/staff/sites/.*"
+        - ".*api/sessions/.*"
+        - ".*api/me/deletion/.*"
+        - ".*api/account/mfa/.*"
     - name: "identity-b"
       urls: ["__TARGET_URL__"]
       excludePaths:
@@ -50,6 +80,9 @@ env:
         - ".*api/site/custom-domain.*"
         - ".*api/me/site/reclaim-handle.*"
         - ".*api/staff/sites/.*"
+        - ".*api/sessions/.*"
+        - ".*api/me/deletion/.*"
+        - ".*api/account/mfa/.*"
     - name: "unauth"
       urls: ["__TARGET_URL__"]
       excludePaths:
@@ -58,18 +91,6 @@ env:
         - ".*api/site/custom-domain.*"
         - ".*api/me/site/reclaim-handle.*"
         - ".*api/staff/sites/.*"
-
-replacer:
-  parameters:
-    deleteAllRules: false
-  rules:
-    - description: "auth-identity-a"
-      enabled: true
-      matchType: req_header
-      matchString: "Authorization"
-      replacement: "Bearer __TOKEN_A__"
-    - description: "auth-identity-b"
-      enabled: false
-      matchType: req_header
-      matchString: "Authorization"
-      replacement: "Bearer __TOKEN_B__"
+        - ".*api/sessions/.*"
+        - ".*api/me/deletion/.*"
+        - ".*api/account/mfa/.*"
