@@ -1,2 +1,5 @@
 # k6 run output — local diagnostic artefacts, never a deliverable.
+# Derived numbers must be written into a results/*.md summary at write-up time;
+# these files are deleted/overwritten by the next run and cannot be cited later.
 results/*.json
+results/*.txt

@@ -43,8 +43,21 @@ Plan: `docs/superpowers/plans/2026-07-26-k6-load-testing.md`.
 
 The `analytics` limiter is 120/min per IP. To saturate the queue from one IP, either
 (a) temporarily raise the limiter for a tight watched window and restore after, or
-(b) drive jobs via a tinker loop. Decide with Josh at Phase 3 time. Phase 3 stays
-deferred until Phases 1 & 2 pass.
+(b) drive jobs via a tinker loop. Decide with Josh at Phase 3 time.
+
+**Resolved 2026-08-06 via option (b).** Option (a) was never needed: the queue questions are all
+about the *worker*, so the HTTP limiter is irrelevant noise. Recipe that worked —
+
+```bash
+export PATH="$PATH:$HOME/.composer/vendor/bin"   # the `cloud` CLI is installed but NOT on PATH
+cloud tinker development --code='... RecordAnalyticsEventJob::dispatch($payload) ...'
+```
+
+Dispatch ran at 291 jobs/s, so 20k builds a backlog faster than the ~60/s drain. Observe with
+`Queue::connection("redis")->size($queue)` per queue, and put canary jobs on a queue **above** and
+**below** `analytics` in supervisor-1's priority list — that pair is what makes starvation visible.
+Note queued **closures do not work** from tinker (`serializable-closure` cannot reflect eval'd
+source; they land in `failed_jobs`) — dispatch a real job class with `->onQueue(...)` instead.
 
 `jobs.js` (and any other script that POSTs an analytics event) must send an `Origin`
 header matching the seeded site's subdomain host (`https://loadtest.partna.au`) —
@@ -64,6 +77,12 @@ script must include it in its request headers.
 
 Confirmed by three further runs on **2026-08-03** (`results/2026-08-03-baseline-warmup-comparison.md`):
 p50 **132.9–140.3 ms**, p95 **218.3–241.4 ms** across four independent runs. That part is solid.
+
+Re-run **2026-08-06** as a same-day control alongside phases 2a/2b/3: p50 **95.3 ms** · p95
+**204.5 ms** · p99 **249.3 ms** · 0.00% errors · 900/900 checks (675 reqs / 225 iters, directly
+comparable). **Faster than the reference on every percentile** — nothing has regressed. Per-endpoint
+that run: profile **155.9 / 226.9 ms** (p50/p95), health 91.6 / 163.9, social-platforms **44.8** /
+116.4 — the edge-served route is what pulls the blended p50 down, quantifying the caveat below.
 
 ### Read `max`, don't trust it
 
@@ -104,9 +123,43 @@ Note it does **not** reduce the tail (that was tested on 2026-08-03: the warm-up
 request only**. Use it when you want the measured slice free of connection-setup noise, not as a
 tail fix.
 
-⚠️ **Phases 2a/2b/3 have NOT been run.** Phase 1 only, by decision on 2026-07-31. The edge
-cache-hit ratio, origin-limiter behaviour under flood, and Supavisor headroom at the named
-50-concurrent target are all still **unmeasured**.
+### Phases 2a / 2b / 3 — run 2026-08-06, all PASS
+
+All three ran for the first time on 2026-08-06 and all three passed their thresholds
+(`results/2026-08-06-phases-2a-2b-3.md`):
+
+- **2a edge** — `edge_cache_hit` **100%** (15,476/15,476), 0% failed. Origin hits: **zero**.
+- **2b origin** — `origin_5xx` **0**, `origin_429` **925** of 1,029 (≈60/min got through, matching
+  the limiter). Supabase connections flat: peak **35 of 60**, never >1 active query.
+- **3 jobs** — `jobs_5xx` **0**, `jobs_accepted` **142**, and all 142 provably landed in
+  `analytics.site_visits` (3,069 → 3,211). Zero dispatched-but-lost jobs.
+
+- **3b queue saturation** — 20,000 jobs dispatched straight onto the queue (bypassing the HTTP
+  limiter). Drained at a steady **58–65 jobs/s**, **zero lost, zero failed**.
+
+### ⚠️ Two real findings from those runs
+
+1. **Cross-queue starvation is real.** `supervisor-1` is `balance => false`, so one worker drains
+   its ten queues in **strict priority order**. During the 20k `analytics` backlog, canaries on
+   **`default` (priority 2) ran immediately**, while canaries on **`images` (priority 6) sat
+   untouched for the full ~4.5-minute drain** and cleared only once `analytics` hit zero. A visitor
+   spike therefore stalls `images`, `streaming`, `platform_refresh`, `platform_connect` and
+   `cloudflare_bulk` for its whole duration. Delay, not loss — but its blast radius had never been
+   measured. The web tier is unaffected (workers are a separate instance).
+2. **Origin TTFB degrades badly under 50 concurrent.** The origin needed p50 **2.9 s** just to
+   return a **429**, and **4.3 s** to serve a 200, at ~17 req/s — while the same client at the same
+   50 VUs saw **239 ms** p95 TTFB against the edge. Confirmed by the origin's *own* access log
+   (`duration_ms` p50 **2,900**), and it is **container-wide**: `/api/health` went 0.20 s → 2.4 s
+   during the flood. No threshold covers this.
+
+   **This is expected to apply to production.** Both environments run the *same*
+   `flex.g-1vcpu-512mb` single replica with **autoscaling off** (`cloud instance:list`), and one
+   core ÷ ~60 ms CPU/request ≈ the 17 req/s ceiling measured. The 429 is returned by **route**
+   middleware (`routes/api.php:178`), so every rejected request has already paid for FPM handoff,
+   full Laravel boot and the global stack. Cheapest fix is rejecting at **Cloudflare**, so hostile
+   volume never buys origin CPU. (Not verified against prod — load-testing prod is `OPS-S4-3`.)
+
+Still open: **worker memory recovery**, which no CLI surface exposes — see the write-up.
 
 ## Collaboration (§8)
 
