@@ -45,6 +45,27 @@ it('cloudflare_bulk is listed AFTER cloudflare on supervisor-1, so bulk purges n
         ->and($bulkIndex)->toBeGreaterThan($cloudflareIndex);
 });
 
+// k6 phase 3b (2026-08-07): 'analytics' used to be listed 5th, ABOVE 'images'. Under
+// balance=>false that is a priority inversion — the highest-volume, least-urgent queue
+// blocking a low-volume, user-visible one. Measured on dev: a 20,000-job analytics
+// backlog left an 'images' job unstarted for the full 4.5-minute drain, while a
+// 'default' job (ranked above analytics) ran immediately. Assert the invariant so a
+// future "tidy up the queue list" cannot silently restore the stall.
+it('analytics is listed AFTER images on supervisor-1, so a visitor spike cannot stall image processing', function () {
+    $horizon = require base_path('config/horizon.php');
+    $queue = $horizon['defaults']['supervisor-1']['queue'];
+
+    $analyticsIndex = array_search('analytics', $queue, true);
+    $imagesIndex = array_search('images', $queue, true);
+
+    expect($analyticsIndex)->not->toBeFalse()
+        ->and($imagesIndex)->not->toBeFalse()
+        ->and($analyticsIndex)->toBeGreaterThan(
+            $imagesIndex,
+            'analytics must drain after images — it is high-volume and fire-and-forget, images is low-volume and user-visible'
+        );
+});
+
 it('cloudflare_bulk queue is covered in every Horizon environment', function () {
     foreach (['production', 'development', 'local'] as $env) {
         expect(envCoversQueue($env, 'cloudflare_bulk'))->toBeTrue(
@@ -643,7 +664,7 @@ it('the four Unit F wait-time thresholds have the expected values', function () 
 
     // Exact equality, not a range — so a "tidy up" pass can't silently loosen
     // one of these back toward the accidental-60s failure mode.
-    expect($waits['redis:moderation_high,default,cloudflare,cache-warm,analytics,images,streaming,platform_refresh,platform_connect,cloudflare_bulk'])->toBe(900)
+    expect($waits['redis:moderation_high,default,cloudflare,cache-warm,images,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk'])->toBe(900)
         ->and($waits['redis:ingest'])->toBe(1800)
         ->and($waits['redis:notifications,mail'])->toBe(300)
         ->and($waits['redis_scraping:scraping,gdpr'])->toBe(3600)
