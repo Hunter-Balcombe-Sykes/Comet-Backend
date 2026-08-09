@@ -1258,7 +1258,12 @@ return [
     // that adds or drops a site.design_kits column — the old cache key orphans
     // and TTLs out, so picking up the new column set needs no `artisan
     // cache:clear`. (LIFE-2)
-    'design_kit_columns_version' => env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', '2026-07-17.1'),
+    // 2026-08-09.1 — the preset-only migration (20260809090001) drops 52
+    // columns and adds text_size / spacing / corners. Without this bump,
+    // writeDesignKit() would filter against the cached PRE-drop list for up to
+    // an hour after deploy: writes to the three new columns silently discarded,
+    // writes to the 52 dropped ones attempted.
+    'design_kit_columns_version' => env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', '2026-08-09.1'),
 
     /*
     |----------------------------------------------------------------------
@@ -1269,18 +1274,61 @@ return [
     | typography_font_heading) into the nested camelCase wire shape
     | (e.g. colors.accent, typography.fontHeading).
     |
-    | two_token_prefixes — matched FIRST (longer prefix wins). Covers
-    |   responsive companion groups (e.g. space_desktop_regular →
-    |   spaceDesktop.regular).
+    | exact_columns — matched BEFORE either prefix map, by WHOLE column name,
+    |   to an explicit [group, key] pair. Added 2026-08-09 for the preset-only
+    |   schema: `spacing` and `corners` carry no underscore at all, so the
+    |   prefix split (substr up to the first `_`) cannot see them and they were
+    |   dropped from the payload with no error — the exact failure mode the
+    |   note below warns about, reached without a missing entry.
     |
-    | single_token_prefixes — fallback after two-token check. Pluralisation
+    | two_token_prefixes — matched after exact_columns, before single-token
+    |   (longer prefix wins). Covers responsive companion groups (e.g.
+    |   space_desktop_regular → spaceDesktop.regular).
+    |
+    | single_token_prefixes — fallback after the two-token check. Pluralisation
     |   is NOT mechanical, so the map is explicit. Adding a new design-kit
     |   column family whose prefix isn't listed here means that group is
     |   silently dropped from the API response — add the entry here at the
     |   same time you add the Supabase migration column.
+    |
+    | LIVE COLUMNS after 20260809090001 (preset-only, 8 columns):
+    |   color_accent            → colors.accent          (single-token)
+    |   typography_font_family  → typography.fontFamily  (single-token)
+    |   theme_mode              → theme.mode             (single-token)
+    |   theme_night_shift_auto  → theme.nightShiftAuto   (single-token)
+    |   text_size               → selections.textSize        (exact)
+    |   spacing                 → selections.spacing         (exact)
+    |   corners                 → selections.corners         (exact)
+    |   border_thickness        → selections.borderThickness (exact)
+    | Every other prefix below is dead — no live column matches it. They are
+    | kept rather than pruned (the same call made for `sizing`/`button` when
+    | their columns went) because the mapping is a pure function with its own
+    | tests, and a returning column family should not also have to re-derive
+    | the map.
     */
     'design_kit' => [
         'column_groups' => [
+            // The four SELECTIONS, grouped together as `selections` to mirror
+            // the design system's own KitSelections interface
+            // ({textSize, spacing, corners, borderThickness}) key-for-key.
+            //
+            // NAMING CALL, FLAGGED (brief §13): grouping these four — and in
+            // particular MOVING border_thickness out of `borders.thickness`,
+            // where it has lived since the kit began — is the implementing
+            // lane's decision, not the owner's. The reasoning: `spacing` and
+            // `corners` need an exact-column mechanism no matter where they
+            // land, and border_thickness's wire contract is breaking anyway
+            // (a length became a selection token, so the pages dispatcher must
+            // run it through THICKNESS_PRESETS instead of emitting it raw).
+            // Scattering four selections across three groups to avoid one
+            // forced move was the worse end state. Cheap to reverse — it is
+            // four lines here and the corresponding read in the pages app.
+            'exact_columns' => [
+                'text_size' => ['selections', 'textSize'],
+                'spacing' => ['selections', 'spacing'],
+                'corners' => ['selections', 'corners'],
+                'border_thickness' => ['selections', 'borderThickness'],
+            ],
             'two_token_prefixes' => [
                 'space_desktop' => 'spaceDesktop',
                 'text_desktop' => 'textDesktop',

@@ -4,8 +4,8 @@ namespace App\Services\Design;
 
 /**
  * Per-industry design overlays — THE single tunable surface for "what does a
- * barber's site feel like by default". Two sparse tiers over the
- * ALD-calibrated package defaults, both keyed off the user's sector field:
+ * barber's site feel like by default". Two sparse tiers over the package
+ * defaults, both keyed off the user's sector field:
  *
  *   1. BUCKET base (SectorTaxonomy bucket) — the industry's shared register.
  *   2. SLUG refinement — sharpens within the bucket (a spa and a barber share
@@ -13,15 +13,48 @@ namespace App\Services\Design;
  *      ProfileDesignPresets; a refinement may re-emit a package default to
  *      undo a base departure.
  *
- * Every value targets a VALUE/SELECTION design_kits column only — never
- * inferred vars (they derive at render time).
+ * ─── 2026-08-09: ACCENT AND FONT, AND THAT IS ALL. ───────────────────────────
+ *
+ * The preset-only migration (20260809090001) took the schema from 57 columns
+ * to 8. Of the columns these presets used to set, only two survive as things
+ * a sector can meaningfully say:
+ *
+ *   • color_accent            — kept
+ *   • typography_font_family  — kept
+ *   • weight_regular / weight_heading / text_body / text_desktop_body /
+ *     typography_line_height / space_regular / border_radius  — COLUMNS GONE
+ *   • effect_shadow_style / effect_link_style / effect_image_treatment
+ *                             — AXES DELETED (brief §3.1): shadow becomes the
+ *                               opt-in `.floating` class, link and image each
+ *                               get one fixed treatment in the components
+ *   • border_thickness        — column survives, but as a two-value selection
+ *                               ('default' | 'none'). The three presets that
+ *                               set it wanted '2px' — chunky signage — which
+ *                               the new control cannot express; 'default' is
+ *                               just the default, so re-emitting it would be
+ *                               noise. Dropped rather than flattened.
+ *
+ * OWNER DECISION (2026-08-09, brief §9 / plan 6.3): **let the gutted sectors
+ * collapse.** No new differentiation was invented to fill the gap. Sectors
+ * that are now accent-plus-font — which is all of them — are accepted as-is.
+ *
+ * Three slug refinements lost every key they had and were removed outright
+ * rather than left as empty arrays: `food-truck` (weights + hard shadow +
+ * 2px rules), `personal-chef` (weights + untreated imagery + space + leading)
+ * and `personal-trainer` (heading weight alone). Each now takes its bucket
+ * base unmodified, which is the honest result. `videographer` had already
+ * gone the same way on 2026-08-06 when the palette roster collapsed.
+ *
+ * Every value still targets a live design_kits column — see
+ * tests/Unit/Design/FontRosterTest.php, which fails if a preset seeds a
+ * column the schema no longer has.
  *
  * Narrowed 2026-08-06 with the design-kit simplification: theme_mode,
  * theme_contrast, typography_tracking, typography_uppercase, motion_pace and
- * border_style are gone as columns, so no preset sets them. Every site now
- * renders on the bleach palette, which is why the accents here are all
- * mid-range — the dark-room re-tuning those slugs used to need has no dark
- * room left to serve. Fonts only from the live 4-font roster.
+ * border_style went as columns. Every site renders on the bleach palette,
+ * which is why the accents here are all mid-range — the dark-room re-tuning
+ * those slugs used to need has no dark room left to serve. Fonts only from
+ * the live 4-font roster.
  */
 final class SectorStylePresets
 {
@@ -47,88 +80,58 @@ final class SectorStylePresets
 
     /** @var array<string, array<string, string|bool>> */
     private const BUCKETS = [
-        // Appetite-led: tomato accent, light menu-board type, warm-cast
-        // photography.
+        // Appetite-led: tomato accent, menu-board grotesque.
         self::FOOD_DRINK => [
             'color_accent' => '#e0491f',
             'typography_font_family' => 'monument-grotesk',
-            'weight_regular' => '300',
-            'effect_image_treatment' => 'warm',
         ],
-        // Polished, soft, a little luxe — gentle rounding + soft shadows;
-        // photography untreated (colour fidelity rules beauty work).
+        // Polished, soft, a little luxe.
         self::BEAUTY_PERSONAL_CARE => [
             'color_accent' => '#b8375a',
             'typography_font_family' => 'helvetica-neue',
-            'border_radius' => '0.25rem',
-            'effect_shadow_style' => 'soft',
         ],
-        // Athletic poster-energy: bold grotesque, medium weight.
+        // Athletic poster-energy.
         self::HEALTH_FITNESS => [
             'color_accent' => '#2f6b57',
             'typography_font_family' => 'monument-grotesk',
-            'weight_regular' => '500',
         ],
-        // Trustworthy, structured, documentary — confident weight and always-
-        // underlined links (nothing to hide). Font stays the package default.
+        // Trustworthy, structured, documentary. Font stays the package default.
         self::PROFESSIONAL_SERVICES => [
             'color_accent' => '#1d3557',
-            'weight_regular' => '500',
-            'effect_link_style' => 'underline-always',
         ],
-        // Fashion-editorial: classic Helvetica, assertive weight.
+        // Fashion-editorial: classic Helvetica.
         self::RETAIL_SHOPPING => [
             'color_accent' => '#d6336c',
             'typography_font_family' => 'helvetica-neue',
-            'weight_regular' => '500',
         ],
-        // Practical, sturdy, legible — bigger body (desktop paired so wide
-        // screens never shrink), workhorse font, soft rounding (a homeowner
-        // is hiring a person, not a factory).
+        // Practical, sturdy, legible — the workhorse font. (A homeowner is
+        // hiring a person, not a factory; the softer corners that used to say
+        // so left with border_radius.)
         self::HOME_SERVICES => [
             'color_accent' => '#d97706',
             'typography_font_family' => 'forma-djr',
-            'text_body' => '0.8125rem',
-            'text_desktop_body' => '0.8125rem',
-            'weight_regular' => '500',
-            'border_radius' => '0.25rem',
         ],
-        // The lounge welcome: warm ink, softly rounded, warm imagery.
+        // The lounge welcome: warm ink.
         self::HOSPITALITY => [
             'color_accent' => '#7c2d12',
             'typography_font_family' => 'monument-grotesk',
-            'border_radius' => '0.25rem',
-            'effect_image_treatment' => 'warm',
         ],
-        // Garage-signage confidence: heavy weight, chunky borders, hard-offset
-        // shadows. All four automotive slugs are garage-flavoured, so the
-        // register sits on the bucket.
+        // Garage-signage confidence. (The heavy weights, chunky rules and
+        // hard-offset shadows that carried this went with their columns; the
+        // red and the grotesque are what is left of it.)
         self::AUTOMOTIVE => [
             'color_accent' => '#c81e1e',
             'typography_font_family' => 'monument-grotesk',
-            'weight_regular' => '600',
-            'weight_heading' => '600',
-            'border_thickness' => '2px',
-            'effect_shadow_style' => 'hard',
         ],
-        // Gallery-like: expressive workhorse font, chrome-less plain links —
-        // the work speaks.
+        // Gallery-like: expressive workhorse font — the work speaks.
         self::CREATIVE_ENTERTAINMENT => [
             'color_accent' => '#7c3aed',
             'typography_font_family' => 'forma-djr',
-            'effect_link_style' => 'plain',
         ],
-        // Approachable and clear: proven UI font, bigger body (desktop
-        // paired), airier line-height, soft rounding and shadows — the
-        // encouraging modern-app read.
+        // Approachable and clear: proven UI font.
         self::EDUCATION_COACHING => [
             'color_accent' => '#2563eb',
             'typography_font_family' => 'helvetica-neue',
-            'text_body' => '0.8125rem',
-            'text_desktop_body' => '0.8125rem',
-            'typography_line_height' => '1.3',
-            'border_radius' => '0.25rem',
-            'effect_shadow_style' => 'soft',
         ],
     ];
 
@@ -139,83 +142,77 @@ final class SectorStylePresets
      * @var array<string, array<string, string|bool>>
      */
     private const SLUG_REFINEMENTS = [
-        // Espresso-toned neighbourhood calm, gently rounded.
-        'cafe' => ['color_accent' => '#92400e', 'border_radius' => '0.25rem'],
-        // Caramel warmth, soft pastry rounding.
-        'bakery' => ['color_accent' => '#b45309', 'border_radius' => '0.25rem'],
-        // Late-night mood carried by the ink alone now: bright wine, muted
-        // imagery, regular weight.
-        'bar' => ['color_accent' => '#be123c', 'effect_image_treatment' => 'muted', 'weight_regular' => '400'],
-        // Street-sign punch: chunky rules, heavy headings, hard shadows.
-        'food-truck' => ['weight_regular' => '500', 'weight_heading' => '600', 'effect_shadow_style' => 'hard', 'border_thickness' => '2px'],
-        // Plated restraint: airy, untreated photography, generous leading.
-        'personal-chef' => ['weight_regular' => '400', 'weight_heading' => '400', 'effect_image_treatment' => 'none', 'space_regular' => '0.75rem', 'typography_line_height' => '1.3'],
+        // Espresso-toned neighbourhood calm.
+        'cafe' => ['color_accent' => '#92400e'],
+        // Caramel warmth.
+        'bakery' => ['color_accent' => '#b45309'],
+        // Late-night mood carried by the ink alone: bright wine.
+        'bar' => ['color_accent' => '#be123c'],
+        // (food-truck and personal-chef departed from their bucket only in
+        // weights, shadows, imagery, space and leading — every one of those
+        // columns is gone, so neither has a refinement left to make.)
 
-        // Sharp + classic: pole-red, square, flat, mono portfolio, sturdy
-        // grotesque.
-        'barber' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#b91c1c', 'border_radius' => '0', 'effect_shadow_style' => 'flat', 'weight_regular' => '500', 'effect_image_treatment' => 'mono'],
-        // Calm-luxe: eucalyptus, light airy type, muted imagery, room to
-        // breathe.
-        'spa' => ['color_accent' => '#0f766e', 'weight_regular' => '300', 'weight_heading' => '400', 'effect_image_treatment' => 'muted', 'space_regular' => '0.75rem', 'typography_line_height' => '1.3'],
-        // Flash-sheet: red, square, hard shadows, chunky rules, mono work.
-        'tattoo-artist' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#dc2626', 'border_radius' => '0', 'effect_shadow_style' => 'hard', 'effect_image_treatment' => 'mono', 'border_thickness' => '2px'],
-        // Editorial glam: Helvetica, square, flat — the look book, unfiltered.
-        'makeup-artist' => ['typography_font_family' => 'helvetica-neue', 'border_radius' => '0', 'effect_shadow_style' => 'flat'],
+        // Sharp + classic: pole-red over a sturdy grotesque.
+        'barber' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#b91c1c'],
+        // Calm-luxe eucalyptus.
+        'spa' => ['color_accent' => '#0f766e'],
+        // Flash-sheet red.
+        'tattoo-artist' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#dc2626'],
+        // Editorial glam: Helvetica, the look book unfiltered.
+        'makeup-artist' => ['typography_font_family' => 'helvetica-neue'],
 
-        // Poster register for the gym floor: emerald, heavy headings.
-        'gym' => ['color_accent' => '#10b981', 'weight_heading' => '600'],
-        // Coach energy, one notch below the gym's signage.
-        'personal-trainer' => ['weight_heading' => '600'],
-        // The opposite of gym energy: soft, airy, approachable slate.
-        'therapist' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#64748b', 'weight_regular' => '400', 'weight_heading' => '400', 'border_radius' => '0.25rem', 'effect_shadow_style' => 'soft', 'typography_line_height' => '1.3'],
-        // Grounded calm: sage, light type, breathing room.
-        'yoga-instructor' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#5f7a61', 'weight_regular' => '300', 'border_radius' => '0.25rem', 'space_regular' => '0.75rem', 'typography_line_height' => '1.3'],
+        // Poster register for the gym floor: emerald.
+        'gym' => ['color_accent' => '#10b981'],
+        // (personal-trainer's only departure was a heavier heading weight.)
+        // The opposite of gym energy: soft, approachable slate.
+        'therapist' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#64748b'],
+        // Grounded calm: sage.
+        'yoga-instructor' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#5f7a61'],
         // Fresh + factual.
-        'nutritionist' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#4d7c0f', 'weight_regular' => '400'],
-        // Clinical trust: clinical teal, gentle rounding.
-        'physiotherapist' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#0e7490', 'weight_regular' => '400', 'border_radius' => '0.25rem'],
-        'chiropractor' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#0e7490', 'weight_regular' => '400', 'border_radius' => '0.25rem'],
-        'dentist' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#0e7490', 'weight_regular' => '400', 'border_radius' => '0.25rem', 'effect_shadow_style' => 'soft'],
+        'nutritionist' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#4d7c0f'],
+        // Clinical trust: clinical teal.
+        'physiotherapist' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#0e7490'],
+        'chiropractor' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#0e7490'],
+        'dentist' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#0e7490'],
 
         // Creative-pro breaks the suit: expressive font, violet.
-        'marketing-agency' => ['typography_font_family' => 'forma-djr', 'color_accent' => '#6d28d9', 'weight_regular' => '400', 'effect_link_style' => 'underline-hover'],
-        // Premium property: dark gold, light headings, soft depth.
-        'real-estate-agent' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#a16207', 'weight_regular' => '400', 'weight_heading' => '400', 'effect_shadow_style' => 'soft', 'effect_link_style' => 'underline-hover'],
+        'marketing-agency' => ['typography_font_family' => 'forma-djr', 'color_accent' => '#6d28d9'],
+        // Premium property: dark gold.
+        'real-estate-agent' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#a16207'],
 
-        // Velvet-case luxe: gold, light editorial type, generous space.
-        'jewellery' => ['color_accent' => '#ca8a04', 'typography_font_family' => 'helvetica-neue', 'weight_regular' => '300', 'weight_heading' => '400', 'space_regular' => '0.875rem'],
+        // Velvet-case luxe: gold, editorial type.
+        'jewellery' => ['color_accent' => '#ca8a04', 'typography_font_family' => 'helvetica-neue'],
         // Soft botanical.
-        'florist' => ['typography_font_family' => 'monument-grotesk', 'weight_regular' => '400', 'border_radius' => '0.25rem', 'effect_shadow_style' => 'soft'],
-        // Handmade warmth: terracotta, warm imagery, soft corners.
-        'artisan-maker' => ['typography_font_family' => 'forma-djr', 'color_accent' => '#9a3412', 'weight_regular' => '400', 'border_radius' => '0.25rem', 'effect_image_treatment' => 'warm'],
-        // Muted interior calm: stone accent, muted imagery, roomy.
-        'homewares' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#57534e', 'weight_regular' => '400', 'effect_image_treatment' => 'muted', 'space_regular' => '0.75rem'],
+        'florist' => ['typography_font_family' => 'monument-grotesk'],
+        // Handmade warmth: terracotta.
+        'artisan-maker' => ['typography_font_family' => 'forma-djr', 'color_accent' => '#9a3412'],
+        // Muted interior calm: stone.
+        'homewares' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#57534e'],
 
         'plumber' => ['color_accent' => '#0369a1'],
         'electrician' => ['color_accent' => '#1d4ed8'],
         'landscaper' => ['color_accent' => '#3f6212'],
         'cleaner' => ['color_accent' => '#0891b2'],
 
-        // Romantic editorial: rose-gold, light airy type, soft depth.
-        'wedding-planner' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#b76e79', 'weight_regular' => '300', 'weight_heading' => '400', 'effect_shadow_style' => 'soft', 'space_regular' => '0.75rem', 'typography_line_height' => '1.3'],
+        // Romantic editorial: rose-gold.
+        'wedding-planner' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#b76e79'],
         // The bar-room wine, over the hospitality base.
         'bartender' => ['color_accent' => '#be123c'],
 
         // Gloss-and-water blue over the garage base.
         'car-detailer' => ['color_accent' => '#0284c7'],
 
-        // NEVER filter a photographer's work; borderless quiet gallery,
-        // light editorial Helvetica, generous space, neutral slate.
-        'photographer' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#475569', 'weight_regular' => '300', 'weight_heading' => '400', 'space_regular' => '0.875rem'],
-        // Gig-poster: grotesque, hot pink-red, hard shadows, heavy headings.
-        'musician' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#e11d48', 'effect_shadow_style' => 'hard', 'weight_heading' => '600'],
+        // Quiet gallery: light editorial Helvetica, neutral slate.
+        'photographer' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#475569'],
+        // Gig-poster: grotesque, hot pink-red.
+        'musician' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#e11d48'],
         // (videographer's only refinement was a cinematic dark theme_mode —
         // it departed from its bucket in nothing else, so with one palette
         // left it has no refinement to make.)
-        // Literary restraint: navy ink, readable leading, honest links.
-        'writer' => ['color_accent' => '#1d3557', 'weight_regular' => '400', 'effect_link_style' => 'underline-always', 'typography_line_height' => '1.3'],
-        // Vibrant + friendly, app-bubble round.
-        'content-creator' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#db2777', 'border_radius' => '0.85rem'],
+        // Literary restraint: navy ink.
+        'writer' => ['color_accent' => '#1d3557'],
+        // Vibrant + friendly.
+        'content-creator' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#db2777'],
 
         // Editorial polish over the app-clean base.
         'life-coach' => ['typography_font_family' => 'helvetica-neue'],

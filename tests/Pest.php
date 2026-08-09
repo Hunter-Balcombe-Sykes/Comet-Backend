@@ -3199,17 +3199,28 @@ function createDataExportAudit(array $overrides = []): DataExportAudit
 }
 
 /**
- * site.design_kits — per-site design token table (1:1 with site.sites).
- * All token columns are NULLABLE (TEXT except the boolean night-shift flag)
- * so tests can insert partial rows and the resolver falls back to defaults
- * for unset columns. Mirrors the production schema subset tests touch —
- * 2026-07-10 rework: color_bg dropped; theme_mode / theme_night_shift_auto
- * added (migration 20260710160000); the size-named text_* columns became the
- * nine semantic slots (migration 20260710190000); effect_button_fill dropped
- * (migration 20260710210000); effect_surface + the glass satellite columns
- * dropped 2026-07-15 (migrations 20260714210000 / 20260714230000). The
- * production trigger trg_create_empty_design_kit is absent in SQLite — tests
- * that need a kit row must insert one manually.
+ * site.design_kits — per-site design kit (1:1 with site.sites).
+ *
+ * REGENERATED 2026-08-09 against the post-migration truth. This mirror is the
+ * whole table now, not a subset: the preset-only migration
+ * (20260809090001) took it from 57 value columns to 8, so there is no longer
+ * anything to leave out. It had also gone stale — it still created
+ * border_style, typography_uppercase, typography_tracking, motion_pace and
+ * theme_contrast, all dropped from Postgres by 20260806090001.
+ *
+ * Six of the eight are SELECTIONS with a fixed vocabulary
+ * (DesignKitValidationRules::designKitRules() is the authority):
+ *   text_size         small | medium | large
+ *   spacing           default | spacious
+ *   corners           default | rounded
+ *   border_thickness  default | none          ← was a CSS length before 08-09
+ *   theme_mode        bleach
+ *   theme_night_shift_auto  boolean (INTEGER here)
+ * No CHECK constraint backs them in Postgres, so none is mirrored here.
+ *
+ * Every column stays NULLABLE — null means "use the package default", and the
+ * production trigger trg_create_empty_design_kit inserts `(site_id)` alone.
+ * That trigger is absent in SQLite: tests that need a kit row insert one.
  */
 function setupDesignKitsTable(): void
 {
@@ -3217,37 +3228,12 @@ function setupDesignKitsTable(): void
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
         site_id TEXT PRIMARY KEY NOT NULL,
         color_accent TEXT NULL,
-        color_accent_contrast TEXT NULL,
-        color_text TEXT NULL,
-        color_text_muted TEXT NULL,
-        border_thickness TEXT NULL,
-        border_radius TEXT NULL,
-        border_style TEXT NULL,
-        text_caption TEXT NULL,
-        text_body TEXT NULL,
-        text_h3 TEXT NULL,
-        text_h2 TEXT NULL,
-        text_h1 TEXT NULL,
-        text_display TEXT NULL,
-        text_desktop_body TEXT NULL,
-        text_desktop_h1 TEXT NULL,
-        text_desktop_display TEXT NULL,
         typography_font_family TEXT NULL,
-        typography_line_height TEXT NULL,
-        typography_logo_height TEXT NULL,
-        typography_uppercase INTEGER NULL,
-        typography_tracking TEXT NULL,
-        weight_regular TEXT NULL,
-        weight_heading TEXT NULL,
-        space_regular TEXT NULL,
-        space_desktop_regular TEXT NULL,
-        layout_density TEXT NULL,
-        motion_pace TEXT NULL,
-        effect_shadow_style TEXT NULL,
-        effect_link_style TEXT NULL,
-        effect_image_treatment TEXT NULL,
+        text_size TEXT NULL,
+        spacing TEXT NULL,
+        corners TEXT NULL,
+        border_thickness TEXT NULL,
         theme_mode TEXT NULL,
-        theme_contrast TEXT NULL,
         theme_night_shift_auto INTEGER NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

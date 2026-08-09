@@ -66,15 +66,13 @@ it('puts the manual line first and drops overridden areas from the industry line
 it('shows only the manual line when every preset column is overridden', function () {
     $user = rationaleTenant('all-manual');
     // Override every column the plumber overlay sets (home_services base +
-    // accent refinement): accent, font, body size (+ desktop pair), weight, radius.
+    // accent refinement). Since the 2026-08-09 preset-only migration that is
+    // accent and font — the body size, weight and radius columns the overlay
+    // also used to set left the schema.
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $user->site->id,
         'color_accent' => '#123456',
         'typography_font_family' => 'geist',
-        'text_body' => '0.8rem',
-        'text_desktop_body' => '0.8rem',
-        'weight_regular' => '400',
-        'border_radius' => '0.5rem',
     ]);
 
     $out = app(DesignRationaleService::class)

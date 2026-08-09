@@ -22,39 +22,46 @@ use App\Services\Profile\SectorTaxonomy;
 final class ProfileDesignPresets
 {
     /**
-     * design_kits columns a profile preset may set — VALUE/SELECTION vars
-     * only, never inferred vars (they derive at render time). The user's own
-     * manual pick always wins, per the universal manual-over-preset rule.
+     * design_kits columns a profile preset may set. The user's own manual pick
+     * always wins, per the universal manual-over-preset rule.
      * theme_night_shift_auto is the ONE remaining user-only field (a
      * functional day/night toggle, not an aesthetic choice) — never preset.
      *
-     * Narrowed 2026-08-06 by the design-kit simplification. theme_contrast,
+     * This is the PERMISSION surface, not the content: it lists every column a
+     * preset is allowed to write, and SectorStylePresets currently exercises
+     * only the first two. The four selections are listed so a future sector
+     * differentiation is a data change in that file rather than an edit here.
+     *
+     * Rewritten 2026-08-09 for the preset-only schema (20260809090001). Every
+     * column that left the table left this list with it: text_body,
+     * text_desktop_body, weight_regular, weight_heading,
+     * typography_line_height, typography_logo_height, border_radius,
+     * space_regular, space_desktop_regular, layout_density and the three
+     * effect_* axes. border_thickness stayed but changed vocabulary — it is a
+     * 'default' | 'none' selection now, not a CSS length.
+     *
+     * (layout_density and space_desktop_regular were listed as "orphaned" in
+     * the go-live brief §8.3. They were not — this list and
+     * DesignRationaleService::COLUMN_AREAS both referenced them, and
+     * layout_density in particular has never had a `layout` entry in the
+     * config prefix map, so it was reachable by a preset yet invisible in the
+     * public payload. Both go now, deliberately.)
+     *
+     * Narrowed 2026-08-06 by the design-kit simplification: theme_contrast,
      * typography_tracking, typography_uppercase, motion_pace and border_style
      * left the schema entirely. theme_mode KEPT its column but lost its
      * roster — 'bleach' is the only legal value, so presetting it could only
-     * ever write the default, and it drops off this list too. (It had been
-     * presettable since an owner override on 2026-07-22, back when industries
-     * could be given a room-tone.)
+     * ever write the default, and it dropped off this list then.
      *
      * @var list<string>
      */
     private const TARGETABLE = [
         'color_accent',
-        'text_body',
-        'text_desktop_body',
-        'weight_regular',
-        'weight_heading',
-        'typography_line_height',
-        'typography_logo_height',
         'typography_font_family',
+        'text_size',
+        'spacing',
+        'corners',
         'border_thickness',
-        'border_radius',
-        'space_regular',
-        'space_desktop_regular',
-        'layout_density',
-        'effect_shadow_style',
-        'effect_link_style',
-        'effect_image_treatment',
     ];
 
     /** @return array<string, string|bool> sparse [design_kits column => value]; [] when nothing applies */

@@ -32,24 +32,39 @@ it('rejects a non-hex design-kit colour', function () {
         ->assertJsonValidationErrors(['design_kit.color_accent']);
 });
 
-it('rejects a non-hex border / icon colour', function () {
-    // SEC-5 extension: border_color and icon_color flow into the same
-    // inline-CSS surface as color_*, so they carry the hex-only regex too.
-    // rgba()/named colours must 422 before reaching writeDesignKit.
-    // (border_focus_color was dropped with its column — 2026-07-07 trait regen.)
-    $pro = createTenant('hex-border-pro');
+it('rejects an out-of-vocabulary selection on every selection column', function () {
+    // SEC-5 extension. border_color and icon_color used to be tested here —
+    // they carried the same hex-only regex as color_* because they landed in
+    // the same inline-CSS surface. Both columns went with the 2026-08-09
+    // preset-only migration, and color_accent is the only free-form value the
+    // kit still holds (covered by the test above).
+    //
+    // What replaces them is the four SELECTIONS. Nothing but the request layer
+    // enforces their vocabulary — there is no CHECK constraint behind any of
+    // them (see DesignKitValidationRules' header) — so a weakened `in:` rule
+    // would let a junk token reach the column and, from there, the design
+    // system's preset lookup. This is the only tooth that vocabulary has.
+    $pro = createTenant('selection-vocab-pro');
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['design_kit' => [
-            'border_color' => 'red',
-            'icon_color' => 'blue',
+            'text_size' => 'gigantic',
+            'spacing' => 'cosy',
+            'corners' => 'pill',
+            'border_thickness' => '2px',   // the OLD length grammar, now invalid
         ]])
         ->assertStatus(422)
         ->assertJsonValidationErrors([
-            'design_kit.border_color',
-            'design_kit.icon_color',
+            'design_kit.text_size',
+            'design_kit.spacing',
+            'design_kit.corners',
+            'design_kit.border_thickness',
         ]);
 });
+
+// The accept side of the same vocabulary lives in WriteDesignKitTest — it
+// needs the seeded information_schema mirror, because a request that passes
+// validation goes on to run writeDesignKit().
 
 it('rejects an unknown architecture id', function () {
     $pro = createTenant('skel-pro');

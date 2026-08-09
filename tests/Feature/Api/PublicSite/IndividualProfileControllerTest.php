@@ -38,15 +38,25 @@ beforeEach(function () {
     // 20260603000001_drop_orphan_design_kit_typography_cols.sql — not present
     // in production. typography_font_family (added 20260527090000, never
     // dropped) stands in for exercising the typography prefix-group path.
+    //
+    // This table is a FIXTURE FOR groupKitColumns(), not a mirror of
+    // production. It deliberately carries columns the live schema does not
+    // (sizing_desktop_base, typography_desktop_size_base, and since 2026-08-09
+    // space_regular / space_desktop_regular) because the mapping function is
+    // what is under test and each one is the only specimen of a branch:
+    // two-token prefix, two-token-beats-single-token, and single-token.
+    // tests/Pest.php::setupDesignKitsTable() is the mirror that must track the
+    // real schema; this one must track the mapper's branches.
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
         site_id TEXT PRIMARY KEY,
         color_accent TEXT NULL,
-        color_text TEXT NULL,
         typography_font_family TEXT NULL,
-        icons_xl_size TEXT NULL,
-        icons_xxl_size TEXT NULL,
-        icons_stroke_width TEXT NULL,
-        icons_large_stroke_width TEXT NULL,
+        theme_mode TEXT NULL,
+        theme_night_shift_auto INTEGER NULL,
+        text_size TEXT NULL,
+        spacing TEXT NULL,
+        corners TEXT NULL,
+        border_thickness TEXT NULL,
         space_regular TEXT NULL,
         space_desktop_regular TEXT NULL,
         sizing_desktop_base TEXT NULL,
@@ -229,21 +239,67 @@ it('groups stored design_kit columns into nested camelCase wire shape', function
     ]);
 });
 
-it('maps icons_xl_size column to icons.xlSize in the wire shape', function () {
-    // Regression: icons_* columns were silently dropped because the prefix map
-    // had 'icon' (singular) but not 'icons' (plural). KIT-1.
-    $pro = seedIndividualProfile('solo-dk-icons');
+it('maps theme_night_shift_auto to theme.nightShiftAuto in the wire shape', function () {
+    // The single-token prefix path, with a multi-token remainder that has to
+    // camelCase correctly (night_shift_auto → nightShiftAuto).
+    //
+    // Was `icons_xl_size → icons.xlSize` — the KIT-1 regression where icons_*
+    // columns were silently dropped because the prefix map had 'icon'
+    // (singular) but not 'icons' (plural). Every icon_* and icons_* column
+    // left the schema with the 2026-08-09 preset-only migration, so that
+    // lesson has no live specimen to pin any more; this rewrite keeps the
+    // BRANCH covered against a column that still exists. (The `icon`/`icons`
+    // entries stay in the config map — see its header on why dead prefixes are
+    // kept rather than pruned.)
+    $pro = seedIndividualProfile('solo-dk-theme');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $siteId,
-        'icons_xl_size' => '32px',
+        'theme_mode' => 'bleach',
+        'theme_night_shift_auto' => 1,
     ]);
 
-    $data = $this->getJson('/api/public/profiles/solo-dk-icons')->assertOk()->json('data');
+    $data = $this->getJson('/api/public/profiles/solo-dk-theme')->assertOk()->json('data');
 
-    expect($data['designKit'])->toHaveKey('icons');
-    expect($data['designKit']['icons']['xlSize'])->toBe('32px');
+    expect($data['designKit'])->toHaveKey('theme');
+    expect($data['designKit']['theme']['mode'])->toBe('bleach');
+    expect($data['designKit']['theme'])->toHaveKey('nightShiftAuto');
+});
+
+it('maps the four selection columns into the selections group', function () {
+    // The exact_columns path (2026-08-09). Two of these four —`spacing` and
+    // `corners` — carry NO underscore, so the prefix split cannot produce a
+    // group/rest pair for them at all: before exact_columns existed they were
+    // dropped from the payload silently, with no error anywhere. This test is
+    // the only thing standing between that and a shipped regression.
+    //
+    // border_thickness is here rather than under `borders` deliberately — see
+    // the naming call flagged in config/partna.php.
+    $pro = seedIndividualProfile('solo-dk-selections');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.design_kits')->insert([
+        'site_id' => $siteId,
+        'text_size' => 'large',
+        'spacing' => 'spacious',
+        'corners' => 'rounded',
+        'border_thickness' => 'none',
+    ]);
+
+    $data = $this->getJson('/api/public/profiles/solo-dk-selections')->assertOk()->json('data');
+
+    expect($data['designKit']['selections'])->toBe([
+        'textSize' => 'large',
+        'spacing' => 'spacious',
+        'corners' => 'rounded',
+        'borderThickness' => 'none',
+    ]);
+    // An exact match must win over the prefix maps: `text_size` would
+    // otherwise have landed in text.size, and `border_thickness` in
+    // borders.thickness.
+    expect($data['designKit'])->not->toHaveKey('text');
+    expect($data['designKit'])->not->toHaveKey('borders');
 });
 
 it('groups two-token responsive prefix columns into the correct nested group', function () {

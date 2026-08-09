@@ -24,25 +24,22 @@ class DesignRationaleService
      * User-facing AREAS a targetable column belongs to. Any column not
      * listed maps to the generic 'Style' area.
      *
+     * Rewritten 2026-08-09 for the preset-only schema (20260809090001) — one
+     * entry per ProfileDesignPresets::TARGETABLE column, which is now the
+     * whole editable kit minus theme_mode and the night-shift toggle. Every
+     * other entry (the text_*, weight_*, space_*, border_radius,
+     * typography_line_height / _logo_height, layout_density and effect_*
+     * columns) named a column that no longer exists.
+     *
      * @var array<string, string>
      */
     private const COLUMN_AREAS = [
         'color_accent' => 'Colours',
-        'text_body' => 'Typography',
-        'text_desktop_body' => 'Typography',
-        'weight_regular' => 'Typography',
-        'weight_heading' => 'Typography',
-        'typography_line_height' => 'Typography',
-        'typography_logo_height' => 'Typography',
         'typography_font_family' => 'Typography',
+        'text_size' => 'Typography',
+        'spacing' => 'Layout',
+        'corners' => 'Layout',
         'border_thickness' => 'Layout',
-        'border_radius' => 'Layout',
-        'space_regular' => 'Layout',
-        'space_desktop_regular' => 'Layout',
-        'layout_density' => 'Layout',
-        'effect_shadow_style' => 'Style',
-        'effect_link_style' => 'Style',
-        'effect_image_treatment' => 'Style',
     ];
 
     /**

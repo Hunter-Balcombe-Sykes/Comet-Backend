@@ -38,7 +38,6 @@
 // hardcoded set even though the migration (unchanged) still does.
 
 use App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest;
-use App\Http\Requests\Concerns\DesignKitValidationRules;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\Site;
@@ -169,13 +168,31 @@ it('sites_shop_link_mode_check matches Site::SHOP_LINK_MODES and the hardcoded e
     lockstepAssertSameSet(Site::SHOP_LINK_MODES, $expected, 'Site::SHOP_LINK_MODES (app vs hardcoded)');
 });
 
-// ─── site.design_kits (DINT-101) ────────────────────────────────────────────
+// ─── site.design_kits (DINT-101) — NOTHING TO PIN, DELIBERATELY ─────────────
 //
 // The typography_tracking and theme_contrast lockstep pairs were removed on
 // 2026-08-06: both columns and both CHECK constraints left the schema with the
-// design-kit simplification (20260806090001), so there is no vocabulary left
+// design-kit simplification (20260806090001), so there was no vocabulary left
 // to keep in step. theme_mode's single legal value lives in the request rule
 // alone — it never had a CHECK constraint to pair with.
+//
+// 2026-08-09 (preset-only, 20260809090001) added FOUR new vocabularies —
+// text_size, spacing, corners and border_thickness — and gave none of them a
+// CHECK either. That was a decision, not an oversight: it follows theme_mode's
+// precedent, and the request layer is the only write path that carries a
+// vocabulary at all (DesignKitAutopilot and DesignKitAccentApplier write
+// color_accent only; DesignKitRestyleService replays autopilot's proposals).
+// UpdateSiteValidationTest and WriteDesignKitTest cover both sides of each
+// vocabulary — the reject and the accept — which is the tooth those four have.
+//
+// IF CHECKS ARE EVER ADDED, THREE THINGS MOVE TOGETHER: a NOT VALID migration
+// plus a separate VALIDATE one (CONVENTIONS §2 — site.design_kits is a hot
+// table), and one `it(...)` block per column here reading the IN (...) list
+// straight out of that migration's text. Adding the constraints without the
+// blocks leaves the drift this file exists to catch; adding the blocks without
+// the constraints fails CI on SQLite for a reason that looks unrelated.
+// DesignKitValidationRules is deliberately NOT imported until then — an unused
+// import reads as coverage that isn't there.
 
 // ─── site.shop_brands.selection_mode / link_mode (SCHEMA-4) ─────────────────
 
