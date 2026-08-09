@@ -86,16 +86,163 @@ php "$HERE/active/seed-identities.php" --env=dast "$OUTDIR"
 # layer accepts when it should not is a finding, not a warning.
 bash "$HERE/active/tier2.sh" "$OUTDIR"
 
+# --- THE IDOR SURFACE TABLE. One row per ownership-CHECK group, which is the
+# controller METHOD, not the resource: site/sections/* is served by
+# SectionController, SectionGroupController, SectionItemController AND
+# SectionTraceController, each hand-rolling its own scoping, so proving one
+# proves nothing about the others. Likewise content.items is reachable through
+# ItemController, PoolController, ItemLinkController and ManualOverrideController.
+# Authorization is per-code-path — group by the code that decides, not by the
+# table.
+#
+# THE COLLAPSE RULE, stated precisely because an imprecise one invites a false
+# completeness claim: one row per DISTINCT OWNERSHIP-DECIDING CODE PATH — a
+# private lookup helper (findSection/findItem/findIntent/transition) or a policy
+# ability. Methods sharing a decider collapse to one row (markRead/markReplied/
+# archive/restore all route through transition(); SuggestionsController::accept
+# and ::dismiss share findIntent). Methods with their OWN decider get their own
+# row even in the same class — which is why markSpam is listed separately from
+# enquiry-read below.
+#
+# Columns: name | METHOD | printf path template | fixture key prefix
+#
+# VERB CHOICE IS DELIBERATE. Every entry is a GET, a bodyless POST or a DELETE.
+# Laravel validates a FormRequest BEFORE the controller method runs, so a
+# bodyless PATCH/PUT returns 422 without ever reaching the ownership check and
+# tells you nothing — e.g. PATCH /api/gallery/{image} would 422 on
+# UpdateGalleryImageRequest. Where a surface offers only a write verb, the
+# DELETE is used and the control consumes a dedicated fixture (see
+# seed-identities.php's FIXTURE -> CONSUMER map). Never "simplify" one of these
+# to a PATCH without sending a valid body.
+#
+# NOT SURFACES — do not add probes for these. They are enum/string-keyed, so
+# there is no other tenant's value to substitute and the probe could not fail:
+#   api/design-media/{purpose}, api/sections/{blockType},
+#   api/content/pools/{pool} (PoolController::show(Request, string $pool) ->
+#   assertPool(); it LOOKS like an id in route:list and is not one).
+#
+# TWO NEAR-MISSES, deliberately omitted — both carry a second tenant-owned id
+# whose effective IDOR target is the PARENT, which is already probed:
+#   - api/site/sections/{section}/groups/{groupKey}: {groupKey} is a
+#     section-scoped string key (->where('group_key', ...)).
+#   - api/site/sections/{section}/items/{item}: SectionItemController::destroy
+#     scopes {item} by section_id alone, never by owner — which is sufficient,
+#     because a foreign item cannot be pinned in a section you own. The parent
+#     {section} is the real target and section-items below probes it.
+# SectionItemController::upsert DOES carry a second, genuinely independent
+# owner-scoped check on {item} (findItem + authorize 'view'), but it is a PUT
+# with a required body, so a bodyless probe would 422 before authorization runs.
+# Uncovered, and named here rather than quietly dropped.
+IDOR_SURFACES=(
+    # UserCustomerController::show -> CustomerPolicy::view -> denyAsNotFound
+    "customer|GET|/api/customers/%s|CUSTOMER_ID"
+    # UserEnquiryController::transition -> ->where('user_id')->find() then 404.
+    # markRead/markReplied/archive/restore all delegate to transition(), so one
+    # probe covers the four.
+    "enquiry-read|POST|/api/enquiries/%s/read|ENQUIRY_ID"
+    # markSpam does NOT delegate to transition() — it duplicates the lookup
+    # inline (UserEnquiryController:56-64). A second copy of an ownership check
+    # is a second thing that can be wrong, and it is the destructive one (it
+    # soft-deletes a Customer and writes a spam-blocklist entry). Probed
+    # separately for exactly that reason. Consumes A's enquiry state, which is
+    # why it is ordered after enquiry-read.
+    "enquiry-spam|POST|/api/enquiries/%s/spam|ENQUIRY_ID"
+    # Four SiteMedia controllers, four DISTINCT ownership code paths. Pools are
+    # not interchangeable here: UserDocumentController::destroy pool-checks
+    # BEFORE authorizing, so a gallery id 404s for the wrong reason.
+    "gallery-image|DELETE|/api/gallery/%s|MEDIA_ID"
+    "upload-image|DELETE|/api/images/%s|MEDIA_IMAGE_ID"
+    "document|DELETE|/api/documents/%s|MEDIA_DOCUMENT_ID"
+    "content-upload|DELETE|/api/content/uploads/%s|MEDIA_CONTENT_ID"
+    # ServicePolicy::view -> denyAsNotFound (both controllers)
+    "service|GET|/api/services/%s|SERVICE_ID"
+    "service-category|GET|/api/service-categories/%s|SERVICE_CATEGORY_ID"
+    # Four separate section controllers, one shared fixture. All four bodyless
+    # GETs — cheaper and non-destructive versions of the same findSection().
+    "section|GET|/api/site/sections/%s|SECTION_ID"
+    "section-items|GET|/api/site/sections/%s/items|SECTION_ID"
+    "section-groups|GET|/api/site/sections/%s/groups|SECTION_ID"
+    "section-trace|GET|/api/site/sections/%s/trace|SECTION_ID"
+    # Its OWN page: deleting the section's parent would CASCADE the section away.
+    "page|DELETE|/api/site/pages/%s|PAGE_DELETE_ID"
+    "feedback|GET|/api/me/feedback/%s|FEEDBACK_ID"
+    "restyle-undo|POST|/api/site/restyle/%s/undo|RESTYLE_ID"
+    "notification-read|POST|/api/me/notifications/%s/read|NOTIFICATION_ID"
+    # Four content.items code paths. content-item CONSUMES its item (removed_at),
+    # so the other three use a second one.
+    "content-item|DELETE|/api/content/items/%s|ITEM_ID"
+    "pool-deselect|DELETE|/api/content/pools/watch/selection/%s|ITEM_POOL_ID"
+    "item-link|DELETE|/api/content/items/%s/links/custom|ITEM_POOL_ID"
+    # facet/column MUST match the row seed-identities.php inserts (f_text.headline
+    # — App\Content\Values\ValueResolver). They are not validated by destroy(), so
+    # a mismatch 404s the CONTROL for "no such override" rather than failing loudly
+    # about the real cause. Caught exactly that way 2026-08-09 when the fixture
+    # moved from 'core' to 'f_text' and this URL did not.
+    "item-override|DELETE|/api/content/items/%s/overrides/f_text/headline|ITEM_POOL_ID"
+    # Routing. setPrimary changes only is_primary, which satisfies NONE of
+    # IntegrationConnectionObserver::saved's gates — no refresh, no IdentitySync,
+    # no outbound fetch. dismiss (not accept) shares findIntent's ownership check
+    # and stays local; accept would run SuggestionApplier.
+    "routing-primary|POST|/api/routing/connections/%s/primary|CONNECTION_ID"
+    "routing-suggestion-dismiss|POST|/api/routing/suggestions/%s/dismiss|INTENT_ID"
+)
+
+# Emit the requestor entries: per surface, a CONTROL on A's own row expecting
+# 200 immediately followed by the PROBE on B's row expecting 404. Generated
+# rather than hand-written so a surface can never acquire a probe without its
+# control — the pairing is structural, not a convention someone has to remember.
+idor_requests() {
+    local surface name method template prefix a_var b_var
+    for surface in "${IDOR_SURFACES[@]}"; do
+        IFS='|' read -r name method template prefix <<<"$surface"
+        a_var="${prefix}_A"
+        b_var="${prefix}_B"
+        # Substitution, not `printf "$template"`: a variable as a format string
+        # (SC2059) would silently mangle any future path containing a literal %
+        # rather than failing loudly. ${var//pat/rep} is bash-3.2-safe.
+        printf '      - url: "%s%s"\n' "$ZAP_TARGET_URL" "${template//%s/${!a_var}}"
+        printf '        method: %s\n' "$method"
+        printf '        name: control-own-%s\n' "$name"
+        printf '        headers:\n          - "Authorization: Bearer %s"\n' "$TOKEN_A"
+        printf '        responseCode: 200\n'
+        printf '      - url: "%s%s"\n' "$ZAP_TARGET_URL" "${template//%s/${!b_var}}"
+        printf '        method: %s\n' "$method"
+        printf '        name: idor-%s\n' "$name"
+        printf '        headers:\n          - "Authorization: Bearer %s"\n' "$TOKEN_A"
+        printf '        responseCode: 404\n'
+    done
+}
+
 EMAIL_A=$(jq -r .A.email "$OUTDIR/identities.json")
 PASS_A=$(jq -r .A.password "$OUTDIR/identities.json")
 EMAIL_B=$(jq -r .B.email "$OUTDIR/identities.json")
 PASS_B=$(jq -r .B.password "$OUTDIR/identities.json")
 # Both identities' ids: B's drive the IDOR probes, A's drive the paired
 # CONTROLS. A control per probe is not redundancy — see the requestor job.
-CUST_A=$(jq -r .A.customer_id "$OUTDIR/identities.json")
-ENQUIRY_A=$(jq -r .A.enquiry_id "$OUTDIR/identities.json")
-CUST_B=$(jq -r .B.customer_id "$OUTDIR/identities.json")
-ENQUIRY_B=$(jq -r .B.enquiry_id "$OUTDIR/identities.json")
+#
+# One shell var per fixture per identity, and the key list is DERIVED FROM
+# IDOR_SURFACES rather than restated — a hand-maintained second list is exactly
+# the drift this whole exercise is about. Adding a surface therefore requires
+# nothing here.
+#
+# The null check is load-bearing: `jq -r` prints the string "null" for a missing
+# key rather than failing, so a seeder/probe drift would otherwise reach ZAP as
+# the literal URL .../api/services/null — which 404s, satisfying every idor-*
+# assertion while testing nothing. (Its paired control would 404 too and fail the
+# lane, so it WOULD be caught — but as a confusing control failure 12 minutes in,
+# rather than as a named missing fixture before ZAP even starts.)
+# `tr`, not ${prefix,,} — macOS ships bash 3.2 and case modification is bash 4+.
+# Same constraint lib/diff-baseline.sh's header records; this lane is developed
+# and run on macOS, so a bash-4-ism here is a hard break, not a portability nit.
+for prefix in $(printf '%s\n' "${IDOR_SURFACES[@]}" | cut -d'|' -f4 | sort -u); do
+    key=$(printf '%s' "$prefix" | tr 'A-Z' 'a-z')
+    for who in A B; do
+        value=$(jq -r ".${who}.${key} // \"null\"" "$OUTDIR/identities.json")
+        [[ "$value" != "null" && -n "$value" ]] \
+            || die "identities.json is missing .${who}.${key} — seed-identities.php and the IDOR_SURFACES table have drifted. Add the fixture; do NOT drop the probe."
+        printf -v "${prefix}_${who}" '%s' "$value"
+    done
+done
 
 TOKEN_A=$(php "$HERE/active/mint-jwt.php" "$EMAIL_A" "$PASS_A")
 TOKEN_B=$(php "$HERE/active/mint-jwt.php" "$EMAIL_B" "$PASS_B")
@@ -147,6 +294,7 @@ cat > "$ZAP_WORK/scan-policy.yaml" <<'POLICY'
     - id: 90020   # Remote OS Command Injection
       threshold: "MEDIUM"
 POLICY
+
 
 # --- Assemble the full plan: contexts (filled) + per-pass replacer + import
 # + per-context spider/activeScan + cross-identity IDOR requests + report.
@@ -236,9 +384,8 @@ $(sed 's/^/      /' "$ZAP_WORK/scan-policy.yaml")
   # it sent four requests and checked nothing, so a successful cross-tenant
   # read would have gone unreported. 404 (not 403) is the app's deliberate
   # convention for a resource that exists but is not yours, confirmed in
-  # source: CustomerPolicy::view -> BasePolicy::denyAsNotFound(), and
-  # UserEnquiryController::transition's own \`->where('user_id', ...)->find()\`
-  # then 404. A 200 here means broken tenant isolation.
+  # source for EVERY surface in IDOR_SURFACES above. A 200 here means broken
+  # tenant isolation.
   #
   # EVERY probe is paired with a CONTROL on identity A's OWN equivalent
   # resource expecting 200. Without it the probes are vacuous three ways
@@ -259,30 +406,7 @@ $(sed 's/^/      /' "$ZAP_WORK/scan-policy.yaml")
   - type: requestor
     parameters: {}
     requests:
-      - url: "${ZAP_TARGET_URL}/api/customers/${CUST_A}"
-        method: GET
-        name: control-own-customer-a
-        headers:
-          - "Authorization: Bearer ${TOKEN_A}"
-        responseCode: 200
-      - url: "${ZAP_TARGET_URL}/api/customers/${CUST_B}"
-        method: GET
-        name: idor-customer-b
-        headers:
-          - "Authorization: Bearer ${TOKEN_A}"
-        responseCode: 404
-      - url: "${ZAP_TARGET_URL}/api/enquiries/${ENQUIRY_A}/read"
-        method: POST
-        name: control-own-enquiry-a
-        headers:
-          - "Authorization: Bearer ${TOKEN_A}"
-        responseCode: 200
-      - url: "${ZAP_TARGET_URL}/api/enquiries/${ENQUIRY_B}/read"
-        method: POST
-        name: idor-enquiry-b
-        headers:
-          - "Authorization: Bearer ${TOKEN_A}"
-        responseCode: 404
+$(idor_requests)
 
   # Unauth pass — the replacer was cleared above and the IDOR tokens were
   # per-request, so nothing is installed and these requests are genuinely
@@ -341,11 +465,35 @@ log "zap-active: ZAP automation run exited $ZAP_EXIT (informational only) — se
 # path, since the site tree it draws from is what excludePaths governs.
 # Keep this alternation in sync with zap-context.yaml's excludePaths — the two
 # lists are the same contract stated twice (there is intentionally no shared
-# source: the YAML needs regexes per context, this needs one grep). The
-# `sessions|me/deletion|account/mfa` entries are the self-destruction group
-# added 2026-08-07; `api/sessions/` with the trailing slash deliberately does
-# NOT match the in-scope `GET api/sessions` collection read.
-if grep -qE "api/(platforms|staff/builds|site/custom-domain|me/site/reclaim-handle|staff/sites|sessions|me/deletion|account/mfa)/" "$ZAP_WORK/zap-run.log"; then
+# source: the YAML needs regexes per context, this needs one grep). Pinned both
+# ways by tests/Feature/Architecture/DastSelfDestructionExclusionGuardTest.php,
+# which asserts each alternation term equals its excludePaths entry with the
+# leading/trailing `.*` stripped — so the terms carry their OWN trailing slash
+# rather than sharing one after the group.
+#
+# That shared trailing `/` was a real hole, found 2026-08-09 while writing that
+# test: `api/(...|staff/builds|site/custom-domain|me/site/reclaim-handle|...)/`
+# required a slash AFTER each term, so it could never match the exact routes
+# `POST api/staff/builds`, `GET|PUT|DELETE api/site/custom-domain` or
+# `POST api/me/site/reclaim-handle` — three of the very paths it names.
+#
+# WHAT THIS CHECK CAN AND CANNOT SEE. It greps the run log, and ZAP only logs
+# URLs for the requestor job's own requests plus spider SEED/error lines. The
+# spider reports discoveries as a bare "Job spider found N URLs" with no
+# listing, and activeScan logs nothing per request. So this cannot observe what
+# the spider or the active scanner actually requested, and a green result here
+# is NOT proof that no excluded path was ever hit — excludePaths correctness
+# rests on the YAML. What it does catch is this script itself sending an
+# excluded URL (e.g. a new IDOR probe pointing somewhere it should not).
+# Verified 2026-08-09 against audits/dast/2026-08-09-active/zap/zap-run.log:
+# every api/ line in it is one of the 44 requestor entries. Do not upgrade this
+# comment to a proof claim without first raising ZAP's log level or gating on
+# the site tree in zap-report.json instead.
+#
+# The `sessions/|me/deletion/|account/mfa/` entries are the self-destruction
+# group added 2026-08-07; `api/sessions/` keeps its trailing slash deliberately
+# so the in-scope `GET api/sessions` collection read is NOT matched.
+if grep -qE "api/(platforms/|staff/builds|site/custom-domain|me/site/reclaim-handle|staff/sites/|sessions/|me/deletion/|account/mfa/)" "$ZAP_WORK/zap-run.log"; then
     die "exclusion verification FAILED: an excluded path appears in the run log — see $ZAP_WORK/zap-run.log"
 fi
 log "zap-active: exclusion check passed — zero references to excluded paths in the run log"
@@ -375,6 +523,18 @@ log "zap-active: plan integrity check passed — ZAP recognised every parameter 
 # tenant isolation); a `control-*` mismatch means the probes proved nothing
 # because the token, the app or the route was not working. Both invalidate the
 # run, so both must fail it.
+# COUNT FLOOR FIRST. Everything below keys off the ABSENCE of a mismatch line,
+# and absence is exactly the shape of failure this whole lane exists to kill: if
+# the requestor job never ran, or emitted fewer requests than the table declares,
+# "IDOR assertions passed" prints just the same. The fixture-drift die() up in the
+# read loop catches a MISSING key; this catches an empty array, a malformed
+# template, and a requestor job ZAP declined to run.
+IDOR_SENT=$(grep -c "Job requestor requesting URL" "$ZAP_WORK/zap-run.log" || true)
+IDOR_EXPECTED=$(( 2 * ${#IDOR_SURFACES[@]} ))
+[[ "$IDOR_SENT" -eq "$IDOR_EXPECTED" ]] || die "IDOR gate is VACUOUS — expected $IDOR_EXPECTED requestor requests (${#IDOR_SURFACES[@]} surfaces x control+probe), the run log shows $IDOR_SENT.
+A passing assertion check below would prove nothing. see $ZAP_WORK/zap-run.log"
+log "zap-active: IDOR request count check passed — $IDOR_SENT/$IDOR_EXPECTED requests issued"
+
 if grep -q "Difference in response code values" "$ZAP_WORK/zap-run.log"; then
     die "IDOR/control assertion FAILED — a cross-identity probe or its control returned an unexpected status:
 $(grep "Difference in response code values" "$ZAP_WORK/zap-run.log" | sort -u)

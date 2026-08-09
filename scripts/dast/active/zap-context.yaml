@@ -56,9 +56,18 @@
 # MAIL_MAILER=log contains it; slow, not destructive).
 #
 # Adding an authenticated route that revokes credentials, deletes the account,
-# or changes auth state means adding it here — nothing detects that class
-# automatically, and the symptom is a late-plan 401 cascade that looks like a
-# broken token rather than a self-inflicted logout.
+# or changes auth state means adding it here. The symptom of forgetting is a
+# late-plan 401 cascade that looks like a broken token rather than a
+# self-inflicted logout.
+#
+# THIS IS NOW DETECTED: tests/Feature/Architecture/DastSelfDestructionExclusionGuardTest.php
+# fails the suite if a non-GET user route whose controller reaches
+# TokenRevocationService, AccountDeletionService or SupabaseAdminService is not
+# matched by excludePaths in all three contexts. It also pins the three lists
+# against each other, pins them against zap-active.sh's exclusion-verification
+# grep both ways, and pins that PATCH api/me / POST api/me/data-export stay IN
+# scope. It runs in `composer test`, not in a lane run — so a new route of this
+# class is caught before anyone spends 12 minutes misdiagnosing the 401s.
 env:
   contexts:
     - name: "identity-a"

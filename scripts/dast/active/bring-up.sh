@@ -190,6 +190,29 @@ apply_env SESSION_DRIVER array
 apply_env BROADCAST_CONNECTION log
 apply_env MAIL_MAILER log
 apply_env NIGHTWATCH_ENABLED false
+# Media stays on the local filesystem. .env.example resolves partna.media_disk
+# to the R2 'media' disk with the placeholder endpoint
+# https://<account_id>.r2.cloudflarestorage.com — so the IDOR pass's four media
+# DELETE controls (gallery/images/documents/content-uploads) would each attempt
+# to resolve a non-loopback host. ImageVariantService::deleteVariants and
+# UserDocumentController::destroy both catch \Throwable, so it could not 500 —
+# but "the active lane only ever touches loopback" is an assertion this script
+# makes (seed-identities.php's containment guard 2), not an aspiration, and a
+# failed DNS lookup is still an outbound attempt. Local disk keeps it true.
+apply_env PARTNA_MEDIA_DISK local
+# Two consequences worth knowing, neither a blocker:
+#  - the local disk root is storage_path('app/private') IN THE REPO TREE, and
+#    teardown() removes only $SCRATCH and .env.dast. Anything the lane writes
+#    there survives. In practice ZAP cannot synthesise valid multipart bodies, so
+#    essentially nothing is written.
+#  - .env.example sets PARTNA_THROTTLE_ENABLED=true and nothing here overrides it,
+#    so throttle:authenticated (300/min per supabase_uid) and the route-level
+#    throttle:30,1 on documents/content-uploads ARE armed. They never bite only
+#    because CACHE_STORE=array above, and `artisan serve`'s php -S child rebuilds
+#    the array store per request — every limiter bucket is empty on arrival. So
+#    this lane cannot detect a throttling regression, and moving CACHE_STORE to a
+#    persistent driver would make identity A's activeScan burn the 300/min budget
+#    and start returning 429 on the IDOR controls.
 
 # --- Step 5: serve the app against the local stack.
 #

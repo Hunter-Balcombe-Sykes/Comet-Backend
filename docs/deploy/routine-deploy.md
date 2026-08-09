@@ -135,6 +135,20 @@ git push origin development:production
 
 # 4. Watch it land
 ~/.composer/vendor/bin/cloud deployment:list production
+
+# 4a. ONE-TIME, until it lands: confirm the DAST edge cron's failure floor.
+#     .github/workflows/dast-edge.yml on production still sets DAST_FAIL_ON: high;
+#     development sets medium (lowered 2026-08-03 once a real baseline existed). A
+#     scheduled workflow runs ENTIRELY from the DEFAULT branch's copy of the file —
+#     steps, `run:`, `env:`, even the `ref:` expression; only the CHECKED-OUT repo
+#     content comes from `development`. So the Sunday cron runs development's
+#     SCRIPTS under production's ENV, and the weekly gate is `high`, not the
+#     `medium` that was set. Not worth a deploy of its own, so it rides along here.
+#     Nothing to DO — the fast-forward carries `medium` automatically. This is a
+#     post-push confirmation, which is why it sits here and not before step 3.
+git fetch origin && git show origin/production:.github/workflows/dast-edge.yml | grep DAST_FAIL_ON
+#     Once this reads `medium`, delete this step. Until then, a green Sunday cron
+#     does not mean "clean at medium" (scripts/dast/README.md says so too).
 ```
 
 Note step 3 pushes `development`'s tip to `production` without checking out `production` locally — that
