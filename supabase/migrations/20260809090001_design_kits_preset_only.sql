@@ -65,8 +65,13 @@
 -- lock cannot be taken promptly this fails fast rather than queueing behind a
 -- long transaction and blocking every writer behind it.
 --
--- ORDERING. 20260809090000 re-expresses border_thickness first. This file must
--- not run before it.
+-- ORDERING. 20260809090000 must run first: it maps all four preset axes off the
+-- legacy columns (border_radius → corners, text_* → text_size, space_* →
+-- spacing, plus border_thickness's own value-vocabulary change) while those
+-- columns still exist. It also creates the three selection columns, since it
+-- writes to them — the ADD COLUMN IF NOT EXISTS clauses below are then no-ops.
+-- Running this file first would drop the sources before anything read them and
+-- silently reset every site that had customised its design.
 --
 -- ROLLBACK: STRUCTURE ONLY — the values are gone and cannot be restored from
 -- anything in the database. The statement below re-creates the 52 columns as
