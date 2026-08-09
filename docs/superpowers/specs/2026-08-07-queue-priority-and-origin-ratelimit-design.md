@@ -145,3 +145,66 @@ After the config is deployed to dev, and again after the Cloudflare rule is live
 
 Numbers must be written into the k6 results markdown at write-up time: `results/*.json` and
 `results/*.txt` are gitignored and will not survive.
+
+---
+
+## Verification results — 2026-08-09, deployed `185d6a587`
+
+Part 1 deployed to dev (auto-deploy on push; `deployment.succeeded`). Confirmed live three ways
+before testing: `config()` shows the new order; the `waits` composite key still matches the live
+supervisor key; and the **workers' own registered key** reads
+`redis:moderation_high,default,cloudflare,cache-warm,images,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk`
+— i.e. the running processes picked it up, not just the config file.
+
+### Part 1 — FIXED, and the before/after is unambiguous
+
+| | before fix | after fix |
+|---|---|---|
+| analytics backlog when canary dispatched | 15,774 | **16,060** |
+| `images` canary cleared after | **4.5 min**, and only once analytics hit 0 | **≤18 s**, with **15,395 analytics jobs still queued** |
+| `default` canary | immediate | immediate |
+
+One `images` canary was consumed *within the dispatch call itself*. Clearing a lower-priority job
+while 15,000+ analytics jobs remain queued was structurally impossible before the change.
+
+Throughput and integrity unchanged: 20,012 jobs (20,000 + 12 canaries) all landed — **zero lost,
+`failed_jobs` 0** — and the queue drained to empty normally.
+
+### Other phases — no regressions
+
+| Phase | Result | vs previous |
+|---|---|---|
+| 1 baseline | ✅ p50 **77.8 ms**, p95 **164.5 ms**, 904/904 checks, 0% failed, exit 0 | Faster again (was 95.3 / 204.5) |
+| 2a edge | ✅ `edge_cache_hit` **99.96%** (26,199/26,209), `http_req_failed` **0.04%** | Was 100% / 0.00%; both still far inside thresholds |
+| 2b origin | ✅ exit 0, `origin_5xx` **0**, `origin_429` **810** of 931 | p50 **2,840 ms** vs 2,911 ms — reproduces |
+
+### Part 2 — NOT yet in effect
+
+The rule as first saved used `http.host`, which the **Free plan does not support** — its rate-limiting
+expressions are restricted to the **Path** and **Verified Bot** fields only. Verified empirically:
+300 requests at 10/s (double the threshold, across three windows) returned 300 × 200, and a
+differential test against the correctly-spelled `api.partna.au` also failed to limit — ruling out a
+typo and confirming the field restriction.
+
+**Corrected rule — drop the host clause entirely:**
+
+```
+starts_with(http.request.uri.path, "/api/")
+```
+
+Still correctly scoped, by path rather than host: phase 2a hits `loadtest.partna.au/` (path `/`,
+no match) and the baseline runs at ~7.5 req/10 s, well under 50. Re-confirmed not active as of the
+2026-08-09 re-run (150 requests at 10/s → 150 × 200), so 2b above is a **pre-Cloudflare control**.
+
+Consequence to expect once live: `jobs.js` (~10.7 req/s ≈ 107 per 10 s) will be blocked by Cloudflare
+rather than the app's 120/min limiter, changing what that phase measures. Phase 3b (direct dispatch)
+is unaffected.
+
+### Note on the 2b tail
+
+Run 2's p95 was **33.9 s** against run 1's 4.8 s, entirely in `http_req_waiting` and concentrated on
+the 429s (429 p95 34.4 s vs 200 p95 4.9 s). p50 was stable (2,840 vs 2,911 ms). This is consistent
+with the finding rather than contradicting it: once arrival rate exceeds service rate the queue grows
+without bound and latency stops being stationary, so p50 tracks typical queue depth while the tail
+tracks how long the overload happened to persist. Judge this phase on p50 and the thresholds; the
+standing rule against quoting `max` applies to this p95 too.
