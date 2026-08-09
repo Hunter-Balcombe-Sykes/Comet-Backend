@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware\Throttle;
 
+use App\Enums\ThrottleFailureMode;
 use Closure;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Routing\Middleware\ThrottleRequests;
@@ -57,10 +58,14 @@ class FailOpenThrottleRequests extends ThrottleRequests
      *                                pulls a healthy instance out of rotation.
      *
      * Deliberately absent, and why:
-     *   leads, public-subscribe      Public WRITE forms. Unmetered during an
-     *                                outage means spam straight into
-     *                                site.customers / enquiry mail. A visitor
-     *                                retrying a 503 is the better outcome.
+     *   public-subscribe             Public WRITE form with no Postgres counter
+     *                                equivalent to analytics.lead_submissions,
+     *                                so it has no fallback to degrade to.
+     *                                Unmetered during an outage means spam
+     *                                straight into the subscriber list. A
+     *                                visitor retrying a 503 is the better outcome.
+     *   leads                        MOVED to FALLBACK_LIMITERS on 2026-08-06 —
+     *                                it does not open, it changes store. See below.
      *   bootstrap, claim,            Enumeration and account-claim surfaces —
      *   login-identifier,            the limiters actually worth an attacker's
      *   signup-availability,         effort. They stay shut.
@@ -90,6 +95,32 @@ class FailOpenThrottleRequests extends ThrottleRequests
         'health-check',
     ];
 
+    /**
+     * Limiters that keep limiting from a DIFFERENT store when Redis is dead.
+     * This is neither open nor closed: the gate stays shut against abuse, but
+     * the verdict comes from Postgres.
+     *
+     *   leads   Public WRITE forms (/public/enquiry, /public/customers). Both
+     *           controllers synchronously insert an analytics.lead_submissions
+     *           row on every outcome, so a counter already exists and is
+     *           already indexed (lead_submissions_ip_time_idx,
+     *           lead_submissions_subdomain_time_idx). Drill 03 (2026-08-06)
+     *           found the closed behaviour silently dropping real customer
+     *           enquiries during an outage while pageview beacons, worth far
+     *           less, kept succeeding.
+     *
+     * ADDING TO THIS LIST IS A SECURITY DECISION, exactly like FAIL_OPEN_LIMITERS.
+     * The entry bar is a specific question: what Postgres table already counts
+     * this thing? If the answer is "none, we would add one", the limiter does
+     * not belong here — a counter written solely to satisfy the fallback has no
+     * independent reason to be correct. `public-subscribe` fails that bar today.
+     *
+     * @var list<string>
+     */
+    private const FALLBACK_LIMITERS = [
+        'leads',
+    ];
+
     private readonly ResilientRateLimiter $resilient;
 
     public function __construct(RateLimiter $limiter)
@@ -109,7 +140,7 @@ class FailOpenThrottleRequests extends ThrottleRequests
      */
     public function handle($request, Closure $next, $maxAttempts = 60, $decayMinutes = 1, $prefix = '')
     {
-        $this->resilient->useFailOpen(false, 'inline');
+        $this->resilient->useMode(ThrottleFailureMode::Closed, 'inline');
 
         // Forward EXACTLY the arguments we were handed. ThrottleRequests::handle()
         // gates its named-limiter branch on `func_num_args() === 3`, so passing
@@ -133,8 +164,26 @@ class FailOpenThrottleRequests extends ThrottleRequests
     {
         $name = (string) $limiterName;
 
-        $this->resilient->useFailOpen(in_array($name, self::FAIL_OPEN_LIMITERS, true), $name);
+        // The Request is passed through for Fallback mode only. tooManyAttempts()
+        // receives an opaque hashed key, so the degraded counter cannot derive
+        // the IP or subdomain from it — it re-resolves both from the Request,
+        // matching what logLead() writes.
+        $this->resilient->useMode($this->modeFor($name), $name, $request);
 
         return parent::handleRequestUsingNamedLimiter($request, $next, $limiterName, $limiter);
+    }
+
+    /** Closed is the default; Open and Fallback are explicit opt-in. */
+    private function modeFor(string $name): ThrottleFailureMode
+    {
+        if (in_array($name, self::FAIL_OPEN_LIMITERS, true)) {
+            return ThrottleFailureMode::Open;
+        }
+
+        if (in_array($name, self::FALLBACK_LIMITERS, true)) {
+            return ThrottleFailureMode::Fallback;
+        }
+
+        return ThrottleFailureMode::Closed;
     }
 }

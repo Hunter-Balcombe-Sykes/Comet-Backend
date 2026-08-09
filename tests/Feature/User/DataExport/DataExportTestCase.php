@@ -200,8 +200,6 @@ class DataExportTestCase
             created_at TEXT
         )');
 
-
-
         $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_integrations (
             id TEXT PRIMARY KEY,
             user_id TEXT,

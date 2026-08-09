@@ -142,8 +142,8 @@ tier2_jwt_tamper() {
         expect_status 401 "$(probe_status "$short_token" /api/me)" \
             "an expired token is rejected after ${wait_for}s (exp ${expiry}s + ${leeway}s leeway)"
     else
-        log "tier2: SKIP  expired-exp probe — exp ${expiry}s + ${leeway}s leeway is too long to wait"
-        printf -- '- SKIP expired-`exp` — `jwt_expiry` is %ss and `jwt_leeway_seconds` is %ss, so a real expiry needs a %ss wait; see scripts/dast/README.md for why this cannot be forged\n' \
+        log "tier2: SKIP  expired-exp probe — exp ${expiry}s + ${leeway}s leeway is too long to wait (re-run with DAST_JWT_EXPIRY=8 to exercise it)"
+        printf -- '- SKIP expired-`exp` — `jwt_expiry` is %ss and `jwt_leeway_seconds` is %ss, so a real expiry needs a %ss wait. This is EXPECTED on a default run: bring-up.sh defaults `jwt_expiry` long so ZAP tokens survive the full plan. To exercise this probe, re-run with `DAST_JWT_EXPIRY=8` — that run trades authenticated ZAP scanning for it. See scripts/dast/README.md for why an expired token cannot be forged.\n' \
             "$expiry" "$leeway" "$wait_for" >> "$TIER2_LOG"
     fi
 }

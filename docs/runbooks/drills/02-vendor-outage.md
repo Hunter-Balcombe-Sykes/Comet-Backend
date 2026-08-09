@@ -96,6 +96,13 @@ needs the restored URL to actually resolve — the 2026-08-05 run's `fresha` con
 be recovered because its seed URL was fabricated and kept 502ing on restore, costing a cycle.
 Point the payload at a real Fresha booking page you control or can verify stays up.
 
+✅ **Simpler alternative, used by both the 2026-08-05 and 2026-08-06 runs: recover on a
+*translated* platform instead.** Keep `fresha` purely for the raw-path attempt-count evidence
+(a `.invalid` URL is fine there), and do the breaker/notifier/recovery half on `spotify`, whose
+real URL resolves and whose translated path costs ~5s per increment instead of ~156s. The
+breaker and notifier are platform-agnostic, so nothing is lost by splitting them this way — and
+it saves roughly ten minutes of waiting.
+
 **Seed a `fresha` connection.** There is no `IntegrationConnectionFactory`; connecting one
 through the dashboard isn't practical on a fresh local DB. Seed directly, back-dating
 `last_refreshed_at` so the dispatcher (Circuit breaker section below) considers the row due:
@@ -111,10 +118,37 @@ $conn = \App\Models\Core\Site\IntegrationConnection::create([
     'user_id' => $u->id,               // the drill user from Preconditions
     'platform' => 'fresha',
     'resource_id' => 'fresha',
-    'payload' => ['url' => 'https://<a real fresha booking page>'],
+    // 🔴 The `selection` is NOT optional — see below. A url-only payload 304s.
+    'payload' => [
+        'url' => 'https://<a real fresha booking page>',
+        'selection' => ['mode' => 'storewide', 'storeName' => 'Drill Salon', 'hiddenServiceIds' => []],
+    ],
     'last_refreshed_at' => now()->subDays(30),
 ]);
 ```
+
+🔴 **A url-only payload silently makes Variant 2 test nothing, and it looks like a PASS.**
+`FreshaFetch::fetch()` opens with:
+
+```php
+if (! $url || ! is_array($selection)) { throw new FetchNotModifiedException('fresha'); }
+```
+
+so a connection seeded as `['url' => …]` alone 304s on the first guard — **no HTTP request, no
+`SafeUrlFetcher` call, no exception**. The row records `last_refresh_status='ok'`,
+`consecutive_failures=0`, and Horizon shows one job that completed in a few milliseconds. An
+operator reading only the attempt count records "Variant 2: bounded at 1 attempt" and moves on,
+having never executed the raw-exception path that is the entire point of the variant. The
+2026-08-06 run did exactly this before tracing the guard. **Assert the seed took:**
+
+```php
+$p = \App\Services\Platforms\Payloads\SelectionPayload::fromArray($conn->payload);
+var_dump($p->url !== null, $p->selection !== null);   // BOTH must be true
+```
+
+With a selection present, the expected shape is 3 attempts at t+0 / ~t+35s / ~t+156s, terminal,
+one `failed_jobs` row, `last_refresh_status='error'` and a raw `SafeUrlException` in
+`last_refresh_error`.
 
 ## ACT + OBSERVE
 

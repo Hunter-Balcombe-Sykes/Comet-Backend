@@ -1,8 +1,10 @@
 <?php
 
+use App\Http\Resources\UserDashboardResource;
 use App\Models\Core\HandleChangeLog;
 use App\Models\Core\User\User;
 use App\Services\Site\ReclaimHandleAction;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -148,8 +150,8 @@ it('lists in-window aliases as reclaimable_handles on the dashboard resource', f
     ]);
 
     $pro = User::query()->find($proId);
-    $payload = (new \App\Http\Resources\UserDashboardResource($pro))
-        ->resolve(\Illuminate\Http\Request::create('/'));
+    $payload = (new UserDashboardResource($pro))
+        ->resolve(Request::create('/'));
 
     expect($payload['reclaimable_handles'])->toHaveCount(1)
         ->and($payload['reclaimable_handles'][0]['handle'])->toBe('old-handle-live')
@@ -160,8 +162,8 @@ it('reclaimable_handles is an empty list when nothing is in window', function ()
     [$proId] = array_values(makeReclaimPro('reclaim-empty'));
 
     $pro = User::query()->find($proId);
-    $payload = (new \App\Http\Resources\UserDashboardResource($pro))
-        ->resolve(\Illuminate\Http\Request::create('/'));
+    $payload = (new UserDashboardResource($pro))
+        ->resolve(Request::create('/'));
 
     expect($payload['reclaimable_handles'])->toBe([]);
 });

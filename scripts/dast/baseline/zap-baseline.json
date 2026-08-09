@@ -1,3 +1,4 @@
 [
-  "10021@http://host.docker.internal:8100/robots.txt"
+  "10021@http://host.docker.internal:8100/robots.txt",
+  "10096@http://host.docker.internal:8100/api/sessions"
 ]

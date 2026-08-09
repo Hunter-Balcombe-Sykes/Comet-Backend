@@ -228,26 +228,228 @@ it('does not soften SEC-1 origin binding when the cache store is dead', function
 // Fail-closed set — 503, never 500, never unmetered
 // ─────────────────────────────────────────────────────────────────────────────
 
-it('fails a public write form closed as 503 with the cache store dead', function () {
+// ─────────────────────────────────────────────────────────────────────────────
+// Fallback set — `leads` keeps limiting from Postgres, never opens
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Stand-in for the table the degraded counter reads.
+ *
+ * File-local, matching the six existing test files that each declare their own.
+ * Do NOT promote this to tests/Pest.php: NoLocalCanonicalTableDdlTest would
+ * then flag all six of those as local-canonical violations, because Pest.php's
+ * copy runs first in setup order and IF NOT EXISTS makes theirs a silent no-op.
+ */
+function setupDeadStoreLeadSubmissions(): void
+{
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.lead_submissions (
+        id TEXT PRIMARY KEY,
+        occurred_at TEXT NULL,
+        subdomain TEXT NULL,
+        site_id TEXT NULL,
+        user_id TEXT NULL,
+        customer_id TEXT NULL,
+        ip_hash TEXT NULL,
+        user_agent TEXT NULL,
+        referrer TEXT NULL,
+        outcome TEXT NULL,
+        form_started_at_ms INTEGER NULL
+    )');
+    DB::connection('pgsql')->table('analytics.lead_submissions')->delete();
+}
+
+it('admits an under-limit enquiry with the cache store dead', function () {
     tenantHelpersEnsureTables();
+    setupDeadStoreLeadSubmissions();
     createTenant('deadstore-leads');
 
     killTheCacheStore();
 
-    // `leads` is deliberately absent from FAIL_OPEN_LIMITERS: unmetered during
-    // an outage means spam straight into site.customers / enquiry mail. What
-    // this asserts is the SHAPE of the refusal — a 503 the client can retry,
-    // not the leaked RedisException 500 the drill measured.
+    // `leads` is in FALLBACK_LIMITERS, not FAIL_OPEN_LIMITERS. The gate stays
+    // shut against abuse but answers from Postgres instead of Redis, so a real
+    // visitor's enquiry is no longer thrown away. This replaces the pre-2026-08-06
+    // assertion that this endpoint 503s — see drill 03 finding 3.
+    //
+    // NOTE (Finding 2, 2026-08-06 final review): this payload has no `subject`
+    // and a 4-char `message` (PublicEnquiryRequest requires min:10), so
+    // FormRequest validation 422s BEFORE the request ever reaches
+    // PublicEnquiryController::submit() — the 422 below is Laravel validation,
+    // not the controller's "site not accepting enquiries" check, and no site is
+    // even seeded. This test therefore proves ONLY that the throttle middleware
+    // let the request through the store-dead limiter; it does NOT exercise the
+    // controller body, the customer upsert, or the enquiry save. That gap is
+    // exactly what let a fifth, unguarded Redis gate (CustomerObserver ->
+    // UserCacheService::invalidateCustomerCount()) ship undetected for a whole
+    // review cycle — see the controller-body reproduction in
+    // "commits the enquiry when the customer-count cache invalidation dies"
+    // below, which posts a valid body against a seeded contact site instead.
     $response = $this->withHeader('Origin', 'https://deadstore-leads.'.config('partna.public_domain'))
+        ->postJson('/api/public/enquiry', [
+            'site_id' => (string) Str::uuid(),
+            'name' => 'Real Visitor',
+            'email' => 'visitor@example.test',
+            'message' => 'hello',
+        ]);
+
+    // NOT 503 and NOT 500. The limiter let it through; the 422 that follows is
+    // validation, not the limiter's business.
+    expect($response->status())->not->toBe(503)
+        ->and($response->status())->not->toBe(500);
+});
+
+it('rejects an over-limit enquiry with 429 rather than opening', function () {
+    tenantHelpersEnsureTables();
+    setupDeadStoreLeadSubmissions();
+    createTenant('deadstore-leads-over');
+
+    config(['partna.throttle.leads_degraded_per_minute_ip' => 2]);
+
+    // Two prior submissions from this IP inside the window.
+    foreach (range(1, 2) as $ignored) {
+        DB::connection('pgsql')->table('analytics.lead_submissions')->insert([
+            'id' => (string) Str::uuid(),
+            'occurred_at' => now()->toDateTimeString(),
+            'subdomain' => 'deadstore-leads-over',
+            'ip_hash' => hash_hmac('sha256', '127.0.0.1', config('app.key')),
+            'outcome' => 'created',
+        ]);
+    }
+
+    killTheCacheStore();
+
+    $this->withHeader('Origin', 'https://deadstore-leads-over.'.config('partna.public_domain'))
         ->postJson('/api/public/enquiry', [
             'site_id' => (string) Str::uuid(),
             'name' => 'Spam Bot',
             'email' => 'bot@example.test',
             'message' => 'hello',
+        ])
+        ->assertStatus(429);
+});
+
+it('falls back to 503 when Postgres is dead too', function () {
+    tenantHelpersEnsureTables();
+    createTenant('deadstore-leads-nodb');
+
+    killTheCacheStore();
+
+    // No analytics.lead_submissions table => the counter throws. With both
+    // stores gone there is no lead worth saving and no way to meter, so a
+    // retryable 503 is the honest answer — never an open gate.
+    DB::connection('pgsql')->statement('DROP TABLE IF EXISTS analytics.lead_submissions');
+
+    $response = $this->withHeader('Origin', 'https://deadstore-leads-nodb.'.config('partna.public_domain'))
+        ->postJson('/api/public/enquiry', [
+            'site_id' => (string) Str::uuid(),
+            'name' => 'Visitor',
+            'email' => 'visitor@example.test',
+            'message' => 'hello',
         ]);
 
     $response->assertStatus(503);
     expect($response->headers->get('Retry-After'))->not->toBeNull();
+});
+
+it('reports fallback mode in the throttle breadcrumb', function () {
+    tenantHelpersEnsureTables();
+    setupDeadStoreLeadSubmissions();
+    createTenant('deadstore-leads-crumb');
+
+    killTheCacheStore();
+
+    Log::spy();
+
+    $this->withHeader('Origin', 'https://deadstore-leads-crumb.'.config('partna.public_domain'))
+        ->postJson('/api/public/enquiry', [
+            'site_id' => (string) Str::uuid(),
+            'name' => 'Visitor',
+            'email' => 'visitor@example.test',
+            'message' => 'hello',
+        ]);
+
+    // A degraded limiter that says nothing is worse than a loud 500 — the next
+    // outage would be silent. `mode` must distinguish fallback from open.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context = []) => $message === 'throttle.store_unavailable'
+            && ($context['limiter'] ?? null) === 'leads'
+            && ($context['mode'] ?? null) === 'fallback')
+        ->atLeast()->once();
+});
+
+/**
+ * Published site with an ACTIVE contact block. Mirrors seedDispatchContactSite()
+ * in EnquiryDispatchResilienceTest.php under a DIFFERENT name — Pest file-local
+ * functions are not visible across test files. Without an active contact block
+ * PublicEnquiryController::submit() 422s before reaching the customer upsert,
+ * and the Finding-1 reproduction below would pass vacuously.
+ */
+function seedDeadCacheContactSite(string $subdomain): void
+{
+    $proId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => $subdomain,
+        'handle_lc' => strtolower($subdomain),
+        'display_name' => 'Dead Cache Pro',
+        'first_name' => 'Dead Cache Pro',
+        'primary_email' => 'deadcache@example.test',
+        'status' => 'active',
+    ]);
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $proId,
+        'subdomain' => $subdomain,
+        'is_published' => 1,
+    ]);
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $proId,
+        'site_id' => $siteId,
+        'block_group' => 'sections',
+        'block_type' => 'contact',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'settings' => json_encode(['notification_email' => 'pro@example.test']),
+    ]);
+}
+
+/**
+ * Finding 1 (2026-08-06 final review) — a fifth, unguarded Redis gate.
+ * PublicEnquiryController::submit() upserts the submitter as a Customer
+ * BEFORE saving the enquiry. That write fires CustomerObserver::created()/
+ * updated() -> UserCacheService::invalidateCustomerCount() ->
+ * Cache::deleteMultiple(), which was completely unguarded: with the cache
+ * store dead this threw, $enquiry->save() was never reached, and the visitor
+ * got a raw 500 with no lead saved at all — worse than the pre-existing
+ * throttle-only 503 this branch set out to fix.
+ */
+it('commits the enquiry when the customer-count cache invalidation dies', function () {
+    tenantHelpersEnsureTables();
+    setupEnquiriesTable();
+    setupBlocksTable();
+    setupCustomersTable();
+    setupDeadStoreLeadSubmissions();
+
+    seedDeadCacheContactSite('deadstore-customer-invalidate');
+
+    killTheCacheStore();
+
+    $response = $this->withHeader('Origin', 'https://deadstore-customer-invalidate.'.config('partna.public_domain'))
+        ->postJson('/api/public/enquiry', [
+            'name' => 'Real Visitor',
+            'email' => 'visitor@example.test',
+            'subject' => config('partna.contact_subject_defaults')[0],
+            'message' => 'Please call me back about a booking.',
+            'form_started_at_ms' => (int) floor(microtime(true) * 1000) - 5000,
+        ]);
+
+    $response->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.enquiries')->count())->toBe(1);
 });
 
 it('resolves multi-limiter routes strictest-wins', function () {

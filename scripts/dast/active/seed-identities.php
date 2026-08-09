@@ -33,9 +33,40 @@ use Illuminate\Support\Str;
 // `Illuminate\Contracts\Console\Kernel::class` into a short reference plus an
 // import, and placed the import below the call. Nothing caught it because this
 // lane is manual-only. Keep this ordering — it is Pint-stable and correct.
+// CONTAINMENT GUARD 1 — .env.dast must exist before anything boots.
+// Without it, `--env=dast` finds no dast environment file and Laravel falls
+// back to the repo's REAL .env, so this seeder would create users and write
+// rows against whatever SUPABASE_URL/DB_HOST the developer actually uses.
+// That is not theoretical: on 2026-08-07 a stale bring-up.env let this script
+// run before bring-up.sh had written .env.dast, and it POSTed to a remote
+// *.supabase.co admin endpoint — harmless only because the host was
+// unreachable. mint-jwt.php has always had this check; this file did not.
+$envDast = __DIR__.'/../../../.env.dast';
+if (! file_exists($envDast)) {
+    fwrite(STDERR, "$envDast not found — the active lane's scratch stack is not up. Refusing to seed: without .env.dast this would target the REAL .env's Supabase/DB. Run via zap-active.sh, never directly.\n");
+    exit(1);
+}
+
 require __DIR__.'/../../../vendor/autoload.php';
 $app = require __DIR__.'/../../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
+
+// CONTAINMENT GUARD 2 — the resolved targets must be loopback, full stop.
+// Guard 1 proves a dast env file exists; this proves it actually points at the
+// throwaway stack. Belt and braces on purpose: this script creates auth users
+// and writes rows, so "NEVER point this at real dev/prod" (bring-up.sh) needs
+// an assertion, not just a comment. Checked AFTER bootstrap because it reads
+// the resolved config rather than re-parsing the file.
+foreach ([
+    'supabase.url' => config('supabase.url'),
+    'database.connections.pgsql.host' => config('database.connections.pgsql.host'),
+] as $key => $value) {
+    $host = parse_url((string) $value, PHP_URL_HOST) ?: (string) $value;
+    if (! in_array($host, ['127.0.0.1', 'localhost', '::1'], true)) {
+        fwrite(STDERR, "refusing to seed: $key resolves to '$host', which is not loopback. The active lane must only ever touch its own throwaway stack.\n");
+        exit(1);
+    }
+}
 
 $outdir = null;
 foreach (array_slice($argv, 1) as $arg) {

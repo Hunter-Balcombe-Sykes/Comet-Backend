@@ -56,9 +56,22 @@ manual repair?
       under test — with it off, every probe passes and the drill proves nothing. Verify:
       `php artisan tinker --execute='var_dump(config("partna.throttle.enabled"));'`
 - [ ] A drill user with an active site (reuse the pattern from drill 01) — note its
-      `handle` and `site_id`.
-- [ ] Horizon running (`php artisan horizon`) — part of the drill is watching it die and
-      come back.
+      `handle` and `site_id`. For the enquiry probe the site also needs an **active `contact`
+      block** in the `sections` group, or every enquiry returns 422 "This site is not accepting
+      enquiries" (`PublicEnquiryController` step 3). A freshly provisioned site has zero blocks.
+- [ ] 🔴 **Horizon running — and check the RIGHT process.** `ps aux | grep -c '[h]orizon:work'`
+      is **wrong** and will read a perfectly healthy Horizon as dead. Horizon's long-lived
+      processes are the master (`artisan horizon`) and its `horizon:supervisor` children;
+      `horizon:work` are short-lived worker grandchildren that **exit during a Redis outage and
+      respawn on recovery**. Checking `horizon:work` mid-outage returns 0 and looks exactly like
+      a master crash — the 2026-08-06 run nearly filed that as a P1. Use:
+
+      ```bash
+      ps -eo command | grep -c '[a]rtisan horizon$'      # master, expect 1
+      ps -eo command | grep -c '[h]orizon:supervisor'    # supervisors, expect 5 locally
+      ```
+
+      Part of the drill is watching the workers die and come back — that is expected, not a finding.
 - [ ] `BASE=<local site URL>` (from `herd links`), e.g. `export BASE=https://backend.test`.
 
 ## BASELINE — record before injecting
@@ -94,16 +107,53 @@ curl -s -o /dev/null -w "health   %{http_code}  %{time_total}s\n" "$BASE/api/hea
 #    dispatch-heavy (notification jobs to Redis), and the one probe that measured closest to
 #    its `read_timeout` in the 2026-08-05 run, so it's the cleanest signal for "did the
 #    timeout actually take effect on this path".
+#    ⚠️ Three ways this silently returns 422 instead of 2xx, measuring nothing:
+#      - `form_started_at_ms` is REQUIRED (bot-protection timing rule, WithBotProtection).
+#      - `subject` must be one of config('partna.contact_subject_defaults') — read it, don't
+#        invent one. "Drill" is rejected with "Invalid subject."
+#      - the site needs an active `contact` block in the `sections` group (see Preconditions).
+#    Also: `throttle:leads` allows 3/min per IP, so this probe cannot be fired freely.
+#    ⚠️ Updated 2026-08-06: during an outage this probe used to return 503 (drill 03 finding
+#    3 — the throttle store fault dropped the write). It now returns 2xx: `throttle:leads`
+#    falls back to a Postgres-backed counter (`LeadSubmissionRateLimiter`, still 3/min per
+#    IP) instead of failing closed, and the row lands in `site.enquiries` with
+#    `notifications_pending_since` set instead of being lost. See the "Enquiry survival"
+#    check in OBSERVE below.
+STARTED=$(( $(date +%s) * 1000 - 8000 ))
 curl -s -o /dev/null -w "enquiry  %{http_code}  %{time_total}s\n" \
   -X POST "$BASE/api/public/enquiry" \
   -H 'Content-Type: application/json' \
   -H "Origin: http://<handle>.partna-drill.test" \
-  -d '{"name": "Drill", "email": "drill@example.com", "subject": "Drill", "message": "drill drill drill"}'
+  -d "{\"name\": \"Drill\", \"email\": \"drill@example.com\", \"subject\": \"General enquiry\", \"message\": \"drill drill drill\", \"form_started_at_ms\": $STARTED}"
+
+# 6. STRICT revocation route — since 2026-08-05 this is the probe the drill most exists for.
+#    `revocation.strict` sits on 111 routes and fails CLOSED during an outage (503 +
+#    Retry-After: 5) BY DESIGN. Do not record that as a regression.
+#    ⚠️ Use `logout-others`, NOT `/api/me/data-export`: data-export is POST (a GET returns 405)
+#    and carries an inline `throttle:1,1440` — one call per day — so it cannot be re-probed
+#    per phase, and its inline limiter also ignores PARTNA_THROTTLE_ENABLED.
+curl -s -o /dev/null -w "strict   %{http_code}  %{time_total}s\n" \
+  -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$BASE/api/sessions/logout-others"
 ```
 
-All should be 2xx with sub-second times. Record them. `health` and `enquiry` are part of the
-standard probe set alongside `profile`/`pageview`/`authed` — carry all five through OBSERVE and
-Scenario C, not just the original three.
+All should be 2xx with sub-second times. Record them. `health`, `enquiry` and the strict route are
+part of the standard probe set alongside `profile`/`pageview`/`authed` — carry all six through
+OBSERVE and Scenario C, not just the original three.
+
+🔴 **A 503 cannot tell you which layer answered.** `RevocationUnverifiableException` (the gate) and
+`RateLimiterUnavailableException` (the limiter) are byte-identical on the wire — both 503, both
+*"Service temporarily unavailable. Please try again shortly."*, both `Retry-After: 5`. The only
+honest attribution is to truncate `storage/logs/laravel.log`, fire **one** probe, and grep:
+
+| Log line | Layer that answered |
+|---|---|
+| `auth.revocation_unverified_on_strict_route` | the revocation gate |
+| `RateLimiterUnavailableException` | the rate limiter |
+
+Since 2026-08-05 the gate is pinned ahead of `ThrottleRequests`, so a strict route during an outage
+must be answered by the **gate**. If the limiter answers instead, the priority pin has regressed —
+that is a real finding.
 
 ## INJECT
 
@@ -154,8 +204,49 @@ time them**. For each, record `http_code` + `time_total`. Then:
    a bonus. The *breadcrumbs* are the required evidence.
 7. **`POST $BASE/api/public/enquiry`** — standard probe, not optional. Sits behind
    `throttle:leads` + `bot.token:enquiry`, both potential Redis touchpoints, and dispatches
-   notification jobs to Redis. Does the enquiry save-then-500, save-cleanly-without-email, or
-   fail entirely? This is a data-loss-shape judgment call — record exactly what happened.
+   notification jobs to Redis. **Expected since 2026-08-06:** `throttle:leads` falls back to
+   the Postgres-backed `LeadSubmissionRateLimiter` (still 3/min per IP) instead of failing
+   closed, and the enquiry row saves with `notifications_pending_since` set instead of being
+   dropped — see the verification step immediately below. Record exactly what happened; a
+   503 or a silently dropped enquiry is a REGRESSION of finding 3, not the documented
+   behaviour.
+
+   ⚠️ **Updated 2026-08-06 (final whole-branch review, before merge).** The controller upserts
+   the submitter as a `Customer` BEFORE saving the enquiry (step 5,
+   `PublicEnquiryController::submit()`), and that write fires `CustomerObserver` →
+   `UserCacheService::invalidateCustomerCount()` → `Cache::deleteMultiple()` — a fifth Redis
+   gate, found unguarded in the same review, sitting BEFORE `$enquiry->save()`. Unguarded, it
+   turned a dead cache store into a raw 500 with **no lead saved at all**, worse than the
+   original finding-3 503. It is now guarded the same way as the gates above (best-effort,
+   logged, never propagated) — see `app/Observers/Core/CustomerObserver.php`.
+
+   🔴 **Corrected 2026-08-06 by the re-run: the enquiry probe does NOT exercise this gate
+   unless you use a FRESH email address.** An earlier version of this line claimed the probe
+   "already exercises it, since the upsert runs on every submission regardless of outcome."
+   That is wrong. `upsertEnquiryCustomer()` is an *upsert*: when the submitter's `Customer`
+   already exists with identical attributes, Eloquent fires no `updated` event, `CustomerObserver`
+   never runs, and the cache call never happens. The re-run's first outage probe reported
+   `customer.count_invalidation_failed = 0` for exactly this reason — the BASELINE probe had
+   already created that customer. **Vary the email per probe** (e.g.
+   `drill-$(date +%s)@example.com`) to force a `Customer` create, then expect one
+   `customer.count_invalidation_failed` breadcrumb per fresh submitter.
+   `POST $BASE/api/public/customers` hits the identical `CustomerObserver` path via its own
+   create/update calls, so a probe against that endpoint during the outage is worth adding here
+   too if you have time, though it is not yet a standard probe in this runbook.
+
+   **Enquiry survival (added 2026-08-06).** During the outage, submit one enquiry probe
+   and confirm:
+   - the response is 2xx, not 503 and not 500
+   - `SELECT count(*) FROM site.enquiries WHERE notifications_pending_since IS NOT NULL` is ≥ 1
+   - the log carries `throttle.store_unavailable` with `mode=fallback`, plus
+     `enquiry.notify.dispatch_failed`
+
+   After recovery, run `php artisan enquiries:reconcile-notifications` and confirm the
+   marker clears and the notification job runs. A 503 or 500 here is a REGRESSION — of drill 03
+   finding 3 if it is the throttle or dispatch layer, or of the fifth-gate fix above if it is a
+   raw 500 with `$enquiry->save()` never reached — not the documented behaviour. **This has not
+   been re-run against a live outage as of this fix** — the fix and its Pest-level reproduction
+   landed in the same final review that found it; only an actual drill run can mark this PASS.
 
 ## RECOVER
 
@@ -214,12 +305,45 @@ unsetting it in the child process — so `REDIS_READ_TIMEOUT=0 php artisan serve
 the *unmodified* config. Put overrides in `.env` and confirm with
 `php artisan tinker --execute='var_dump(config("database.redis.cache.read_timeout"));'` first.
 
-🔴 **Fire all five probes in PARALLEL, not in sequence.** Sequential probes consume the hang
-window themselves — five curls run one after another against a 30–40s hang means the later
+🔴 **Fire all the probes in PARALLEL, not in sequence.** Sequential probes consume the hang
+window themselves — curls run one after another against a 30–40s hang means the later
 ones execute after Redis has already recovered, and silently measure a healthy Redis instead
 (a fourth variant of the same trap this section already warns about for the witness). This is
 not hypothetical: the 2026-08-05 run's first sequential attempt produced `authed 200 · 0.05s`,
-which was meaningless. Background every probe, plus the witness, then `wait`:
+which was meaningless.
+
+🔴🔴 **…and backgrounding the curls is NOT sufficient — `php artisan serve` serialises them
+anyway, and the result looks exactly like the bug this scenario hunts for.** Laravel's
+`ServeCommand` reads `PHP_CLI_SERVER_WORKERS` with a default of **1**, and *silently refuses to
+honour any higher value unless `--no-reload` is also passed* — it only warns, into the serve log,
+which nobody reads mid-drill. With one worker the probes queue behind each other and each adds one
+`read_timeout` to the next, producing:
+
+```
+health   0.03s | profile 3.09s | authed 6.14s | pageview 9.17s | strict 12.22s | enquiry 15.26s
+```
+
+That is the textbook signature of N × `read_timeout` stacking — *the* headline finding of this
+drill — against a system that was in fact bounding every request at exactly one `read_timeout`.
+The 2026-08-06 run produced precisely this table and would have filed a false P0 had the solo
+control not been run. **The tell is evenly-spaced increments** (3.06 / 3.04 / 3.04 / 3.05 s here):
+real independent bounds cluster, serialisation forms a metronome.
+
+Start the server for Scenario C as:
+
+```bash
+# in .env
+PHP_CLI_SERVER_WORKERS=8
+# then
+php artisan serve --host=127.0.0.1 --port=8000 --no-reload
+grep -c WARN storage/logs/serve-drill.log     # MUST be 0 — a WARN means still single-worker
+pgrep -f 'php.*-S 127.0.0.1:8000' | wc -l     # MUST be > 1 (expect workers + 1)
+```
+
+With real concurrency the same round returns `health 0.028s` and every other probe at
+**3.05–3.10s** — one `read_timeout` each, matching the solo control to within ~40ms.
+
+Background every probe, plus the witness, then `wait`:
 
 ```bash
 (redis-cli -t 60 DEBUG SLEEP 40 &) ; sleep 0.3
@@ -241,7 +365,10 @@ wait
 ```
 
 Also re-measure each probe **alone**, one per hang, to rule out contention as an explanation
-before trusting the parallel numbers.
+before trusting the parallel numbers. Treat the solo round as the **authoritative** control: it is
+immune to both the serialisation trap above and to genuine contention, and if the parallel and solo
+numbers disagree it is the parallel round that is wrong. (2026-08-06: solo and truly-parallel agreed
+to within ~40ms; single-worker "parallel" was off by up to 12s.)
 
 **Expected as of 2026-08-05 (post per-request breaker) — every request-path probe lands at ~one
 `read_timeout`:**
@@ -249,7 +376,7 @@ before trusting the parallel numbers.
 | Probe | Expect (against a ~40s hang) |
 |---|---|
 | `health` | **< 0.1s** — issues zero Redis commands (unthrottled since 2026-08-05) |
-| `enquiry` | **~3s** |
+| `enquiry` | **~3s** (2xx since 2026-08-06 — falls back to Postgres; was 503, finding 3) |
 | `authed` | **~3s** (503, the designed degradation) |
 | `profile` | **~3s** |
 | `pageview` (beacon) | **~3–4s** |
@@ -304,7 +431,17 @@ is the more likely explanation.
 - [ ] Beacon fail-open works end-to-end (2xx) OR the blocking layer is identified precisely
 - [ ] Breadcrumb trail exists; escalation behavior matches the trait's documented tiers
 - [ ] Recovery is hands-off (except possibly Horizon restart — note it)
-- [ ] No non-analytics data loss
+- [x] No non-analytics data loss — **PASS as of the 2026-08-06 re-run**
+      (`logs/2026-08-06-redis-down-rerun.md`). History: the 2026-08-06 pre-fix run recorded
+      **PARTIAL** (enquiries submitted during the outage were lost — clean fail-closed, but lost;
+      finding 3, `logs/2026-08-06-redis-down.md`). Fixed 2026-08-06 — the enquiry write falls back
+      to a Postgres-backed counter instead of failing closed (see
+      `docs/superpowers/specs/2026-08-06-enquiry-path-redis-resilience-design.md`) — and the
+      re-run against a **real** `brew services stop redis` outage confirmed it end to end:
+      `enquiry 200 · 0.023s`, row persisted with `notifications_pending_since`, all five gates
+      breadcrumbed, `enquiries:reconcile-notifications` drained 4 → 0 with all 8 jobs delivered
+      and zero failed. An over-limit burst still returned **429**, so the gate degrades without
+      opening. Finding 3 is CLOSED.
 
 ## RESTORE
 

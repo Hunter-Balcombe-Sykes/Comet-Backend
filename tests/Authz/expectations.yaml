@@ -159,14 +159,6 @@
   fixture: { id: unknown }
 - route: "api/platforms/shop/products/{productId}"
   fixture: { productId: unknown }
-- route: "api/platforms/shopify/brands/{id}"
-  fixture: { id: unknown }
-- route: "api/platforms/shopify/brands/{id}/connect/status"
-  fixture: { id: unknown }
-- route: "api/platforms/shopify/brands/{id}/products"
-  fixture: { id: unknown }
-- route: "api/platforms/shopify/products/{productId}"
-  fixture: { productId: unknown }
 
 # ── Platform slug, not a row ─────────────────────────────────────────────────
 - route: "api/platforms/{platform}/display-settings"
@@ -228,21 +220,15 @@
 - route: "PATCH api/services/{service}/category"
   body: { category_ids: [] }
 
-# /shop and /shopify are one `foreach (['shop', 'shopify'])` alias loop over the
-# same ShopController (routes/api/platforms.php), so both spellings take the
-# identical body. `products` is `required|array`, which an EMPTY array fails, so
-# the minimum is one element satisfying `products.*` => array.
+# ShopController (routes/api/platforms.php). The `/shopify` alias spelling was
+# removed as dead-with-zero-callers in 1917be75b, so only `/shop` remains.
+# `products` is `required|array`, which an EMPTY array fails, so the minimum is
+# one element satisfying `products.*` => array.
 - route: "POST api/platforms/shop/brands/{id}/catalog"
-  body: { products: [{}] }
-  fixture: { id: unknown }
-- route: "POST api/platforms/shopify/brands/{id}/catalog"
   body: { products: [{}] }
   fixture: { id: unknown }
 # productIds — camelCase, and `present`, so an empty list clears it.
 - route: "PUT api/platforms/shop/brands/{id}/selection"
-  body: { productIds: [] }
-  fixture: { id: unknown }
-- route: "PUT api/platforms/shopify/brands/{id}/selection"
   body: { productIds: [] }
   fixture: { id: unknown }
 

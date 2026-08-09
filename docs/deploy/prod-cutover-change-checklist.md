@@ -138,6 +138,63 @@ keys — several live vars are **not** prefixed (see "App / notifications / inte
       (`config/filesystems.php`); set only `MEDIA_DISK_URL` if the public media-CDN domain differs. `SAME`
       `FILESYSTEM_DISK` / `PARTNA_MEDIA_DISK` (disk selector, default `media`).
 
+      **STILL OPEN — verified 2026-08-06: this step was never done. Prod and dev share ONE bucket.**
+      Both envs resolve `AWS_BUCKET=fls-a1334790-8631-448b-9b55-dcbd64ec0c65` at
+      `AWS_ENDPOINT=https://367be3a2035528943240074d0096e0cd.r2.cloudflarestorage.com` —
+      byte-identical, i.e. one Laravel Cloud-managed storage resource attached to both envs.
+      Same class of fault as the shared KV namespace above, and it is the reason the media-backup
+      work in `docs/runbooks/media-backup-setup.md` cannot be scoped to prod.
+
+      Why it bites: every dev-side destructive path deletes objects out of the bucket **prod serves** —
+      the 30-day soft-delete purge (`config/partna.php:1026`, `routes/console.php:53`), synchronous
+      erasure (`AccountDeletionService.php:733-738`), and `media:gc-orphaned-video-artifacts`. It also
+      collapses the P2 media-loss scenario into a single control-plane action: detaching or deleting
+      that one storage resource takes prod and dev media together.
+
+      Harmless only while `core.users = 0` in prod. **Split the bucket before the first pilot upload**,
+      and before standing up the media mirror — otherwise the mirror is built against a bucket that is
+      about to be replaced.
+
+      **The split — no data migration needed.** A prod bucket already exists and was simply never
+      attached: `partna_production` / `fls-a1bab29a-c5e6-4e62-8a7c-717e1aaa0484`, created 2026-05-08.
+      Prod Supabase holds 0 users / 0 sites / 0 `site_media` / 0 `media_variants`, so nothing has to be
+      copied — this is a pure repoint.
+
+      - [x] **Step 1 (DONE 2026-08-06)** — `cloud bucket:update fls-a1bab29a-… --visibility public`.
+            It was created `private` with `url: null`; attaching it in that state would have broken
+            every sitepage image, since the disk is `'visibility' => 'public'` and public URLs resolve
+            from `AWS_URL` (`config/filesystems.php:80,85`). Now `public`, url
+            `https://fls-a1bab29a-c5e6-4e62-8a7c-717e1aaa0484.laravel.cloud`.
+      - [x] **Step 2 (DONE 2026-08-06)** — bucket attached to the prod environment in the dashboard;
+            Laravel Cloud re-injected the full `AWS_*` set. **Dashboard only** — verified that
+            `environment:update` exposes `--database-id`, `--cache-id` and
+            `--websocket-application-id` but has no bucket equivalent, and the only CLI route is
+            `environment:variables`, which replaces the *entire* var set from a file.
+      - [x] **Step 3 (DONE 2026-08-06)** — control-plane verification, no deploy required:
+            `AWS_BUCKET=fls-a1bab29a-…`, `AWS_URL=https://fls-a1bab29a-….laravel.cloud`,
+            `AWS_ACCESS_KEY_ID` now matches `partna_production / default_access_key`. Dev unchanged on
+            `fls-a1334790-…`, and the two environments **no longer share a storage credential**.
+            The running app picks these up at its next build — Laravel Cloud bakes config via
+            `optimize`, so a var set after the last build is invisible until a redeploy (same
+            mechanism as `NIGHTWATCH_TOKEN` above). Prod is stopped, so nothing is pending.
+
+      **Resolved by the attach:** before it, prod's `AWS_ACCESS_KEY_ID` was byte-identical to dev's
+      and matched *no* key that `bucket-key:list` reported on either bucket — a stale credential
+      copied wholesale from dev at cutover. The attach replaced it with the bucket's own key.
+      **Still open on dev:** dev's `AWS_ACCESS_KEY_ID` likewise matches neither key listed on
+      `partna_development`, alongside an unaccounted second `read_write` key named `newacesskey`
+      (created 2026-06-24). Dev media works, so the credential is valid but unenumerated. Lower
+      stakes now that it is isolated to dev, but two unidentified credentials on the bucket holding
+      all current media is worth resolving.
+
+      **Gotcha — `bucket:update` reports success before public access works.** The API returned
+      `visibility: public` with a minted URL immediately, but requests to that URL still returned
+      **401** for ~1–2 minutes before flipping to 404. Verify with an HTTP probe, not the API response:
+      `curl -o /dev/null -w '%{http_code}' <bucket-url>/__probe-nonexistent-key` — **404 is the healthy
+      answer** (public bucket, key absent), 401 means public access has not taken effect yet. This is
+      unrelated to the app environment being stopped; the bucket domain is Cloudflare's storage edge
+      and has no PHP container in the path.
+
 ### Monitoring + third-party API keys
 - [ ] `NEW` **`NIGHTWATCH_TOKEN` — provisioned by the Laravel Cloud ↔ Nightwatch integration, NOT by pasting a
       value** (also in boot-critical above). In the Cloud console → `partna` → `production` → Nightwatch, connect

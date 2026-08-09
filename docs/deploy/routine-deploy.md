@@ -17,8 +17,8 @@ Read these before the first deploy; the checklist below only makes sense against
 | The prod Laravel Cloud env has `usesPushToDeploy: true` and `branch: production`. | **`git push origin …:production` IS the deploy.** No promote step, no approval, no valve. |
 | `api.partna.au` CNAMEs directly at the prod env vanity (`partna-production-uovh3z.laravel.cloud`). | The build going green **is** the public change. There is no DNS staging step. |
 | The env's `deployCommand` is `# php artisan migrate --force` — commented out, deliberately. | **Code and schema deploy on two separate rails.** Nothing about the git push touches the database. Laravel migrations are banned repo-wide (Composer guard); schema ships only via `supabase db push` against `edplucmvkcnokyygxqsb`, run by hand. |
-| CI (`.github/workflows/ci.yml`) runs its real gate on `development`. | **A push to `production` is not gated by CI.** The `production` entry in `on.push.branches` is post-hoc telemetry — Cloud does not wait on Actions. Its value is catching a commit that reached prod without CI ever seeing it; on a normal fast-forward it is redundant by construction. A red run there means *roll back*, not *don't ship* — it already shipped. |
-| The `production` branch is the repo's **default branch** and has **no branch protection** (verified 2026-07-26). | Nothing mechanically prevents a direct commit or a force-push. The fast-forward discipline below is the only guard. |
+| CI (`.github/workflows/ci.yml`) runs its real gate on `development`. Status checks attach to the **commit SHA**, not the branch. | A fast-forward carries `development`'s 9 green checks to `production` with it, which is what lets the protection rule below admit the push. The `production` entry in `on.push.branches` is still post-hoc telemetry — Cloud does not wait on Actions, so a red run *there* means *roll back*, not *don't ship*; it already shipped. |
+| The `production` branch is the repo's **default branch** and **is protected** as of 2026-08-05: the same 9 required status checks as `development`, `enforce_admins: true`, force-push and deletion blocked. | **You cannot push a commit to prod that CI has not already passed — not even as admin.** The fast-forward discipline below is now mechanically enforced, not merely conventional. Emergency path is unchanged in shape but not in cost: land the fix on `development`, wait for CI (~16 min), then fast-forward. Verify the gate with `gh api repos/:owner/:repo/branches/production/protection`. |
 | Supabase org is on the **Free** plan: no PITR, no managed backups. The weekly R2 dump is the only backup, so RPO is ~7 days. | Code rollback is cheap. **Schema rollback does not exist.** That asymmetry drives every judgement call below. |
 
 ### The one invariant
@@ -69,7 +69,7 @@ Work down this list. Any "no" is a stop.
 - [ ] **Does it need a prod migration?** If yes, that is a two-step deploy with a `db push --dry-run` in
       between — give it its own session, not a drive-by at the end of another task. For the **current
       pending set** it also requires a manual `pg_dump` of prod first (see the pre-flight under Rollback);
-      13 of those migrations have no usable reverse path.
+      20 of those migrations have no usable reverse path.
 - [ ] **Is `production` 0 ahead?** The invariant above.
 - [ ] **Is now a sane time?** Prod carries no customer data yet, so blast radius is small — but this will
       stop being true. Once it does, avoid deploying with nobody watching.
@@ -260,6 +260,10 @@ scripts/launch-check/runtime-health.sh --env production --target launch
 1. **Re-push the previous good SHA.** `git push --force-with-lease origin <last-good-sha>:production`.
    Then immediately reconcile `development` so the invariant (`production` is an ancestor of
    `development`) is restored — otherwise the next deploy silently re-ships the bad commit.
+   `production`'s protection deliberately leaves `allow_force_pushes: true` so this path survives; the
+   required status checks are what guard it. A last-good SHA was green when it shipped, so the rollback
+   is admitted — while a force-push to a SHA CI never saw is refused. **Do not "harden" this to
+   `false`**: it would cost you the fastest rollback and buy protection the checks already provide.
 2. **Revert forward.** Revert on `development`, let CI run, fast-forward again. Slower but keeps the
    invariant intact and leaves an honest history. Prefer this when the bad commit is not the tip.
 3. **Stop the prod env.** `api.partna.au` returns 404 (it CNAMEs at prod, so there is no "point back to
@@ -282,9 +286,24 @@ standing rule for every deploy — a rule for *this* set, and it stays required 
 **What:** a manual `pg_dump` of the prod database, taken with nothing else in flight, held on hand (not
 deleted when the push goes green) until the pilot has run without incident.
 
-**Why:** 53 migrations are pending against prod, and 13 of them state no usable reverse path — twelve
+**Why:** 71 migrations are pending against prod, and 20 of them state no usable reverse path — nineteen
 `-- ROLLBACK: NONE` and `20260728100000_retire_pinterest`, whose note reads
 "ONE-WAY IN PRACTICE, two different ways." Two are unrecoverable *in kind*, not merely inconvenient:
+
+> **Re-derive these two numbers before every deploy — they only ever grow.** Verified 2026-08-06; they
+> were 53 and 13 on 2026-07-30, so the pending set grew by 18 migrations in one week. It moved by two
+> *within the hour* this figure was last written, when a branch merged — treat any number here as
+> stale on sight and re-run the commands.
+> ```bash
+> comm -23 <(git ls-tree -r --name-only origin/development -- supabase/migrations/ | grep '\.sql$' | sort) \
+>          <(git ls-tree -r --name-only origin/production  -- supabase/migrations/ | grep '\.sql$' | sort) \
+>   | tee /tmp/pending.txt | wc -l
+> xargs grep -l 'ROLLBACK: NONE' < /tmp/pending.txt | wc -l  # + retire_pinterest, worded differently
+> ```
+> Compare **filenames**, not `git diff`. The baseline is already applied to prod, but its file still
+> differs between the branches (a `ROLLBACK:` comment was added to it after the cutover), so a
+> content diff lists it as pending and its own `ROLLBACK: NONE` inflates the second number — the
+> earlier command over-reported both counts by exactly one.
 
 | Migration | What a bad apply destroys |
 |---|---|

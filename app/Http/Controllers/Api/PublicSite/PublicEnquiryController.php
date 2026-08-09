@@ -20,6 +20,8 @@ use App\Services\PublicSite\PublicSiteResolver;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // V2: Handles public contact form submissions. Saves enquiry, upserts submitter as Customer lead, dispatches notification email.
 class PublicEnquiryController extends ApiController
@@ -139,13 +141,47 @@ class PublicEnquiryController extends ApiController
         // 7) Log unified lead analytics.
         $this->logLead($request, $subdomain, $site->id, (string) $site->user_id, 'created', $startedMs);
 
-        // 8) Queue notification dispatch off the hot path — rate-limit + email handled in the adapter.
-        DispatchEnquiryNotificationsJob::dispatch((string) $enquiry->id);
-
-        // 9) Confirm receipt to the visitor (Tier-2 transactional; gated in the job).
-        SendEnquiryConfirmationJob::dispatch((string) $enquiry->id);
+        // 8/9) Queue notification dispatch off the hot path, then the visitor's
+        // receipt. Both are guarded: the enquiry row is ALREADY COMMITTED above,
+        // and there is no surrounding transaction, so an unguarded dispatch
+        // fault (dead Redis queue) turned a saved lead into a 500 the visitor
+        // would retry — producing duplicate enquiries and no notification ever.
+        // Drill 03 (2026-08-06) finding 3.
+        $this->dispatchEnquiryNotifications($enquiry);
 
         return $this->success(['ok' => true]);
+    }
+
+    /**
+     * Dispatch both notification jobs, stamping the enquiry for reconciliation
+     * if the queue is unreachable.
+     *
+     * ONE marker for TWO jobs, deliberately. A Redis fault kills both calls
+     * microseconds apart, so the realistic case is all-or-nothing; in the split
+     * case re-dispatching both is safe, because each job carries its own
+     * post-send idempotency stamp (email_sent_at / confirmation_sent_at) and
+     * SendEnquiryConfirmationJob is additionally ShouldBeUnique.
+     */
+    private function dispatchEnquiryNotifications(Enquiry $enquiry): void
+    {
+        try {
+            DispatchEnquiryNotificationsJob::dispatch((string) $enquiry->id);
+            SendEnquiryConfirmationJob::dispatch((string) $enquiry->id);
+        } catch (Throwable $e) {
+            Log::warning('enquiry.notify.dispatch_failed', [
+                'enquiry_id' => (string) $enquiry->id,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+
+            try {
+                $enquiry->forceFill(['notifications_pending_since' => now()])->save();
+            } catch (Throwable $markerError) {
+                // Postgres is gone too. Nothing left to do but report — never
+                // let this turn the visitor's successful submission into a 500.
+                report($markerError);
+            }
+        }
     }
 
     private function upsertEnquiryCustomer(string $userId, string $email, ?string $fullName, ?string $phone): Customer

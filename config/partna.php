@@ -1128,6 +1128,21 @@ return [
         'analytics_click_per_minute' => (int) env('PARTNA_THROTTLE_ANALYTICS_CLICK_PER_MINUTE', 5),
         'leads_per_minute_ip' => (int) env('PARTNA_THROTTLE_LEADS_PER_MINUTE_IP', 3),
         'leads_per_minute_subdomain' => (int) env('PARTNA_THROTTLE_LEADS_PER_MINUTE_SUBDOMAIN', 100),
+
+        // Degraded-mode lead limits, used ONLY when Redis is unreachable and
+        // LeadSubmissionRateLimiter counts analytics.lead_submissions instead
+        // (see FailOpenThrottleRequests::FALLBACK_LIMITERS). Default to the
+        // primary values so visitor behaviour is identical; the separate env
+        // vars exist so the limit can be clamped mid-incident without touching
+        // the healthy-path numbers.
+        'leads_degraded_per_minute_ip' => (int) env(
+            'PARTNA_THROTTLE_LEADS_DEGRADED_PER_MINUTE_IP',
+            env('PARTNA_THROTTLE_LEADS_PER_MINUTE_IP', 3),
+        ),
+        'leads_degraded_per_minute_subdomain' => (int) env(
+            'PARTNA_THROTTLE_LEADS_DEGRADED_PER_MINUTE_SUBDOMAIN',
+            env('PARTNA_THROTTLE_LEADS_PER_MINUTE_SUBDOMAIN', 100),
+        ),
         'authenticated_per_minute' => (int) env('PARTNA_THROTTLE_AUTHENTICATED_PER_MINUTE', 300),
         'staff_per_minute' => (int) env('PARTNA_THROTTLE_STAFF_PER_MINUTE', 300),
         'webhooks_per_minute' => (int) env('PARTNA_THROTTLE_WEBHOOKS_PER_MINUTE', 200),
@@ -1258,7 +1273,7 @@ return [
     // that adds or drops a site.design_kits column — the old cache key orphans
     // and TTLs out, so picking up the new column set needs no `artisan
     // cache:clear`. (LIFE-2)
-    'design_kit_columns_version' => env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', '2026-07-17.1'),
+    'design_kit_columns_version' => env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', '2026-08-09.1'),
 
     /*
     |----------------------------------------------------------------------
@@ -1841,6 +1856,25 @@ return [
     'form_timing' => [
         'min_ms' => (int) env('PARTNA_FORM_TIMING_MIN_MS', env('FORM_TIMING_MIN_MS', 2500)),      // 2.5s minimum fill time
         'max_ms' => (int) env('PARTNA_FORM_TIMING_MAX_MS', env('FORM_TIMING_MAX_MS', 43200000)),  // 12h max (stale form)
+    ],
+
+    // Enquiry notification reconciliation (drill 03, 2026-08-06). Drains
+    // site.enquiries rows whose notification dispatch failed because Redis was
+    // unreachable — see ReconcileEnquiryNotifications.
+    'enquiry' => [
+        // Past this age, the VISITOR's "we received your message" confirmation
+        // is skipped: a receipt arriving hours late reads worse than none. The
+        // professional's own notification has no such staleness problem and is
+        // always re-dispatched.
+        'confirmation_reconcile_window_minutes' => (int) env('PARTNA_ENQUIRY_CONFIRMATION_RECONCILE_WINDOW_MINUTES', 60),
+
+        // Rows drained per run, so a long outage spreads over several ticks
+        // instead of flooding the queue on the first tick after recovery.
+        'reconcile_batch_size' => (int) env('PARTNA_ENQUIRY_RECONCILE_BATCH_SIZE', 200),
+
+        // A marker older than this means leads were captured and nobody was
+        // told. That is the condition worth paging on.
+        'notifications_pending_alert_minutes' => (int) env('PARTNA_ENQUIRY_NOTIFICATIONS_PENDING_ALERT_MINUTES', 30),
     ],
 
     'notification_retention_days' => [

@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ "$ONLY" =~ ^(active|edge)$ ]] || { usage; die "--only active|edge required"; }
 
-OUTDIR="$(dast_outdir)"
+OUTDIR="$(dast_outdir "$ONLY")"
 log "lane=$ONLY target=${TARGET:-<lane default>} fail-on=$FAIL_ON outdir=$OUTDIR"
 
 case "$ONLY" in

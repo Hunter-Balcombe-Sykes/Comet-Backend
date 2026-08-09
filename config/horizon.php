@@ -89,15 +89,20 @@ return [
     */
     'waits' => [
         // Lane 1 — supervisor-1 (balance=>false, 2 procs in prod/dev): covers
-        // platform_refresh/platform_connect/cloudflare_bulk (OBS-6's named
-        // queues), which sit at the bottom of this strict-priority list and
-        // are the first to starve. 900s = 15min: a 180s Cloudflare purge plus
+        // platform_refresh/platform_connect/analytics/cloudflare_bulk (OBS-6's
+        // named queues), which sit at the bottom of this strict-priority list
+        // and are the first to starve. 900s = 15min: a 180s Cloudflare purge plus
         // a batch of image jobs projects well under this on routine load
         // (integrations:refresh's staggered dispatch keeps delayed jobs out
         // of readyNow entirely); a lane that can't clear in a quarter of
         // integrations:refresh's hourly cadence has already failed a user-
         // visible connect spinner.
-        'redis:moderation_high,default,cloudflare,cache-warm,analytics,images,streaming,platform_refresh,platform_connect,cloudflare_bulk' => 900,
+        //
+        // ⚠️ This key is the comma-joined queue array VERBATIM — MonitorWaitTimes
+        // reads back exactly the composite key the supervisor registers. Reorder
+        // `defaults.supervisor-1.queue` and this string MUST move with it, or the
+        // lane silently falls back to the accidental 60s ceiling.
+        'redis:moderation_high,default,cloudflare,cache-warm,images,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk' => 900,
 
         // Lane 2 — supervisor-ingest (balance=>'auto', 1 proc): the one lane
         // where a per-queue key is legitimate. 1800s = 2x ingest:dispatch's
@@ -218,7 +223,19 @@ return [
             // bulk-fanout purges are only ever served once every lane above them
             // (including real-time 'cloudflare') is empty. Adds a queue NAME only,
             // no new supervisor/process/memory.
-            'queue' => ['moderation_high', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect', 'cloudflare_bulk'],
+            //
+            // 2026-08-07: 'analytics' moved from position 5 to position 9 (k6 phase 3b).
+            // It was ranked ABOVE 'images' — a priority inversion. analytics is the
+            // highest-volume, LEAST urgent queue (fire-and-forget visitor beacons, no
+            // one waits on one); images is low-volume and HIGHLY urgent (a user is
+            // watching for their upload to appear). Measured on dev: a 20,000-job
+            // analytics backlog held an 'images' job unstarted for the full 4.5-minute
+            // drain, while a 'default' job one rank higher ran immediately. At the
+            // measured ~58 jobs/s that means an hour-long visitor spike stalls image
+            // processing for ~an hour. Nothing is lost — this is latency, not
+            // correctness — but it is invisible to the user whose photo never appears.
+            // Guarded by 'analytics is listed AFTER images' in HorizonQueueCoverageTest.
+            'queue' => ['moderation_high', 'default', 'cloudflare', 'cache-warm', 'images', 'streaming', 'platform_refresh', 'platform_connect', 'analytics', 'cloudflare_bulk'],
             'balance' => false,
             'maxProcesses' => 1,
             'maxTime' => 0,
