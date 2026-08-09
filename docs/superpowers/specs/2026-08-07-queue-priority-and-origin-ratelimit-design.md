@@ -216,11 +216,76 @@ the zone. Rule out "is this traffic even on my zone?" before theorising about ex
 | **C. Scale the app instance** | `flex.c-2vcpu-512mb` or larger, and/or enable autoscaling (currently `none`, min=max=1) | Costs money per environment; raises the ceiling but does not stop hostile traffic buying origin CPU |
 | **D. Accept for now** | Nothing | Defensible while pre-beta with no customers and prod stopped; the app's own 60/min limiter still protects Postgres, which the load tests confirmed |
 
-Until one of these lands, the in-app limiter remains the only defence, and the 2b result stands as
-measured: it protects the database but not the origin's CPU.
-
 The 2b figures above are therefore a **true origin measurement**, not a pre-Cloudflare control —
 Cloudflare was never in that path.
+
+---
+
+## Part 2 — RESOLVED via option B (Laravel Cloud edge rate limiting) · 2026-08-09
+
+Laravel Cloud's edge **is** Cloudflare (they partner). Their WAF (OWASP Core Ruleset) and DDoS
+mitigation already ran on all traffic through that edge; **basic rate limiting** just needed enabling:
+*environment canvas → "Edge network" card → "Web Application Firewall" tab*. Threshold is a fixed
+**100 requests/minute per IP** (customisable only on Business); action set to **Throttle** — not
+Challenge, which is unsolvable for API clients. Per-environment, so dev and prod are separate.
+
+This is the right layer precisely because `dev-api.partna.au` CNAMEs to `laravel.cloud`: the traffic
+that bypasses the `partna.au` zone still traverses Laravel Cloud's edge.
+
+### Verified working
+
+| test | result |
+|---|---|
+| 300 requests @ 10/s | **110 × 200, 190 × 429** — threshold engages, with the documented counter overshoot |
+| block response | HTTP 429, body `error code: 1015`, `server: cloudflare` — **Cloudflare's own rate-limit page, not a Laravel response**, so the request never reaches PHP |
+| 900 requests @ 30/s | **78 × 200, 822 × 429**; origin log window shows ~**2.2 req/s** arriving; server `duration_ms` p50 **186 ms**, max **470 ms** — origin stayed healthy throughout |
+
+### Phase 2b, re-run with the limiter live — the headline result
+
+| | before (unprotected) | after (edge limiter) |
+|---|---|---|
+| requests completed in 60 s | 1,029 | **39,909** |
+| client p50 | **2,911 ms** | **39.4 ms** |
+| `origin_5xx` | 0 | **0** |
+| `origin_429` | 925 | **39,802** |
+| requests reaching origin | ~all | ~**2.1 req/s** (100 capped log entries spanning 46 s) |
+| origin statuses | 429s costing 2,900 ms each | 77 × 429, 20 × 200 |
+
+Rejection now costs **39 ms at the edge instead of 2,911 ms at the origin** — a ~74× improvement, and
+the reason throughput rose 39× (k6's VUs cycle instead of blocking). The origin no longer sees the
+flood at all. Exit 0; both thresholds pass.
+
+⚠️ **Reading the origin log correctly:** `cloud env:logs` caps at ~100 entries, so the *count* is
+truncated and cannot be used directly. The informative measure is the **time span** of those 100
+entries — 100 entries across 45–46 s ⇒ ~2.1–2.2 req/s reaching origin. Had the origin been taking the
+full 30 req/s, 100 entries would have spanned ~3 s.
+
+Residual: the ~2/s that do reach the origin still cost p50 **1,292 ms** on the DB-backed profile route,
+above the ~156 ms baseline. Not saturation (zero 5xx, and `/api/health` returned to **193–248 ms**
+once the flood stopped), but the origin is not instant under the trickle either. The underlying
+capacity limit is unchanged — see below.
+
+### Still worth doing (capacity, as distinct from abuse)
+
+Rate limiting stops *abuse*; it does not raise the ceiling for *legitimate* traffic. Laravel Cloud's
+own autoscaling formula explains the ~17 req/s measured knee exactly:
+
+```
+workers per replica = floor(memory_mb / 30)   →  floor(512/30) = 17 concurrent requests
+desired replicas    = ceil(active_requests / workers_per_replica)
+```
+
+So the binding constraint is **memory, not CPU** — 512 MB only fits 17 PHP workers. Two independent
+routes (a load ramp, and their published formula) landed on the same number.
+
+1. **Turn autoscaling on.** Currently `scalingType: none`, min = max = **1**, in *both* dev and prod.
+   Modes are None / Custom (min–max) / Unlimited; HTTP scaling reacts to *active requests*. Being
+   pinned at one replica with no headroom is the underlying fragility. This also answers "what
+   happens past 8 vCPU": you scale **horizontally** — the per-instance cap never binds.
+2. **More RAM before more CPU** — 1 GB doubles workers per replica to ~34.
+3. **Laravel Octane** (a compute-settings toggle, FrankenPHP) boots the framework once and holds it
+   in memory, attacking the ~60 ms/request bootstrap that made rejection expensive in the first place.
+   Needs testing for shared-state caveats.
 
 ### Note on the 2b tail
 
