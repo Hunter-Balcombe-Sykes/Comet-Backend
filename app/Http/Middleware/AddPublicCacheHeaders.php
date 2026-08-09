@@ -39,13 +39,13 @@ class AddPublicCacheHeaders
      * Any cacheable prefix not listed here falls back to DEFAULT_VARY.
      */
     private const VARY_BY_PREFIX = [
-        // SEC-1: no shared cache in front of this route honors Vary today —
-        // the router Worker passes /api straight through, and this endpoint
-        // has no CDN edge cache in the current topology. This header is a
-        // forward-guard: if someone later adds a Cloudflare Cache Rule
-        // ("Cache Everything") for this path WITHOUT a matching custom Cache
-        // Key on X-Site-Subdomain, one tenant's response could be served to
-        // another. Not a live exposure today — kept defensively.
+        // SEC-1: there IS a shared cache in front of these routes and it does key
+        // on Vary — Laravel Cloud's own Cloudflare honours the s-maxage set below.
+        // Measured 2026-08-09: only ~8% of /api/public/profiles requests reach the
+        // origin, against ~100% for /api/health (scripts/launch-check/k6/results/
+        // 2026-08-09-full-rerun.md). So this token is load-bearing, not defensive:
+        // site-by-slug resolves its tenant from a client-supplied header, and
+        // without it one tenant's response could be served to another.
         'api/public/site-by-slug' => ['X-Site-Subdomain', 'Accept-Encoding'],
     ];
 
@@ -76,8 +76,13 @@ class AddPublicCacheHeaders
             }
         }
 
-        // Only cache successful GET requests to explicitly allow-listed public paths.
-        if ($request->isMethod('GET') && $response->isSuccessful()) {
+        // A 304 carries the same contract as the 200 it replaces: RFC 9111 lets a
+        // 304 update the stored entry's headers, so answering a revalidation with
+        // Symfony's default `no-cache, private` un-caches a route we mean to cache.
+        $revalidated = $response->getStatusCode() === Response::HTTP_NOT_MODIFIED;
+
+        // Only cache GET requests to explicitly allow-listed public paths.
+        if ($request->isMethod('GET') && ($response->isSuccessful() || $revalidated)) {
             foreach (self::CACHEABLE_PATH_PREFIXES as $prefix) {
                 if (str_starts_with($path, $prefix)) {
                     // CFG-3: CDN/edge TTL is config-driven (default 15 min) — tunable without a redeploy.
