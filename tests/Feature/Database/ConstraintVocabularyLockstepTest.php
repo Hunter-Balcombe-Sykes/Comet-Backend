@@ -38,7 +38,6 @@
 // hardcoded set even though the migration (unchanged) still does.
 
 use App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest;
-use App\Http\Requests\Concerns\DesignKitValidationRules;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\Site;
