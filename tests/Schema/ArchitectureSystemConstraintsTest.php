@@ -11,8 +11,9 @@
 // 4 and 5 assert an ABSENCE, which is unusual enough to say why out loud: the
 // theme system was removed, not disabled. CLAUDE.md's hard rule is "never
 // reintroduce site.themes, settings.design.*, or theme-picker machinery" —
-// "theme" now means only theme_mode (bleach/dust/warm/dusk/midnight), a
-// design_kits column. Design lives in site.design_kits, one nullable column per
+// "theme" now means only theme_mode (bleach — the only legal value since the
+// 2026-08-06 design-kit simplification), a design_kits column. Design lives
+// in site.design_kits, one nullable column per
 // var, and a resurrected themes table would give it a second, competing home.
 // A well-meaning re-add is exactly the regression these two guard, so do not
 // delete them because "nothing references site.themes" — that IS the invariant.

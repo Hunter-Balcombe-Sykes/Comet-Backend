@@ -23,7 +23,11 @@ use App\Services\Design\ThemeModePalettes;
  */
 final class EmailBrandDefaults
 {
-    public const ACCENT = '#3a6efc';
+    // One of the three accent fallbacks the design system ships
+    // (design-kit/accents.ts). It was #3a6efc, a fourth blue belonging to no
+    // roster — a user with no scraped accent got one colour in their email and
+    // a different one on their site.
+    public const ACCENT = '#1367fb';
 
     public const ACCENT_CONTRAST = '#ffffff';
 

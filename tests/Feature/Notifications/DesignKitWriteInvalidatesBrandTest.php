@@ -30,7 +30,7 @@ it('reflects a design-kit-only update in the next resolved brand', function () {
 
     // Prime the brand cache with the default accent.
     $first = app(ProEmailBrandResolver::class)->forSite($site->id);
-    expect($first->palette->accent)->toBe('#3a6efc');
+    expect($first->palette->accent)->toBe('#1367fb');
 
     // Simulate the controller's design-kit write path + the post-write bust.
     DB::connection('pgsql')->table('site.design_kits')

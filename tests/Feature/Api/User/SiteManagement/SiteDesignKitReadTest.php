@@ -38,7 +38,7 @@ it('GET /api/site returns the preset-merged kit for a restaurant with only accen
     actingAsUser($owner)
         ->getJson('/api/site')
         ->assertOk()
-        ->assertJsonPath('site.design_kit.typography_font_family', 'general-sans')
+        ->assertJsonPath('site.design_kit.typography_font_family', 'monument-grotesk')
         ->assertJsonPath('site.design_kit.weight_regular', '300')
         ->assertJsonPath('site.design_kit.color_accent', '#105030')
         ->assertJsonPath('site.design_kit_manual', ['color_accent'])
@@ -68,7 +68,7 @@ it('PATCH /api/site also returns the resolved kit on the same round-trip', funct
     actingAsUser($owner)
         ->patchJson('/api/site', ['settings' => ['show_branding' => false]])
         ->assertOk()
-        ->assertJsonPath('site.design_kit.typography_font_family', 'general-sans')
+        ->assertJsonPath('site.design_kit.typography_font_family', 'monument-grotesk')
         ->assertJsonPath('site.design_kit_manual', []);
 });
 

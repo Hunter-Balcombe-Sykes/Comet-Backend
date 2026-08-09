@@ -14,13 +14,18 @@ use Illuminate\Support\Facades\DB;
  * `fromSector`, and the one fill-if-empty persister they share.
  *
  * `fromBrandPalette` reads the PERSISTED logo palette (the pipeline extracts
- * and stores it — nothing is fetched here) and tone-maps it into kit columns:
- * the accent role from the most accent-able palette colour, checked with real
- * WCAG 4.5:1 contrast math against the theme background it will sit on, and
- * the neutral room (theme_mode) from the palette's own temperature. A neutral
- * black/white wordmark is a graceful NO-OP with a named reason — the sector
- * seed stays in charge and the UI gets honest empty-state copy, never a
- * fabricated accent.
+ * and stores it — nothing is fetched here) and tone-maps it into the accent
+ * column: the accent role from the most accent-able palette colour, checked
+ * with real WCAG 4.5:1 contrast math against the theme background it will sit
+ * on. A neutral black/white wordmark is a graceful NO-OP with a named reason —
+ * the sector seed stays in charge and the UI gets honest empty-state copy,
+ * never a fabricated accent.
+ *
+ * It used to propose a neutral room (theme_mode) from the palette's warmth
+ * too. That went with the 2026-08-06 simplification: one palette survives, so
+ * there is no room to choose. (The proposal was also quietly broken — it
+ * emitted 'warm', a mode the sitepage renderer has never known, so those
+ * sites silently fell back to the default anyway.)
  *
  * `fromWebsiteEvidence` is the scan-time half: the theme-colour accent
  * already ships (SiteAccentResolver); this adds the font keyword classifier
@@ -46,7 +51,7 @@ class DesignKitAutopilot
      *
      * @var list<string>
      */
-    public const WRITABLE = ['color_accent', 'theme_mode', 'typography_font_family'];
+    public const WRITABLE = ['color_accent', 'typography_font_family'];
 
     public function __construct(
         private readonly FontKeywordClassifier $fonts,
@@ -65,13 +70,10 @@ class DesignKitAutopilot
             return ['proposals' => [], 'reason' => self::REASON_NO_PALETTE];
         }
 
-        // The neutral room first: a warm palette reads on the warm cream,
-        // everything else stays on the default light room. Dark rooms are
-        // never auto-proposed — they are the strongest look in the kit and
-        // §13 reserves that decision for the sector seed or the user.
+        // One palette survives the 2026-08-06 simplification, so the accent is
+        // contrast-checked against the only background it can ever sit on.
         $proposals = [];
-        $mode = ! empty($palette['warm']) ? 'warm' : ThemeModePalettes::DEFAULT_MODE;
-        $background = ThemeModePalettes::anchorsFor($mode)['bg'];
+        $background = ThemeModePalettes::anchorsFor(null)['bg'];
 
         $accent = $this->accentFrom($palette, $background);
         if ($accent === null) {
@@ -82,9 +84,6 @@ class DesignKitAutopilot
         }
 
         $proposals['color_accent'] = $accent;
-        if ($mode !== ThemeModePalettes::DEFAULT_MODE) {
-            $proposals['theme_mode'] = $mode;
-        }
 
         return ['proposals' => $proposals, 'reason' => null];
     }

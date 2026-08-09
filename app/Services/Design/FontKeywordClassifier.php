@@ -14,13 +14,16 @@ namespace App\Services\Design;
  * a font — the roster is closed — it answers "which of OUR faces carries
  * the same register as THEIR site?".
  *
- * Register classes mirror how SectorStylePresets deploys the roster:
- * poster/condensed grotesques → monument-grotesk; Swiss/editorial classics →
- * helvetica-neue; humanist/rounded → general-sans; UI-modern → inter;
- * geometric display → forma-djr; polished contemporary grotesque →
- * helvetica-now. Serifs map to helvetica-neue (the roster's editorial
- * register — it holds no serif, and pretending otherwise would propose a
- * font we cannot render).
+ * Register classes mirror how SectorStylePresets deploys the roster. The
+ * roster narrowed to four faces on 2026-08-06, so several registers now
+ * share a target: poster/condensed AND humanist/rounded → monument-grotesk;
+ * Swiss/editorial, UI-modern AND polished contemporary → helvetica-neue;
+ * geometric display → forma-djr. Serifs map to helvetica-neue (the roster's
+ * editorial register — it holds no serif, and pretending otherwise would
+ * propose a font we cannot render).
+ *
+ * nb-architekt is deliberately unreachable from here: nothing on the open
+ * web shares its register, so no keyword could honestly vote for it.
  */
 final class FontKeywordClassifier
 {
@@ -58,27 +61,27 @@ final class FontKeywordClassifier
         'crimson' => 'helvetica-neue',
 
         // Humanist / rounded / warm sans.
-        'open sans' => 'general-sans',
-        'lato' => 'general-sans',
-        'nunito' => 'general-sans',
-        'quicksand' => 'general-sans',
-        'source sans' => 'general-sans',
-        'pt sans' => 'general-sans',
-        'karla' => 'general-sans',
-        'mulish' => 'general-sans',
-        'cabin' => 'general-sans',
+        'open sans' => 'monument-grotesk',
+        'lato' => 'monument-grotesk',
+        'nunito' => 'monument-grotesk',
+        'quicksand' => 'monument-grotesk',
+        'source sans' => 'monument-grotesk',
+        'pt sans' => 'monument-grotesk',
+        'karla' => 'monument-grotesk',
+        'mulish' => 'monument-grotesk',
+        'cabin' => 'monument-grotesk',
 
         // UI-modern.
-        'inter' => 'inter',
-        'roboto' => 'inter',
-        'segoe' => 'inter',
-        'system-ui' => 'inter',
-        'sf pro' => 'inter',
-        'geist' => 'inter',
-        'manrope' => 'inter',
-        'plus jakarta' => 'inter',
-        'dm sans' => 'inter',
-        'figtree' => 'inter',
+        'inter' => 'helvetica-neue',
+        'roboto' => 'helvetica-neue',
+        'segoe' => 'helvetica-neue',
+        'system-ui' => 'helvetica-neue',
+        'sf pro' => 'helvetica-neue',
+        'geist' => 'helvetica-neue',
+        'manrope' => 'helvetica-neue',
+        'plus jakarta' => 'helvetica-neue',
+        'dm sans' => 'helvetica-neue',
+        'figtree' => 'helvetica-neue',
 
         // Geometric display.
         'futura' => 'forma-djr',
@@ -92,12 +95,12 @@ final class FontKeywordClassifier
         'josefin' => 'forma-djr',
 
         // Polished contemporary grotesques.
-        'work sans' => 'helvetica-now',
-        'archivo' => 'helvetica-now',
-        'sora' => 'helvetica-now',
-        'space grotesk' => 'helvetica-now',
-        'outfit' => 'helvetica-now',
-        'urbanist' => 'helvetica-now',
+        'work sans' => 'helvetica-neue',
+        'archivo' => 'helvetica-neue',
+        'sora' => 'helvetica-neue',
+        'space grotesk' => 'helvetica-neue',
+        'outfit' => 'helvetica-neue',
+        'urbanist' => 'helvetica-neue',
     ];
 
     /**

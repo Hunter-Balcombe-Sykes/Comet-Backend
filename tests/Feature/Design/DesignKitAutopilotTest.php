@@ -83,12 +83,16 @@ it('says so when no processed palette exists yet', function () {
         ->and($derived['reason'])->toBe(DesignKitAutopilot::REASON_NO_PALETTE);
 });
 
-it('proposes the warm room for a warm palette', function () {
+it('proposes no room at all for a warm palette — one palette survives', function () {
+    // Until 2026-08-06 a warm palette proposed theme_mode 'warm'. The mode
+    // column is gone with the design-kit simplification, and 'warm' was never
+    // a mode the sitepage renderer knew, so it only ever fell back anyway.
     $siteId = autopilotSite(['dominant' => '#b0521a', 'colors' => ['#b0521a'], 'warm' => true]);
 
     $proposals = app(DesignKitAutopilot::class)->fromBrandPalette($siteId)['proposals'];
 
-    expect($proposals['theme_mode'] ?? null)->toBe('warm');
+    expect($proposals)->not->toHaveKey('theme_mode')
+        ->and($proposals['color_accent'] ?? null)->not->toBeNull();
 });
 
 // ── fromWebsiteEvidence ──────────────────────────────────────────────────────

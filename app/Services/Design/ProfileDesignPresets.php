@@ -23,21 +23,23 @@ final class ProfileDesignPresets
 {
     /**
      * design_kits columns a profile preset may set — VALUE/SELECTION vars
-     * only, never inferred vars (they derive at render time). theme_mode
-     * IS presettable (owner override 2026-07-22 — the palette is the site's
-     * colour identity and industries have a clear room-tone); the user's own
-     * manual pick still wins per the universal manual-over-preset rule.
+     * only, never inferred vars (they derive at render time). The user's own
+     * manual pick always wins, per the universal manual-over-preset rule.
      * theme_night_shift_auto is the ONE remaining user-only field (a
      * functional day/night toggle, not an aesthetic choice) — never preset.
-     * typography_uppercase (boolean) IS presettable: the old TEXT-valued
-     * contribution rows couldn't carry it, but the read-time PHP overlay can.
+     *
+     * Narrowed 2026-08-06 by the design-kit simplification. theme_contrast,
+     * typography_tracking, typography_uppercase, motion_pace and border_style
+     * left the schema entirely. theme_mode KEPT its column but lost its
+     * roster — 'bleach' is the only legal value, so presetting it could only
+     * ever write the default, and it drops off this list too. (It had been
+     * presettable since an owner override on 2026-07-22, back when industries
+     * could be given a room-tone.)
      *
      * @var list<string>
      */
     private const TARGETABLE = [
-        'theme_mode',
         'color_accent',
-        'theme_contrast',
         'text_body',
         'text_desktop_body',
         'weight_regular',
@@ -45,15 +47,11 @@ final class ProfileDesignPresets
         'typography_line_height',
         'typography_logo_height',
         'typography_font_family',
-        'typography_uppercase',
-        'typography_tracking',
         'border_thickness',
         'border_radius',
         'space_regular',
         'space_desktop_regular',
         'layout_density',
-        'border_style',
-        'motion_pace',
         'effect_shadow_style',
         'effect_link_style',
         'effect_image_treatment',

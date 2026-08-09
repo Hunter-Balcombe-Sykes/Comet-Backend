@@ -366,7 +366,9 @@ it('rejects the retired 2-value theme_mode over HTTP with a 422', function () {
     DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $pro->site->id]);
 
     // 'dark' was valid pre-rework; the migration remapped stored rows to
-    // 'midnight' and the trait now only accepts the 5 palette modes.
+    // 'midnight'. The trait accepted 5 palette modes after that, then
+    // narrowed to 'bleach' alone with the 2026-08-06 design-kit
+    // simplification — 'dark' still fails, now for the stricter reason.
     actingAsUser($pro)
         ->patchJson('/api/site', [
             'design_kit' => ['theme_mode' => 'dark'],
@@ -416,7 +418,7 @@ it('PATCH design_kit.<col> = null clears the manual override and the preset re-s
     config(['partna.throttle.enabled' => false]);
     setupSubdomainAliasesTable(); // real (non-spied) cache invalidation reads this
     $user = createTenant('reset-to-auto');
-    $user->sector = 'restaurant'; // food_drink -> typography_font_family: general-sans
+    $user->sector = 'restaurant'; // food_drink -> typography_font_family: monument-grotesk
     $user->save();
     DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $user->site->id]);
 
@@ -430,7 +432,7 @@ it('PATCH design_kit.<col> = null clears the manual override and the preset re-s
         'design_kit' => ['typography_font_family' => null],
     ])->assertOk();
 
-    $response->assertJsonPath('site.design_kit.typography_font_family', 'general-sans');
+    $response->assertJsonPath('site.design_kit.typography_font_family', 'monument-grotesk');
     $response->assertJsonPath('site.design_kit_manual', []);
 
     // Defense-in-depth: the column is genuinely NULL in storage, not just
@@ -456,7 +458,7 @@ it('resetting one manual column to auto does not disturb a sibling manual column
         'design_kit' => ['typography_font_family' => null],
     ])->assertOk();
 
-    $response->assertJsonPath('site.design_kit.typography_font_family', 'general-sans'); // reverted
+    $response->assertJsonPath('site.design_kit.typography_font_family', 'monument-grotesk'); // reverted
     $response->assertJsonPath('site.design_kit.color_accent', '#000000'); // untouched sibling
     expect($response->json('site.design_kit_manual'))->toEqualCanonicalizing(['color_accent']);
 });
