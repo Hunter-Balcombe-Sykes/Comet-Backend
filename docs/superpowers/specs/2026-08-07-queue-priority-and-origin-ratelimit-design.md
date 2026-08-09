@@ -178,27 +178,49 @@ Throughput and integrity unchanged: 20,012 jobs (20,000 + 12 canaries) all lande
 | 2a edge | ✅ `edge_cache_hit` **99.96%** (26,199/26,209), `http_req_failed` **0.04%** | Was 100% / 0.00%; both still far inside thresholds |
 | 2b origin | ✅ exit 0, `origin_5xx` **0**, `origin_429` **810** of 931 | p50 **2,840 ms** vs 2,911 ms — reproduces |
 
-### Part 2 — NOT yet in effect
+### Part 2 — CANNOT WORK AS DESIGNED. The API bypasses this Cloudflare zone.
 
-The rule as first saved used `http.host`, which the **Free plan does not support** — its rate-limiting
-expressions are restricted to the **Path** and **Verified Bot** fields only. Verified empirically:
-300 requests at 10/s (double the threshold, across three windows) returned 300 × 200, and a
-differential test against the correctly-spelled `api.partna.au` also failed to limit — ruling out a
-typo and confirming the field restriction.
+The rule was saved, set Active, and then corrected to drop the `http.host` clause. It still never
+fired: **600 requests at 30/s — 6× the 50/10s threshold — returned 600 × 200**, with
+`cf-cache-status: BYPASS` ruling out caching as the explanation.
 
-**Corrected rule — drop the host clause entirely:**
+The cause is upstream of the expression entirely. Zone DNS:
 
-```
-starts_with(http.request.uri.path, "/api/")
-```
+| record | proxied? | points at |
+|---|---|---|
+| `*.partna.au` (A) | **PROXIED** | the wildcard serving `<handle>.partna.au` pages + the zone Worker |
+| `api.partna.au` (CNAME) | **dns-only** | `partna-production-uovh3z.laravel.cloud` |
+| `dev-api.partna.au` (CNAME) | **dns-only** | `partna-development-fsh3vz.laravel.cloud` |
 
-Still correctly scoped, by path rather than host: phase 2a hits `loadtest.partna.au/` (path `/`,
-no match) and the baseline runs at ~7.5 req/10 s, well under 50. Re-confirmed not active as of the
-2026-08-09 re-run (150 requests at 10/s → 150 × 200), so 2b above is a **pre-Cloudflare control**.
+An explicit record beats the wildcard, so **API traffic goes straight to Laravel Cloud and never
+transits this zone**. No zone-level rate-limiting or WAF rule can affect it, whatever the expression.
 
-Consequence to expect once live: `jobs.js` (~10.7 req/s ≈ 107 per 10 s) will be blocked by Cloudflare
-rather than the app's 120/min limiter, changing what that phase measures. Phase 3b (direct dispatch)
-is unaffected.
+⚠️ The misleading tell: API responses still carry `server: cloudflare` and a `cf-ray`. That is
+**Laravel Cloud's own Cloudflare**, not this zone. `cf-ray` is not evidence of zone transit — check
+`dns_records[].proxied`.
+
+**Correction to an earlier claim in this document's history.** The first diagnosis was that the Free
+plan's restriction of rate-limit expressions to the Path and Verified Bot fields caused the `http.host`
+clause to silently never match. That restriction is real (Free = 1 rule, fixed 10 s period, IP
+characteristic, Path/Verified-Bot fields only, eventually-consistent counters) but it was **not** the
+operative cause. The differential test — a second, correctly-spelled hostname also failing to limit —
+was read as confirming the field theory when it in fact pointed at the real answer: neither host is on
+the zone. Rule out "is this traffic even on my zone?" before theorising about expression syntax.
+
+### Options, none of them free
+
+| Option | What it takes | Risk |
+|---|---|---|
+| **A. Orange-cloud the API records** | Proxy `api` / `dev-api`, then the rule works as specced | ⚠️ The Worker route is `*/*` on `partna.au`, and its `RESERVED` set (`cloudflare-worker/src/index.js`, mirrors `config('partna.reserved_subdomains')`) contains **`api` but NOT `dev-api`**. Proxying `dev-api` without adding it to RESERVED in **both** files routes dev API traffic into the brand-subdomain KV lookup and breaks it. Also needs TLS/redirect verification against Laravel Cloud. |
+| **B. Laravel Cloud's own edge protections** | Investigate whether the platform offers rate limiting / WAF at its edge | Unknown; not yet checked |
+| **C. Scale the app instance** | `flex.c-2vcpu-512mb` or larger, and/or enable autoscaling (currently `none`, min=max=1) | Costs money per environment; raises the ceiling but does not stop hostile traffic buying origin CPU |
+| **D. Accept for now** | Nothing | Defensible while pre-beta with no customers and prod stopped; the app's own 60/min limiter still protects Postgres, which the load tests confirmed |
+
+Until one of these lands, the in-app limiter remains the only defence, and the 2b result stands as
+measured: it protects the database but not the origin's CPU.
+
+The 2b figures above are therefore a **true origin measurement**, not a pre-Cloudflare control —
+Cloudflare was never in that path.
 
 ### Note on the 2b tail
 
