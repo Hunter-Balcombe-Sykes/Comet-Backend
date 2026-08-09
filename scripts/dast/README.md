@@ -220,7 +220,7 @@ their absence here is correct, not a gap to fill.
 
 ### IDOR coverage — what "IDOR assertions passed" actually proves
 
-**23 distinct ownership-deciding code paths are probed.** Until 2026-08-09 only 2
+**24 distinct ownership-deciding code paths are probed.** Until 2026-08-09 only 2
 were, and a green log said exactly the same thing then as it does now — which is why
 the covered set is enumerated here rather than left to the log line. Read the two
 "does not prove" paragraphs at the end before treating this as exhaustive.
@@ -272,6 +272,7 @@ figure that matters is the decider count, not the route count.
 | 20 | `ManualOverrideController::destroy` | `DELETE api/content/items/{item}/overrides/{facet}/{column}` | 404 |
 | 21 | `ConnectionsController::setPrimary` | `POST api/routing/connections/{connection}/primary` | 404 |
 | 22 | `SuggestionsController::dismiss` | `POST api/routing/suggestions/{intent}/dismiss` | 404 |
+| 23 | `SectionItemController::upsert` (`{item}`) | `PUT api/site/sections/{section}/items/{item}` | 404 |
 
 404 (not 403) is verified per surface from source, not assumed: the policy path is
 `BasePolicy::denyAsNotFound()` (`SitePolicy`, `SectionPolicy`, `ServicePolicy`,
@@ -296,27 +297,46 @@ because in both the effective IDOR target is the parent, which *is* probed:
   string key (`->where('group_key', $groupKey)`). Every `SectionGroupController`
   method routes through one private `findSection()` (`:96`), so `{section}` is the
   decider and #11 covers it.
-- `api/site/sections/{section}/items/{item}` — `SectionItemController::destroy`
-  scopes `{item}` by `section_id` alone, never by owner. That is sufficient: a
-  foreign item cannot be pinned in a section you own. The parent `{section}` is the
-  real target and #10 covers it.
+- `api/site/sections/{section}/items/{item}` — **for `DELETE` only.**
+  `SectionItemController::destroy` scopes `{item}` by `section_id` alone, never by
+  owner. That is sufficient: a foreign item cannot be pinned in a section you own,
+  so the parent `{section}` is the real target and #10 covers it. The `PUT` on the
+  same URI is a different matter — it owner-scopes `{item}` independently, and #23
+  probes it.
 
-**What this still does NOT prove.** Three things, stated plainly so a green log is
-not read as more than it is:
+**What this still does NOT prove.** Two things, stated plainly so a green log is not
+read as more than it is:
 
-1. **One uncovered decider.** `SectionItemController::upsert` performs a *second,
-   genuinely independent* owner-scoped check on `{item}` (`findItem` + `authorize
-   'view'`, `:62-67`) that no probe reaches. It is a `PUT` with a required body, so a
-   bodyless probe would 422 before authorization ran. Closing it means sending a
-   valid body — not hard, just not done.
-2. **Verbs, not just deciders.** #3 probes `DELETE api/gallery/{image}` but not
+1. **Verbs, not just deciders.** #3 probes `DELETE api/gallery/{image}` but not
    `PATCH`, because a bodyless `PATCH` 422s on its `FormRequest` first. Both share
    the same `SitePolicy` call, so the *decision* is covered; a divergence introduced
    into one verb's handler alone would not be.
-3. **Scope.** Only the two seeded identities' own ownership checks, through the app's
+2. **Scope.** Only the two seeded identities' own ownership checks, through the app's
    code, on a local stack. Nothing about prod's `app_backend` restricted role or RLS
    (see "Limitation" at the bottom), and nothing about staff-side authorization —
    `api/staff/*` is out of the scanned population.
+
+### Probing a surface that needs a request body
+
+`section-item-upsert` (#23) is the pattern to copy. `SectionItemController::upsert`
+checks **two** ids independently — `{section}` via `findSection`, `{item}` via
+`findItem($user->id, ...)` + `authorize 'view'` — so probing `{section}` (which #10
+does) says nothing about `{item}`. Two mechanics make the second one probeable:
+
+- **The parent id is pinned to identity A** with an `@SECTION_ID@` token, while `%s`
+  carries the varying target. The probe therefore sends *A's own section* with *B's
+  item*. Substituting B's section too would fail at the parent check and never reach
+  the child one — a vacuous pass wearing a green tick.
+- **A body is required.** Laravel validates a `FormRequest` before the controller
+  runs, so a bodyless `PUT` returns 422 without ever reaching `findItem`. That is
+  precisely why this decider went unprobed until 2026-08-09. Declare the body as a
+  fifth `|`-delimited field; `idor_emit` then adds `data:` and a
+  `Content-Type: application/json` header. `data` is ZAP's real field name —
+  confirmed against `zap.sh -cmd -autogenmax`, not assumed, because ZAP downgrades an
+  unknown field to a warning and drops it silently.
+
+Keep the body minimal and side-effect-light: `{"state":"excluded"}` rather than
+`pinned`, because a pin also calls `nextSortKey()`.
 
 **How to prove the assertions are live — invert them.** `IDOR assertions passed` is
 the *absence* of a `Difference in response code` line, and absence is exactly the
