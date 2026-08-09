@@ -84,6 +84,11 @@ comparable). **Faster than the reference on every percentile** — nothing has r
 that run: profile **155.9 / 226.9 ms** (p50/p95), health 91.6 / 163.9, social-platforms **44.8** /
 116.4 — the edge-served route is what pulls the blended p50 down, quantifying the caveat below.
 
+**Current best figures — 2026-08-09** (`results/2026-08-09-full-rerun.md`, run D, instrumented):
+p50 **51.6 ms** · p95 **140.9 ms** · 0.00% errors · 900/900 checks. Per-endpoint: profile
+**38.2 / 161.7 ms**, social-platforms 44.4 / 109.0, health 90.2 / 158.9. Faster again on every
+percentile.
+
 ### Read `max`, don't trust it
 
 **`max` does not describe Partna and must not be quoted as a latency figure.** Two runs under
@@ -160,6 +165,34 @@ All three ran for the first time on 2026-08-06 and all three passed their thresh
    volume never buys origin CPU. (Not verified against prod — load-testing prod is `OPS-S4-3`.)
 
 Still open: **worker memory recovery**, which no CLI surface exposes — see the write-up.
+
+### Full re-run 2026-08-09 — all four phases PASS
+
+`results/2026-08-09-full-rerun.md`. First full pass with **Laravel Cloud edge rate limiting live on
+dev**, which changes what phases 2b and 3 measure.
+
+- **1 baseline** — p50 **51.6 ms** / p95 **140.9 ms**, faster than every prior run.
+- **2a edge** — `edge_cache_hit` **100.00%** (34,216/34,216), zero origin hits.
+- **2b origin** — `origin_5xx` **0**, `origin_429` **39,942**. Client p50 **2,911 ms → 41.9 ms** and
+  completed requests **1,029 → 40,008** versus 08-06. Only ~**2.2 req/s** reached PHP; Supabase
+  peaked at **37 of 60** with never more than 1 active query.
+- **3 jobs** — `jobs_5xx` **0**, `jobs_accepted` **119**, and all **119 rows provably landed**
+  (6,844 → 6,963). Queues drained to 0, `failed_jobs` 0. Lower than 08-06's 142 because the edge
+  limit now throttles these POSTs too — expected, not a regression.
+
+**Two findings carried forward:**
+
+1. **Intermittent multi-second stall on the profile route** (2 of 3 baseline runs: 8.53 s, 4.04 s).
+   Profile-route only, TTFB-bound (`waiting` 3,961 of 4,042 ms), while a concurrent profile request
+   completed in 42.5 ms and `/api/health` stayed normal. Never captured server-side — the log buffer
+   rotated it out both times. **Unresolved**; reproduction recipe in the write-up.
+2. **The origin still needs p50 ~1.4 s to return a 429** (its own access log), at ~2 req/s where the
+   container is idle. Improved from ~2,900 ms but not eliminated. The 429 comes from route
+   middleware, so that is Laravel boot + the limiter's store check alone.
+
+⚠️ **Phase 2a's `http_req_duration` p95 (463.8 ms) is the tester's downlink, not the edge.** Split
+the phases: `waiting` p50 **57.6** / p95 **133.0 ms** versus `receiving` p50 71.8 / p95 368.4 —
+median receive exceeds median wait at 6.3 MB/s. Real edge TTFB improved vs 08-06's 239 ms.
 
 ## Collaboration (§8)
 

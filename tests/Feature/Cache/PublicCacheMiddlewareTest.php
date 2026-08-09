@@ -132,6 +132,70 @@ it('public site-by-slug route still varies on X-Site-Subdomain after the per-pre
     expect($vary)->toContain('X-Site-Subdomain');
 });
 
+/**
+ * The ordering guard. AddETagHeaders is appended to the `api` group AFTER
+ * AddPublicCacheHeaders, so it unwinds first and converts the response to 304
+ * before AddPublicCacheHeaders runs — which is the entire cause of the defect.
+ * A unit test on the middleware alone cannot catch a regression of it, because
+ * in isolation the middleware was always correct. This fails if the pipeline is
+ * reordered back.
+ */
+it('a conditional GET on the profile route returns 304 still carrying the public cache contract', function () {
+    $resolve = ['pro_id' => 'p1', 'site_id' => 's1', 'updated_at_ts' => 123];
+    $payload = ['profile' => ['handle' => 'jane']];
+
+    // Four values: two HTTP requests x two rememberLocked() calls each. Mockery
+    // repeats the LAST value once exhausted, so supplying only two would hand the
+    // second request the payload where it expects the resolve map.
+    bindPublicProfileCache([$resolve, $payload, $resolve, $payload]);
+
+    $first = $this->getJson('/api/public/profiles/jane');
+    $first->assertOk();
+
+    $etag = (string) $first->headers->get('ETag', '');
+    expect($etag)->not->toBe('');
+
+    $second = $this
+        ->withHeader('If-None-Match', $etag)
+        ->getJson('/api/public/profiles/jane');
+
+    $second->assertStatus(304);
+
+    $cacheControl = (string) $second->headers->get('Cache-Control', '');
+    expect($cacheControl)->toContain('public')
+        ->toContain('s-maxage=900');
+    expect((string) $second->headers->get('Vary', ''))->toContain('Accept-Encoding');
+});
+
+/**
+ * SEC-1, and the reason this fix is not merely a performance change. site-by-slug
+ * resolves its tenant from the client-supplied X-Site-Subdomain header, so that
+ * Vary token is the cache key that keeps tenants apart. Before the 304 fix the
+ * revalidation response dropped it (observed on dev as `vary: Origin` alone), and
+ * a shared cache is permitted to update a stored entry's headers from a 304 — so
+ * the key could be lost on an entry that stays served. Pin it.
+ */
+it('a conditional GET on site-by-slug returns 304 still carrying Vary: X-Site-Subdomain', function () {
+    $subdomain = 'test-304-vary-'.Str::random(6);
+    prewarmSiteCache($subdomain);
+
+    $first = $this
+        ->withHeader('X-Site-Subdomain', $subdomain)
+        ->getJson('/api/public/site-by-slug');
+    $first->assertOk();
+
+    $etag = (string) $first->headers->get('ETag', '');
+    expect($etag)->not->toBe('');
+
+    $second = $this
+        ->withHeader('X-Site-Subdomain', $subdomain)
+        ->withHeader('If-None-Match', $etag)
+        ->getJson('/api/public/site-by-slug');
+
+    $second->assertStatus(304);
+    expect((string) $second->headers->get('Vary', ''))->toContain('X-Site-Subdomain');
+});
+
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
