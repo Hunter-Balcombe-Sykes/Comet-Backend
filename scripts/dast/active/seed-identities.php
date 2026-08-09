@@ -33,9 +33,40 @@ use Illuminate\Support\Str;
 // `Illuminate\Contracts\Console\Kernel::class` into a short reference plus an
 // import, and placed the import below the call. Nothing caught it because this
 // lane is manual-only. Keep this ordering — it is Pint-stable and correct.
+// CONTAINMENT GUARD 1 — .env.dast must exist before anything boots.
+// Without it, `--env=dast` finds no dast environment file and Laravel falls
+// back to the repo's REAL .env, so this seeder would create users and write
+// rows against whatever SUPABASE_URL/DB_HOST the developer actually uses.
+// That is not theoretical: on 2026-08-07 a stale bring-up.env let this script
+// run before bring-up.sh had written .env.dast, and it POSTed to a remote
+// *.supabase.co admin endpoint — harmless only because the host was
+// unreachable. mint-jwt.php has always had this check; this file did not.
+$envDast = __DIR__.'/../../../.env.dast';
+if (! file_exists($envDast)) {
+    fwrite(STDERR, "$envDast not found — the active lane's scratch stack is not up. Refusing to seed: without .env.dast this would target the REAL .env's Supabase/DB. Run via zap-active.sh, never directly.\n");
+    exit(1);
+}
+
 require __DIR__.'/../../../vendor/autoload.php';
 $app = require __DIR__.'/../../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
+
+// CONTAINMENT GUARD 2 — the resolved targets must be loopback, full stop.
+// Guard 1 proves a dast env file exists; this proves it actually points at the
+// throwaway stack. Belt and braces on purpose: this script creates auth users
+// and writes rows, so "NEVER point this at real dev/prod" (bring-up.sh) needs
+// an assertion, not just a comment. Checked AFTER bootstrap because it reads
+// the resolved config rather than re-parsing the file.
+foreach ([
+    'supabase.url' => config('supabase.url'),
+    'database.connections.pgsql.host' => config('database.connections.pgsql.host'),
+] as $key => $value) {
+    $host = parse_url((string) $value, PHP_URL_HOST) ?: (string) $value;
+    if (! in_array($host, ['127.0.0.1', 'localhost', '::1'], true)) {
+        fwrite(STDERR, "refusing to seed: $key resolves to '$host', which is not loopback. The active lane must only ever touch its own throwaway stack.\n");
+        exit(1);
+    }
+}
 
 $outdir = null;
 foreach (array_slice($argv, 1) as $arg) {
@@ -138,6 +169,252 @@ function seedIdentity(string $label): array
         'media_id' => $media->id,
         'customer_id' => $customer->id,
         'enquiry_id' => $enquiry->id,
+        ...seedProbeFixtures($user, $site, $label),
+    ];
+}
+
+/**
+ * One fixture per IDOR ownership group beyond the two the lane started with.
+ *
+ * Seeded IDENTICALLY for A and B, deliberately: B's copies exist so each probe
+ * 404s for the RIGHT reason (wrong owner) rather than because the row is absent
+ * or in the wrong pool — a probe that 404s for the wrong reason is a vacuous
+ * pass, which is the entire failure class this lane exists to eliminate.
+ *
+ * RAW INSERTS, no Eloquent, no observers — same discipline as seedFirstComeBuild()
+ * below and for the same reason: QUEUE_CONNECTION=sync in .env.dast runs every
+ * observer-dispatched job INLINE. Raw inserts also let the columns be checked
+ * against supabase/migrations/ DDL directly rather than against a model's
+ * $fillable, which is what CLAUDE.md asks for on constraint-bound writes (the
+ * lane runs real Postgres; the test suite runs SQLite).
+ *
+ * FIXTURE → CONSUMER. NINE probes are DELETE, and two more (restyle-undo,
+ * routing-suggestion-dismiss) are single-use state transitions — a DELETE or a
+ * transition *control* runs against identity A's own row and consumes it:
+ *   - restyle-undo: DesignKitRestyleService::undo throws ValidationException
+ *     (422) once undone_at is set.
+ *   - routing-suggestion-dismiss: sets state='dismissed', and findIntent filters
+ *     state IN ('proposed','blocked').
+ * Every consuming control therefore gets its OWN row, so request ordering in the
+ * requestor job is never load-bearing — reorder the probes freely and nothing
+ * breaks:
+ *
+ *   media_id            → DELETE api/gallery/{image}                (consumed)
+ *   media_image_id      → DELETE api/images/{image}                 (consumed)
+ *   media_document_id   → DELETE api/documents/{document}           (consumed)
+ *   media_content_id    → DELETE api/content/uploads/{upload}       (consumed)
+ *   page_delete_id      → DELETE api/site/pages/{page}              (consumed)
+ *   item_id             → DELETE api/content/items/{item}           (consumed)
+ *   page_id + section_id→ GET  api/site/sections/{section}{,/items,/groups,/trace}
+ *   item_pool_id        → DELETE api/content/pools/watch/selection/{item}
+ *                         + .../links/{platform} + .../overrides/{facet}/{column}
+ *
+ * POOL IS NOT COSMETIC. UserDocumentController::destroy runs its pool check
+ * BEFORE the ownership check, so a gallery-pool id 404s there for the wrong
+ * reason on BOTH identities. ContentController::destroyUpload checks ownership
+ * first and pool second, so its probe would be honest with a gallery id but its
+ * CONTROL would 404. Hence a documents-pool and a content-pool row each, on both
+ * identities. UserGalleryController and UserUploadController do not filter pool.
+ *
+ * site.site_media carries UNIQUE (site_id, pool, sort_order) WHERE deleted_at IS
+ * NULL — the two gallery rows need distinct sort_order; different pools may
+ * reuse 0.
+ *
+ * @return array<string, string>
+ */
+function seedProbeFixtures(User $user, Site $site, string $label): array
+{
+    $db = DB::connection('pgsql');
+    $now = now();
+    $userId = (string) $user->id;
+    $siteId = (string) $site->id;
+
+    $id = static fn (): string => (string) Str::uuid();
+
+    // --- SiteMedia, one row per pool-filtered surface. media_type/pool values
+    // are CHECK-constrained (baseline migration site_media_pool_check /
+    // site_media_media_type_check).
+    $mediaImageId = $id();
+    $mediaDocumentId = $id();
+    $mediaContentId = $id();
+    $db->table('site.site_media')->insert([
+        [
+            'id' => $mediaImageId, 'site_id' => $siteId,
+            'path' => "dast/{$label}/gallery-2.jpg", 'pool' => 'gallery',
+            'media_type' => 'image', 'sort_order' => 1,
+            'created_at' => $now, 'updated_at' => $now,
+        ],
+        [
+            'id' => $mediaDocumentId, 'site_id' => $siteId,
+            'path' => "dast/{$label}/document.pdf", 'pool' => 'documents',
+            'media_type' => 'document', 'sort_order' => 0,
+            'created_at' => $now, 'updated_at' => $now,
+        ],
+        [
+            'id' => $mediaContentId, 'site_id' => $siteId,
+            'path' => "dast/{$label}/content-1.jpg", 'pool' => 'content',
+            'media_type' => 'image', 'sort_order' => 0,
+            'created_at' => $now, 'updated_at' => $now,
+        ],
+    ]);
+
+    // --- Services + categories. price_cents is NOT NULL with no default.
+    $serviceId = $id();
+    $db->table('site.services')->insert([
+        'id' => $serviceId, 'user_id' => $userId,
+        'title' => "DAST Service {$label}", 'price_cents' => 1000,
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $categoryId = $id();
+    $db->table('site.service_categories')->insert([
+        'id' => $categoryId, 'user_id' => $userId,
+        'title' => "DAST Category {$label}",
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    // --- Pages + a section. `key` is UNIQUE per site; `kind` is CHECK-constrained.
+    // Two pages: one parent for the section (its four GET probes are
+    // non-destructive), one for the DELETE control to consume — deleting the
+    // parent would CASCADE the section out from under the other four.
+    $pageId = $id();
+    $pageDeleteId = $id();
+    $db->table('site.pages')->insert([
+        [
+            'id' => $pageId, 'site_id' => $siteId, 'key' => 'dast-probe',
+            'label' => 'DAST Probe', 'created_at' => $now, 'updated_at' => $now,
+        ],
+        [
+            'id' => $pageDeleteId, 'site_id' => $siteId, 'key' => 'dast-delete',
+            'label' => 'DAST Delete', 'created_at' => $now, 'updated_at' => $now,
+        ],
+    ]);
+
+    $sectionId = $id();
+    $db->table('site.sections')->insert([
+        'id' => $sectionId, 'page_id' => $pageId, 'site_id' => $siteId,
+        'kind' => 'richtext', 'label' => "DAST Section {$label}",
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    // --- Feedback. kind + message length are CHECK-constrained.
+    $feedbackId = $id();
+    $db->table('core.feedback')->insert([
+        'id' => $feedbackId, 'user_id' => $userId, 'kind' => 'other',
+        'message' => "Seeded by active/seed-identities.php for identity {$label}.",
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    // --- Restyle. An empty snapshot is safe: DesignKitRestyleService::undo does
+    // updateOrInsert([...$snapshot, 'updated_at' => now()]) against site.design_kits,
+    // which the site-create trigger already provisioned.
+    $restyleId = $id();
+    $db->table('site.design_kit_restyles')->insert([
+        'id' => $restyleId, 'site_id' => $siteId, 'snapshot' => json_encode([]),
+        'applied_at' => $now,
+    ]);
+
+    // --- Notification. user_id MUST be non-null: NotificationPolicy::view returns
+    // true unconditionally for global (user_id IS NULL) notifications, so a
+    // null-user fixture would make the probe pass without proving anything.
+    // `type` is CHECK-constrained.
+    $notificationId = $id();
+    $db->table('notifications.notifications')->insert([
+        'id' => $notificationId, 'user_id' => $userId, 'type' => 'Info',
+        'title' => "DAST Notification {$label}", 'body' => 'Seeded fixture.',
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    // --- Content items. kind='video' is deliberate: PoolRegistry::POOLS maps
+    // 'watch' => ['video'], and PoolController::findPoolItem filters on
+    // kind IN kinds($pool) — an item of the wrong kind 404s for the wrong reason.
+    $itemId = $id();
+    $itemPoolId = $id();
+    $db->table('content.items')->insert([
+        [
+            'id' => $itemId, 'user_id' => $userId, 'kind' => 'video',
+            'headline_cache' => "DAST Item {$label}",
+            'created_at' => $now, 'updated_at' => $now,
+        ],
+        [
+            'id' => $itemPoolId, 'user_id' => $userId, 'kind' => 'video',
+            'headline_cache' => "DAST Pool Item {$label}",
+            'created_at' => $now, 'updated_at' => $now,
+        ],
+    ]);
+
+    // Both ItemLinkController::destroy and ManualOverrideController::destroy
+    // resolve the item OWNER-SCOPED first (findItem), so their PROBES 404 on
+    // ownership and never reach the "child row absent" branch — the ordering is
+    // already the safe way round. These rows exist purely so the CONTROLS return
+    // 200 instead of 404-for-no-such-link, which would be a vacuous control.
+    //
+    // facet/column are not validated by either destroy(), but use the REAL pair
+    // (f_text.headline — see App\Content\Values\ValueResolver) rather than an
+    // invented one: a fixture that no other code path can see is a trap for the
+    // next person who reuses it.
+    $db->table('content.item_links')->insert([
+        'id' => $id(), 'item_id' => $itemPoolId, 'platform' => 'custom',
+        'url' => 'https://dast.example.invalid/link',
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $db->table('content.manual_overrides')->insert([
+        'id' => $id(), 'item_id' => $itemPoolId, 'facet' => 'f_text',
+        'column_name' => 'headline', 'value' => json_encode('DAST override'),
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    // --- Routing connection. RAW, and that is load-bearing:
+    // IntegrationConnectionObserver::saved gates on
+    // wasRecentlyCreated || wasChanged(payload|display_settings|is_active) and
+    // then folds through IdentitySync for google-business. An Eloquent create
+    // would satisfy wasRecentlyCreated and fire PlatformRefresher. Raw-inserted,
+    // no observer runs; and ConnectionsController::setPrimary changes only
+    // is_primary, which satisfies none of those gates — so the CONTROL fires no
+    // outbound request either.
+    //
+    // `platform` is a GENERATED ALWAYS ... STORED column (migration
+    // 20260727110004) — writing it raises an error. Write surface_key instead.
+    // partna.custom_link is deliberately is_connectable=false and non-Google.
+    $connectionId = $id();
+    $db->table('site.platform_connections')->insert([
+        'id' => $connectionId, 'user_id' => $userId,
+        'surface_key' => 'partna.custom_link', 'routing_class' => 'link',
+        'resource_id' => "https://dast.example.invalid/{$label}",
+        'payload' => json_encode([]), 'is_active' => true, 'is_primary' => false,
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    // --- Routing suggestion. No Eloquent model exists; columns and their CHECK
+    // constraints come from supabase/migrations/20260727120000_routing_schema.sql.
+    // state must be 'proposed' or 'blocked' — SuggestionsController::findIntent
+    // filters on those two, so any other value 404s for the wrong reason.
+    $intentId = $id();
+    $db->table('routing.source_intents')->insert([
+        'id' => $intentId, 'user_id' => $userId,
+        'surface_key' => 'partna.custom_link', 'routing_class' => 'link',
+        'identifier' => "https://dast.example.invalid/intent-{$label}",
+        'state' => 'proposed', 'origin' => 'paste',
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    return [
+        'media_image_id' => $mediaImageId,
+        'media_document_id' => $mediaDocumentId,
+        'media_content_id' => $mediaContentId,
+        'service_id' => $serviceId,
+        'service_category_id' => $categoryId,
+        'page_id' => $pageId,
+        'page_delete_id' => $pageDeleteId,
+        'section_id' => $sectionId,
+        'feedback_id' => $feedbackId,
+        'restyle_id' => $restyleId,
+        'notification_id' => $notificationId,
+        'item_id' => $itemId,
+        'item_pool_id' => $itemPoolId,
+        'connection_id' => $connectionId,
+        'intent_id' => $intentId,
     ];
 }
 

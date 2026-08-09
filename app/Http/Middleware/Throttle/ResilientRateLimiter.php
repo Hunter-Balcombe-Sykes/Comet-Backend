@@ -2,9 +2,11 @@
 
 namespace App\Http\Middleware\Throttle;
 
+use App\Enums\ThrottleFailureMode;
 use App\Exceptions\Http\RateLimiterUnavailableException;
 use Closure;
 use Illuminate\Cache\RateLimiter;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -15,11 +17,13 @@ use Throwable;
  * fault. What happens next depends on the mode the middleware set for this
  * request's limiter (see FailOpenThrottleRequests::FAIL_OPEN_LIMITERS):
  *
- *   OPEN   — the gate opens. The route is a DB-backed public read or a beacon
- *            that already fail-opens by design; a cache outage must not take
- *            the public site down with it.
- *   CLOSED — RateLimiterUnavailableException → a clean 503 with Retry-After,
- *            instead of today's leaked RedisException 500.
+ *   OPEN     — the gate opens. The route is a DB-backed public read or a beacon
+ *              that already fail-opens by design; a cache outage must not take
+ *              the public site down with it.
+ *   CLOSED   — RateLimiterUnavailableException → a clean 503 with Retry-After,
+ *              instead of today's leaked RedisException 500.
+ *   FALLBACK — the gate stays shut, but the verdict comes from a different
+ *              store. See LeadSubmissionRateLimiter and consultFallback() below.
  *
  * WHY A DELEGATING WRAPPER, NOT A SUBCLASS THAT CALLS parent::
  * ------------------------------------------------------------
@@ -53,9 +57,15 @@ class ResilientRateLimiter extends RateLimiter
     /** Fallback Retry-After when the real availableIn() cannot be read. */
     private const FALLBACK_AVAILABLE_IN = 60;
 
-    private bool $failOpen = false;
+    private ThrottleFailureMode $mode = ThrottleFailureMode::Closed;
 
     private string $limiterName = 'inline';
+
+    /**
+     * Request context for Fallback mode. Null on the inline `throttle:N,M`
+     * path, which is always Closed and never consults a fallback.
+     */
+    private ?Request $request = null;
 
     public function __construct(private readonly RateLimiter $inner)
     {
@@ -71,10 +81,11 @@ class ResilientRateLimiter extends RateLimiter
      * Set the failure mode for the limiter about to be evaluated. Called by
      * FailOpenThrottleRequests once per request, before any counter operation.
      */
-    public function useFailOpen(bool $failOpen, string $limiterName): void
+    public function useMode(ThrottleFailureMode $mode, string $limiterName, ?Request $request = null): void
     {
-        $this->failOpen = $failOpen;
+        $this->mode = $mode;
         $this->limiterName = $limiterName;
+        $this->request = $request;
     }
 
     // ── Gate operations: mode-sensitive ──────────────────────────────────────
@@ -85,10 +96,8 @@ class ResilientRateLimiter extends RateLimiter
         try {
             return $this->inner->tooManyAttempts($key, $maxAttempts);
         } catch (Throwable $e) {
-            $this->onStoreFault($e, 'tooManyAttempts');
-
-            // Reached only in fail-open mode; onStoreFault() throws otherwise.
-            return false;
+            // Open -> false, Fallback -> the Postgres verdict, Closed -> throws.
+            return $this->onGateFault($e, 'tooManyAttempts');
         }
     }
 
@@ -98,7 +107,7 @@ class ResilientRateLimiter extends RateLimiter
         try {
             return $this->inner->hit($key, $decaySeconds);
         } catch (Throwable $e) {
-            $this->onStoreFault($e, 'hit');
+            $this->onCounterFault($e, 'hit');
 
             return 0;
         }
@@ -110,7 +119,7 @@ class ResilientRateLimiter extends RateLimiter
         try {
             return $this->inner->increment($key, $decaySeconds, $amount);
         } catch (Throwable $e) {
-            $this->onStoreFault($e, 'increment');
+            $this->onCounterFault($e, 'increment');
 
             return 0;
         }
@@ -244,16 +253,64 @@ class ResilientRateLimiter extends RateLimiter
     // ── Fault handling ──────────────────────────────────────────────────────
 
     /**
-     * Record the fault, then decide the request's fate.
+     * Fault on the GATE question ("is this request over the limit?").
+     *
+     * @return bool the tooManyAttempts() verdict
      *
      * @throws RateLimiterUnavailableException when this limiter fails closed
      */
-    private function onStoreFault(Throwable $e, string $operation): void
+    private function onGateFault(Throwable $e, string $operation): bool
     {
         $this->recordStoreFault($e, $operation);
 
-        if (! $this->failOpen) {
+        return match ($this->mode) {
+            ThrottleFailureMode::Open => false,
+            ThrottleFailureMode::Fallback => $this->consultFallback($e),
+            ThrottleFailureMode::Closed => throw new RateLimiterUnavailableException($e),
+        };
+    }
+
+    /**
+     * Fault on a COUNTER write. Fallback mode has nothing to write — the
+     * counter it reads is analytics.lead_submissions, populated by the
+     * controllers' logLead(), not by this limiter. Only Closed still throws.
+     *
+     * @throws RateLimiterUnavailableException when this limiter fails closed
+     */
+    private function onCounterFault(Throwable $e, string $operation): void
+    {
+        $this->recordStoreFault($e, $operation);
+
+        if ($this->mode === ThrottleFailureMode::Closed) {
             throw new RateLimiterUnavailableException($e);
+        }
+    }
+
+    /**
+     * Ask the degraded counter. Resolved from the container HERE rather than
+     * injected, so the healthy path never touches it and
+     * FailOpenThrottleRequests::__construct keeps the RateLimiter-only
+     * signature the container calls it with.
+     *
+     * @throws RateLimiterUnavailableException when the fallback is also unusable
+     */
+    private function consultFallback(Throwable $e): bool
+    {
+        // No request context means no way to derive the buckets. Degrade to
+        // Closed rather than to Open: an unmetered public write form is the one
+        // outcome this whole design exists to avoid.
+        if ($this->request === null) {
+            throw new RateLimiterUnavailableException($e);
+        }
+
+        try {
+            return app(LeadSubmissionRateLimiter::class)->exceeded($this->request);
+        } catch (Throwable $fallbackError) {
+            // Both stores gone. There is no lead worth saving and no way to
+            // meter, so a retryable 503 is honest. Never open here.
+            $this->recordStoreFault($fallbackError, 'fallback');
+
+            throw new RateLimiterUnavailableException($fallbackError);
         }
     }
 
@@ -280,7 +337,7 @@ class ResilientRateLimiter extends RateLimiter
             Log::warning('throttle.store_unavailable', [
                 'limiter' => $this->limiterName,
                 'operation' => $operation,
-                'mode' => $this->failOpen ? 'open' : 'closed',
+                'mode' => $this->mode->value,
                 'exception' => $e::class,
                 'error' => $e->getMessage(),
             ]);

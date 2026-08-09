@@ -3,7 +3,9 @@
 namespace App\Services\Notifications;
 
 use Illuminate\Redis\Connections\Connection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
+use Throwable;
 
 class EnquirySpamBlocklist
 {
@@ -17,6 +19,12 @@ class EnquirySpamBlocklist
         $this->addWithExpiry($userId, $email, $expiresAt);
     }
 
+    /**
+     * Deliberately UNGUARDED, unlike contains(). Reached from
+     * UserEnquiryController::report() — the professional clicking "block this
+     * sender". A silent no-op would leave them believing a sender is blocked
+     * when they are not. Reads degrade; writes stay loud.
+     */
     public function addWithExpiry(string $userId, string $email, int $expiresAt): void
     {
         $key = $this->key($userId);
@@ -30,9 +38,28 @@ class EnquirySpamBlocklist
         $this->redis()->expire($key, self::TTL_DAYS * 86400);
     }
 
+    /**
+     * Fails OPEN on a store fault, unlike add() below.
+     *
+     * The asymmetry is deliberate. PublicEnquiryController's blocked branch
+     * returns a FAKE 200 and discards the enquiry, so a fail-closed read during
+     * a Redis outage would silently bin every legitimate enquiry with no error
+     * surfaced anywhere — invisible data loss. This is a convenience filter,
+     * not a security boundary: one spam enquiry reaching an inbox is trivially
+     * recoverable. Drill 03 (2026-08-06).
+     */
     public function contains(string $userId, string $email): bool
     {
-        $score = $this->redis()->zscore($this->key($userId), $this->hash($email));
+        try {
+            $score = $this->redis()->zscore($this->key($userId), $this->hash($email));
+        } catch (Throwable $e) {
+            Log::warning('enquiry.blocklist.unavailable', [
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
 
         // phpredis ZSCORE returns false (not null) when the member is absent;
         // guard on false so a missing entry short-circuits before the cast.

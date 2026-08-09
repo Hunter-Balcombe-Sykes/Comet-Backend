@@ -171,4 +171,3 @@ it('staff update fills category column from top-level field (Phase 2)', function
     expect($fresh->settings['highlight'] ?? null)->toBeTrue();
     expect(array_key_exists('category', $fresh->settings ?? []))->toBeFalse();
 });
-

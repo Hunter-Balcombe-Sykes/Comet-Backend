@@ -2,3 +2,8 @@
 !.gitignore
 !*/
 !*/REPORT.md
+# Deliberately-retained verification evidence, not a routine run artefact.
+# REPORT.md records WHAT a run concluded; this records HOW that conclusion was
+# shown to be non-vacuous. Raw zap-run.log stays ignored (65KB of scanner
+# boilerplate); only the distilled assertion transcript is kept.
+!*/IDOR-INVERSION-EVIDENCE.md

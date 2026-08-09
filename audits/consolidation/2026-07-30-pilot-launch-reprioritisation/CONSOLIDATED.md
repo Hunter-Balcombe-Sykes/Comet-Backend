@@ -810,6 +810,12 @@ status checks** (`gh api .../branches/development/protection` → 404). So these
 will go red without stopping anything. Closing that is a repo setting, not code, and it is cheaper than
 any unit in this bucket.
 
+> **✅ RESOLVED 2026-08-05 — the warning above is historical.** `development` was protected on
+> 2026-08-03 and `production` on 2026-08-05. Both now require the same 9 status checks, `schema-tests`
+> among them, so the schema lane *does* block a merge. `production` additionally carries
+> `enforce_admins: true`. Query the live state rather than trusting any count written down here:
+> `gh api repos/:owner/:repo/branches/{development,production}/protection`.
+
 **P1-LAUNCH**
 - [x] `DINT-1` · [x] `271-PRIV-1` · [x] `#SCALE-11` · [x] `#SCALE-13` · [x] `#SCALE-14` · [x] `#SCALE-17`
 - [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [x] `#CACHE-3` · [x] `#SCHEMA-8`

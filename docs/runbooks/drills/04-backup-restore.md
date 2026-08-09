@@ -64,11 +64,19 @@ aws s3 ls s3://partna-db-backups/weekly/ --endpoint-url <r2 endpoint>   # or the
       requirement.)
 - [ ] Backup size (informs restore-time expectations).
 - [ ] Where media/object storage lives and whether it's covered by ANY backup story —
-      **a DB backup does not include object storage**. If sitepage media would not survive
-      a project loss, that's a standalone finding.
-      Setup + the retention constraints: `docs/runbooks/media-backup-setup.md`. Check the
-      mirror actually ran and that `rclone check` passed — a mirror nobody has read back is
-      not a proven backup, which is precisely what F6 recorded about the DB dump.
+      **a DB backup does not include object storage**.
+
+      🔴 **Answered as of 2026-08-06: it is NOT covered, and there is nothing to check.**
+      `docs/runbooks/media-backup-setup.md` opens with "Status: NOT YET IMPLEMENTED"; the
+      workflow it specifies (`weekly-media-backup.yml`) has never been committed —
+      `Hunter-Balcombe-Sykes/partna-db-backup` holds only `weekly-db-backup` and
+      `restore-drill` — and the dashboard prerequisites (bucket, scoped token, secrets,
+      lifecycle rule) are unchecked. Lose the prod R2 bucket and **every sitepage image and
+      video is gone permanently**, while the DB restore brings back rows pointing at objects
+      that no longer exist. Don't re-ask this each quarter: verify with
+      `gh workflow list --repo Hunter-Balcombe-Sykes/partna-db-backup` and, once the mirror
+      exists, check it actually ran and that `rclone check` passed — a mirror nobody has read
+      back is not a proven backup, which is precisely what F6 recorded about the DB dump.
 
 ## Phase 2 — Restore (start the clock ⏱)
 
@@ -99,9 +107,22 @@ rehearse them by hand, deliberately, every quarterly run:
 
 - [ ] **`app_backend` role.** Roles are cluster-level: a fresh project + logical restore
       leaves `app_backend` either missing or `NOLOGIN` (the v2 baseline creates it
-      fail-closed). In the scratch SQL editor:
+      fail-closed). Confirmed 2026-08-06: a Supabase-flavoured cluster reports
+      `rolcanlogin = false` and refuses the connection with
+      `FATAL: role "app_backend" is not permitted to log in`. In the scratch SQL editor:
       `ALTER ROLE app_backend WITH LOGIN PASSWORD '<drill password>';`
-      — and record that the real secret lives wherever it lives (that lookup is part of RTO).
+      then verify a read actually works (`select count(*) from core.users;`) — the LOGIN grant
+      and the schema grants are separate things and only the second proves the app can work.
+
+      🔴 **The real secret's location is NOT documented anywhere, and this step cannot be
+      completed from the docs alone.** Every reference is a placeholder — `'<secret>'`
+      (`docs/deploy/PROMPT-execute-prod-seed-bootstrap.md`), `'<from-secret>'`
+      (`docs/deploy/production-cutover.md`), `'<prod-secret>'`
+      (`docs/deploy/prod-cutover-change-checklist.md`) — and
+      `docs/runbooks/secret-rotation.md` explicitly puts `DB_PASSWORD` **out of scope**. In a
+      real recovery the operator restores the dump in seconds and then stops dead here. Josh
+      holds it personally, so this is a bus-factor and lookup-time problem rather than a lost
+      secret, but **that lookup is unbounded and single-person, and it is part of RTO.**
 - [ ] **Connection string shape.** An app pointed at the scratch project needs
       `DB_USERNAME=app_backend.<scratch_ref>` (Supavisor tenant prefix), port 5432.
       Don't actually repoint any deployed env — just verify a psql login as `app_backend`

@@ -50,14 +50,37 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     elif [[ "$line" =~ ^project_id\ = ]]; then
         echo 'project_id = "partna-dast"'
     elif [[ "$line" =~ ^jwt_expiry\ = ]]; then
-        # Tier 2 needs a token that genuinely expires. An expired token cannot
-        # be produced by mutation — changing `exp` invalidates the signature, so
-        # it would be rejected as a forgery and prove nothing distinct from the
-        # flipped-signature probe. Same test-only-override pattern as the
-        # captcha branch below: the committed config.toml is never touched.
-        # active/tier2.sh reads the effective value off a real token and SKIPS
-        # the expiry probe loudly if it is too long to wait out.
-        echo "jwt_expiry = ${DAST_JWT_EXPIRY:-8}"
+        # DEFAULT IS LONG, and that is a deliberate trade — read this before
+        # "restoring" the old 8s default.
+        #
+        # `jwt_expiry` is a SERVER-WIDE GoTrue setting: it governs every token
+        # the scratch stack issues, not just Tier 2's. It used to default to 8s
+        # so Tier 2 could wait out a real expiry (an expired token cannot be
+        # forged — changing `exp` invalidates the signature, making it
+        # indistinguishable from the flipped-signature probe).
+        #
+        # But ZAP's tokens are minted ONCE, before a plan that takes ~10min to
+        # reach its last job. At 8s + 60s app-side leeway they were dead within
+        # ~68s, so every request past that point carried a stale token and got
+        # 401. Found 2026-08-07 the only way it could be found: the new IDOR
+        # controls failed with "Expected : 200 Received : 401". Before those
+        # controls existed this degraded in total silence — the "authenticated"
+        # passes were fuzzing 401 responses and reporting clean.
+        #
+        # The two needs cannot both be met in one stack: Tier 2 needs
+        # exp + leeway <= 120s (its own wait cap), ZAP needs exp to outlive the
+        # whole plan. So the DEFAULT serves ZAP — authenticated fuzzing of ~490
+        # endpoints plus a real cross-tenant IDOR check — and Tier 2's expiry
+        # probe SKIPs loudly, which is its own documented fallback.
+        #
+        # To exercise the expiry probe instead, run the lane with a short value:
+        #   DAST_JWT_EXPIRY=8 scripts/dast/run.sh --only active
+        # That run's ZAP pass is unauthenticated, so it is an auth-probe run and
+        # NOT a substitute for the default one.
+        #
+        # Same test-only-override pattern as the captcha branch below: the
+        # committed config.toml is never touched.
+        echo "jwt_expiry = ${DAST_JWT_EXPIRY:-3600}"
     elif [[ "$in_captcha_section" -eq 1 && "$line" =~ ^enabled\ = ]]; then
         # Turnstile captcha needs a real Cloudflare secret to verify against
         # (SUPABASE_AUTH_CAPTCHA_SECRET is unset here) — without it, GoTrue's
@@ -167,6 +190,29 @@ apply_env SESSION_DRIVER array
 apply_env BROADCAST_CONNECTION log
 apply_env MAIL_MAILER log
 apply_env NIGHTWATCH_ENABLED false
+# Media stays on the local filesystem. .env.example resolves partna.media_disk
+# to the R2 'media' disk with the placeholder endpoint
+# https://<account_id>.r2.cloudflarestorage.com — so the IDOR pass's four media
+# DELETE controls (gallery/images/documents/content-uploads) would each attempt
+# to resolve a non-loopback host. ImageVariantService::deleteVariants and
+# UserDocumentController::destroy both catch \Throwable, so it could not 500 —
+# but "the active lane only ever touches loopback" is an assertion this script
+# makes (seed-identities.php's containment guard 2), not an aspiration, and a
+# failed DNS lookup is still an outbound attempt. Local disk keeps it true.
+apply_env PARTNA_MEDIA_DISK local
+# Two consequences worth knowing, neither a blocker:
+#  - the local disk root is storage_path('app/private') IN THE REPO TREE, and
+#    teardown() removes only $SCRATCH and .env.dast. Anything the lane writes
+#    there survives. In practice ZAP cannot synthesise valid multipart bodies, so
+#    essentially nothing is written.
+#  - .env.example sets PARTNA_THROTTLE_ENABLED=true and nothing here overrides it,
+#    so throttle:authenticated (300/min per supabase_uid) and the route-level
+#    throttle:30,1 on documents/content-uploads ARE armed. They never bite only
+#    because CACHE_STORE=array above, and `artisan serve`'s php -S child rebuilds
+#    the array store per request — every limiter bucket is empty on arrival. So
+#    this lane cannot detect a throttling regression, and moving CACHE_STORE to a
+#    persistent driver would make identity A's activeScan burn the 300/min budget
+#    and start returning 429 on the IDOR controls.
 
 # --- Step 5: serve the app against the local stack.
 #

@@ -3,6 +3,7 @@
 namespace App\Services\User;
 
 use App\Enums\AccountType;
+use App\Exceptions\Site\SubdomainUnavailableException;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
@@ -149,8 +150,27 @@ class UserBootstrapService
 
             $site = Site::query()->where('user_id', $professional->id)->first();
             if (! $site) {
-                $base = $this->siteProvisioning->subdomainBaseFromHandle($data['handle']);
-                $site = $this->siteProvisioning->createSiteWithRetry($professional->id, $base);
+                // SIGNUP-1: the subdomain IS the handle. subdomainBaseFromHandle()
+                // rewrote '_' to '-' and re-suffixed collisions in a different
+                // format, so the site this path created could never be reached at
+                // the handle the user was told they had. handle_lc is what
+                // SyncSubdomainToKvJob keys KV on, so it is the value to match.
+                //
+                // Unlike the pre-account path, the handle here is USER-supplied and
+                // BootstrapRequest checks it against neither the reserved list nor the
+                // subdomains held by legacy diverged rows — so an unusable handle is
+                // ordinary bad input, not a broken allocator. Translate to the existing
+                // HANDLE_ALREADY_TAKEN (409) instead of letting a bare exception become
+                // a 500 the client can do nothing with. The pre-account path keeps
+                // failing loudly; only this one translates.
+                try {
+                    $site = $this->siteProvisioning->createSiteForHandle(
+                        $professional->id,
+                        (string) $professional->handle_lc,
+                    );
+                } catch (SubdomainUnavailableException $e) {
+                    throw new RuntimeException('HANDLE_ALREADY_TAKEN', 0, $e);
+                }
             }
 
             if ($createdProfessional) {

@@ -75,8 +75,11 @@ class UserDashboardResource extends ApiResource
             // dashboard shows the affordance only when this list is non-empty.
             // Added 2026-08-06 — the endpoint predates any UI (audit decision 6).
             // Guard: an unsaved model (resource unit tests build these) has no
-            // id — querying with user_id NULL is never meaningful.
-            'reclaimable_handles' => $this->id === null ? [] : UserHandleAlias::query()
+            // id — querying with user_id NULL is never meaningful. blank(), not
+            // === null: User's @property declares $id as a non-nullable string,
+            // so PHPStan reads the strict comparison as always-false (it is only
+            // null on an unsaved instance, which the annotation cannot express).
+            'reclaimable_handles' => blank($this->id) ? [] : UserHandleAlias::query()
                 ->where('user_id', $this->id)
                 ->where('reclaim_until', '>', now())
                 ->orderBy('reclaim_until')

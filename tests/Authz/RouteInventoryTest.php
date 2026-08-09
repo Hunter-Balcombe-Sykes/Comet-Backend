@@ -34,12 +34,17 @@ it('resolves model-bound params to a real Eloquent FQCN', function () {
 });
 
 it('reports unresolved params rather than dropping them', function () {
-    // api/enquiries/{id} fetches by hand — the param is typed string, so
+    // api/enquiries/{id}/read fetches by hand — the param is typed string, so
     // reflection cannot resolve it. It must surface as UNRESOLVED, never as
     // "no params", or the route silently leaves the matrix. This is the exact
     // regression the 2026-07-30 spike caught in the original design.
+    //
+    // Was pinned to `GET api/enquiries/{id}` until 2026-08-06; that route was
+    // removed as dead-with-zero-callers in 1917be75b. Its siblings under
+    // api/enquiries/{id}/* keep the identical hand-fetched string param, so the
+    // property under test is unchanged — only the specimen moved.
     $case = collect(RouteInventory::all())
-        ->first(fn (RouteCase $c) => $c->uri === 'api/enquiries/{id}' && $c->method === 'GET');
+        ->first(fn (RouteCase $c) => $c->uri === 'api/enquiries/{id}/read' && $c->method === 'POST');
 
     expect($case)->not->toBeNull();
     expect($case->hasParams())->toBeTrue();

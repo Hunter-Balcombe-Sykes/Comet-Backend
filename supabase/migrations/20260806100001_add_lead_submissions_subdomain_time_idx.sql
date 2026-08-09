@@ -1,0 +1,21 @@
+-- guard:no-unsafe-migrations:disable-file
+-- Degraded-mode lead rate limiting (2026-08-06 drill-03 finding 3).
+--
+-- When Redis is unreachable, LeadSubmissionRateLimiter counts rows in this
+-- table instead of Redis counters. The per-IP bucket is already served by
+-- lead_submissions_ip_time_idx (ip_hash, occurred_at DESC) from the
+-- 2026-07-26 baseline. The per-subdomain bucket has no index: the throttle
+-- middleware runs BEFORE site resolution, so it cannot use the existing
+-- lead_submissions_site_time_idx (site_id, occurred_at DESC).
+--
+-- Not CONCURRENTLY, because the table is small and production carries no
+-- customer data (core.users = 0 as of 2026-08-06) — the reasoning
+-- guard:no-unsafe-migrations Check 1 exists for (lock-induced downtime on a
+-- populated table) does not apply yet. This is a separate opt-out from the
+-- one-CONCURRENTLY-per-file rule in supabase/migrations/CONVENTIONS.md
+-- (Check 6), which is not engaged here since this file has no CONCURRENTLY
+-- statement at all.
+--
+-- ROLLBACK: DROP INDEX analytics.lead_submissions_subdomain_time_idx;
+CREATE INDEX IF NOT EXISTS "lead_submissions_subdomain_time_idx"
+    ON "analytics"."lead_submissions" ("subdomain", "occurred_at" DESC);
