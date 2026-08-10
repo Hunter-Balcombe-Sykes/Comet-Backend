@@ -3,6 +3,7 @@
 use App\Providers\AppServiceProvider;
 use Illuminate\Cache\RateLimiter as CacheRateLimiter;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route as IlluminateRoute;
 use Illuminate\Support\Arr;
 
 // SEC-2: public-facing limiters must key on CF-Connecting-IP ahead of
@@ -53,3 +54,56 @@ it('prefers CF-Connecting-IP over the resolved client IP for public limiters', f
     // partna.moderation.report were still keying on $request->ip() alone.
     'analytics-click', 'document-download', 'partna.moderation.report',
 ]);
+
+/**
+ * SSR aggregation: the Astro renderer calls /api/public/profiles/{handle}
+ * server-side, so the API sees Cloudflare egress IPs (measured 2026-08-10:
+ * 172.69.186.143, 162.158.3.134), NOT visitor IPs. Keyed on IP alone, every
+ * visitor to every sitepage collapses into one bucket per renderer IP, and the
+ * ceiling scales with how many sitepages exist rather than with abuse.
+ *
+ * Keying on handle|ip gives each sitepage its own bucket per caller. The IP
+ * stays in the key deliberately: keying on handle ALONE would put every
+ * Cloudflare location's revalidation for a viral page into one bucket
+ * (~0.2/min per location x ~300 locations ~= the 60/min limit).
+ */
+function publicProfileLimiterKey(Closure $limiter, string $handle, string $cfIp): string
+{
+    $request = Request::create("/api/public/profiles/{$handle}", 'GET', [], [], [], [
+        'HTTP_CF_CONNECTING_IP' => $cfIp,
+    ]);
+
+    $route = new IlluminateRoute('GET', 'api/public/profiles/{handle}', []);
+    $route->bind($request);
+    $request->setRouteResolver(fn () => $route);
+
+    return (string) Arr::wrap($limiter($request))[0]->key;
+}
+
+it('gives each handle its own public-profile bucket so one renderer IP cannot exhaust every sitepage', function () {
+    config(['partna.throttle.enabled' => true]);
+    (new ReflectionMethod(AppServiceProvider::class, 'configureRateLimiting'))
+        ->invoke(new AppServiceProvider(app()));
+
+    $limiter = app(CacheRateLimiter::class)->limiter('public-profile');
+    expect($limiter)->not->toBeNull();
+
+    $jane = publicProfileLimiterKey($limiter, 'jane', '203.0.113.9');
+    $bob = publicProfileLimiterKey($limiter, 'bob', '203.0.113.9');
+
+    expect($jane)->not->toBe($bob);
+});
+
+it('keeps the caller IP in the public-profile key so one handle is still capped per caller', function () {
+    config(['partna.throttle.enabled' => true]);
+    (new ReflectionMethod(AppServiceProvider::class, 'configureRateLimiting'))
+        ->invoke(new AppServiceProvider(app()));
+
+    $limiter = app(CacheRateLimiter::class)->limiter('public-profile');
+
+    $renderer = publicProfileLimiterKey($limiter, 'jane', '203.0.113.9');
+    $attacker = publicProfileLimiterKey($limiter, 'jane', '198.51.100.7');
+
+    expect($renderer)->toContain('203.0.113.9')
+        ->and($renderer)->not->toBe($attacker);
+});

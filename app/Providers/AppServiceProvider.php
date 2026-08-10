@@ -432,10 +432,18 @@ class AppServiceProvider extends ServiceProvider
             }
 
             $perMinute = max(1, (int) config('partna.public_profile.rate_limit_per_minute', 60));
-            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
+            $ip = (string) ($request->header('CF-Connecting-IP') ?? $request->ip());
+
+            // The Astro renderer calls this route SERVER-SIDE, so $ip is the
+            // renderer's Cloudflare egress, not the visitor's — keyed on IP alone
+            // every sitepage shares one bucket and the ceiling scales with how many
+            // sitepages exist. Bucket per handle instead. The IP stays in the key:
+            // handle ALONE would collapse every Cloudflare location's revalidation
+            // for a viral page into one bucket, which approaches this same limit.
+            $handle = (string) $request->route('handle');
 
             return Limit::perMinute($perMinute)
-                ->by((string) $key)
+                ->by($handle.'|'.$ip)
                 ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429));
         });
 
