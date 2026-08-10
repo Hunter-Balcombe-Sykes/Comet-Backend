@@ -153,11 +153,29 @@ jobs:
           # 2.101.0 is the version the local lane is green on, and the version
           # scripts/dast/README.md already cites for the jwt_expiry check.
           #
-          # ⚠️ THE UNDERLYING ISSUE IS NOT A CI ISSUE AND THIS PIN DOES NOT FIX IT.
-          # If a current CLI cannot apply that migration, then a from-zero
-          # provision — scripts/db/fresh-reset.sh, or a future prod cutover — is
-          # exposed the moment anyone upgrades. Tracked as a finding; do not read
-          # this pin as a resolution.
+          # ⚠️ THE PIN IS NOT A FIX — but the exposure is NARROWER than 333f0c7e7's
+          # commit message claimed, and that claim is corrected here. It said
+          # scripts/db/fresh-reset.sh and the prod cutover break on a CLI upgrade.
+          # They do NOT: both deliberately bypass the CLI's migration applier and
+          # go through psql directly, so nothing wraps the file in a transaction
+          # and the COMMIT stays legal.
+          #   * fresh-reset.sh applies each file via `docker exec ... psql` in a
+          #     loop (its header explains why — the CLI's pipeline applier cannot
+          #     handle CONCURRENTLY).
+          #   * the prod cutover path in CLAUDE.md uses `psql -f`, explicitly NOT
+          #     --single-transaction.
+          #
+          # What IS exposed is provisioning a fresh environment THROUGH THE CLI —
+          # `supabase db reset` / `supabase start` (this lane) and a from-zero
+          # `supabase db push`. Re-pushing to an existing dev/prod is unaffected,
+          # since already-applied migrations are skipped.
+          #
+          # So: a fresh-environment-via-CLI problem, not a disaster-recovery one.
+          # Still worth resolving — on a from-zero apply the table is empty, so
+          # the batching loop the COMMIT exists to serve does nothing, and a plain
+          # UPDATE would be identical in outcome and portable across CLI versions.
+          # Left as a finding rather than done here: it edits an already-applied
+          # migration, which is Josh's call, not a drive-by.
           version: 2.101.0
 
       # No secrets. Unlike the edge lane, the active lane is entirely local: it
