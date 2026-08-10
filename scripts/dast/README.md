@@ -64,6 +64,15 @@ scripts/dast/run.sh --only edge
 
 **Active lane** — Docker required. Also runs in CI via `.github/workflows/dast-active.yml` (added 2026-08-10): weekly Sunday **04:00 UTC**, on `workflow_dispatch`, and **non-blocking** on pull requests touching `app/Policies/**`, `app/Http/Middleware/Auth/**`, `routes/api/**`, `supabase/migrations/**` or `scripts/dast/**`. It is deliberately **not a required check** — `supabase start` is documented-flaky (`bring-up.sh` retries 3×), and a flaky required gate trains people to bypass gates.
 
+> **Non-blocking comes from branch protection, not from `continue-on-error` — and the
+> difference is not cosmetic.** The job originally carried `continue-on-error: true`.
+> When its first hosted run died one second in, `gh run list` reported the run as
+> **`completed  success`**. A lane that never started, showing green. That is the same
+> absence-shaped signal as the months of PASS-while-unauthenticated this tool was built
+> to end, so the flag is gone. A non-required job that fails is honest *and* blocks
+> nothing, because what makes a check blocking is branch protection. **If this job is
+> red, believe it.**
+
 > **Until this workflow file exists on `production`, only the PR trigger works** —
 > and that is worse than the edge lane's version of this trap, so it is stated as
 > measured rather than reasoned (2026-08-10):
