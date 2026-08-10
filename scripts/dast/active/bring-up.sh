@@ -181,18 +181,30 @@ started=0
 # attempt 2/3 tripping over a deleted scratch dir, while attempt 1's real reason
 # had already been overwritten and is simply gone.
 #
-# KNOWN BUG, NOT FIXED HERE — the retry loop has never worked. That same run's
-# stdout shows "tearing down (exit was 1)" firing BETWEEN attempt 1 and attempt 2,
-# i.e. teardown() ran mid-loop and its `rm -rf "$SCRATCH"` removed the scratch
-# workdir out from under attempts 2 and 3, guaranteeing they fail for a reason
-# unrelated to whatever broke attempt 1. So `supabase start` gets one real try,
-# not three, and the two "retries" are noise that also destroy the evidence.
+# HISTORICAL — this loop DID mis-retry, and the record is kept because the
+# symptom pointed at the wrong culprit for three runs.
 #
-# It has been invisible because it only manifests when `supabase start` FAILS,
-# which is precisely the documented-flaky case this retry exists for — and that
-# has never happened on the macOS boxes the lane ran on manually. Fixing the trap
-# interaction is a separate change to this script's failure path and wants its own
-# review; this line just stops the retries from erasing the diagnosis first.
+# What was seen: "tearing down (exit was 1)" firing BETWEEN attempt 1 and attempt
+# 2, with attempts 2 and 3 then failing on a missing workdir. That reads as "the
+# retry loop deletes its own scratch dir", and an earlier version of this comment
+# said exactly that.
+#
+# The actual cause was OUTSIDE this loop. zap-active.sh's readiness poll timed out
+# (90s, against a cold-runner bring-up that needs ~124s) and kill(1)ed this
+# process. The old `trap teardown EXIT INT TERM` then ran teardown ON SIGTERM AND
+# RETURNED, so the script resumed inside this loop with $SCRATCH already removed.
+# The loop was never at fault; it was executing after a cleanup it did not ask for.
+#
+# Both causes are now fixed — the timeout (DAST_BRINGUP_TIMEOUT, 600s default) and
+# the trap split above, where INT/TERM exit rather than clean up in place.
+# Verified with a model of this loop: under the OLD traps a mid-attempt SIGTERM
+# makes all three attempts run against a deleted dir; under the NEW ones the script
+# exits at 143 without attempting again, and when `supabase start` simply fails on
+# its own all three attempts are genuine retries with $SCRATCH intact.
+#
+# Kept as a comment rather than deleted: the failure was diagnosed wrongly twice
+# because the loop is where the ERROR surfaced, and the next person to read a
+# "workdir missing" message here should know to look at who signalled the process.
 for attempt in 1 2 3; do
     if supabase start --workdir "$SCRATCH" >>"$OUTDIR/supabase-start.log" 2>&1; then
         started=1

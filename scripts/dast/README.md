@@ -110,14 +110,25 @@ scripts/dast/run.sh --only edge
 > 1. **`ZAP_TARGET_LOCAL: unbound variable`** — `scripts/dast/.env` does not exist on a
 >    runner, and `${VAR##*:}` on an unset var under `set -u` errors on bash 4.4+/5 but
 >    **not** on macOS's bash 3.2. Fixed.
-> 2. **The 3× `supabase start` retry has never worked.** `teardown()` fires *between*
->    attempts and its `rm -rf "$SCRATCH"` deletes the scratch workdir, so attempts 2
->    and 3 always die with `failed to change workdir ... no such file or directory` —
->    a consequence of the retry, not the original fault. Compounding it, the start log
->    was truncated per attempt, so attempt 1's real reason was overwritten. **The
->    truncation is fixed; the trap interaction is NOT** — it is a change to this
->    script's failure path and wants its own review. Until then `supabase start` gets
->    one real try, not three, and a runner failure will name the wrong cause.
+> 2. **A signal handler that cleaned up and then *returned*.** `trap teardown EXIT INT
+>    TERM` looks equivalent to trapping them separately and is not: on SIGTERM it ran
+>    `teardown` — which `rm -rf`s `$SCRATCH` — and then handed control back to the
+>    script *at the point of interruption*, so everything after ran against deleted
+>    state. The visible symptom was inside the `supabase start` retry loop
+>    (`failed to change workdir ... no such file or directory` on attempts 2 and 3),
+>    which is why this was misdiagnosed twice as "the retry loop is broken". The loop
+>    was fine; it was executing after a cleanup it never asked for. Fixed by making
+>    INT/TERM `exit` and letting the EXIT trap own teardown. Verified with a model of
+>    the loop: old traps → all three attempts run against a deleted dir; new traps →
+>    the script exits at 143, and when `supabase start` genuinely fails all three
+>    attempts are real retries with `$SCRATCH` intact.
+> 3. **The retry loop truncated its own diagnosis.** Each attempt wrote the start log
+>    with `>` instead of `>>`, so attempt 1's real error — the only one that mattered —
+>    was overwritten by attempt 2's misleading one. Fixed; this is what finally made
+>    the CLI-transaction failure visible.
+> 4. **What triggered all of the above:** `zap-active.sh`'s readiness poll gave up
+>    after 90s. A cold runner needs ~124s, so it killed a perfectly healthy bring-up.
+>    Now `DAST_BRINGUP_TIMEOUT`, default 600s.
 >
 > Plus four environment assumptions, all Docker-Desktop-or-laptop-shaped: no `.env`
 > on a runner (artisan booted as production and hit the AUTH-1 guard, with the error
