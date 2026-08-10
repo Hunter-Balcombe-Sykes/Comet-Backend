@@ -32,6 +32,7 @@ use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\EventbriteScraper;
+use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\GoogleBusinessService;
@@ -333,6 +334,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('fresha')->fetch(fn () => new FreshaFetch(
                 app(FreshaScraper::class),
                 app(FreshaServiceProjector::class),
+                app(FreshaAutoSelector::class),
             ));
             $r->get('fresha')->refreshEvery((int) config('partna.refresh.intervals.fresha', 2 * 86400));
             // CA-W6/CA-W7: the CONNECT path needs a different fetch — FreshaFetch
