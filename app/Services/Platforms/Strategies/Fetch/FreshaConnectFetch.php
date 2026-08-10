@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Http\SafeUrlException;
+use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\FreshaStaffMatcher;
@@ -57,6 +58,7 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         private FreshaScraper $scraper,
         private FreshaServiceProjector $projector,
         private FreshaStaffMatcher $staffMatcher,
+        private FreshaAutoSelector $autoSelector,
     ) {}
 
     public function fetch(IntegrationConnection $connection): array
@@ -71,9 +73,10 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         }
 
         $mode = $payload['connectMode'] ?? 'team';
-        if (! in_array($mode, ['team', 'storewide'], true)) {
-            // Unreachable in production — connectDeferred() only ever stamps
-            // one of these two values. A canary, not a silent fall-through.
+        if (! in_array($mode, ['team', 'storewide', 'auto'], true)) {
+            // Unreachable in production — connectDeferred() and LinkRouter's
+            // auto dispatch only ever stamp one of these three values. A canary,
+            // not a silent fall-through.
             throw new FetchShapeException('fresha_mode');
         }
 
@@ -81,9 +84,16 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         // nesting a second open() here would fail open (the inner finally
         // clears the outer deadline), so this strategy deliberately does not
         // open its own — it relies on the caller's, for either branch below.
-        return $mode === 'team'
-            ? $this->fetchTeam($url, $payload, User::find($connection->user_id))
-            : $this->fetchStorewide($connection, $url, $payload);
+        //
+        // 'auto' is NOT a third branch — it is storewide's scrape and locked
+        // projection with the selection decided by FreshaAutoSelector instead of
+        // hardcoded. Forking would duplicate the XOR re-assert, the mid-flight
+        // disconnect guard, the write-time availability re-check and both
+        // lock-timeout catches — the subtle part.
+        return match ($mode) {
+            'team' => $this->fetchTeam($url, $payload, User::find($connection->user_id)),
+            default => $this->fetchStorewide($connection, $url, $payload, auto: $mode === 'auto'),
+        };
     }
 
     /**
@@ -157,7 +167,7 @@ final readonly class FreshaConnectFetch implements FetchStrategy
      * either lock (this one or the inner services one) resolves the same way:
      * caught below and folded into the job's terminal path.
      */
-    private function fetchStorewide(IntegrationConnection $connection, string $url, array $payload): array
+    private function fetchStorewide(IntegrationConnection $connection, string $url, array $payload, bool $auto = false): array
     {
         $user = User::find($connection->user_id);
         if ($user === null) {
@@ -176,7 +186,14 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         }
 
         try {
-            $menu = $this->scraper->fetchMenu($url);
+            // Two signups at one salon would otherwise scrape the same page
+            // twice. TTL is deliberately short — this menu feeds DISPLAYED
+            // PRICING, not just a picker roster.
+            $menu = Cache::remember(
+                'fresha:menu:'.sha1($url),
+                (int) config('partna.connect.auto_booking.menu_cache_seconds', 3600),
+                fn () => $this->scraper->fetchMenu($url),
+            );
         } catch (SafeUrlException|ConnectionException) {
             throw new FetchUnavailableException('fresha_unreachable');
         } catch (HttpException) {
@@ -189,7 +206,7 @@ final readonly class FreshaConnectFetch implements FetchStrategy
 
         try {
             $projected = Cache::lock(CacheKeyGenerator::bookingXorLock((string) $user->id), 30)
-                ->block(5, function () use ($connection, $user, $menu) {
+                ->block(5, function () use ($connection, $user, $menu, $url, $auto) {
                     // A concurrent forget()/clearBooking() may have soft-deleted
                     // this row while the scrape above was in flight — that
                     // teardown must win, not get resurrected by sync() below.
@@ -217,7 +234,14 @@ final readonly class FreshaConnectFetch implements FetchStrategy
                         throw new FetchUnavailableException('fresha_disabled', FetchUnavailableException::GENERIC_USER_MESSAGE);
                     }
 
-                    return $this->projector->sync($user, $menu['services']);
+                    // The auto selection PROJECTS as part of deciding, so it runs
+                    // inside this lock like the plain sync it replaces. Deferring
+                    // it until after the lock released would leave the three
+                    // guards above checked-then-stale: the write they protect
+                    // would land outside the span that verified it.
+                    return $auto
+                        ? $this->autoSelector->select($user, $menu, $url)
+                        : $this->projector->sync($user, $menu['services']);
                 });
         } catch (LockTimeoutException) {
             throw new FetchUnavailableException('fresha_xor_lock', FetchUnavailableException::GENERIC_USER_MESSAGE);
@@ -230,14 +254,24 @@ final readonly class FreshaConnectFetch implements FetchStrategy
             throw new FetchUnavailableException('fresha_services_lock', FetchUnavailableException::GENERIC_USER_MESSAGE);
         }
 
-        $selection = [
-            'url' => $url,
-            'storeName' => $menu['storeName'],
-            'mode' => 'storewide',
-            'employee' => null,
-            'services' => $projected['services'],
-            'hiddenServiceIds' => $projected['hiddenServiceIds'],
-        ];
+        if ($auto) {
+            // FreshaAutoSelector already composed the selection (and chose whose
+            // menu it is) inside the lock above.
+            $selection = $projected['selection'];
+            $rawServices = $projected['raw'];
+            $matchTier = $projected['matchTier'];
+        } else {
+            $selection = [
+                'url' => $url,
+                'storeName' => $menu['storeName'],
+                'mode' => 'storewide',
+                'employee' => null,
+                'services' => $projected['services'],
+                'hiddenServiceIds' => $projected['hiddenServiceIds'],
+            ];
+            $rawServices = $projected['raw'];
+            $matchTier = null;
+        }
 
         // connectMode and teamMenu drop here too (R3) — see the class
         // docblock. teamMenu is always the null the pending write stamped on
@@ -246,6 +280,12 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         $next = $payload;
         unset($next['connectPendingAt'], $next['connectMode'], $next['teamMenu']);
 
-        return [...$next, 'url' => $url, 'selection' => $selection, 'raw' => ['services' => $projected['raw']]];
+        return [
+            ...$next,
+            'url' => $url,
+            'selection' => $selection,
+            'raw' => ['services' => $rawServices],
+            ...($auto ? ['matchTier' => $matchTier] : []),
+        ];
     }
 }
