@@ -211,4 +211,11 @@ jobs:
             audits/dast/*/supabase-start.log
             audits/dast/*/bring-up-stdout.log
             audits/dast/*/tier2.md
+            # Seeding artefacts. Added after run 31378078269 died 0.2s into
+            # seeding with NO message: `artisan route:list`'s stdout goes into
+            # routes-raw.json, so its boot error landed in the JSON file rather
+            # than the log. seed-endpoints.sh now surfaces that itself, and these
+            # two make the next seeding failure diagnosable without a code change.
+            audits/dast/*/route-list-stderr.log
+            audits/dast/*/routes-raw.json
           retention-days: 30
