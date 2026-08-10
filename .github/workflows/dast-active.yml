@@ -12,10 +12,20 @@ name: DAST active lane
 # from `ref:`. The default branch here is `production`, which is several hundred
 # commits behind `development`.
 #
-# CONSEQUENCE, stated plainly rather than discovered later: **this workflow's
-# `schedule:` will not fire at all until this file exists on `production`.**
-# `workflow_dispatch` and the `pull_request` path filter work immediately from
-# `development`; the weekly cron does not.
+# CONSEQUENCE, and it is worse than the schedule alone — VERIFIED 2026-08-10, not
+# reasoned about. Until this file exists on `production`:
+#
+#   * `schedule:`        does NOT fire.
+#   * `workflow_dispatch:` is NOT dispatchable. `gh workflow run dast-active.yml
+#     --ref development` returns **HTTP 404: workflow not found on the default
+#     branch**, and the Actions UI does not offer a "Run workflow" button either.
+#     The `--ref` is which branch to RUN, not where the workflow may live.
+#   * `pull_request:`    DOES work — a PR's workflows are read from the PR branch.
+#
+# So the PR path filter is the ONLY live trigger today, and it is the one this
+# lane most wants anyway: it fires on exactly the auth-adjacent diffs that break
+# it. Do not read a quiet Actions tab as "the lane is watching"; until this file
+# is on production, nothing scheduled and nothing manual will start it.
 #
 # This is not hypothetical — dast-edge.yml is living proof. Its cron gates at
 # `high` because production's copy of that file says so, while development's says

@@ -155,12 +155,15 @@ git fetch origin && git show origin/production:.github/workflows/dast-edge.yml |
 #     default-branch mechanic as 4a, but a step worse: the file does not exist on
 #     production at all, so GitHub has no `schedule:` to register and the weekly
 #     Sunday 04:00 UTC run NEVER FIRES — silently, with no failed run to notice.
-#     workflow_dispatch and the pull_request path filter work from development
-#     already, which is most of the value; the cron is the part that is missing.
+#     WORSE, verified 2026-08-10: `workflow_dispatch` is ALSO dead until then.
+#     `gh workflow run dast-active.yml --ref development` returns HTTP 404
+#     ("workflow not found on the default branch") and the Actions UI offers no Run
+#     button — `--ref` picks which branch to RUN, not where the workflow may LIVE.
+#     Only the pull_request path filter works from development today.
 #     Nothing to DO — the fast-forward carries the file automatically.
 git fetch origin && git show origin/production:.github/workflows/dast-active.yml >/dev/null 2>&1 \
-    && echo "dast-active.yml is on production — cron can now fire; delete this step" \
-    || echo "not on production yet — the weekly active-lane cron is NOT running"
+    && echo "dast-active.yml is on production — cron + workflow_dispatch now work; delete this step" \
+    || echo "not on production yet — active-lane cron AND workflow_dispatch are both dead"
 #     Confirm a scheduled run actually appears after the next Sunday:
 #         gh run list --workflow dast-active.yml
 ```
