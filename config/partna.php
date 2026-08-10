@@ -2235,6 +2235,19 @@ return [
         // GET responses. Drives both max-age and s-maxage on the Cache-Control header.
         'public_max_age' => (int) env('PARTNA_CACHE_PUBLIC_MAX_AGE', 900), // 15 min
 
+        // CFG-3: seconds an expired edge entry may be served stale while the CDN
+        // refreshes it in the background. 0 (the default) omits the directive
+        // entirely, so this ships inert and is enabled per environment via env var.
+        //
+        // Distinct from `swr_defer_recompute` above despite the shared "SWR"
+        // shorthand: that one defers an internal cache rebuild past the response,
+        // this one is a wire directive on Cache-Control.
+        //
+        // Purpose is the once-per-TTL blocking revalidation and Cloudflare's
+        // concurrent-request collapsing, NOT the multi-second stall investigated
+        // on 2026-08-10 — that was the tester's own network path.
+        'public_swr' => (int) env('PARTNA_CACHE_PUBLIC_SWR', 0),
+
         // CFG-3 (public-surface audit): Cache-Control max-age for the alias→
         // canonical 301 redirects in PublicSiteController::show()/showByHeader().
         // An un-timed 301 is cached heuristically (often "forever") by several

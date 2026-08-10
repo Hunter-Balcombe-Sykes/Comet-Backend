@@ -147,3 +147,20 @@ it('never adds public cache headers to a 304 on a no-store path', function () {
     expect($cacheControl)->toContain('no-store');
     expect($cacheControl)->not->toContain('public');
 });
+
+// CFG-3 / stale-while-revalidate. The default MUST be byte-identical to the
+// pre-SWR header, so the code ships inert and enabling it is an env-var flip.
+it('omits stale-while-revalidate when the config value is 0', function () {
+    config(['partna.cache.public_max_age' => 30, 'partna.cache.public_swr' => 0]);
+
+    $request = Request::create('/api/public/profiles/someone', 'GET');
+
+    $middleware = new AddPublicCacheHeaders;
+    $response = $middleware->handle($request, fn () => new Response('{}', 200));
+
+    // Exact equality, not toContain: 'max-age=30' is a substring of 's-maxage=30',
+    // so a toContain assertion cannot tell the two directives apart and would pass
+    // on a header that is subtly wrong.
+    expect($response->headers->get('Cache-Control'))
+        ->toBe('max-age=30, public, s-maxage=30');
+});
