@@ -143,8 +143,28 @@ trap teardown EXIT INT TERM
 
 cd "$REPO_ROOT"
 started=0
+# APPEND, never truncate. `>` here meant each retry destroyed the previous
+# attempt's output, so only the LAST attempt's error survived — and when the
+# retry path is broken (see below) the last error is a CONSEQUENCE of the retry,
+# not the original cause. Found 2026-08-10 on GitHub run 31375473391: the log
+# showed only "failed to change workdir ... no such file or directory", which is
+# attempt 2/3 tripping over a deleted scratch dir, while attempt 1's real reason
+# had already been overwritten and is simply gone.
+#
+# KNOWN BUG, NOT FIXED HERE — the retry loop has never worked. That same run's
+# stdout shows "tearing down (exit was 1)" firing BETWEEN attempt 1 and attempt 2,
+# i.e. teardown() ran mid-loop and its `rm -rf "$SCRATCH"` removed the scratch
+# workdir out from under attempts 2 and 3, guaranteeing they fail for a reason
+# unrelated to whatever broke attempt 1. So `supabase start` gets one real try,
+# not three, and the two "retries" are noise that also destroy the evidence.
+#
+# It has been invisible because it only manifests when `supabase start` FAILS,
+# which is precisely the documented-flaky case this retry exists for — and that
+# has never happened on the macOS boxes the lane ran on manually. Fixing the trap
+# interaction is a separate change to this script's failure path and wants its own
+# review; this line just stops the retries from erasing the diagnosis first.
 for attempt in 1 2 3; do
-    if supabase start --workdir "$SCRATCH" >"$OUTDIR/supabase-start.log" 2>&1; then
+    if supabase start --workdir "$SCRATCH" >>"$OUTDIR/supabase-start.log" 2>&1; then
         started=1
         break
     fi
