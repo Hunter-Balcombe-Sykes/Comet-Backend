@@ -32,8 +32,15 @@ use Throwable;
 // Deliberately NOT a thin wrapper around RefreshConnectionJob/PlatformRefresher
 // — see the plan's §2d rejection reasons: a failed CONNECT is not a failing
 // CONNECTION (PlatformHealthNotifier must never fire here), the dedupe/retry
-// windows are seconds not hours (a human is watching the modal, not a cron),
-// and this job must not gate on is_active — that flag isn't its concern.
+// windows are seconds not hours, and this job must not gate on is_active —
+// that flag isn't its concern.
+//
+// Callers are NOT uniformly interactive. The three dashboard controllers have a
+// human watching a modal; LinkRouter's auto-route dispatch has nobody, and no
+// interactive retry path at all. The tries/backoff/uniqueFor tuning below is
+// still sized for the interactive case (it remains correct for both), but the
+// auto path is why a runtime kill switch and the FreshaFetch self-heal backstop
+// exist — a failure there is never noticed by a user who could retry it.
 //
 // SYNC-DRIVER CORRECTNESS (highest-value constraint in the unit): tests pin
 // queue.default=sync (phpunit.xml), so dispatch()->afterCommit() executes
@@ -72,6 +79,11 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
     public function __construct(
         public readonly string $connectionId,
         public readonly string $platform,
+        // TRUE when nothing human triggered this connect — the auto-route path.
+        // Suppresses the "connected!" notice: a pre-account user has no email and
+        // never asked for this connection. Defaults FALSE so the three dashboard
+        // call sites are byte-identical.
+        public readonly bool $systemInitiated = false,
     ) {
         $this->onQueue(config('partna.queues.platform_connect'));
     }
@@ -141,7 +153,9 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             // payload is current. Skipping it here would silently drop the notice
             // for exactly the reconnect case. markOk() saves quietly but mutates
             // the in-memory row first, so the notifier's 'ok' guard passes.
-            $notifier->connected($connection);
+            if (! $this->systemInitiated) {
+                $notifier->connected($connection);
+            }
 
             return;
         } catch (FetchShapeException $e) {
@@ -217,7 +231,9 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             // Reached only when the locked write succeeded — a thrown
             // LockTimeoutException skips straight to the catch, where
             // markTerminal() lands 'unavailable' and no notice is owed.
-            $notifier->connected($connection);
+            if (! $this->systemInitiated) {
+                $notifier->connected($connection);
+            }
         } catch (LockTimeoutException $e) {
             // MUST NOT swallow like ScheduledRefresh::run() does — correct for
             // an hourly cron (the next tick retries), catastrophically wrong
