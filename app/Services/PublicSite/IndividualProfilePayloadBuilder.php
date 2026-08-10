@@ -626,6 +626,14 @@ class IndividualProfilePayloadBuilder
         // Adding a new column family = one entry in that config key (+ the
         // matching Supabase migration) — no code change here.
 
+        // Whole-column overrides, matched FIRST. A prefix map can only route a
+        // column that HAS a prefix; the preset-only schema (2026-08-09) added
+        // `spacing` and `corners`, which carry no underscore, so the split
+        // below would `continue` past them and drop them from the payload with
+        // no error at all. Exact matches also let a family that isn't a
+        // snake_case prefix group — the four selections — travel together.
+        $exactColumns = config('partna.design_kit.column_groups.exact_columns', []);
+
         // Responsive companion groups use a two-token prefix (e.g.
         // `space_desktop_regular` → spaceDesktop.regular). Match these
         // BEFORE the single-token prefixes so the longer match wins.
@@ -639,6 +647,14 @@ class IndividualProfilePayloadBuilder
         foreach ($cols as $column => $value) {
             $group = null;
             $rest = null;
+
+            // Exact whole-column match wins over every prefix.
+            if (isset($exactColumns[$column]) && is_array($exactColumns[$column])) {
+                [$exactGroup, $exactKey] = $exactColumns[$column];
+                $out[$exactGroup][$exactKey] = $value;
+
+                continue;
+            }
 
             // Try two-token prefix first.
             foreach ($twoTokenPrefixes as $prefix => $candidateGroup) {

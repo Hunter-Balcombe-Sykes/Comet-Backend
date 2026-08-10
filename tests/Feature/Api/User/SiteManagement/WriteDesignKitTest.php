@@ -183,30 +183,31 @@ it('persists only columns that exist on site.design_kits', function () {
 it('filters incoming keys against information_schema, not the physical table', function () {
     $siteId = seedSiteWithEmptyKit();
 
-    // Drop color_text from the information_schema mirror so it becomes a REAL
+    // Drop theme_mode from the information_schema mirror so it becomes a REAL
     // SQLite column that is absent from the catalog. This proves the filter
     // keys off information_schema specifically — and gives the guard an
     // assertion-based tooth that does not rely on SQLite rejecting unknown
-    // columns. With the intersection: color_text is dropped despite the
-    // physical column existing. Without it: color_text (a valid column) would
+    // columns. With the intersection: theme_mode is dropped despite the
+    // physical column existing. Without it: theme_mode (a valid column) would
     // be written and SQLite would accept it, failing the toBeNull() below.
-    // (Was color_bg pre-2026-07-10; that column no longer exists at all.)
+    // (Was color_bg pre-2026-07-10, then color_text until the 2026-08-09
+    // preset-only migration dropped that one too.)
     DB::connection('pgsql')->table('information_schema.columns')
         ->where('table_schema', 'site')
         ->where('table_name', 'design_kits')
-        ->where('column_name', 'color_text')
+        ->where('column_name', 'theme_mode')
         ->delete();
 
     invokeWriteDesignKit($siteId, [
         'color_accent' => '#abcabc',  // in catalog → written
-        'color_text' => '#dedede',    // real column, absent from catalog → dropped
+        'theme_mode' => 'bleach',     // real column, absent from catalog → dropped
     ]);
 
     $row = DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $siteId)->first();
 
     expect($row->color_accent)->toBe('#abcabc');
-    expect($row->color_text)->toBeNull();
+    expect($row->theme_mode)->toBeNull();
 });
 
 it('silently ignores an empty design_kit array', function () {
@@ -340,23 +341,63 @@ it('persists theme_mode + theme_night_shift_auto and drops the retired effect_su
         ->and((bool) $row->theme_night_shift_auto)->toBeFalse();
 });
 
-// 2026-07-10 semantic text scale (migration 20260710190000) — write-surface
-// coverage for the renamed text columns.
-it('persists the semantic text-scale columns', function () {
+// 2026-08-09 preset-only (migration 20260809090001) — write-surface coverage
+// for the three new selection columns. Replaces the semantic text-scale test:
+// text_body / text_display / text_desktop_h1 and the other 49 per-token
+// columns left the schema, and text_size is the one control that moves all of
+// them now.
+it('persists the selection columns', function () {
     $siteId = seedSiteWithEmptyKit();
 
     invokeWriteDesignKit($siteId, [
-        'text_body' => '0.85rem',
-        'text_display' => '3.2rem',
-        'text_desktop_h1' => '3.2rem',
+        'text_size' => 'large',
+        'spacing' => 'spacious',
+        'corners' => 'rounded',
+        'border_thickness' => 'none',
     ]);
 
     $row = DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $siteId)->first();
 
-    expect($row->text_body)->toBe('0.85rem')
-        ->and($row->text_display)->toBe('3.2rem')
-        ->and($row->text_desktop_h1)->toBe('3.2rem');
+    expect($row->text_size)->toBe('large')
+        ->and($row->spacing)->toBe('spacious')
+        ->and($row->corners)->toBe('rounded')
+        // border_thickness kept its column and changed vocabulary: a selection
+        // token now, not the CSS length it held before.
+        ->and($row->border_thickness)->toBe('none');
+});
+
+it('accepts every legal selection value over HTTP and stores it', function () {
+    // The accept side of UpdateSiteValidationTest's rejection test. That one
+    // proves junk 422s; a rule weakened to bare 'string' would pass it and
+    // fail nothing. This pins the exact vocabularies the design system's
+    // presets.ts ships (TEXT_SIZE / SPACING / CORNER / THICKNESS presets), so
+    // narrowing a rule below them fails here instead of silently 422ing a
+    // legal pick in production. It lives in this file rather than beside its
+    // partner because a request that PASSES validation goes on to run
+    // writeDesignKit(), which needs the seeded information_schema mirror.
+    config(['partna.throttle.enabled' => false]);
+
+    $pro = createTenant('selection-legal');
+    DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $pro->site->id]);
+
+    foreach ([
+        'text_size' => ['small', 'medium', 'large'],
+        'spacing' => ['default', 'spacious'],
+        'corners' => ['default', 'rounded'],
+        'border_thickness' => ['default', 'none'],
+    ] as $column => $values) {
+        foreach ($values as $value) {
+            actingAsUser($pro)
+                ->patchJson('/api/site', ['design_kit' => [$column => $value]])
+                ->assertOk();
+
+            $stored = DB::connection('pgsql')->table('site.design_kits')
+                ->where('site_id', $pro->site->id)->value($column);
+
+            expect($stored)->toBe($value, "{$column} => {$value} was not stored");
+        }
+    }
 });
 
 it('rejects the retired 2-value theme_mode over HTTP with a 422', function () {

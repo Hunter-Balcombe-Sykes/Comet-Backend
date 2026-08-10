@@ -123,17 +123,47 @@ class DesignKitRestyleService
 
         DB::connection('pgsql')->transaction(function () use ($site, $restyle) {
             $siteId = (string) $site->id;
-            $snapshot = (array) $restyle->snapshot;
 
-            DB::connection('pgsql')->table('site.design_kits')
+            $current = DB::connection('pgsql')->table('site.design_kits')
                 ->where('site_id', $siteId)->lockForUpdate()->first();
 
-            // Full-row restore, nulls included — a column the restyle filled
-            // from empty goes back to empty (reset-to-auto), not to a value.
-            DB::connection('pgsql')->table('site.design_kits')->updateOrInsert(
-                ['site_id' => $siteId],
-                [...$snapshot, 'updated_at' => now()],
-            );
+            // RESTRICT THE SNAPSHOT TO COLUMNS THAT STILL EXIST.
+            //
+            // `snapshot` is a whole-row JSONB capture taken at apply time, so
+            // one written before a schema change carries keys the table no
+            // longer has. updateOrInsert() names every key it is handed, so
+            // restoring such a snapshot unfiltered sends dropped columns to
+            // Postgres: the statement errors and the user's undo is broken
+            // permanently, with no way to clear it. The 2026-08-09 preset-only
+            // migration drops 52 columns at once, which turns a latent bug
+            // into a certainty for every snapshot older than the deploy.
+            //
+            // UserSiteController::writeDesignKit() has always filtered its
+            // writes this way (against information_schema); this path simply
+            // never did. Filtering against the LOCKED ROW's own keys instead
+            // is the same guarantee from a source we are already holding: the
+            // row came back from SELECT *, so its keys ARE the live column
+            // set — no catalog round-trip, no cache to bust, and correct on
+            // any driver.
+            $live = (array) ($current ?? []);
+            unset($live['site_id'], $live['created_at'], $live['updated_at']);
+
+            $snapshot = array_intersect_key((array) $restyle->snapshot, $live);
+
+            // Nothing left to write: either the row is gone (unreachable in
+            // practice — apply() updateOrInserts it, the trigger guarantees
+            // it, and the restyle row cascades with the site) or every column
+            // the snapshot named has since been dropped. The restyle is spent
+            // either way; mark it undone rather than leave a button that can
+            // only ever fail.
+            if ($snapshot !== []) {
+                // Full-row restore, nulls included — a column the restyle
+                // filled from empty goes back to empty, not to a value.
+                DB::connection('pgsql')->table('site.design_kits')->updateOrInsert(
+                    ['site_id' => $siteId],
+                    [...$snapshot, 'updated_at' => now()],
+                );
+            }
 
             $restyle->undone_at = now();
             $restyle->save();

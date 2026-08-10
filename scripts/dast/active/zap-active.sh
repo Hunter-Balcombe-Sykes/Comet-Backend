@@ -185,32 +185,74 @@ IDOR_SURFACES=(
     # and stays local; accept would run SuggestionApplier.
     "routing-primary|POST|/api/routing/connections/%s/primary|CONNECTION_ID"
     "routing-suggestion-dismiss|POST|/api/routing/suggestions/%s/dismiss|INTENT_ID"
+    # The one surface carrying a SECOND, independently owner-scoped id.
+    # SectionItemController::upsert checks {section} via findSection AND {item}
+    # via findItem($user->id, ...) + authorize 'view' (:62-67). section-items
+    # above covers the first; only this covers the second, so @SECTION_ID@ is
+    # pinned to identity A and %s varies — the probe sends A's OWN section with
+    # B's item, which is the only way to isolate the {item} check.
+    #
+    # It needs a BODY: UpsertSectionItemRequest requires state IN
+    # (pinned,excluded), and Laravel validates a FormRequest BEFORE the
+    # controller, so a bodyless PUT 422s without ever reaching findItem. That is
+    # exactly why this decider went unprobed until 2026-08-09. `excluded` is used
+    # rather than `pinned` because a pin also calls nextSortKey().
+    "section-item-upsert|PUT|/api/site/sections/@SECTION_ID@/items/%s|ITEM_POOL_ID|{\"state\":\"excluded\"}"
 )
+
+# The fixture prefixes named by the table, derived once. Used both to validate
+# identities.json and to resolve @PREFIX@ tokens.
+IDOR_PREFIXES=()
+while IFS= read -r p; do
+    IDOR_PREFIXES+=("$p")
+done < <(printf '%s\n' "${IDOR_SURFACES[@]}" | cut -d'|' -f4 | sort -u)
+
+# Build one URL: %s becomes the varying IDOR target, @PREFIX@ becomes identity
+# A's fixture of that name. A parent id in the path MUST stay A's — substituting
+# B's would make the probe fail at the parent check and never exercise the child
+# one, which is a vacuous pass wearing a green tick.
+idor_url() {
+    local template="$1" target="$2" out p var
+    out="${template//%s/$target}"
+    for p in "${IDOR_PREFIXES[@]}"; do
+        var="${p}_A"
+        out="${out//@${p}@/${!var}}"
+    done
+    printf '%s' "$out"
+}
 
 # Emit the requestor entries: per surface, a CONTROL on A's own row expecting
 # 200 immediately followed by the PROBE on B's row expecting 404. Generated
 # rather than hand-written so a surface can never acquire a probe without its
 # control — the pairing is structural, not a convention someone has to remember.
 idor_requests() {
-    local surface name method template prefix a_var b_var
+    local surface name method template prefix body a_var b_var
     for surface in "${IDOR_SURFACES[@]}"; do
-        IFS='|' read -r name method template prefix <<<"$surface"
+        IFS='|' read -r name method template prefix body <<<"$surface"
         a_var="${prefix}_A"
         b_var="${prefix}_B"
-        # Substitution, not `printf "$template"`: a variable as a format string
-        # (SC2059) would silently mangle any future path containing a literal %
-        # rather than failing loudly. ${var//pat/rep} is bash-3.2-safe.
-        printf '      - url: "%s%s"\n' "$ZAP_TARGET_URL" "${template//%s/${!a_var}}"
-        printf '        method: %s\n' "$method"
-        printf '        name: control-own-%s\n' "$name"
-        printf '        headers:\n          - "Authorization: Bearer %s"\n' "$TOKEN_A"
-        printf '        responseCode: 200\n'
-        printf '      - url: "%s%s"\n' "$ZAP_TARGET_URL" "${template//%s/${!b_var}}"
-        printf '        method: %s\n' "$method"
-        printf '        name: idor-%s\n' "$name"
-        printf '        headers:\n          - "Authorization: Bearer %s"\n' "$TOKEN_A"
-        printf '        responseCode: 404\n'
+        idor_emit "control-own-$name" "$method" "$(idor_url "$template" "${!a_var}")" 200 "$body"
+        idor_emit "idor-$name"        "$method" "$(idor_url "$template" "${!b_var}")" 404 "$body"
     done
+}
+
+# One requestor entry. `data` and the Content-Type header are emitted only when
+# the surface declares a body — verified against ZAP 2.17.0's own schema
+# (`zap.sh -cmd -autogenmax`), because an unrecognised field is a WARNING that
+# ZAP drops silently, which is how token injection stayed dead for months. The
+# plan-integrity grep above turns that into a hard failure, but getting the
+# field name right beats relying on the guard.
+idor_emit() {
+    local name="$1" method="$2" url="$3" code="$4" body="$5"
+    printf '      - url: "%s%s"\n' "$ZAP_TARGET_URL" "$url"
+    printf '        method: %s\n' "$method"
+    printf '        name: %s\n' "$name"
+    printf '        headers:\n          - "Authorization: Bearer %s"\n' "$TOKEN_A"
+    if [[ -n "$body" ]]; then
+        printf '          - "Content-Type: application/json"\n'
+        printf "        data: '%s'\n" "$body"
+    fi
+    printf '        responseCode: %s\n' "$code"
 }
 
 EMAIL_A=$(jq -r .A.email "$OUTDIR/identities.json")
@@ -234,7 +276,7 @@ PASS_B=$(jq -r .B.password "$OUTDIR/identities.json")
 # `tr`, not ${prefix,,} — macOS ships bash 3.2 and case modification is bash 4+.
 # Same constraint lib/diff-baseline.sh's header records; this lane is developed
 # and run on macOS, so a bash-4-ism here is a hard break, not a portability nit.
-for prefix in $(printf '%s\n' "${IDOR_SURFACES[@]}" | cut -d'|' -f4 | sort -u); do
+for prefix in "${IDOR_PREFIXES[@]}"; do
     key=$(printf '%s' "$prefix" | tr 'A-Z' 'a-z')
     for who in A B; do
         value=$(jq -r ".${who}.${key} // \"null\"" "$OUTDIR/identities.json")

@@ -34,17 +34,11 @@ it('only ever sets snake_case design_kits column keys with string or bool values
     }
 });
 
-it('pairs text_desktop_body with every text_body bump so desktop never renders smaller than mobile', function () {
-    $overlays = array_map(SectorStylePresets::forBucket(...), SectorStylePresets::buckets());
-    foreach (SectorStylePresets::refinedSlugs() as $slug) {
-        $overlays[] = SectorStylePresets::forSlug($slug);
-    }
-    foreach ($overlays as $overlay) {
-        if (isset($overlay['text_body'])) {
-            expect($overlay)->toHaveKey('text_desktop_body');
-        }
-    }
-});
+// ('pairs text_desktop_body with every text_body bump' was removed 2026-08-09:
+// both columns left the schema with the preset-only migration, so the test
+// could only ever pass vacuously. What replaced it is FontRosterTest's
+// 'collapsed the sector presets to accent and font' — an allowlist assertion
+// that fails if either column comes back.)
 
 it('every refined slug is a real taxonomy slug with a real bucket', function () {
     foreach (SectorStylePresets::refinedSlugs() as $slug) {

@@ -148,10 +148,13 @@ describe('withResolvedDesignKit', function () {
             ->withResolvedDesignKit($user)
             ->resolve();
 
-        // preset values show through untouched
+        // Preset values show through untouched. The food_drink bucket also set
+        // weight_regular '300' and effect_image_treatment 'warm' until the
+        // 2026-08-09 preset-only migration — both columns are gone and the
+        // owner's call was to let the sectors collapse to accent-plus-font
+        // rather than invent replacements. The font is what is left to show
+        // through, and it is enough to prove the overlay runs.
         expect($array['design_kit']->typography_font_family)->toBe('monument-grotesk')
-            ->and($array['design_kit']->weight_regular)->toBe('300')
-            ->and($array['design_kit']->effect_image_treatment)->toBe('warm')
             // manual column wins over the preset's own accent (#e0491f)
             ->and($array['design_kit']->color_accent)->toBe('#105030')
             // only the stored column is reported manual
@@ -195,9 +198,12 @@ describe('withResolvedDesignKit', function () {
             ->withResolvedDesignKit($user)
             ->resolve();
 
+        // home_services also set weight_regular '500' and a bigger text_body
+        // (+ its desktop pair) until 2026-08-09; those columns left the schema
+        // with the preset-only migration. The bucket's font survives, which is
+        // what proves the BASE tier applied — and the accent below proves the
+        // slug refinement layered over it.
         expect($array['design_kit']->typography_font_family)->toBe('forma-djr')
-            ->and($array['design_kit']->weight_regular)->toBe('500')
-            ->and($array['design_kit']->text_body)->toBe('0.8125rem')
             // slug refinement (plumber) wins over the home_services bucket's own accent
             ->and($array['design_kit']->color_accent)->toBe('#0369a1')
             ->and($array['design_kit_manual'])->toBe([]);

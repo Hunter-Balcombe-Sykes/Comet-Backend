@@ -220,7 +220,7 @@ their absence here is correct, not a gap to fill.
 
 ### IDOR coverage — what "IDOR assertions passed" actually proves
 
-**23 distinct ownership-deciding code paths are probed.** Until 2026-08-09 only 2
+**24 distinct ownership-deciding code paths are probed.** Until 2026-08-09 only 2
 were, and a green log said exactly the same thing then as it does now — which is why
 the covered set is enumerated here rather than left to the log line. Read the two
 "does not prove" paragraphs at the end before treating this as exhaustive.
@@ -272,6 +272,7 @@ figure that matters is the decider count, not the route count.
 | 20 | `ManualOverrideController::destroy` | `DELETE api/content/items/{item}/overrides/{facet}/{column}` | 404 |
 | 21 | `ConnectionsController::setPrimary` | `POST api/routing/connections/{connection}/primary` | 404 |
 | 22 | `SuggestionsController::dismiss` | `POST api/routing/suggestions/{intent}/dismiss` | 404 |
+| 23 | `SectionItemController::upsert` (`{item}`) | `PUT api/site/sections/{section}/items/{item}` | 404 |
 
 404 (not 403) is verified per surface from source, not assumed: the policy path is
 `BasePolicy::denyAsNotFound()` (`SitePolicy`, `SectionPolicy`, `ServicePolicy`,
@@ -296,27 +297,46 @@ because in both the effective IDOR target is the parent, which *is* probed:
   string key (`->where('group_key', $groupKey)`). Every `SectionGroupController`
   method routes through one private `findSection()` (`:96`), so `{section}` is the
   decider and #11 covers it.
-- `api/site/sections/{section}/items/{item}` — `SectionItemController::destroy`
-  scopes `{item}` by `section_id` alone, never by owner. That is sufficient: a
-  foreign item cannot be pinned in a section you own. The parent `{section}` is the
-  real target and #10 covers it.
+- `api/site/sections/{section}/items/{item}` — **for `DELETE` only.**
+  `SectionItemController::destroy` scopes `{item}` by `section_id` alone, never by
+  owner. That is sufficient: a foreign item cannot be pinned in a section you own,
+  so the parent `{section}` is the real target and #10 covers it. The `PUT` on the
+  same URI is a different matter — it owner-scopes `{item}` independently, and #23
+  probes it.
 
-**What this still does NOT prove.** Three things, stated plainly so a green log is
-not read as more than it is:
+**What this still does NOT prove.** Two things, stated plainly so a green log is not
+read as more than it is:
 
-1. **One uncovered decider.** `SectionItemController::upsert` performs a *second,
-   genuinely independent* owner-scoped check on `{item}` (`findItem` + `authorize
-   'view'`, `:62-67`) that no probe reaches. It is a `PUT` with a required body, so a
-   bodyless probe would 422 before authorization ran. Closing it means sending a
-   valid body — not hard, just not done.
-2. **Verbs, not just deciders.** #3 probes `DELETE api/gallery/{image}` but not
+1. **Verbs, not just deciders.** #3 probes `DELETE api/gallery/{image}` but not
    `PATCH`, because a bodyless `PATCH` 422s on its `FormRequest` first. Both share
    the same `SitePolicy` call, so the *decision* is covered; a divergence introduced
    into one verb's handler alone would not be.
-3. **Scope.** Only the two seeded identities' own ownership checks, through the app's
+2. **Scope.** Only the two seeded identities' own ownership checks, through the app's
    code, on a local stack. Nothing about prod's `app_backend` restricted role or RLS
    (see "Limitation" at the bottom), and nothing about staff-side authorization —
    `api/staff/*` is out of the scanned population.
+
+### Probing a surface that needs a request body
+
+`section-item-upsert` (#23) is the pattern to copy. `SectionItemController::upsert`
+checks **two** ids independently — `{section}` via `findSection`, `{item}` via
+`findItem($user->id, ...)` + `authorize 'view'` — so probing `{section}` (which #10
+does) says nothing about `{item}`. Two mechanics make the second one probeable:
+
+- **The parent id is pinned to identity A** with an `@SECTION_ID@` token, while `%s`
+  carries the varying target. The probe therefore sends *A's own section* with *B's
+  item*. Substituting B's section too would fail at the parent check and never reach
+  the child one — a vacuous pass wearing a green tick.
+- **A body is required.** Laravel validates a `FormRequest` before the controller
+  runs, so a bodyless `PUT` returns 422 without ever reaching `findItem`. That is
+  precisely why this decider went unprobed until 2026-08-09. Declare the body as a
+  fifth `|`-delimited field; `idor_emit` then adds `data:` and a
+  `Content-Type: application/json` header. `data` is ZAP's real field name —
+  confirmed against `zap.sh -cmd -autogenmax`, not assumed, because ZAP downgrades an
+  unknown field to a warning and drops it silently.
+
+Keep the body minimal and side-effect-light: `{"state":"excluded"}` rather than
+`pinned`, because a pin also calls `nextSortKey()`.
 
 **How to prove the assertions are live — invert them.** `IDOR assertions passed` is
 the *absence* of a `Difference in response code` line, and absence is exactly the
@@ -380,10 +400,26 @@ an unexplained key is indistinguishable from a buried bug.
 | `10021@…/robots.txt` | 2026-07-31 | X-Content-Type-Options missing on a static `robots.txt`. No user data, no injection surface. |
 | `10096@…/api/sessions` | 2026-08-07 | Timestamp Disclosure (Unix). `created_at`/`last_seen_at` are deliberately `(int)` epochs (`TokenRevocationService::listSessionsForUser`), rendered by the dashboard as "This device" / "Active …". They are the caller's **own** session times behind auth; ZAP 10096 fires on any epoch-shaped integer. Emitting ISO-8601 instead would be a breaking frontend change for no security gain. **Accepted, not fixed** — revisit only if the endpoint starts exposing other users' timestamps. |
 
-The 16 keys in `zap-passive-baseline.json` are the edge lane's header/cookie
-nitpicks on `/`, `/robots.txt` and `/sitemap.xml` (accepted 2026-08-03 when the
-first real baseline was taken, which is what let the weekly cron's floor drop
-from `high` to `medium`).
+The 17 keys accepted into `zap-passive-baseline.json` on **2026-08-03** are the edge
+lane's header/cookie nitpicks on `/`, `/robots.txt` and `/sitemap.xml` — that first
+real baseline is what let the weekly cron's floor drop from `high` to `medium`.
+
+**2026-08-10 — two more accepted, both on `/robots.txt`, both Cloudflare-layer.**
+Recorded here because a JSON array has nowhere to write a reason, and an unexplained
+key is indistinguishable from a buried bug:
+
+| Key | Alert | Why accepted |
+|---|---|---|
+| `10054-2@…/robots.txt` | Cookie with `SameSite=None` | The cookies are Cloudflare's own `__cf_bm` (bot management) and `_cfuvid` (rate-limit visitor id), both `Secure` + `HttpOnly`. `SameSite=None` is required for them to function in third-party contexts. **No app cookie is involved** — `config/session.php` defaults `same_site` to `lax`, and `/robots.txt` starts no session, so there is no auth cookie to forge a request with. Verified live via `Set-Cookie` on dev, not inferred. |
+| `10050-2@…/robots.txt` | Retrieved from Cache | `cf-cache-status: HIT`, `age` ~1200s — Cloudflare served a public static file from its edge cache, which is the intended behaviour. Only meaningful if a *private* response were cached. This one also **flaps**: it fires or not depending on cache state at scan time, which is why baselining it removes noise rather than hiding anything. |
+
+Both were absent from the 08-03 baseline only because that run happened to see a cache
+MISS and different cookie timing — neither is a change in posture. The same two alerts
+were already accepted on `/` and `/sitemap.xml`; these fill in the `/robots.txt` cells.
+
+**If either ever fires on an authenticated endpoint rather than these three public
+files, that is a different finding and must be re-triaged** — the reasoning above rests
+entirely on the URL being public and unauthenticated.
 
 ## Limitation — local ≠ prod authz fidelity
 

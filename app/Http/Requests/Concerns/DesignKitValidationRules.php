@@ -7,29 +7,61 @@ namespace App\Http\Requests\Concerns;
 // (TEST-5 / LIFE-4). To add or remove a design_kit column: update this trait
 // only — both request classes pick it up automatically.
 //
-// Regenerated 2026-07-07 against the live site.design_kits schema — the
-// previous revision still allowlisted long-dropped columns (typography_h1_*,
-// sizing_*, button_*, effect_overlay_*) and missed the current text_* /
-// weight_* / motion selection columns. writeDesignKit() filters against
-// information_schema.columns so stale keys were harmless, but the trait is
-// the documented contract and should mirror the schema exactly.
+// ─── 2026-08-09: PRESET-ONLY. 57 columns → 8. ────────────────────────────────
 //
-// 2026-07-10 theme/surface rework (migration 20260710160000): the bg colour,
-// visual-style bundle and entrance-animation columns dropped; theme_mode is now
-// the 5-value palette selection; theme_night_shift_auto added.
+// The design-kit go-live (brief §3.2 / §8.2) replaces the per-token storage
+// model with a small set of SELECTIONS. Two things ended at once:
 //
-// 2026-07-10 semantic text scale (migration 20260710190000): the seven
-// size-named text_* columns became the nine semantic slots (caption/body/
-// h3/h2/h1/display + desktop body/h1/display).
+//   1. The PROMOTION MODEL. Every token used to carry its own nullable column
+//      so any one of them "could become a per-user override later". It never
+//      did, and 49 of those columns held nothing on dev. They are gone.
+//   2. The AUTO/MANUAL GRAMMAR. There is no longer a "null means follow the
+//      sector preset" tier. Sector presets are a starting default at signup,
+//      not a living link, so nothing is an *override* of anything.
 //
-// 2026-07-10 surfaces (migration 20260710210000): effect_button_fill dropped;
-// the glass knobs were added (and removed again 2026-07-15 — see below).
+// `nullable` survives on every rule, and it means one thing only: CLEAR THIS
+// BACK TO THE SHIPPED PACKAGE DEFAULT. The columns stay nullable in Postgres
+// because the trg_create_empty_design_kit trigger inserts an all-NULL row for
+// every new site, and because the pages app fills nulls from the design
+// system's own defaults (mergeDesignKit). Null is "unset", never "inherit".
 //
-// 2026-07-15 sitepage rebuild: effect_surface (glass/solid/outline Surface
-// type) dropped (migration 20260714210000), then its glass satellites —
-// effect_scrim_blur / effect_glass_blur / motion_glass_shine_duration —
-// dropped too (migration 20260714230000). Component look flows from the kit
-// vars directly.
+// The eight survivors, and what each drives:
+//
+//   color_accent            free-form hex, scraped from brand
+//   typography_font_family  slug from the four-font roster
+//   text_size               small | medium | large      (5 font + 5 icon roles)
+//   spacing                 default | spacious          (4 gaps, 3 paddings,
+//                                                        3 card heights)
+//   corners                 default | rounded           (--dk-radius: 8/16px)
+//   border_thickness        default | none              ← WAS A LENGTH ('1px')
+//   theme_mode              bleach                      (the one palette)
+//   theme_night_shift_auto  boolean
+//
+// The four selection vocabularies mirror @partnaau/design-system's presets.ts
+// (TEXT_SIZE_PRESETS / SPACING_PRESETS / CORNER_PRESETS / THICKNESS_PRESETS)
+// key-for-key. That file declares itself the single source of truth the
+// dispatcher, the dashboard and this backend all read; the backend cannot
+// import TS, so — like EmailBrandDefaults::ACCENT — this is a hand-kept
+// mirror. CHANGE ONE, CHANGE BOTH.
+//
+// 'medium' is shown as "Default" in the UI. The key stays `medium` so it still
+// maps to TEXT_SIZE_PRESETS.
+//
+// No CHECK constraint backs these four. That is deliberate and matches
+// theme_mode, whose single legal value has always lived in this rule alone:
+// the request layer is the only write path that carries a vocabulary
+// (DesignKitAutopilot and DesignKitAccentApplier write color_accent only, and
+// DesignKitRestyleService replays autopilot's own proposals). Adding CHECKs
+// later is a NOT VALID → VALIDATE pair of migrations plus three entries in
+// tests/Feature/Database/ConstraintVocabularyLockstepTest.php — see that
+// file's header for the lockstep contract.
+//
+// ─── History ────────────────────────────────────────────────────────────────
+// 2026-07-07 regenerated against the live schema. 2026-07-10 theme/surface
+// rework, semantic text scale, surfaces. 2026-07-15 sitepage rebuild dropped
+// effect_surface and the glass satellites. 2026-08-06 simplification dropped
+// theme_contrast, typography_tracking, typography_weight, typography_uppercase,
+// motion_pace and border_style, and narrowed theme_mode to 'bleach'.
 trait DesignKitValidationRules
 {
     /**
@@ -43,105 +75,38 @@ trait DesignKitValidationRules
         // Hex-only colors: values land in inline CSS, so the regex is a
         // safety boundary, not just format pedantry.
         $hex = ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^#[0-9a-fA-F]{3,8}$/'];
-        $len = ['sometimes', 'nullable', 'string', 'max:16'];
-        $size = ['sometimes', 'nullable', 'string', 'max:32'];
+
+        // Every selection is `sometimes|nullable|string|in:...` — null clears
+        // the column back to the package default (see the header).
+        $selection = static fn (string $values): array => [
+            'sometimes', 'nullable', 'string', 'in:'.$values,
+        ];
 
         return [
             'design_kit' => ['sometimes', 'array'],
 
-            // Colors — bg is gone: the background is owned by theme_mode's
-            // palette (2026-07-10 rework).
+            // The user's brand accent. The only free-form value left in the
+            // kit; everything else is pick-from-a-fixed-set.
             'design_kit.color_accent' => $hex,
-            'design_kit.color_text' => $hex,
-            'design_kit.color_text_muted' => $hex,
-            'design_kit.color_secondary_text' => $hex,
-            'design_kit.color_accent_contrast' => $hex,
-            'design_kit.color_placeholder' => $hex,
-            'design_kit.color_contrasting_bg' => $hex,
-            'design_kit.color_contrasting_text' => $hex,
 
-            // Typography — fontFamily is a slug resolved by
-            // @partnaau/design-system/design-assets, from the four-font roster
-            // (nb-architekt, helvetica-neue, monument-grotesk, forma-djr). The
-            // tracking, weight-register and uppercase axes were removed
-            // 2026-08-06 with the design-kit simplification.
+            // Font slug resolved by @partnaau/design-system/design-assets from
+            // the four-font roster (nb-architekt, helvetica-neue,
+            // monument-grotesk, forma-djr). Left as a free string rather than
+            // an `in:` list because the roster lives in the design system and
+            // FontKeywordClassifier already owns the retired-slug migration
+            // map; a hard list here would be a fourth place to keep in step.
             'design_kit.typography_font_family' => ['sometimes', 'nullable', 'string', 'max:64'],
-            'design_kit.typography_line_height' => $len,
-            'design_kit.typography_logo_height' => $len,
 
-            // Text scale — semantic slots (2026-07-10): body is the value
-            // base; the rest are inferred but keep nullable columns for
-            // promotion.
-            'design_kit.text_caption' => $size,
-            'design_kit.text_body' => $size,
-            'design_kit.text_h3' => $size,
-            'design_kit.text_h2' => $size,
-            'design_kit.text_h1' => $size,
-            'design_kit.text_display' => $size,
-            'design_kit.text_desktop_body' => $size,
-            'design_kit.text_desktop_h1' => $size,
-            'design_kit.text_desktop_display' => $size,
+            // The four selections (presets.ts mirror — see the header).
+            'design_kit.text_size' => $selection('small,medium,large'),
+            'design_kit.spacing' => $selection('default,spacious'),
+            'design_kit.corners' => $selection('default,rounded'),
+            'design_kit.border_thickness' => $selection('default,none'),
 
-            // Weight scale — regular is the value base; light/medium/semibold/
-            // bold are inferred (base∓100/200/300). heading is its own Value
-            // (2026-07-15 axis): heading/display weight independent of body.
-            'design_kit.weight_regular' => $len,
-            'design_kit.weight_heading' => $len,
-            'design_kit.weight_light' => $len,
-            'design_kit.weight_medium' => $len,
-            'design_kit.weight_semibold' => $len,
-            'design_kit.weight_bold' => $len,
-
-            // Borders
-            'design_kit.border_thickness' => $len,
-            'design_kit.border_color' => $hex,
-            'design_kit.border_radius' => $len,
-            'design_kit.border_small_radius' => $len,
-
-            // Space scale — regular is the value base (+ desktop companions).
-            'design_kit.space_xxs' => $len,
-            'design_kit.space_xs' => $len,
-            'design_kit.space_s' => $len,
-            'design_kit.space_regular' => $len,
-            'design_kit.space_medium' => $len,
-            'design_kit.space_large' => $len,
-            'design_kit.space_xl' => $len,
-            'design_kit.space_desktop_regular' => $len,
-            'design_kit.space_desktop_xl' => $len,
-
-            // Icons
-            'design_kit.icon_size' => $len,
-            'design_kit.icon_color' => $hex,
-            'design_kit.icons_large_size' => $len,
-            'design_kit.icons_xl_size' => $len,
-            'design_kit.icons_xxl_size' => $len,
-            'design_kit.icons_stroke_width' => $len,
-            'design_kit.icons_large_stroke_width' => $len,
-            'design_kit.icons_brand_logo_height' => $len,
-
-            // Motion — pace is the selection; durations/curve are inferred
-            // from pace but keep columns for promotion. (Entrance removed
-            // entirely in the 2026-07-10 rework.)
-            'design_kit.motion_fade_duration' => $len,
-            'design_kit.motion_expand_duration' => $len,
-            'design_kit.motion_spin_duration' => $len,
-            'design_kit.motion_spring_curve' => ['sometimes', 'nullable', 'string', 'max:64'],
-
-            // Effects — media-scrim blur values + the per-axis identity
-            // selections (Surface type removed 2026-07-15).
-            'design_kit.effect_shadow_style' => ['sometimes', 'nullable', 'string', 'in:flat,soft,hard'],
-            'design_kit.effect_link_style' => ['sometimes', 'nullable', 'string', 'in:underline-hover,underline-always,plain'],
-            'design_kit.effect_image_treatment' => ['sometimes', 'nullable', 'string', 'in:none,mono,duotone,warm,muted'],
-
-            // Layout + border character axes.
-            'design_kit.layout_density' => ['sometimes', 'nullable', 'string', 'regex:/^(0\.(8[5-9]|9\d)|1(\.([01]\d|2[0-5]))?)$/'],
-
-            // Theme — mode owns the bg/text/border anchors. One palette
-            // survives the 2026-08-06 simplification, so the column stays (the
-            // anchors still key off it server-side, and a second palette would
-            // want it back) but 'bleach' is its only legal value. Night Shift
-            // Auto switches day/night variants by visitor clock; user-only,
-            // default true code-side.
+            // Theme — mode owns the bg/text anchors server-side (email
+            // theming via ThemeModePalettes) and 'bleach' is its only legal
+            // value. Night Shift Auto switches day/night by visitor clock;
+            // user-only, never preset.
             'design_kit.theme_mode' => ['sometimes', 'nullable', 'string', 'in:bleach'],
             'design_kit.theme_night_shift_auto' => ['sometimes', 'nullable', 'boolean'],
         ];

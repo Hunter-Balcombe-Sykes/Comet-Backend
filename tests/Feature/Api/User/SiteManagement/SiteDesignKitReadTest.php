@@ -35,11 +35,16 @@ it('GET /api/site returns the preset-merged kit for a restaurant with only accen
     DB::connection('pgsql')->table('site.design_kits')
         ->insert(['site_id' => $owner->site->id, 'color_accent' => '#105030']);
 
+    // The food_drink bucket used to also set weight_regular '300'. That column
+    // left the schema with the 2026-08-09 preset-only migration, and the owner
+    // decision was to let the gutted sectors collapse rather than invent new
+    // differentiation — so a sector preset is accent-plus-font now. The FONT
+    // still arrives from the preset while the manual accent wins over it,
+    // which is the whole point of this test.
     actingAsUser($owner)
         ->getJson('/api/site')
         ->assertOk()
         ->assertJsonPath('site.design_kit.typography_font_family', 'monument-grotesk')
-        ->assertJsonPath('site.design_kit.weight_regular', '300')
         ->assertJsonPath('site.design_kit.color_accent', '#105030')
         ->assertJsonPath('site.design_kit_manual', ['color_accent'])
         // the endpoint's existing chain (withRationale/withFeatureAvailability)
