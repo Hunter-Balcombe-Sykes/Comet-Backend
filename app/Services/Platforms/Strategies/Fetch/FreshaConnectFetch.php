@@ -188,18 +188,26 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         }
 
         try {
-            // Two signups at one salon would otherwise scrape the same page
-            // twice. TTL is deliberately short — this menu feeds DISPLAYED
-            // PRICING, not just a picker roster. rememberLocked (not a raw
-            // Cache::remember, which GS-1 forbids) also single-flights it, so
-            // two concurrent signups at one salon collapse to one scrape rather
-            // than racing; its callback exceptions still propagate to the
-            // catches below.
-            $menu = $this->cacheLocks->rememberLocked(
-                CacheKeyGenerator::freshaMenu($url),
-                (int) config('partna.connect.auto_booking.menu_cache_seconds', 3600),
-                fn () => $this->scraper->fetchMenu($url),
-            );
+            // AUTO ONLY, deliberately. A bulk Instagram build can bring several
+            // people from one salon through here inside an hour, and each would
+            // otherwise re-scrape the same page; rememberLocked also
+            // single-flights them, so concurrent arrivals collapse to one scrape
+            // instead of racing. (Raw Cache::remember is forbidden by GS-1; its
+            // callback exceptions still propagate to the catches below.)
+            //
+            // The DASHBOARD connect deliberately bypasses the cache and always
+            // re-scrapes. It is a deliberate human action — someone who fixed a
+            // price on their Fresha page and reconnected would otherwise be shown
+            // the pre-fix menu for the rest of the TTL with no way to force a
+            // refresh. It is also low volume (roughly once per user), so caching
+            // it buys almost no dedupe for that cost.
+            $menu = $auto
+                ? $this->cacheLocks->rememberLocked(
+                    CacheKeyGenerator::freshaMenu($url),
+                    (int) config('partna.connect.auto_booking.menu_cache_seconds', 3600),
+                    fn () => $this->scraper->fetchMenu($url),
+                )
+                : $this->scraper->fetchMenu($url);
         } catch (SafeUrlException|ConnectionException) {
             throw new FetchUnavailableException('fresha_unreachable');
         } catch (HttpException) {
