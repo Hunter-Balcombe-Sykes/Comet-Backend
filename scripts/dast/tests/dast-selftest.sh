@@ -142,7 +142,12 @@ jobs:
       # self-test's own second assertion failing on first run 2026-07-26.
       reportFile: "zap-report"
 EOF
+    # --add-host: same Linux requirement as zap-active.sh's run — see the comment
+    # there. host.docker.internal is Docker Desktop-only, so without this the
+    # canary reaches nothing on a Linux host and the XSS assertion below fails for
+    # a networking reason while reading like "the scanner is broken".
     docker run --rm \
+        --add-host=host.docker.internal:host-gateway \
         -v "$ZAP_CANARY_WORK:/zap/wrk/:rw" \
         -v "$ZAP_CANARY_WORK:/zap/out:rw" \
         zaproxy/zap-stable zap.sh -cmd -autorun /zap/wrk/canary-plan.yaml \
