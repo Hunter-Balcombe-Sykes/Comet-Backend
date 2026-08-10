@@ -400,10 +400,26 @@ an unexplained key is indistinguishable from a buried bug.
 | `10021@…/robots.txt` | 2026-07-31 | X-Content-Type-Options missing on a static `robots.txt`. No user data, no injection surface. |
 | `10096@…/api/sessions` | 2026-08-07 | Timestamp Disclosure (Unix). `created_at`/`last_seen_at` are deliberately `(int)` epochs (`TokenRevocationService::listSessionsForUser`), rendered by the dashboard as "This device" / "Active …". They are the caller's **own** session times behind auth; ZAP 10096 fires on any epoch-shaped integer. Emitting ISO-8601 instead would be a breaking frontend change for no security gain. **Accepted, not fixed** — revisit only if the endpoint starts exposing other users' timestamps. |
 
-The 16 keys in `zap-passive-baseline.json` are the edge lane's header/cookie
-nitpicks on `/`, `/robots.txt` and `/sitemap.xml` (accepted 2026-08-03 when the
-first real baseline was taken, which is what let the weekly cron's floor drop
-from `high` to `medium`).
+The 17 keys accepted into `zap-passive-baseline.json` on **2026-08-03** are the edge
+lane's header/cookie nitpicks on `/`, `/robots.txt` and `/sitemap.xml` — that first
+real baseline is what let the weekly cron's floor drop from `high` to `medium`.
+
+**2026-08-10 — two more accepted, both on `/robots.txt`, both Cloudflare-layer.**
+Recorded here because a JSON array has nowhere to write a reason, and an unexplained
+key is indistinguishable from a buried bug:
+
+| Key | Alert | Why accepted |
+|---|---|---|
+| `10054-2@…/robots.txt` | Cookie with `SameSite=None` | The cookies are Cloudflare's own `__cf_bm` (bot management) and `_cfuvid` (rate-limit visitor id), both `Secure` + `HttpOnly`. `SameSite=None` is required for them to function in third-party contexts. **No app cookie is involved** — `config/session.php` defaults `same_site` to `lax`, and `/robots.txt` starts no session, so there is no auth cookie to forge a request with. Verified live via `Set-Cookie` on dev, not inferred. |
+| `10050-2@…/robots.txt` | Retrieved from Cache | `cf-cache-status: HIT`, `age` ~1200s — Cloudflare served a public static file from its edge cache, which is the intended behaviour. Only meaningful if a *private* response were cached. This one also **flaps**: it fires or not depending on cache state at scan time, which is why baselining it removes noise rather than hiding anything. |
+
+Both were absent from the 08-03 baseline only because that run happened to see a cache
+MISS and different cookie timing — neither is a change in posture. The same two alerts
+were already accepted on `/` and `/sitemap.xml`; these fill in the `/robots.txt` cells.
+
+**If either ever fires on an authenticated endpoint rather than these three public
+files, that is a different finding and must be re-triaged** — the reasoning above rests
+entirely on the URL being public and unauthenticated.
 
 ## Limitation — local ≠ prod authz fidelity
 
