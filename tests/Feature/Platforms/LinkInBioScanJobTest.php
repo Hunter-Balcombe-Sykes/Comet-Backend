@@ -204,11 +204,13 @@ it('reports how much of the probe budget the scan spent and how many links it st
     Log::spy();
     $user = User::factory()->create(['account_type' => 'business']);
 
-    // Two more unclassified links than the run's probe budget.
+    // Two more unclassified links than the run's probe budget, each on its own
+    // WEBSITE — since the host dedupe, pages of one site cost a single probe
+    // between them, so only distinct sites can still exhaust the budget.
     $starved = 2;
     $total = RouteContext::DEFAULT_MAX_PROBES + $starved;
     $anchors = collect(range(1, $total))
-        ->map(fn (int $i) => '<a href="https://someblog.example/page-'.$i.'">Page '.$i.'</a>')
+        ->map(fn (int $i) => '<a href="https://someblog-'.$i.'.example/page">Page '.$i.'</a>')
         ->implode('');
     Http::fake(['linktr.ee/*' => Http::response($anchors, 200)]);
 
@@ -223,7 +225,39 @@ it('reports how much of the probe budget the scan spent and how many links it st
         ->withArgs(fn (string $message, array $context) => $message === 'platforms.link_in_bio_scan.completed'
             && $context['links_seen'] === $total
             && $context['probes_spent'] === RouteContext::DEFAULT_MAX_PROBES
-            && $context['probes_denied'] === $starved)
+            && $context['probes_denied'] === $starved
+            // Distinct hosts must NOT be deduped — otherwise this test could go
+            // green on the dedupe absorbing the links rather than on starvation.
+            && $context['sites_deduped'] === 0)
+        ->once();
+});
+
+it('reports how many links the website dedupe absorbed', function () {
+    // sites_deduped and probes_denied must stay separate: denied means links
+    // went unexamined (bad), deduped means the guard worked (good). One number
+    // for both would report the fix as if it were the bug.
+    Queue::fake();
+    Log::spy();
+    $user = User::factory()->create(['account_type' => 'business']);
+
+    $anchors = collect(['/', '/appointment.html', '/artists.html', '/aftercare.html'])
+        ->map(fn (string $path) => '<a href="https://crucibletattooco.com.au'.$path.'">Page</a>')
+        ->implode('');
+    Http::fake(['linktr.ee/*' => Http::response($anchors, 200)]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(LinkRouter::class),
+        app(CustomLinkSeeder::class),
+    );
+
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn (string $message, array $context) => $message === 'platforms.link_in_bio_scan.completed'
+            && $context['links_seen'] === 4
+            && $context['probes_spent'] === 1
+            && $context['probes_denied'] === 0
+            && $context['sites_deduped'] === 3)
         ->once();
 });
 

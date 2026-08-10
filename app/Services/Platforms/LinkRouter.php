@@ -114,7 +114,7 @@ class LinkRouter
 
     private function routeUnclassified(User $user, string $url, RouteContext $ctx): RouteResult
     {
-        if (! $ctx->consumeProbe()) {
+        if (! $ctx->consumeProbeFor($url)) {
             return RouteResult::custom();
         }
 
@@ -229,7 +229,7 @@ class LinkRouter
         // against the SAME per-run budget as an unclassified probe: both are
         // ~5 HTTP round-trips on the scraping queue, so one link-in-bio page
         // must not fan out unbounded just because its links classify as shop.
-        if (! $ctx->consumeProbe()) {
+        if (! $ctx->consumeProbeFor($url)) {
             return RouteResult::custom();
         }
 

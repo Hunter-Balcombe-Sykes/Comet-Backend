@@ -19,7 +19,8 @@ final class RouteContext
 {
     /**
      * Default probe budget per run — the value both deleted inline counters
-     * used (signup-v2 C4). Pinned against them by LinkRouterProbeCapTest.
+     * used (signup-v2 C4). Pinned by CustomLinkSeederTest and
+     * LinkInBioScanJobTest, which assert against this constant directly.
      */
     public const DEFAULT_MAX_PROBES = 6;
 
@@ -38,6 +39,43 @@ final class RouteContext
      */
     private int $probesDenied = 0;
 
+    /**
+     * Path fragments that mark a URL as a product page rather than a page on a
+     * site. A homepage probe cannot find a specific product, so one of these
+     * earns a website its second and last probe of the run.
+     *
+     * `/shop` and `/store` are absent deliberately — SquarespaceScraper already
+     * walks them off the origin (SquarespaceScraper.php:14,31-34), so any URL on
+     * the host already covers them. The trailing slashes matter for the same
+     * reason: `/products/` catches a specific item, not the `/products`
+     * collection root that scraper already reaches. `/p/` is absent as too
+     * generic (`/p/about`).
+     *
+     * Path DEPTH is deliberately not filtered, though ProbeGate refuses >=2
+     * internal slashes (Routing/Probes/ProbeGate.php:112). That rule only binds
+     * the shop arm: seedShop() reaches the gate via StoreBrandSeeder, but the
+     * unclassified arm — every custom-domain store, and the arm the 2026-08-10
+     * incident hit — runs CommerceProbeJob::probe() -> readProductPage() on the
+     * pasted URL with no gate, and that method is documented to keep deep URLs
+     * (GenericShopScraper.php:107-109). Filtering on depth would therefore
+     * suppress product detection exactly where it works, and would drop a deep
+     * URL into the `:plain` bucket where it could evict the homepage's probe.
+     */
+    private const PRODUCT_PATH_HINTS = ['/product/', '/products/', '/item/'];
+
+    /**
+     * Websites already probed this run. Bounded by the caller — the widest
+     * producer, WebsiteLinkHarvester::extractLinks(), caps at 500 unique hrefs
+     * (WebsiteLinkHarvester.php:422,444) — so this map cannot grow unbounded
+     * unless a future caller becomes the first one that does.
+     *
+     * @var array<string, true>
+     */
+    private array $seenSites = [];
+
+    /** Probes NOT spent because this website was already probed this run. */
+    private int $sitesDeduped = 0;
+
     public function __construct(public readonly int $maxProbes = self::DEFAULT_MAX_PROBES) {}
 
     /**
@@ -45,8 +83,12 @@ final class RouteContext
      * the caller must then fall back to a custom link rather than dispatch, so
      * links past the budget keep the pre-refactor straight-to-custom-link
      * behaviour and nothing vanishes.
+     *
+     * Private so consumeProbeFor() is the only way to spend a probe — the
+     * website dedupe is then structural rather than a rule each new call site
+     * has to remember.
      */
-    public function consumeProbe(): bool
+    private function consumeProbe(): bool
     {
         if ($this->probeCount >= $this->maxProbes) {
             $this->probesDenied++;
@@ -59,9 +101,45 @@ final class RouteContext
         return true;
     }
 
+    /**
+     * Claim a probe for $url — at most two per website per run, one for a plain
+     * URL and one for a product-looking one, both charged to the same budget.
+     *
+     * The dedupe lives here rather than at LinkRouter's two call sites so that
+     * every path that can spend a probe goes through it. Six nav links of one
+     * host spent the entire budget live 2026-08-10 and starved the three links
+     * behind them; a probe answers a question about a HOST, so asking the same
+     * host twice is the same question.
+     */
+    public function consumeProbeFor(string $url): bool
+    {
+        $key = $this->probeKey($url);
+
+        if ($key !== null && isset($this->seenSites[$key])) {
+            $this->sitesDeduped++;
+
+            return false;
+        }
+
+        if (! $this->consumeProbe()) {
+            return false;
+        }
+
+        if ($key !== null) {
+            $this->seenSites[$key] = true;
+        }
+
+        return true;
+    }
+
     public function probesUsed(): int
     {
         return $this->probeCount;
+    }
+
+    public function sitesDeduped(): int
+    {
+        return $this->sitesDeduped;
     }
 
     public function probesDenied(): int
@@ -72,7 +150,7 @@ final class RouteContext
     /**
      * This run's budget accounting, for the caller's completion log.
      *
-     * @return array{probe_budget: int, probes_spent: int, probes_denied: int}
+     * @return array{probe_budget: int, probes_spent: int, probes_denied: int, sites_deduped: int}
      */
     public function summary(): array
     {
@@ -80,6 +158,50 @@ final class RouteContext
             'probe_budget' => $this->maxProbes,
             'probes_spent' => $this->probesUsed(),
             'probes_denied' => $this->probesDenied(),
+            'sites_deduped' => $this->sitesDeduped(),
         ];
+    }
+
+    /**
+     * Lowercased host with one leading `www.` stripped; scheme, port and path
+     * ignored. Null when there is no parseable host — an unparseable URL is
+     * probed normally rather than deduped together with other unparseable ones.
+     *
+     * Deliberately coarser than what the probes fetch: the question here is
+     * "have I already asked about this website?", not "what exactly did I
+     * request?". Residual cases (trailing dot, punycode vs unicode, equivalent
+     * IPv6 spellings) fail OPEN — they cost one extra probe rather than wrongly
+     * collapsing two sites into one, which is the safe direction and not a bug
+     * to be tidied away.
+     */
+    private function siteKey(string $url): ?string
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        if ($host === '') {
+            return null;
+        }
+
+        return (string) preg_replace('~^www\.~', '', $host);
+    }
+
+    /** Website plus shape — a site gets one plain probe and one product probe. */
+    private function probeKey(string $url): ?string
+    {
+        $site = $this->siteKey($url);
+
+        if ($site === null) {
+            return null;
+        }
+
+        $path = strtolower((string) (parse_url($url, PHP_URL_PATH) ?: '/'));
+
+        foreach (self::PRODUCT_PATH_HINTS as $hint) {
+            if (str_contains($path, $hint)) {
+                return $site.':product';
+            }
+        }
+
+        return $site.':plain';
     }
 }
