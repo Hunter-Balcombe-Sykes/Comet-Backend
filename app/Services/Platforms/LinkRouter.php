@@ -6,10 +6,11 @@ use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\DailyCounterClaim;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Profile\SectorTaxonomy;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -265,26 +266,26 @@ class LinkRouter
      * else. Today the real limiter is that builds are serialised
      * (supervisor-long, maxProcesses => 1) — this is what survives that changing.
      *
+     * Claims through DailyCounterClaim rather than a private counter, for the
+     * reason its docblock gives: a hand-rolled `Cache::add` + `increment` is two
+     * round trips, and if the key expires between them INCRBY recreates it with
+     * NO TTL — permanent inevictable ballast under instance-wide volatile-lru.
+     * Every other spend ceiling here (Apify, AI, Places, ProbeBudget) claims
+     * through it; a private copy would inherit the bug they were fixed for.
+     *
      * Fails OPEN on a cache outage: losing the ceiling is a smaller harm than
      * silently stopping every signup from connecting its booking menu.
      */
     private function claimAutoBookingBudget(): bool
     {
         $cap = (int) config('partna.connect.auto_booking.global_daily_cap', 500);
-        $key = 'fresha:auto-connect:daily:'.now()->toDateString();
 
         try {
-            if ((int) Cache::get($key, 0) >= $cap) {
+            if (! DailyCounterClaim::claim(CacheKeyGenerator::freshaAutoConnectDaily(now()->format('Y-m-d')), $cap)) {
                 Log::warning('fresha.auto_connect.daily_cap_reached', ['cap' => $cap]);
 
                 return false;
             }
-
-            // add() then increment(): add() only sets the TTL on first write, so a
-            // bare increment() on a missing key would create one with NO expiry —
-            // and every cache key in this app must carry a TTL (volatile-lru).
-            Cache::add($key, 0, now()->addDay());
-            Cache::increment($key);
 
             return true;
         } catch (\Throwable $e) {

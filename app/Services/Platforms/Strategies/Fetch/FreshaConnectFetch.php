@@ -5,6 +5,7 @@ namespace App\Services\Platforms\Strategies\Fetch;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Http\SafeUrlException;
 use App\Services\Platforms\FreshaAutoSelector;
@@ -59,6 +60,7 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         private FreshaServiceProjector $projector,
         private FreshaStaffMatcher $staffMatcher,
         private FreshaAutoSelector $autoSelector,
+        private CacheLockService $cacheLocks,
     ) {}
 
     public function fetch(IntegrationConnection $connection): array
@@ -188,9 +190,13 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         try {
             // Two signups at one salon would otherwise scrape the same page
             // twice. TTL is deliberately short — this menu feeds DISPLAYED
-            // PRICING, not just a picker roster.
-            $menu = Cache::remember(
-                'fresha:menu:'.sha1($url),
+            // PRICING, not just a picker roster. rememberLocked (not a raw
+            // Cache::remember, which GS-1 forbids) also single-flights it, so
+            // two concurrent signups at one salon collapse to one scrape rather
+            // than racing; its callback exceptions still propagate to the
+            // catches below.
+            $menu = $this->cacheLocks->rememberLocked(
+                CacheKeyGenerator::freshaMenu($url),
                 (int) config('partna.connect.auto_booking.menu_cache_seconds', 3600),
                 fn () => $this->scraper->fetchMenu($url),
             );

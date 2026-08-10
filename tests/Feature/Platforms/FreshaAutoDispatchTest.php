@@ -3,6 +3,7 @@
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\RouteContext;
 use Illuminate\Support\Facades\Cache;
@@ -65,7 +66,7 @@ it('does NOT dispatch when the booking gate denies the link', function () use ($
 
 it('does NOT dispatch once the global daily cap is spent', function () use ($freshaUrl) {
     config()->set('partna.connect.auto_booking.global_daily_cap', 1);
-    Cache::put('fresha:auto-connect:daily:'.now()->toDateString(), 1, now()->addDay());
+    Cache::put(CacheKeyGenerator::freshaAutoConnectDaily(now()->format('Y-m-d')), 1, now()->addDay());
 
     $user = User::factory()->create(['account_type' => 'partna']);
 
@@ -79,21 +80,25 @@ it('counts each dispatch against the daily cap', function () use ($freshaUrl) {
 
     app(LinkRouter::class)->route($user, $freshaUrl, new RouteContext(autoConnectBooking: true));
 
-    expect((int) Cache::get('fresha:auto-connect:daily:'.now()->toDateString()))->toBe(1);
+    expect((int) Cache::get(CacheKeyGenerator::freshaAutoConnectDaily(now()->format('Y-m-d'))))->toBe(1);
 });
 
-it('gives the daily-cap key a TTL', function () use ($freshaUrl) {
-    // volatile-lru is instance-wide: a key with no TTL is never evicted and
-    // Cache::forever is banned repo-wide. add() is what sets the expiry here —
-    // a bare increment() on a missing key would create one without it.
-    $user = User::factory()->create(['account_type' => 'partna']);
-
-    app(LinkRouter::class)->route($user, $freshaUrl, new RouteContext(autoConnectBooking: true));
-
+it('claims the daily cap through DailyCounterClaim, not a private counter', function () {
+    // GS-1 forbids raw Cache::add/remember outside the cache services, and the
+    // hand-rolled `add() then increment()` form this replaced is the exact
+    // defect DailyCounterClaim was extracted to close: if the key expires
+    // between the two round trips, INCRBY recreates it with NO TTL, which under
+    // instance-wide volatile-lru is permanent inevictable ballast.
     $source = file_get_contents(base_path('app/Services/Platforms/LinkRouter.php'));
+
     $this->assertStringContainsString(
-        'Cache::add($key, 0, now()->addDay());',
+        'DailyCounterClaim::claim(CacheKeyGenerator::freshaAutoConnectDaily(',
         $source,
-        'The daily-cap counter must be seeded with add() so it carries a TTL before increment().'
+        'The daily cap must claim through DailyCounterClaim with a CacheKeyGenerator key.'
+    );
+    $this->assertStringNotContainsString(
+        'Cache::add(',
+        $source,
+        'A private add()+increment() counter reintroduces the TTL-loss bug DailyCounterClaim exists to prevent.'
     );
 });
