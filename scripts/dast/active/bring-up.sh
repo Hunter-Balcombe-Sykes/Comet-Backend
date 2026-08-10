@@ -133,13 +133,43 @@ ln -s "$REPO_ROOT/supabase/migrations" "$SCRATCH/supabase/migrations"
 SERVE_PID=""
 teardown() {
     local status=$?
+    # Re-entrancy guard. The trap split below should make a second call
+    # impossible; this is belt-and-braces, because the failure mode when it DOES
+    # happen is a second `rm -rf` racing whatever is still running.
+    [[ "${teardown_ran:-0}" -eq 1 ]] && return
+    teardown_ran=1
     log "bring-up: tearing down (exit was $status)"
     [[ -n "$SERVE_PID" ]] && kill "$SERVE_PID" 2>/dev/null || true
     ( cd "$REPO_ROOT" && supabase stop --workdir "$SCRATCH" --no-backup >/dev/null 2>&1 ) || true
     rm -rf "$SCRATCH"
     rm -f "$REPO_ROOT/.env.dast"   # written at $REPO_ROOT (not $SCRATCH) — see ENV_DAST below
 }
-trap teardown EXIT INT TERM
+
+# SIGNALS EXIT; THEY DO NOT CLEAN UP IN PLACE. This split matters and was a real
+# bug until 2026-08-10 — `trap teardown EXIT INT TERM` looks equivalent and is not.
+#
+# A signal handler that returns instead of exiting hands control back to the
+# script AT THE POINT IT WAS INTERRUPTED — except teardown has just deleted
+# $SCRATCH and killed the served app. Everything after that runs against state
+# that no longer exists, and it fails with an error about the SYMPTOM rather than
+# the cause.
+#
+# Observed on GitHub run 31376712687, and it cost three runs to unpick:
+#   zap-active.sh's readiness poll timed out -> it kill(1)s this process ->
+#   TERM trap runs teardown, logs "tearing down (exit was 0)", RETURNS ->
+#   the script resumes at `supabase db reset` -> that dies with
+#   "failed to change workdir: ... no such file or directory" because teardown
+#   removed the workdir a moment earlier -> set -e exits -> the EXIT trap fires
+#   teardown a SECOND time, logging "tearing down (exit was 1)".
+#
+# The two teardown lines and the misleading chdir error were the only evidence,
+# and both are downstream of the real cause. Now INT/TERM exit immediately with
+# the conventional 128+signal status, the EXIT trap runs teardown exactly once,
+# and the first failure reported is the actual one.
+teardown_ran=0
+trap 'teardown' EXIT
+trap 'exit 130' INT    # 128 + SIGINT(2)
+trap 'exit 143' TERM   # 128 + SIGTERM(15)
 
 cd "$REPO_ROOT"
 started=0

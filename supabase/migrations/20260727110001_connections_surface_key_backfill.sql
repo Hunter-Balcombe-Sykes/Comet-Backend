@@ -1,16 +1,51 @@
 -- #MIG-1. Backfill surface_key and routing_class. Split out of 20260727110000
 -- because CONVENTIONS.md §5 forbids backfilling inside the DDL transaction.
 --
--- Idempotent: every pass is scoped to rows that still need it, so re-running is
--- a no-op and can never overwrite a value a human or a later code path
--- corrected. Batched with a COMMIT per batch so no single statement holds row
--- locks across the whole table.
+-- Idempotent: each pass is scoped to rows that still need it (`IS NULL`), so
+-- re-running is a no-op and can never overwrite a value a human or a later code
+-- path corrected.
 --
 -- The two original UPDATEs (CASE map, then 'partna.custom_link' fallback) are
--- MERGED into one COALESCE. This is required, not cosmetic: the CASE has an
--- ELSE NULL arm, so a batch loop keyed on "surface_key IS NULL" would never
--- retire those rows and would spin forever. COALESCE guarantees every touched
--- row leaves the predicate. Outcome is identical to the original two passes.
+-- MERGED into one COALESCE. Outcome is identical to the original two passes.
+--
+-- 2026-08-10 — THE BATCHED `DO ... LOOP ... COMMIT` FORM WAS REMOVED. It was not
+-- portable, and the portability bill came due the first time this repo applied
+-- its migrations from zero on something other than a developer's laptop.
+--
+--   `COMMIT` inside a DO block is legal only when nothing has already opened a
+--   transaction around it. Supabase CLI 2.101.0 applies each migration file
+--   without a wrapper, so it worked. A current CLI wraps the file, so the same
+--   SQL raises `ERROR: invalid transaction termination (SQLSTATE 2D000)` and the
+--   apply dies here — verified on GitHub run 31375949918.
+--
+--   That was invisible for three reasons at once: this migration is already
+--   recorded applied on dev and prod so it never re-runs there; every local
+--   machine is on 2.101.0; and the one job that applies from zero on every run
+--   (the DAST active lane) was manual-only and therefore only ever ran on those
+--   same machines.
+--
+--   The batching existed to avoid holding row locks across a full-table UPDATE —
+--   a real concern for the ONE run that mattered, the live dev/prod backfill,
+--   which has already happened. Every future execution of this file is a
+--   from-zero apply, where `site.platform_connections` is EMPTY and the loop did
+--   nothing anyway. So the plain form below is identical in outcome, and is the
+--   shape CONVENTIONS.md §5's own "GOOD" example prescribes: a bare UPDATE in its
+--   own file, outside any BEGIN/COMMIT.
+--
+--   Deliberately NO explicit BEGIN/COMMIT here either. Adding one would nest
+--   inside the CLI's wrapper and reintroduce a version-dependent file — the exact
+--   fault being removed. Statements left bare apply correctly whether the caller
+--   wraps them (current CLI) or not (psql -f, scripts/db/fresh-reset.sh, the prod
+--   cutover path in CLAUDE.md).
+--
+-- `lock_timeout` is session-scoped, not SET LOCAL, for that same reason: SET LOCAL
+-- outside a transaction is a no-op with a warning. `statement_timeout` is NOT set
+-- — the original's 30s bounded a 5,000-row batch, and reusing it for a whole-table
+-- UPDATE would abort a legitimate backfill midway. The `IS NULL` predicates make a
+-- resumed run safe, so failing slow beats failing partway.
+--
+-- site.platform_connections is not in the guard's HOT_TABLES, so Check 5's
+-- BEGIN + SET LOCAL requirement does not apply.
 --
 -- The WHEN pairs below are the SQL form of App\Catalog\LegacyPlatformMap and
 -- are pinned pair-for-pair by tests/Unit/Catalog/CatalogLegacyMapTest.php
@@ -24,17 +59,11 @@
 --           instead -- 20260727110000's ROLLBACK drops the columns and takes
 --           these values with them.
 
-DO $backfill$
-DECLARE
-    touched bigint;
-BEGIN
-    -- Pass 1 — surface_key.
-    LOOP
-        PERFORM set_config('lock_timeout', '2s', true);
-        PERFORM set_config('statement_timeout', '30s', true);
+SET lock_timeout = '2s';
 
-        UPDATE "site"."platform_connections"
-           SET "surface_key" = COALESCE(CASE "platform"
+-- Pass 1 — surface_key.
+UPDATE "site"."platform_connections"
+   SET "surface_key" = COALESCE(CASE "platform"
                 WHEN 'apple-music' THEN 'apple_music.artist'
                 WHEN 'apple-podcast' THEN 'apple_podcasts.show'
                 WHEN 'bandcamp' THEN 'bandcamp.artist'
@@ -114,24 +143,11 @@ BEGIN
                 WHEN 'reservations' THEN 'partna.reserve_link'
                 WHEN 'online-ordering' THEN 'partna.order_link'
                 ELSE NULL END, 'partna.custom_link')
-         WHERE "id" IN (
-             SELECT "id" FROM "site"."platform_connections"
-              WHERE "surface_key" IS NULL
-              LIMIT 5000
-         );
+ WHERE "surface_key" IS NULL;
 
-        GET DIAGNOSTICS touched = ROW_COUNT;
-        COMMIT;
-        EXIT WHEN touched = 0;
-    END LOOP;
-
-    -- Pass 2 — routing_class. ELSE 'link' is total, so this terminates.
-    LOOP
-        PERFORM set_config('lock_timeout', '2s', true);
-        PERFORM set_config('statement_timeout', '30s', true);
-
-        UPDATE "site"."platform_connections"
-           SET "routing_class" = CASE
+-- Pass 2 — routing_class. ELSE 'link' is total, so every row is classified.
+UPDATE "site"."platform_connections"
+   SET "routing_class" = CASE
             WHEN "surface_key" IN (
                 'x.profile','tiktok.profile','facebook.profile','snapchat.profile','linkedin.profile',
                 'threads.profile','reddit.profile','discord.server','telegram.channel','kick.channel',
@@ -163,15 +179,4 @@ BEGIN
             ) THEN 'ordering'
             WHEN "surface_key" IN ('partna.storefront','gumroad.store') THEN 'shop'
             ELSE 'link' END
-         WHERE "id" IN (
-             SELECT "id" FROM "site"."platform_connections"
-              WHERE "routing_class" IS NULL
-              LIMIT 5000
-         );
-
-        GET DIAGNOSTICS touched = ROW_COUNT;
-        COMMIT;
-        EXIT WHEN touched = 0;
-    END LOOP;
-END
-$backfill$;
+ WHERE "routing_class" IS NULL;

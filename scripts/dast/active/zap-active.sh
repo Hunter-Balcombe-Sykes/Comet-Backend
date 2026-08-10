@@ -53,13 +53,35 @@ rm -f "$OUTDIR/bring-up.env"
 "$HERE/active/bring-up.sh" "$OUTDIR" >"$OUTDIR/bring-up-stdout.log" 2>&1 &
 BRINGUP_PID=$!
 
-log "zap-active: waiting for bring-up.sh readiness..."
-deadline=$(( $(date +%s) + 90 ))
+# READINESS DEADLINE. 90s was tuned on a warm developer laptop — Docker images
+# already pulled, so `supabase start` only had to boot containers and apply
+# migrations. It is nowhere near enough on a cold machine, and the failure it
+# produces is actively misleading.
+#
+# Measured on GitHub run 31376712687: a cold runner pulls ~12 Supabase images
+# before it can start anything, then applies 80+ migrations. It blew past 90s,
+# this poll gave up, killed bring-up mid-flight, and the run reported
+# "bring-up.sh did not become ready within 90s" — while every migration in the
+# log had in fact applied successfully. The stack was fine; the clock was wrong.
+#
+# Two earlier runs blamed the wrong thing entirely because of it: teardown fired
+# on the kill and deleted the scratch dir, so the NEXT statement failed with
+# "failed to change workdir ... no such file or directory", which reads like a
+# broken workdir rather than a timeout. bring-up.sh's trap split now stops the
+# script continuing past its own teardown, but the deadline is what starts it.
+#
+# 600s default, overridable. Erring long is nearly free — this is an upper bound
+# that only matters when something is already wrong, and the poll exits the
+# instant bring-up.env appears, so a warm run is unaffected. The liveness check
+# below is what catches a genuinely dead bring-up, not this timer.
+BRINGUP_TIMEOUT="${DAST_BRINGUP_TIMEOUT:-600}"
+log "zap-active: waiting for bring-up.sh readiness (timeout ${BRINGUP_TIMEOUT}s)..."
+deadline=$(( $(date +%s) + BRINGUP_TIMEOUT ))
 while [[ ! -f "$OUTDIR/bring-up.env" ]]; do
     if ! kill -0 "$BRINGUP_PID" 2>/dev/null; then
         die "bring-up.sh exited before becoming ready — see $OUTDIR/bring-up-stdout.log"
     fi
-    [[ $(date +%s) -lt $deadline ]] || die "bring-up.sh did not become ready within 90s"
+    [[ $(date +%s) -lt $deadline ]] || die "bring-up.sh did not become ready within ${BRINGUP_TIMEOUT}s — see $OUTDIR/bring-up-stdout.log and $OUTDIR/supabase-start.log. A cold machine pulling Supabase images can legitimately need several minutes; raise DAST_BRINGUP_TIMEOUT before assuming the stack is broken."
     sleep 1
 done
 
