@@ -62,7 +62,30 @@ scripts/dast/run.sh --only edge
 > The 2026-08-09 16:00 UTC run is the first that could pass. Check with
 > `gh run list --workflow dast-edge.yml`.
 
-**Active lane** — manual only. Needs Docker running, mutates the runner's own throwaway local Supabase stack, takes several minutes (isolated bring-up + a curated ZAP scan against ~250 routes across two identities plus an unauth pass). Run this before a release, or after any change to auth/authorization/policy code — that's exactly the class of bug the cross-identity IDOR pass is built to catch.
+**Active lane** — Docker required. Also runs in CI via `.github/workflows/dast-active.yml` (added 2026-08-10): weekly Sunday **04:00 UTC**, on `workflow_dispatch`, and **non-blocking** on pull requests touching `app/Policies/**`, `app/Http/Middleware/Auth/**`, `routes/api/**`, `supabase/migrations/**` or `scripts/dast/**`. It is deliberately **not a required check** — `supabase start` is documented-flaky (`bring-up.sh` retries 3×), and a flaky required gate trains people to bypass gates.
+
+> **The weekly cron will not fire until this workflow file exists on `production`.**
+> Same default-branch trap as the edge lane: GitHub takes a scheduled workflow's
+> `schedule:` trigger *and its whole file* from the default branch, which here is
+> `production`. `workflow_dispatch` and the PR trigger work from `development`
+> immediately; the cron does not. The file rides along on the next prod ship rather
+> than pushing to prod for a workflow (prod has `usesPushToDeploy: true` — the push
+> *is* the deploy, with no CI gate). Check with `gh run list --workflow dast-active.yml`.
+>
+> `supabase/migrations/**` is in the path filter for a reason that is easy to miss:
+> a column change breaks `seed-identities.php`, and today that stays invisible until
+> someone runs the lane by hand and misreads the failure.
+
+> **Budget hours, not minutes, on a constrained machine.** The ZAP *jobs* are quick —
+> measured 2026-08-10: identity-a activeScan 2:46, identity-b 2:54, the requestor
+> 0:01 — but that run's wall clock was **~2 hours**. The gap is ZAP's automation
+> framework draining its passive-scan queue between jobs, which is memory-bound; on
+> an 8GB box running the whole Supabase stack alongside it, the gaps dwarf the jobs.
+> The app is not the bottleneck (0.03ms/request server-side, 32k requests served).
+> Do not read a long run as a hang, and do not tighten the workflow's
+> `timeout-minutes` off one fast run.
+
+Running it locally needs Docker, mutates the runner's own throwaway local Supabase stack, takes several minutes (isolated bring-up + a curated ZAP scan against ~250 routes across two identities plus an unauth pass). Run this before a release, or after any change to auth/authorization/policy code — that's exactly the class of bug the cross-identity IDOR pass is built to catch.
 
 ```bash
 scripts/dast/run.sh --only active
@@ -220,10 +243,20 @@ their absence here is correct, not a gap to fill.
 
 ### IDOR coverage — what "IDOR assertions passed" actually proves
 
-**24 distinct ownership-deciding code paths are probed.** Until 2026-08-09 only 2
+**29 distinct ownership-deciding code paths are probed.** Until 2026-08-09 only 2
 were, and a green log said exactly the same thing then as it does now — which is why
 the covered set is enumerated here rather than left to the log line. Read the two
 "does not prove" paragraphs at the end before treating this as exhaustive.
+
+**A drifted probe list is now detected.** `tests/Feature/Architecture/DastIdorCoverageDriftTest.php`
+(runs in `composer test`) fails when a route carrying a tenant-owned id is neither
+probed nor classified with a written reason — so coverage can no longer slide from
+*all* to *most* while the log keeps printing `IDOR assertions passed`. It also
+asserts every `IDOR_SURFACES` row resolves to a real route with its declared verb,
+which catches a renamed route in seconds instead of as a confusing `control-*`
+failure twelve minutes into a manual run. It enforces **decider**-level coverage,
+not **verb**-level — the gap in "does NOT prove" §1 below is written down per route
+in that test's `IDOR_VERB_VARIANT_OF`, not left implicit.
 
 **The unit is the ownership-deciding code path — a private lookup helper or a policy
 ability — not the resource, and not strictly the controller method.** `site/sections/*`
@@ -273,6 +306,66 @@ figure that matters is the decider count, not the route count.
 | 21 | `ConnectionsController::setPrimary` | `POST api/routing/connections/{connection}/primary` | 404 |
 | 22 | `SuggestionsController::dismiss` | `POST api/routing/suggestions/{intent}/dismiss` | 404 |
 | 23 | `SectionItemController::upsert` (`{item}`) | `PUT api/site/sections/{section}/items/{item}` | 404 |
+| 24 | `GenericPlatformController::removeAccount` | `DELETE api/platforms/spotify/accounts/{id}` | 404 |
+| 25 | `EventsPlatformController::removeAccount` | `DELETE api/platforms/eventbrite/accounts/{id}` | 404 |
+| 26 | `EventsPlatformController::removeEvent` | `DELETE api/platforms/eventbrite/events/{id}` | 404 |
+| 27 | `CustomLinksController::removeLink` | `DELETE api/platforms/custom/links/{id}` | 404 |
+| 28 | `EventsCatalog::removeCustom` | `DELETE api/platforms/events/custom/{id}` | 404 |
+
+### `api/platforms/*` — probed for authorization, still excluded from fuzzing
+
+Rows 24–28 are new on 2026-08-10 and the distinction they rest on is the whole
+point: `api/platforms/*` is **200 routes** and stays in `zap-context.yaml`'s
+`excludePaths` because its handlers make real, paid third-party calls (Apify,
+Google Places, OAuth). That exclusion is correct **for fuzzing**. It was also
+blocking **authorization probing**, which costs one request per decider — and the
+200 routes collapse to a handful of deciders, mostly `DELETE`.
+
+**Safety is proven per controller, never inferred from the verb.** The worked
+example of why is `OnlineOrderingController::removeEntry`: it looks like a local
+`DELETE` and dispatches `MenuFetchJob` — a real `MenuApifyScraper` run — inline
+under this lane's `QUEUE_CONNECTION=sync`. Three facts clear the five that are
+probed:
+
+- every remover resolves through `connectionsFor()` → `->where('user_id')`, then
+  `forgetConnection()` → policy `delete` → `$connection->delete()`;
+- `IntegrationConnectionObserver::deleted()` calls
+  `IntegrationConnectionCacheRefresher::refresh()` → `CloudflareCachePurgeJob` →
+  `CloudflarePurgeService`, which **no-ops silently when unconfigured** (`:100`).
+  `.env.example` leaves `CLOUDFLARE_ZONE_ID`/`CLOUDFLARE_CACHE_PURGE_TOKEN` empty,
+  `.env.dast` inherits that, and `APP_ENV=local` takes the no-op branch rather
+  than the production throw;
+- that same hook calls `site->touch()` **only** for `hasCompletenessPredicate()`
+  platforms, and **exactly two opt in — `fresha` and `shop`**
+  (`PlatformRegistryServiceProvider:365,479`). None of the five is one, so none
+  reaches `SiteObserver:76` → `SyncSubdomainToKvJob`, the single Cloudflare KV
+  writer.
+
+**Deliberately NOT probed, each for a reason derived from source** — recorded in
+`DastIdorCoverageDriftTest`'s `IDOR_UNSAFE_TO_PROBE`, which requires a non-empty
+reason per entry:
+
+| Surface | Why not |
+|---|---|
+| `OnlineOrderingController::removeEntry` | 200 path dispatches `MenuFetchJob` — a real Apify scrape, inline. The 404 probe is harmless; the **control** is not, and a probe without a control is vacuous. |
+| `ShopController::*` | `shop` is completeness-gated, so the delete touches the site → `SyncSubdomainToKvJob` (a real KV write). |
+| `MenuContentController::*` | Every write ends in `touchAndRespond()` → `invalidator->touchSite()` → the same KV path. It is also the only platform decider whose fixture is not a `site.platform_connections` row (it needs a menus/categories/items tree), so covering it is separate work, not a line. |
+| `DisplaySettingsController::*`, `RefreshController::*` | `{platform}` is a registry surface key, not a tenant id — there is no other tenant's value to substitute. Refresh is outbound by definition. |
+
+`HumanitixController` is not listed separately: it and `EventbriteController` are
+thin subclasses that inherit `removeAccount`/`removeEvent` from
+`EventsPlatformController` unchanged, overriding only the scraper binding. Two
+deciders, four route actions.
+
+**The exclusion-verification grep had to change for this, and how it changed
+matters.** ZAP logs every requestor URL, so the moment a platform probe existed the
+grep matched the lane's own deliberate request and killed the run — after a
+~15-minute wait. It now filters the run log through `idor-urls.txt`, generated by
+`idor_emit` alongside the plan, so the **exact** URLs `IDOR_SURFACES` declares are
+tolerated and nothing else is. Dropping every requestor line instead would have
+been simpler and would have thrown away the check's whole stated value ("this
+script itself never sent an excluded URL"). `DastSelfDestructionExclusionGuardTest`
+pins the narrow form so the broad one cannot quietly replace it.
 
 404 (not 403) is verified per surface from source, not assumed: the policy path is
 `BasePolicy::denyAsNotFound()` (`SitePolicy`, `SectionPolicy`, `ServicePolicy`,
@@ -375,9 +468,11 @@ The **route surface is fully automatic** — `seed-endpoints.sh` re-derives the 
    - *External side effects* — handlers that reach past the local box (vendor API calls, real email/notification sends, Cloudflare KV writes). Grep for `SyncSubdomainToKvJob::dispatch`, `Mail::`/`Notification::send`, and new entries under `routes/api/platforms.php`.
    - *Self-destruction* — handlers that revoke the scanner's own credentials, delete its account, or change its auth state (`api/sessions/*`, `api/me/deletion/*`, `api/account/mfa/*`). This category only matters now that the scan is genuinely authenticated, and it bites late: an authenticated fuzzer logs itself out mid-pass and every later request 401s, which reads like a broken token rather than a self-inflicted logout. Any new authenticated route that logs out, deletes the account, or rotates credentials belongs here.
 
-   The alternation in `zap-active.sh`'s exclusion-verification `grep` restates the same list and must be updated alongside it.
+   The alternation in `zap-active.sh`'s exclusion-verification `grep` restates the same list and must be updated alongside it. That grep now runs over the run log **with the declared IDOR probe URLs filtered out** (`idor-urls.txt`, generated per run) — because the IDOR table deliberately probes five `api/platforms/*` deciders that the *scan* must still never touch. Add a probe on an excluded prefix and it is tolerated only if it is in `IDOR_SURFACES`; anything else still fails the lane.
 2. **The 5 custom Nuclei templates** (`edge/templates/*.yaml`) — each asserts against a specific hardcoded path (e.g. `/api/customers/{id}`, `/api/public/unsubscribe/...`). If those specific routes get renamed or restructured, the template should be reviewed so it's still testing something real.
 3. **The IDOR probe surfaces** (`zap-active.sh`'s `IDOR_SURFACES` table) — each probe hardcodes a route and its expected status. If one of those routes is renamed or removed, the probe keeps "passing" because a missing route also 404s — the paired `control-*` request is what catches it, so never drop a control to quieten a failure. See the coverage table below for what is and is not proven.
+
+   **Partly guarded since 2026-08-10.** `DastIdorCoverageDriftTest` (in `composer test`) now catches the two failure modes that used to need a 12-minute manual run to notice: a probe pointing at a route that no longer exists, and a *new* tenant-owned-id route that nothing probes or explains. What it still cannot know is whether an existing probe is *meaningful* — that remains the paired control's job, at run time. So this item stays on the hand-maintained list; it is smaller than it was, not gone.
 4. **`active/seed-identities.php`** — hardcodes the exact fields needed to build a full identity (User → Site → SiteMedia → Customer → Enquiry), plus the Tier 2 fixtures (a `core.partna_staff` identity, a pool of bare claimant auth users, and one first-come `core.pre_account_builds` row). A schema change (new required column, renamed relation, a tightened CHECK on `build_state`/`built_via`/`source_type`) will break this script until it's updated to match. Note that `auth_user_id` and `status` are **not** in `User::$fillable` — they are assigned directly, and mass-assigning them instead would silently produce an `active` user and make the claim race vacuous.
 5. **The curated active-scan rule set** (5 rule IDs in `zap-active.sh`: SQLi, XSS reflected/persistent, path traversal, command injection) — static by design (never "run everything"); only touch it if you deliberately want to broaden or narrow what vulnerability classes get tested.
 
@@ -423,7 +518,37 @@ entirely on the URL being public and unauthenticated.
 
 ## Limitation — local ≠ prod authz fidelity
 
-The active lane's local stack does not reproduce prod's `app_backend`
-restricted role + RLS via Supavisor. A green active lane means "no
-injection/authz class found against app logic," not "prod RLS proven."
-Stays a post-launch human-pentest gap — see `REPORT.md` on each run.
+**Since 2026-08-10 the served app connects as `app_backend`, the restricted
+runtime role prod uses — not as the `postgres` superuser.** `bring-up.sh` grants it
+LOGIN and a per-run random password in the **scratch stack only** (Step 3b), the
+same test-only-override discipline as the `jwt_expiry` and captcha branches; the
+committed `supabase/config.toml` and migrations are untouched. `seed-identities.php`
+reads the same `.env.dast`, so the seeder runs as `app_backend` too — deliberately,
+because splitting it back onto the superuser would hide the grant gaps this exists
+to surface. Step 6b asserts `current_user = app_backend` from a live connection
+rather than trusting the `.env`, so a silent fallback to `postgres` fails the lane
+instead of passing as "restricted".
+
+**What that does and does not prove — be precise, because the tempting claim is
+wrong.** Verified against `supabase/migrations/20260726000000_baseline_pilot.sql`:
+
+- the role is created there (`CREATE ROLE app_backend NOLOGIN`, :27), so the scratch
+  stack already has it — this only adds LOGIN;
+- **the same block runs `ALTER ROLE app_backend BYPASSRLS` (:33)**, and of the 27 RLS
+  policies granted to the role, **25 are `USING (true)`**.
+
+**So RLS is not the tenant-isolation mechanism for the app role, and running as
+`app_backend` does not prove "prod RLS".** The application layer is the isolator, and
+the cross-identity IDOR pass is what tests it — on 29 deciders.
+
+What this *does* catch is **missing `GRANT`s and role misconfiguration** — a real
+prod-breakage class in this repo's history (the `app_backend` NOLOGIN credential
+gap). A route that 500s here having worked under `postgres` is a genuine gap between
+what the app does and what prod's role is permitted to do. **Treat it as a finding:**
+write it up and take it through `scripts/audit/fix-flow.md`'s blocker gate. Do not
+silently `GRANT` your way to green — that converts the signal into noise.
+
+**Still not reproduced: Supavisor.** The local stack has no connection pooler, so
+pooling behaviour — session-mode pinning, `EMAXCONNSESSION` under load — remains
+unproven by this lane and stays a human-pentest / load-test item. This change does
+not close that gap.

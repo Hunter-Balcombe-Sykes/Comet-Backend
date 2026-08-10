@@ -198,6 +198,44 @@ IDOR_SURFACES=(
     # exactly why this decider went unprobed until 2026-08-09. `excluded` is used
     # rather than `pinned` because a pin also calls nextSortKey().
     "section-item-upsert|PUT|/api/site/sections/@SECTION_ID@/items/%s|ITEM_POOL_ID|{\"state\":\"excluded\"}"
+    # --- api/platforms/* — AUTHORIZATION probes only, never fuzzing.
+    #
+    # These paths stay in zap-context.yaml's excludePaths and in the exclusion
+    # grep below: the SCAN must never touch them, because their handlers make
+    # real, paid third-party calls (Apify, Google Places, OAuth). What that
+    # exclusion was also blocking, until 2026-08-10, was AUTHORIZATION probing —
+    # a single deliberate request per decider, which costs nothing. 200 routes
+    # collapse to five ownership deciders; probing them is not fuzzing them.
+    #
+    # SAFETY IS PROVEN PER CONTROLLER, not assumed from the verb — the prompt's
+    # own worked example of why is OnlineOrderingController::removeEntry, which
+    # looks like a local DELETE and dispatches a real Apify menu scrape inline
+    # under QUEUE_CONNECTION=sync. See seed-identities.php's platform-fixture
+    # block for the three-part proof (owner-scoped lookup, no-op Cloudflare
+    # purge, no completeness-gated site touch) and the exclusions it rules out.
+    #
+    # NOT PROBED, each for a proven reason — do not "close the gap" without
+    # re-deriving it:
+    #   OnlineOrderingController::removeEntry — its 200 path dispatches
+    #     MenuFetchJob, a real MenuApifyScraper run, inline under sync queue.
+    #     The 404 probe is harmless; the CONTROL is not, and a probe without a
+    #     control is vacuous.
+    #   ShopController::* — 'shop' is one of exactly two hasCompletenessPredicate()
+    #     platforms (PlatformRegistryServiceProvider:479), so the delete path
+    #     calls site->touch() -> SiteObserver:76 -> SyncSubdomainToKvJob: a real
+    #     Cloudflare KV write.
+    #   MenuContentController::* — every write ends in touchAndRespond() ->
+    #     invalidator->touchSite() -> the same SiteObserver KV path, and it is
+    #     also the only platform decider whose fixture is not a
+    #     site.platform_connections row.
+    #   DisplaySettingsController::*, RefreshController::* — {platform} is a
+    #     registry surface key, not a tenant-owned id; there is no other
+    #     tenant's value to substitute. Refresh is outbound by definition.
+    "platform-account|DELETE|/api/platforms/spotify/accounts/%s|PLATFORM_ACCOUNT_ID"
+    "platform-events-account|DELETE|/api/platforms/eventbrite/accounts/%s|PLATFORM_EVENTS_ACCOUNT_ID"
+    "platform-events-event|DELETE|/api/platforms/eventbrite/events/%s|PLATFORM_EVENT_ID"
+    "platform-custom-link|DELETE|/api/platforms/custom/links/%s|PLATFORM_LINK_ID"
+    "platform-custom-event|DELETE|/api/platforms/events/custom/%s|PLATFORM_CUSTOM_EVENT_ID"
 )
 
 # The fixture prefixes named by the table, derived once. Used both to validate
@@ -244,6 +282,9 @@ idor_requests() {
 # field name right beats relying on the guard.
 idor_emit() {
     local name="$1" method="$2" url="$3" code="$4" body="$5"
+    # Record the URL for the exclusion check below. idor_requests() runs inside a
+    # command substitution, so a shell variable would not survive — a file does.
+    printf '%s%s\n' "$ZAP_TARGET_URL" "$url" >> "$ZAP_WORK/idor-urls.txt"
     printf '      - url: "%s%s"\n' "$ZAP_TARGET_URL" "$url"
     printf '        method: %s\n' "$method"
     printf '        name: %s\n' "$name"
@@ -293,6 +334,11 @@ log "zap-active: identities seeded, tokens minted"
 
 ZAP_WORK="$OUTDIR/zap"
 mkdir -p "$ZAP_WORK"
+# Cleared before idor_emit appends to it — OUTDIR is per-date-and-lane, so a
+# re-run on the same day would otherwise inherit the previous run's list and
+# quietly widen the exclusion check's allowlist. Same class of staleness bug as
+# the bring-up.env rm at the top of this script.
+rm -f "$ZAP_WORK/idor-urls.txt"
 cp "$OUTDIR/seed-openapi.json" "$ZAP_WORK/seed-openapi.json"
 
 # --- Template zap-context.yaml (contexts + exclusions) with the live target.
@@ -535,10 +581,28 @@ log "zap-active: ZAP automation run exited $ZAP_EXIT (informational only) — se
 # The `sessions/|me/deletion/|account/mfa/` entries are the self-destruction
 # group added 2026-08-07; `api/sessions/` keeps its trailing slash deliberately
 # so the in-scope `GET api/sessions` collection read is NOT matched.
-if grep -qE "api/(platforms/|staff/builds|site/custom-domain|me/site/reclaim-handle|staff/sites/|sessions/|me/deletion/|account/mfa/)" "$ZAP_WORK/zap-run.log"; then
-    die "exclusion verification FAILED: an excluded path appears in the run log — see $ZAP_WORK/zap-run.log"
+# THE REQUESTOR'S OWN DECLARED URLS ARE FILTERED OUT FIRST, and that carve-out is
+# the narrowest one that works. Since 2026-08-10 the IDOR table probes five
+# api/platforms/* deciders (authorization, one request each — NOT fuzzing), and
+# ZAP logs every requestor URL as "Job requestor requesting URL ...". Without this
+# filter the check matches the lane's OWN deliberate probes and kills the run
+# ~15 minutes in.
+#
+# Filtering by EXACT URL, not by dropping requestor lines wholesale: the check's
+# stated value is "this script itself never sent an excluded URL — e.g. a new IDOR
+# probe pointing somewhere it should not", and dropping every requestor line would
+# throw that away entirely. idor-urls.txt holds precisely the URLs IDOR_SURFACES
+# declares, generated by idor_emit alongside the plan, so an excluded URL that is
+# NOT in the table still fails the lane. Pinned by
+# DastSelfDestructionExclusionGuardTest, which asserts the filter is this
+# allowlist and not a blanket one.
+if grep -vFf "$ZAP_WORK/idor-urls.txt" "$ZAP_WORK/zap-run.log" \
+    | grep -qE "api/(platforms/|staff/builds|site/custom-domain|me/site/reclaim-handle|staff/sites/|sessions/|me/deletion/|account/mfa/)"; then
+    die "exclusion verification FAILED: an excluded path that is NOT a declared IDOR probe appears in the run log:
+$(grep -vFf "$ZAP_WORK/idor-urls.txt" "$ZAP_WORK/zap-run.log" | grep -E "api/(platforms/|staff/builds|site/custom-domain|me/site/reclaim-handle|staff/sites/|sessions/|me/deletion/|account/mfa/)" | sort -u | head -20)
+see $ZAP_WORK/zap-run.log"
 fi
-log "zap-active: exclusion check passed — zero references to excluded paths in the run log"
+log "zap-active: exclusion check passed — no excluded path in the run log beyond the ${#IDOR_SURFACES[@]} declared IDOR probes"
 
 # --- Plan-integrity guard. ZAP treats an unknown job/rule field as a WARNING,
 # not an error: it logs "Unrecognised parameter for job X : y", drops the

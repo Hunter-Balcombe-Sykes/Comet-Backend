@@ -299,6 +299,40 @@ it('keeps zap-context.yaml and the zap-active.sh grep in agreement, both ways', 
     );
 });
 
+it('filters the exclusion check through the declared IDOR allowlist, not a blanket carve-out', function () {
+    // 2026-08-10: the IDOR table gained five api/platforms/* AUTHORIZATION probes
+    // (one request each — the scan exclusion for FUZZING stays). ZAP logs every
+    // requestor URL, so the exclusion grep now matches the lane's own deliberate
+    // probes unless they are filtered out first.
+    //
+    // There are two ways to do that and only one is honest. Dropping every
+    // "Job requestor requesting URL" line would silence the check's whole stated
+    // purpose — "this script itself never sent an excluded URL, e.g. a new IDOR
+    // probe pointing somewhere it should not". Filtering by the EXACT generated
+    // URL list keeps it: an excluded path that is not in IDOR_SURFACES still
+    // fails the lane.
+    //
+    // This asserts the narrow form is what is actually there, because the broad
+    // form is the tempting fix the next time this check inconveniences someone,
+    // and it would leave the grep running against nothing while still printing
+    // "exclusion check passed".
+    $script = (string) file_get_contents(dastActiveScriptPath());
+
+    expect($script)->toContain('grep -vFf "$ZAP_WORK/idor-urls.txt"');
+
+    // The allowlist must be GENERATED from the surface table, never hand-written —
+    // a static file would drift from IDOR_SURFACES the moment a probe changed.
+    expect($script)->toContain('>> "$ZAP_WORK/idor-urls.txt"');
+
+    // And it must be cleared per run: OUTDIR is per-date-and-lane, so a same-day
+    // re-run would otherwise inherit the previous run's URLs and silently widen
+    // what the exclusion check tolerates.
+    expect($script)->toContain('rm -f "$ZAP_WORK/idor-urls.txt"');
+
+    // A blanket requestor carve-out is exactly what this test exists to forbid.
+    expect($script)->not->toContain('grep -v "Job requestor requesting URL"');
+});
+
 it('leaves PATCH api/me and POST api/me/data-export in scope', function () {
     // Both are deliberately NOT excluded and must stay that way — this fires if
     // someone broadens an exclusion (e.g. `.*api/me/.*`) and silently drops a

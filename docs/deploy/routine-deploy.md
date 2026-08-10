@@ -149,6 +149,20 @@ git push origin development:production
 git fetch origin && git show origin/production:.github/workflows/dast-edge.yml | grep DAST_FAIL_ON
 #     Once this reads `medium`, delete this step. Until then, a green Sunday cron
 #     does not mean "clean at medium" (scripts/dast/README.md says so too).
+
+# 4b. ONE-TIME, until it lands: confirm the DAST ACTIVE lane's cron can fire.
+#     .github/workflows/dast-active.yml was added on development 2026-08-10. Same
+#     default-branch mechanic as 4a, but a step worse: the file does not exist on
+#     production at all, so GitHub has no `schedule:` to register and the weekly
+#     Sunday 04:00 UTC run NEVER FIRES — silently, with no failed run to notice.
+#     workflow_dispatch and the pull_request path filter work from development
+#     already, which is most of the value; the cron is the part that is missing.
+#     Nothing to DO — the fast-forward carries the file automatically.
+git fetch origin && git show origin/production:.github/workflows/dast-active.yml >/dev/null 2>&1 \
+    && echo "dast-active.yml is on production — cron can now fire; delete this step" \
+    || echo "not on production yet — the weekly active-lane cron is NOT running"
+#     Confirm a scheduled run actually appears after the next Sunday:
+#         gh run list --workflow dast-active.yml
 ```
 
 Note step 3 pushes `development`'s tip to `production` without checking out `production` locally — that

@@ -1,0 +1,150 @@
+name: DAST active lane
+
+# The active lane — ZAP fuzzing an isolated, runner-owned Supabase stack, plus
+# the Tier 2 auth probes and the cross-identity IDOR pass (scripts/dast/README.md).
+# Until 2026-08-10 it ran ONLY when a human remembered to run it, which for a
+# ~12-18 minute manual job means "rarely, and not after the changes that matter".
+#
+# ─── THE DEFAULT-BRANCH TRAP — READ BEFORE EDITING `on:` OR `env:` ───────────
+#
+# GitHub takes a scheduled workflow's `schedule:` trigger AND ITS ENTIRE FILE,
+# including `env:`, from the DEFAULT branch. Only the checked-out *content* comes
+# from `ref:`. The default branch here is `production`, which is several hundred
+# commits behind `development`.
+#
+# CONSEQUENCE, stated plainly rather than discovered later: **this workflow's
+# `schedule:` will not fire at all until this file exists on `production`.**
+# `workflow_dispatch` and the `pull_request` path filter work immediately from
+# `development`; the weekly cron does not.
+#
+# This is not hypothetical — dast-edge.yml is living proof. Its cron gates at
+# `high` because production's copy of that file says so, while development's says
+# `medium`, so a green Sunday there does not mean "clean at medium".
+#
+# HOW THIS IS HANDLED: the same way the edge lane's `env:` correction is —
+# it rides along on the next production ship rather than pushing to prod for a
+# workflow file (prod has usesPushToDeploy: true, so a push IS a deploy, with no
+# CI gate; correcting one line would ship several hundred commits). Until then
+# the lane is dispatch- and PR-triggered, which is the majority of its value: it
+# fires on the diffs that can break it. Verify after the next prod ship with
+#   gh run list --workflow dast-active.yml
+# and if the list is empty of scheduled runs, this file has not reached production
+# yet. docs/deploy/routine-deploy.md carries it as a checklist item.
+on:
+  schedule:
+    # Sunday 04:00 UTC — twelve hours off the edge lane's 16:00 UTC cron so the
+    # two never contend for a runner, and clear of the 15:00 UTC weekly DB backup.
+    - cron: '0 4 * * 0'
+
+  workflow_dispatch: {}
+
+  # Path-filtered and NON-BLOCKING. These are the inputs that break this lane:
+  # policies and auth middleware are what the IDOR pass exists to test; route
+  # changes rename the probe targets; and supabase/migrations/** matters more
+  # than it looks — a column change breaks seed-identities.php, and today that
+  # stays invisible until someone runs the lane by hand and misreads the failure.
+  pull_request:
+    paths:
+      - 'app/Policies/**'
+      - 'app/Http/Middleware/Auth/**'
+      - 'routes/api/**'
+      - 'supabase/migrations/**'
+      - 'scripts/dast/**'
+      - '.github/workflows/dast-active.yml'
+
+jobs:
+  active-scan:
+    runs-on: ubuntu-latest
+    # NOT A REQUIRED CHECK, deliberately. `supabase start` is documented-flaky —
+    # bring-up.sh already retries it 3x and dies loudly on the third — and a flaky
+    # required gate trains people to bypass gates, which is worse than no gate.
+    # Leave this false and leave the job un-required in branch protection.
+    continue-on-error: true
+    # RUNTIME IS HIGHLY MACHINE-DEPENDENT — budget generously, then measure.
+    # scripts/dast/README.md's "several minutes" describes the JOBS, and they are
+    # genuinely quick: measured 2026-08-10, identity-a's activeScan took 2:46,
+    # identity-b's 2:54, the requestor 0:01. But that run's WALL CLOCK was ~2
+    # hours, because ZAP's automation framework drains its passive-scan queue
+    # between jobs and that queue is memory-bound — on an 8GB box with the whole
+    # Supabase stack alongside it, the gaps dwarf the jobs. The app was never the
+    # bottleneck (0.03ms/request server-side).
+    #
+    # So this is set from the worst observed number, not the best: a job killed at
+    # 45 minutes would look exactly like a hang, and the first thing anyone would
+    # do is disable it. Tighten this only after several hosted-runner runs show a
+    # real distribution — the runner has different memory and no competing local
+    # work, so its number is not this one.
+    #
+    # This is a private repo, so Actions minutes are billed — which is why there is
+    # no push trigger and the PR trigger is path-filtered rather than firing on
+    # every commit.
+    timeout-minutes: 180
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Scheduled runs execute from the DEFAULT branch (production — stale);
+          # pin the CONTENT to development. Same reasoning as dast-edge.yml and
+          # ci.yml's supply-chain job. Note this does NOT rescue the `env:`/`on:`
+          # blocks above — see the header.
+          ref: ${{ github.event_name == 'schedule' && 'development' || '' }}
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          # pdo_pgsql is required twice over: the served app talks to the scratch
+          # stack, and bring-up.sh issues the app_backend LOGIN grant through PDO
+          # rather than psql (not present on the macOS box this lane is developed
+          # on, and shelling into the container would hardcode a CLI-owned name).
+          extensions: pdo, pdo_pgsql, pgsql
+
+      - name: Install dependencies
+        # APP_ENV: package:discover boots the app during install, before any .env
+        # exists; without this Laravel defaults to production and AppServiceProvider's
+        # AUTH-1 guard aborts the boot. Same reason ci.yml sets it.
+        env:
+          APP_ENV: testing
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # No secrets. Unlike the edge lane, the active lane is entirely local: it
+      # provisions its own throwaway stack on a port offset and tears it down via
+      # `trap`. If a future edit here needs a secret, something has gone wrong —
+      # most likely the lane has been pointed at a real environment, which is the
+      # one thing scripts/dast/README.md says it must never do.
+      - name: Run active lane
+        run: scripts/dast/run.sh --only active
+
+      - name: Attach REPORT.md
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-active-report
+          path: audits/dast/*/REPORT.md
+          retention-days: 90
+
+      # The interesting artefact when this fails is not the report — it is the ZAP
+      # run log and the bring-up/serve logs, which carry the control-vs-probe
+      # status codes and the Supabase start failures. A CI failure with no way to
+      # tell a flaky `supabase start` from a real authorization regression is a
+      # failure people learn to ignore.
+      - name: Attach run logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-active-logs
+          path: |
+            audits/dast/*/zap/zap-run.log
+            audits/dast/*/zap/zap-plan.yaml
+            audits/dast/*/serve.log
+            audits/dast/*/supabase-start.log
+            audits/dast/*/bring-up-stdout.log
+            audits/dast/*/tier2.md
+          retention-days: 30

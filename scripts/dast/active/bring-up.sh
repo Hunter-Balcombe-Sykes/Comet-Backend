@@ -131,6 +131,54 @@ done
 # "partna-dast" volume surviving a crash that skipped teardown.
 supabase db reset --workdir "$SCRATCH" >>"$OUTDIR/supabase-start.log" 2>&1
 
+# --- Step 3b: give the restricted runtime role a login, so the SERVED APP can
+# connect as `app_backend` instead of `postgres` (Step 4 below points DB_USERNAME
+# at it). Until 2026-08-10 this lane ran the app as the `postgres` SUPERUSER, so
+# it had never once exercised the role prod actually uses.
+#
+# BE PRECISE ABOUT WHAT THIS PROVES — the honest claim is narrow, and overstating
+# it would be exactly the kind of absence-shaped assurance this tool exists to
+# reject. Verified against supabase/migrations/20260726000000_baseline_pilot.sql:
+#
+#   * the role is created there (`CREATE ROLE app_backend NOLOGIN`, :27), so the
+#     scratch stack already has it — this only adds LOGIN + a password;
+#   * that same DO block runs `ALTER ROLE app_backend BYPASSRLS` (:33), and of
+#     the 27 RLS policies granted to the role, 25 are `USING (true)`.
+#
+# So RLS is NOT the tenant-isolation mechanism for the app role, and running as
+# app_backend does NOT prove "prod RLS". The APPLICATION layer is the isolator,
+# and the cross-identity IDOR pass in zap-active.sh is what tests it.
+#
+# What this DOES catch is missing GRANTs and role misconfiguration — a real
+# prod-breakage class in this repo's history (the app_backend NOLOGIN credential
+# gap). A route that 500s here having worked under `postgres` is a genuine gap
+# between what the app does and what prod's role may do. Treat it as a FINDING:
+# write it up and take it through scripts/audit/fix-flow.md's blocker gate. Do
+# NOT silently GRANT your way to green — that converts the signal into noise.
+#
+# Random per run: this credential lives only in the throwaway stack and in the
+# gitignored .env.dast, both destroyed by teardown(), so there is nothing to
+# rotate, reuse or leak. Same test-only-override discipline as the jwt_expiry and
+# captcha branches above — the committed config.toml and migrations are untouched.
+#
+# Issued through PHP's PDO rather than `psql`: psql is not on the PATH of the
+# macOS box this lane is developed on, and shelling into the Supabase container
+# would hardcode a CLI-owned container name. pdo_pgsql is already a hard
+# dependency of the app being served.
+APP_BACKEND_PASSWORD="$(openssl rand -hex 16)"
+php -r '
+$pdo = new PDO(sprintf("pgsql:host=127.0.0.1;port=%d;dbname=postgres", (int) $argv[1]), "postgres", "postgres", [
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+]);
+$exists = $pdo->query("SELECT 1 FROM pg_roles WHERE rolname = '"'"'app_backend'"'"'")->fetchColumn();
+if ($exists === false) {
+    fwrite(STDERR, "app_backend role does not exist in the scratch stack\n");
+    exit(1);
+}
+$pdo->exec("ALTER ROLE app_backend WITH LOGIN PASSWORD ".$pdo->quote($argv[2]));
+' "$DB_PORT" "$APP_BACKEND_PASSWORD" \
+    || die "could not grant LOGIN to app_backend in the scratch stack — see $OUTDIR/supabase-start.log"
+
 # --- Step 4: read the scratch stack's real secrets (never the repo's) and
 # generate .env.dast — never touches the repo .env.
 STATUS_ENV="$(supabase status --workdir "$SCRATCH" -o env 2>/dev/null)"
@@ -173,8 +221,15 @@ apply_env DB_CONNECTION pgsql
 apply_env DB_HOST 127.0.0.1
 apply_env DB_PORT "$DB_PORT"
 apply_env DB_DATABASE postgres
-apply_env DB_USERNAME postgres
-apply_env DB_PASSWORD postgres
+# THE RESTRICTED RUNTIME ROLE, not postgres — see Step 3b for what this does and
+# does not prove. seed-identities.php reads this same .env.dast, so the seeder
+# runs as app_backend too. That is deliberate: splitting the seeder back onto the
+# superuser would hide the very grant gaps this change exists to surface, and the
+# tables it writes (core.users, core.pre_account_builds, content.*, routing.*) are
+# ones the app itself writes in prod. A seeding failure here is a finding about
+# the role, not a harness bug to work around.
+apply_env DB_USERNAME app_backend
+apply_env DB_PASSWORD "$APP_BACKEND_PASSWORD"
 apply_env DB_SSLMODE disable
 apply_env SUPABASE_URL "$SUPABASE_URL"
 apply_env SUPABASE_ANON_KEY "$ANON_KEY"
@@ -254,6 +309,23 @@ done
 [[ $app_ok -eq 1 && $supa_ok -eq 1 ]] || die "health check timed out after 60s (app_ok=$app_ok supa_ok=$supa_ok) — see $OUTDIR/serve.log"
 
 log "bring-up: healthy — app=http://127.0.0.1:${APP_PORT} supabase=${SUPABASE_URL}"
+
+# --- Step 6b: POSITIVE proof of the connecting role. A health check that passes
+# says the app reached SOME database; it does not say which role it reached it
+# as, and "the .env says app_backend" is a claim about config, not about a live
+# connection. Ask Postgres. This boots Laravel with --env=dast and resolves the
+# pgsql connection through the app's OWN config, so it fails for the same reasons
+# the served child would.
+#
+# Absence-shaped assurance is what this whole tool exists to eliminate, so this
+# asserts the value rather than merely not-erroring: a fallback to `postgres`
+# would otherwise sail through silently and the lane would report having
+# exercised a restricted role it never touched.
+DB_ROLE="$(php artisan --env=dast tinker --execute \
+    "echo DB::connection('pgsql')->selectOne('select current_user as u')->u;" 2>/dev/null | tr -d '[:space:]')"
+[[ "$DB_ROLE" == "app_backend" ]] \
+    || die "the served app is connecting as '${DB_ROLE:-<unknown>}', not app_backend — the restricted-role lane is not actually restricted. see $OUTDIR/serve.log"
+log "bring-up: connected role verified — current_user = $DB_ROLE (restricted runtime role, not postgres)"
 
 # --- Step 7: publish facts for later phases, then hold the stack up.
 # Written LAST (after the health check passes) so a poll loop watching for

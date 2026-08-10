@@ -7,3 +7,10 @@
 # shown to be non-vacuous. Raw zap-run.log stays ignored (65KB of scanner
 # boilerplate); only the distilled assertion transcript is kept.
 !*/IDOR-INVERSION-EVIDENCE.md
+# Same purpose, different method. The inversion trick reads real status codes out
+# of ZAP's mismatch warnings; this reads them by firing every control and probe
+# directly against the running lane, which also works BEFORE ZAP and so catches a
+# bad fixture in seconds rather than fifteen minutes. Kept for the same reason:
+# a coverage claim whose only evidence is the absence of a failure line is the
+# exact shape of assurance this tool exists to reject.
+!*/IDOR-COVERAGE-EVIDENCE.md

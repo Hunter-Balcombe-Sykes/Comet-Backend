@@ -399,7 +399,108 @@ function seedProbeFixtures(User $user, Site $site, string $label): array
         'created_at' => $now, 'updated_at' => $now,
     ]);
 
+    // --- Platform-surface fixtures for the api/platforms/* IDOR probes.
+    //
+    // api/platforms/* is excluded from the ZAP SCAN (zap-context.yaml) because its
+    // handlers make real, paid third-party calls. That exclusion is correct for
+    // FUZZING and stays. It was also blocking AUTHORIZATION probing, which costs
+    // one request — hence these rows. Each of the five deciders below was verified
+    // from source to fire no outbound call on EITHER the 200 or the 404 path:
+    //
+    //   * every remover resolves via connectionsFor() -> ->where('user_id'), then
+    //     forgetConnection() -> policy 'delete' -> $connection->delete();
+    //   * IntegrationConnectionObserver::deleted() calls
+    //     IntegrationConnectionCacheRefresher::refresh(), which dispatches
+    //     CloudflareCachePurgeJob -> CloudflarePurgeService, and that no-ops
+    //     silently when unconfigured (:100) — .env.example leaves
+    //     CLOUDFLARE_ZONE_ID/CLOUDFLARE_CACHE_PURGE_TOKEN empty and .env.dast
+    //     inherits that, with APP_ENV=local so it takes the no-op branch, not the
+    //     production throw;
+    //   * that same hook calls $connection->user?->site?->touch() ONLY for
+    //     hasCompletenessPredicate() platforms, and exactly two opt in — fresha and
+    //     shop (PlatformRegistryServiceProvider:365,479). None of the five surfaces
+    //     here is one, so none reaches SiteObserver:76 -> SyncSubdomainToKvJob (a
+    //     real Cloudflare KV write). That is WHY shop is not probed.
+    //
+    // RAW inserts, same reasoning as the routing connection above: an Eloquent
+    // create would set wasRecentlyCreated and fire the observer's saved() path.
+    // `platform` is GENERATED ALWAYS ... STORED from surface_key — never write it.
+    // surface_key/routing_class values are LegacyPlatformMap's, not invented.
+    //
+    // EVERY DESTRUCTIVE CONTROL GETS ITS OWN ROW, so requestor ordering stays
+    // non-load-bearing — the four DELETE controls below each consume one row, and
+    // reusing the routing CONNECTION_ID row (also partna.custom_link) would make
+    // routing-primary's control depend on running before custom-links'.
+    $platformConnection = function (
+        string $surfaceKey,
+        string $routingClass,
+        ?string $resourceKind,
+        string $resourceId,
+        array $payload,
+    ) use ($db, $id, $userId, $now): string {
+        $rowId = $id();
+        $db->table('site.platform_connections')->insert([
+            'id' => $rowId, 'user_id' => $userId,
+            'surface_key' => $surfaceKey, 'routing_class' => $routingClass,
+            'resource_kind' => $resourceKind, 'resource_id' => $resourceId,
+            'payload' => json_encode($payload), 'is_active' => true, 'is_primary' => false,
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+
+        return $rowId;
+    };
+
+    // GenericPlatformController::removeAccount. accountRows() keeps rows whose
+    // resource_kind is NEITHER 'event' NOR 'link', so an account row is NULL —
+    // the CHECK constraint allows exactly (NULL | 'event' | 'link').
+    $platformAccountId = $id();
+    $platformConnection('spotify.player', 'content', null, $platformAccountId, [
+        'url' => "https://open.spotify.com/artist/{$label}",
+    ]);
+
+    // EventsPlatformController::removeAccount — a DIFFERENT decider from the one
+    // above despite the same verb: it takes the connection lock BEFORE the lookup
+    // (:195) where GenericPlatformController looks up first (:299).
+    $platformEventsAccountId = $id();
+    $platformConnection('eventbrite.organiser', 'events', null, $platformEventsAccountId, [
+        'url' => "https://www.eventbrite.com/o/{$label}",
+        'organiser' => 'DAST Organiser',
+        'upcoming' => [],
+        'hidden_event_ids' => [],
+    ]);
+
+    // EventsPlatformController::removeEvent. It looks for resource_id
+    // 'event-'.$id among eventRows() FIRST, so the row is stored prefixed and the
+    // probe URL carries the bare id.
+    $platformEventId = $id();
+    $platformConnection('eventbrite.organiser', 'events', 'event', 'event-'.$platformEventId, [
+        'url' => "https://www.eventbrite.com/e/{$label}",
+        'title' => 'DAST Event',
+    ]);
+
+    // CustomLinksController::removeLink. linkRows() filters resource_kind === 'link'.
+    $platformLinkId = $id();
+    $platformConnection('partna.custom_link', 'link', 'link', $platformLinkId, [
+        'url' => "https://dast.example.invalid/link-{$label}",
+        'title' => 'DAST Link',
+    ]);
+
+    // EventsCatalog::removeCustom (via EventsController). Its own owner-scoped
+    // query — ->where('user_id')->where('platform', 'events-custom')
+    // ->where('resource_id', 'event-'.$id) (EventsCatalog:287-291) — NOT
+    // forgetConnection, so it is a distinct decider.
+    $platformCustomEventId = $id();
+    $platformConnection('partna.manual_event', 'events', 'event', 'event-'.$platformCustomEventId, [
+        'url' => "https://dast.example.invalid/custom-event-{$label}",
+        'title' => 'DAST Custom Event',
+    ]);
+
     return [
+        'platform_account_id' => $platformAccountId,
+        'platform_events_account_id' => $platformEventsAccountId,
+        'platform_event_id' => $platformEventId,
+        'platform_link_id' => $platformLinkId,
+        'platform_custom_event_id' => $platformCustomEventId,
         'media_image_id' => $mediaImageId,
         'media_document_id' => $mediaDocumentId,
         'media_content_id' => $mediaContentId,
