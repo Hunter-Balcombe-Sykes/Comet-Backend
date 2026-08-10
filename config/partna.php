@@ -1716,6 +1716,29 @@ return [
         // response stays byte-identical. Per-platform, per-environment via
         // env, no deploy — the same lever is the kill switch.
         'deferred' => array_filter(explode(',', (string) env('PARTNA_CONNECT_DEFERRED', ''))),
+
+        // Auto-connect of a booking platform discovered by LinkRouter from a
+        // user's own Instagram. DELIBERATELY NOT part of 'deferred' above:
+        // that key means "this platform uses the deferred connect flow", and
+        // overloading it to also mean "auto-connect is on" would conflate two
+        // independent things — flipping it to stop runaway auto-fetches would
+        // also break every dashboard connect.
+        'auto_booking' => [
+            'enabled' => (bool) env('PARTNA_AUTO_BOOKING_ENABLED', true),
+
+            // Ceiling on outbound salon-page scrapes per day across the whole
+            // install. Mirrors partna.routing.probe's global_daily_cap: an
+            // unbounded outbound request made on a user's say-so is an
+            // amplification vector aimed at someone else. Generous, because
+            // builds are serialised at one concurrent (supervisor-long,
+            // maxProcesses => 1) — but a real ceiling if that ever changes.
+            'global_daily_cap' => (int) env('PARTNA_AUTO_BOOKING_DAILY_CAP', 500),
+
+            // Two people at one salon signing up would otherwise scrape the same
+            // page twice. Deliberately shorter than team_cache_seconds (86400):
+            // this menu feeds DISPLAYED PRICING, not just a picker roster.
+            'menu_cache_seconds' => (int) env('PARTNA_AUTO_BOOKING_MENU_CACHE_SECONDS', 3600),
+        ],
     ],
 
     // Platform connection refresh (SCALE-1). The dispatcher (integrations:refresh)
