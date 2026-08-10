@@ -79,7 +79,31 @@ scripts/dast/run.sh --only edge
 > regression and a broken lock respectively. Both are just a missing Redis.
 > `dast-active.yml` now runs one as a service container.
 
-> **⚠️ The lane has NOT yet completed a green run on a hosted runner.** Several
+> **✅ Green end-to-end on a hosted runner, 2026-08-10 (run 31379977124, 1h12m).**
+> Every gate reported substantively, not vacuously — the count floor is the one that
+> matters, because it is what distinguishes "passed" from "never ran":
+>
+> ```
+> tier2: all probes passed
+> exclusion check passed — no excluded path beyond the 29 declared IDOR probes
+> plan integrity check passed
+> IDOR request count check passed — 58/58 requests issued
+> IDOR assertions passed — foreign resources 404'd and every control returned 200
+> tearing down (exit was 0)
+> diff-baseline: clean — no new findings at/above --fail-on=high
+> ```
+>
+> **ZAP took 68 minutes there against 9 locally — roughly 7.5x**, which is why
+> `timeout-minutes` is 180 and should not be tightened toward the local number.
+>
+> Getting there took SEVEN pre-existing bugs, every one invisible to a manual macOS
+> run, and they are listed below because the pattern is the point: the lane was never
+> self-contained. It borrowed a `.env`, a Redis, Docker Desktop's `host.docker.internal`
+> DNS, and Docker Desktop's loopback proxying from whatever machine happened to run
+> it. "Manual-only" was not merely inconvenient — it was concealing four hard
+> dependencies and three latent script bugs.
+
+> **The bugs that had to be cleared first.** Several
 > pre-existing bugs were found by trying, every one of them invisible while the lane
 > was manual-and-macOS-only:
 >
@@ -95,9 +119,16 @@ scripts/dast/run.sh --only edge
 >    script's failure path and wants its own review. Until then `supabase start` gets
 >    one real try, not three, and a runner failure will name the wrong cause.
 >
-> So the workflow is wired, triggering, and reaching the lane — but do not treat it as
-> proven until a run goes green end-to-end. Locally the lane is green (see the run
-> recorded in `audits/dast/2026-08-10-active/`).
+> Plus four environment assumptions, all Docker-Desktop-or-laptop-shaped: no `.env`
+> on a runner (artisan booted as production and hit the AUTH-1 guard, with the error
+> swallowed into `routes-raw.json` because stdout was redirected there); no Redis
+> (`TokenRevocationService` needs it for every authenticated request, so
+> `require.aal2` returned **503** and the claim race reported **zero winners** —
+> both reading as auth regressions rather than a missing service);
+> `host.docker.internal` unmapped on Linux; and `artisan serve` bound to loopback,
+> which the container cannot reach across the docker0 gateway.
+>
+> The local run recorded in `audits/dast/2026-08-10-active/` is green too.
 
 > **Non-blocking comes from branch protection, not from `continue-on-error` — and the
 > difference is not cosmetic.** The job originally carried `continue-on-error: true`.
