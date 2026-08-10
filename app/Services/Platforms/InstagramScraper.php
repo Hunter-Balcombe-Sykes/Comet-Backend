@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Platforms\Actors\InstagramActorAdapter;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -24,23 +25,38 @@ class InstagramScraper extends PlatformScraper
     // successful scrape, so it doesn't exist at log time.
     public function fetchProfile(string $username, ?string $userId = null): ?array
     {
+        return $this->fetchProfileResult($username, $userId)->profile;
+    }
+
+    // Same fetch, but reporting WHY it failed. fetchProfile()'s bare null could
+    // not distinguish a handle that genuinely does not exist from an upstream
+    // break, so callers labelled every failure "source not found" — telling real
+    // prospects their own Instagram account doesn't exist while Meta was down.
+    public function fetchProfileResult(string $username, ?string $userId = null): ProfileFetchResult
+    {
         $token = config('services.apify.token');
         if (! $token) {
-            return null;
+            return ProfileFetchResult::failed(ProfileFetchFailure::NotConfigured);
+        }
+
+        $actor = (string) config('partna.instagram.actor');
+        $adapter = $this->adapterFor($actor);
+        if (! $adapter instanceof InstagramActorAdapter) {
+            // Fail closed rather than guess an input shape: each actor has its
+            // own schema and sending the wrong body is a hard 400, which would
+            // surface as a failed scrape on EVERY build. No username in this
+            // context — it's a config fault, not a user one.
+            Log::warning('instagram.actor.unadapted', ['actor' => $actor]);
+
+            return ProfileFetchResult::failed(ProfileFetchFailure::NotConfigured);
         }
 
         try {
-            // includeRecentPosts is OFF by the actor's own default ("faster,
-            // profile data only") — without it every scrape returns an empty
-            // latestPosts and no media ever mirrors (2026-07-23 live incident).
-            // The actor's input schema defines exactly two params; the old
-            // resultsLimit key was never one of them (silently ignored). Post
-            // pool when enabled: up to 12 per profile.
             $response = Http::withToken($token)
                 ->timeout((int) config('partna.limits.apify.run_sync_timeout_seconds', self::RUN_SYNC_TIMEOUT_SECONDS))
                 ->post(
-                    'https://api.apify.com/v2/acts/'.config('partna.instagram.actor').'/run-sync-get-dataset-items',
-                    ['profiles' => [$username], 'includeRecentPosts' => true],
+                    'https://api.apify.com/v2/acts/'.$actor.'/run-sync-get-dataset-items',
+                    $adapter->input($username),
                 );
         } catch (Throwable $e) {
             report($e);
@@ -52,7 +68,7 @@ class InstagramScraper extends PlatformScraper
             // they won't correlate in the logs.
             Log::warning('instagram.apify.threw', ['username_hash' => hash('sha256', mb_strtolower($username)), 'user_id' => $userId, 'error' => $e->getMessage()]);
 
-            return null;
+            return ProfileFetchResult::failed(ProfileFetchFailure::Transport);
         }
 
         // 201 Created on success — ->ok() would only accept exactly 200.
@@ -68,7 +84,7 @@ class InstagramScraper extends PlatformScraper
                 'status' => $response->status(),
             ]);
 
-            return null;
+            return ProfileFetchResult::failed(ProfileFetchFailure::UpstreamError);
         }
 
         $items = $response->json();
@@ -80,25 +96,42 @@ class InstagramScraper extends PlatformScraper
                 'count' => is_array($items) ? count($items) : 0,
             ]);
 
-            return null;
+            return ProfileFetchResult::failed(ProfileFetchFailure::MalformedPayload);
         }
 
         // A 2xx run can still carry a per-item scrape failure: the dataset item
         // is profile-shaped (username/url/scrapedAt) but its fields are null and
         // it carries an "error" string instead. Treat that as a failed fetch —
         // not a valid (empty) profile — so callers retry instead of silently
-        // persisting a blank account.
-        if (is_string($items[0]['error'] ?? null)) {
+        // persisting a blank account. Only the adapter knows whether that error
+        // means "no such handle" or "couldn't read it".
+        if ($failure = $adapter->classify($items[0])) {
             Log::warning('instagram.apify.error_item', [
                 'username_hash' => hash('sha256', mb_strtolower($username)),
                 'user_id' => $userId,
                 'error' => $items[0]['error'],
+                'failure' => $failure->value,
             ]);
 
+            return ProfileFetchResult::failed($failure);
+        }
+
+        return ProfileFetchResult::ok($items[0]);
+    }
+
+    // Actor id → its adapter. Indexed off the full map rather than via config()
+    // dot-notation because actor ids are owner~name strings.
+    private function adapterFor(string $actor): ?InstagramActorAdapter
+    {
+        $class = ((array) config('partna.instagram.actor_adapters', []))[$actor] ?? null;
+
+        if (! is_string($class) || ! class_exists($class)) {
             return null;
         }
 
-        return $items[0];
+        $adapter = app($class);
+
+        return $adapter instanceof InstagramActorAdapter ? $adapter : null;
     }
 
     public function profilePicUrl(array $profile): ?string

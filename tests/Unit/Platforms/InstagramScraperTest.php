@@ -198,12 +198,17 @@ it('posts to the configured apify actor id', function () {
     ));
 });
 
-// Regression for the 2026-07-23 zero-media incident: the actor's posts are OFF
-// by default ("profile data only"), so the request MUST opt in — and the old
-// resultsLimit key isn't in the actor's input schema at all (was silently
+// Regression for the 2026-07-23 zero-media incident: figue's posts are OFF by
+// default ("profile data only"), so the request MUST opt in — and the old
+// resultsLimit key isn't in that actor's input schema at all (was silently
 // ignored for its whole life), so it must stay gone.
+//
+// Pinned to figue explicitly: this guards THAT actor's input contract, and the
+// default moved to apify~ on 2026-08-10. The apify actor needs no equivalent
+// flag (it returns up to 12 posts unconditionally); its own input shape is
+// guarded in tests/Unit/Platforms/InstagramProfileFetchTest.php.
 it('sends includeRecentPosts and never the schemaless resultsLimit key', function () {
-    config(['services.apify.token' => 'test-token']);
+    config(['services.apify.token' => 'test-token', 'partna.instagram.actor' => 'figue~instagram-profile-scraper']);
     Http::fake(['api.apify.com/*' => Http::response([igScraperItem()], 201)]);
 
     (new InstagramScraper)->fetchProfile('docpizza');

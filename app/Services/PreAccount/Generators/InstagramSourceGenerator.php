@@ -7,6 +7,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
+use App\Services\Platforms\ProfileFetchFailure;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
 use Illuminate\Support\Arr;
@@ -46,10 +47,18 @@ class InstagramSourceGenerator implements SiteSourceGenerator
 
     public function generate(User $user, Site $site, string $sourceRef): void
     {
-        $profile = $this->scraper->fetchProfile($sourceRef, $user->id);
-        if (! $profile) {
-            throw SourceGenerationException::sourceNotFound();
+        // Only a handle the actor positively reports as nonexistent is the
+        // prospect's problem. Every other failure is ours breaking upstream, and
+        // calling it "source not found" tells someone their own Instagram account
+        // doesn't exist — while also inviting a retry that buys the same answer
+        // for another paid scrape.
+        $result = $this->scraper->fetchProfileResult($sourceRef, $user->id);
+        if ($result->profile === null) {
+            throw $result->failure === ProfileFetchFailure::ProfileNotFound
+                ? SourceGenerationException::sourceNotFound()
+                : SourceGenerationException::scrapeFailed($result->failure->value);
         }
+        $profile = $result->profile;
 
         // Pending placeholder mirroring InstagramController::connect — payload []
         // (NOT null: platform_connections.payload is NOT NULL on live Postgres).
@@ -92,7 +101,11 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         ])->saveQuietly();
 
         // Scraped identity onto the user row (spec §4): placeholder → real values.
-        $fullName = trim((string) data_get($profile, 'fullName'));
+        // Read BOTH field shapes, as InstagramConnector and InstagramConnectionSeeder
+        // already do: actors drift between camelCase and Instagram's raw GraphQL
+        // snake_case, and reading only one silently leaves display_name as the
+        // placeholder handle (live from ~2026-07-21 until 2026-08-10).
+        $fullName = trim((string) (data_get($profile, 'fullName') ?? data_get($profile, 'full_name')));
         if ($fullName !== '') {
             $user->display_name = $fullName;
             $user->first_name = Str::before($fullName, ' ') ?: $fullName;

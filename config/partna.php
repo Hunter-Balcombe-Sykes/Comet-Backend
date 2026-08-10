@@ -5,6 +5,8 @@ use App\Mail\Notifications\FeatureAnnouncementMail;
 use App\Mail\Notifications\IncidentMail;
 use App\Mail\Notifications\PolicyUpdateMail;
 use App\Mail\Notifications\ProfileTaskMail;
+use App\Services\Platforms\Actors\ApifyProfileScraperAdapter;
+use App\Services\Platforms\Actors\FigueProfileScraperAdapter;
 use App\Services\Platforms\DoorDashMenuDriver;
 use App\Services\Platforms\SquareMenuDriver;
 use App\Services\Platforms\UberEatsMenuDriver;
@@ -371,11 +373,26 @@ return [
         ],
     ],
 
-    // Apify actor id for the Instagram profile scrape (InstagramScraper::fetchProfile).
-    // Tilde-separated owner~name form for the API path — configurable so the actor
-    // can be swapped without a code deploy.
+    // Apify actor id for the Instagram profile scrape (InstagramScraper::fetchProfileResult).
+    // Tilde-separated owner~name form for the API path.
+    //
+    // Default moved off figue~ on 2026-08-10: it reads Instagram's logged-out
+    // profile endpoint, which Meta broke for accounts resolving a business-
+    // category subvertical (a deleted internal schema asset). That population
+    // skews hard toward Partna's target market — local service professionals
+    // who set a specific business category.
+    //
+    // An actor id is ONLY swappable to one listed in actor_adapters: each actor
+    // has its own run-input schema, so the id and its adapter must move together.
+    // Setting PARTNA_INSTAGRAM_ACTOR to an unlisted actor fails closed (logged,
+    // no network call) rather than posting a body the actor rejects.
     'instagram' => [
-        'actor' => env('PARTNA_INSTAGRAM_ACTOR', 'figue~instagram-profile-scraper'),
+        'actor' => env('PARTNA_INSTAGRAM_ACTOR', 'apify~instagram-profile-scraper'),
+
+        'actor_adapters' => [
+            'apify~instagram-profile-scraper' => ApifyProfileScraperAdapter::class,
+            'figue~instagram-profile-scraper' => FigueProfileScraperAdapter::class,
+        ],
     ],
 
     /*
