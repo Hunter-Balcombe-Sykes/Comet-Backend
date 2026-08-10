@@ -108,8 +108,10 @@ Origin access log: 1257 unique entries (1193 access) over
    ```
 
    Verified non-destructive by diffing all keys and values before/after: 93 → 94 keys,
-   **nothing lost, no pre-existing value altered**. The replace-all hazard recorded in the plan
-   and in project memory is stale for this CLI version.
+   **nothing lost, no pre-existing value altered**. The "replaces all" hazard is real but applies
+   to the **file form** of `environment:variables`, not to this targeted `--action=set` form —
+   `reference_cloud_cli_no_per_var_delete` already documented the targeted form correctly. It is
+   the plan's command name that is wrong, not the recorded hazard.
 
 2. **Task 1's test passes on first run, not fails.** The middleware does not read the new key
    until Task 2, so nothing can make it red at that point — it is a characterisation test whose
