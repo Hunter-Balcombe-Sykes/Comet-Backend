@@ -75,7 +75,10 @@ class InstagramAutoSync
         // ONE context for the whole run — carries first-link-per-platform
         // dedupe and the commerce probe budget across every link below. A
         // per-link instance would disable both.
-        $ctx = new RouteContext;
+        //
+        // Instagram origin: these are the account holder's own bio links, so a
+        // discovered booking platform may be auto-connected on their behalf.
+        $ctx = new RouteContext(autoConnectBooking: true);
 
         foreach ($bioLinks as $url) {
             if (! is_string($url) || trim($url) === '') {
