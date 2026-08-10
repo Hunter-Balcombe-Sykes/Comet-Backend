@@ -266,7 +266,7 @@ git add app/Http/Middleware/AddPublicCacheHeaders.php
 
 Expected: no new failures. Compare against the pre-change baseline — if a failure appears, confirm it is not pre-existing by checking it on the prior commit before attributing it to this change.
 
-- [ ] Confirm on dev **after the operator deploys**, with `curl` sending the client's encoding (a bare `curl` sends no `Accept-Encoding`, and `Vary` includes it, so it reads a different cache key and reports `BYPASS`):
+- [x] Confirm on dev **after the operator deploys**, with `curl` sending the client's encoding (a bare `curl` sends no `Accept-Encoding`, and `Vary` includes it, so it reads a different cache key and reports `BYPASS`):
 
 ```bash
 ET=$(curl -s -D - -o /dev/null -H "Accept-Encoding: gzip" \
@@ -279,6 +279,6 @@ curl -s -o /dev/null -D - -H "Accept-Encoding: gzip" -H "If-None-Match: $ET" \
 
 Expected: `304` with `cache-control: public, max-age=30, s-maxage=30` instead of `no-cache, private`.
 
-- [ ] Optional, higher-cost: re-run the 10-minute probe with origin capture and check the falsifiable prediction — the origin's profile split moves from ~50/50 200/304 to **304-dominant**, and origin reach drops below 8.2%.
+- [x] Optional, higher-cost: re-run the 10-minute probe with origin capture and check the falsifiable prediction — the origin's profile split moves from ~50/50 200/304 to **304-dominant**, and origin reach drops below 8.2%.
 
 **Honest limit:** this fixes a defect with a demonstrated mechanism. It is **not proven** to cause the intermittent 4–8.5 s stall, which never reproduced under capture. If the stall recurs after this ships, the next lever is `stale-while-revalidate`.

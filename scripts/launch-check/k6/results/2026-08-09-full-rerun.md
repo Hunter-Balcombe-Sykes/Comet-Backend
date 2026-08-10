@@ -89,7 +89,25 @@ keeps the flood off Postgres.
 40,008 − 39,942 − 4 = **62 requests served 200** in the minute, which is Laravel's own
 `public-profile` limiter (60/min) showing through behind the edge.
 
-### ⚠️ Open: the origin is still slow to issue a 429
+### ✅ RESOLVED 2026-08-10 — the 429 cost was a flood artifact, not a standing defect
+
+Re-measured **at rest**: 80 req/min from one IP (under the edge's 100/min so everything is forwarded,
+over Laravel's 60/min so the tail is throttled), one VU, idle container, cache-busted so requests
+actually reach Laravel.
+
+| Status | n | Origin p50 | p95 | max |
+|---|---|---|---|---|
+| 429 | 22 | **78 ms** | 83 ms | 92 ms |
+| 200 | 42 | 85 ms | 96 ms | 117 ms |
+| 304 | 2 | 99 ms | — | — |
+
+**A 429 costs 78 ms — cheaper than serving a 200**, which is what a short-circuit before the
+controller should cost. The 1,390 ms below was measured only during a 470 req/s flood and is CPU
+contention on the shared 1-vCPU box, not an intrinsic cost of issuing a 429. Since the edge limit
+now absorbs ~99.8% of such floods, the condition that produced it no longer reaches the origin.
+**No fix required.** The original framing of this as an open item was wrong.
+
+### Historical: the origin appeared slow to issue a 429 (superseded by the above)
 
 Of the trickle that does reach PHP, the origin's **own** access log records p50 **1,390 ms**,
 p95 2,879 ms, max 3,121 ms to return a 429 — at ~2 req/s, where the container is otherwise idle.
@@ -265,6 +283,50 @@ same second. If the origin logged seconds → it is inside Laravel. If the origi
 the delay is in front of the app.
 
 ---
+
+## ✅ 2026-08-10 — the 304 fix verified by measurement, not just by header
+
+Re-ran the probe profile-only at 45/min (matching the pre-fix profile rate exactly, so origin-reach
+% is comparable; the earlier probe's added `/api/health` pushed the client to 90 req/min and tripped
+the edge limit, whose 429s never reach the origin and would deflate the denominator). 450 profile
+requests, 10 minutes, 15s-cadence origin capture.
+
+| Metric | Pre-fix | Post-fix | Spec predicted |
+|---|---|---|---|
+| Origin reach | 8.2% | **4.4%** | below 8.2% ✓ |
+| 304 share of origin touches | 49% (19×200/18×304) | **95%** (1×200 / 19×304) | 304-dominant ✓ |
+| Origin touches / 10 min | 37 | **20** | — |
+
+20 touches over 10 minutes at a 30 s TTL is exactly the ~20 revalidations the cache should need. The
+extra 17 before the fix were the forced refetches each poisoned 304 caused. **Origin load for this
+route halved.** Client side: 450/450 checks, 0 errors, p50 48.6 ms, and no stall (max 845 ms).
+
+## ⚠️ SSR subrequests reach the API as Cloudflare IPs, not visitor IPs
+
+Measured 2026-08-10 from the origin access log. A visitor-triggered Astro SSR render produced:
+
+```
+05:09:32  304  120ms  172.69.186.143  /api/public/profiles/loadtest
+05:09:32  200  150ms  162.158.3.134   /api/public/profiles/loadtest/integrations
+```
+
+Both are Cloudflare egress ranges. Direct requests log the real client IP (my own showed as
+`150.228.243.132`), so the log records the client IP — meaning the SSR path genuinely does **not**
+carry the visitor's IP.
+
+Consequence: **both** rate limiters aggregate SSR traffic onto a small pool of IPs — the Laravel
+`public-profile` limiter keys on `CF-Connecting-IP ?? ip()` (`AppServiceProvider.php:435`, 60/min)
+and the Laravel Cloud edge limit is per-IP (100/min, fixed on Basic). Laravel's is the tighter of
+the two, so it trips first.
+
+Headroom is bounded by how often SSR actually reaches the API, which two caches throttle: the LC
+edge (`s-maxage=30`) and the Astro Worker's own subrequest cache (`cacheTtl: 300`, see
+`CloudflarePurgeService::purgeHandle`). At roughly one API call per 5 min per handle per colo, the
+order of magnitude is a few hundred live handles per egress IP before the 60/min limiter bites —
+**an estimate, not a measurement**, and pools are per-colo so real headroom is likely higher.
+
+Not urgent at pilot scale (dozens of sitepages). Worth re-checking from the `ip` field in the access
+log once real traffic exists, before scaling past ~100 live handles.
 
 ## Caveats
 
