@@ -106,6 +106,32 @@ jobs:
     permissions:
       contents: read
 
+    # REDIS IS A HARD DEPENDENCY OF THE LANE, which nothing said until the lane
+    # ran somewhere without one. bring-up.sh sets CACHE_STORE/SESSION_DRIVER=array
+    # and QUEUE_CONNECTION=sync so the scan needs no Redis for cache, sessions or
+    # jobs — but that does NOT cover auth. TokenRevocationService writes its
+    # `auth:revoked-session:` / `auth:user-sessions:` keyspace on the `app`
+    # connection for EVERY authenticated request (CLAUDE.md, Cache/Queue row), and
+    # that path fails closed.
+    #
+    # On run 31378563351 the absence showed up as three Tier 2 failures that named
+    # the wrong thing: `require.aal2` on /api/staff/me returned 503 "Service
+    # temporarily unavailable" instead of 401, and the claim race produced zero
+    # winners. Both read like auth or locking regressions; both were just no Redis.
+    #
+    # It worked locally for the same reason the missing .env did — a developer
+    # machine happens to have one running. Same image and health-check as ci.yml.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
         with:
