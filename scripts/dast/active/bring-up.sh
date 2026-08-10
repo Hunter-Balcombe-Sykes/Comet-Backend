@@ -26,7 +26,35 @@ OUTDIR="$(dast_abspath "${1:?usage: bring-up.sh OUTDIR}")"
 OFFSET="${DAST_SUPABASE_PORT_OFFSET:-100}"
 API_PORT=$(( 54321 + OFFSET ))
 DB_PORT=$(( 54322 + OFFSET ))
-APP_PORT="${ZAP_TARGET_LOCAL##*:}"
+# ZAP_TARGET_LOCAL comes from scripts/dast/.env, which lib/common.sh sources only
+# IF PRESENT — so on a machine that never ran the one-time `cp .env.example .env`
+# it is unset. The fallback on the third line below was always meant to cover
+# exactly that; the problem was that `set -u` killed the script one line earlier.
+#
+# THE VERSION TRAP, and it is the INVERSE of the bash-3.2 one this tool documents
+# everywhere else. Measured 2026-08-10:
+#
+#   bash 3.2 (macOS, what this lane is developed on): `${VAR##*:}` on an UNSET var
+#     under `set -u` does NOT error — it yields empty, the regex check below fails,
+#     and APP_PORT falls back to 8100. Everything works.
+#   bash 4.4+ / 5.x (Linux, GitHub runners): the same expansion IS an unbound-
+#     variable error and aborts.
+#
+# So this was invisible for as long as the lane was manual-only and macOS-only.
+# It surfaced within one second of the lane first running on a GitHub runner
+# (2026-08-10, run 31375156868): bring-up.sh died with "ZAP_TARGET_LOCAL: unbound
+# variable" while zap-active.sh reported only the generic "exited before becoming
+# ready" — which is why that job uploads bring-up-stdout.log on failure.
+#
+# `bash -n` cannot catch this, and neither can running the lane locally. Elsewhere
+# in this tool the rule is "no bash-4-isms, macOS ships 3.2"; this is the other
+# direction — 3.2 ACCEPTING something modern bash rejects — and now that the lane
+# runs in CI, both directions have to hold.
+#
+# Two steps because bash cannot combine a default and a substring removal in one
+# expansion: take the default first, then strip.
+APP_PORT="${ZAP_TARGET_LOCAL:-}"
+APP_PORT="${APP_PORT##*:}"
 [[ "$APP_PORT" =~ ^[0-9]+$ ]] || APP_PORT=8100
 
 # --- Step 1: scratch config with a port offset. The committed
