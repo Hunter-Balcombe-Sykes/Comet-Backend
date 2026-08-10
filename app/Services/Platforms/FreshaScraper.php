@@ -49,6 +49,25 @@ class FreshaScraper
         return preg_replace('#fresha\.com/[a-z]{2,3}(-[a-z]{2})?/a/#i', 'fresha.com/a/', $url) ?? $url;
     }
 
+    /**
+     * Rewrite a booking-page URL to the canonical `/a/<slug>` form.
+     *
+     * Bio links are almost always the share URL Fresha's own app hands out
+     * (`/book-now/<slug>/all-offer?share=true&pId=…`), but slugFromUrl() and the
+     * connect-input validator both only understand `/a/<slug>`. Canonicalising at
+     * WRITE time (resolveWrite) rather than read time is deliberate: GET
+     * /platforms/fresha/team re-scrapes from payload.url, so the user's own
+     * recovery path needs a usable URL just as much as our auto-fetch does.
+     */
+    public function canonicalUrl(string $url): string
+    {
+        return preg_replace(
+            '#^(https?://)(?:www\.)?fresha\.com/book-now/([a-z0-9-]+)(?:/[^?\#]*)?.*$#i',
+            'https://www.fresha.com/a/$2',
+            $url
+        ) ?? $url;
+    }
+
     /** Extract the `<slug>` from a Fresha `.../a/<slug>` URL. */
     public function slugFromUrl(string $url): ?string
     {
