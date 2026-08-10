@@ -182,10 +182,16 @@ dev**, which changes what phases 2b and 3 measure.
 
 **Two findings carried forward:**
 
-1. **Intermittent multi-second stall on the profile route** (2 of 3 baseline runs: 8.53 s, 4.04 s).
-   Profile-route only, TTFB-bound (`waiting` 3,961 of 4,042 ms), while a concurrent profile request
-   completed in 42.5 ms and `/api/health` stayed normal. Never captured server-side — the log buffer
-   rotated it out both times. **Unresolved**; reproduction recipe in the write-up.
+1. **Intermittent multi-second stall** (4 of the 8 baseline runs on record; 1.2–8.5 s).
+   **Attributed 2026-08-10 to the tester's own network path, not Partna** — see
+   `results/2026-08-10-stall-probe.md`. Saturating the WAN link reproduces it on demand
+   (worst 9,475 ms), and the origin's access log shows **129 ms for that same request**. An
+   idle-link run of equal size produced zero. The original "profile-route only" fingerprint
+   was falsified in the same pass: it hits `/api/health` too, and it is a whole-window block
+   that releases in waves.
+
+   **Standing rule: a multi-second k6 tail is a measurement artefact unless the origin's own
+   `duration_ms` corroborates it.** It never has.
 2. **The origin still needs p50 ~1.4 s to return a 429** (its own access log), at ~2 req/s where the
    container is idle. Improved from ~2,900 ms but not eliminated. The 429 comes from route
    middleware, so that is Laravel boot + the limiter's store check alone.
@@ -193,6 +199,35 @@ dev**, which changes what phases 2b and 3 measure.
 ⚠️ **Phase 2a's `http_req_duration` p95 (463.8 ms) is the tester's downlink, not the edge.** Split
 the phases: `waiting` p50 **57.6** / p95 **133.0 ms** versus `receiving` p50 71.8 / p95 368.4 —
 median receive exceeds median wait at 6.3 MB/s. Real edge TTFB improved vs 08-06's 239 ms.
+
+## Diagnostics (not phases, not gates)
+
+Hand-run only. No thresholds — these answer questions, they do not pass or fail.
+
+```bash
+# 1. start the origin-log capture (works around the ~100-entry cap)
+./poll-origin-logs.sh capture 1320 results/stall-origin.jsonl &
+
+# 2. run the probe — BOTH outputs are required, and the trace must be deleted first
+#    (--console-output appends, so a stale file silently mixes runs)
+rm -f results/stall-trace.jsonl
+k6 run --out json=results/stall.json \
+       --log-format=raw --console-output=results/stall-trace.jsonl \
+       probe-stall.js
+
+# 3. join them, plot at completion-minus-duration, group into release waves
+./analyse-stall.py results/stall.json results/stall-trace.jsonl results/stall-origin.jsonl
+```
+
+`analyse-stall.py` prints a verdict per wave from the two control hosts: Partna-only means
+the origin, Partna + both controls means this laptop's link or CPU, Partna + the Cloudflare
+control means Cloudflare-side. A wave of one request gets **no** verdict — the controls
+simply were not in flight, and a sample of one does not earn a conclusion.
+
+**Reading `duration_ms` from `poll-origin-logs.sh slow` is the acid test for any tail claim:**
+the origin's own view of the same request. On 2026-08-10 the client saw p50 93.6 ms on
+`/api/health` while the origin logged p50 27 ms for the identical 901 requests — the gap is
+edge plus transport, and it is not Partna's to fix.
 
 ## Collaboration (§8)
 

@@ -3,3 +3,4 @@
 # these files are deleted/overwritten by the next run and cannot be cited later.
 results/*.json
 results/*.txt
+results/*.jsonl

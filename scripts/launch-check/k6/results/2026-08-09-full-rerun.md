@@ -140,6 +140,16 @@ entries — no gain when the new data is purely additive.
 
 ## ⚠️ Unresolved: intermittent multi-second stall on the profile route
 
+> **CORRECTION 2026-08-10 — the fingerprint below is wrong; see
+> `2026-08-10-stall-probe.md`.** Every claim in this section was read off k6's timestamps,
+> which mark **completion**, not arrival. Plotting each request at `completion − duration`
+> against the raw JSON shows: it is **not profile-only** (`/api/health` stalls in both
+> captured events, and is the *only* route affected in this run's own run A), and it **is**
+> a whole-window block — the "concurrent 42.5 ms request" was issued *after* the release.
+> Requests issued 1.3–5 s apart complete within ~110 ms of each other: a queue draining in
+> waves. The reasoning downstream of the fingerprint — the SWR mechanism — survives only as
+> an *amplifier* on the profile route; it cannot explain a `/api/health` stall.
+
 Seen in **2 of 3** baseline runs today. Precise fingerprint:
 
 - **Profile route only.** `/api/health` and `/api/config/social-platforms` stayed normal in the
