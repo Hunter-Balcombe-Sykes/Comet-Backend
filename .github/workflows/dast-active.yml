@@ -136,7 +136,29 @@ jobs:
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # PINNED, and `latest` was actively wrong here — twice over.
+          #
+          # 1. It makes this lane's behaviour change with no commit. A CLI release
+          #    can break the run on a Tuesday with an empty diff, which is the
+          #    worst possible signal from a security gate.
+          # 2. It DID. Run 31375949918 failed applying
+          #    20260727110001_connections_surface_key_backfill.sql with
+          #    `ERROR: invalid transaction termination (SQLSTATE 2D000)`. That
+          #    migration COMMITs inside a DO block — deliberately, per
+          #    supabase/migrations/CONVENTIONS.md §5, which forbids backfilling
+          #    inside the DDL transaction. A current CLI wraps migration
+          #    application in a transaction, so the COMMIT is illegal; 2.101.0
+          #    (what this repo is developed against) does not.
+          #
+          # 2.101.0 is the version the local lane is green on, and the version
+          # scripts/dast/README.md already cites for the jwt_expiry check.
+          #
+          # ⚠️ THE UNDERLYING ISSUE IS NOT A CI ISSUE AND THIS PIN DOES NOT FIX IT.
+          # If a current CLI cannot apply that migration, then a from-zero
+          # provision — scripts/db/fresh-reset.sh, or a future prod cutover — is
+          # exposed the moment anyone upgrades. Tracked as a finding; do not read
+          # this pin as a resolution.
+          version: 2.101.0
 
       # No secrets. Unlike the edge lane, the active lane is entirely local: it
       # provisions its own throwaway stack on a port offset and tears it down via
