@@ -84,8 +84,13 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
         // turning one page into an unbounded fan-out on the scraping queue.
         $ctx = new RouteContext;
         $findings = [];
+        $seen = 0;
+        $ownHostSkipped = 0;
+        $outcomes = [];
 
         foreach ($harvester->allOutboundLinks($html, $baseUrl) as $url) {
+            $seen++;
+
             // A curated bio-link page (Linktree et al) is itself a platform with
             // its own site-wide chrome — pricing, blog, help centre — mixed into
             // the same anchor soup as the 2-3 links the account owner actually
@@ -94,6 +99,8 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
             // Without this, the "nothing vanishes" fallback below would seed
             // every one of them as a custom link on the connecting user's site.
             if ($ownHost !== '' && strtolower((string) parse_url($url, PHP_URL_HOST)) === $ownHost) {
+                $ownHostSkipped++;
+
                 continue;
             }
 
@@ -103,6 +110,7 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
                 // findings can be merged into the synced modal below. Calling
                 // seed() would swallow them.
                 $result = $router->route($user, $url, $ctx);
+                $outcomes[$result->outcome] = ($outcomes[$result->outcome] ?? 0) + 1;
 
                 foreach ($result->findings as $finding) {
                     $findings[] = $finding;
@@ -119,9 +127,23 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
             } catch (Throwable $e) {
                 // Per-link fault isolation — one bad link never abandons the rest
                 // of the page (mirrors InstagramAutoSync::seed()'s own loop).
+                $outcomes['error'] = ($outcomes['error'] ?? 0) + 1;
                 report($e);
             }
         }
+
+        // A starved link leaves no trace of its own: it becomes a custom link
+        // exactly like an examined-and-missed one, so a page whose budget ran
+        // out reads as a page that was fully scanned. probes_denied > 0 is the
+        // tell, and it is the only place that distinction survives the loop.
+        Log::info('platforms.link_in_bio_scan.completed', [
+            'user_id' => $this->userId,
+            'bio_page_url' => $this->bioPageUrl,
+            'links_seen' => $seen,
+            'own_host_skipped' => $ownHostSkipped,
+            'outcomes' => $outcomes,
+            ...$ctx->summary(),
+        ]);
 
         $this->mergeFindingsBack($findings);
     }

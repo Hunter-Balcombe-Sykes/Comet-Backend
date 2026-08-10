@@ -28,6 +28,16 @@ final class RouteContext
 
     private int $probeCount = 0;
 
+    /**
+     * Probes REFUSED because the budget was already spent. Counted separately
+     * because the refusal is otherwise invisible: LinkRouter answers a starved
+     * link with the same RouteResult::custom() a gate denial gives it, so a
+     * caller cannot tell "we looked and it wasn't a shop" from "we never
+     * looked". Found live 2026-08-10 — six nav links of one host consumed the
+     * whole budget and the three links behind them were never examined.
+     */
+    private int $probesDenied = 0;
+
     public function __construct(public readonly int $maxProbes = self::DEFAULT_MAX_PROBES) {}
 
     /**
@@ -39,6 +49,8 @@ final class RouteContext
     public function consumeProbe(): bool
     {
         if ($this->probeCount >= $this->maxProbes) {
+            $this->probesDenied++;
+
             return false;
         }
 
@@ -50,5 +62,24 @@ final class RouteContext
     public function probesUsed(): int
     {
         return $this->probeCount;
+    }
+
+    public function probesDenied(): int
+    {
+        return $this->probesDenied;
+    }
+
+    /**
+     * This run's budget accounting, for the caller's completion log.
+     *
+     * @return array{probe_budget: int, probes_spent: int, probes_denied: int}
+     */
+    public function summary(): array
+    {
+        return [
+            'probe_budget' => $this->maxProbes,
+            'probes_spent' => $this->probesUsed(),
+            'probes_denied' => $this->probesDenied(),
+        ];
     }
 }
