@@ -64,13 +64,22 @@ scripts/dast/run.sh --only edge
 
 **Active lane** — Docker required. Also runs in CI via `.github/workflows/dast-active.yml` (added 2026-08-10): weekly Sunday **04:00 UTC**, on `workflow_dispatch`, and **non-blocking** on pull requests touching `app/Policies/**`, `app/Http/Middleware/Auth/**`, `routes/api/**`, `supabase/migrations/**` or `scripts/dast/**`. It is deliberately **not a required check** — `supabase start` is documented-flaky (`bring-up.sh` retries 3×), and a flaky required gate trains people to bypass gates.
 
-> **The weekly cron will not fire until this workflow file exists on `production`.**
-> Same default-branch trap as the edge lane: GitHub takes a scheduled workflow's
-> `schedule:` trigger *and its whole file* from the default branch, which here is
-> `production`. `workflow_dispatch` and the PR trigger work from `development`
-> immediately; the cron does not. The file rides along on the next prod ship rather
-> than pushing to prod for a workflow (prod has `usesPushToDeploy: true` — the push
-> *is* the deploy, with no CI gate). Check with `gh run list --workflow dast-active.yml`.
+> **Until this workflow file exists on `production`, only the PR trigger works** —
+> and that is worse than the edge lane's version of this trap, so it is stated as
+> measured rather than reasoned (2026-08-10):
+>
+> | Trigger | Works from `development` today? |
+> |---|---|
+> | `pull_request` (path-filtered) | **Yes** — a PR's workflows are read from the PR branch. |
+> | `schedule` | No — GitHub registers cron from the default branch's copy. |
+> | `workflow_dispatch` | **No.** `gh workflow run dast-active.yml --ref development` returns `HTTP 404: workflow not found on the default branch`, and the Actions UI shows no "Run workflow" button. `--ref` selects which branch to *run*, not where the workflow may *live*. |
+>
+> The default branch here is `production`. The file rides along on the next prod
+> ship rather than pushing to prod for a workflow file (prod has
+> `usesPushToDeploy: true` — the push *is* the deploy, with no CI gate). Until
+> then, **do not read a quiet Actions tab as "the lane is watching"**: open a PR
+> touching one of the filtered paths, or run it locally. Check with
+> `gh run list --workflow dast-active.yml`.
 >
 > `supabase/migrations/**` is in the path filter for a reason that is easy to miss:
 > a column change breaks `seed-identities.php`, and today that stays invisible until
