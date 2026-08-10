@@ -557,7 +557,24 @@ log "zap-active: running ZAP automation plan (this can take a while — active s
 # `set +e` here, that non-zero exit would abort this script immediately
 # (set -e is active throughout) BEFORE the exclusion check below ever ran.
 set +e
+# --add-host IS REQUIRED ON LINUX and harmless on Docker Desktop.
+# host.docker.internal (the target this plan points at, see ZAP_TARGET_URL) is a
+# Docker DESKTOP convenience name — it resolves for free on macOS/Windows and does
+# not exist at all on Linux, where the equivalent is an explicit mapping to
+# host-gateway. Docker Desktop accepts the same flag and resolves it identically,
+# so this is unconditional rather than OS-sniffed.
+#
+# Without it on a runner, every request dies with
+# `ZapUnknownHostException: host.docker.internal: Name or service not known`,
+# ZAP exits in ~13 seconds having reached nothing, and the report is EMPTY —
+# which a naive severity gate reads as "clean". GitHub run 31379025721 is the
+# worked example: openapi, both spiders, all three activeScans and the whole
+# requestor job produced nothing, and diff-baseline would happily have called it
+# a pass. What actually caught it was the count floor in front of the IDOR gate
+# ("expected 58 requestor requests ... the run log shows 0") — an absence check
+# added precisely because a green log proves nothing about what was attempted.
 docker run --rm \
+    --add-host=host.docker.internal:host-gateway \
     -v "$ZAP_WORK:/zap/wrk/:rw" \
     -v "$ZAP_WORK:/zap/out:rw" \
     zaproxy/zap-stable zap.sh -cmd -autorun /zap/wrk/zap-plan.yaml \
