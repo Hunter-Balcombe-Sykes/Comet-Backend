@@ -68,8 +68,22 @@ jobs:
     # NOT A REQUIRED CHECK, deliberately. `supabase start` is documented-flaky —
     # bring-up.sh already retries it 3x and dies loudly on the third — and a flaky
     # required gate trains people to bypass gates, which is worse than no gate.
-    # Leave this false and leave the job un-required in branch protection.
-    continue-on-error: true
+    #
+    # NON-BLOCKING IS ENFORCED BY LEAVING THIS JOB OUT OF BRANCH PROTECTION, NOT BY
+    # `continue-on-error`. That distinction is load-bearing and was learned the
+    # expensive way on 2026-08-10: this job originally carried
+    # `continue-on-error: true`, and when run 31375156868 died one second in
+    # ("ZAP_TARGET_LOCAL: unbound variable"), `gh run list` reported the run as
+    # **completed / success**. A lane that never started, reporting green.
+    #
+    # That is the exact failure shape this whole tool exists to eliminate — the
+    # same shape as the months of PASS-while-unauthenticated in 71f027b11. A
+    # non-required job that FAILS is honest and still blocks nothing, because what
+    # makes a check blocking is branch protection, not the job's exit status.
+    #
+    # So: no `continue-on-error`. If this job goes red, believe it. If it is flaky
+    # in practice, fix the flake or drop the trigger — do not restore a flag that
+    # relabels failure as success.
     # RUNTIME IS HIGHLY MACHINE-DEPENDENT — budget generously, then measure.
     # scripts/dast/README.md's "several minutes" describes the JOBS, and they are
     # genuinely quick: measured 2026-08-10, identity-a's activeScan took 2:46,
