@@ -367,7 +367,31 @@ apply_env PARTNA_MEDIA_DISK local
 # real process environment variables (which Dotenv's already-set check
 # then leaves alone). No live-reload-on-.env-change behavior is lost that
 # this one-shot bring-up ever needed anyway.
-php artisan serve --env=dast --no-reload --port="$APP_PORT" >"$OUTDIR/serve.log" 2>&1 &
+# --- BIND ADDRESS. `artisan serve` defaults to 127.0.0.1, and on Linux that makes
+# the lane impossible: ZAP runs in a container and reaches the host via the docker0
+# gateway (host.docker.internal -> 172.17.0.1 once zap-active.sh's --add-host maps
+# it), so a server listening only on loopback refuses every connection. Docker
+# Desktop on macOS proxies loopback for you, which is exactly why this never
+# surfaced until the lane ran on a Linux runner — GitHub run 31379520273, where
+# the DNS fix turned "Name or service not known" into "Connection refused" and ZAP
+# still reached nothing.
+#
+# Defaulted BY PLATFORM rather than unconditionally, because this is a containment
+# trade-off and the tool's whole posture is containment. On Linux 0.0.0.0 is not a
+# preference, it is the only value that works. On macOS 127.0.0.1 does work, so it
+# stays — binding the scan target, with its seeded identities and deliberately
+# fuzzable surface, to every interface on a developer's laptop is a real (if
+# small) exposure and there is no reason to accept it where it buys nothing.
+#
+# DAST_SERVE_HOST overrides either way (e.g. to force 0.0.0.0 when running the
+# lane inside a Linux VM on macOS).
+case "$(uname -s)" in
+    Linux) DEFAULT_SERVE_HOST=0.0.0.0 ;;
+    *)     DEFAULT_SERVE_HOST=127.0.0.1 ;;
+esac
+SERVE_HOST="${DAST_SERVE_HOST:-$DEFAULT_SERVE_HOST}"
+log "bring-up: serving on ${SERVE_HOST}:${APP_PORT} (health-checked via 127.0.0.1)"
+php artisan serve --env=dast --no-reload --host="$SERVE_HOST" --port="$APP_PORT" >"$OUTDIR/serve.log" 2>&1 &
 SERVE_PID=$!
 
 # --- Step 6: health-check gate — poll the app's /up and the Supabase
