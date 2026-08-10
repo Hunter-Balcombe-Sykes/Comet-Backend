@@ -64,6 +64,26 @@ scripts/dast/run.sh --only edge
 
 **Active lane** — Docker required. Also runs in CI via `.github/workflows/dast-active.yml` (added 2026-08-10): weekly Sunday **04:00 UTC**, on `workflow_dispatch`, and **non-blocking** on pull requests touching `app/Policies/**`, `app/Http/Middleware/Auth/**`, `routes/api/**`, `supabase/migrations/**` or `scripts/dast/**`. It is deliberately **not a required check** — `supabase start` is documented-flaky (`bring-up.sh` retries 3×), and a flaky required gate trains people to bypass gates.
 
+> **⚠️ The lane has NOT yet completed a green run on a hosted runner.** Two
+> pre-existing bugs in `bring-up.sh`'s *failure* path were found by trying, and both
+> were invisible while the lane was manual-and-macOS-only:
+>
+> 1. **`ZAP_TARGET_LOCAL: unbound variable`** — `scripts/dast/.env` does not exist on a
+>    runner, and `${VAR##*:}` on an unset var under `set -u` errors on bash 4.4+/5 but
+>    **not** on macOS's bash 3.2. Fixed.
+> 2. **The 3× `supabase start` retry has never worked.** `teardown()` fires *between*
+>    attempts and its `rm -rf "$SCRATCH"` deletes the scratch workdir, so attempts 2
+>    and 3 always die with `failed to change workdir ... no such file or directory` —
+>    a consequence of the retry, not the original fault. Compounding it, the start log
+>    was truncated per attempt, so attempt 1's real reason was overwritten. **The
+>    truncation is fixed; the trap interaction is NOT** — it is a change to this
+>    script's failure path and wants its own review. Until then `supabase start` gets
+>    one real try, not three, and a runner failure will name the wrong cause.
+>
+> So the workflow is wired, triggering, and reaching the lane — but do not treat it as
+> proven until a run goes green end-to-end. Locally the lane is green (see the run
+> recorded in `audits/dast/2026-08-10-active/`).
+
 > **Non-blocking comes from branch protection, not from `continue-on-error` — and the
 > difference is not cosmetic.** The job originally carried `continue-on-error: true`.
 > When its first hosted run died one second in, `gh run list` reported the run as
