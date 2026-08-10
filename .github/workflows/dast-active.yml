@@ -84,20 +84,23 @@ jobs:
     # So: no `continue-on-error`. If this job goes red, believe it. If it is flaky
     # in practice, fix the flake or drop the trigger — do not restore a flag that
     # relabels failure as success.
-    # RUNTIME IS HIGHLY MACHINE-DEPENDENT — budget generously, then measure.
-    # scripts/dast/README.md's "several minutes" describes the JOBS, and they are
-    # genuinely quick: measured 2026-08-10, identity-a's activeScan took 2:46,
-    # identity-b's 2:54, the requestor 0:01. But that run's WALL CLOCK was ~2
-    # hours, because ZAP's automation framework drains its passive-scan queue
-    # between jobs and that queue is memory-bound — on an 8GB box with the whole
-    # Supabase stack alongside it, the gaps dwarf the jobs. The app was never the
-    # bottleneck (0.03ms/request server-side).
+    # RUNTIME IS MACHINE-DEPENDENT — budget generously, then measure.
     #
-    # So this is set from the worst observed number, not the best: a job killed at
-    # 45 minutes would look exactly like a hang, and the first thing anyone would
-    # do is disable it. Tighten this only after several hosted-runner runs show a
-    # real distribution — the runner has different memory and no competing local
-    # work, so its number is not this one.
+    # Measured on the 2026-08-10 LOCAL run (file mtimes, see scripts/dast/README.md
+    # for the full table): bring-up ~1 min, seed + Tier 2 ~8s, the ZAP plan 9m09s,
+    # teardown + baseline diff + REPORT.md ~12 min — 22m17s total.
+    #
+    # Correcting an earlier version of this comment, which said that run took ~2
+    # hours and blamed passive-scan queue draining between ZAP jobs: both were
+    # wrong. The jobs sum to 9m01s against a 9m09s span, so there is no meaningful
+    # inter-job idle, and the total was 22 minutes. The mistake came from reading
+    # elapsed time off a polling loop rather than off the artefacts.
+    #
+    # 180 is still deliberately generous, for reasons that survive the correction:
+    # a hosted runner pulls ~12 Supabase images plus ZAP COLD and has weaker CPU
+    # than the laptop those numbers came from, and a job killed mid-scan looks
+    # exactly like a hang — the first response to which is to disable it. Tighten
+    # only once several hosted runs show a real distribution.
     #
     # This is a private repo, so Actions minutes are billed — which is why there is
     # no push trigger and the PR trigger is path-filtered rather than firing on

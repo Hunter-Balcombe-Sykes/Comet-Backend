@@ -129,14 +129,33 @@ scripts/dast/run.sh --only edge
 > a column change breaks `seed-identities.php`, and today that stays invisible until
 > someone runs the lane by hand and misreads the failure.
 
-> **Budget hours, not minutes, on a constrained machine.** The ZAP *jobs* are quick —
-> measured 2026-08-10: identity-a activeScan 2:46, identity-b 2:54, the requestor
-> 0:01 — but that run's wall clock was **~2 hours**. The gap is ZAP's automation
-> framework draining its passive-scan queue between jobs, which is memory-bound; on
-> an 8GB box running the whole Supabase stack alongside it, the gaps dwarf the jobs.
-> The app is not the bottleneck (0.03ms/request server-side, 32k requests served).
-> Do not read a long run as a hang, and do not tighten the workflow's
-> `timeout-minutes` off one fast run.
+> **Where a run's time actually goes** — measured from file mtimes on the
+> 2026-08-10 local run, because the answer is not where you would guess:
+>
+> | Phase | Duration |
+> |---|---|
+> | bring-up (`supabase start` + `db reset` + serve, images already cached) | ~1 min |
+> | seed identities + Tier 2 | ~8 sec |
+> | **ZAP plan** (openapi + 3 spiders + 3 activeScans + requestor + reports) | **9m09s** |
+> | **teardown + baseline diff + REPORT.md** | **~12 min** |
+> | **total** | **22m17s** |
+>
+> Two things worth knowing from that. **The ZAP jobs account for essentially all of
+> ZAP's time** — they sum to 9m01s against a 9m09s span, so there is no meaningful
+> idle between them (an earlier version of this note claimed ~2 hours spent on
+> passive-scan queue draining between jobs; that was wrong on both counts and is
+> corrected here). And **over half the run is cleanup**, not testing: the baseline
+> diff cannot be the cost — the report is 4.5 KB with 2 alerts — which points at
+> `supabase stop` removing 12 containers and their volumes. That last attribution is
+> inferred from the timeline, not directly measured, so treat it as a lead rather
+> than a fact.
+>
+> The app is never the bottleneck: it served 38,960 requests in that window at
+> ~0.03ms each. ZAP generating and evaluating payloads is what costs the 9 minutes.
+>
+> **CI is slower — budget 2-3x.** A hosted runner pulls ~12 Supabase images plus ZAP
+> cold and has weaker CPU, which is why `dast-active.yml` sets a generous
+> `timeout-minutes`. Do not tighten it off one fast local run.
 
 Running it locally needs Docker, mutates the runner's own throwaway local Supabase stack, takes several minutes (isolated bring-up + a curated ZAP scan against ~250 routes across two identities plus an unauth pass). Run this before a release, or after any change to auth/authorization/policy code — that's exactly the class of bug the cross-identity IDOR pass is built to catch.
 
