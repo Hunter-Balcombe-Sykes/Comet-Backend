@@ -497,6 +497,26 @@ class CacheKeyGenerator
     }
 
     /**
+     * Global daily counter for Fresha connects auto-triggered by LinkRouter.
+     * Same shape and reason as the routing-probe global counter above: an
+     * outbound scrape this backend makes on a user's say-so needs a ceiling.
+     */
+    public static function freshaAutoConnectDaily(string $date): string
+    {
+        return 'fresha:auto-connect:daily:'.$date;
+    }
+
+    /**
+     * Salon menu scrape, keyed by URL and NOT by user — two people at the same
+     * salon signing up should cost one scrape, not two. Same reasoning as the
+     * per-URL probe cache below.
+     */
+    public static function freshaMenu(string $url): string
+    {
+        return 'fresha:menu:'.sha1($url);
+    }
+
+    /**
      * Per-URL probe cooldown / result cache. Keyed by the canonical URL and NOT
      * by user — the outbound request is the cost, and two users pasting the
      * same storefront should cost one probe, not two. Mirrors the menu-scrape

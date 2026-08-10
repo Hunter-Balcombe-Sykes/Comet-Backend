@@ -82,7 +82,10 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
         // first-link-per-platform dedupe. A fresh context per link would give
         // every one of a Linktree page's outbound links its own probe budget,
         // turning one page into an unbounded fan-out on the scraping queue.
-        $ctx = new RouteContext;
+        //
+        // Instagram origin one hop in — the bio link was a Linktree, and its
+        // outbound links are still the account holder's own.
+        $ctx = new RouteContext(autoConnectBooking: true);
         $findings = [];
         $seen = 0;
         $ownHostSkipped = 0;

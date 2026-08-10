@@ -259,7 +259,11 @@ class InstagramConnectionSeeder
         // ONE context for the whole list — it carries the per-run commerce probe
         // budget that replaced this class's own MAX_COMMERCE_PROBES counter
         // (signup-v2 C4). Per-link contexts would uncap it.
-        $ctx = new RouteContext;
+        //
+        // Still Instagram origin: these are bio links the main loop could not
+        // classify, re-routed here. A fresh context would default to false and
+        // silently skip auto-connect for them.
+        $ctx = new RouteContext(autoConnectBooking: true);
 
         foreach ($unmatched as $entry) {
             $url = is_array($entry) ? ($entry['url'] ?? null) : null;

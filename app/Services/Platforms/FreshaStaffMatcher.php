@@ -30,23 +30,45 @@ final class FreshaStaffMatcher
     /** Last-name token only — accepted solely when it is unique in the team. */
     private const SCORE_LAST_ONLY = 1;
 
+    /** Score → reportable tier label, for the auto-selection audit trail. */
+    private const TIER_LABELS = [
+        self::SCORE_EXACT => 'exact',
+        self::SCORE_BOTH_TOKENS => 'both-tokens',
+        self::SCORE_LAST_ONLY => 'last-only',
+    ];
+
     /**
      * The employeeId of the single team member confidently identifiable as
      * $user, or null when the name is blank, nothing matches, or the best tier
      * is ambiguous. A first-name-only hit never matches: "Sarah" in a salon of
      * three Sarahs is exactly the wrong person to pre-select.
      *
+     * Unchanged behaviour — delegates to matchWithTier() so there is one algorithm.
+     *
      * @param  list<array<string,mixed>>  $team  FreshaScraper::extractTeam() output
      */
     public function match(User $user, array $team): ?string
     {
+        return $this->matchWithTier($user, $team)['employeeId'];
+    }
+
+    /**
+     * As match(), but also reports WHICH tier fired. The auto-selection path
+     * records this: the tier distribution is the only measurement that lets the
+     * "no tier restriction" decision be revisited on evidence rather than intuition.
+     *
+     * @param  list<array<string,mixed>>  $team  FreshaScraper::extractTeam() output
+     * @return array{employeeId: ?string, tier: ?string}
+     */
+    public function matchWithTier(User $user, array $team): array
+    {
         if ($team === []) {
-            return null;
+            return ['employeeId' => null, 'tier' => null];
         }
 
         $fullName = trim(implode(' ', array_filter([$user->first_name, $user->last_name])));
         if ($fullName === '') {
-            return null;
+            return ['employeeId' => null, 'tier' => null];
         }
 
         $nameLower = mb_strtolower($fullName);
@@ -85,14 +107,17 @@ final class FreshaStaffMatcher
         }
 
         if ($candidates === []) {
-            return null;
+            return ['employeeId' => null, 'tier' => null];
         }
 
         // Best tier wins; a tie inside that tier is ambiguous at EVERY tier,
         // including exact (two "Jane Doe"s on one team — pick neither).
         krsort($candidates);
-        $best = reset($candidates);
+        $bestScore = (int) array_key_first($candidates);
+        $best = $candidates[$bestScore];
 
-        return count($best) === 1 ? $best[0] : null;
+        return count($best) === 1
+            ? ['employeeId' => $best[0], 'tier' => self::TIER_LABELS[$bestScore]]
+            : ['employeeId' => null, 'tier' => null];
     }
 }

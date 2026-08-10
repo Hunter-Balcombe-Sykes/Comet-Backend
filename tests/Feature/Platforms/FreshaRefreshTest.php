@@ -3,8 +3,10 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
+use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
+use App\Services\Platforms\FreshaStaffMatcher;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
@@ -39,7 +41,13 @@ function freshaConn(array $payload, ?User $user = null): IntegrationConnection
 
 function freshaFetchWith(FreshaScraper $scraper): FreshaFetch
 {
-    return new FreshaFetch($scraper, app(FreshaServiceProjector::class));
+    // The selector gets the SAME scraper: resolving it from the container would
+    // hand the self-heal branch a real scraper and make this test reach the network.
+    return new FreshaFetch(
+        $scraper,
+        app(FreshaServiceProjector::class),
+        new FreshaAutoSelector($scraper, app(FreshaStaffMatcher::class), app(FreshaServiceProjector::class)),
+    );
 }
 
 function freshaService(string $id, string $name, ?string $price = '$50'): array

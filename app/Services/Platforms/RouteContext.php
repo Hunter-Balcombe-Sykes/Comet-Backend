@@ -76,7 +76,21 @@ final class RouteContext
     /** Probes NOT spent because this website was already probed this run. */
     private int $sitesDeduped = 0;
 
-    public function __construct(public readonly int $maxProbes = self::DEFAULT_MAX_PROBES) {}
+    /**
+     * True when this run originated from a scrape of the user's OWN Instagram —
+     * the only origin allowed to auto-connect a booking platform on their behalf.
+     *
+     * LinkRouter::route() carries no origin parameter and seedBooking genuinely
+     * cannot tell its four callers apart, so the decision is made where the
+     * context is built. Defaults FALSE: an unmarked call site silently does not
+     * auto-connect, which is the safe direction to fail. NOT derivable from
+     * payload.source — resolveWrite() hardcodes 'instagram' for every caller,
+     * including a dashboard paste.
+     */
+    public function __construct(
+        public readonly int $maxProbes = self::DEFAULT_MAX_PROBES,
+        public readonly bool $autoConnectBooking = false,
+    ) {}
 
     /**
      * Claim one probe from this run's budget. False when the budget is spent —

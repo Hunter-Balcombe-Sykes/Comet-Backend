@@ -4,6 +4,7 @@ namespace App\Services\Platforms\Strategies\Fetch;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Payloads\SelectionPayload;
@@ -26,6 +27,7 @@ final readonly class FreshaFetch implements FetchStrategy
     public function __construct(
         private FreshaScraper $scraper,
         private FreshaServiceProjector $projector,
+        private FreshaAutoSelector $autoSelector,
     ) {}
 
     public function fetch(IntegrationConnection $connection): array
@@ -34,7 +36,38 @@ final readonly class FreshaFetch implements FetchStrategy
         $url = $payload->url;
         $selection = $payload->selection?->toArray();
 
-        if (! $url || ! is_array($selection)) {
+        if (! $url) {
+            throw new FetchNotModifiedException('fresha');
+        }
+
+        // SELF-HEAL: a selection-less row is normally "waiting for the user's
+        // picker" and correctly 304s. An AUTO row has no picker and no human —
+        // if its ConnectFetchJob failed, markTerminal left last_refreshed_at
+        // unset, so this sweep picks the row up, 304s it, and
+        // PlatformRefresher::recordNotModified writes it back to 'ok'. The row
+        // then looks healthy, is serviceless, and is never re-fetched. Repair it
+        // here instead. connectMode survives on failure precisely because
+        // markTerminal never touches payload.
+        if (! is_array($selection) && ($connection->payload['connectMode'] ?? null) === 'auto') {
+            $user = User::query()->find($connection->user_id);
+            if ($user === null) {
+                throw new FetchNotModifiedException('fresha');
+            }
+
+            $menu = $this->scraper->fetchMenu($url);
+            if ($menu['services'] === []) {
+                throw new FetchUnavailableException('fresha_no_services');
+            }
+
+            $chosen = $this->autoSelector->select($user, $menu, $url);
+            $next = $connection->payload;
+            unset($next['connectMode']);
+
+            return [...$next, 'url' => $url, 'selection' => $chosen['selection'],
+                'matchTier' => $chosen['matchTier'], 'raw' => ['services' => $chosen['raw']]];
+        }
+
+        if (! is_array($selection)) {
             throw new FetchNotModifiedException('fresha');
         }
 

@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
@@ -507,8 +508,12 @@ trait BuildsAutoSyncFindings
     protected function resolveWrite(string $platform, string $url): array
     {
         if ($platform === Platform::Fresha->value) {
+            // Canonicalise here, not at the call site: this trait is shared by
+            // three classes with unrelated constructors, and a per-class override
+            // is exactly what once made LinkRouter write username:'' for every
+            // Facebook link (see socialUsername below).
             return ['platform' => $platform, 'resourceId' => $platform, 'payload' => [
-                'url' => $url, 'selection' => null, 'source' => 'instagram',
+                'url' => app(FreshaScraper::class)->canonicalUrl($url), 'selection' => null, 'source' => 'instagram',
             ]];
         }
         if ($platform === Platform::Square->value) {

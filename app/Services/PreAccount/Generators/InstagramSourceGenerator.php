@@ -10,8 +10,8 @@ use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ProfileFetchFailure;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
+use App\Services\Profile\PersonNameParser;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
 
 // Builds a provisional user's site from a typed Instagram handle by reusing the
 // EXACT connect machinery an authenticated user gets: a pending IntegrationConnection
@@ -80,6 +80,28 @@ class InstagramSourceGenerator implements SiteSourceGenerator
             ],
         );
 
+        // Scraped identity onto the user row (spec §4): placeholder → real values.
+        // Read BOTH field shapes, as InstagramConnector and InstagramConnectionSeeder
+        // already do: actors drift between camelCase and Instagram's raw GraphQL
+        // snake_case, and reading only one silently leaves display_name as the
+        // placeholder handle (live from ~2026-07-21 until 2026-08-10).
+        //
+        // ORDERING IS LOAD-BEARING: this must run BEFORE seed(), because seed()
+        // routes the bio links (InstagramAutoSync → LinkRouter) and dispatches the
+        // Fresha auto-connect, and FreshaStaffMatcher reads first_name/last_name off
+        // this row. Folded after seed(), the matcher reads nulls and every account
+        // silently falls through to the storewide menu — the feature would look
+        // implemented and do nothing. Under QUEUE_CONNECTION=sync that is not a race,
+        // it is deterministic.
+        $fullName = trim((string) (data_get($profile, 'fullName') ?? data_get($profile, 'full_name')));
+        if ($fullName !== '') {
+            $parsed = PersonNameParser::parse($fullName);
+            $user->display_name = $parsed['displayName'];
+            $user->first_name = $parsed['firstName'];
+            $user->last_name = $parsed['lastName'];
+            $user->save();
+        }
+
         try {
             $this->seeder->seed($connection, $sourceRef, $user->id, $profile);
         } catch (\Throwable $e) {
@@ -100,16 +122,5 @@ class InstagramSourceGenerator implements SiteSourceGenerator
             'payload' => Arr::except($connection->payload, ['bioLinks', 'syncFindings', 'unmatched']),
         ])->saveQuietly();
 
-        // Scraped identity onto the user row (spec §4): placeholder → real values.
-        // Read BOTH field shapes, as InstagramConnector and InstagramConnectionSeeder
-        // already do: actors drift between camelCase and Instagram's raw GraphQL
-        // snake_case, and reading only one silently leaves display_name as the
-        // placeholder handle (live from ~2026-07-21 until 2026-08-10).
-        $fullName = trim((string) (data_get($profile, 'fullName') ?? data_get($profile, 'full_name')));
-        if ($fullName !== '') {
-            $user->display_name = $fullName;
-            $user->first_name = Str::before($fullName, ' ') ?: $fullName;
-            $user->save();
-        }
     }
 }

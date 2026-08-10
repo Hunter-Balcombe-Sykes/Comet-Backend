@@ -22,12 +22,16 @@ use App\Services\Platforms\InstagramAutoSync;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // A Fresha bio link now auto-dispatches ConnectFetchJob, and QUEUE_CONNECTION
+    // =sync runs it INLINE — without this the seed below scrapes fresha.com for real.
+    Http::fake();
 });
 
 /** partna account_type — can_use_booking is universal (2026-07-15 sector gating never restricts partna), google_business_full_sync is false so GB::seed() runs ONLY seedBooking (no reservation/ordering/socials queries to muddy the query-listen probes below). */

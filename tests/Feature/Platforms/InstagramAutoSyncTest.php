@@ -4,6 +4,7 @@ use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramAutoSync;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -15,6 +16,9 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // A Fresha bio link now auto-dispatches ConnectFetchJob, and QUEUE_CONNECTION
+    // =sync runs it INLINE — without this the seed below scrapes fresha.com for real.
+    Http::fake();
 });
 
 // Defaults to a Business Partna because the social-seed assertions below cover
