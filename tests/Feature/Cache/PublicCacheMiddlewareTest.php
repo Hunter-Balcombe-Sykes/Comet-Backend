@@ -196,6 +196,45 @@ it('a conditional GET on site-by-slug returns 304 still carrying Vary: X-Site-Su
     expect((string) $second->headers->get('Vary', ''))->toContain('X-Site-Subdomain');
 });
 
+/**
+ * The same ordering hazard as the 304 guard above, now for stale-while-revalidate.
+ * AddETagHeaders unwinds first and converts the response to 304 before
+ * AddPublicCacheHeaders runs, so a directive emitted only on 200s is silently
+ * dropped on every revalidation — and RFC 9111 lets a shared cache update the
+ * stored entry's headers from a 304, so that dropped directive un-does itself for
+ * the whole stored entry. A unit test cannot catch this: in isolation the
+ * middleware is correct, and the ordering only exists in the real pipeline.
+ */
+it('carries stale-while-revalidate on a 304 revalidation, not just the 200', function () {
+    config(['partna.cache.public_max_age' => 30, 'partna.cache.public_swr' => 60]);
+
+    $subdomain = 'test-swr-304-'.Str::random(6);
+    prewarmSiteCache($subdomain);
+
+    // First request establishes the validator.
+    $first = $this
+        ->withHeader('X-Site-Subdomain', $subdomain)
+        ->getJson('/api/public/site-by-slug');
+    $first->assertOk();
+    expect((string) $first->headers->get('Cache-Control', ''))
+        ->toContain('stale-while-revalidate=60');
+
+    $etag = (string) $first->headers->get('ETag', '');
+    expect($etag)->not->toBe('');
+
+    $second = $this
+        ->withHeader('X-Site-Subdomain', $subdomain)
+        ->withHeader('If-None-Match', $etag)
+        ->getJson('/api/public/site-by-slug');
+
+    $second->assertStatus(304);
+
+    $cacheControl = (string) $second->headers->get('Cache-Control', '');
+    expect($cacheControl)->toContain('stale-while-revalidate=60')
+        ->toContain('s-maxage=30')
+        ->toContain('public');
+});
+
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
