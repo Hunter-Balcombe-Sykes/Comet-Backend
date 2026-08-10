@@ -64,9 +64,24 @@ scripts/dast/run.sh --only edge
 
 **Active lane** — Docker required. Also runs in CI via `.github/workflows/dast-active.yml` (added 2026-08-10): weekly Sunday **04:00 UTC**, on `workflow_dispatch`, and **non-blocking** on pull requests touching `app/Policies/**`, `app/Http/Middleware/Auth/**`, `routes/api/**`, `supabase/migrations/**` or `scripts/dast/**`. It is deliberately **not a required check** — `supabase start` is documented-flaky (`bring-up.sh` retries 3×), and a flaky required gate trains people to bypass gates.
 
-> **⚠️ The lane has NOT yet completed a green run on a hosted runner.** Two
-> pre-existing bugs in `bring-up.sh`'s *failure* path were found by trying, and both
-> were invisible while the lane was manual-and-macOS-only:
+> **The active lane needs a running Redis, and until 2026-08-10 nothing said so.**
+> `bring-up.sh` sets `CACHE_STORE`/`SESSION_DRIVER=array` and `QUEUE_CONNECTION=sync`,
+> which reads as "this lane needs no Redis" — and is true for cache, sessions and
+> jobs. It is **not** true for auth: `TokenRevocationService` writes its
+> `auth:revoked-session:` / `auth:user-sessions:` keyspace on the `app` connection
+> for every authenticated request, and that path fails closed. `.env.dast` inherits
+> `REDIS_HOST=127.0.0.1` from `.env.example` and `bring-up.sh` overrides nothing, so
+> on a developer machine it silently borrows whatever Redis is already running.
+>
+> Without one, the symptoms name the wrong thing entirely: `require.aal2` on
+> `/api/staff/me` returns **503 "Service temporarily unavailable"** instead of 401,
+> and the Tier 2 claim race reports **zero winners** — which read as an auth
+> regression and a broken lock respectively. Both are just a missing Redis.
+> `dast-active.yml` now runs one as a service container.
+
+> **⚠️ The lane has NOT yet completed a green run on a hosted runner.** Several
+> pre-existing bugs were found by trying, every one of them invisible while the lane
+> was manual-and-macOS-only:
 >
 > 1. **`ZAP_TARGET_LOCAL: unbound variable`** — `scripts/dast/.env` does not exist on a
 >    runner, and `${VAR##*:}` on an unset var under `set -u` errors on bash 4.4+/5 but
