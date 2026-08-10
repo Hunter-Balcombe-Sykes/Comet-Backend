@@ -87,7 +87,16 @@ class AddPublicCacheHeaders
                 if (str_starts_with($path, $prefix)) {
                     // CFG-3: CDN/edge TTL is config-driven (default 15 min) — tunable without a redeploy.
                     $maxAge = (int) config('partna.cache.public_max_age', 900);
-                    $response->headers->set('Cache-Control', "public, max-age={$maxAge}, s-maxage={$maxAge}");
+                    $directives = ['public', "max-age={$maxAge}", "s-maxage={$maxAge}"];
+
+                    // 0 omits the directive rather than emitting `stale-while-revalidate=0`,
+                    // which is a valid but meaningless header that would still be a wire change.
+                    $swr = (int) config('partna.cache.public_swr', 0);
+                    if ($swr > 0) {
+                        $directives[] = "stale-while-revalidate={$swr}";
+                    }
+
+                    $response->headers->set('Cache-Control', implode(', ', $directives));
                     // Vary tokens are prefix-specific — see VARY_BY_PREFIX above.
                     $this->mergeVary($response, self::VARY_BY_PREFIX[$prefix] ?? self::DEFAULT_VARY);
                     if (! $response->headers->has('X-Cache-Status')) {

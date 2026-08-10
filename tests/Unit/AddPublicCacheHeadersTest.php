@@ -164,3 +164,27 @@ it('omits stale-while-revalidate when the config value is 0', function () {
     expect($response->headers->get('Cache-Control'))
         ->toBe('max-age=30, public, s-maxage=30');
 });
+
+it('appends stale-while-revalidate when the config value is positive', function () {
+    config(['partna.cache.public_max_age' => 30, 'partna.cache.public_swr' => 60]);
+
+    $request = Request::create('/api/public/profiles/someone', 'GET');
+
+    $middleware = new AddPublicCacheHeaders;
+    $response = $middleware->handle($request, fn () => new Response('{}', 200));
+
+    expect($response->headers->get('Cache-Control'))
+        ->toBe('max-age=30, public, s-maxage=30, stale-while-revalidate=60');
+});
+
+it('applies stale-while-revalidate to site-by-slug as well as profiles', function () {
+    config(['partna.cache.public_max_age' => 30, 'partna.cache.public_swr' => 60]);
+
+    $request = Request::create('/api/public/site-by-slug', 'GET');
+
+    $middleware = new AddPublicCacheHeaders;
+    $response = $middleware->handle($request, fn () => new Response('{}', 200));
+
+    expect((string) $response->headers->get('Cache-Control', ''))
+        ->toContain('stale-while-revalidate=60');
+});
