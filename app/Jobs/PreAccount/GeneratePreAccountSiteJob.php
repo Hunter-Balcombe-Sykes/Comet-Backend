@@ -89,7 +89,16 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
         $build->forceFill(['build_state' => PreAccountBuild::STATE_BUILDING])->save();
 
         try {
-            $registry->for($build->source_type)->generate($user, $site, $build->source_ref);
+            // Auto-connect a discovered booking menu ONLY for a staff/ManyChat
+            // build. Read off built_by_staff_id rather than the $publish flag:
+            // publish is a presentation choice that could change, whereas
+            // "a staff member built this for someone who is not here" is exactly
+            // the condition that makes a picker impossible. A public site-first
+            // signup has the person on the other end of the request and the
+            // frontend asks them to pick, same as the dashboard.
+            $registry->for($build->source_type)->generate(
+                $user, $site, $build->source_ref, $build->built_by_staff_id !== null,
+            );
         } catch (SourceGenerationException $e) {
             // SEC-4: build_state/failure_code are no longer fillable — forceFill so a
             // dropped write can't silently strand this build in the wrong state.

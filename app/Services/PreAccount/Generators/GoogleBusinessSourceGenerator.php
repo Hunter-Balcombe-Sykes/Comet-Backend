@@ -48,7 +48,10 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
         return $sourceName ?: 'business';
     }
 
-    public function generate(User $user, Site $site, string $sourceRef): void
+    // $autoConnectBooking is handed to GoogleBusinessEnrichJob, which is where
+    // this source's booking link is actually resolved (GoogleBusinessAutoSync
+    // has its own seedBooking and never touches LinkRouter).
+    public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
     {
         try {
             $details = $this->service->fetchPlaceDetails($sourceRef, (string) $user->id);
@@ -130,6 +133,6 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
             }
         }
 
-        GoogleBusinessEnrichJob::dispatch((string) $user->id, $sourceRef);
+        GoogleBusinessEnrichJob::dispatch((string) $user->id, $sourceRef, $autoConnectBooking);
     }
 }

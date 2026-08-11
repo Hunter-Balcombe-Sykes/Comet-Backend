@@ -68,11 +68,17 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
     // payload — and fatal on read in handle(). Defaults false: see handle().
     public bool $notifyOnConnect = false;
 
+    // $autoConnectBooking: TRUE only when a staff/ManyChat build reached this
+    // scrape (today, via a Google listing that carries an Instagram link). The
+    // dashboard connect and the refresh sweep both leave it at FALSE so the
+    // account holder is shown a picker instead. NOT part of uniqueId() below:
+    // origin does not make two scrapes of one connection different jobs.
     public function __construct(
         public readonly string $userId,
         public readonly string $username,
         public readonly string $connectionId,
         bool $notifyOnConnect = false,
+        public readonly bool $autoConnectBooking = false,
     ) {
         $this->notifyOnConnect = $notifyOnConnect;
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
@@ -133,7 +139,7 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         // Mirror + selection-build + auto-sync + row-update all live in the
         // seeder — the same pipeline PreAccount\InstagramSourceGenerator reuses
         // for pre-account (site-first) builds.
-        $seeder->seed($connection, $this->username, $this->userId, $profile);
+        $seeder->seed($connection, $this->username, $this->userId, $profile, $this->autoConnectBooking);
 
         // Bell only for a dispatcher that means "the user just added this" — never
         // GoogleBusinessAutoSync (runs for an UNCLAIMED pre-account build, whose

@@ -47,8 +47,16 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
     // worker killed mid-job (OOM, deploy, timeout) would strand that lock forever.
     public int $uniqueFor = 300;
 
-    public function __construct(public readonly string $userId, public readonly string $bioPageUrl)
-    {
+    // $autoConnectBooking rides in from InstagramAutoSync so an aggregator page
+    // one hop in behaves like the flow that found it. Deliberately NOT part of
+    // uniqueId() below: two scans of the same page for the same user are the
+    // same job whatever their origin, and keying on it would let a staff build
+    // and a dashboard connect run concurrently against one bio page.
+    public function __construct(
+        public readonly string $userId,
+        public readonly string $bioPageUrl,
+        public readonly bool $autoConnectBooking = false,
+    ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 
@@ -83,9 +91,8 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
         // every one of a Linktree page's outbound links its own probe budget,
         // turning one page into an unbounded fan-out on the scraping queue.
         //
-        // Instagram origin one hop in — the bio link was a Linktree, and its
-        // outbound links are still the account holder's own.
-        $ctx = new RouteContext(autoConnectBooking: true);
+        // Inherited from the flow that dispatched this scan — see the constructor.
+        $ctx = new RouteContext(autoConnectBooking: $this->autoConnectBooking);
         $findings = [];
         $seen = 0;
         $ownHostSkipped = 0;

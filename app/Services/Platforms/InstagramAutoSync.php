@@ -59,7 +59,7 @@ class InstagramAutoSync
      * @param  list<mixed>  $bioLinks  raw bio links (InstagramScraper::bioLinks() output — defensively typed here too)
      * @return array{findings: list<array<string,mixed>>, unmatched: list<array<string,mixed>>}
      */
-    public function seed(string $userId, array $bioLinks): array
+    public function seed(string $userId, array $bioLinks, bool $autoConnectBooking = false): array
     {
         // Dominant case today: the Apify actor returns no bio fields at all, so
         // the connect job calls this with []. Skip the user lookup entirely.
@@ -76,9 +76,11 @@ class InstagramAutoSync
         // dedupe and the commerce probe budget across every link below. A
         // per-link instance would disable both.
         //
-        // Instagram origin: these are the account holder's own bio links, so a
-        // discovered booking platform may be auto-connected on their behalf.
-        $ctx = new RouteContext(autoConnectBooking: true);
+        // Origin comes from the CALLER, not from being Instagram: a bio link is
+        // the account holder's own either way, but only a staff/ManyChat build
+        // has nobody present to answer "whose menu is this?". Every other origin
+        // shows them a picker, so hardcoding true here would pre-empt it.
+        $ctx = new RouteContext(autoConnectBooking: $autoConnectBooking);
 
         foreach ($bioLinks as $url) {
             if (! is_string($url) || trim($url) === '') {
@@ -94,7 +96,7 @@ class InstagramAutoSync
                     // its own fetch can be slow or JS-heavy and would risk
                     // blowing InstagramConnectJob's timeout inline. Nothing
                     // about the bio-link URL itself is persisted.
-                    LinkInBioScanJob::dispatch($userId, $url);
+                    LinkInBioScanJob::dispatch($userId, $url, $autoConnectBooking);
 
                     continue;
                 }

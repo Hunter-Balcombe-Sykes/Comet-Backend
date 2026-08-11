@@ -2,10 +2,12 @@
 
 namespace App\Services\Platforms\Concerns;
 
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\DailyCounterClaim;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -503,6 +505,78 @@ trait BuildsAutoSyncFindings
     // value, so private-vs-protected alone is "incompatible" and fatals at class
     // composition. resolveBookingLink() below uses BOOKING_SLOT_PLATFORMS, which
     // is already exactly the XOR set {fresha, square, booking} it needs.
+
+    /**
+     * Resolve the Fresha row just written and hand it to ConnectFetchJob.
+     *
+     * Lives in the trait because BOTH producers need it: LinkRouter (Instagram
+     * bio links) and GoogleBusinessAutoSync (a booking link on a Google
+     * listing). They reach a seeded Fresha row by completely different routes —
+     * LinkRouter through routeClassified, GB through its own seedBooking — so a
+     * copy in each is exactly the drift the trait exists to prevent.
+     *
+     * Re-queried rather than threaded back through write()/RouteResult:
+     * widening those return types to carry an id is blast radius this is scoped
+     * to avoid, and one indexed lookup is cheaper than that coupling.
+     *
+     * connectMode is stamped HERE, not in resolveWrite(), because resolveWrite
+     * is shared with origins that must not be marked auto.
+     */
+    protected function dispatchAutoBookingConnect(string $userId): void
+    {
+        if (! $this->claimAutoBookingBudget()) {
+            return;
+        }
+
+        $row = IntegrationConnection::query()
+            ->where('user_id', $userId)
+            ->where('platform', Platform::Fresha->value)
+            ->first();
+
+        if ($row === null) {
+            return;
+        }
+
+        $row->forceFill(['payload' => [...$row->payload, 'connectMode' => 'auto']])->saveQuietly();
+
+        ConnectFetchJob::dispatch((string) $row->id, Platform::Fresha->value, systemInitiated: true)->afterCommit();
+    }
+
+    /**
+     * Install-wide daily ceiling on auto-triggered salon scrapes.
+     *
+     * Mirrors partna.routing.probe's global_daily_cap and exists for the same
+     * reason: an unbounded outbound request the backend makes on a user's say-so
+     * is a reliability risk to us and an amplification vector aimed at someone
+     * else. Shared by both producers, so the ceiling is genuinely install-wide
+     * rather than one budget per discovery route.
+     *
+     * Claims through DailyCounterClaim rather than a private counter, for the
+     * reason its docblock gives: a hand-rolled `Cache::add` + `increment` is two
+     * round trips, and if the key expires between them INCRBY recreates it with
+     * NO TTL — permanent inevictable ballast under instance-wide volatile-lru.
+     *
+     * Fails OPEN on a cache outage: losing the ceiling is a smaller harm than
+     * silently stopping every signup from connecting its booking menu.
+     */
+    protected function claimAutoBookingBudget(): bool
+    {
+        $cap = (int) config('partna.connect.auto_booking.global_daily_cap', 500);
+
+        try {
+            if (! DailyCounterClaim::claim(CacheKeyGenerator::freshaAutoConnectDaily(now()->format('Y-m-d')), $cap)) {
+                Log::warning('fresha.auto_connect.daily_cap_reached', ['cap' => $cap]);
+
+                return false;
+            }
+
+            return true;
+        } catch (\Throwable $e) {
+            report($e);
+
+            return true;
+        }
+    }
 
     /** @return array{platform:string, resourceId:string, payload:array<string,mixed>} */
     protected function resolveWrite(string $platform, string $url): array

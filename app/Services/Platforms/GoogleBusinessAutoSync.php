@@ -65,7 +65,11 @@ class GoogleBusinessAutoSync
      * @param  array<string,mixed>|null  $gbPayload  the Google Business connection payload (Place Details: category / website / editorialSummary) for the workplace seed
      * @return list<array<string,mixed>> the per-connect findings (see class doc)
      */
-    public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null): array
+    // $autoConnectBooking: TRUE only on a staff/ManyChat build, where nobody is
+    // present to answer "whose menu is this?". Defaults FALSE so the dashboard
+    // Google-Business connect and the public site-first signup keep showing the
+    // account holder a picker.
+    public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null, bool $autoConnectBooking = false): array
     {
         $findings = [];
 
@@ -87,7 +91,7 @@ class GoogleBusinessAutoSync
         // gating — replaces the old unconditional "everyone books" seed).
         // Independent of the Business-Partna block below — partna keeps this.
         if ($capabilities->can_use_booking) {
-            $findings = [...$findings, ...$this->seedBooking($userId, $enrichment, $businessName)];
+            $findings = [...$findings, ...$this->seedBooking($userId, $enrichment, $businessName, $autoConnectBooking)];
         }
 
         // Reservations / online-ordering / workplace / socials are a Business-Partna
@@ -107,7 +111,7 @@ class GoogleBusinessAutoSync
             $findings = [...$findings, ...$this->seedOrdering($userId, $enrichment)];
         }
         $this->seedWorkplace($userId, $gbPayload ?? []);
-        $findings = [...$findings, ...$this->seedSocials($userId, $enrichment)];
+        $findings = [...$findings, ...$this->seedSocials($userId, $enrichment, $autoConnectBooking)];
 
         return $findings;
     }
@@ -244,7 +248,7 @@ class GoogleBusinessAutoSync
     // ── booking ──────────────────────────────────────────────────
 
     /** @return list<array<string,mixed>> */
-    private function seedBooking(string $userId, array $enrichment, ?string $businessName): array
+    private function seedBooking(string $userId, array $enrichment, ?string $businessName, bool $autoConnectBooking = false): array
     {
         try {
             // Pure — no DB — so it stays outside the lock below.
@@ -267,7 +271,7 @@ class GoogleBusinessAutoSync
             // this is a best-effort auto-sync, not a user-initiated write, so a
             // dropped seed under contention is safe (the outer try/catch below
             // still applies to whatever the closure itself throws).
-            return $this->withBookingXorLock($userId, function () use ($userId, $write, $label) {
+            $findings = $this->withBookingXorLock($userId, function () use ($userId, $write, $label) {
                 if (collect(self::BOOKING_PLATFORMS)->contains(fn ($p) => $this->has($userId, $p))) {
                     return [$this->conflictFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write), [
                         'remove' => self::BOOKING_PLATFORMS,
@@ -279,6 +283,20 @@ class GoogleBusinessAutoSync
 
                 return [$this->seededFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write))];
             }, []);
+
+            // Auto-connect the menu, on the same terms as the Instagram side:
+            // only a real seed (a conflict or lock contention wrote nothing to
+            // fetch for), only Fresha, only a marked origin, only with the kill
+            // switch on.
+            if ($autoConnectBooking
+                && $write['platform'] === Platform::Fresha->value
+                && ($findings[0]['outcome'] ?? null) === 'seeded'
+                && (bool) config('partna.connect.auto_booking.enabled', true)
+            ) {
+                $this->dispatchAutoBookingConnect($userId);
+            }
+
+            return $findings;
         } catch (Throwable $e) {
             report($e);
 
@@ -303,8 +321,13 @@ class GoogleBusinessAutoSync
 
         $provider = $this->detector->detectFor('booking', $url);
         if ($provider === Platform::Fresha->value) {
+            // Canonicalise to /a/<slug>, exactly as resolveWrite() does for the
+            // Instagram side. Google listings carry the same share-URL shape
+            // (/book-now/<slug>/all-offer), and slugFromUrl() only understands
+            // /a/<slug> — stored raw, the auto-selection's employee leg is
+            // impossible and every match silently degrades to storewide.
             return ['platform' => Platform::Fresha->value, 'resourceId' => Platform::Fresha->value, 'payload' => [
-                'url' => $url, 'selection' => null, 'source' => 'google-business',
+                'url' => app(FreshaScraper::class)->canonicalUrl($url), 'selection' => null, 'source' => 'google-business',
             ]];
         }
         if ($provider === Platform::Square->value) {
@@ -565,7 +588,7 @@ class GoogleBusinessAutoSync
     // ── socials ──────────────────────────────────────────────────
 
     /** @return list<array<string,mixed>> */
-    private function seedSocials(string $userId, array $enrichment): array
+    private function seedSocials(string $userId, array $enrichment, bool $autoConnectBooking = false): array
     {
         $socials = data_get($enrichment, 'socials');
         if (! is_array($socials)) {
@@ -601,7 +624,7 @@ class GoogleBusinessAutoSync
 
         try {
             $igUrl = $this->safeUrl(data_get($socials, 'instagram'));
-            $igFinding = $this->seedInstagram($userId, $igUrl);
+            $igFinding = $this->seedInstagram($userId, $igUrl, $autoConnectBooking);
             if ($igFinding !== null) {
                 $findings[] = $igFinding;
             }
@@ -613,7 +636,7 @@ class GoogleBusinessAutoSync
     }
 
     /** @return array<string,mixed>|null */
-    private function seedInstagram(string $userId, ?string $url): ?array
+    private function seedInstagram(string $userId, ?string $url, bool $autoConnectBooking = false): ?array
     {
         if ($url === null || ! preg_match('~instagram\.com/([A-Za-z0-9._]+)~i', $url, $m)) {
             return null;
@@ -629,7 +652,7 @@ class GoogleBusinessAutoSync
             ]);
         }
 
-        if (! $this->dispatchInstagram($userId, $username)) {
+        if (! $this->dispatchInstagram($userId, $username, $autoConnectBooking)) {
             return null;   // no Apify token / budget exhausted — nothing seeded, no card
         }
 
@@ -641,7 +664,7 @@ class GoogleBusinessAutoSync
      * Returns false when there's no token, the daily budget is spent, or the
      * platform seed lock timed out (skip: no card, no dispatch).
      */
-    private function dispatchInstagram(string $userId, string $username): bool
+    private function dispatchInstagram(string $userId, string $username, bool $autoConnectBooking = false): bool
     {
         if (! config('services.apify.token') || ! $this->apifyBudget->tryClaim('instagram')) {
             return false;
@@ -672,7 +695,7 @@ class GoogleBusinessAutoSync
             return false;   // lock timeout — skip: no card, no dispatch
         }
 
-        InstagramConnectJob::dispatch($userId, $username, $connection->id);
+        InstagramConnectJob::dispatch($userId, $username, $connection->id, autoConnectBooking: $autoConnectBooking);
 
         return true;
     }

@@ -71,9 +71,14 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
 
     private const APIFY_RESULT_TTL = 1800;
 
+    // $autoConnectBooking rides in from the staff/ManyChat build path. NOT part
+    // of uniqueId() below: two enriches of the same place for the same user are
+    // the same job whatever their origin, and keying on it would let a staff
+    // build and a dashboard connect run concurrently against one listing.
     public function __construct(
         public readonly string $userId,
         public readonly string $placeId,
+        public readonly bool $autoConnectBooking = false,
     ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
@@ -222,6 +227,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
             $enrichment,
             $gbp->name(),
             $gbp->toArray(),
+            $this->autoConnectBooking,
         );
 
         // LIFE-10: write behind the per-user/platform lock, rebuilding the

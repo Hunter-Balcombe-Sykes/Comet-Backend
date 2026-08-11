@@ -72,7 +72,10 @@ class InstagramConnectionSeeder
      *
      * @return array<string, mixed>
      */
-    public function seed(IntegrationConnection $connection, string $username, string $userId, array $profile): array
+    // $autoConnectBooking: TRUE only on a staff/ManyChat build. Defaults FALSE so
+    // the dashboard connect and refresh call sites below stay byte-identical and
+    // keep showing the account holder a picker.
+    public function seed(IntegrationConnection $connection, string $username, string $userId, array $profile, bool $autoConnectBooking = false): array
     {
         $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
 
@@ -199,7 +202,7 @@ class InstagramConnectionSeeder
         // Best-effort: InstagramAutoSync isolates each link in its own try/catch,
         // so a bad link can't fail this job. Findings persist alongside the profile
         // in ONE write (not a follow-up save) so /synced never sees a half-written row.
-        $sync = $this->autoSync->seed($userId, $bioLinks);
+        $sync = $this->autoSync->seed($userId, $bioLinks, $autoConnectBooking);
         $selection['syncFindings'] = $sync['findings'];
         $selection['unmatched'] = $sync['unmatched'];
 
@@ -209,7 +212,7 @@ class InstagramConnectionSeeder
         $user = User::find($userId);
         if ($user !== null) {
             $this->identitySync->applyIdentity($user, $profile);
-            $this->autoSaveUnmatchedLinks($user, $sync['unmatched']);
+            $this->autoSaveUnmatchedLinks($user, $sync['unmatched'], $autoConnectBooking);
         }
 
         // PWL-7 (job/seeder half): the media mirroring + auto-sync + identity-sync
@@ -250,7 +253,7 @@ class InstagramConnectionSeeder
     }
 
     /** @param  list<array<string,mixed>>  $unmatched */
-    private function autoSaveUnmatchedLinks(User $user, array $unmatched): void
+    private function autoSaveUnmatchedLinks(User $user, array $unmatched, bool $autoConnectBooking = false): void
     {
         // LinkRouter (inside CustomLinkSeeder::seed()) handles classification,
         // routing, commerce probes, and custom-link fallback. The re-classify
@@ -260,10 +263,11 @@ class InstagramConnectionSeeder
         // budget that replaced this class's own MAX_COMMERCE_PROBES counter
         // (signup-v2 C4). Per-link contexts would uncap it.
         //
-        // Still Instagram origin: these are bio links the main loop could not
-        // classify, re-routed here. A fresh context would default to false and
-        // silently skip auto-connect for them.
-        $ctx = new RouteContext(autoConnectBooking: true);
+        // Inherits the caller's origin: these are bio links the main loop could
+        // not classify, re-routed here, so they auto-connect exactly when the
+        // links they arrived with did. Hardcoding true here would auto-connect
+        // them for a dashboard connect too, where a picker is coming.
+        $ctx = new RouteContext(autoConnectBooking: $autoConnectBooking);
 
         foreach ($unmatched as $entry) {
             $url = is_array($entry) ? ($entry['url'] ?? null) : null;

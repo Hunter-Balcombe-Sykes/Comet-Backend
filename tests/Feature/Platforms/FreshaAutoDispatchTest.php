@@ -4,6 +4,7 @@ use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\RouteContext;
 use Illuminate\Support\Facades\Cache;
@@ -83,22 +84,63 @@ it('counts each dispatch against the daily cap', function () use ($freshaUrl) {
     expect((int) Cache::get(CacheKeyGenerator::freshaAutoConnectDaily(now()->format('Y-m-d'))))->toBe(1);
 });
 
+it('auto-connects through InstagramAutoSync only when the caller marks the origin', function (bool $marked, bool $expectDispatch) use ($freshaUrl) {
+    // The whole flow distinction in one assertion: a staff/ManyChat build passes
+    // true, every other Instagram origin takes the false default and leaves the
+    // menu choice to the picker.
+    $user = User::factory()->create(['account_type' => 'partna']);
+
+    app(InstagramAutoSync::class)->seed((string) $user->id, [$freshaUrl], $marked);
+
+    $expectDispatch
+        ? Queue::assertPushed(ConnectFetchJob::class)
+        : Queue::assertNotPushed(ConnectFetchJob::class);
+})->with([
+    'staff build (marked)' => [true, true],
+    'public signup / dashboard / refresh (unmarked)' => [false, false],
+]);
+
+it('still seeds the fresha link itself when auto-connect is off', function () use ($freshaUrl) {
+    // Not auto-connecting must not mean "drop the link" — the row is still
+    // written with selection:null so the frontend picker has a URL to work from,
+    // and it is canonical so GET /platforms/fresha/team can resolve the slug.
+    $user = User::factory()->create(['account_type' => 'partna']);
+
+    app(InstagramAutoSync::class)->seed((string) $user->id, [$freshaUrl], false);
+
+    $payload = IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
+
+    expect($payload['url'])->toBe('https://www.fresha.com/a/anseo-studio-v0v92jna')
+        ->and($payload['selection'])->toBeNull()
+        ->and($payload)->not->toHaveKey('connectMode');
+});
+
 it('claims the daily cap through DailyCounterClaim, not a private counter', function () {
     // GS-1 forbids raw Cache::add/remember outside the cache services, and the
     // hand-rolled `add() then increment()` form this replaced is the exact
     // defect DailyCounterClaim was extracted to close: if the key expires
     // between the two round trips, INCRBY recreates it with NO TTL, which under
     // instance-wide volatile-lru is permanent inevictable ballast.
-    $source = file_get_contents(base_path('app/Services/Platforms/LinkRouter.php'));
+    //
+    // Asserted against the TRAIT, which is where the counter lives now that both
+    // LinkRouter and GoogleBusinessAutoSync claim from one install-wide ceiling.
+    $trait = file_get_contents(base_path('app/Services/Platforms/Concerns/BuildsAutoSyncFindings.php'));
 
     $this->assertStringContainsString(
         'DailyCounterClaim::claim(CacheKeyGenerator::freshaAutoConnectDaily(',
-        $source,
+        $trait,
         'The daily cap must claim through DailyCounterClaim with a CacheKeyGenerator key.'
     );
-    $this->assertStringNotContainsString(
-        'Cache::add(',
-        $source,
-        'A private add()+increment() counter reintroduces the TTL-loss bug DailyCounterClaim exists to prevent.'
-    );
+
+    foreach ([
+        'app/Services/Platforms/Concerns/BuildsAutoSyncFindings.php',
+        'app/Services/Platforms/LinkRouter.php',
+        'app/Services/Platforms/GoogleBusinessAutoSync.php',
+    ] as $file) {
+        $this->assertStringNotContainsString(
+            'Cache::add(',
+            file_get_contents(base_path($file)),
+            "{$file}: a private add()+increment() counter reintroduces the TTL-loss bug DailyCounterClaim exists to prevent."
+        );
+    }
 });

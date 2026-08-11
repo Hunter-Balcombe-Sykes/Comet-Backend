@@ -45,7 +45,7 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         return $normalizedRef;
     }
 
-    public function generate(User $user, Site $site, string $sourceRef): void
+    public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
     {
         // Only a handle the actor positively reports as nonexistent is the
         // prospect's problem. Every other failure is ours breaking upstream, and
@@ -103,7 +103,7 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         }
 
         try {
-            $this->seeder->seed($connection, $sourceRef, $user->id, $profile);
+            $this->seeder->seed($connection, $sourceRef, $user->id, $profile, $autoConnectBooking);
         } catch (\Throwable $e) {
             throw SourceGenerationException::scrapeFailed($e->getMessage());
         }
