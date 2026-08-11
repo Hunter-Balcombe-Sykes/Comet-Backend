@@ -16,7 +16,7 @@ class PublicEnquiryRequest extends BaseFormRequest
             'name' => is_string($this->name) ? trim(strip_tags((string) $this->name)) : $this->name,
             'email' => is_string($this->email) ? strtolower(trim($this->email)) : $this->email,
             'phone' => is_string($this->phone) ? trim(strip_tags((string) $this->phone)) : $this->phone,
-            'subject' => is_string($this->subject) ? trim($this->subject) : $this->subject,
+            'subject' => is_string($this->subject) ? trim(strip_tags((string) $this->subject)) : $this->subject,
             'message' => is_string($this->message) ? trim(strip_tags((string) $this->message)) : $this->message,
             ...$this->botProtectionPrepare(),
         ]);

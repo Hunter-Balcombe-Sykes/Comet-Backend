@@ -16,11 +16,27 @@
 --}}
 @props([
     'href' => '#',
-    'color' => '#3a6efc',
-    'text' => '#ffffff',
+    'color' => \App\Mail\Branding\EmailBrandDefaults::ACCENT,
+    'text' => \App\Mail\Branding\EmailBrandDefaults::ACCENT_CONTRAST,
 ])
 
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 8px 0 0 0;">
+@php
+    // Scheme allowlist (P3, 2026-08-12): CTAs are staff/system-authored today,
+    // but guard the chokepoint before the source widens — a javascript:/data:
+    // href degrades to a dead button, never a live one.
+    if (! preg_match('/^https?:\/\//i', (string) $href)) {
+        $href = '#';
+    }
+
+    // UTM tagging so email-driven traffic is visible to analytics. Only on
+    // Partna-owned hosts — auth/verify links and external URLs pass untouched.
+    $utmHost = parse_url($href, PHP_URL_HOST);
+    if (is_string($utmHost) && preg_match('/(^|\.)partna\.au$/i', $utmHost) && ! str_contains($href, 'utm_source=')) {
+        $href .= (str_contains($href, '?') ? '&' : '?').'utm_source=email&utm_medium=transactional';
+    }
+@endphp
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 12px 0 4px 0;">
     <tr>
         <td align="left">
             <!--[if mso]>

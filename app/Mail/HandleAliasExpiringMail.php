@@ -17,10 +17,10 @@ class HandleAliasExpiringMail extends BaseTransactionalMail implements ShouldQue
 
     public function build(): self
     {
-        $days = $this->bucket === 't3' ? 3 : 1;
+        $when = $this->bucket === 't3' ? 'in 3 days' : 'tomorrow';
 
         return $this->buildEnvelope()
-            ->subject("Your old handle \"{$this->alias->handle}\" releases in {$days} day(s)")
-            ->view('mail.handle-alias-expiring');
+            ->subject("Your old handle \"{$this->alias->handle}\" releases {$when}")
+            ->view('emails.account.handle-alias-expiring');
     }
 }

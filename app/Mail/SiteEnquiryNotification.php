@@ -21,11 +21,20 @@ class SiteEnquiryNotification extends BaseTransactionalMail
         // CRLF sanitisation happens centrally in BaseTransactionalMail::subject().
         $dashboardUrl = rtrim((string) config('app.dashboard_url', config('app.url')), '/').'/account/features/enquiries';
 
-        return $this->buildEnvelope()
+        $mail = $this->buildEnvelope()
             ->subject(Str::limit("New enquiry from {$this->enquiry->name} — {$this->enquiry->subject}", 77))
             ->view('emails.enquiry-notification', [
                 'enquiry' => $this->enquiry,
                 'dashboardUrl' => $dashboardUrl,
             ]);
+
+        // Reply-To is the enquirer, so the owner answers by just hitting Reply.
+        $enquirerEmail = trim((string) $this->enquiry->email);
+        if ($enquirerEmail !== '' && filter_var($enquirerEmail, FILTER_VALIDATE_EMAIL) !== false) {
+            $mail->replyTo = [];
+            $mail->replyTo($enquirerEmail, trim((string) $this->enquiry->name) ?: null);
+        }
+
+        return $mail;
     }
 }
