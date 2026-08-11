@@ -8,6 +8,7 @@ use App\Mail\Auth\EmailConfirmMail;
 use App\Mail\Auth\InviteMail;
 use App\Mail\Auth\MagicLinkMail;
 use App\Mail\Auth\PasswordResetMail;
+use App\Mail\Auth\ReauthenticationMail;
 use App\Mail\BaseTransactionalMail;
 use App\Services\Notifications\SupabaseEmailEventService;
 use Illuminate\Http\JsonResponse;
@@ -202,6 +203,17 @@ class SupabaseEmailHookController extends ApiController
             }
 
             return new EmailConfirmMail($recipientEmail, $displayName, $code, $webhookId);
+        }
+
+        // Reauthentication: OTP proving it's still the account holder before a
+        // sensitive change. Without this branch the action fell through to
+        // Supabase's unbranded default template.
+        if ($actionType === 'reauthentication') {
+            if ($code === null || $code === '') {
+                return null;
+            }
+
+            return new ReauthenticationMail($recipientEmail, $displayName, $code, $webhookId);
         }
 
         return match ($actionType) {
