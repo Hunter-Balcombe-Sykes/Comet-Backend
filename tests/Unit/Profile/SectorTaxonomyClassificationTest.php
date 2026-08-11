@@ -292,3 +292,42 @@ it('maps every Instagram category to a real sector slug, from a normalised key',
             ->and($category)->toBe(strtolower(trim($category)));
     }
 });
+
+// ── compound categories (2026-08-11) ─────────────────────────────────────────
+//
+// Instagram joins multiple categories with a comma and emits "None" as a real
+// segment — `hungryjacksau` returns "None,Fast food restaurant" with complete
+// data. The substring pass already coped (it scans the whole string), but the
+// EXACT pass could not: every exact-map-only category was silently lost the
+// moment it arrived compound.
+
+it('resolves an exact-map category that arrives as a compound segment', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBe($expected);
+})->with([
+    'digital creator' => ['None,Digital Creator', 'content-creator'],
+    'graphic designer' => ['None,Graphic Designer', 'graphic-designer'],
+    'pilates' => ['None,Pilates Studio', 'yoga-instructor'],
+    'physical therapist' => ['None,Physical Therapist', 'physiotherapist'],
+    'trailing placeholder' => ['Digital Creator,None', 'content-creator'],
+]);
+
+it('still resolves compound categories the substring pass already handled', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBe($expected);
+})->with([
+    'fast food' => ['None,Fast food restaurant', 'restaurant'],
+    'hair salon' => ['None,Hair Salon', 'hair-salon'],
+]);
+
+it('returns null when every segment of a compound category is a placeholder', function (string $input) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBeNull();
+})->with(['None,N/A', 'None,None', 'none, -', 'None,']);
+
+/**
+ * A genuine category name may itself contain a comma. Splitting must never
+ * turn one of these into a wrong match — "Beauty, Cosmetic & Personal Care" is
+ * deliberately unmapped, and must stay that way rather than resolving off its
+ * "Beauty" fragment.
+ */
+it('does not mis-resolve a genuine category name that contains a comma', function () {
+    expect(SectorTaxonomy::fromInstagramCategory('Beauty, Cosmetic & Personal Care'))->toBeNull();
+});

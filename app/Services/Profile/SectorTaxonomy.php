@@ -389,10 +389,58 @@ final class SectorTaxonomy
             return null;
         }
 
-        // Exact pass first: no placeholder check needed here — no placeholder is
-        // a key below, so they fall through to classify(), which refuses them.
-        return self::INSTAGRAM_CATEGORY_SECTORS[strtolower(trim($category))]
-            ?? self::classify($category, self::KEYWORD_SECTORS);
+        // Whole-string exact pass FIRST, before any splitting — a genuine
+        // category name can itself contain a comma ("Beauty, Cosmetic &
+        // Personal Care"), and splitting one of those apart before trying it
+        // whole would match on a fragment. No placeholder check needed here:
+        // no placeholder is a key, so they fall through to classify(), which
+        // refuses them.
+        $exact = self::INSTAGRAM_CATEGORY_SECTORS[strtolower(trim($category))] ?? null;
+        if ($exact !== null) {
+            return $exact;
+        }
+
+        // Then per SEGMENT. Instagram joins categories with a comma and emits
+        // "None" as a real segment ("None,Fast food restaurant" —
+        // hungryjacksau), so without this every exact-map-only category is lost
+        // the moment it arrives compound.
+        foreach (self::categorySegments($category) as $segment) {
+            $mapped = self::INSTAGRAM_CATEGORY_SECTORS[strtolower($segment)] ?? null;
+            if ($mapped !== null) {
+                return $mapped;
+            }
+        }
+
+        // Substring pass last — it scans the whole string, so it already copes
+        // with compounds ("None,Fast food restaurant" contains 'restaurant').
+        return self::classify($category, self::KEYWORD_SECTORS);
+    }
+
+    /**
+     * The comma-separated segments of a raw category string: trimmed, with
+     * empty and placeholder segments dropped, original order preserved.
+     *
+     * Instagram returns multiple categories comma-joined and includes its
+     * literal "None" as a real segment — `hungryjacksau` returns
+     * "None,Fast food restaurant" on a fully successful scrape (verified
+     * 2026-08-11). A whole-string placeholder check therefore leaves the junk
+     * prefix in place, both for classification and for the stored payload
+     * (InstagramConnectionSeeder reads this too, because businessCategory is on
+     * the public wire).
+     *
+     * @return list<string>
+     */
+    public static function categorySegments(?string $raw): array
+    {
+        if (! is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+
+        return array_values(array_filter(
+            array_map('trim', explode(',', trim($raw))),
+            fn (string $segment) => $segment !== ''
+                && ! in_array(strtolower($segment), self::PLACEHOLDER_CATEGORIES, true),
+        ));
     }
 
     /**
