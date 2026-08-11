@@ -190,27 +190,27 @@ class GoogleBusinessService extends PlatformScraper
     private const DETAILS_RETRY_DELAY_US = 200_000;
 
     /**
-     * Fetch Place Details (New) for a place ID and map the response onto
-     * payload keys (rating, reviewCount, reviews, hours, phone, website,
-     * photos, amenities, …). Null when the server key is unset or the fetch
-     * fails — callers keep their existing payload untouched.
+     * The RAW Place Details (New) response for a place id, or why there isn't one.
      *
-     * RV-6: every billed request (this call, and each photo media resolve
-     * inside resolvePhotoUrls) claims a PlacesBudget slot immediately before
-     * it fires — never once per call to this method, or the accounting would
-     * undercount by up to 16× (1 details + up to 15 photos). A denied claim
-     * throws PlacesBudgetExhaustedException so the caller can decide whether
-     * that's a 429 (their own doing) or a quiet degrade (platform-wide).
+     * Split out from fetchPlaceDetails() because two callers want different
+     * things from the same billed request. The card wants mapped payload keys and
+     * resolved photo URLs; GoogleBusinessConnector reads the vendor shape directly
+     * (displayName.text, photos[].name, reviews[].authorAttribution) and its
+     * when_unclaimed reviewer-PII redaction is declared over those exact keys — so
+     * handing it the mapped payload would land nothing and silently make that
+     * redaction vacuous.
      *
-     * @return array<string,mixed>|null
-     *
-     * @throws PlacesBudgetExhaustedException
+     * RV-6 is unchanged: every attempt claims its own PlacesBudget slot immediately
+     * before it fires. What is new is that the FIRST denial is reported rather than
+     * thrown, because only that one provably precedes a request — a later attempt
+     * happens only after a transport failure, which means something already reached
+     * places.googleapis.com and may have been billed.
      */
-    public function fetchPlaceDetails(string $placeId, string $userId, array $priorPhotos = []): ?array
+    public function fetchPlaceDetailsRaw(string $placeId, string $userId): PlaceDetailsResult
     {
         $key = config('services.google_maps.server_api_key');
         if (! is_string($key) || $key === '') {
-            return null;
+            return PlaceDetailsResult::failed(PlaceDetailsFailure::NotConfigured);
         }
 
         // Re-clamped here (not just in config/partna.php) so a runtime
@@ -223,6 +223,13 @@ class GoogleBusinessService extends PlatformScraper
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             $claim = $this->budget->claim('details', $userId);
             if ($claim !== PlacesClaim::Granted) {
+                if ($attempt === 1) {
+                    return PlaceDetailsResult::budgetDenied($claim);
+                }
+
+                // Denied mid-loop: a request already went out on the attempt
+                // before this one. Not a clean refusal — report it as a failure so
+                // no caller can treat it as "nothing was spent".
                 throw new PlacesBudgetExhaustedException('details', $claim, $placeId);
             }
 
@@ -247,7 +254,7 @@ class GoogleBusinessService extends PlatformScraper
                     'message' => $e->getMessage(),
                 ]);
 
-                return null;
+                return PlaceDetailsResult::failed(PlaceDetailsFailure::Transport);
             }
         }
 
@@ -258,10 +265,52 @@ class GoogleBusinessService extends PlatformScraper
                 'status' => $res->status(),
             ]);
 
+            // 404 ONLY. A 403 is our own credential problem and a 400 our own
+            // argument problem; calling either "no such place" would let a broken
+            // key settle as a permanent, cached answer for every place at once.
+            return PlaceDetailsResult::failed(
+                $res->status() === 404 ? PlaceDetailsFailure::NotFound : PlaceDetailsFailure::UpstreamError,
+            );
+        }
+
+        return PlaceDetailsResult::ok((array) $res->json());
+    }
+
+    /**
+     * Fetch Place Details (New) for a place ID and map the response onto
+     * payload keys (rating, reviewCount, reviews, hours, phone, website,
+     * photos, amenities, …). Null when the server key is unset or the fetch
+     * fails — callers keep their existing payload untouched.
+     *
+     * RV-6: every billed request (this call, and each photo media resolve
+     * inside resolvePhotoUrls) claims a PlacesBudget slot immediately before
+     * it fires — never once per call to this method, or the accounting would
+     * undercount by up to 16× (1 details + up to 15 photos). A denied claim
+     * throws PlacesBudgetExhaustedException so the caller can decide whether
+     * that's a 429 (their own doing) or a quiet degrade (platform-wide).
+     *
+     * @return array<string,mixed>|null
+     *
+     * @throws PlacesBudgetExhaustedException
+     */
+    public function fetchPlaceDetails(string $placeId, string $userId, array $priorPhotos = []): ?array
+    {
+        $result = $this->fetchPlaceDetailsRaw($placeId, $userId);
+
+        if ($result->failure === PlaceDetailsFailure::BudgetDenied) {
+            throw new PlacesBudgetExhaustedException('details', $result->deniedBy ?? PlacesClaim::Unavailable, $placeId);
+        }
+
+        if ($result->place === null) {
             return null;
         }
 
-        $mapped = $this->mapDetails((array) $res->json());
+        $mapped = $this->mapDetails($result->place);
+
+        // Re-read rather than threaded out of fetchPlaceDetailsRaw(): a credential
+        // has no business crossing a return boundary, and reaching here at all means
+        // that method already proved the key is present.
+        $key = (string) config('services.google_maps.server_api_key');
 
         // Photo refs → servable image URLs (one billed media call per photo,
         // pooled). Street View availability is a free metadata probe.
