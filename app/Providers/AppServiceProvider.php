@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Http\Middleware\Throttle\FailOpenThrottleRequests;
 use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
+use App\Ingest\Runtime\Effects\PlacesDetailsDriver;
 use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
@@ -115,7 +116,9 @@ class AppServiceProvider extends ServiceProvider
         // has to edit deliberately. `actor` alone is ambiguous — the three menu
         // connectors declare it too and have no driver, which is why they keep
         // hitting HttpIo's throw.
-        $this->app->singleton(BilledEffectDriverRegistry::class, fn () => new BilledEffectDriverRegistry([]));
+        $this->app->singleton(BilledEffectDriverRegistry::class, fn ($app) => new BilledEffectDriverRegistry([
+            $app->make(PlacesDetailsDriver::class),
+        ]));
 
         // Singleton so the request-scoped $requestCache memo actually persists
         // across the middleware / controller / nested service calls within a
