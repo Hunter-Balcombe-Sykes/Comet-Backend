@@ -120,3 +120,39 @@ it('prefers businessCategoryName over category_name when both are real', functio
 
     expect($connection->payload['businessCategory'])->toBe('Hair Stylist');
 });
+
+// ── compound categories (2026-08-11) ─────────────────────────────────────────
+//
+// Instagram joins categories with a comma and emits "None" as a real segment:
+// hungryjacksau returns "None,Fast food restaurant" on a COMPLETE scrape. A
+// whole-string placeholder check left that prefix on the public wire, so the
+// sitepage rendered "None,Fast food restaurant" as the business category.
+
+it('strips placeholder segments from a compound category before storing', function (string $raw, string $expected) {
+    $connection = igSeedCategory('igcat'.Str::random(6), ['businessCategoryName' => $raw]);
+
+    expect($connection->payload['businessCategory'])->toBe($expected);
+})->with([
+    'leading none' => ['None,Fast food restaurant', 'Fast food restaurant'],
+    'trailing none' => ['Fast food restaurant,None', 'Fast food restaurant'],
+    'leading none, spaced' => ['None, Hair Salon', 'Hair Salon'],
+    'two real segments kept' => ['None,Bakery,Cafe', 'Bakery, Cafe'],
+]);
+
+it('stores null when every segment of a compound category is a placeholder', function (string $raw) {
+    $connection = igSeedCategory('igcat'.Str::random(6), ['businessCategoryName' => $raw]);
+
+    expect($connection->payload['businessCategory'])->toBeNull();
+})->with(['None,N/A', 'None,None', 'None,']);
+
+/**
+ * A genuine category name can contain a comma. When nothing is dropped the
+ * ORIGINAL string must come back byte-identical — not re-joined or normalised.
+ */
+it('leaves a genuine comma-bearing category name byte-identical', function () {
+    $connection = igSeedCategory('igcatcomma', [
+        'businessCategoryName' => 'Beauty, Cosmetic & Personal Care',
+    ]);
+
+    expect($connection->payload['businessCategory'])->toBe('Beauty, Cosmetic & Personal Care');
+});

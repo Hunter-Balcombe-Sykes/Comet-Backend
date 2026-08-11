@@ -375,13 +375,18 @@ final class SectorTaxonomy
 
     /**
      * Map a raw Instagram business category (Apify `businessCategoryName`, e.g.
-     * "Hair Stylist", "Artist") to the closest curated sector slug. Two passes:
-     * an EXACT match against INSTAGRAM_CATEGORY_SECTORS — Instagram's Facebook-
-     * derived vocabulary is closed, so an exact hit is authoritative — then the
-     * same shared ordered-keyword classifier fromGoogleCategory() uses, so a
-     * category the exact map doesn't list still lands on the same sector Google
-     * would give the same business. Null when neither pass matches or the input
-     * is empty — callers leave the stored sector untouched on null.
+     * "Hair Stylist", "Artist", "None,Fast food restaurant") to the closest
+     * curated sector slug.
+     *
+     * Instagram comma-joins up to three categories, PRIMARY FIRST, so this
+     * resolves on the first SEGMENT that matches either map — not on the first
+     * map that matches any segment. Two maps are consulted per segment: the
+     * Instagram-vocabulary exact map, then the shared ordered-keyword
+     * classifier fromGoogleCategory() uses, so a category the exact map doesn't
+     * list still lands on the same sector Google would give the same business.
+     *
+     * Null when nothing matches or the input is empty — callers leave the
+     * stored sector untouched on null.
      */
     public static function fromInstagramCategory(?string $category): ?string
     {
@@ -389,10 +394,62 @@ final class SectorTaxonomy
             return null;
         }
 
-        // Exact pass first: no placeholder check needed here — no placeholder is
-        // a key below, so they fall through to classify(), which refuses them.
-        return self::INSTAGRAM_CATEGORY_SECTORS[strtolower(trim($category))]
-            ?? self::classify($category, self::KEYWORD_SECTORS);
+        // Whole-string exact FIRST, before any splitting — a genuine category
+        // name can itself contain a comma ("Beauty, Cosmetic & Personal Care"),
+        // and splitting one of those apart would match on a fragment.
+        $exact = self::INSTAGRAM_CATEGORY_SECTORS[strtolower(trim($category))] ?? null;
+        if ($exact !== null) {
+            return $exact;
+        }
+
+        // Then segment by segment, IN ORDER, trying BOTH maps on each segment
+        // before moving to the next. Checking one map across every segment
+        // first would let a secondary category outrank the primary one: a
+        // restaurant whose page also lists "Digital Creator" would resolve to
+        // content-creator, isFood() would go false, and can_use_menu /
+        // can_use_reservations / can_use_online_ordering would silently switch
+        // off — permanently, since sector is sticky once Instagram stamps it.
+        //
+        // No trailing whole-string classify(): a single (comma-free) input is
+        // itself one segment, and no KEYWORD_SECTORS key contains a comma, so
+        // splitting cannot lose a substring match. Pinned by a test.
+        foreach (self::categorySegments($category) as $segment) {
+            $mapped = self::INSTAGRAM_CATEGORY_SECTORS[strtolower($segment)]
+                ?? self::classify($segment, self::KEYWORD_SECTORS);
+
+            if ($mapped !== null) {
+                return $mapped;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The comma-separated segments of a raw category string: trimmed, with
+     * empty and placeholder segments dropped, original order preserved.
+     *
+     * Instagram returns multiple categories comma-joined and includes its
+     * literal "None" as a real segment — `hungryjacksau` returns
+     * "None,Fast food restaurant" on a fully successful scrape (verified
+     * 2026-08-11). A whole-string placeholder check therefore leaves the junk
+     * prefix in place, both for classification and for the stored payload
+     * (InstagramConnectionSeeder reads this too, because businessCategory is on
+     * the public wire).
+     *
+     * @return list<string>
+     */
+    public static function categorySegments(?string $raw): array
+    {
+        if (! is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+
+        return array_values(array_filter(
+            array_map('trim', explode(',', trim($raw))),
+            fn (string $segment) => $segment !== ''
+                && ! in_array(strtolower($segment), self::PLACEHOLDER_CATEGORIES, true),
+        ));
     }
 
     /**

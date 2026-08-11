@@ -564,14 +564,36 @@ class InstagramConnectionSeeder
                 continue;
             }
 
-            $trimmed = trim($value);
-            if ($trimmed === '' || in_array(strtolower($trimmed), SectorTaxonomy::PLACEHOLDER_CATEGORIES, true)) {
-                continue;
+            $cleaned = $this->stripPlaceholderSegments($value);
+            if ($cleaned !== null) {
+                return $cleaned;
             }
-
-            return $trimmed;
         }
 
         return null;
+    }
+
+    /**
+     * Drop placeholder SEGMENTS, not just a wholly-placeholder string.
+     * Instagram comma-joins categories and emits "None" as a real segment —
+     * hungryjacksau returns "None,Fast food restaurant" on a fully successful
+     * scrape — so a whole-string check published the junk prefix as the
+     * professional's business category.
+     *
+     * Returns the ORIGINAL trimmed string when nothing was dropped: a genuine
+     * category name can itself contain a comma ("Beauty, Cosmetic & Personal
+     * Care") and must survive byte-identical rather than being re-joined.
+     */
+    private function stripPlaceholderSegments(string $value): ?string
+    {
+        $trimmed = trim($value);
+        $kept = SectorTaxonomy::categorySegments($trimmed);
+        if ($kept === []) {
+            return null;
+        }
+
+        return count($kept) === count(explode(',', $trimmed))
+            ? $trimmed
+            : implode(', ', $kept);
     }
 }
