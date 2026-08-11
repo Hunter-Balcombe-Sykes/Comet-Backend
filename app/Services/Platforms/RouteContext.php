@@ -10,13 +10,20 @@ use App\Services\Http\SafeUrlFetcher;
  * (Issue M: first bio link per platform wins) and the commerce probe budget
  * (bounded fan-out per link-in-bio page / per scan).
  *
- * MUST be created once per calling LOOP and threaded through every route() call
- * in that loop. A fresh instance per URL silently disables BOTH guards, which
- * is exactly how the probe cap went missing when the inline
- * MAX_COMMERCE_PROBES counters were deleted from LinkInBioScanJob and
+ * MUST be created once per calling RUN and threaded through every route() call
+ * in it. A fresh instance per URL silently disables BOTH guards, which is
+ * exactly how the probe cap went missing when the inline MAX_COMMERCE_PROBES
+ * counters were deleted from LinkInBioScanJob and
  * InstagramConnectionSeeder::autoSaveUnmatchedLinks. CustomLinkSeeder::seed()
  * therefore accepts one; loops pass theirs, and only genuine single-URL entry
  * points (CustomLinksController::addLink) let it default.
+ *
+ * A RUN is not always one loop. An Instagram bio routes in two passes —
+ * InstagramAutoSync over the classified links, then
+ * InstagramConnectionSeeder::autoSaveUnmatchedLinks over the rest — and
+ * InstagramConnectionSeeder::seed() owns ONE context spanning both. A context
+ * each let pass 2 re-decide platforms pass 1 had settled, and gave the scrape
+ * two probe budgets. Both consumers, one producer.
  */
 final class RouteContext
 {
@@ -80,6 +87,16 @@ final class RouteContext
     private int $sitesDeduped = 0;
 
     /**
+     * Websites already REFUSED for budget this run, so re-routing the same link
+     * cannot inflate probesDenied. Kept apart from seenSites: a denied site was
+     * never probed, so folding it in there would report starvation as a healthy
+     * dedupe — the exact conflation sitesDeduped exists to prevent.
+     *
+     * @var array<string, true>
+     */
+    private array $deniedSites = [];
+
+    /**
      * Probes NOT spent because no probe could ever fetch the URL. Counted apart
      * from probesDenied: "we never asked" and "we ran out of budget" are
      * different diagnoses, and folding them together would make the pre-filter
@@ -113,10 +130,22 @@ final class RouteContext
      * website dedupe is then structural rather than a rule each new call site
      * has to remember.
      */
-    private function consumeProbe(): bool
+    private function consumeProbe(?string $key): bool
     {
         if ($this->probeCount >= $this->maxProbes) {
-            $this->probesDenied++;
+            // Count the LINK, not the attempt. A run can route one link twice —
+            // the Instagram bio path defers a starved CLASSIFIED link into
+            // `unmatched` and sweeps it again, where the same exhausted budget
+            // denies it a second time. Counting both made probes_denied exceed
+            // probe_budget itself, which is nonsense on the face of the run card
+            // and overstates how much of a page went unexamined.
+            if ($key === null || ! isset($this->deniedSites[$key])) {
+                $this->probesDenied++;
+            }
+
+            if ($key !== null) {
+                $this->deniedSites[$key] = true;
+            }
 
             return false;
         }
@@ -163,7 +192,7 @@ final class RouteContext
             return false;
         }
 
-        if (! $this->consumeProbe()) {
+        if (! $this->consumeProbe($key)) {
             return false;
         }
 

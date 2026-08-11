@@ -97,6 +97,15 @@ class InstagramAutoSync
         // shows them a picker, so hardcoding true here would pre-empt it.
         $ctx ??= new RouteContext(autoConnectBooking: $autoConnectBooking);
 
+        // Make the docblock's "the context wins" true by construction rather
+        // than by every caller remembering to pass both consistently. The
+        // LinkInBioScanJob dispatch below reads this scalar while the booking
+        // arm reads $ctx->autoConnectBooking, so a caller that passed only a
+        // marked context would silently unroll every aggregator page with
+        // auto-connect OFF — and one that passed only the scalar would turn it
+        // ON for a run that said not to, which is the unsafe direction.
+        $autoConnectBooking = $ctx->autoConnectBooking;
+
         foreach ($bioLinks as $url) {
             if (! is_string($url) || trim($url) === '') {
                 continue;

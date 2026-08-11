@@ -235,13 +235,20 @@ class InstagramConnectionSeeder
         // from one we examined and rejected, so a scrape that ran out of budget
         // reads as a scrape that finished. Logged here rather than in either
         // pass because only this method sees both.
-        Log::info('platforms.instagram.bio_links_routed', [
-            'user_id' => $userId,
-            'links_seen' => count($bioLinks),
-            'findings' => count($sync['findings']),
-            'unmatched' => count($sync['unmatched']),
-            ...$ctx->summary(),
-        ]);
+        //
+        // Gated on there being links at all: the dominant case today is an
+        // actor run with no bio fields, and LOG_LEVEL is debug on both envs, so
+        // an ungated line would put a zero-valued run card on every connect and
+        // every scheduled refresh.
+        if ($bioLinks !== []) {
+            Log::info('platforms.instagram.bio_links_routed', [
+                'user_id' => $userId,
+                'links_seen' => count($bioLinks),
+                'findings' => count($sync['findings']),
+                'unmatched' => count($sync['unmatched']),
+                ...$ctx->summary(),
+            ]);
+        }
 
         // PRIV-2: bioLinks/syncFindings/unmatched are internal auto-sync bookkeeping
         // — never in PublicIntegrationConnectionResource::ALLOWLIST — so a pre-claim
@@ -306,32 +313,47 @@ class InstagramConnectionSeeder
         return $selection;
     }
 
-    /** @param  list<array<string,mixed>>  $unmatched */
+    /**
+     * Pass 2 of the bio routing: sweep what classify() could not place.
+     *
+     * LinkRouter (inside CustomLinkSeeder::seed()) handles classification,
+     * routing, commerce probes, and custom-link fallback. The re-classify +
+     * probe dispatch this method used to do is now inside the router.
+     *
+     * $ctx is the CALLER's — the same one the auto-sync pass used — and that is
+     * load-bearing twice over. Its seen-platforms map stops this pass
+     * re-deciding a platform pass 1 already settled (a second link to one
+     * platform gets its card here instead of being turned back into a conflict
+     * nobody keeps). And its probe budget is now one budget for the scrape
+     * rather than one per pass: with a context each, a bio could spend 6 probes
+     * here on top of 6 there, twice the documented cap.
+     *
+     * It also carries the caller's origin, so these links auto-connect exactly
+     * when the links they arrived with did — a dashboard connect still gets its
+     * picker.
+     *
+     * @param  list<array<string,mixed>>  $unmatched
+     */
     private function autoSaveUnmatchedLinks(User $user, array $unmatched, RouteContext $ctx): void
     {
-        // LinkRouter (inside CustomLinkSeeder::seed()) handles classification,
-        // routing, commerce probes, and custom-link fallback. The re-classify
-        // + probe dispatch this method used to do is now inside the router.
-        //
-        // The context is the CALLER's — the same one the auto-sync pass used —
-        // and that is load-bearing twice over. Its seen-platforms map stops this
-        // pass re-deciding a platform pass 1 already settled (a second link to
-        // one platform gets its card here instead of being turned back into a
-        // conflict nobody keeps). And its probe budget is now one budget for the
-        // scrape rather than one per pass: with a context each, a bio could
-        // spend 6 probes here on top of 6 there, twice the documented cap.
-        //
-        // It also carries the caller's origin, so these links auto-connect
-        // exactly when the links they arrived with did — a dashboard connect
-        // still gets its picker.
-
         foreach ($unmatched as $entry) {
             $url = is_array($entry) ? ($entry['url'] ?? null) : null;
             if (! is_string($url)) {
                 continue;
             }
 
-            $this->linkSeeder->seed($user, $url, $ctx);
+            // Per-link fault isolation, matching pass 1's own loop
+            // (InstagramAutoSync::seed) and LinkInBioScanJob's. Without it a
+            // single bad link throws out of seed() BEFORE the payload write and
+            // leaves the connection stuck 'pending' — and the comment at this
+            // method's call site already promised a bad link cannot fail the
+            // job. EnrichLinkCardJob running inline under QUEUE_CONNECTION=sync
+            // is the live way that happens.
+            try {
+                $this->linkSeeder->seed($user, $url, $ctx);
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
     }
 
