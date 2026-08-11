@@ -319,7 +319,7 @@ class SitepageDataResolverService
             // keep (embed-only platforms like Spotify carry the Listen page
             // with no pool items at all, so pools ADD presence, never veto
             // it). Media's pool joins when its public surface exists.
-            foreach (['watch' => 'watch', 'listen' => 'listen'] as $pool => $poolPage) {
+            foreach (['watch' => 'watch', 'listen' => 'listen', 'events' => 'events'] as $pool => $poolPage) {
                 if (isset($present[$poolPage])) {
                     continue;
                 }

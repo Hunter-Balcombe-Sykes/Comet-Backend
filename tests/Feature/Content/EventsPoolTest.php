@@ -1,6 +1,9 @@
 <?php
 
 use App\Models\Core\Site\Site;
+use App\Services\Accounts\AccountCapabilities;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
+use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Pools\ItemLinkRules;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
@@ -275,4 +278,86 @@ it('keeps the event keys present and null on a non-event pool item', function ()
         expect($item)->toHaveKey($key);
         expect($item[$key])->toBeNull();
     }
+});
+
+it('ships the events pool selection on the public payload', function () {
+    setupMediaTables();
+    setupContentSelectionTable();
+    setupBlocksTable();
+    setupServicesTable();
+    setupDesignKitsTable();
+
+    $pro = createTenant('evpool-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+    $source = eventsSource($pro->id, eventsConnection($pro->id));
+
+    eventItem($pro->id, $source, 'Ultimo clothes swap', now()->addDays(6)->toDateTimeString());
+    eventItem($pro->id, $source, 'Last year', now()->subDays(300)->toDateTimeString());
+
+    $payload = app(IndividualProfilePayloadBuilder::class)
+        ->build($pro->fresh(), $site);
+
+    // The resource casts pools to an object so an empty map serializes {}.
+    $events = $payload['profile']['pools']->events ?? null;
+
+    expect($events)->not->toBeNull();
+    expect(array_column($events['items'], 'headline'))->toBe(['Ultimo clothes swap']);
+    expect($events['latestItemId'])->toBeNull();
+    expect($events['items'][0])->not->toHaveKey('selected');
+    expect($events['items'][0]['startsAt'])->not->toBeNull();
+});
+
+// The pool must be what grants the page. PLATFORM_TO_PAGE already maps
+// eventbrite/humanitix/events-custom → 'events', so a fixture built on a
+// ticketing CONNECTION would pass this test with the pool loop deleted. A
+// manual source has no connection, so only the pool can vouch for the page —
+// which is also the case the wire manifest calls out (hand-added events).
+it('grants the events page presence from a pool with no ticketing connection', function () {
+    setupMediaTables();
+    setupBlocksTable();
+    setupServicesTable();
+
+    $pro = createTenant('evpool-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+
+    $source = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $source, 'user_id' => $pro->id, 'kind' => 'manual',
+        'connection_id' => null, 'priority' => 100,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    eventItem($pro->id, $source, 'Grant writing', now()->addDays(9)->toDateTimeString());
+
+    // Guard the guard: no connection exists, so nothing but the pool can
+    // grant 'events'.
+    expect(DB::table('site.platform_connections')->where('user_id', $pro->id)->count())->toBe(0);
+
+    $caps = AccountCapabilities::for($pro->fresh());
+    $present = app(SitepageDataResolverService::class)
+        ->presentPageIds($site, $caps, collect());
+
+    expect($present)->toContain('events');
+});
+
+// Pools ADD presence and never veto it: an Eventbrite connection with nothing
+// upcoming keeps the Events page it has today. Flipping that to a veto is
+// Task 9's job, not this slice's.
+it('keeps the events page for a connected user with nothing upcoming', function () {
+    setupMediaTables();
+    setupBlocksTable();
+    setupServicesTable();
+
+    $pro = createTenant('evpool-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+    $source = eventsSource($pro->id, eventsConnection($pro->id));
+
+    eventItem($pro->id, $source, 'Long over', now()->subDays(90)->toDateTimeString());
+
+    $caps = AccountCapabilities::for($pro->fresh());
+    $present = app(SitepageDataResolverService::class)
+        ->presentPageIds($site, $caps, collect());
+
+    expect(app(PoolResolver::class)->hasSelection($site, 'events'))->toBeFalse();
+    expect($present)->toContain('events');
 });
