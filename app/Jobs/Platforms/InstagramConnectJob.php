@@ -39,8 +39,20 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    // Apify can take up to 110s; allow headroom for media mirroring on top.
-    public int $timeout = 150;
+    // The scrape budget is TWO Apify runs (2 x 110s), not one: a thin profile
+    // earns a single retry in InstagramScraper::fetchProfileResult(). 150 was
+    // sized for one run and left no room for the second. Raised to 300 —
+    // matching GeneratePreAccountSiteJob, which drives the identical seeder —
+    // with the balance as headroom for media mirroring on top.
+    //
+    // This is headroom for an INCIDENT, not steady state: 21 live runs measured
+    // 2026-08-11 came in at 6-41s, thin ones 11-36s. It matters because
+    // run_sync_timeout_seconds is a no-deploy lever meant to be raised during an
+    // Apify latency incident — and if the job can't absorb the doubled budget,
+    // that lever kills the worker mid-scrape, billing a run for nothing.
+    // Both bounds pinned by HorizonQueueCoverageTest (scraping lane retry_after
+    // is 660, so 300 stays well inside it).
+    public int $timeout = 300;
 
     // Unlimited attempts, bounded by retryUntil() below — the 'platform-connect'
     // RateLimited middleware RELEASES this job when the Apify actor is over-limit, and

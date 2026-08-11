@@ -8,6 +8,7 @@ use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
+use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Mail\Auth\MagicLinkMail;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
@@ -287,6 +288,40 @@ it('every queue any app code can dispatch to is consumed by a supervisor in ever
 it('InstagramConnectJob is dispatched to the scraping queue', function () {
     expect((new InstagramConnectJob('u', 'someuser', 'c'))->queue)->toBe('scraping');
 });
+
+// ── Scrape budget vs job timeout (2026-08-11) ────────────────────────────────
+//
+// The thin-scrape retry made the Instagram scrape budget TWO run-sync calls, not
+// one, so `run_sync_timeout_seconds < $timeout` is no longer the right invariant
+// for this path. It matters because that config is an INCIDENT LEVER — CLAUDE.md
+// describes raising it during an Apify latency incident without a deploy. If the
+// job cannot absorb the doubled budget, the very incident the lever exists for
+// kills the worker mid-scrape, which is a billed Apify run with no result.
+//
+// Measured 2026-08-11 (21 live runs): healthy 6-41s, thin 11-36s — so this is
+// headroom for an incident, not for steady state.
+it('the Instagram scrape jobs can absorb TWO run-sync calls, because a thin scrape is retried once', function (object $job) {
+    $budget = (int) config('partna.limits.apify.run_sync_timeout_seconds') * 2;
+
+    expect($job->timeout)->toBeGreaterThan($budget);
+})->with([
+    'connect' => fn () => new InstagramConnectJob('u', 'someuser', 'c'),
+    'pre-account build' => fn () => new GeneratePreAccountSiteJob('b', 'instagram'),
+]);
+
+// The other side of the same constraint: raising a timeout to satisfy the test
+// above must not push it past the lane that consumes it, or Redis re-queues a
+// still-running scrape and double-bills Apify (JOB-103).
+it('neither Instagram scrape job outruns the scraping lane that consumes it (JOB-103)', function (object $job) {
+    $retryAfter = (int) config('queue.connections.redis_scraping.retry_after');
+    $supervisorTimeout = (int) config('horizon.defaults.supervisor-long.timeout');
+
+    expect($job->timeout)->toBeLessThan($retryAfter)
+        ->and($job->timeout)->toBeLessThanOrEqual($supervisorTimeout);
+})->with([
+    'connect' => fn () => new InstagramConnectJob('u', 'someuser', 'c'),
+    'pre-account build' => fn () => new GeneratePreAccountSiteJob('b', 'instagram'),
+]);
 
 it('InstagramConnectJob is unique per connection to prevent double-billing Apify (LIFE-1)', function () {
     $job = new InstagramConnectJob('u', 'someuser', 'conn-123');

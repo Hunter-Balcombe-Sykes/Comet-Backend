@@ -313,9 +313,15 @@ return [
             // CFG-9: HTTP client timeout for Apify run-sync-get-dataset-items calls, which block
             // until the actor finishes. Raise during an Apify latency incident without a deploy.
             // Must stay UNDER the calling job's own timeout or the job dies first — the binding
-            // ceiling is GoogleBusinessEnrichJob's $timeout = 130 (GoogleMenuPhotoScanJob 280,
-            // InstagramConnectJob 150). A raise past ~125 turns a slow-Apify incident into a
-            // worker kill mid-billed-effect, which is the state EffectLedger has to refuse.
+            // ceiling is GoogleBusinessEnrichJob's $timeout = 130 (GoogleMenuPhotoScanJob 280).
+            // A raise past ~125 turns a slow-Apify incident into a worker kill
+            // mid-billed-effect, which is the state EffectLedger has to refuse.
+            //
+            // The Instagram jobs budget TWO of these, not one: a thin profile earns a single
+            // retry (InstagramScraper::fetchProfileResult), so they need 2x this value, not 1x
+            // — InstagramConnectJob 300 (raised from 150 on 2026-08-11 for exactly this) and
+            // GeneratePreAccountSiteJob 300. Both bounds pinned by HorizonQueueCoverageTest,
+            // which fails if a raise here outruns either job.
             'run_sync_timeout_seconds' => (int) env('PARTNA_APIFY_RUN_SYNC_TIMEOUT_SECONDS', 110),
         ],
 
