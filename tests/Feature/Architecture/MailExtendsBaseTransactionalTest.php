@@ -16,8 +16,10 @@ use App\Mail\BaseTransactionalMail;
 // value-objects (EmailBrand, EmailBrandDefaults, EmailPalette) and the
 // ProEmailBrandResolver service — none are mailables; they model the
 // per-message white-label brand that BaseTransactionalMail consumes.
+// App\Mail\Support is exempt for the same reason (HtmlToText — the derived
+// plain-text-part converter the base class and the notification trait share).
 
 arch('every mailable extends BaseTransactionalMail')
     ->expect('App\Mail')
     ->toExtend(BaseTransactionalMail::class)
-    ->ignoring([BaseTransactionalMail::class, 'App\Mail\Branding']);
+    ->ignoring([BaseTransactionalMail::class, 'App\Mail\Branding', 'App\Mail\Support']);

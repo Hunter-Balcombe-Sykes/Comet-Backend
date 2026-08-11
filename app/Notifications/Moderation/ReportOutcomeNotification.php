@@ -3,12 +3,14 @@
 namespace App\Notifications\Moderation;
 
 use App\Models\Moderation\Decision;
+use App\Notifications\Concerns\BuildsPartnaMailMessage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 class ReportOutcomeNotification extends Notification
 {
+    use BuildsPartnaMailMessage;
     use Queueable;
 
     public function __construct(public readonly Decision $decision) {}
@@ -29,9 +31,12 @@ class ReportOutcomeNotification extends Notification
             default => 'We reviewed your report.',
         };
 
-        return (new MailMessage)
-            ->subject('Update on the page you reported')
-            ->view('mail.moderation.report-outcome', ['outcome' => $outcome]);
+        return $this->partnaMailMessage(
+            'Update on the page you reported',
+            'mail.moderation.report-outcome',
+            ['outcome' => $outcome],
+            dedupeKey: (string) $this->decision->id,
+        );
     }
 
     public function toArray(object $notifiable): array

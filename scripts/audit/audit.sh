@@ -460,7 +460,7 @@ services-data|app/Services/Analytics app/Services/Cache app/Services/Segments ap
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
-controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php
+controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php app/Http/Controllers/Dev
 controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
 requests|app/Http/Requests
 resources-models|app/Http/Resources app/Models
@@ -481,7 +481,7 @@ services-data|app/Services/Analytics app/Services/Cache app/Services/Segments ap
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
-controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php
+controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php app/Http/Controllers/Dev
 controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
 requests|app/Http/Requests
 resources-models|app/Http/Resources app/Models

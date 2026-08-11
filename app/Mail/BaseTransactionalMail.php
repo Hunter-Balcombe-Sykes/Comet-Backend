@@ -2,11 +2,14 @@
 
 namespace App\Mail;
 
+use App\Mail\Support\HtmlToText;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\Factory as Queue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Headers;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Str;
+use Symfony\Component\Mailer\Header\TagHeader;
 
 /**
  * Common ancestor for every Partna transactional email.
@@ -87,7 +90,28 @@ abstract class BaseTransactionalMail extends Mailable
             ->withSymfonyMessage(function ($message): void {
                 // Identify the pipeline for downstream analytics + bounce attribution.
                 $message->getHeaders()->addTextHeader('X-Partna-Pipeline', 'transactional');
+                // Resend tag per mail family (the transport maps Symfony
+                // TagHeader → Resend tags) so bounce/complaint analytics can
+                // segment by email type. Tag values allow [a-zA-Z0-9_-] only.
+                $message->getHeaders()->add(new TagHeader(Str::kebab(class_basename(static::class))));
             });
+    }
+
+    /**
+     * Every HTML mailable gets a derived text/plain part (P3, 2026-08-12)
+     * unless the subclass set an explicit text view. Runs after build() (the
+     * mailer calls buildView() last), so the subclass's view + data are final
+     * by the time the HTML is rendered here.
+     */
+    protected function buildView()
+    {
+        if (! isset($this->textView) && isset($this->view) && is_string($this->view)) {
+            $html = view($this->view, $this->buildViewData())->render();
+            $this->viewData['plainTextBody'] = HtmlToText::convert($html);
+            $this->textView = 'mail.text.generic';
+        }
+
+        return parent::buildView();
     }
 
     /**
