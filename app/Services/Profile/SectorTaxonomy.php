@@ -210,6 +210,82 @@ final class SectorTaxonomy
     ];
 
     /**
+     * Instagram business categories that the shared substring map gets WRONG or
+     * misses entirely. Instagram's categories come from Facebook's Page
+     * taxonomy — a CLOSED vocabulary, unlike Google's free-ish place-type
+     * strings — so this is an EXACT match on the whole normalised category, not
+     * a substring pass. Exact matching is what makes it collision-free: a
+     * substring entry for lashes would capture "Flash Tattoo".
+     *
+     * Only entries the fallback gets wrong belong here. Anything the substring
+     * map already resolves correctly ("Hair Stylist", "Barber Shop", "Tattoo &
+     * Piercing Shop", "Restaurant") is deliberately absent.
+     *
+     * Keys MUST be lowercase and trimmed — fromInstagramCategory() normalises
+     * the input before looking up, and does not normalise these.
+     *
+     * @var array<string, string>
+     */
+    private const INSTAGRAM_CATEGORY_SECTORS = [
+        // Corrections — the substring map returns the wrong slug for these.
+        'fitness trainer' => 'personal-trainer',
+        'fitness coach' => 'personal-trainer',
+        'music lessons & instruction school' => 'music-teacher',
+        'music teacher' => 'music-teacher',
+
+        // Creative
+        'digital creator' => 'content-creator',
+        'content creator' => 'content-creator',
+        'blogger' => 'content-creator',
+        'videographer' => 'videographer',
+        'video creator' => 'videographer',
+        'graphic designer' => 'graphic-designer',
+        'writer' => 'writer',
+
+        // Beauty & personal care
+        'skin care service' => 'esthetician',
+        'skincare service' => 'esthetician',
+        'waxing service' => 'esthetician',
+        'eyelash service' => 'brows-lashes',
+        'eyebrow service' => 'brows-lashes',
+        'massage service' => 'spa',
+        'massage therapist' => 'spa',
+
+        // Health & fitness
+        'pilates studio' => 'yoga-instructor',
+        'nutritionist' => 'nutritionist',
+        'dietitian' => 'nutritionist',
+        'physical therapist' => 'physiotherapist',
+
+        // Education & coaching
+        'life coach' => 'life-coach',
+        'business coach' => 'life-coach',
+
+        // Professional services
+        'consulting agency' => 'consultant',
+        'marketing agency' => 'marketing-agency',
+        'advertising agency' => 'marketing-agency',
+        'financial planner' => 'financial-advisor',
+        'insurance agent' => 'insurance-broker',
+
+        // Trades & automotive
+        'automotive repair shop' => 'mechanic',
+        'plumbing service' => 'plumber',
+        'contractor' => 'builder',
+        'general contractor' => 'builder',
+
+        // Hospitality
+        'bed and breakfast' => 'accommodation',
+        'vacation home rental' => 'accommodation',
+
+        // NOT mapped, deliberately: 'health/beauty', 'beauty, cosmetic &
+        // personal care', 'public figure', 'personal blog', 'entrepreneur',
+        // 'product/service', 'local business'. Too vague to pick a sector from,
+        // and sector drives FOOD_SECTORS capability gating — null is safer than
+        // a guess, and the user can pick from the dashboard.
+    ];
+
+    /**
      * The picker payload: sectors grouped into their sections, in list order.
      *
      * @return list<array{group: string, options: list<array{slug: string, label: string}>}>
@@ -297,11 +373,13 @@ final class SectorTaxonomy
 
     /**
      * Map a raw Instagram business category (Apify `businessCategoryName`, e.g.
-     * "Hair Salon", "Italian Restaurant") to the closest curated sector slug via
-     * the same shared ordered-keyword classifier fromGoogleCategory() uses — the
-     * two platforms' raw category strings land on the same sector for the same
-     * business. Null when nothing matches or the input is empty — callers leave
-     * the stored sector untouched on null.
+     * "Hair Stylist", "Artist") to the closest curated sector slug. Two passes:
+     * an EXACT match against INSTAGRAM_CATEGORY_SECTORS — Instagram's Facebook-
+     * derived vocabulary is closed, so an exact hit is authoritative — then the
+     * same shared ordered-keyword classifier fromGoogleCategory() uses, so a
+     * category the exact map doesn't list still lands on the same sector Google
+     * would give the same business. Null when neither pass matches or the input
+     * is empty — callers leave the stored sector untouched on null.
      */
     public static function fromInstagramCategory(?string $category): ?string
     {
@@ -309,7 +387,10 @@ final class SectorTaxonomy
             return null;
         }
 
-        return self::classify($category, self::KEYWORD_SECTORS);
+        // Exact pass first: no placeholder check needed here — no placeholder is
+        // a key below, so they fall through to classify(), which refuses them.
+        return self::INSTAGRAM_CATEGORY_SECTORS[strtolower(trim($category))]
+            ?? self::classify($category, self::KEYWORD_SECTORS);
     }
 
     /**

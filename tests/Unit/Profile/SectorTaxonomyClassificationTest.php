@@ -160,3 +160,102 @@ it('keeps specific artist categories ahead of the generic artist keyword', funct
     'makeup' => ['Makeup Artist', 'makeup-artist'],
     'gallery' => ['Art gallery', 'artist'],
 ]);
+
+/**
+ * KEYWORD_SECTORS is tuned to Google Places primaryTypeDisplayName. Instagram
+ * categories come from Facebook's Page taxonomy — a different, CLOSED
+ * vocabulary — so fromInstagramCategory() checks an exact-match map first and
+ * only then falls through to the shared substring classifier (F5, 2026-08-10).
+ */
+it('resolves Instagram-native categories the substring map gets wrong', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBe($expected);
+})->with([
+    // Corrections: the substring map returns a WRONG slug for these.
+    'fitness trainer' => ['Fitness Trainer', 'personal-trainer'],
+    'fitness coach' => ['Fitness Coach', 'personal-trainer'],
+    'music school' => ['Music Lessons & Instruction School', 'music-teacher'],
+    'music teacher' => ['Music Teacher', 'music-teacher'],
+
+    // Gaps: the substring map returns null for these.
+    'digital creator' => ['Digital Creator', 'content-creator'],
+    'content creator' => ['Content Creator', 'content-creator'],
+    'blogger' => ['Blogger', 'content-creator'],
+    'videographer' => ['Videographer', 'videographer'],
+    'video creator' => ['Video Creator', 'videographer'],
+    'graphic designer' => ['Graphic Designer', 'graphic-designer'],
+    'writer' => ['Writer', 'writer'],
+    'skin care' => ['Skin Care Service', 'esthetician'],
+    'waxing' => ['Waxing Service', 'esthetician'],
+    'eyelash' => ['Eyelash Service', 'brows-lashes'],
+    'eyebrow' => ['Eyebrow Service', 'brows-lashes'],
+    'massage service' => ['Massage Service', 'spa'],
+    'massage therapist' => ['Massage Therapist', 'spa'],
+    'pilates' => ['Pilates Studio', 'yoga-instructor'],
+    'life coach' => ['Life Coach', 'life-coach'],
+    'nutritionist' => ['Nutritionist', 'nutritionist'],
+    'dietitian' => ['Dietitian', 'nutritionist'],
+    'physical therapist' => ['Physical Therapist', 'physiotherapist'],
+    'consulting agency' => ['Consulting Agency', 'consultant'],
+    'marketing agency' => ['Marketing Agency', 'marketing-agency'],
+    'advertising agency' => ['Advertising Agency', 'marketing-agency'],
+    'automotive repair' => ['Automotive Repair Shop', 'mechanic'],
+    'plumbing service' => ['Plumbing Service', 'plumber'],
+    'contractor' => ['Contractor', 'builder'],
+    'general contractor' => ['General Contractor', 'builder'],
+    'bed and breakfast' => ['Bed and Breakfast', 'accommodation'],
+    'vacation rental' => ['Vacation Home Rental', 'accommodation'],
+    'financial planner' => ['Financial Planner', 'financial-advisor'],
+    'insurance agent' => ['Insurance Agent', 'insurance-broker'],
+]);
+
+it('matches Instagram categories case-insensitively and ignores surrounding whitespace', function () {
+    expect(SectorTaxonomy::fromInstagramCategory('  DIGITAL CREATOR  '))->toBe('content-creator')
+        ->and(SectorTaxonomy::fromInstagramCategory('digital creator'))->toBe('content-creator');
+});
+
+it('falls through to the shared substring classifier for unlisted Instagram categories', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBe($expected);
+})->with([
+    'hair stylist' => ['Hair Stylist', 'hair-salon'],
+    'barber shop' => ['Barber Shop', 'barber'],
+    'tattoo shop' => ['Tattoo & Piercing Shop', 'tattoo-artist'],
+    'nail salon' => ['Nail Salon', 'nail-technician'],
+    'restaurant' => ['Restaurant', 'restaurant'],
+]);
+
+/**
+ * Deliberately unmapped. These Instagram categories are too vague to pick a
+ * sector from, and sector drives both sitepage styling and the FOOD_SECTORS
+ * capability gates — a wrong guess is worse than null, which the user can fix
+ * from the dashboard picker.
+ */
+it('leaves genuinely ambiguous Instagram categories null', function (string $input) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBeNull();
+})->with([
+    'Health/Beauty',
+    'Beauty, Cosmetic & Personal Care',
+    'Public Figure',
+    'Personal Blog',
+    'Entrepreneur',
+    'Product/Service',
+    'Local Business',
+]);
+
+it('never resolves a non-food Instagram category into a FOOD_SECTORS slug', function () {
+    $nonFood = ['Artist', 'Digital Creator', 'Hair Stylist', 'Contractor', 'Life Coach', 'Public Figure'];
+
+    foreach ($nonFood as $category) {
+        $slug = SectorTaxonomy::fromInstagramCategory($category);
+        expect(SectorTaxonomy::isFood($slug))->toBeFalse("'{$category}' resolved to food slug '{$slug}'");
+    }
+});
+
+it('maps every Instagram category to a real sector slug, from a normalised key', function () {
+    $map = (new ReflectionClass(SectorTaxonomy::class))
+        ->getConstant('INSTAGRAM_CATEGORY_SECTORS');
+
+    foreach ($map as $category => $slug) {
+        expect(SectorTaxonomy::isValid($slug))->toBeTrue("'{$category}' maps to unknown slug '{$slug}'")
+            ->and($category)->toBe(strtolower(trim($category)));
+    }
+});
