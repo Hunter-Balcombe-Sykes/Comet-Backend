@@ -13,6 +13,7 @@ use App\Ingest\Message\Record;
 use App\Ingest\Message\Unavailable;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Ingest\Projection\ProjectorRegistry;
+use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -80,7 +81,8 @@ class RunExecutor
                 isClaimed: $this->isClaimed($source),
             );
 
-            $io = $this->ioFor($manifest, $runId, (string) $source['id']);
+            $userId = $source['user_id'] ?? null;
+            $io = $this->ioFor($manifest, $runId, (string) $source['id'], $userId === null ? null : (string) $userId);
 
             try {
                 $result = $this->drain($connector, $pull, $io);
@@ -397,14 +399,21 @@ class RunExecutor
         return ($rank[$candidate] ?? 0) > ($rank[$current] ?? 0) ? $candidate : $current;
     }
 
-    private function ioFor(Manifest $manifest, string $runId, string $sourceId): Io
+    /**
+     * $userId is nullable on purpose and never fabricated: isClaimed() already
+     * treats an ownerless source as a real state, and a driver that spends
+     * per-user budget must be able to see the absence rather than be handed an id.
+     */
+    private function ioFor(Manifest $manifest, string $runId, string $sourceId, ?string $userId): Io
     {
         return new HttpIo(
             manifest: $manifest,
             fetcher: app(SafeUrlFetcher::class),
             ledger: app(EffectLedger::class),
+            drivers: app(BilledEffectDriverRegistry::class),
             runId: $runId,
             sourceId: $sourceId,
+            userId: $userId,
         );
     }
 }

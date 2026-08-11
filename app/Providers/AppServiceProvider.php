@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Http\Middleware\Throttle\FailOpenThrottleRequests;
+use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
 use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
@@ -108,6 +109,13 @@ class AppServiceProvider extends ServiceProvider
         // restarts, which is exactly when these should change.
         $this->app->singleton(PublicSuffixList::class, fn () => PublicSuffixList::instance());
         $this->app->singleton(Rulepack::class, fn () => Rulepack::fromCompiledCatalog());
+
+        // Ordered, explicit driver list rather than a discovery scan: this decides
+        // which (kind, name) pairs may spend money, so it should be a list someone
+        // has to edit deliberately. `actor` alone is ambiguous — the three menu
+        // connectors declare it too and have no driver, which is why they keep
+        // hitting HttpIo's throw.
+        $this->app->singleton(BilledEffectDriverRegistry::class, fn () => new BilledEffectDriverRegistry([]));
 
         // Singleton so the request-scoped $requestCache memo actually persists
         // across the middleware / controller / nested service calls within a

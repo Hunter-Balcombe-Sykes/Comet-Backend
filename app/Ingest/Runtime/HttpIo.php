@@ -3,6 +3,9 @@
 namespace App\Ingest\Runtime;
 
 use App\Ingest\Manifest\Manifest;
+use App\Ingest\Runtime\Effects\BilledEffectContext;
+use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
+use App\Ingest\Runtime\Effects\BilledEffectOutcome;
 use App\Services\Http\SafeUrlFetcher;
 
 /**
@@ -24,8 +27,12 @@ class HttpIo implements Io
         private readonly Manifest $manifest,
         private readonly SafeUrlFetcher $fetcher,
         private readonly EffectLedger $ledger,
+        private readonly BilledEffectDriverRegistry $drivers,
         private readonly ?string $runId = null,
         private readonly ?string $sourceId = null,
+        // Both drivers spend per-user budget: PlacesBudget carries a per-user
+        // daily cap, and Instagram threads it for log correlation.
+        private readonly ?string $userId = null,
     ) {}
 
     public function get(string $url, array $headers = []): array
@@ -80,6 +87,17 @@ class HttpIo implements Io
 
     public function effect(string $kind, string $name, array $input): array
     {
+        if (! config('partna.ingest.billed_effects_enabled')) {
+            // Refused BEFORE the ledger, so no row is written and the digest stays
+            // claimable the moment the switch is flipped. EffectRefused (not
+            // EffectNotAttempted) because nothing was budgeted — RunExecutor folds it
+            // to budget_skipped either way.
+            throw new EffectRefused(
+                "Billed effects are disabled in this environment (effect '{$kind}/{$name}') — ".
+                'set PARTNA_INGEST_BILLED_EFFECTS_ENABLED=true to activate.'
+            );
+        }
+
         // Freshness-bucketed: within one window a retry or sibling stream
         // replays the stored result; the next window re-bills deliberately —
         // without it a recurring billed fetch would be one-shot forever.
@@ -110,16 +128,41 @@ class HttpIo implements Io
     }
 
     /**
+     * Perform the effect. Called from INSIDE EffectLedger::once(), which is why
+     * claim-first and charge-once hold however a driver behaves.
+     *
      * @param  array<string, mixed>  $input
-     * @return array<string, mixed>
+     * @return array<int|string, mixed>|null null is an ANSWER ("nothing here"),
+     *                                       never an outage — see EffectNoAnswer.
      */
-    private function runBilledEffect(string $kind, string $name, array $input): array
+    private function runBilledEffect(string $kind, string $name, array $input): ?array
     {
-        throw new \RuntimeException(
-            "No billed-effect driver is wired for kind '{$kind}' (effect '{$name}'). ".
-            'Actor and AI drivers land with their connectors at P7; until then a '.
-            'connector must not declare a billed effect it cannot perform.'
-        );
+        $driver = $this->drivers->for($kind, $name);
+
+        if ($driver === null) {
+            // Unchanged in spirit from the pre-driver throw: a connector must not
+            // declare a billed effect nothing can perform, and staying loud is what
+            // stops such a declaration reading as free.
+            throw new \RuntimeException(
+                "No billed-effect driver is wired for kind '{$kind}' (effect '{$name}'). ".
+                'A connector must not declare a billed effect it cannot perform.'
+            );
+        }
+
+        $result = $driver->run(new BilledEffectContext(
+            kind: $kind,
+            name: $name,
+            input: $input,
+            runId: $this->runId,
+            sourceId: $this->sourceId,
+            userId: $this->userId,
+        ));
+
+        if ($result->outcome === BilledEffectOutcome::NoAnswer) {
+            throw new EffectNoAnswer($result->reason ?? "billed effect '{$kind}/{$name}' returned no answer");
+        }
+
+        return $result->data;
     }
 
     private function admit(string $url): void

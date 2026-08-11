@@ -4,6 +4,7 @@ use App\Ingest\Manifest\Manifest;
 use App\Ingest\Manifest\SourceKey;
 use App\Ingest\Runtime\EffectLedger;
 use App\Ingest\Runtime\EffectRefused;
+use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
 use App\Ingest\Runtime\HttpIo;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
@@ -26,7 +27,7 @@ function httpIoAdmitting(array $hosts): HttpIo
         streams: [],
     );
 
-    return new HttpIo($manifest, app(SafeUrlFetcher::class), new EffectLedger);
+    return new HttpIo($manifest, app(SafeUrlFetcher::class), new EffectLedger, new BilledEffectDriverRegistry);
 }
 
 it('rejects a redirect to a loopback IP mid-chain — THIS IS THE FINDING', function () {

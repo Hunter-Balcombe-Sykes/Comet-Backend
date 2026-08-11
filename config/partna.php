@@ -995,6 +995,19 @@ return [
         // actually runs in.
         'effect_freshness_seconds' => (int) env('PARTNA_INGEST_EFFECT_FRESHNESS_SECONDS', 604800),
 
+        // Whether HttpIo may execute a billed-effect driver at all (slice 0).
+        // Default FALSE, per environment.
+        //
+        // This is ACTIVATION gating, not budget safety — PlacesBudget and
+        // ApifyBudget already cap spend, and SourceProvisioner::schedulable()
+        // leaves every non-Free connector auto_sync=false so the dispatcher
+        // never claims one. It exists because `production` deploys on push, so
+        // this seam reaches prod weeks before slice 1 intends paid fetching to
+        // be live there. Off, a billed effect raises EffectRefused before the
+        // ledger is touched: the stream reads budget_skipped and no row is
+        // written.
+        'billed_effects_enabled' => (bool) env('PARTNA_INGEST_BILLED_EFFECTS_ENABLED', false),
+
         // Lander::land() chunk size (SCALE-4). Bind-count arithmetic per chunk
         // (Postgres limit 65,535/statement): record_versions insert = 7 cols
         // -> 500x7 = 3,500; record_state upsert = 8 cols -> 4,000; the
