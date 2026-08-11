@@ -35,7 +35,20 @@ enum RuleOperator: string
     case UpcomingOccurrence = 'upcoming_occurrence';
     case HasAction = 'has_action';     // carries this action intent
 
-    /** Rendered into the sentence the user actually reads. */
+    /**
+     * Rendered into the sentence the user actually reads.
+     *
+     * Exhaustive with NO default arm, and that is a deliberate choice rather
+     * than an oversight. A missing arm is an UnhandledMatchError, and
+     * SectionResource calls this on every serialise — so an unphrased case
+     * would 500 a dashboard read. A runtime fallback cannot guard that here:
+     * it is unreachable while the match is exhaustive, and PHPStan fails the
+     * build on the dead arm (tried both a `default =>` and a `?? ` lookup,
+     * 2026-08-11). The guard therefore lives in the test suite —
+     * RuleOperatorTest's "renders a phrase for every operator" walks
+     * cases() and throws on the first case added without an arm, which
+     * catches the omission in CI instead of in production.
+     */
     public function phrase(): string
     {
         return match ($this) {
@@ -48,9 +61,6 @@ enum RuleOperator: string
             self::LatestPerAutoSource => "is a platform's newest",
             self::HasAction => 'can be',
             self::UpcomingOccurrence => 'is upcoming',
-            // A missing arm used to be an UnhandledMatchError on a path that
-            // renders a sentence — a broken phrase beats a 500.
-            default => str_replace('_', ' ', $this->value),
         };
     }
 }
