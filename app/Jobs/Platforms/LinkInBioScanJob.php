@@ -52,11 +52,14 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
     // uniqueId() below: two scans of the same page for the same user are the
     // same job whatever their origin, and keying on it would let a staff build
     // and a dashboard connect run concurrently against one bio page.
+    public bool $autoConnectBooking = false;
+
     public function __construct(
         public readonly string $userId,
         public readonly string $bioPageUrl,
-        public readonly bool $autoConnectBooking = false,
+        bool $autoConnectBooking = false,
     ) {
+        $this->autoConnectBooking = $autoConnectBooking;
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 

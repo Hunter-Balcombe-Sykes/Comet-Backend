@@ -219,6 +219,30 @@ class IntegrationConnection extends BaseModel
     }
 
     /**
+     * Pre-claim predicate for the connection's owner — the gate every PRIV-1/PRIV-2
+     * minimisation on a connection payload hangs off.
+     *
+     * A LIVE scalar read, never `$this->user` or a hydrated instance handed in from
+     * a caller: these run inside multi-second scrape jobs, and a model loaded before
+     * the network work can disagree with the row by the time the write lands (a claim
+     * arriving mid-scrape must count as claimed). No full User hydrate for one column.
+     *
+     * What actually makes a null read unreachable is the FK: platform_connections
+     * .user_id is ON DELETE CASCADE, so a hard-deleted owner takes its connections
+     * with it and there is no orphan row to mis-read as claimed. withTrashed() closes
+     * the remaining SOFT-deleted source, where the relation's scope would otherwise
+     * return null and fall through to the claimed branch. Cheap insurance rather than
+     * a live bug — builds:prune-expired hard-deletes unclaimed users, so a
+     * soft-deleted-and-still-unclaimed owner is not a state that occurs. Note it also
+     * makes PRIV-1's strip apply to a soft-deleted owner where it previously did not:
+     * strictly more private, and deliberate.
+     */
+    public function ownerIsUnclaimed(): bool
+    {
+        return $this->user()->withTrashed()->value('status') === 'unclaimed';
+    }
+
+    /**
      * FOUND-25: the shop connection's brands (child table, formerly the payload map).
      *
      * @return HasMany<ShopBrand, $this>

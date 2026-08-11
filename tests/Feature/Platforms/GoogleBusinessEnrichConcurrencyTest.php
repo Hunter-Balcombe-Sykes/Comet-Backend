@@ -171,14 +171,14 @@ function gbEnrichFlakySeedAutoSync(): GoogleBusinessAutoSync
 
         public function __construct(private readonly GoogleBusinessAutoSync $real) {}
 
-        public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null): array
+        public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null, bool $autoConnectBooking = false): array
         {
             $this->calls++;
             if ($this->calls === 1) {
                 throw new RuntimeException('seed boom');
             }
 
-            return $this->real->seed($userId, $enrichment, $businessName, $gbPayload);
+            return $this->real->seed($userId, $enrichment, $businessName, $gbPayload, $autoConnectBooking);
         }
     };
 }
@@ -427,4 +427,142 @@ it('does not release the job when failed()\'s terminal mark() write times out on
             && ($c['place_id'] ?? null) === 'ChIJtest'
             && ($c['stage'] ?? null) === 'mark:unavailable');
     Exceptions::assertReported(LockTimeoutException::class);
+});
+
+// ── PRIV-2: pre-claim data minimisation ─────────────────────────────────────
+
+it('does not persist syncFindings for an unclaimed pre-account owner (PRIV-2)', function () {
+    // GoogleBusinessSourceGenerator dispatches this job for a provisional build,
+    // and the persist write below records syncFindings unconditionally — internal
+    // bookkeeping (including apply.write.payload, the prospect's own links) held
+    // against someone who has agreed to nothing with us. Instagram already strips
+    // the same key pre-claim; Google never did. Not a leak — the key is served
+    // only by GoogleBusinessController behind dashboard auth and is absent from
+    // PublicIntegrationConnectionResource — but it is data we do not need.
+    $user = gbEnrichUser('gbenrich10');
+    $user->status = 'unclaimed';
+    $user->auth_user_id = null;   // a provisional row has no auth user and no email
+    $user->primary_email = null;
+    $user->save();
+    gbEnrichConnection($user);
+
+    $scraper = gbEnrichCountingScraper(['socials' => ['facebook' => 'https://facebook.com/gbenrich10']]);
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle($scraper, app(GoogleBusinessAutoSync::class), gbEnrichHarvester());
+
+    $conn = IntegrationConnection::query()
+        ->where('user_id', $user->id)->where('platform', 'google-business')->firstOrFail();
+
+    expect(array_key_exists('syncFindings', $conn->payload))->toBeFalse();
+    // This skips ONE key, not the write and not the scan: the rest of the enrich
+    // result still lands, and the seeded connection — the finding's real output,
+    // and what actually renders — is still persisted.
+    expect($conn->apify_status)->toBe('ok');
+    expect($conn->payload)->toHaveKey('apifyFetchedAt');
+    expect($scraper->calls)->toBe(1);
+    expect(IntegrationConnection::query()
+        ->where('user_id', $user->id)
+        ->where('platform', '!=', 'google-business')
+        ->exists())->toBeTrue();
+});
+
+it('still persists syncFindings for a claimed owner (PRIV-2 mirror)', function () {
+    // Identical setup, status='active' the only difference — so this doubles as
+    // the control proving the guard above is not passing vacuously on a run that
+    // produced no findings. A guard widened to skip everyone deletes the
+    // dashboard's found-platforms list and its Change-to action for real users.
+    $user = gbEnrichUser('gbenrich11');
+    // ->fresh(): User::create() leaves status null on the in-memory instance —
+    // the 'active' default is applied by the column, not the model. (This pins
+    // the fixture's status only; the guard's live-read behaviour is covered by
+    // the mid-scrape claim test below, which is where it can actually be seen.)
+    expect($user->fresh()->status)->toBe('active');
+    gbEnrichConnection($user);
+
+    $scraper = gbEnrichCountingScraper(['socials' => ['facebook' => 'https://facebook.com/gbenrich11']]);
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle($scraper, app(GoogleBusinessAutoSync::class), gbEnrichHarvester());
+
+    $conn = IntegrationConnection::query()
+        ->where('user_id', $user->id)->where('platform', 'google-business')->firstOrFail();
+
+    expect($conn->payload['syncFindings'] ?? [])->not->toBe([]);
+});
+
+it('clears a syncFindings already stored against an unclaimed owner (PRIV-2)', function () {
+    // The rows already in the wild were enriched before this guard existed, and
+    // $businessInfo is rebuilt from the STORED payload — which carries the stale
+    // key straight back through. Omitting the new write is therefore not enough:
+    // the guard has to remove it, so an affected row self-cleans on its next
+    // enrich instead of holding the findings until the owner claims or expires.
+    $user = gbEnrichUser('gbenrich12');
+    $user->status = 'unclaimed';
+    $user->auth_user_id = null;
+    $user->primary_email = null;
+    $user->save();
+
+    $conn = gbEnrichConnection($user);
+    $conn->forceFill(['payload' => [
+        ...$conn->payload,
+        'syncFindings' => [[
+            'platform' => 'fresha', 'resourceId' => 'main', 'category' => 'booking',
+            'label' => 'Fresha', 'foundUrl' => 'https://www.fresha.com/a/stale',
+            'outcome' => 'conflict', 'apply' => ['remove' => ['fresha'], 'write' => []],
+        ]],
+    ]])->saveQuietly();
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(
+            gbEnrichCountingScraper(['socials' => ['facebook' => 'https://facebook.com/gbenrich12']]),
+            app(GoogleBusinessAutoSync::class),
+            gbEnrichHarvester(),
+        );
+
+    expect(array_key_exists('syncFindings', $conn->fresh()->payload))->toBeFalse();
+});
+
+it('reads owner status at WRITE time, so a claim mid-scrape keeps the findings (PRIV-2)', function () {
+    // The guard reads status AFTER the scrape, not once at the top of handle().
+    // That distinction is invisible in every other test here because the fixture
+    // never changes state mid-run. Hoisting the read above the multi-second scrape
+    // would be an easy "optimisation" (one fewer SELECT) that silently discards the
+    // findings of anyone who claims while their build is still enriching; this fails
+    // if so. It does NOT pin the read's position relative to the lock — moving it to
+    // just before persist() keeps this green.
+    $user = gbEnrichUser('gbenrich13');
+    $user->status = 'unclaimed';
+    $user->auth_user_id = null;
+    $user->primary_email = null;
+    $user->save();
+    gbEnrichConnection($user);
+
+    // Claims the account DURING the paid call, exactly as ClaimSiteService would,
+    // while the $user instance above still reads 'unclaimed'. (withoutEvents mirrors
+    // the sibling stubs above for consistency; a builder update fires no model events
+    // either way.)
+    $scraper = new class((string) $user->id) extends GoogleBusinessApifyScraper
+    {
+        public function __construct(private readonly string $userId) {}
+
+        public function fetch(string $placeId, ?string $userId = null): ?array
+        {
+            User::withoutEvents(function () {
+                User::query()->where('id', $this->userId)->update(['status' => 'active']);
+            });
+
+            return ['socials' => ['facebook' => 'https://facebook.com/gbenrich13']];
+        }
+    };
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle($scraper, app(GoogleBusinessAutoSync::class), gbEnrichHarvester());
+
+    $conn = IntegrationConnection::query()
+        ->where('user_id', $user->id)->where('platform', 'google-business')->firstOrFail();
+
+    expect($user->status)->toBe('unclaimed');             // the stale in-memory view
+    expect($user->fresh()->status)->toBe('active');       // the live row the guard must see
+    expect($conn->payload['syncFindings'] ?? [])->not->toBe([]);
 });
