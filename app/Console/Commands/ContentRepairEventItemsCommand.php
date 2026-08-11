@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Site\Documents\BuildState;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -28,7 +30,8 @@ class ContentRepairEventItemsCommand extends Command
 {
     protected $signature = 'content:repair-event-items
         {--dry-run : Report counts without writing}
-        {--user= : Only items belonging to this user id}';
+        {--user= : Only items belonging to this user id}
+        {--retire : Set removed_at on items whose every source item is retired. ONE-WAY — see the class docblock}';
 
     protected $description = 'Report event items left incomplete or orphaned by projection.';
 
@@ -48,6 +51,37 @@ class ContentRepairEventItemsCommand extends Command
             foreach ($incomplete->pluck('user_id')->unique() as $userId) {
                 $this->line("  php artisan ingest:project --user={$userId}");
             }
+        }
+
+        if ($this->option('retire') && $orphaned->isNotEmpty()) {
+            // Raw write — no Eloquent, so no observer fires. Three things must
+            // happen by hand, and nothing in CI will catch a missing one:
+            //
+            //  1. content.items.removed_at         (the retirement itself)
+            //  2. site.sites.updated_at            (bumped via the touch below) —
+            //     IndividualProfilePayloadBuilder::cacheKey() is keyed on it,
+            //     and BuildState::bump() does NOT move it, so without this the
+            //     60s Redis payload cache keeps serving the retired event.
+            //  3. the Cloudflare edge purge — same reason PoolController::
+            //     poolChanged() does it: the CDN outlives a pool edit.
+            DB::connection('pgsql')->table('content.items')
+                ->whereIn('id', $orphaned->pluck('id')->all())
+                ->update(['removed_at' => now(), 'updated_at' => now()]);
+
+            $sites = DB::connection('pgsql')->table('site.sites')
+                ->whereIn('user_id', $orphaned->pluck('user_id')->unique()->all())
+                ->get(['id', 'subdomain']);
+
+            foreach ($sites as $site) {
+                BuildState::bump((string) $site->id);
+                DB::connection('pgsql')->table('site.sites')
+                    ->where('id', $site->id)->update(['updated_at' => now()]);
+                if (($site->subdomain ?? '') !== '') {
+                    CloudflareCachePurgeJob::dispatch($site->subdomain);
+                }
+            }
+
+            $this->info('Retired '.$orphaned->count().' orphaned event item(s). This is not reversible by re-sync.');
         }
 
         return self::SUCCESS;
