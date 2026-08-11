@@ -90,9 +90,12 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         }
 
         try {
+            // The event seeders return the resource_id they wrote (LinkRouter
+            // needs it to name the row in its finding); here only "did anything
+            // land" matters, and $resolved is logged as a bool below.
             $resolved = match ($this->category) {
-                'event' => $events->seedStandalone($user, (string) $this->platform, $this->url),
-                'event-organiser' => $events->seedAccount($user, (string) $this->platform, $this->url),
+                'event' => $events->seedStandalone($user, (string) $this->platform, $this->url) !== null,
+                'event-organiser' => $events->seedAccount($user, (string) $this->platform, $this->url) !== null,
                 'shop' => $this->seedStore($brands, $user, $this->url),
                 default => $this->probe($generic, $brands, $products, $user),
             };

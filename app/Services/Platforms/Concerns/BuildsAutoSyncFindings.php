@@ -66,8 +66,15 @@ trait BuildsAutoSyncFindings
         Platform::Reservations->value,
     ];
 
-    /** @return array<string,mixed> */
-    private function seededFinding(string $platform, string $resourceId, string $category, string $label, ?string $foundUrl): array
+    /**
+     * $removePath overrides the modal's default "/platforms/<platform>" remove
+     * link. Null for every single-row platform (where the default IS the row);
+     * set only where one platform holds many rows and forget-everything would
+     * be the wrong button — see LinkRouter::seedEvent.
+     *
+     * @return array<string,mixed>
+     */
+    private function seededFinding(string $platform, string $resourceId, string $category, string $label, ?string $foundUrl, ?string $removePath = null): array
     {
         return [
             'platform' => $platform,
@@ -77,6 +84,7 @@ trait BuildsAutoSyncFindings
             'foundUrl' => $foundUrl,
             'outcome' => 'seeded',
             'apply' => null,
+            'removePath' => $removePath,
         ];
     }
 

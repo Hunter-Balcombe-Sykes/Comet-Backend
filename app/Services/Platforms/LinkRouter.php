@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Profile\SectorTaxonomy;
+use Illuminate\Support\Str;
 
 /**
  * Single classification+routing gateway for every link entering the system.
@@ -89,7 +90,7 @@ class LinkRouter
             $result = match ($category) {
                 'social' => $this->seedSocial($user, $platform, $url, $classified),
                 'booking' => $this->seedBooking($user, $platform, $url, $classified, $ctx),
-                'event', 'event-organiser' => $this->seedEvent($user, $platform, $url, $category),
+                'event', 'event-organiser' => $this->seedEvent($user, $platform, $url, $classified),
                 'shop' => $this->seedShop($user, $url, $ctx),
                 'reservations' => $this->seedReservation($user, $platform, $url, $classified),
                 'online-ordering' => $this->seedOnlineOrdering($user, $platform, $url, $classified),
@@ -221,19 +222,39 @@ class LinkRouter
         return $outcome;
     }
 
-    private function seedEvent(User $user, string $platform, string $url, string $category): RouteResult
+    /**
+     * @param  array{platform:string, category:string, label:string}  $classified
+     */
+    private function seedEvent(User $user, string $platform, string $url, array $classified): RouteResult
     {
-        $ok = match ($category) {
+        $category = $classified['category'];
+
+        $resourceId = match ($category) {
             'event' => $this->events->seedStandalone($user, $platform, $url),
             'event-organiser' => $this->events->seedAccount($user, $platform, $url),
-            default => false,
+            default => null,
         };
 
-        if ($ok) {
-            return RouteResult::seeded($platform, $platform, $category);
+        if ($resourceId === null) {
+            return RouteResult::custom();
         }
 
-        return RouteResult::custom();
+        // F8: this used to seed with no finding at all, so a connected Eventbrite
+        // never appeared in the synced modal. The resourceId must be the row's
+        // OWN id, not the platform name every other category uses:
+        // shapeFinding() resolves a seeded finding by "platform|resourceId" and
+        // drops what it can't match, and an events platform holds many rows
+        // ('event-<id>' / 'acct-<hash>'). Same reason the remove path can't be
+        // the platform's forget route — that would delete every event the user
+        // has, not the one this finding is about. removeEvent() re-adds the
+        // 'event-' prefix itself; removeAccount() matches the full id.
+        $removePath = $category === 'event'
+            ? '/platforms/'.$platform.'/events/'.Str::after($resourceId, 'event-')
+            : '/platforms/'.$platform.'/accounts/'.$resourceId;
+
+        return RouteResult::seeded($platform, $resourceId, $category, [
+            $this->seededFinding($platform, $resourceId, $category, $classified['label'], $url, $removePath),
+        ]);
     }
 
     private function seedShop(User $user, string $url, RouteContext $ctx): RouteResult

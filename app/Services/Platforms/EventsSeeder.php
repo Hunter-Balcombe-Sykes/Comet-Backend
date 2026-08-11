@@ -40,39 +40,45 @@ class EventsSeeder
     ) {}
 
     /**
-     * Seed an organiser/host ACCOUNT row from a scanned link. Returns true when
-     * a row was written (or already existed for the same canonical page).
+     * Seed an organiser/host ACCOUNT row from a scanned link. Returns the
+     * resource_id written (or of the row that already held this canonical
+     * page), null when nothing was written.
+     *
+     * The id — not a bare bool — because the caller has to name the row in the
+     * synced-modal finding it emits, and an events platform holds MANY rows per
+     * platform: a finding that says 'eventbrite' resolves to nothing and is
+     * dropped (see LinkRouter::seedEvent).
      */
-    public function seedAccount(User $user, string $platform, string $url): bool
+    public function seedAccount(User $user, string $platform, string $url): ?string
     {
         if (! in_array($platform, self::PLATFORMS, true)) {
-            return false;
+            return null;
         }
 
         $canonical = $platform === 'eventbrite'
             ? $this->eventbrite->normalizeOrgUrl($url)
             : $this->humanitix->resolveHostUrl($url);
         if ($canonical === null) {
-            return false;
+            return null;
         }
 
         // Tombstone: this exact organiser was explicitly disconnected before —
         // never resurrect from a scan (same rule InstagramAutoSync applies).
         $rid = 'acct-'.substr(sha1(strtolower(trim($canonical))), 0, 16);
         if ($this->wasDisconnected($user, $platform, $rid)) {
-            return false;
+            return null;
         }
 
         $result = $platform === 'eventbrite'
             ? $this->eventbrite->fetchEvents($canonical)
             : $this->humanitix->fetchEvents($canonical);
         if ($result === null) {
-            return false;
+            return null;
         }
 
         $payload = EventsPayload::accountPayload($canonical, $result['organiser'], $result['events']);
 
-        return $this->locked($platform, $user, function () use ($user, $platform, $rid, $canonical, $payload): bool {
+        return $this->locked($platform, $user, function () use ($user, $platform, $rid, $canonical, $payload): ?string {
             $rows = $this->liveRows($user, $platform)
                 ->filter(fn (IntegrationConnection $r) => $r->resource_kind !== 'event' && $r->resource_kind !== 'link');
 
@@ -81,11 +87,15 @@ class EventsSeeder
             if (! $existing && $rows->count() >= self::MAX_ACCOUNTS) {
                 Log::info('events_seeder.account_cap', ['user_id' => (string) $user->id, 'platform' => $platform]);
 
-                return false;
+                return null;
             }
 
+            // A row matched by canonical_key keeps ITS id, so the id the caller
+            // is told about must come from here, not from $rid.
+            $written = $existing?->resource_id ?? $rid;
+
             IntegrationConnection::updateOrCreate(
-                ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $existing?->resource_id ?? $rid],
+                ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $written],
                 [
                     'payload' => $payload,
                     'canonical_key' => strtolower(trim($canonical)),
@@ -97,42 +107,43 @@ class EventsSeeder
                 ],
             );
 
-            return true;
+            return $written;
         });
     }
 
     /**
-     * Seed one STANDALONE event row from a scanned event-page link. Returns
-     * true when the event row was written (or already existed).
+     * Seed one STANDALONE event row from a scanned event-page link. Returns the
+     * resource_id written (or of the row that already held this event), null
+     * when nothing was written. See seedAccount() for why it is the id.
      */
-    public function seedStandalone(User $user, string $platform, string $url): bool
+    public function seedStandalone(User $user, string $platform, string $url): ?string
     {
         if (! in_array($platform, self::PLATFORMS, true)) {
-            return false;
+            return null;
         }
 
         $canonical = $platform === 'eventbrite'
             ? $this->eventbrite->normalizeEventUrl($url)
             : $this->humanitix->normalizeEventUrl($url);
         if ($canonical === null) {
-            return false;
+            return null;
         }
 
         $event = $platform === 'eventbrite'
             ? $this->eventbrite->fetchSingleEvent($canonical)
             : $this->humanitix->fetchSingleEvent($canonical);
         if ($event === null) {
-            return false;
+            return null;
         }
 
         $payload = EventsPayload::standalonePayload($event);
         $rid = 'event-'.$payload['id'];
 
         if ($this->wasDisconnected($user, $platform, $rid)) {
-            return false;
+            return null;
         }
 
-        return $this->locked($platform, $user, function () use ($user, $platform, $rid, $payload): bool {
+        return $this->locked($platform, $user, function () use ($user, $platform, $rid, $payload): ?string {
             $events = $this->liveRows($user, $platform)
                 ->filter(fn (IntegrationConnection $r) => $r->resource_kind === 'event');
 
@@ -140,7 +151,7 @@ class EventsSeeder
                 && $events->count() >= self::MAX_STANDALONE_EVENTS) {
                 Log::info('events_seeder.event_cap', ['user_id' => (string) $user->id, 'platform' => $platform]);
 
-                return false;
+                return null;
             }
 
             IntegrationConnection::updateOrCreate(
@@ -156,7 +167,7 @@ class EventsSeeder
                 ],
             );
 
-            return true;
+            return $rid;
         });
     }
 
@@ -181,19 +192,21 @@ class EventsSeeder
     /**
      * Same per-user/per-platform lock the controller trait's write path holds
      * (CacheKeyGenerator::platformConnectionLock) — a scan-seeded write must
-     * exclude a concurrent dashboard add on the same platform. False on
+     * exclude a concurrent dashboard add on the same platform. Null on
      * contention: a scan seed is best-effort, never worth blocking on.
      */
-    private function locked(string $platform, User $user, callable $callback): bool
+    private function locked(string $platform, User $user, callable $callback): ?string
     {
         $key = CacheKeyGenerator::platformConnectionLock($platform, (string) $user->id);
 
         try {
-            return (bool) Cache::lock($key, 10)->block(5, $callback);
+            $written = Cache::lock($key, 10)->block(5, $callback);
+
+            return is_string($written) ? $written : null;
         } catch (LockTimeoutException) {
             Log::warning('events_seeder.lock_timeout', ['user_id' => (string) $user->id, 'platform' => $platform]);
 
-            return false;
+            return null;
         }
     }
 }

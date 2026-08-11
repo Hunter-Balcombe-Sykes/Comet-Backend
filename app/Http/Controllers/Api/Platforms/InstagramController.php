@@ -353,13 +353,19 @@ class InstagramController extends ApiController
             return null;
         }
 
+        // A finding may name its own remove path: an events platform holds many
+        // rows, so "/platforms/eventbrite" (forget) would drop all of them
+        // instead of the one this row is about. Everything else takes the
+        // default, where the platform IS the row.
+        $removePath = $finding['removePath'] ?? null;
+
         return [
             'platform' => $platform,
             'category' => $category,
             'label' => $label,
             'status' => $row->last_refresh_status === 'pending' ? 'syncing' : 'synced',
             'foundUrl' => $foundUrl,
-            'removePath' => '/platforms/'.$platform,
+            'removePath' => is_string($removePath) && $removePath !== '' ? $removePath : '/platforms/'.$platform,
         ];
     }
 
