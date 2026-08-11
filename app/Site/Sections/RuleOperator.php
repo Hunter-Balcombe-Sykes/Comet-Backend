@@ -3,8 +3,9 @@
 namespace App\Site\Sections;
 
 /**
- * The complete operator set for section rules — EIGHT (plan §7 shipped
- * seven; `latest_per_auto_source` joined 2026-08-05 for the pools lane).
+ * The complete operator set for section rules — NINE (plan §7 shipped
+ * seven; `latest_per_auto_source` joined 2026-08-05 for the pools lane,
+ * `upcoming_occurrence` 2026-08-11 for the events pool).
  * A bounded DSL is what lets the same rule be validated, rendered to the
  * user as an English sentence, and explained in a trace. An open query
  * language could do none of those.
@@ -26,6 +27,12 @@ enum RuleOperator: string
     // no engine may write pins, and a rule needs no engine — a newer item
     // simply wins the next resolve, which IS the rolling behaviour.
     case LatestPerAutoSource = 'latest_per_auto_source';
+
+    // The auto half of a DATED pool (events, 2026-08-11): the item occurs at
+    // or after now, with a day of grace so something running today does not
+    // vanish at its start time. An item with no f_occurrence row does NOT
+    // match — "upcoming" asserts a date we do not have.
+    case UpcomingOccurrence = 'upcoming_occurrence';
     case HasAction = 'has_action';     // carries this action intent
 
     /** Rendered into the sentence the user actually reads. */
@@ -40,6 +47,10 @@ enum RuleOperator: string
             self::PublishedWithin => 'was published within',
             self::LatestPerAutoSource => "is a platform's newest",
             self::HasAction => 'can be',
+            self::UpcomingOccurrence => 'is upcoming',
+            // A missing arm used to be an UnhandledMatchError on a path that
+            // renders a sentence — a broken phrase beats a 500.
+            default => str_replace('_', ' ', $this->value),
         };
     }
 }

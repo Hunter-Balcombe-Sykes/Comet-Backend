@@ -43,6 +43,7 @@ class SectionCandidates
         'tagged_with',
         'has_action',
         'latest_per_auto_source',
+        'upcoming_occurrence',
     ];
 
     /**
@@ -103,6 +104,14 @@ class SectionCandidates
 
         $ordered = match ($section->order_by ?? 'recency') {
             'alphabetical' => $query->orderBy('content.items.headline_cache'),
+            // Dated pools (events): soonest first, undated last. A correlated
+            // MIN scalar — not a join — because f_occurrence is keyed
+            // (item_id, source_id), so an item carried by two sources would
+            // emit two candidate rows through a join.
+            'occurrence' => $query->orderByRaw(
+                '(SELECT MIN(fo.starts_at_utc) FROM content.f_occurrence fo'
+                .' WHERE fo.item_id = content.items.id) ASC NULLS LAST'
+            ),
             default => $query->orderByDesc('content.items.last_seen_at'),
         };
 
@@ -114,7 +123,7 @@ class SectionCandidates
     }
 
     /**
-     * One clause of the bounded DSL — all EIGHT operators, each negatable.
+     * One clause of the bounded DSL — all NINE operators, each negatable.
      * Facet/source/collection/tag/action clauses are EXISTS subqueries against
      * the typed tables, so the rule reads live content rather than a cache. An
      * unknown operator is IGNORED (forward compatibility: an old builder must
@@ -280,6 +289,15 @@ class SectionCandidates
                             );
                         });
                 });
+            }),
+
+            // See RuleOperator::UpcomingOccurrence. `values` is ignored: kind
+            // narrowing is kind_is' job and the pool rule always pairs the two.
+            'upcoming_occurrence' => $this->applyExists($query, $negated, function ($q) {
+                $q->orWhereExists(fn ($e) => $e->from('content.f_occurrence')
+                    ->whereColumn('content.f_occurrence.item_id', 'content.items.id')
+                    ->whereNotNull('content.f_occurrence.starts_at_utc')
+                    ->where('content.f_occurrence.starts_at_utc', '>=', now()->subDay()));
             }),
 
             default => null,

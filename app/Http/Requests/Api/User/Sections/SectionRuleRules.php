@@ -18,9 +18,9 @@ use Closure;
 trait SectionRuleRules
 {
     /** Orderings the document builder understands. */
-    private const ORDER_BY = ['recency', 'alphabetical', 'popularity', 'manual'];
+    private const ORDER_BY = ['recency', 'alphabetical', 'popularity', 'manual', 'occurrence'];
 
-    /** Matches the operator set — see RuleOperator (seven, deliberately). */
+    /** Matches the operator set — see RuleOperator (nine, deliberately). */
     private const MAX_VALUES_PER_PREDICATE = 20;
 
     private function boundedRuleRule(): Closure
