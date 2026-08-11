@@ -232,75 +232,36 @@ monorepo-dashboard commit. Assets deploy before any template change ships.
 
 ---
 
-# Session progress (2026-08-11, updated live — read this first when resuming)
+# Status (2026-08-12): SHIPPED through Phase 3 + reauthentication
 
-## Done and verified in the local preview
+Everything above through P3 is implemented, tested (full suite green) and
+deployed to Laravel Cloud development. Highlights of how it landed:
 
-1. **Dev mail preview gallery built** — `GET /dev/emails` (local env only).
-   - `app/Http/Controllers/Dev/MailPreviewController.php`: fixture registry for all
-     28 emails (unsaved models via forceFill, no DB), renders Mailables via
-     `->render()` and Notification MailMessages via `Markdown::render` (which
-     registers the `mail::` namespace). `?dark=1` rewrites the
-     prefers-color-scheme media query to simulate Apple Mail dark mode.
-     Sets its own relaxed CSP headers (SecureHeaders is idempotent, so no
-     middleware change was needed).
-   - `resources/views/dev/mail-preview.blade.php`: sidebar gallery, iframe,
-     Mobile / Dark mode / Open raw toggles.
-   - Routes appended to `routes/web.php` inside `if (app()->environment('local'))`.
-   - Local `.env` had `APP_KEY=EXAMPLE` (invalid); `php artisan key:generate` was
-     run so web routes work. Server: `php artisan serve --port=8000` (a
-     `comet-backend` entry was added to Partna-App/.claude/launch.json).
-2. **Shared `x-mail.fine-print` component** (`resources/views/components/mail/fine-print.blade.php`)
-   — 12px muted band under the CTA, optional one-line "Or paste this link" URL
-   fallback (highlight blue). Replaced the old two-paragraph fine-print +
-   "Button not working?" block in: password-reset, magic-link, email-change,
-   invite, email-confirm (no url), deletion-requested, early-access-invite,
-   claim-invite. Copy lightly trimmed in the swap.
-3. **Colour sweep to dashboard tokens** (whole email tree:
-   emails/, mail/, components/mail/): #1d1d1f→#171717, #6e6e73→#7d7d7d,
-   #86868b/#a1a1a6→#8f8f8f, #f0f0f2→#ebebeb, #3a6efc→#1367fb (this completes
-   plan item P1-4, the stale accent), #f5f5f7→#f2f2f2. Links/buttons now all
-   Geist blue-700 #1367fb.
-4. **Legal footer rebuilt in the shared layout** (`mail/layouts/partna.blade.php`,
-   isPartna branch): one why-received line (footer_note OR the generic line —
-   the duplication is fixed), blue link row (Privacy policy · Terms of service ·
-   hello@partna.tech — /privacy and /terms exist in apps/marketing), then
-   "© {year} Partna Technologies AU PTY LTD · partna.au". Links ride in nowrap
-   spans with their own separator so wrapping never strands a "·".
-   ABN / registered address not added — owner hasn't supplied them yet.
-5. **Divider discipline** (owner feedback: "a mess of horizontal dividers"):
-   the footer's top hairline is the email's ONLY structural rule. Fine-print
-   has no rule (size drop + 32px gap), footer rows separate by spacing alone.
-6. **Double-escape bug fixed** (plan P2): dropped redundant `e()` inside `{{ }}`
-   in enquiry-confirmation.blade.php and subscription-confirmation.blade.php.
-7. Body padding 40px bottom; button margin 12px top.
+- **P0-1** resolved WITHIN this repo (owner's call — no other repos touched):
+  the icon/wordmark PNGs live in `public/branding/` and `EmailBrand::partna()`
+  builds URLs off `app.url` (dev-api.partna.au), verified 200 post-deploy and
+  verified end-to-end via cloud tinker.
+- **P0-2** strategy A (always-light); the four light/dark URL fields collapsed
+  to `iconUrl`/`wordmarkUrl`; missing-URL fallback is a text wordmark.
+- **P0-3** suspend/ban notices bypass the capability gate (right-to-notice);
+  content-hidden keeps it; regression test added.
+- **P1/P2** all copy items shipped; content-hidden on the shared layout; dead
+  case-escalated view deleted; button defaults centralised.
+- **P3** derived text/plain part on every mail (HtmlToText); category mail
+  consolidated behind `CategoryNotificationMail` + one view; RFC 8058
+  one-click unsubscribe via signed route `public.notification-unsubscribe`
+  flipping NotificationEmailPreference; button scheme allowlist + UTM;
+  Resend TagHeader per mail family; Notification-channel hardening via
+  `BuildsPartnaMailMessage`; handle-alias view moved to emails/account/.
+- **Phase 4 new**: branded `ReauthenticationMail` wired into the Supabase hook.
 
-## State of the working tree
+## Deliberately NOT done (product/infra decisions, revisit when wanted)
 
-All of the above is UNCOMMITTED in Comet-Backend on the current branch as of
-this writing (plus this plan file). The preview fixtures deliberately include
-"Riley O'Brien" (apostrophe → escaping bugs) and a logo-less pro brand.
-
-## Not yet done (see the phased plan above)
-
-- P0-1 assets: the four /branding/*.png URLs still 404 in prod (verified by
-  curl). Fix = export email logo set from brand SVGs at 2× retina into the
-  monorepo dashboard's public/branding/, deploy BEFORE backend template changes.
-- P0-2 dark-mode strategy decision (recommend always-light; preview's dark
-  toggle demonstrates the current contradiction).
-- P0-3 moderation notify-gate race; P1 moderation templates onto the layout
-  (+ delete dead case-escalated view); remaining P2 copy items (OTP headline
-  conflation, timezone on deletion date, handle-alias subject/button, enquiry
-  reply-to, etc.); P3 deliverability (plain-text parts, category unsubscribe,
-  Notification-family hardening, Resend tags/UTM); Phase 4 new surfaces
-  (reauthentication mail, password-changed notice, ProfileTask fate, weekly
-  digest, sending-domain split, bounce-rate alerting, volume batching).
-
-## How to resume
-
-1. `cd ~/Developer/Comet-Backend && git status` — review the uncommitted diff.
-2. Start the preview: `php artisan serve --port=8000`, open
-   http://localhost:8000/dev/emails — visual check EVERY change there
-   (screenshot, not just render-success) before showing the owner.
-3. Continue with the phased execution order above. Owner reviews visually in
-   the gallery; batch UI feedback, apply in one pass.
+- Password-changed / new-login security notice — no backend emit site exists
+  (password changes happen inside Supabase); needs a hook or product decision.
+- ProfileTaskMail fate — still orphaned; kept + documented in its docblock.
+- Weekly analytics digest; transactional/bulk sending-identity split;
+  bounce/complaint-rate alerting; per-user volume batching.
+- Seed-inbox pass in real clients (Apple Mail dark, Gmail web+iOS, Outlook) —
+  the local gallery (`/dev/emails`, `?dark=1`) was the verification surface.
+- ABN / registered address in the legal footer — owner hasn't supplied them.
