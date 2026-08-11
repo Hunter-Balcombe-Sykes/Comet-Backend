@@ -75,11 +75,14 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
     // of uniqueId() below: two enriches of the same place for the same user are
     // the same job whatever their origin, and keying on it would let a staff
     // build and a dashboard connect run concurrently against one listing.
+    public bool $autoConnectBooking = false;
+
     public function __construct(
         public readonly string $userId,
         public readonly string $placeId,
-        public readonly bool $autoConnectBooking = false,
+        bool $autoConnectBooking = false,
     ) {
+        $this->autoConnectBooking = $autoConnectBooking;
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 

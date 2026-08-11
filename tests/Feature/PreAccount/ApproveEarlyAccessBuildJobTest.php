@@ -59,7 +59,7 @@ it('re-scrapes IG, opens the window, flips to invited, and emails the invite', f
                 return $normalizedRef;
             }
 
-            public function generate(User $user, Site $site, string $sourceRef): void {}
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
     });
@@ -141,7 +141,7 @@ it('flips to failed, does not notify, and reports when the re-scrape throws (nev
                 return $normalizedRef;
             }
 
-            public function generate(User $user, Site $site, string $sourceRef): void
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
             {
                 throw SourceGenerationException::scrapeFailed('boom');
             }

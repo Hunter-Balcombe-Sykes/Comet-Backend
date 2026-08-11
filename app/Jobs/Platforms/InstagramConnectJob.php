@@ -68,6 +68,11 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
     // payload — and fatal on read in handle(). Defaults false: see handle().
     public bool $notifyOnConnect = false;
 
+    // Declared, not promoted, for the identical reason spelled out above — this
+    // job is enqueued across deploys, so a promoted default would restore
+    // uninitialized and fatal on the read in handle().
+    public bool $autoConnectBooking = false;
+
     // $autoConnectBooking: TRUE only when a staff/ManyChat build reached this
     // scrape (today, via a Google listing that carries an Instagram link). The
     // dashboard connect and the refresh sweep both leave it at FALSE so the
@@ -78,9 +83,10 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         public readonly string $username,
         public readonly string $connectionId,
         bool $notifyOnConnect = false,
-        public readonly bool $autoConnectBooking = false,
+        bool $autoConnectBooking = false,
     ) {
         $this->notifyOnConnect = $notifyOnConnect;
+        $this->autoConnectBooking = $autoConnectBooking;
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 

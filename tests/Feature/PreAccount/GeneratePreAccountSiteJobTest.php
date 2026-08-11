@@ -119,7 +119,7 @@ it('notifies via email when a published build with contact_email reaches ready',
                 return $normalizedRef;
             }
 
-            public function generate($user, $site, $ref): void {}
+            public function generate($user, $site, $ref, $autoConnectBooking = false): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
     });
@@ -163,7 +163,7 @@ it('does not notify when an unpublished build with contact_email reaches ready',
                 return $normalizedRef;
             }
 
-            public function generate($user, $site, $ref): void {}
+            public function generate($user, $site, $ref, $autoConnectBooking = false): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
     });
@@ -204,7 +204,7 @@ it('does not notify when auto_invite is false even if published', function () {
                 return $normalizedRef;
             }
 
-            public function generate($user, $site, $ref): void {}
+            public function generate($user, $site, $ref, $autoConnectBooking = false): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
     });
@@ -249,7 +249,7 @@ it('deactivates the IG connection for a dark early-access build', function () {
                 return $normalizedRef;
             }
 
-            public function generate(User $user, Site $site, string $sourceRef): void
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
             {
                 IntegrationConnection::create([
                     'user_id' => $this->user->id, 'platform' => 'instagram',
@@ -303,7 +303,7 @@ it('leaves the IG connection active for a non-early-access build (signup)', func
                 return $normalizedRef;
             }
 
-            public function generate(User $user, Site $site, string $sourceRef): void
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
             {
                 IntegrationConnection::create([
                     'user_id' => $this->user->id, 'platform' => 'instagram',
