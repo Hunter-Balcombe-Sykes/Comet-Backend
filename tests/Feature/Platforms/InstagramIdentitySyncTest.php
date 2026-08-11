@@ -185,3 +185,26 @@ it('does nothing to workplace when neither contact field is present in the paylo
     app(InstagramIdentitySync::class)->applyIdentity($user, ['fullName' => 'Jane']);
     expect(Workplace::where('site_id', (string) $site->id)->exists())->toBeFalse();
 });
+
+// A degraded figue actor run stringifies Python's None into
+// businessCategoryName — crucibletattooco, F4/F5 (2026-08-10). Sector must
+// stay null while the other identity fields still fold.
+it('leaves sector untouched when the actor returns a placeholder category', function () {
+    $user = User::factory()->create([
+        'sector' => null,
+        'sector_source' => null,
+        'display_name' => '',
+        'handle' => 'existing-handle',
+        'handle_lc' => 'existing-handle',
+    ]);
+
+    app(InstagramIdentitySync::class)->applyIdentity($user, [
+        'businessCategoryName' => 'None',
+        'fullName' => 'Crucible Tattoo Co.',
+    ]);
+
+    $user->refresh();
+    expect($user->sector)->toBeNull()
+        ->and($user->sector_source)->toBeNull()
+        ->and($user->display_name)->toBe('Crucible Tattoo Co.');
+});

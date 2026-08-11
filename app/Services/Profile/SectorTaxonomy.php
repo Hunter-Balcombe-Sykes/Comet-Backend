@@ -36,6 +36,16 @@ final class SectorTaxonomy
     ];
 
     /**
+     * Values a scraper emits in place of a real category — the figue actor
+     * stringifies Python's None. Never classified, and never stored: the
+     * Instagram seeder reads this same list at its write seam, because
+     * businessCategory is on the public wire (F4, 2026-08-10).
+     *
+     * @var list<string>
+     */
+    public const PLACEHOLDER_CATEGORIES = ['none', 'null', 'n/a', '-'];
+
+    /**
      * Ordered sector rows. Order within a group is the display order in the
      * picker. `group` is the section header the picker renders.
      *
@@ -305,7 +315,7 @@ final class SectorTaxonomy
     private static function classify(string $raw, array $orderedKeywordToSlug): ?string
     {
         $lower = strtolower(trim($raw));
-        if ($lower === '' || $lower === 'none') {
+        if ($lower === '' || in_array($lower, self::PLACEHOLDER_CATEGORIES, true)) {
             return null;
         }
 

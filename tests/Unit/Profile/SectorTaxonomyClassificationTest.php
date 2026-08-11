@@ -121,3 +121,13 @@ it('keeps restaurant/cafe/bakery/bar distinct, with restaurant winning over a tr
         ->and(SectorTaxonomy::fromGoogleCategory('Local bakery'))->toBe('bakery')
         ->and(SectorTaxonomy::fromGoogleCategory('Wine bar'))->toBe('bar');
 });
+
+/**
+ * F4/F5 (2026-08-10 build wave): a degraded figue actor run stringifies
+ * Python's None into businessCategoryName. Guard the whole placeholder set,
+ * not just "none".
+ */
+it('returns null for every placeholder category string, in any casing', function (string $input) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBeNull()
+        ->and(SectorTaxonomy::fromGoogleCategory($input))->toBeNull();
+})->with(['None', 'none', 'NONE', ' None ', 'null', 'NULL', 'N/A', 'n/a', '-']);

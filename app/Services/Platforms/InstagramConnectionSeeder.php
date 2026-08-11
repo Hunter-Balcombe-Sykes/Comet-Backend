@@ -9,6 +9,7 @@ use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\MediaDiskResolver;
 use App\Services\Platforms\Payloads\InstagramPayload;
+use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Client\ConnectionException;
@@ -158,8 +159,10 @@ class InstagramConnectionSeeder
             // established precedent for this same actor swap).
             'fullName' => data_get($profile, 'fullName') ?? data_get($profile, 'full_name'),
             'profilePicUrl' => $profilePic,
-            'businessCategory' => data_get($profile, 'businessCategoryName')
-                ?? data_get($profile, 'business_category_name'),
+            'businessCategory' => $this->categoryOrNull(
+                data_get($profile, 'businessCategoryName')
+                    ?? data_get($profile, 'business_category_name')
+            ),
             'followersCount' => data_get($profile, 'followersCount'),
             'postsCount' => data_get($profile, 'postsCount'),
             'mode' => 'automatic',
@@ -515,6 +518,26 @@ class InstagramConnectionSeeder
     // reels silently never mirroring (and of the UnableToDeleteFile noise).
     // Resolved per call, not memoized: the resolver's own superglobal probe is
     // the source of truth and is cheap.
+    /**
+     * businessCategory is on the public wire
+     * (PublicIntegrationConnectionResource::ALLOWLIST), so a degraded actor
+     * run's stringified Python None must not reach it — crucibletattooco
+     * published the word "None" as its business category (F4, 2026-08-10).
+     * Same list SectorTaxonomy::classify() refuses to classify.
+     */
+    private function categoryOrNull(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed === '' || in_array(strtolower($trimmed), SectorTaxonomy::PLACEHOLDER_CATEGORIES, true)
+            ? null
+            : $trimmed;
+    }
+
     private function mediaDisk(): FilesystemAdapter
     {
         return Storage::disk(MediaDiskResolver::resolve());
