@@ -39,6 +39,8 @@ it('classifies a representative input for every KEYWORD_SECTORS entry to its int
     'barber' => ['Barber shop', 'barber'],
     'hair' => ['Hair Salon', 'hair-salon'],
     'nail' => ['Nail salon', 'nail-technician'],
+    'makeup' => ['Makeup studio', 'makeup-artist'],
+    'make-up' => ['Make-up studio', 'makeup-artist'],
     'spa' => ['Day spa', 'spa'],
     'tattoo' => ['Tattoo studio', 'tattoo-artist'],
     'gym' => ['Gym', 'gym'],
@@ -90,6 +92,31 @@ it('classifies a representative input for every KEYWORD_SECTORS entry to its int
     'bar' => ['Wine bar', 'bar'],
 ]);
 
+/**
+ * The table above claims to pin the FULL ordered map. Without this, adding a
+ * KEYWORD_SECTORS entry and forgetting to add its representative input leaves
+ * that claim quietly false — which is worse than an openly partial table,
+ * because a reorder regression would then slip through unnoticed.
+ */
+it('has one representative input for every KEYWORD_SECTORS entry', function () {
+    $keywords = array_keys((new ReflectionClass(SectorTaxonomy::class))->getConstant('KEYWORD_SECTORS'));
+
+    // The dataset keys of the representative table are the keyword names.
+    $covered = [
+        'barber', 'hair', 'nail', 'makeup', 'make-up', 'spa', 'tattoo', 'gym', 'fitness', 'yoga',
+        'trainer', 'chiropractor', 'dentist', 'physio', 'sport', 'photographer', 'photo',
+        'art gallery', 'gallery', 'music', 'real estate', 'accountant', 'lawyer', 'attorney',
+        'consultant', 'clothing', 'florist', 'flower', 'jewel', 'gift shop', 'plumber',
+        'electrician', 'clean', 'landscap', 'hotel', 'event venue', 'event planner', 'wedding',
+        'car repair', 'auto repair', 'mechanic', 'car wash', 'car dealer', 'tutor',
+        'dance school', 'dance', 'driving school', 'restaurant', 'cafe', 'coffee', 'bakery',
+        'food truck', 'caterer', 'bar',
+    ];
+
+    expect(array_diff($keywords, $covered))->toBe([], 'KEYWORD_SECTORS entries with no representative input')
+        ->and(array_diff($covered, $keywords))->toBe([], 'representative inputs for keywords that no longer exist');
+});
+
 it('distinguishes car repair, car wash, and car dealer — only car wash differs from the others', function () {
     expect(SectorTaxonomy::fromGoogleCategory('Car repair shop'))->toBe('mechanic')
         ->and(SectorTaxonomy::fromGoogleCategory('Car wash service'))->toBe('car-detailer')
@@ -133,13 +160,16 @@ it('returns null for every placeholder category string, in any casing', function
 })->with(['None', 'none', 'NONE', ' None ', 'null', 'NULL', 'N/A', 'n/a', '-']);
 
 /**
- * The taxonomy carried an `artist` slug and a `makeup-artist` slug that no
- * keyword could reach — "Artist" is a first-class Instagram business category
- * and it classified to null (F5, 2026-08-10).
+ * A bare "Artist" must stay NULL. It is one of Instagram's most generic
+ * Facebook-taxonomy categories — tattooists, musicians, hairdressers and
+ * photographers all pick it, and jesshairstylist (a hairdresser) carries it on
+ * dev. Sector is sticky: IdentitySync::applySector returns early when
+ * sector_source is set and isn't google-business, so an Instagram-stamped
+ * guess would permanently lock Google Business out of correcting it.
  */
-it('classifies a bare "Artist" category as artist', function () {
-    expect(SectorTaxonomy::fromInstagramCategory('Artist'))->toBe('artist')
-        ->and(SectorTaxonomy::fromGoogleCategory('Artist'))->toBe('artist');
+it('leaves a bare "Artist" category null rather than stamping a sticky guess', function () {
+    expect(SectorTaxonomy::fromInstagramCategory('Artist'))->toBeNull()
+        ->and(SectorTaxonomy::fromGoogleCategory('Artist'))->toBeNull();
 });
 
 it('classifies makeup artists to makeup-artist, both spellings', function () {
@@ -148,10 +178,11 @@ it('classifies makeup artists to makeup-artist, both spellings', function () {
 });
 
 /**
- * The generic 'artist' keyword must never shadow a more specific one. These
- * would all flip to 'artist' if it were inserted too early in KEYWORD_SECTORS.
+ * "<speciality> Artist" strings must resolve on their SPECIALITY keyword. These
+ * are the inputs that would break if a bare 'artist' key were ever added to
+ * KEYWORD_SECTORS ahead of them, or if 'makeup' were moved after it.
  */
-it('keeps specific artist categories ahead of the generic artist keyword', function (string $input, string $expected) {
+it('resolves speciality artist categories on their speciality keyword', function (string $input, ?string $expected) {
     expect(SectorTaxonomy::fromInstagramCategory($input))->toBe($expected);
 })->with([
     'tattoo' => ['Tattoo Artist', 'tattoo-artist'],
@@ -159,6 +190,8 @@ it('keeps specific artist categories ahead of the generic artist keyword', funct
     'hair' => ['Hair Artist', 'hair-salon'],
     'makeup' => ['Makeup Artist', 'makeup-artist'],
     'gallery' => ['Art gallery', 'artist'],
+    // No speciality keyword to hang on → null, not a guess.
+    'bare' => ['Artist', null],
 ]);
 
 /**

@@ -518,26 +518,6 @@ class InstagramConnectionSeeder
     // reels silently never mirroring (and of the UnableToDeleteFile noise).
     // Resolved per call, not memoized: the resolver's own superglobal probe is
     // the source of truth and is cheap.
-    /**
-     * businessCategory is on the public wire
-     * (PublicIntegrationConnectionResource::ALLOWLIST), so a degraded actor
-     * run's stringified Python None must not reach it — crucibletattooco
-     * published the word "None" as its business category (F4, 2026-08-10).
-     * Same list SectorTaxonomy::classify() refuses to classify.
-     */
-    private function categoryOrNull(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-
-        $trimmed = trim($value);
-
-        return $trimmed === '' || in_array(strtolower($trimmed), SectorTaxonomy::PLACEHOLDER_CATEGORIES, true)
-            ? null
-            : $trimmed;
-    }
-
     private function mediaDisk(): FilesystemAdapter
     {
         return Storage::disk(MediaDiskResolver::resolve());
@@ -557,5 +537,25 @@ class InstagramConnectionSeeder
         }
 
         return false;
+    }
+
+    /**
+     * businessCategory is on the public wire
+     * (PublicIntegrationConnectionResource::ALLOWLIST), so a degraded actor
+     * run's stringified Python None must not reach it — crucibletattooco
+     * published the word "None" as its business category (F4, 2026-08-10).
+     * Same list SectorTaxonomy::classify() refuses to classify.
+     */
+    private function categoryOrNull(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed === '' || in_array(strtolower($trimmed), SectorTaxonomy::PLACEHOLDER_CATEGORIES, true)
+            ? null
+            : $trimmed;
     }
 }

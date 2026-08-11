@@ -150,8 +150,6 @@ final class SectorTaxonomy
         'barber' => 'barber',
         'hair' => 'hair-salon',
         'nail' => 'nail-technician',
-        // Before the generic 'artist' at the end of this map, or "Makeup Artist"
-        // falls through to it.
         'makeup' => 'makeup-artist',
         'make-up' => 'makeup-artist',
         'spa' => 'spa',
@@ -203,10 +201,14 @@ final class SectorTaxonomy
         'food truck' => 'food-truck',
         'caterer' => 'caterer',
         'bar' => 'bar',
-        // LAST deliberately: 'artist' is the most generic key in this map, so
-        // every specific keyword above ('tattoo', 'nail', 'hair', 'makeup',
-        // 'art gallery') wins the match first. Never move it up.
-        'artist' => 'artist',
+        // NO bare 'artist' key, deliberately. It reaches the `artist` slug from
+        // strings like Instagram's "Artist" category, which tattooists,
+        // musicians, hairdressers and photographers all pick — and a sector is
+        // STICKY: IdentitySync::applySector returns early when sector_source is
+        // set and isn't google-business, so an Instagram-stamped guess locks
+        // Google Business out of ever correcting it, permanently. Writing
+        // nothing keeps the field open for a better source or the user's own
+        // pick. 'art gallery'/'gallery' stay because they are unambiguous.
     ];
 
     /**
