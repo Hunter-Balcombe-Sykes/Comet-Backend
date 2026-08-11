@@ -163,7 +163,12 @@ function igScraperItem(array $overrides = []): array
         'externalUrls' => [
             ['url' => 'https://www.facebook.com/docpizzabar'],
         ],
-        'latestPosts' => [],
+        // One post, so the fixture is self-consistent with postsCount above.
+        // "postsCount 42, latestPosts []" is exactly the contradiction
+        // InstagramScraper::isThinProfile() now rejects as a degraded scrape.
+        'latestPosts' => [
+            ['shortCode' => 'docpizza1', 'displayUrl' => 'https://scontent.cdninstagram.com/p1.jpg'],
+        ],
     ], $overrides);
 }
 
@@ -228,7 +233,10 @@ it('fetchProfile + bioLinks tolerate a profile with none of the bio fields (olde
     Http::fake(['api.apify.com/*' => Http::response([[
         'fullName' => 'Legacy User',
         'followersCount' => 10,
-        'postsCount' => 2,
+        // 0, not 2: "claims 2 posts, ships none" is the self-contradiction
+        // isThinProfile() rejects, and fetchProfile() returns null for a thin
+        // profile. This test is about bio fields, not post counts.
+        'postsCount' => 0,
         'latestPosts' => [],
     ]], 201)]);
 

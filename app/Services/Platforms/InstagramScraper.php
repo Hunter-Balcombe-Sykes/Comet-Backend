@@ -21,12 +21,21 @@ class InstagramScraper extends PlatformScraper
     // Run the profile scraper, returning the first dataset item (the profile,
     // with latestPosts) or null on any failure / missing token.
     //
+    // A THIN profile also returns null, and that is load-bearing: a caller of
+    // this lossy wrapper gets "unusable", and the one caller that has data to
+    // protect returns before seed() on null. seed()'s stale-reclaim deletes
+    // every mirrored file it did not write this run, so not running it is what
+    // preserves a live user's payload and their R2 objects. Callers that need to
+    // USE a degraded profile must take fetchProfileResult() and read ->thin.
+    //
     // $userId is threaded for log correlation. platform_connection_id is
     // intentionally not threaded: the connection row is written only AFTER a
     // successful scrape, so it doesn't exist at log time.
     public function fetchProfile(string $username, ?string $userId = null): ?array
     {
-        return $this->fetchProfileResult($username, $userId)->profile;
+        $result = $this->fetchProfileResult($username, $userId);
+
+        return $result->thin ? null : $result->profile;
     }
 
     // Same fetch, but reporting WHY it failed. fetchProfile()'s bare null could

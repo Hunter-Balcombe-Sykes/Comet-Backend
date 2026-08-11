@@ -140,12 +140,33 @@ it('returns the raw profile item with no failure on success', function () {
         ->and($result->profile['fullName'])->toBe('Doc Pizza');
 });
 
-it('keeps fetchProfile() returning the bare item so existing callers are unaffected', function () {
-    Http::fake(['api.apify.com/*' => Http::response([['username' => 'docpizza', 'fullName' => 'Doc Pizza']], 201)]);
+it('keeps fetchProfile() returning the bare item for a complete profile', function () {
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'username' => 'docpizza',
+        'fullName' => 'Doc Pizza',
+        'postsCount' => 42,
+        'latestPosts' => array_fill(0, 12, ['shortCode' => 'x']),
+    ]], 201)]);
 
     $profile = (new InstagramScraper)->fetchProfile('docpizza');
 
     expect($profile['fullName'])->toBe('Doc Pizza');
+});
+
+// Load-bearing, not incidental. InstagramConnectJob returns before seed() on a
+// null profile, and seed()'s stale-reclaim deletes every mirrored file it did
+// not write this run — so null here is what stops a thin refresh wiping a live
+// user's R2 objects. A caller that needs to USE a degraded profile must take
+// fetchProfileResult() and read ->thin.
+it('returns null from fetchProfile() for a thin profile, so callers skip the write', function () {
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'username' => 'crucibletattooco',
+        'fullName' => 'Crucible Tattoo Co.',
+        'followersCount' => 30042,
+        'private' => false,
+    ]], 201)]);
+
+    expect((new InstagramScraper)->fetchProfile('crucibletattooco'))->toBeNull();
 });
 
 // ── Thin-profile predicate ───────────────────────────────────────────────────

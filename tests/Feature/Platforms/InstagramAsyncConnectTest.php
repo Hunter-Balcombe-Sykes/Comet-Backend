@@ -737,7 +737,10 @@ function igItemWithBio(): array
     return [
         'fullName' => 'Doc Pizza',
         'followersCount' => 500,
-        'postsCount' => 42,
+        // 0, not 42: "postsCount 42 with latestPosts []" is the self-contradiction
+        // isThinProfile() rejects as a degraded scrape. 0 keeps the no-media intent
+        // below while leaving the fixture self-consistent.
+        'postsCount' => 0,
         'businessCategoryName' => 'Restaurant',
         'externalUrl' => 'https://docpizza.example.com',
         'externalUrls' => [['url' => 'https://www.facebook.com/docpizzabar']],
@@ -752,7 +755,7 @@ function igItemWithoutBio(): array
     return [
         'fullName' => 'Legacy User',
         'followersCount' => 10,
-        'postsCount' => 2,
+        'postsCount' => 0,   // self-consistent with latestPosts below (see igItemWithBio)
         'latestPosts' => [],
     ];
 }
@@ -810,6 +813,7 @@ it('applies instagram identity fields (sector/display_name) as part of the conne
         'fullName' => 'Test Cafe',
         'businessCategoryName' => 'Cafe',
         'username' => 'test_cafe_ig',
+        'postsCount' => 0,   // self-consistent with latestPosts (see igItemWithBio)
         'latestPosts' => [],
     ]], 201)]);
 
@@ -867,6 +871,7 @@ it('applies instagram identity fields from the raw actor snake_case shape end-to
         'full_name' => 'Snake Case Cafe',
         'business_category_name' => 'Cafe',
         'username' => 'snake_cafe_ig',
+        'postsCount' => 0,   // self-consistent with latestPosts (see igItemWithBio)
         'latestPosts' => [],
     ]], 201)]);
 
@@ -918,6 +923,7 @@ it('reads the category from category_name when the actor nulls business_category
         'business_category_name' => null,
         'category_name' => 'Cafe',
         'username' => 'nullcat_ig',
+        'postsCount' => 0,   // self-consistent with latestPosts (see igItemWithBio)
         'latestPosts' => [],
     ]], 201)]);
 
@@ -953,6 +959,7 @@ it('dispatches a commerce probe for an unmatched (unclassified) instagram bio li
     Http::fake(['api.apify.com/*' => Http::response([[
         'fullName' => 'Blog User',
         'externalUrl' => 'https://someblog.example/post',
+        'postsCount' => 0,   // self-consistent with latestPosts (see igItemWithBio)
         'latestPosts' => [],
     ]], 201)]);
 
@@ -986,6 +993,7 @@ it('does not auto-create a custom link for a bio link that WAS auto-synced as a 
     Http::fake(['api.apify.com/*' => Http::response([[
         'fullName' => 'Doc Pizza',
         'externalUrls' => [['url' => 'https://www.facebook.com/docpizzabar']],
+        'postsCount' => 0,   // self-consistent with latestPosts (see igItemWithBio)
         'latestPosts' => [],
     ]], 201)]);
 

@@ -128,6 +128,10 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
             return;
         }
 
+        // fetchProfile(), NOT fetchProfileResult(): 36 mock sites across 14 test
+        // files stub this exact method, so the entry point the job calls is part
+        // of its contract. It also suffices — fetchProfile() returns null for a
+        // thin profile too, and the null branch below is what protects the data.
         $profile = $scraper->fetchProfile($this->username, $this->userId);
 
         if (! $profile) {
@@ -135,6 +139,11 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
             // a silent markFailed()+return made Horizon mark the job "succeeded",
             // hiding a broken auto-connect (JOB-4). No retry: re-running re-bills the
             // Apify scrape. failed() marks the connection 'unavailable' for the user.
+            //
+            // Returning HERE, before seed(), is also what preserves an already-
+            // connected user's payload and mirrored R2 files when a refresh comes
+            // back thin: seed()'s stale-reclaim deletes every mirrored file it did
+            // not write this run, and a thin run writes none.
             $this->fail(new \RuntimeException(
                 "Instagram scrape returned no profile for @{$this->username} (user {$this->userId})"
             ));
