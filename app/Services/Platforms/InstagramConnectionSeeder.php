@@ -211,7 +211,13 @@ class InstagramConnectionSeeder
         // Best-effort: InstagramAutoSync isolates each link in its own try/catch,
         // so a bad link can't fail this job. Findings persist alongside the profile
         // in ONE write (not a follow-up save) so /synced never sees a half-written row.
-        $sync = $this->autoSync->seed($userId, $bioLinks, $autoConnectBooking);
+        // ONE context for BOTH passes. A bio scrape routes twice — the auto-sync
+        // loop over what classify() recognised, then autoSaveUnmatchedLinks over
+        // what it did not — and those are two halves of one run, not two runs.
+        // Held here because this method is the only thing that spans both.
+        $ctx = new RouteContext(autoConnectBooking: $autoConnectBooking);
+
+        $sync = $this->autoSync->seed($userId, $bioLinks, $autoConnectBooking, $ctx);
         $selection['syncFindings'] = $sync['findings'];
         $selection['unmatched'] = $sync['unmatched'];
 
@@ -221,8 +227,21 @@ class InstagramConnectionSeeder
         $user = User::find($userId);
         if ($user !== null) {
             $this->identitySync->applyIdentity($user, $profile);
-            $this->autoSaveUnmatchedLinks($user, $sync['unmatched'], $autoConnectBooking);
+            $this->autoSaveUnmatchedLinks($user, $sync['unmatched'], $ctx);
         }
+
+        // The run card for the WHOLE scrape. probes_denied is the only place a
+        // starved link survives: it becomes an ordinary card, indistinguishable
+        // from one we examined and rejected, so a scrape that ran out of budget
+        // reads as a scrape that finished. Logged here rather than in either
+        // pass because only this method sees both.
+        Log::info('platforms.instagram.bio_links_routed', [
+            'user_id' => $userId,
+            'links_seen' => count($bioLinks),
+            'findings' => count($sync['findings']),
+            'unmatched' => count($sync['unmatched']),
+            ...$ctx->summary(),
+        ]);
 
         // PRIV-2: bioLinks/syncFindings/unmatched are internal auto-sync bookkeeping
         // — never in PublicIntegrationConnectionResource::ALLOWLIST — so a pre-claim
@@ -288,21 +307,23 @@ class InstagramConnectionSeeder
     }
 
     /** @param  list<array<string,mixed>>  $unmatched */
-    private function autoSaveUnmatchedLinks(User $user, array $unmatched, bool $autoConnectBooking = false): void
+    private function autoSaveUnmatchedLinks(User $user, array $unmatched, RouteContext $ctx): void
     {
         // LinkRouter (inside CustomLinkSeeder::seed()) handles classification,
         // routing, commerce probes, and custom-link fallback. The re-classify
         // + probe dispatch this method used to do is now inside the router.
         //
-        // ONE context for the whole list — it carries the per-run commerce probe
-        // budget that replaced this class's own MAX_COMMERCE_PROBES counter
-        // (signup-v2 C4). Per-link contexts would uncap it.
+        // The context is the CALLER's — the same one the auto-sync pass used —
+        // and that is load-bearing twice over. Its seen-platforms map stops this
+        // pass re-deciding a platform pass 1 already settled (a second link to
+        // one platform gets its card here instead of being turned back into a
+        // conflict nobody keeps). And its probe budget is now one budget for the
+        // scrape rather than one per pass: with a context each, a bio could
+        // spend 6 probes here on top of 6 there, twice the documented cap.
         //
-        // Inherits the caller's origin: these are bio links the main loop could
-        // not classify, re-routed here, so they auto-connect exactly when the
-        // links they arrived with did. Hardcoding true here would auto-connect
-        // them for a dashboard connect too, where a picker is coming.
-        $ctx = new RouteContext(autoConnectBooking: $autoConnectBooking);
+        // It also carries the caller's origin, so these links auto-connect
+        // exactly when the links they arrived with did — a dashboard connect
+        // still gets its picker.
 
         foreach ($unmatched as $entry) {
             $url = is_array($entry) ? ($entry['url'] ?? null) : null;
