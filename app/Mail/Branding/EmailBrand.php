@@ -19,30 +19,27 @@ final class EmailBrand
         public readonly string $proName,
         public readonly string $siteUrl,
         public readonly ?string $logoUrl,
-        public readonly ?string $logoUrlLight,
-        public readonly ?string $logoUrlDark,
-        public readonly ?string $iconUrlLight,
-        public readonly ?string $iconUrlDark,
+        public readonly ?string $iconUrl,
+        public readonly ?string $wordmarkUrl,
         public readonly ?string $replyToEmail,
         public readonly EmailPalette $palette,
     ) {}
 
     public static function partna(): self
     {
-        // Deliberately app.frontend_url, not app.url: app.url is the API's own
-        // domain (api.partna.au / unset -> localhost in some envs), which never
-        // serves /branding/* — the dashboard SPA (app.partna.au) does.
-        $appUrl = (string) config('app.frontend_url', 'https://app.partna.au');
+        // Emails are always-light (strategy A, 2026-08-12) so there is one
+        // asset pair, and it ships in THIS repo's public/branding/ — served
+        // off the API's own domain so email branding never depends on which
+        // frontend currently answers app.partna.au.
+        $assetBase = rtrim((string) config('app.url', 'https://api.partna.au'), '/');
 
         return new self(
             isPartna: true,
             proName: (string) config('mail.from.name', 'Partna'),
             siteUrl: (string) config('app.partna_marketing_url', 'https://partna.au'),
             logoUrl: null,
-            logoUrlLight: "{$appUrl}/branding/partna-wordmark-light.png",
-            logoUrlDark: "{$appUrl}/branding/partna-wordmark-dark.png",
-            iconUrlLight: "{$appUrl}/branding/partna-icon-light.png",
-            iconUrlDark: "{$appUrl}/branding/partna-icon-dark.png",
+            iconUrl: "{$assetBase}/branding/partna-icon.png",
+            wordmarkUrl: "{$assetBase}/branding/partna-wordmark.png",
             replyToEmail: null,
             palette: EmailBrandDefaults::defaults(),
         );
@@ -56,10 +53,8 @@ final class EmailBrand
             'proName' => $this->proName,
             'siteUrl' => $this->siteUrl,
             'logoUrl' => $this->logoUrl,
-            'logoUrlLight' => $this->logoUrlLight,
-            'logoUrlDark' => $this->logoUrlDark,
-            'iconUrlLight' => $this->iconUrlLight,
-            'iconUrlDark' => $this->iconUrlDark,
+            'iconUrl' => $this->iconUrl,
+            'wordmarkUrl' => $this->wordmarkUrl,
             'replyToEmail' => $this->replyToEmail,
             'palette' => [
                 'accent' => $this->palette->accent,
@@ -84,10 +79,8 @@ final class EmailBrand
             proName: (string) ($data['proName'] ?? ''),
             siteUrl: (string) ($data['siteUrl'] ?? config('app.partna_marketing_url', 'https://partna.au')),
             logoUrl: $data['logoUrl'] ?? null,
-            logoUrlLight: $data['logoUrlLight'] ?? null,
-            logoUrlDark: $data['logoUrlDark'] ?? null,
-            iconUrlLight: $data['iconUrlLight'] ?? null,
-            iconUrlDark: $data['iconUrlDark'] ?? null,
+            iconUrl: $data['iconUrl'] ?? null,
+            wordmarkUrl: $data['wordmarkUrl'] ?? null,
             replyToEmail: $data['replyToEmail'] ?? null,
             palette: new EmailPalette(
                 accent: (string) ($p['accent'] ?? EmailBrandDefaults::ACCENT),
