@@ -65,7 +65,8 @@ final readonly class GoogleBusinessFetch implements FetchStrategy
         // the owner claims: claim flips status to 'active' and the very next
         // refresh restores full data with no ClaimSiteService change needed. A
         // cheap scalar column read — never a full User hydrate.
-        if ($connection->user()->value('status') === 'unclaimed') {
+        $unclaimed = $connection->ownerIsUnclaimed();
+        if ($unclaimed) {
             $details = GoogleBusinessPayload::stripThirdPartyPii($details);
         }
 
@@ -75,6 +76,21 @@ final readonly class GoogleBusinessFetch implements FetchStrategy
         // (non-destructive); serve-gating hides them everywhere regardless.
         $details = Arr::except($details, DisplaySettingsFilter::disabledKeys('google-business', $connection->display_settings));
 
-        return [...$payload, ...$details];
+        $merged = [...$payload, ...$details];
+
+        // PRIV-2: unlike the strip above, this one is DESTRUCTIVE of stored state and
+        // therefore does NOT self-heal on claim — the strip above re-fetches $details
+        // every cycle, whereas nothing regenerates syncFindings (see the enrich job).
+        // syncFindings is never in $details, so it can only arrive from $payload.
+        // GoogleBusinessEnrichJob stops writing it pre-claim, but rows enriched
+        // before that guard existed still carry it, and an unclaimed owner never gets
+        // a second enrich to self-clean. This cron does run for them (the refresh
+        // candidate query filters on platform + freshness only, never user status),
+        // so it is the seam that actually retires those rows — no backfill script.
+        if ($unclaimed) {
+            unset($merged['syncFindings']);
+        }
+
+        return $merged;
     }
 }

@@ -412,6 +412,67 @@ it('self-heals full reviewer data on the first refresh after claim (PRIV-1)', fu
         ->and($healed['photos'][0]['authors'])->toBe(['A Reviewer']);
 });
 
+// ── PRIV-2: retire internal bookkeeping held against an unclaimed owner ──────
+// GoogleBusinessEnrichJob no longer WRITES syncFindings pre-claim, but rows
+// enriched before that guard existed still carry it and an unclaimed owner
+// never gets a second enrich to self-clean. This cron does run for them, so
+// it is the seam that actually retires those rows.
+
+it('retires a stored syncFindings on refresh for an unclaimed owner (PRIV-2)', function () {
+    $user = User::factory()->create(['status' => 'unclaimed']);
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        // The legacy shape: written by an enrich that predates the guard.
+        'payload' => [
+            'placeId' => 'ChIJstale',
+            'name' => 'Old',
+            'syncFindings' => [[
+                'platform' => 'fresha', 'resourceId' => 'main', 'category' => 'booking',
+                'label' => 'Fresha', 'foundUrl' => 'https://www.fresha.com/a/stale',
+                'outcome' => 'conflict', 'apply' => ['remove' => ['fresha'], 'write' => []],
+            ]],
+        ],
+        'last_refreshed_at' => now()->subWeek(),
+    ]);
+
+    $service = Mockery::mock(GoogleBusinessService::class);
+    // Note the fresh details carry no syncFindings — they never do. The key can
+    // only survive by riding through $payload, which is exactly the bug.
+    $service->shouldReceive('fetchPlaceDetails')->once()->andReturn(['name' => 'Jane Cafe']);
+
+    $merged = (new GoogleBusinessFetch($service))->fetch($connection);
+
+    expect($merged)->not->toHaveKey('syncFindings')
+        ->and($merged['name'])->toBe('Jane Cafe')   // the rest of the refresh is untouched
+        ->and($merged['placeId'])->toBe('ChIJstale');
+});
+
+it('keeps a stored syncFindings on refresh for a claimed owner (PRIV-2)', function () {
+    // The control: minimisation applies pre-claim only. A guard that fired for
+    // everyone would silently delete a real user's found-platforms list on the
+    // next scheduled refresh — a far worse bug than the one being fixed.
+    $user = User::factory()->create(['status' => 'active']);
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'payload' => [
+            'placeId' => 'ChIJkeep',
+            'syncFindings' => [['platform' => 'fresha', 'outcome' => 'conflict']],
+        ],
+        'last_refreshed_at' => now()->subWeek(),
+    ]);
+
+    $service = Mockery::mock(GoogleBusinessService::class);
+    $service->shouldReceive('fetchPlaceDetails')->once()->andReturn(['name' => 'Jane Cafe']);
+
+    $merged = (new GoogleBusinessFetch($service))->fetch($connection);
+
+    expect($merged['syncFindings'])->toHaveCount(1);
+});
+
 // ── CFG-8: retry attempts are clamped so they can't multiply billed spend ────
 
 // NOTE (matches the sibling lesson in PlacesBudgetGateTest's "transport retry"
