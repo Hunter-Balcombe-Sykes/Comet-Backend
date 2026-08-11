@@ -569,6 +569,8 @@ function setupPreAccountBuildsTable(): void
         'contact_email TEXT NULL',
         'invited_at TEXT NULL',
         'auto_invite INTEGER NOT NULL DEFAULT 1',
+        // Mirrors migration 20260811090000 (thin-scrape marker).
+        'thin_scrape_at TEXT NULL',
     ] as $col) {
         try {
             DB::connection('pgsql')->statement('ALTER TABLE core.pre_account_builds ADD COLUMN '.$col);

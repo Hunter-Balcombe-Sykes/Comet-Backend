@@ -21,6 +21,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $built_by_staff_id FK to core.partna_staff.id, ON DELETE SET NULL. NULL for signup-originated builds. Not fillable — set via ->builtByStaff()->associate().
  * @property string $build_state One of STATE_* — text NOT NULL DEFAULT 'pending' with a matching CHECK constraint (supabase/migrations/20260718200000_pre_account_sites.sql).
  * @property string|null $failure_code One of FAILURE_* (e.g. FAILURE_SOURCE_NOT_FOUND, FAILURE_SCRAPE_FAILED) when build_state is 'failed' — not DB-CHECK-enforced, app-level vocabulary only.
+ * @property Carbon|null $thin_scrape_at Stamped when the source scrape returned no post timeline. INDEPENDENT of build_state — a thin build stays 'ready' because the site still renders. Not fillable (state column, SEC-4).
  * @property string|null $created_ip_hash sha256(CF-Connecting-IP); NULL for staff-built rows (no visitor IP to hash).
  * @property Carbon|null $expires_at Drives builds:prune-expired; irrelevant once claimed. NULL = never-expire (early-access builds, until staff approval).
  * @property string|null $contact_email Notify address + email-gate value; NULL = first-come claim.
@@ -72,6 +73,7 @@ class PreAccountBuild extends BaseModel
     // SEC-4: build_state/claimed_at/failure_code drive the state machine and are
     // also excluded — writers use forceFill()/direct assignment (a silently
     // dropped write here strands a build in the wrong state with zero error).
+    // thin_scrape_at is a state column on the same grounds.
     protected $fillable = [
         'source_type', 'source_ref', 'source_ref_lc', 'built_via',
         'created_ip_hash', 'expires_at', 'contact_email', 'auto_invite',
@@ -81,6 +83,7 @@ class PreAccountBuild extends BaseModel
         'expires_at' => 'datetime',
         'claimed_at' => 'datetime',
         'invited_at' => 'datetime',
+        'thin_scrape_at' => 'datetime',
         'auto_invite' => 'boolean',
     ];
 
