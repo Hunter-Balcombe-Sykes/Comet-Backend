@@ -24,6 +24,7 @@ use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -131,4 +132,109 @@ it('markFailed still records the terminal state under contention via the best-ef
     expect($connection->last_refresh_status)->toBe('unavailable');
     expect($connection->last_refresh_error)->toBe('job_failed');
     expect((int) $connection->consecutive_failures)->toBe(1);
+});
+
+// ── PRIV-2: the strip belongs to the WRITER, not one caller ──────────────────
+// The original strip lived in InstagramSourceGenerator, i.e. per-GENERATOR,
+// while the write lives here, per-WRITER. Every other caller of seed() therefore
+// bypassed it — proven on dev by an unclaimed row with all three keys whose build
+// was source_type='google_business', seeded via
+// GoogleBusinessAutoSync::dispatchInstagram() -> InstagramConnectJob -> seed().
+
+/** Mirror-pipeline stubs: this section is about the payload keys, not the media. */
+function igPriv2Scraper(): void
+{
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('latestMedia')->andReturn(['photo' => null, 'video' => null]);
+    $scraper->shouldReceive('profilePicUrl')->andReturn(null);
+    $scraper->shouldReceive('bioLinks')->andReturn(['https://example.com/booking']);
+    app()->instance(InstagramScraper::class, $scraper);
+}
+
+function igPriv2Connection(User $user, array $payload = []): IntegrationConnection
+{
+    return IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => $payload,
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+}
+
+it('strips the three internal keys for an unclaimed owner regardless of which caller reached seed()', function () {
+    Storage::fake('media');
+    Queue::fake();
+
+    $user = igJobLockUser('igpriv2a');
+    $user->status = 'unclaimed';
+    $user->auth_user_id = null;   // a provisional row has no auth user and no email
+    $user->primary_email = null;
+    $user->save();
+    $connection = igPriv2Connection($user);
+    igPriv2Scraper();
+
+    app(InstagramConnectionSeeder::class)
+        ->seed($connection, 'testuser', (string) $user->id, ['fullName' => 'Test User']);
+
+    $payload = $connection->fresh()->payload;
+    expect($payload)->not->toHaveKey('bioLinks')
+        ->and($payload)->not->toHaveKey('syncFindings')
+        ->and($payload)->not->toHaveKey('unmatched');
+    // The strip is deliberately NARROW. seed() writes all of these unconditionally,
+    // regardless of what the media stubs return, so this pins the invariant the old
+    // generator test used to hold: minimisation of internal bookkeeping only, never
+    // of what the unclaimed sitepage renders from.
+    expect($payload)->toHaveKeys(['username', 'images', 'videoUrl', 'videoPoster', 'website', '_folder']);
+});
+
+it('keeps all three keys for a claimed owner (PRIV-2 control)', function () {
+    Storage::fake('media');
+    Queue::fake();
+
+    // igJobLockUser() creates a claimed row (auth_user_id + email, status default
+    // 'active'). Identical setup otherwise, so this is the control proving the
+    // guard above is scoped to unclaimed and not stripping for everyone.
+    $user = igJobLockUser('igpriv2b');
+    $connection = igPriv2Connection($user);
+    igPriv2Scraper();
+
+    app(InstagramConnectionSeeder::class)
+        ->seed($connection, 'testuser', (string) $user->id, ['fullName' => 'Test User']);
+
+    $payload = $connection->fresh()->payload;
+    // Keys are written unconditionally by seed() (syncFindings/unmatched are set
+    // from autoSync's return even when empty), so presence is deterministic here
+    // and does not depend on how the bio link happens to classify.
+    expect($payload)->toHaveKeys(['bioLinks', 'syncFindings', 'unmatched'])
+        ->and($payload['bioLinks'])->toBe(['https://example.com/booking']);
+});
+
+it('strips for an unclaimed owner on a GOOGLE-sourced build, preserving the source tag (the gap)', function () {
+    // The exact shape GoogleBusinessAutoSync::dispatchInstagram() creates before
+    // dispatching InstagramConnectJob: a pending placeholder tagged
+    // source='google-business'. Pre-fix this row kept all three keys, because
+    // InstagramSourceGenerator — where the strip lived — is never on this path.
+    Storage::fake('media');
+    Queue::fake();
+
+    $user = igJobLockUser('igpriv2c');
+    $user->status = 'unclaimed';
+    $user->auth_user_id = null;
+    $user->primary_email = null;
+    $user->save();
+    $connection = igPriv2Connection($user, ['source' => 'google-business']);
+    igPriv2Scraper();
+
+    app(InstagramConnectionSeeder::class)
+        ->seed($connection, 'testuser', (string) $user->id, ['fullName' => 'Test User']);
+
+    $payload = $connection->fresh()->payload;
+    expect($payload)->not->toHaveKey('bioLinks')
+        ->and($payload)->not->toHaveKey('syncFindings')
+        ->and($payload)->not->toHaveKey('unmatched');
+    // source must SURVIVE the strip — it drives the /synced "Change to" flow and
+    // the seeder goes out of its way to preserve it across a re-scrape.
+    expect($payload['source'])->toBe('google-business');
 });

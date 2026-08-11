@@ -71,7 +71,16 @@ final readonly class InstagramPayload
         );
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * PRIV-2 CAUTION: this REINFLATES bioLinks/syncFindings/unmatched — fromArray()
+     * defaults each to [], so a round-trip turns an absent key into a present-but-
+     * empty one. InstagramConnectionSeeder strips those three for an unclaimed owner;
+     * any write path that persists toArray() output undoes that. Safe today because
+     * the only such caller (InstagramController::applySync) is dashboard-auth and so
+     * post-claim — but a new pre-claim writer must not round-trip through here.
+     *
+     * @return array<string,mixed>
+     */
     public function toArray(): array
     {
         return [

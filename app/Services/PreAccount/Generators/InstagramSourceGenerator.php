@@ -11,7 +11,6 @@ use App\Services\Platforms\ProfileFetchFailure;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\Profile\PersonNameParser;
-use Illuminate\Support\Arr;
 
 // Builds a provisional user's site from a typed Instagram handle by reusing the
 // EXACT connect machinery an authenticated user gets: a pending IntegrationConnection
@@ -108,23 +107,7 @@ class InstagramSourceGenerator implements SiteSourceGenerator
             throw SourceGenerationException::scrapeFailed($e->getMessage());
         }
 
-        // PRIV-2: bioLinks/syncFindings/unmatched are internal auto-sync bookkeeping
-        // — never in PublicIntegrationConnectionResource::ALLOWLIST['instagram'] — so
-        // dropping them from the PROVISIONAL (pre-claim) payload is pure data
-        // minimisation with zero render impact. Deliberately narrow: images/
-        // videoUrl/videoPoster/followersCount/postsCount/businessCategory are the
-        // WYSIWYG preview and stay untouched. saveQuietly — seed()'s own ->update()
-        // above already fired the connect-time observer side effects (cache purge,
-        // content-instagram-auto flag) on the full payload; this is a same-write
-        // trim, not a second meaningful change (payload's `_folder` key, the only
-        // thing the `updated` observer inspects, is untouched here).
-        //
-        // This strip is NOT self-enforcing: seed() dispatches async work that lands
-        // after it. Any queued job writing these keys back needs its own unclaimed
-        // guard — LinkInBioScanJob::mergeFindingsBack() has one for that reason.
-        $connection->forceFill([
-            'payload' => Arr::except($connection->payload, ['bioLinks', 'syncFindings', 'unmatched']),
-        ])->saveQuietly();
-
+        // PRIV-2 lives in InstagramConnectionSeeder::seed() — per-writer, so it covers
+        // every caller. A post-seed trim here missed the ones that skip this generator.
     }
 }
