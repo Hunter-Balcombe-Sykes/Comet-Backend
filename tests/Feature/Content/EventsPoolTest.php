@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\Site;
+use App\Site\Pools\ItemLinkRules;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
 use App\Site\Pools\PoolSectionProvisioner;
@@ -197,4 +198,13 @@ it('does not duplicate an event carried by two sources', function () {
     ]);
 
     expect(app(PoolResolver::class)->resolve($site, 'events')['selection'])->toHaveCount(1);
+});
+
+it('rosters the ticketing platforms for events and refuses the rest', function () {
+    expect(ItemLinkRules::rosterFor('events'))->toBe(['eventbrite', 'humanitix']);
+    expect(ItemLinkRules::allowsPlatform('events', 'spotify'))->toBeFalse();
+    // Real dev URL shapes: www-prefixed eventbrite, subdomained humanitix.
+    expect(ItemLinkRules::urlBelongsTo('eventbrite', 'https://www.eventbrite.com/e/x-tickets-1993572537124'))->toBeTrue();
+    expect(ItemLinkRules::urlBelongsTo('humanitix', 'https://events.humanitix.com/26-rotary-disco'))->toBeTrue();
+    expect(ItemLinkRules::urlBelongsTo('eventbrite', 'https://example.com/e/x'))->toBeFalse();
 });

@@ -26,6 +26,7 @@ class ItemLinkRules
             'apple-music', 'apple-podcast', 'youtube-music', 'bandcamp',
         ],
         'media' => ['instagram'],
+        'events' => ['eventbrite', 'humanitix'],
     ];
 
     /** @var array<string, list<string>> platform → accepted host suffixes */
@@ -42,6 +43,10 @@ class ItemLinkRules
         'youtube-music' => ['music.youtube.com'],
         'bandcamp' => ['bandcamp.com'],
         'instagram' => ['instagram.com'],
+        // Eventbrite runs country TLDs; Humanitix serves events off a
+        // subdomain, which the suffix arm below covers.
+        'eventbrite' => ['eventbrite.com', 'eventbrite.com.au'],
+        'humanitix' => ['humanitix.com'],
     ];
 
     /** @return list<string> */
