@@ -155,21 +155,28 @@ class WebsiteLinkHarvester
      *
      * They belong here rather than in SHOP_HOSTS because a 'shop' classification
      * still SPENDS A PROBE (LinkRouter::seedShop) — putting Amazon there would
-     * cost exactly what it costs today. And a probe on any of these can only
-     * ever miss: the commerce probes look for a self-hosted Shopify/Woo/Big
-     * Cartel/Squarespace storefront, which a marketplace listing is not.
+     * cost exactly what it costs today.
      *
      * The user this protects is the creator whose page is mostly affiliate
      * links: before this, five of a run's six probes went on discovering that
      * amazon.com is amazon.com, and the links behind them were starved.
+     *
+     * THE TRADE, stated so the next person does not rediscover it as a bug:
+     * these hosts previously took the UNCLASSIFIED arm, which runs
+     * GenericShopScraper::readProductPage() — a schema.org/OpenGraph read that
+     * works on any page, not just a self-hosted storefront. So a marketplace
+     * LISTING url could become a real product card, and now cannot. Accepted
+     * for this list: Amazon bot-blocks the scrape outright, LTK/ShopMy are
+     * affiliate redirectors with no product markup of their own, and Pinterest
+     * is a board. Deliberately NOT extended to maker marketplaces (Etsy, Depop,
+     * Folksy) where a listing IS the most valuable thing on a creator's page and
+     * the product read genuinely lands — those keep their probe.
      */
     private const LINK_ONLY_HOSTS = [
         'LTK' => '~(^|\.)(liketoknow\.it|shopltk\.com)$~',
         'Amazon' => '~(^|\.)(amazon\.[a-z]{2,3}(\.[a-z]{2})?|amzn\.(to|eu|asia))$~',
         'Poshmark' => '~(^|\.)poshmark\.[a-z]{2,3}(\.[a-z]{2})?$~',
         'ShopMy' => '~(^|\.)shopmy\.us$~',
-        'Depop' => '~(^|\.)depop\.com$~',
-        'Etsy' => '~(^|\.)etsy\.com$~',
         'Pinterest' => '~(^|\.)(pinterest\.[a-z]{2,3}(\.[a-z]{2})?|pin\.it)$~',
     ];
 
@@ -187,8 +194,6 @@ class WebsiteLinkHarvester
         'Amazon' => 'amazon',
         'Poshmark' => 'poshmark',
         'ShopMy' => 'shopmy',
-        'Depop' => 'depop',
-        'Etsy' => 'etsy',
         'Pinterest' => 'pinterest',
     ];
 

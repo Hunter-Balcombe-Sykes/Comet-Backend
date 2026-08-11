@@ -77,9 +77,16 @@ final class RouteResult
     }
 
     /**
-     * Nothing to do: this platform already won its slot this run (Issue M
-     * first-link-per-platform wins), the link is already synced to the same url,
-     * or the reentrancy guard tripped.
+     * Nothing to do, and nothing to WRITE: the link is already synced to this
+     * exact url, or the reentrancy guard tripped. Both are true no-ops, so a
+     * caller must not fall back to a custom-link card — it would sit on top of a
+     * live connection.
+     *
+     * First-link-per-platform (Issue M) used to return this too. It does not any
+     * more: that link still needs somewhere to go, so it returns custom() and the
+     * caller writes the card. Do not re-merge the two — the whole reason this
+     * docblock lists its producers is that a caller cannot otherwise tell "no-op"
+     * from "homeless".
      */
     public static function skipped(): self
     {

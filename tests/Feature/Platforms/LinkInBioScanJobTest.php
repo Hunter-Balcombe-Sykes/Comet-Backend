@@ -351,6 +351,34 @@ it('still writes a card for a link skipped because its platform already won the 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(1);
 });
 
+it('writes no card for a link already synced to a live connection', function () {
+    // 'skipped' has THREE producers, and only ONE of them means "the link had
+    // nowhere to go". This is the no-op one: LinkRouter::outcomeFrom() returns
+    // skipped when the platform is already connected to THIS EXACT url. A card
+    // here would render the user's TikTok twice — once as the platform block,
+    // once as a raw link card sitting over a live connection.
+    Queue::fake();
+    $user = User::factory()->create(['account_type' => 'business']);
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'tiktok', 'resource_id' => 'tiktok',
+        'payload' => ['kind' => 'profile', 'url' => 'https://www.tiktok.com/@creator'],
+        'is_active' => true,
+    ]);
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="https://www.tiktok.com/@creator">TikTok</a>', 200),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/creator'))->handle(
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(LinkRouter::class),
+        app(CustomLinkSeeder::class),
+    );
+
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(0);
+});
+
 it('does nothing when the user no longer exists', function () {
     // Must not throw — mirrors ScanPreviousWebsiteContentJob's own null-user guard.
     (new LinkInBioScanJob((string) Str::uuid(), 'https://linktr.ee/venue'))->handle(

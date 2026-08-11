@@ -204,11 +204,28 @@ it('classifies marketplace and affiliate hosts as link, never shop', function (s
     ['https://amzn.to/3abcDEF', 'amazon', 'Amazon'],
     ['https://poshmark.com/closet/creator', 'poshmark', 'Poshmark'],
     ['https://shopmy.us/collections/12345', 'shopmy', 'ShopMy'],
-    ['https://www.depop.com/creator', 'depop', 'Depop'],
-    ['https://www.etsy.com/shop/creator', 'etsy', 'Etsy'],
     ['https://au.pinterest.com/creator', 'pinterest', 'Pinterest'],
     ['https://pin.it/abc123', 'pinterest', 'Pinterest'],
 ]);
+
+it('leaves maker marketplaces unclassified so their listings keep a probe', function (string $url) {
+    // Deliberate boundary, not an oversight: the unclassified arm runs
+    // GenericShopScraper::readProductPage(), which reads schema.org product
+    // markup off ANY page — so an Etsy listing can become a real product card,
+    // and for a maker that is the most valuable thing on their page.
+    expect(classifierHarvester()->classify($url))->toBeNull();
+})->with([
+    'https://www.etsy.com/listing/12345/hand-thrown-mug',
+    'https://www.depop.com/products/creator-jacket',
+]);
+
+it('keeps the two link-only maps in lockstep', function () {
+    // Parallel hand-maintained maps: a label in one and not the other yields
+    // 'platform' => null out of classify(), violating its own array shape.
+    $consts = (new ReflectionClass(WebsiteLinkHarvester::class))->getConstants();
+
+    expect(array_keys($consts['LINK_ONLY_PLATFORM']))->toBe(array_keys($consts['LINK_ONLY_HOSTS']));
+});
 
 it('does not let a marketplace pattern swallow an unrelated host', function (string $url) {
     // The (^|\.) prefix and the $ anchor are load-bearing: without them a

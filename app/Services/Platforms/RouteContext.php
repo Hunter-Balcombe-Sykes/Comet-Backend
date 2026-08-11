@@ -138,11 +138,17 @@ final class RouteContext
      */
     public function consumeProbeFor(string $url): bool
     {
-        // BEFORE the budget, because ProbeGate's identical refusal runs a queue
-        // hop too late to protect it: the slot is claimed here, the job is
-        // dispatched, and only then does the gate say "shortener, never mind" —
-        // by which point a link behind this one has already been starved. The
-        // cheapest filter must run before the scarcest resource is claimed.
+        // BEFORE the budget: the cheapest filter must run before the scarcest
+        // resource is claimed, and today nothing between here and the fetch will
+        // do it. ProbeGate makes the same lexical refusal but only reaches the
+        // SHOP arm (LinkProbeWorker -> StoreBrandSeeder); the unclassified arm —
+        // the one a creator's affiliate links take — runs
+        // GenericShopScraper::readProductPage() with no gate at all. So this is
+        // not "the same check, moved earlier": for the arm that matters it
+        // suppresses a fetch that genuinely used to happen. That is intended.
+        // A shortener is documented as never auto-connected pre-expansion
+        // (IriCanonicalizer::SHORTENERS), and spending one of six slots to learn
+        // that starves a link behind it.
         if (! self::isProbeable($url)) {
             $this->probesSkippedIneligible++;
 
@@ -194,10 +200,12 @@ final class RouteContext
      * IriCanonicalizer's own rejections so the two cannot disagree about what is
      * unfetchable.
      *
-     * Every uncertain case fails OPEN (returns true): the URL is probed exactly
-     * as it is today. This is a budget filter, not the SSRF defence —
-     * SafeUrlFetcher still resolves and validates every hop at fetch time — so
-     * being wrong here costs one probe, never a security property.
+     * An uncertain HOST fails OPEN (returns true): the URL is probed exactly as
+     * it is today. A url so malformed that parse_url() cannot read a scheme from
+     * it fails closed, which costs nothing — nothing could have fetched it
+     * either. This is a budget filter, not the SSRF defence — SafeUrlFetcher
+     * still resolves and validates every hop at fetch time — so being wrong here
+     * costs one probe, never a security property.
      */
     private static function isProbeable(string $url): bool
     {
@@ -211,9 +219,16 @@ final class RouteContext
             return false;
         }
 
-        $host = strtolower((string) parse_url($candidate, PHP_URL_HOST));
+        // rtrim the root dot and strip IPv6 brackets before ANY comparison,
+        // mirroring SafeUrlFetcher::assertSafe(). Both are how a host slips a
+        // suffix match while resolving identically: "bit.ly." is neither
+        // "bit.ly" nor "*.bit.ly", and parse_url hands back "[::1]" with the
+        // brackets still on, which FILTER_VALIDATE_IP rejects as not-an-IP.
+        $host = strtolower(rtrim((string) parse_url($candidate, PHP_URL_HOST), '.'));
+        $host = trim($host, '[]');
+
         if ($host === '') {
-            // Unparseable — we cannot say it is unfetchable, so we do not.
+            // A host we cannot read is not a host we can call unfetchable.
             return true;
         }
 

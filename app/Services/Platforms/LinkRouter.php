@@ -76,9 +76,19 @@ class LinkRouter
         $platform = $classified['platform'];
         $category = $classified['category'];
 
-        // First-link-per-platform wins (Issue M).
+        // First-link-per-platform wins (Issue M) — a rule about CONNECTIONS (you
+        // have one Fresha account), never about links.
+        //
+        // custom(), not skipped(): the link still needs somewhere to go. skipped()
+        // means "write nothing", and it has two other producers that genuinely
+        // mean that — outcomeFrom()'s already-synced-to-this-exact-url no-op, and
+        // the reentrancy guard above. Returning it here made callers unable to
+        // tell those apart, so the second link of a platform (an influencer's
+        // second LTK link, a "watch this video" beside a channel link) was written
+        // NOWHERE. custom() routes it to the caller's card write, which is what
+        // every other dead end in this method already does.
         if (isset($ctx->seenPlatforms[$platform])) {
-            return RouteResult::skipped();
+            return RouteResult::custom();
         }
 
         // Check routing gate (separate from AccountCapabilities).

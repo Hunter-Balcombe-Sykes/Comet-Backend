@@ -120,6 +120,65 @@ it('reports the ineligible count in the run summary', function () {
     ]);
 });
 
+it('still enforces the cap — the pre-filter must never loosen the bound', function () {
+    // The cap is not only a budget: unbounded outbound fan-out on a user's
+    // say-so is an amplification vector aimed at someone else's server. A
+    // filter that skips work must not become a filter that grants extra work.
+    Queue::fake();
+    $user = User::factory()->create(['account_type' => 'partna']);
+    $seeder = app(CustomLinkSeeder::class);
+    $ctx = new RouteContext;
+
+    $urls = [];
+    foreach (range(1, 10) as $n) {
+        $urls[] = "https://bit.ly/skip{$n}";
+    }
+    foreach (range(1, 8) as $n) {
+        $urls[] = "https://realsite{$n}.example/";
+    }
+    foreach ($urls as $url) {
+        $seeder->seed($user, $url, $ctx);
+    }
+
+    Queue::assertPushed(CommerceProbeJob::class, RouteContext::DEFAULT_MAX_PROBES);
+    expect($ctx->probesUsed())->toBe(RouteContext::DEFAULT_MAX_PROBES);
+    expect($ctx->probesDenied())->toBe(2);              // the 7th and 8th real site
+    expect($ctx->probesSkippedIneligible())->toBe(10);  // never counted against the cap
+});
+
+it('does not let a trailing dot or bracketed ipv6 walk past the pre-filter', function (string $url) {
+    // Both resolve identically to the form the filter checks, and both slip a
+    // naive suffix/IP comparison — SafeUrlFetcher normalises for this reason.
+    Queue::fake();
+    $user = User::factory()->create(['account_type' => 'partna']);
+    $ctx = new RouteContext;
+
+    app(CustomLinkSeeder::class)->seed($user, $url, $ctx);
+
+    expect($ctx->probesUsed())->toBe(0);
+    expect($ctx->probesSkippedIneligible())->toBe(1);
+})->with([
+    'https://bit.ly./3xamPle',
+    'https://[::1]/',
+    'https://cdn.partna.au./asset',
+]);
+
+it('still probes an ordinary website on a port or with a long path', function (string $url) {
+    // The fail-open direction: anything the filter cannot positively
+    // disqualify keeps the behaviour it has today.
+    Queue::fake();
+    $user = User::factory()->create(['account_type' => 'partna']);
+    $ctx = new RouteContext;
+
+    app(CustomLinkSeeder::class)->seed($user, $url, $ctx);
+
+    expect($ctx->probesUsed())->toBe(1);
+    expect($ctx->probesSkippedIneligible())->toBe(0);
+})->with([
+    'https://herownlabel.example:8443/',
+    'https://xn--80ak6aa92e.example/',
+]);
+
 it('still probes an ordinary website', function () {
     // Guard against the pre-filter over-reaching: the whole point is that a
     // plausible storefront still gets its probe.
