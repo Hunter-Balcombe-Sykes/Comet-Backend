@@ -83,6 +83,54 @@ it('prefers legacy camelCase over snake_case when both spellings are present', f
     expect($user->display_name)->toBe('Camel Case Wins');
 });
 
+// ── category fallback (2026-08-11, verified against live Apify run history) ──
+//
+// The figue actor returns `business_category_name: null` and puts the value in
+// `category_name` — confirmed on its last live run before the 2026-08-10 actor
+// swap (simondoylehair: business_category_name null, category_name "Hair
+// Stylist"). That is why sector_source='instagram' had NEVER succeeded on dev
+// until the swap to the apify actor, which populates businessCategoryName.
+// PARTNA_INSTAGRAM_ACTOR is documented as a no-deploy rollback, so without this
+// fallback a rollback silently switches sector detection back off.
+
+it('falls back to category_name when the actor nulls business_category_name (figue shape)', function () {
+    $user = User::factory()->create(['sector' => null, 'sector_source' => null]);
+
+    app(InstagramIdentitySync::class)->applyIdentity($user, [
+        'business_category_name' => null,
+        'category_name' => 'Hair Stylist',
+    ]);
+
+    $user->refresh();
+    expect($user->sector)->toBe('hair-salon');
+    expect($user->sector_source)->toBe('instagram');
+});
+
+// Instagram returns the literal string "None" as a category (observed live on
+// crucibletattooco, 2026-08-10) — non-null, so a plain ?? chain would stop
+// there and drop a usable sibling value.
+it('falls through to category_name when the primary category maps to no sector', function () {
+    $user = User::factory()->create(['sector' => null, 'sector_source' => null]);
+
+    app(InstagramIdentitySync::class)->applyIdentity($user, [
+        'business_category_name' => 'None',
+        'category_name' => 'Tattoo',
+    ]);
+
+    expect($user->fresh()->sector)->toBe('tattoo-artist');
+});
+
+it('prefers businessCategoryName over category_name when both map', function () {
+    $user = User::factory()->create(['sector' => null, 'sector_source' => null]);
+
+    app(InstagramIdentitySync::class)->applyIdentity($user, [
+        'businessCategoryName' => 'Hair Salon',
+        'category_name' => 'Tattoo',
+    ]);
+
+    expect($user->fresh()->sector)->toBe('hair-salon');
+});
+
 it('fills workplace contact fields from snake_case business_email / business_phone_number', function () {
     $user = User::factory()->create(['account_type' => 'business']);
     $site = Site::factory()->for($user, 'user')->create();

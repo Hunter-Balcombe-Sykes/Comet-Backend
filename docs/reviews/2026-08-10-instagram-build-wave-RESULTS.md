@@ -158,12 +158,43 @@ reads the raw node's `businessCategoryName` and runs it through
 Worth recording: `'tattoo' => 'tattoo-artist'` **does** exist (`:144`). `crucibletattooco` would have
 mapped cleanly — the taxonomy is not the gap there, the scrape returning `businessCategory: "None"` is.
 
-**1.6 — still never succeeded.** `applyContactFields` (`InstagramIdentitySync.php:83-95`) reads
-`businessEmail`/`business_email` and `businessPhoneNumber`/`business_phone_number`. **None of those four
-keys is present in any of the three payloads** (full key set below), so the method returns early at the
-`$email === null && $phone === null` guard. Zero workplace rows. The code's own comment already calls
-this path "DEFENSIVE, not a demonstrated fix" — this run neither demonstrates nor refutes it, because
-the actor supplied nothing to fold.
+**1.6 — CLOSED 2026-08-11: empty by design, not unverified.** *(Superseded — the original text is kept
+below the rule for the record.)*
+
+`applyContactFields` never sees the stored payload. `InstagramConnectionSeeder.php:214` passes the **raw
+Apify item** (`$profile`) into `applyIdentity()`; the `payload` column holds `$selection`, a 12-key
+hand-built projection (`InstagramConnectionSeeder.php:153-191`). So the payload key set below could not
+have shown these keys even if the actor had sent them — the original reasoning inspected the wrong
+object. (The tell was in this same report: the payload carries `businessCategory`, but `applySector`
+reads `businessCategoryName`, and sector sync worked.)
+
+Re-run against the **raw dataset items of these actual runs**, pulled from Apify run history 2026-08-11:
+
+- **apify actor** (live for this wave): no contact key of any spelling. 25 keys, none of them email/phone.
+  The actor's published output schema has none either.
+- **figue actor** (the previous default, last live run 08-10 08:24): the keys **are** present —
+  `business_email`, `business_phone_number`, `business_contact_method`, `should_show_public_contacts` —
+  and for `simondoylehair` came back `business_email: null`, `business_phone_number: null` while
+  `should_show_public_contacts: true` and `business_contact_method: "TEXT"`.
+
+Instagram is confirming the contacts exist and withholding the values, because both actors read the
+**logged-out** endpoint. No actor swap changes this. Neither does the official API: Graph
+`business_discovery` returns no email/phone for a third-party handle, and for an owner-authorised
+account they live on the linked Facebook Page, not the IG node — and the pre-account flow scrapes handles
+nobody has authorised.
+
+**Disposition: contact details come from the person at signup/claim, and phone additionally from Google
+Business (`IdentitySync.php:69`; email is manual-only from every source — `IdentitySync.php:61`).** No
+fixture test was added: it would pin a fold that is already covered (`InstagramIdentitySyncTest.php:86-112`)
+while implying the gap is closeable from a scrape. The finding is recorded in the code at
+`InstagramIdentitySync::applyContactFields`.
+
+> *Original text, 2026-08-10:* **1.6 — still never succeeded.** `applyContactFields`
+> (`InstagramIdentitySync.php:83-95`) reads `businessEmail`/`business_email` and
+> `businessPhoneNumber`/`business_phone_number`. **None of those four keys is present in any of the three
+> payloads** (full key set below), so the method returns early at the `$email === null && $phone === null`
+> guard. Zero workplace rows. The code's own comment already calls this path "DEFENSIVE, not a demonstrated
+> fix" — this run neither demonstrates nor refutes it, because the actor supplied nothing to fold.
 
 ### §2 — The scrape itself
 
@@ -171,10 +202,17 @@ Full payload key set, identical on all three:
 `_folder, _mediaDiagnostics, businessCategory, followersCount, fullName, images, mode, postsCount,
 profilePicUrl, syncFindings, username, videoPoster, videoUrl, website`
 
+> **READ THIS BEFORE DRAWING A CONCLUSION FROM THE KEY SET ABOVE (added 2026-08-11).** That is
+> `$selection`, a hand-built 12-key projection (`InstagramConnectionSeeder.php:153-191`) — **not** what the
+> actor returned. The raw item is passed separately to `applyIdentity()` and never persisted. Absence of a
+> key here is evidence about the projection only. Two conclusions in the original report were drawn this
+> way; §2.2 was wrong as a result. The raw items are recoverable for free from Apify run history
+> (`/v2/acts/<actor>/runs` → `defaultDatasetId` → `/v2/datasets/<id>/items`), which is how this was settled.
+
 | # | Check | Result | Evidence |
 |---|---|---|---|
 | 2.1 | Profile fields captured | **PARTIAL** | see table below |
-| 2.2 | `biography` present | **CONFIRMED ABSENT** | key not in payload on any of the three |
+| 2.2 | `biography` present | ~~CONFIRMED ABSENT~~ → **PRESENT (corrected 2026-08-11)** | The raw item carries `biography`, `externalUrl` AND `externalUrls`; none is copied into `$selection`, which is why it looked absent. `bioLinks()` is therefore live, not vacuous. |
 | 2.3 | Profile picture mirrored | **PASS** | all 3 `profilePicUrl` return **HTTP 206 `image/jpeg`** on range request |
 | 2.4 | Post media mirrored | **FAIL (as rows)** | `site.site_media` = **0 rows** for all three |
 | 2.5 | Every media row has a `webp` variant | **VACUOUS** | 0 media rows ⇒ 0 rows without a variant |
@@ -399,14 +437,51 @@ links went unprobed. Stating it here because the prompt is right that it must no
 30,042 followers. Accounts 1 and 2 got 12 posts each from the same actor in the same wave. Only the
 profile picture was captured. This one account got a materially thinner scrape than the other two.
 
+> **CORRECTED 2026-08-11 — transient, not account-specific.** Raw Apify run history for the *same
+> account*: **10:01 → `postsCount` 4164, 12 posts. 10:22 (the run this build persisted) → `postsCount`
+> key absent, 0 posts. 08-11 01:56 → 4164, 12 posts.** Two of three runs in the same hour were fine. So
+> it is per-run actor flakiness, and the build simply persisted the bad one. The real gap this exposes is
+> that **nothing treats a zero-post result on a 4,164-post account as suspect** — there is no sanity check
+> and no retry, so a flaky run is written as though it were the truth. That is worth a finding on its own;
+> "this account scrapes thin" is not.
+
 **F5 — sector landed for 1 of 3.** `hair-salon`/`instagram` for account 1 — the first time
 `sector_source='instagram'` has appeared on dev. Accounts 2 and 3 are `null` because `"Artist"` and
 `"None"` match no keyword. The taxonomy *does* carry `'tattoo' => 'tattoo-artist'`, so account 3's miss is
 caused by F4's empty category, not by a taxonomy gap.
 
-**F6 — no contact fields, no workplace rows.** `businessEmail` / `businessPhoneNumber` (and their
-snake_case variants) are absent from every payload, so `applyContactFields` early-returns and
-`site.workplaces` stays empty. §1.6 remains never-succeeded on dev.
+> **WHY IT HAD NEVER SUCCEEDED BEFORE — and a rollback hazard, found 2026-08-11. FIXED.** Not a
+> coincidence of timing: the **figue** actor returns `business_category_name: null` and puts the value in
+> **`category_name`**, which `applySector` did not read (its last live run, 08-10 08:24, `simondoylehair`:
+> `business_category_name: null`, `category_name: "Hair Stylist"`). Sector sync was structurally
+> impossible under figue and started working the moment the 08-10 swap to the apify actor landed.
+> `PARTNA_INSTAGRAM_ACTOR` is documented as a **no-deploy env rollback**, so rolling back would have
+> silently switched sector detection off again with a green suite.
+> **Fixed (user row):** `category_name` added as a third candidate in `InstagramIdentitySync::applyIdentity()`.
+> The chain takes the first candidate that **maps**, not the first that is non-null, because Instagram
+> returns the literal string `"None"` (F4's `crucibletattooco`) which would otherwise win and then fail to
+> map. Covered by `InstagramIdentitySyncTest.php` (3 cases) and end-to-end in `InstagramAsyncConnectTest.php`.
+>
+> **OUTSTANDING (stored payload):** `InstagramConnectionSeeder`'s `businessCategory` needs the same third
+> candidate or the payload still blanks on rollback. **Not done here** — that expression is owned by the
+> live `fix/sector-detection-repair` worktree, which has already wrapped it in a `categoryOrNull()`
+> placeholder filter. It belongs inside that wrapper, on that branch:
+> ```php
+> 'businessCategory' => $this->categoryOrNull(
+>     data_get($profile, 'businessCategoryName')
+>         ?? data_get($profile, 'business_category_name')
+>         ?? data_get($profile, 'category_name')   // ← add this line
+> ),
+> ```
+
+**F6 — no contact fields, no workplace rows. CLOSED 2026-08-11 — not a gap.** The original wording
+("absent from every payload") inspected `$selection`, not the raw actor item `applyContactFields`
+actually reads. Settled against raw run history: Instagram withholds business email/phone from
+logged-out viewers — the figue actor returns the keys as `null` while reporting
+`should_show_public_contacts: true`, and the apify actor omits them entirely. No actor swap and no
+official API closes it for an unauthorised third-party handle. Contact details come from the person at
+signup/claim (phone also from Google Business). Full reasoning in §1.6; recorded in the code at
+`InstagramIdentitySync::applyContactFields`. **Nothing to build, nothing to wait for.**
 
 **F7 — auto-routed connections are terminal; the loop does not continue, and no scheduled refresh will
 fix it.** No `ConnectFetchJob`, no `FreshaServiceProjector`, 0 services, 0 categories, 0 assignments —
@@ -452,8 +527,9 @@ builds hold per-IP cap slots past expiry. Pre-existing, carried over from the pr
   embedded JSON, so it was never an input.
 - **Gallery-max-6 trigger and `webp` variant rule untested.** Vacuous, not failing — there are no media
   rows to constrain (see F2).
-- **`site.workplaces` empty** is F6 (a real gap), but the *early return* itself is correct behaviour given
-  a payload with no contact keys.
+- **`site.workplaces` empty** — ~~F6, a real gap~~ **correct and permanent on the Instagram path**
+  (corrected 2026-08-11). Instagram does not disclose business email/phone to logged-out viewers, so the
+  early return is the only reachable outcome. See F6 / §1.6.
 
 ---
 
@@ -489,7 +565,8 @@ the original run window. No late write, no retry, no deferred projection.
   `GET /api/public/profiles/<handle>` still **200**.
 
 **So every FAIL and every UNVERIFIED in this report is settled, not merely early.** F2 (no `site_media`),
-F6 (no workplaces) and F7 (no services/categories, no `ConnectFetchJob`) are confirmed terminal states,
+F6 (no workplaces — since re-classified as correct-by-design, see above) and F7 (no services/categories,
+no `ConnectFetchJob`) are confirmed terminal states,
 not jobs that had yet to land. §3.4 and §3.5 stay UNVERIFIED for the same reason as before — no probe
 resolved a product page or storefront, so the case never arose.
 

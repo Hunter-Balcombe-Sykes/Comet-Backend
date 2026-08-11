@@ -26,9 +26,20 @@ class InstagramIdentitySync
         // InstagramScraper already tolerates for other fields: the figue actor's
         // raw Instagram GraphQL snake_case, and the legacy camelCase actor's
         // shape. Legacy first, matching that precedent.
-        $this->applySector($user, $this->stringOrNull(
-            $payload['businessCategoryName'] ?? $payload['business_category_name'] ?? null
-        ));
+
+        // Category lives under a different key per actor, and the figue actor
+        // returns business_category_name NULL while putting the real value in
+        // category_name (verified 2026-08-11 against its last live run:
+        // simondoylehair → business_category_name null, category_name "Hair
+        // Stylist"). That is why sector_source='instagram' never once succeeded
+        // on dev until the 2026-08-10 swap to the apify actor. Since
+        // PARTNA_INSTAGRAM_ACTOR is a no-deploy rollback, reading only the first
+        // two keys would silently switch sector detection back off on rollback.
+        $this->applySector($user, [
+            $payload['businessCategoryName'] ?? null,
+            $payload['business_category_name'] ?? null,
+            $payload['category_name'] ?? null,
+        ]);
         $this->applyDisplayName($user, $this->stringOrNull(
             $payload['fullName'] ?? $payload['full_name'] ?? null
         ));
@@ -36,9 +47,23 @@ class InstagramIdentitySync
         $this->applyContactFields($user, $payload);
     }
 
-    private function applySector(User $user, ?string $category): void
+    /**
+     * First candidate that MAPS wins — not the first that is non-null.
+     * Instagram returns the literal string "None" as a category (observed on
+     * crucibletattooco, 2026-08-10), which a `??` chain would accept and then
+     * fail to map, discarding a usable sibling key.
+     *
+     * @param  list<mixed>  $candidates
+     */
+    private function applySector(User $user, array $candidates): void
     {
-        $mapped = SectorTaxonomy::fromInstagramCategory($category);
+        $mapped = null;
+        foreach ($candidates as $candidate) {
+            $mapped = SectorTaxonomy::fromInstagramCategory($this->stringOrNull($candidate));
+            if ($mapped !== null) {
+                break;
+            }
+        }
         if ($mapped === null) {
             return;
         }
@@ -82,12 +107,23 @@ class InstagramIdentitySync
 
     private function applyContactFields(User $user, array $payload): void
     {
-        // DEFENSIVE, not a demonstrated fix (2026-08-06 SIGNUP-2 review): unlike
-        // businessCategoryName/fullName, no dev site.workplaces row has ever
-        // carried an instagram-sourced contact field, so there is no "before"
-        // case proving these two regressed under the actor swap. Tolerating
-        // the raw GraphQL snake_case here just matches the sibling fields above
-        // in case the actor emits it the same way.
+        // INERT ON THE SCRAPE PATH, BY DESIGN — do not "fix" by swapping actors
+        // or widening the key list. Instagram does not disclose business contact
+        // details to a logged-out viewer, and both actors read the logged-out
+        // endpoint. Verified 2026-08-11 against live Apify run history: the apify
+        // actor omits the keys entirely; the figue actor returns them as NULL
+        // while simultaneously reporting should_show_public_contacts=true and
+        // business_contact_method="TEXT" (simondoylehair) — i.e. Instagram
+        // confirms the contacts exist and withholds the values. Nor does the
+        // official Graph API close this: business_discovery returns no email or
+        // phone for a third-party handle, and for an owner-authorised account
+        // those live on the linked Facebook Page, not the IG node.
+        //
+        // The method stays because it is a correct fold for ANY source that does
+        // supply these (it is reached by no other caller today), and because
+        // deleting it would invite the next reader to re-add it. Real contact
+        // details arrive from Google Business (phone — IdentitySync:69) or from
+        // the person at signup/claim. Nothing to wait for here.
         $email = $this->stringOrNull($payload['businessEmail'] ?? $payload['business_email'] ?? null);
         $phone = $this->stringOrNull($payload['businessPhoneNumber'] ?? $payload['business_phone_number'] ?? null);
         if ($email === null && $phone === null) {
