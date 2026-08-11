@@ -202,6 +202,13 @@ class ClaimSiteService
         unset($payload['detailsFetchedAt']);
         $connection->updateQuietly(['payload' => $payload, 'last_refresh_status' => 'pending']);
 
-        RefreshConnectionJob::dispatch($connection->id, 'google-business', manual: true);
+        // afterCommit() is a no-op from here (this already runs past the claim
+        // transaction) and that is the point: it makes the ordering structural.
+        // GoogleBusinessFetch's PRIV-2 unset is DESTRUCTIVE — a worker that picked
+        // this up before status='active' committed would read 'unclaimed' and
+        // permanently retire the findings of someone who just claimed. Queue
+        // connections all set after_commit=false, so without this the guarantee is
+        // only the position of this call.
+        RefreshConnectionJob::dispatch($connection->id, 'google-business', manual: true)->afterCommit();
     }
 }

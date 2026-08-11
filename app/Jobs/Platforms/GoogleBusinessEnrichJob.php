@@ -258,14 +258,41 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
                 $fresh,
             );
 
+            $payload = [
+                ...$businessInfo,
+                'apifyFetchedAt' => now()->toIso8601String(),
+                // What THIS scrape produced — drives the connect modal's "found
+                // platforms" list (only this run's, with live status + Change-to).
+                'syncFindings' => $findings,
+            ];
+
+            // PRIV-2: internal bookkeeping is not held against someone who has not
+            // signed up — the same minimisation InstagramSourceGenerator applies to
+            // this key, extended to the Google path. What renders is unaffected: the
+            // findings' real output is the seeded connections persisted above.
+            //
+            // The cost is REAL and permanent, not merely deferred. A 'conflict'
+            // finding writes no row by definition (GoogleBusinessAutoSync's header),
+            // so for a conflict the finding IS the whole output — and it does not come
+            // back on claim: this job runs once per build, ClaimSiteService's
+            // claim-time RefreshConnectionJob re-fetches Place Details only, and
+            // GoogleBusinessAutoSync never touches LinkRouter so there is no
+            // routing.source_intents backstop the way there is on the Instagram side.
+            // The owner sees it again only if they reconnect from the dashboard, which
+            // re-runs this job. Same trade LinkInBioScanJob already accepts.
+            //
+            // unset, NOT "skip the assignment": $businessInfo is rebuilt from the
+            // STORED payload via payloadOf(), so a value written before this guard
+            // existed rides straight back through otherwise. That only self-heals on a
+            // build re-run or retry, though — GoogleBusinessFetch carries the same
+            // unset so the 12h refresh cron (which does NOT filter on user status)
+            // clears already-affected rows without a backfill.
+            if ($fresh->ownerIsUnclaimed()) {
+                unset($payload['syncFindings']);
+            }
+
             $fresh->forceFill([
-                'payload' => [
-                    ...$businessInfo,
-                    'apifyFetchedAt' => now()->toIso8601String(),
-                    // What THIS scrape produced — drives the connect modal's "found
-                    // platforms" list (only this run's, with live status + Change-to).
-                    'syncFindings' => $findings,
-                ],
+                'payload' => $payload,
                 'apify_status' => 'ok',
             ])->saveQuietly();
         });
