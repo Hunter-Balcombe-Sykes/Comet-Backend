@@ -333,11 +333,10 @@ it('reports each sync outcome by name so the backfill command can count them', f
         ->and($provisioner->sync($fresh->fresh()))->toBe(['status' => 'unchanged', 'source_key' => 'bandcamp']);
 });
 
-it('creates billed-connector sources unscheduled until their effect drivers exist', function () {
-    // HttpIo::runBilledEffect throws for every billed effect until the P7
-    // drivers land — scheduling google_business now would error every run
-    // until the source went dead. The row must exist (the seam is complete);
-    // it just must not auto-run yet.
+it('creates billed-connector sources unscheduled even once their effect drivers exist', function () {
+    // The drivers exist as of slice 0, but auto_sync stays false: turning on paid
+    // auto-sync is a spend decision for the slice that consumes the data. The row
+    // must exist (the seam is complete); it just must not auto-run yet.
     $connection = makeConnection(provisionerUser(), [
         'platform' => 'google-business',
         'place_id' => 'ChIJizFTarNC1moRjM6M4Z_OGAg',

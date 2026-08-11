@@ -13,12 +13,11 @@
 // core.users.status -> bool mapping, wired through RunExecutor into the
 // stored document.
 //
-// An end-to-end test through a REAL connector is not writable today:
-// HttpIo::runBilledEffect() throws unconditionally (no api/places.details
-// driver is wired — deferred to P7), so GoogleBusinessConnector cannot
-// complete a run through RunExecutor at all. Hence the test-local fake
-// connector below, the same pattern RunExecutorProjectionTest.php uses with
-// the real BandcampConnector, just swapped for a connector this test controls.
+// An end-to-end test through a REAL connector became possible in slice 0, when
+// the billed-effect drivers landed (see PlacesDetailsDriverTest's end-to-end
+// case). This file keeps its test-local fake connector on purpose: it is about
+// isClaimed()'s core.users.status -> bool mapping, and a fake keeps that
+// isolated from any vendor's payload shape.
 
 use App\Ingest\Manifest\Manifest;
 use App\Ingest\Manifest\SourceKey;

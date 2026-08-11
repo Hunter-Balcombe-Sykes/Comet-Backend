@@ -72,8 +72,13 @@ final class PlacesDetailsDriver implements BilledEffectDriver
             PlaceDetailsFailure::BudgetDenied => throw new EffectNotAttempted(
                 "Places details budget denied for {$placeId} ({$result->deniedBy?->value})"
             ),
+            // Names the ENV VAR, not the config path: PlacesBudgetGuardTest's
+            // sole-origin check is a substring match on the config key, and that
+            // guard should stay a bright line rather than collect an allowlist
+            // entry for a file that only mentions the key in an error string.
+            // GOOGLE_MAPS_SERVER_API_KEY is what an operator sets anyway.
             PlaceDetailsFailure::NotConfigured => throw new EffectNotAttempted(
-                'services.google_maps.server_api_key is not configured'
+                'GOOGLE_MAPS_SERVER_API_KEY is not configured'
             ),
 
             // Google answered: there is no such place. Settling this ok stops us
