@@ -261,6 +261,70 @@ it('reports how many links the website dedupe absorbed', function () {
         ->once();
 });
 
+it('does not write syncFindings back onto an unclaimed pre-account payload', function () {
+    // PRIV-2 regression (F1, found live 2026-08-11): InstagramSourceGenerator strips
+    // bioLinks/syncFindings/unmatched from a provisional payload, but this job is
+    // QUEUED — it lands seconds later and re-added syncFindings, undoing exactly one
+    // third of the strip. The evidence signature was precisely that: syncFindings
+    // present, the other two absent, because the merge spreads the already-stripped
+    // payload and only re-adds its own key.
+    Queue::fake();
+    $user = User::factory()->create(['account_type' => 'business', 'status' => 'unclaimed']);
+    // Post-strip shape: the key is ABSENT, not an empty array.
+    $ig = libIgConnection($user, ['username' => 'venue']);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
+        'payload' => ['url' => 'https://www.fresha.com/a/old-venue'], 'is_active' => true,
+    ]);
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="https://www.fresha.com/a/new-venue">Book</a>', 200),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(LinkRouter::class),
+        app(CustomLinkSeeder::class),
+    );
+
+    $payload = $ig->fresh()->payload;
+    expect(array_key_exists('syncFindings', $payload))->toBeFalse();
+    // The rest of the payload is untouched — this guard skips a write, it does not clear one.
+    expect($payload['username'])->toBe('venue');
+    // No bell either: a pre-claim user has no dashboard to read /account/platforms in.
+    expect(DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->count())->toBe(0);
+});
+
+it('still writes syncFindings back once the owner has claimed the account', function () {
+    // Mirror of the guard above, pinning status explicitly: PRIV-2 minimisation
+    // applies to unclaimed users ONLY, so a guard widened to skip everyone would
+    // silently delete the conflict surface for real users. The claimed case must
+    // keep both the payload write and the notification.
+    Queue::fake();
+    $user = User::factory()->create(['account_type' => 'business', 'status' => 'active']);
+    $ig = libIgConnection($user, ['username' => 'venue']);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
+        'payload' => ['url' => 'https://www.fresha.com/a/old-venue'], 'is_active' => true,
+    ]);
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="https://www.fresha.com/a/new-venue">Book</a>', 200),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(LinkRouter::class),
+        app(CustomLinkSeeder::class),
+    );
+
+    $findings = $ig->fresh()->payload['syncFindings'] ?? [];
+    expect($findings)->toHaveCount(1);
+    expect($findings[0]['platform'])->toBe('fresha');
+    expect($findings[0]['outcome'])->toBe('conflict');
+    expect(DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->count())->toBe(1);
+});
+
 it('does nothing when the user no longer exists', function () {
     // Must not throw — mirrors ScanPreviousWebsiteContentJob's own null-user guard.
     (new LinkInBioScanJob((string) Str::uuid(), 'https://linktr.ee/venue'))->handle(

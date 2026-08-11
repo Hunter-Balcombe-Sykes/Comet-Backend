@@ -118,6 +118,10 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         // content-instagram-auto flag) on the full payload; this is a same-write
         // trim, not a second meaningful change (payload's `_folder` key, the only
         // thing the `updated` observer inspects, is untouched here).
+        //
+        // This strip is NOT self-enforcing: seed() dispatches async work that lands
+        // after it. Any queued job writing these keys back needs its own unclaimed
+        // guard — LinkInBioScanJob::mergeFindingsBack() has one for that reason.
         $connection->forceFill([
             'payload' => Arr::except($connection->payload, ['bioLinks', 'syncFindings', 'unmatched']),
         ])->saveQuietly();

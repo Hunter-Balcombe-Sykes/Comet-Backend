@@ -155,7 +155,7 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
             ...$ctx->summary(),
         ]);
 
-        $this->mergeFindingsBack($findings);
+        $this->mergeFindingsBack($user, $findings);
     }
 
     /**
@@ -176,8 +176,21 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
      *
      * @param  list<array<string,mixed>>  $findings
      */
-    private function mergeFindingsBack(array $findings): void
+    private function mergeFindingsBack(User $user, array $findings): void
     {
+        // PRIV-2: queued, so this lands seconds AFTER InstagramSourceGenerator
+        // stripped bioLinks/syncFindings/unmatched from the provisional payload —
+        // writing here undid exactly one third of that strip (only syncFindings, as
+        // the merge spreads the already-stripped payload). Skip the write AND its
+        // bell: a pre-claim user has no dashboard to read findings in, and the
+        // scan's real output — the connections and custom links seeded above — is
+        // already persisted. Unlike GoogleBusinessFetch's PRIV-1 strip this does not
+        // self-heal on claim (the scan runs once), matching what the generator's
+        // strip already does to the direct bio-link findings.
+        if ($user->isUnclaimed()) {
+            return;
+        }
+
         if ($findings === []) {
             return;
         }
