@@ -657,7 +657,7 @@ where u.handle in ('simondoylehair','jesshairstylist','crucibletattooco');
 
 Expected after this plan:
 - `simondoylehair` — unchanged: `hair-salon` / `instagram` / `"Hair Stylist"`
-- `jesshairstylist` — `artist` / `instagram` / `"Artist"`. **This is the correct output of this plan and still the wrong sector for that business** — they are a hairdresser ("Prahran Hairdresser", `jess.hair.stylist`). Fixing that needs option D (name/username fallback), which is deliberately **not** in this plan because a false hit could resolve a non-food business to `bar` and flip its `can_use_menu` / `can_use_reservations` capabilities. Decide D separately.
+- `jesshairstylist` — **stays `null` / `null` / `"Artist"`.** Amended after code review: the plan originally added a bare `'artist'` keyword so this would resolve to `artist`. That was a regression. Sector is sticky — `IdentitySync::applySector:229` returns early when `sector_source` is set and isn't `google-business` — so stamping `artist` from Instagram would have permanently locked Google Business out of correcting it, on an account that is actually a hairdresser. Null keeps the field open. Reaching the right sector here needs option D (name/username fallback), still out of scope below.
 - `crucibletattooco` — `businessCategory` must be `null`, not `"None"`. `sector` stays `null` until F4 (the degraded zero-post scrape) is fixed and a real category comes back.
 
 ---
