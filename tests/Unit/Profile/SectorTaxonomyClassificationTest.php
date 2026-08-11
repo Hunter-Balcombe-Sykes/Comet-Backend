@@ -131,3 +131,32 @@ it('returns null for every placeholder category string, in any casing', function
     expect(SectorTaxonomy::fromInstagramCategory($input))->toBeNull()
         ->and(SectorTaxonomy::fromGoogleCategory($input))->toBeNull();
 })->with(['None', 'none', 'NONE', ' None ', 'null', 'NULL', 'N/A', 'n/a', '-']);
+
+/**
+ * The taxonomy carried an `artist` slug and a `makeup-artist` slug that no
+ * keyword could reach — "Artist" is a first-class Instagram business category
+ * and it classified to null (F5, 2026-08-10).
+ */
+it('classifies a bare "Artist" category as artist', function () {
+    expect(SectorTaxonomy::fromInstagramCategory('Artist'))->toBe('artist')
+        ->and(SectorTaxonomy::fromGoogleCategory('Artist'))->toBe('artist');
+});
+
+it('classifies makeup artists to makeup-artist, both spellings', function () {
+    expect(SectorTaxonomy::fromGoogleCategory('Make-up artist'))->toBe('makeup-artist')
+        ->and(SectorTaxonomy::fromInstagramCategory('Makeup Artist'))->toBe('makeup-artist');
+});
+
+/**
+ * The generic 'artist' keyword must never shadow a more specific one. These
+ * would all flip to 'artist' if it were inserted too early in KEYWORD_SECTORS.
+ */
+it('keeps specific artist categories ahead of the generic artist keyword', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBe($expected);
+})->with([
+    'tattoo' => ['Tattoo Artist', 'tattoo-artist'],
+    'nail' => ['Nail Artist', 'nail-technician'],
+    'hair' => ['Hair Artist', 'hair-salon'],
+    'makeup' => ['Makeup Artist', 'makeup-artist'],
+    'gallery' => ['Art gallery', 'artist'],
+]);

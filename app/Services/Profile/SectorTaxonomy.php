@@ -150,6 +150,10 @@ final class SectorTaxonomy
         'barber' => 'barber',
         'hair' => 'hair-salon',
         'nail' => 'nail-technician',
+        // Before the generic 'artist' at the end of this map, or "Makeup Artist"
+        // falls through to it.
+        'makeup' => 'makeup-artist',
+        'make-up' => 'makeup-artist',
         'spa' => 'spa',
         'tattoo' => 'tattoo-artist',
         'gym' => 'gym',
@@ -199,6 +203,10 @@ final class SectorTaxonomy
         'food truck' => 'food-truck',
         'caterer' => 'caterer',
         'bar' => 'bar',
+        // LAST deliberately: 'artist' is the most generic key in this map, so
+        // every specific keyword above ('tattoo', 'nail', 'hair', 'makeup',
+        // 'art gallery') wins the match first. Never move it up.
+        'artist' => 'artist',
     ];
 
     /**
