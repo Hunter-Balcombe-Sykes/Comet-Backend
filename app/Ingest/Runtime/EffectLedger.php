@@ -21,6 +21,13 @@ use Illuminate\Support\Str;
  *
  * This generalises GoogleBusinessEnrichJob's refuse-to-re-bill policy, which
  * is the behaviour this whole class was extracted from.
+ *
+ * ONE path removes a row: a driver raising EffectNotAttempted from inside once(),
+ * which by that class's contract happens before its first vendor call. No
+ * request left the process, so there is no charge to protect and no reason to
+ * hold the digest for the rest of the freshness window. Every other ending —
+ * ok, failed, abandoned — settles in place, and reconcileAbandoned() still
+ * never deletes anything at all.
  */
 class EffectLedger
 {
@@ -118,6 +125,40 @@ class EffectLedger
             ]);
 
             return ['status' => 'ok', 'result' => $result, 'cached' => false];
+        } catch (EffectNotAttempted $e) {
+            // The ONE deletion in this class. Safe only because EffectNotAttempted's
+            // contract is "no request left the process" (see that class): nothing
+            // was charged, so nothing needs protecting from a re-run. A settled row
+            // would instead block this digest for the whole freshness window —
+            // seven days locked out by one capped day or one config typo.
+            //
+            // Guarded exactly like markAbandoned()'s conditional UPDATE: a money
+            // ledger should not carry an unqualified DELETE, and the predicate turns
+            // "provably unsettled" from a comment into an enforced precondition.
+            DB::table('ingest.effects')
+                ->where('digest', $digest)
+                ->where('status', 'claimed')
+                ->whereNull('settled_at')
+                ->delete();
+
+            throw $e;
+        } catch (EffectNoAnswer $e) {
+            // A request went out and we did not get an answer, so we cannot know
+            // whether the vendor billed us: the row STAYS, settled, and this digest
+            // is inert until the freshness bucket rolls. That is the class contract
+            // for an unknown charge, not an oversight.
+            //
+            // RETURNED rather than rethrown, though. A rethrow reaches RunExecutor's
+            // catch-all and marks the stream 'error', which reads as our bug;
+            // letting the connector see a non-ok verdict folds it to Unavailable,
+            // which is what a vendor outage actually is.
+            DB::table('ingest.effects')->where('digest', $digest)->update([
+                'status' => 'failed',
+                'settled_at' => now(),
+                'meta' => json_encode(['error' => 'EffectNoAnswer', 'message' => mb_substr($e->getMessage(), 0, 500)]),
+            ]);
+
+            return ['status' => 'failed', 'result' => null, 'cached' => false];
         } catch (\Throwable $e) {
             // A failure IS settled: we know it happened and what it cost. It
             // is the UNKNOWN (process death) that must never auto-retry.
