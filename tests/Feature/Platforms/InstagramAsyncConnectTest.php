@@ -899,6 +899,46 @@ it('applies instagram identity fields from the raw actor snake_case shape end-to
     expect($connection->payload['businessCategory'])->toBe('Cafe');
 });
 
+// The other half of the same shape (verified 2026-08-11 against live Apify run
+// history): figue returns business_category_name NULL and puts the category in
+// category_name, so a PARTNA_INSTAGRAM_ACTOR rollback (a no-deploy env flip)
+// would silently stop resolving a sector.
+//
+// Asserts the USER's sector only. The stored payload's own `businessCategory`
+// needs the same third candidate, but that expression is owned by
+// `fix/sector-detection-repair`, which has already restructured it behind a
+// categoryOrNull() placeholder filter — the candidate goes inside that wrapper
+// on that branch, not here.
+
+it('reads the category from category_name when the actor nulls business_category_name', function () {
+    Storage::fake('media');
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'full_name' => 'Null Category Cafe',
+        'business_category_name' => null,
+        'category_name' => 'Cafe',
+        'username' => 'nullcat_ig',
+        'latestPosts' => [],
+    ]], 201)]);
+
+    $user = User::create([
+        'handle' => 'igidentity4', 'handle_lc' => 'igidentity4', 'display_name' => '',
+        'first_name' => 'Igidentity4',
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
+        'primary_email' => 'igidentity4@example.com', 'sector' => null, 'sector_source' => null,
+    ]);
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => [], 'is_active' => false, 'last_refresh_status' => 'pending',
+    ]);
+
+    (new InstagramConnectJob($user->id, 'nullcat_ig', $connection->id))
+        ->handle(app(InstagramScraper::class), app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
+
+    expect($user->fresh()->sector)->toBe('cafe');
+    expect($user->fresh()->sector_source)->toBe('instagram');
+});
+
 // ── A2.2 → signup-v2 C4: unmatched bio links get a commerce probe first ──────
 // An unclassified bio link used to become a custom link immediately; it now
 // dispatches CommerceProbeJob (could be the business's store or a product page),

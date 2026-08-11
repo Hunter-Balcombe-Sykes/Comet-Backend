@@ -154,9 +154,13 @@ class InstagramScraper extends PlatformScraper
 
     /**
      * BE2: the raw Apify profile item, defensively read for bio links — actor
-     * field names vary by version, and TODAY's actor doesn't return any of
-     * these at all (confirmed via recon), so every source is optional. Collects,
-     * in order: `externalUrl` (Instagram's single "website" field), each
+     * field names vary by version, so every source is optional. (An earlier note
+     * here claimed the live actor returned none of these; that was true of the
+     * figue actor and is WRONG for the apify actor made default 2026-08-10 —
+     * verified 2026-08-11 against live run history, it returns externalUrl,
+     * externalUrls AND biography, so this method is load-bearing, not vacuous.)
+     *
+     * Collects, in order: `externalUrl` (Instagram's single "website" field), each
      * `externalUrls[].url` (or a bare string entry — some actor versions return
      * a plain string list), then URLs regexed out of `biography` free text.
      * Deduped (exact string match) and capped at MAX_BIO_LINKS. Empty array
