@@ -486,6 +486,33 @@ caused by F4's empty category, not by a taxonomy gap.
 > correcting it — and the one live account carrying `"Artist"` (`jesshairstylist`) is a hairdresser.
 > `'makeup'`/`'make-up'` were added (unambiguous), plus an exact-match Instagram-vocabulary pass, since
 > `KEYWORD_SECTORS` was tuned to Google Places strings and reused verbatim for Facebook's Page taxonomy.
+>
+> **COMPOUND CATEGORIES — a second defect, found 2026-08-11 while verifying the map against real data.
+> FIXED (`fix/category-compound-strip`).** §1.3 above records `hungryjacksau` returning
+> `"None,Fast food restaurant"` on a *fully successful* scrape. Instagram comma-joins categories and
+> emits its literal `"None"` as a real **segment**, but the placeholder work compared the WHOLE string,
+> so it only caught a category that was entirely a placeholder. Two consequences:
+> - **Stored payload:** `"None,Fast food restaurant"` was published verbatim as the business category.
+> - **Classification:** the exact Instagram pass keys on the whole string, so every exact-map-only
+>   category was lost when compound — `"Digital Creator"` → `content-creator`, but
+>   `"None,Digital Creator"` → `null`. The substring pass was unaffected (it scans the whole string),
+>   which is exactly why `"None,Fast food restaurant"` still reached `restaurant` and this stayed hidden.
+>
+> `fromInstagramCategory()` is now three-pass — whole-string exact, then per segment, then substring.
+> Whole-string first is deliberate: a genuine category name can contain a comma
+> (`"Beauty, Cosmetic & Personal Care"`), and splitting one before trying it whole would match a fragment.
+> The seeder returns the original trimmed string when nothing was dropped, so such a name survives
+> byte-identical.
+>
+> **Verification status of `INSTAGRAM_CATEGORY_SECTORS` (2026-08-11).** 18 of 35 keys confirmed against a
+> published category list (`waxing service`, `massage service`, `massage therapist`, `pilates studio`,
+> `digital creator`, `blogger`, `video creator`, `graphic designer`, `writer`, `nutritionist`,
+> `consulting agency`, `marketing agency`, `advertising agency`, `bed and breakfast`, `contractor`,
+> `fitness trainer`, `plumbing service`, `skincare service`). The other 17 are **unconfirmed, not
+> disproven** — Instagram's vocabulary runs to 1,300+ values with no official enumeration. Unconfirmed
+> keys are inert: they never match and the substring fallback runs unchanged. Note this also weakens the
+> "closed vocabulary" rationale originally given for exact matching — with compound strings and 1,300+
+> values it is a fast path, not an authoritative pass; the substring fallback carries more of the load.
 
 **F6 — no contact fields, no workplace rows. CLOSED 2026-08-11 — not a gap.** The original wording
 ("absent from every payload") inspected `$selection`, not the raw actor item `applyContactFields`
