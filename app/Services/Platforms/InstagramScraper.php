@@ -119,6 +119,51 @@ class InstagramScraper extends PlatformScraper
         return ProfileFetchResult::ok($items[0]);
     }
 
+    /**
+     * A 2xx profile whose post timeline never arrived.
+     *
+     * postsCount and latestPosts are the count and the contents of ONE upstream
+     * container, so they fail together — this is a single signal, never two
+     * independent checks. Observed 2026-08-10 on @crucibletattooco: name,
+     * follower count, picture and category all present, those two absent. The
+     * same account returned 4,164 posts 21 minutes earlier and again the next day.
+     *
+     * Deliberately conservative. postsCount === 0 WITH no posts is
+     * self-consistent and indistinguishable from a genuinely empty account, so
+     * it is NOT thin: a false positive tells a real prospect their build is
+     * broken, while a false negative costs one thin site.
+     *
+     * businessCategoryName is deliberately absent from this predicate. "None" is
+     * the normal value for an account with no subvertical — natgeo and
+     * hungryjacksau both carry it with complete data.
+     */
+    public function isThinProfile(array $profile): bool
+    {
+        // An explicit error item is the adapter's classify() call to make.
+        if (is_string(data_get($profile, 'error'))) {
+            return false;
+        }
+
+        // Private accounts legitimately expose no posts.
+        if (data_get($profile, 'private') === true) {
+            return false;
+        }
+
+        $posts = data_get($profile, 'latestPosts');
+        if (is_array($posts) && $posts !== []) {
+            return false;
+        }
+
+        // Absent or non-numeric: the container never arrived (the observed fault).
+        $count = data_get($profile, 'postsCount');
+        if (! is_numeric($count)) {
+            return true;
+        }
+
+        // Claims posts but shipped none.
+        return (int) $count > 0;
+    }
+
     // Actor id → its adapter. Indexed off the full map rather than via config()
     // dot-notation because actor ids are owner~name strings.
     private function adapterFor(string $actor): ?InstagramActorAdapter

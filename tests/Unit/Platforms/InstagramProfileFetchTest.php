@@ -2,6 +2,7 @@
 
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ProfileFetchFailure;
+use App\Services\Platforms\ProfileFetchResult;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
@@ -145,4 +146,116 @@ it('keeps fetchProfile() returning the bare item so existing callers are unaffec
     $profile = (new InstagramScraper)->fetchProfile('docpizza');
 
     expect($profile['fullName'])->toBe('Doc Pizza');
+});
+
+// ── Thin-profile predicate ───────────────────────────────────────────────────
+// A 2xx profile can carry a name, a follower count and a picture while its post
+// timeline is simply absent (@crucibletattooco, 2026-08-10 10:22 UTC — the same
+// account returned 4,164 posts at 10:01 and again the next day). postsCount and
+// latestPosts are the count and the contents of ONE upstream container, so they
+// fail together: one signal, never two independent checks.
+
+it('flags the observed fault: followers present, postsCount absent, no posts', function () {
+    $thin = (new InstagramScraper)->isThinProfile([
+        'username' => 'crucibletattooco',
+        'fullName' => 'Crucible Tattoo Co.',
+        'followersCount' => 30042,
+        'businessCategoryName' => 'None',
+        'private' => false,
+        // postsCount and latestPosts both absent — the container never arrived.
+    ]);
+
+    expect($thin)->toBeTrue();
+});
+
+it('flags a self-contradicting profile that claims posts but ships none', function () {
+    $thin = (new InstagramScraper)->isThinProfile([
+        'username' => 'crucibletattooco',
+        'followersCount' => 30042,
+        'postsCount' => 4164,
+        'latestPosts' => [],
+        'private' => false,
+    ]);
+
+    expect($thin)->toBeTrue();
+});
+
+// The conservative half. A false positive tells a real prospect their build is
+// broken; a false negative costs one thin site.
+it('does NOT flag a genuinely empty account (postsCount 0 with no posts is self-consistent)', function () {
+    $thin = (new InstagramScraper)->isThinProfile([
+        'username' => 'brandnew',
+        'followersCount' => 0,
+        'postsCount' => 0,
+        'latestPosts' => [],
+        'private' => false,
+    ]);
+
+    expect($thin)->toBeFalse();
+});
+
+it('does NOT flag a sparse but real account', function () {
+    // roberthuntercuts, live on dev: 3 followers, 1 post.
+    $thin = (new InstagramScraper)->isThinProfile([
+        'username' => 'roberthuntercuts',
+        'followersCount' => 3,
+        'postsCount' => 1,
+        'latestPosts' => [['shortCode' => 'abc', 'displayUrl' => 'https://x/1.jpg']],
+        'private' => false,
+    ]);
+
+    expect($thin)->toBeFalse();
+});
+
+it('does NOT flag a private account, which legitimately exposes no posts', function () {
+    $thin = (new InstagramScraper)->isThinProfile([
+        'username' => 'locked',
+        'followersCount' => 500,
+        'private' => true,
+    ]);
+
+    expect($thin)->toBeFalse();
+});
+
+it('does NOT flag a healthy profile', function () {
+    $thin = (new InstagramScraper)->isThinProfile([
+        'username' => 'simondoylehair',
+        'followersCount' => 11065,
+        'postsCount' => 365,
+        'latestPosts' => array_fill(0, 12, ['shortCode' => 'x']),
+        'private' => false,
+    ]);
+
+    expect($thin)->toBeFalse();
+});
+
+// businessCategoryName "None" is the NORMAL value for an account with no
+// subvertical — the successful re-probe of crucibletattooco returns it, as do
+// natgeo and hungryjacksau with complete data. It must never influence this.
+it('ignores businessCategoryName entirely', function () {
+    $thin = (new InstagramScraper)->isThinProfile([
+        'username' => 'natgeo',
+        'followersCount' => 268999742,
+        'postsCount' => 31813,
+        'latestPosts' => array_fill(0, 12, ['shortCode' => 'x']),
+        'businessCategoryName' => 'None',
+        'private' => false,
+    ]);
+
+    expect($thin)->toBeFalse();
+});
+
+it('treats an explicit error item as classify()\'s business, not thinness', function () {
+    $thin = (new InstagramScraper)->isThinProfile([
+        'username' => 'ghost',
+        'error' => 'not_found',
+    ]);
+
+    expect($thin)->toBeFalse();
+});
+
+it('carries a thin flag on the result object, defaulting to false', function () {
+    expect(ProfileFetchResult::ok(['username' => 'x'])->thin)->toBeFalse()
+        ->and(ProfileFetchResult::ok(['username' => 'x'], thin: true)->thin)->toBeTrue()
+        ->and(ProfileFetchResult::failed(ProfileFetchFailure::Transport)->thin)->toBeFalse();
 });
