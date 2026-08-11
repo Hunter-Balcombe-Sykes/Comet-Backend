@@ -259,3 +259,91 @@ it('carries a thin flag on the result object, defaulting to false', function () 
         ->and(ProfileFetchResult::ok(['username' => 'x'], thin: true)->thin)->toBeTrue()
         ->and(ProfileFetchResult::failed(ProfileFetchFailure::Transport)->thin)->toBeFalse();
 });
+
+// ── Thin retry ───────────────────────────────────────────────────────────────
+// The fault is transient, so one retry is worth a paid actor run. Exactly one:
+// a retry without a bound is an outage amplifier.
+
+/** A complete profile the predicate accepts. */
+function thinScrapeHealthyItem(): array
+{
+    return [
+        'username' => 'crucibletattooco',
+        'fullName' => 'Crucible Tattoo Co.',
+        'followersCount' => 30041,
+        'postsCount' => 4164,
+        'private' => false,
+        'latestPosts' => array_fill(0, 12, ['shortCode' => 'x', 'displayUrl' => 'https://x/1.jpg']),
+    ];
+}
+
+/** The 2026-08-10 fault: header fields present, timeline absent. */
+function thinScrapeThinItem(): array
+{
+    return [
+        'username' => 'crucibletattooco',
+        'fullName' => 'Crucible Tattoo Co.',
+        'followersCount' => 30042,
+        'businessCategoryName' => 'None',
+        'private' => false,
+    ];
+}
+
+it('retries once when the first scrape comes back thin, and reports the recovery', function () {
+    Http::fake(['api.apify.com/*' => Http::sequence()
+        ->push([thinScrapeThinItem()], 201)
+        ->push([thinScrapeHealthyItem()], 201)]);
+
+    $result = (new InstagramScraper)->fetchProfileResult('crucibletattooco');
+
+    expect($result->thin)->toBeFalse()
+        ->and($result->profile['postsCount'])->toBe(4164);
+    Http::assertSentCount(2);
+});
+
+it('gives up after exactly one retry and reports the profile as thin', function () {
+    Http::fake(['api.apify.com/*' => Http::sequence()
+        ->push([thinScrapeThinItem()], 201)
+        ->push([thinScrapeThinItem()], 201)
+        ->push([thinScrapeHealthyItem()], 201)]);
+
+    $result = (new InstagramScraper)->fetchProfileResult('crucibletattooco');
+
+    expect($result->thin)->toBeTrue()
+        ->and($result->profile['followersCount'])->toBe(30042);
+    // Never a third call — the third fake response must go unused.
+    Http::assertSentCount(2);
+});
+
+it('does not retry a healthy first scrape', function () {
+    Http::fake(['api.apify.com/*' => Http::response([thinScrapeHealthyItem()], 201)]);
+
+    $result = (new InstagramScraper)->fetchProfileResult('crucibletattooco');
+
+    expect($result->thin)->toBeFalse();
+    Http::assertSentCount(1);
+});
+
+// This class does not otherwise claim Apify budget — the controllers do
+// (InstagramController:381, RefreshController:183). Without this gate the retry
+// would spend paid runs the daily cap never sees.
+it('skips the retry when the Apify daily cap is exhausted', function () {
+    config(['partna.limits.apify.actors.instagram' => 0]);
+    Http::fake(['api.apify.com/*' => Http::sequence()
+        ->push([thinScrapeThinItem()], 201)
+        ->push([thinScrapeHealthyItem()], 201)]);
+
+    $result = (new InstagramScraper)->fetchProfileResult('crucibletattooco');
+
+    expect($result->thin)->toBeTrue();
+    Http::assertSentCount(1);
+});
+
+it('does not retry a hard failure — only thinness earns a second paid run', function () {
+    Http::fake(['api.apify.com/*' => Http::response('', 500)]);
+
+    $result = (new InstagramScraper)->fetchProfileResult('crucibletattooco');
+
+    expect($result->failure)->toBe(ProfileFetchFailure::UpstreamError);
+    Http::assertSentCount(1);
+});

@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Cache\ApifyBudget;
 use App\Services\Platforms\Actors\InstagramActorAdapter;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -32,7 +33,47 @@ class InstagramScraper extends PlatformScraper
     // not distinguish a handle that genuinely does not exist from an upstream
     // break, so callers labelled every failure "source not found" — telling real
     // prospects their own Instagram account doesn't exist while Meta was down.
+    //
+    // A thin result (post timeline missing) earns ONE retry: the fault is
+    // transient — @crucibletattooco returned 4,164 posts at 10:01 on 2026-08-10,
+    // zero at 10:22, and 4,164 again the next day — and a second paid run is
+    // cheap against a site built empty.
     public function fetchProfileResult(string $username, ?string $userId = null): ProfileFetchResult
+    {
+        $first = $this->attemptFetch($username, $userId);
+
+        if ($first->profile === null || ! $this->isThinProfile($first->profile)) {
+            return $first;
+        }
+
+        // This class does not otherwise claim Apify budget — the controllers do
+        // (InstagramController::guardApifyBudget, RefreshController). Claim here
+        // or the retry spends a paid run outside the daily cap. Denied means
+        // denied: report thin rather than spending anyway.
+        if (! app(ApifyBudget::class)->tryClaim('instagram')) {
+            $this->logThinProfile($username, $userId, $first->profile, retried: false, recovered: false);
+
+            return ProfileFetchResult::ok($first->profile, thin: true);
+        }
+
+        $retry = $this->attemptFetch($username, $userId);
+
+        if ($retry->profile !== null && ! $this->isThinProfile($retry->profile)) {
+            $this->logThinProfile($username, $userId, $first->profile, retried: true, recovered: true);
+
+            return $retry;
+        }
+
+        // Still thin (or the retry broke outright): keep the FIRST profile — it is
+        // degraded, not absent, and the build path needs something to render.
+        $this->logThinProfile($username, $userId, $first->profile, retried: true, recovered: false);
+
+        return ProfileFetchResult::ok($first->profile, thin: true);
+    }
+
+    // One run of the actor. Extracted so the thin retry above is exactly one
+    // extra call and cannot become a loop.
+    private function attemptFetch(string $username, ?string $userId = null): ProfileFetchResult
     {
         $token = config('services.apify.token');
         if (! $token) {
@@ -162,6 +203,25 @@ class InstagramScraper extends PlatformScraper
 
         // Claims posts but shipped none.
         return (int) $count > 0;
+    }
+
+    // Hash the handle before logging, for the reason spelled out in
+    // attemptFetch(): a raw handle beside our internal user_id builds a durable,
+    // joinable identity record in long-retained logs. `recovered` is what makes
+    // the retry's hit rate measurable rather than guessed.
+    private function logThinProfile(string $username, ?string $userId, array $profile, bool $retried, bool $recovered): void
+    {
+        $posts = data_get($profile, 'latestPosts');
+
+        Log::warning('instagram.thin_profile', [
+            'username_hash' => hash('sha256', mb_strtolower($username)),
+            'user_id' => $userId,
+            'postsCount' => data_get($profile, 'postsCount'),
+            'followersCount' => data_get($profile, 'followersCount'),
+            'latestPosts' => is_array($posts) ? count($posts) : 0,
+            'retried' => $retried,
+            'recovered' => $recovered,
+        ]);
     }
 
     // Actor id → its adapter. Indexed off the full map rather than via config()
