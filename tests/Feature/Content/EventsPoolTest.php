@@ -208,3 +208,71 @@ it('rosters the ticketing platforms for events and refuses the rest', function (
     expect(ItemLinkRules::urlBelongsTo('humanitix', 'https://events.humanitix.com/26-rotary-disco'))->toBeTrue();
     expect(ItemLinkRules::urlBelongsTo('eventbrite', 'https://example.com/e/x'))->toBeFalse();
 });
+
+it('serves the soonest occurrence and the cheapest offer on an event payload', function () {
+    $pro = createTenant('evpool-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+    $sourceA = eventsSource($pro->id, eventsConnection($pro->id));
+    $sourceB = eventsSource($pro->id, eventsConnection($pro->id));
+
+    $itemId = eventItem($pro->id, $sourceA, 'Beginner sewing workshop', now()->addDays(5)->toDateTimeString());
+
+    // A SECOND source dates the same event later, and prices it higher. The
+    // section orders by MIN(starts_at_utc), so the payload must agree — a
+    // last-row-wins map would print the later date beside the earlier order.
+    DB::table('content.f_occurrence')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceB,
+        'starts_at_local' => now()->addDays(9)->toDateTimeString(),
+        'starts_at_utc' => now()->addDays(9)->toDateTimeString(),
+        'zone_confidence' => 'offset_only', 'is_all_day' => 0, 'updated_at' => now(),
+    ]);
+    DB::table('content.f_place')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceA,
+        'venue_name' => 'Reginald Murphy Community Centre',
+        'locality' => 'Potts Point', 'updated_at' => now(),
+    ]);
+    DB::table('content.offers')->insert([
+        ['id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceA,
+            'amount_minor' => 661, 'currency' => 'AUD', 'qualifier' => 'from',
+            'availability' => 'sold_out', 'updated_at' => now()],
+        ['id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceB,
+            'amount_minor' => 4500, 'currency' => 'AUD', 'qualifier' => 'from',
+            'availability' => 'available', 'updated_at' => now()],
+    ]);
+
+    $item = app(PoolResolver::class)->resolve($site, 'events')['selection'][0];
+
+    expect($item['venue'])->toBe('Reginald Murphy Community Centre');
+    expect($item['locality'])->toBe('Potts Point');
+    expect($item['startsAt'])->toStartWith(now()->addDays(5)->format('Y-m-d'));
+    expect($item['price']['amountMinor'])->toBe(661);
+    expect($item['price']['currency'])->toBe('AUD');
+    expect($item['price']['qualifier'])->toBe('from');
+});
+
+it('keeps the event keys present and null on a non-event pool item', function () {
+    $pro = createTenant('evpool-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+    $source = eventsSource($pro->id, eventsConnection($pro->id));
+
+    $id = (string) Str::uuid();
+    DB::table('content.items')->insert([
+        'id' => $id, 'user_id' => $pro->id, 'kind' => 'video',
+        'headline_cache' => 'A clip', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $source,
+        'coord' => 'youtube:acct-test:clip', 'item_id' => $id, 'kind' => 'video',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+
+    $item = app(PoolResolver::class)->resolve($site, 'watch')['selection'][0];
+
+    // Stable shape across pools — the FE never branches on kind to find a key.
+    foreach (['startsAt', 'startsAtLocal', 'endsAtLocal', 'timezone', 'venue', 'locality', 'price', 'availability'] as $key) {
+        expect($item)->toHaveKey($key);
+        expect($item[$key])->toBeNull();
+    }
+});

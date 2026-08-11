@@ -19,8 +19,9 @@ use Illuminate\Support\Facades\DB;
  *   NOTHING from that source until something newer lands.
  *
  * Item payloads are render-ready: headline (manual override wins), primary
- * link + platform, creator, published, duration, cover thumbnail, and the
- * full per-platform link set (synced source links + hand-saved item_links).
+ * link + platform, creator, published, duration, cover thumbnail, the dated /
+ * located / priced facets (null off events), and the full per-platform link
+ * set (synced source links + hand-saved item_links).
  * popularityRank is null until watch_item/listen_item beacons compute —
  * the wire carries the field so the shape doesn't change under the FE.
  */
@@ -238,6 +239,40 @@ class PoolResolver
             ->groupBy('item_id')
             ->pluck('seconds', 'item_id');
 
+        // Soonest occurrence per item, aggregated in SQL. A collection keyed
+        // by item_id would be LAST-row-wins, which is the opposite of what
+        // the section's MIN(starts_at_utc) ordering does.
+        $occursAt = DB::connection('pgsql')->table('content.f_occurrence')
+            ->whereIn('item_id', $ids)
+            ->whereNotNull('starts_at_utc')
+            ->selectRaw('item_id, MIN(starts_at_utc) as starts_at_utc')
+            ->groupBy('item_id')
+            ->pluck('starts_at_utc', 'item_id');
+
+        // The local/venue detail belongs to whichever source supplied the
+        // soonest time; ordering DESC and letting keyBy overwrite leaves the
+        // EARLIEST row in the map.
+        $occurrenceDetail = DB::connection('pgsql')->table('content.f_occurrence')
+            ->whereIn('item_id', $ids)
+            ->whereNotNull('starts_at_utc')
+            ->orderByDesc('starts_at_utc')
+            ->get(['item_id', 'starts_at_local', 'ends_at_local', 'timezone'])
+            ->keyBy('item_id');
+
+        $places = DB::connection('pgsql')->table('content.f_place')
+            ->whereIn('item_id', $ids)
+            ->get(['item_id', 'venue_name', 'locality'])
+            ->keyBy('item_id');
+
+        // Cheapest offer per item — the scrape sees the lowest tier and the
+        // projector stamps qualifier='from' to say so. Ordered DESC so the
+        // cheapest row is written LAST and survives keyBy's overwrite.
+        $offers = DB::connection('pgsql')->table('content.offers')
+            ->whereIn('item_id', $ids)
+            ->orderByRaw('amount_minor IS NULL DESC, amount_minor DESC')
+            ->get(['item_id', 'amount_minor', 'amount_max_minor', 'currency', 'qualifier', 'availability'])
+            ->keyBy('item_id');
+
         $creators = DB::connection('pgsql')->table('content.f_authored')
             ->whereIn('item_id', $ids)
             ->whereNotNull('creator')
@@ -286,6 +321,22 @@ class PoolResolver
                 'firstSeenAt' => $item->first_seen_at,
                 'durationSeconds' => isset($durations[$itemId]) ? (int) $durations[$itemId] : null,
                 'thumbnail' => $this->cover($covers->get($itemId, collect())),
+                // Dated / located / priced facets. Present on every pool item
+                // and null off events, so the wire shape does not change with
+                // kind — same contract durationSeconds already has.
+                'startsAt' => $occursAt[$itemId] ?? null,
+                'startsAtLocal' => $occurrenceDetail[$itemId]->starts_at_local ?? null,
+                'endsAtLocal' => $occurrenceDetail[$itemId]->ends_at_local ?? null,
+                'timezone' => $occurrenceDetail[$itemId]->timezone ?? null,
+                'venue' => $places[$itemId]->venue_name ?? null,
+                'locality' => $places[$itemId]->locality ?? null,
+                'price' => isset($offers[$itemId]) ? [
+                    'amountMinor' => $offers[$itemId]->amount_minor === null ? null : (int) $offers[$itemId]->amount_minor,
+                    'amountMaxMinor' => $offers[$itemId]->amount_max_minor === null ? null : (int) $offers[$itemId]->amount_max_minor,
+                    'currency' => $offers[$itemId]->currency,
+                    'qualifier' => $offers[$itemId]->qualifier,
+                ] : null,
+                'availability' => $offers[$itemId]->availability ?? null,
                 'links' => $links,
                 'popularityRank' => null,
             ];
