@@ -4,6 +4,7 @@ namespace App\Services\PreAccount\Generators;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
@@ -106,6 +107,23 @@ class InstagramSourceGenerator implements SiteSourceGenerator
             $this->seeder->seed($connection, $sourceRef, $user->id, $profile, $autoConnectBooking);
         } catch (\Throwable $e) {
             throw SourceGenerationException::scrapeFailed($e->getMessage());
+        }
+
+        // Flag, don't fail: the site still renders off what DID come back, and a
+        // genuinely sparse account must never be told its build failed. Unlike the
+        // refresh path there is nothing to protect here — an unbuilt site has no
+        // prior payload — so a degraded profile is better than none.
+        //
+        // Scoped to this user's LIVE Instagram build; pre_account_builds_live_source_unique
+        // guarantees at most one. A direct update, matching the SEC-4 convention that
+        // state columns are not mass-assignable. Nothing observes this column, so
+        // there is no cache to invalidate.
+        if ($result->thin) {
+            PreAccountBuild::query()
+                ->where('user_id', $user->id)
+                ->where('source_type', 'instagram')
+                ->whereNull('claimed_at')
+                ->update(['thin_scrape_at' => now()]);
         }
 
         // PRIV-2: bioLinks/syncFindings/unmatched are internal auto-sync bookkeeping
