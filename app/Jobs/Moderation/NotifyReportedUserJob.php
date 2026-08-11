@@ -67,15 +67,22 @@ class NotifyReportedUserJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // Fail-closed: don't notify users who've been suspended/banned (capability gate).
-        if (! AccountCapabilities::for($user)->receive_moderation_notifications) {
+        // Load the most recent decision to determine which notification to send.
+        $decision = $case->decisions()->latest('decided_at')->firstOrFail();
+
+        // Suspension/ban notices are exempt from the capability gate: the status
+        // write and this job race inside one afterCommit (dispatch order is
+        // deliberately order-free), so by the time we run the account is often
+        // ALREADY suspended — and the email telling the user their account was
+        // closed must still send (right-to-notice). Content-hidden keeps the
+        // gate: no reason to email an account that's already suspended/banned
+        // about content tidy-ups.
+        $isClosureNotice = in_array($decision->decision_type, ['suspend_user', 'ban_user'], true);
+        if (! $isClosureNotice && ! AccountCapabilities::for($user)->receive_moderation_notifications) {
             $this->markCompleted($entry);
 
             return;
         }
-
-        // Load the most recent decision to determine which notification to send.
-        $decision = $case->decisions()->latest('decided_at')->firstOrFail();
 
         $notification = match ($decision->decision_type) {
             'hide_content', 'hide_site' => new ContentHiddenNotification($decision),
