@@ -233,6 +233,22 @@ class InstagramScraper extends PlatformScraper
         ]);
     }
 
+    /**
+     * Whether a scrape could even be attempted: a token AND an adapter for the
+     * currently configured actor. Both are checked inside attemptFetch(), but by
+     * then a caller that claims budget first has already spent a slot — and the
+     * adapter half is the easy one to miss, because a wrong `partna.instagram.actor`
+     * looks like a working config until the run returns NotConfigured.
+     *
+     * Exists for InstagramActorDriver, which must decide whether to claim BEFORE
+     * calling in; a config fault has to release the ledger claim, not settle it.
+     */
+    public function isConfigured(): bool
+    {
+        return (bool) config('services.apify.token')
+            && $this->adapterFor((string) config('partna.instagram.actor')) !== null;
+    }
+
     // Actor id → its adapter. Indexed off the full map rather than via config()
     // dot-notation because actor ids are owner~name strings.
     private function adapterFor(string $actor): ?InstagramActorAdapter

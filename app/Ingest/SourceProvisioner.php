@@ -113,11 +113,11 @@ class SourceProvisioner
     }
 
     /**
-     * Whether the scheduler may run this source TODAY. Billed connectors
-     * (google_business) declare effects that HttpIo::runBilledEffect cannot
-     * yet perform — the drivers land at P7 — so scheduling them now would
-     * error every run until the source went dead. The row still exists (the
-     * seam is complete); enabling is this one predicate when drivers land.
+     * Whether the scheduler may run this source TODAY. Billed connectors stay
+     * OFF the dispatcher even now that their drivers exist (slice 0): enabling
+     * paid auto-sync is a spend decision that belongs to the slice which uses the
+     * data, not to the seam that makes it possible. Flipping this predicate is a
+     * one-line change plus a deliberate look at PlacesBudget/ApifyBudget headroom.
      */
     private static function schedulable(Manifest $manifest): bool
     {

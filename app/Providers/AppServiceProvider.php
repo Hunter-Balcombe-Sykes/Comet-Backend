@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Http\Middleware\Throttle\FailOpenThrottleRequests;
 use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
+use App\Ingest\Runtime\Effects\InstagramActorDriver;
 use App\Ingest\Runtime\Effects\PlacesDetailsDriver;
 use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
@@ -118,6 +119,7 @@ class AppServiceProvider extends ServiceProvider
         // hitting HttpIo's throw.
         $this->app->singleton(BilledEffectDriverRegistry::class, fn ($app) => new BilledEffectDriverRegistry([
             $app->make(PlacesDetailsDriver::class),
+            $app->make(InstagramActorDriver::class),
         ]));
 
         // Singleton so the request-scoped $requestCache memo actually persists

@@ -23,10 +23,12 @@ use App\Ingest\Support\Fields;
  * construction, not by convention: CostClass::Actor means SourceProvisioner
  * provisions the source with auto_sync=false (the scheduler never touches
  * it), so a run happens only on an explicit manual/connect trigger. The hard
- * caps live where the money moves: ApifyBudget's per-actor + global daily
- * caps and the per-user cooldown (config partna.limits.apify / .platforms
- * .instagram) are enforced by the actor driver when it lands at P7 — this
- * connector only DESCRIBES the effect, and a refused/failed effect verdict
+ * cap lives where the money moves: ApifyBudget's per-actor + global daily
+ * caps (config partna.limits.apify), claimed by InstagramActorDriver
+ * immediately before the run. There is deliberately NO per-user cooldown —
+ * `partna.instagram.apify_cooldown_seconds` is vestigial config with no reader,
+ * and InstagramController documents the same decision for the connect path.
+ * This connector only DESCRIBES the effect, and a refused/failed effect verdict
  * folds into Unavailable exactly like an unreachable vendor.
  *
  * `hosts` is EMPTY on purpose: the connector never fetches Instagram over
