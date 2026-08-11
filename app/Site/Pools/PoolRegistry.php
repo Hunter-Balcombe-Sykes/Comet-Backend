@@ -128,7 +128,7 @@ class PoolRegistry
         ];
     }
 
-    /** The pool a kind belongs to, or null (service, product, event, …). */
+    /** The pool a kind belongs to, or null (service, product, channel, …). */
     public static function poolForKind(string $kind): ?string
     {
         foreach (self::POOLS as $pool => $kinds) {

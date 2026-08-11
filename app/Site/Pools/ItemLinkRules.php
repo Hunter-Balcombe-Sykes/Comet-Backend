@@ -43,8 +43,10 @@ class ItemLinkRules
         'youtube-music' => ['music.youtube.com'],
         'bandcamp' => ['bandcamp.com'],
         'instagram' => ['instagram.com'],
-        // Eventbrite runs country TLDs; Humanitix serves events off a
-        // subdomain, which the suffix arm below covers.
+        // Eventbrite runs ~15 country domains (.co.uk, .ca, .ie, .nz, .com.br…);
+        // only the two the AU/US pilot needs are listed, so a link on another
+        // one is refused. Add the TLD when a user turns up on it. Humanitix
+        // serves events off a subdomain, which the suffix arm below covers.
         'eventbrite' => ['eventbrite.com', 'eventbrite.com.au'],
         'humanitix' => ['humanitix.com'],
     ];

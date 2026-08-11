@@ -259,8 +259,12 @@ class PoolResolver
             ->get(['item_id', 'starts_at_local', 'ends_at_local', 'timezone'])
             ->keyBy('item_id');
 
+        // Ordered for the same reason the occurrence detail is: keyBy keeps
+        // the LAST row, and an unordered fetch would let two sources describing
+        // one venue flip the published address between reads. Freshest wins.
         $places = DB::connection('pgsql')->table('content.f_place')
             ->whereIn('item_id', $ids)
+            ->orderBy('updated_at')
             ->get(['item_id', 'venue_name', 'locality'])
             ->keyBy('item_id');
 
@@ -336,6 +340,11 @@ class PoolResolver
                     'currency' => $offers[$itemId]->currency,
                     'qualifier' => $offers[$itemId]->qualifier,
                 ] : null,
+                // Deliberately the CHEAPEST offer's availability, not the
+                // event's: it qualifies the price beside it, so "from $6.61 /
+                // sold_out" reads as "that tier is gone". An event-level
+                // rollup would need a rank over availability values and would
+                // then disagree with the price it sits next to.
                 'availability' => $offers[$itemId]->availability ?? null,
                 'links' => $links,
                 'popularityRank' => null,

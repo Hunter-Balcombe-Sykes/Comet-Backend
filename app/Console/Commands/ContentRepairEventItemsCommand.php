@@ -53,6 +53,17 @@ class ContentRepairEventItemsCommand extends Command
             }
         }
 
+        if ($this->option('retire') && $this->option('dry-run')) {
+            // --dry-run wins. Retirement is one-way, and the person most
+            // likely to pair the flags is the person trying to preview it.
+            $this->warn('--dry-run: would retire '.$orphaned->count().' orphaned event item(s):');
+            foreach ($orphaned as $item) {
+                $this->line('  '.$item->id);
+            }
+
+            return self::SUCCESS;
+        }
+
         if ($this->option('retire') && $orphaned->isNotEmpty()) {
             // Raw write — no Eloquent, so no observer fires. Three things must
             // happen by hand, and nothing in CI will catch a missing one:
@@ -70,6 +81,7 @@ class ContentRepairEventItemsCommand extends Command
 
             $sites = DB::connection('pgsql')->table('site.sites')
                 ->whereIn('user_id', $orphaned->pluck('user_id')->unique()->all())
+                ->whereNull('deleted_at')
                 ->get(['id', 'subdomain']);
 
             foreach ($sites as $site) {

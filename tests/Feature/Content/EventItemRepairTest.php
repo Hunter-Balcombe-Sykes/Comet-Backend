@@ -124,6 +124,38 @@ it('retires an event item whose every source item is removed', function () {
     expect(DB::table('content.source_items')->where('item_id', $gone)->value('removed_at'))->not->toBeNull();
 });
 
+// Retirement is one-way, so the flag pairing most likely to be typed by
+// someone trying to PREVIEW it must not perform it. The signature declared
+// --dry-run from the start but handle() never read it.
+it('previews rather than performs when --dry-run is paired with --retire', function () {
+    $pro = createTenant('repair-'.Str::lower(Str::random(6)));
+    $sourceId = repairSource($pro->id);
+
+    $itemId = (string) Str::uuid();
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'event',
+        'headline_cache' => 'Workshop', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => 'eventbrite:acct-test:dry', 'item_id' => $itemId,
+        'kind' => 'event', 'removed_at' => now()->subDay(),
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    DB::table('content.f_text')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId,
+        'headline' => 'Workshop', 'updated_at' => now(),
+    ]);
+
+    $this->artisan('content:repair-event-items --dry-run --retire')
+        ->expectsOutputToContain('would retire 1')
+        ->assertExitCode(0);
+
+    expect(DB::table('content.items')->where('id', $itemId)->value('removed_at'))->toBeNull();
+});
+
 it('leaves an orphaned item alone without --retire', function () {
     $pro = createTenant('repair-'.Str::lower(Str::random(6)));
     $sourceId = repairSource($pro->id);

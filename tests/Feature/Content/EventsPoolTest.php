@@ -251,6 +251,10 @@ it('serves the soonest occurrence and the cheapest offer on an event payload', f
     expect($item['price']['amountMinor'])->toBe(661);
     expect($item['price']['currency'])->toBe('AUD');
     expect($item['price']['qualifier'])->toBe('from');
+    // availability qualifies the QUOTED price, so it tracks the cheapest
+    // offer even when a dearer tier is still on sale. Asserted so the choice
+    // is deliberate rather than a side effect of the ordering.
+    expect($item['availability'])->toBe('sold_out');
 });
 
 it('keeps the event keys present and null on a non-event pool item', function () {

@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Requests\Api\User\Sections\SectionRuleRules;
 use App\Site\Pools\PoolRegistry;
+use App\Site\Sections\RuleOperator;
 
 // The registry is a closed map reached from a URL segment. These pin the
 // three properties the rest of the pool lane assumes and never re-checks.
@@ -33,6 +35,41 @@ it('gives every pool a page key and a label', function () {
 it('names only real pools in the latest-tag list', function () {
     foreach (PoolRegistry::LATEST_TAG_POOLS as $pool) {
         expect(PoolRegistry::isPool($pool))->toBeTrue();
+    }
+});
+
+// SECTION_SHAPE is read through `?? default`, so a typo'd key does not throw
+// — the pool silently provisions with the watch/listen rule and nobody finds
+// out until a visitor sees one event instead of five.
+it('keys the section shape only by real pools', function () {
+    foreach (array_keys(PoolRegistry::SECTION_SHAPE) as $pool) {
+        expect(PoolRegistry::isPool($pool))->toBeTrue();
+    }
+});
+
+// The rule DSL is closed at four registries and only two of them live here.
+// A shape naming an unregistered operator 500s SectionResource (fromArray()
+// throws); a shape naming an order_by outside the request validator's
+// allowlist 422s the dashboard's next section PATCH. Neither surfaces as a
+// red test anywhere else, so both are pinned at the point of declaration.
+it('provisions every pool with a registered operator and a valid ordering', function () {
+    $operators = array_map(fn (RuleOperator $c) => $c->value, RuleOperator::cases());
+
+    // Read the validator's own allowlist rather than copying it — a copy
+    // would pass while the real list said something else, which is the exact
+    // failure this test exists to catch.
+    $orderings = (new ReflectionClass(SectionRuleRules::class))->getConstant('ORDER_BY');
+
+    foreach (array_keys(PoolRegistry::POOLS) as $pool) {
+        $shape = PoolRegistry::sectionShape($pool);
+
+        expect($shape['order_by'])->toBeIn($orderings);
+        foreach ($shape['rule'] as $predicate) {
+            expect($predicate['op'])->toBeIn($operators);
+            // sectionShape() fills values from the pool's kinds; an empty
+            // list would make kind_is match nothing.
+            expect($predicate['values'])->not->toBeEmpty();
+        }
     }
 });
 

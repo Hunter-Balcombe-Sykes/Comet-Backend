@@ -34,7 +34,7 @@ Additive and nullable on every pool, not just events — same contract
 
 | Key | Type | Null when |
 |---|---|---|
-| `startsAt` | ISO 8601 UTC \| null | no `f_occurrence` |
+| `startsAt` | timestamptz text \| null | no `f_occurrence` |
 | `startsAtLocal` | string \| null | no `f_occurrence` |
 | `endsAtLocal` | string \| null | no end date |
 | `timezone` | IANA string \| null | zone unknowable from the offset (usual for scraped events) |
@@ -43,8 +43,24 @@ Additive and nullable on every pool, not just events — same contract
 | `price` | `{amountMinor, amountMaxMinor, currency, qualifier}` \| null | no offer |
 | `availability` | string \| null | no offer |
 
+**`startsAt` is NOT ISO 8601.** It is Postgres's timestamptz rendering,
+`"2026-08-29 01:00:00+00"` — the same shape `publishedAt` has already been
+emitting, so whatever parses that parses this. `new Date()` accepts it in
+Chrome but returns `Invalid Date` in Safari and Firefox; parse it explicitly
+or replace the space with `T`.
+
 Where several sources describe one event, `startsAt` is the **soonest** and
-`price` the **cheapest** — matching the section's ordering.
+`price` the **cheapest** — matching the section's ordering. `venue`/`locality`
+come from the most recently updated `f_place`.
+
+`price.amountMinor` and `price.amountMaxMinor` are each independently
+nullable **inside** a non-null `price` object: an offer can exist with a
+qualifier (`on_request`, `variable`) and no amount.
+
+`availability` qualifies the **quoted (cheapest) price**, not the event — a
+cheapest tier that sold out reads `sold_out` while dearer tiers are still on
+sale. If the render needs event-level availability, say so and it becomes a
+rollup; today it deliberately agrees with the price beside it.
 
 `price.qualifier` ∈ `exact｜from｜upto｜range｜free｜variable｜on_request`.
 Scraped events land `from`, or `free` at zero: the scrape sees the lowest

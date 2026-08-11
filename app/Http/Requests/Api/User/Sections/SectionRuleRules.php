@@ -20,7 +20,7 @@ trait SectionRuleRules
     /** Orderings the document builder understands. */
     private const ORDER_BY = ['recency', 'alphabetical', 'popularity', 'manual', 'occurrence'];
 
-    /** Matches the operator set — see RuleOperator (nine, deliberately). */
+    /** Ceiling on a single predicate's value list — a readability bound, not a DSL one. */
     private const MAX_VALUES_PER_PREDICATE = 20;
 
     private function boundedRuleRule(): Closure
