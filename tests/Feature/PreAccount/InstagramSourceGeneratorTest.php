@@ -10,6 +10,8 @@ use App\Services\Platforms\ProfileFetchFailure;
 use App\Services\Platforms\ProfileFetchResult;
 use App\Services\PreAccount\Generators\InstagramSourceGenerator;
 use App\Services\PreAccount\SourceGenerationException;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
     setupUsersTable();
@@ -48,42 +50,30 @@ it('scrapes, seeds a connection, and writes profile fields onto the provisional 
 });
 
 it('drops internal auto-sync bookkeeping from the persisted payload while keeping the WYSIWYG preview (PRIV-2)', function () {
-    // The real seeder does R2 mirroring + HTTP fetches — stub it wholesale (as the
-    // test above does) but simulate its real write so the generator's post-seed
-    // trim has something real to trim.
+    // Drives the REAL seeder, stubbing only its vendor I/O. This test used to mock
+    // InstagramConnectionSeeder wholesale and simulate its write, which worked while
+    // the strip was a post-seed trim in the generator — but the strip now lives at
+    // the writer, so a wholesale mock would assert against the simulation instead of
+    // the code. The generator path still needs its own coverage: it is one of three
+    // callers, and the only one where the owner is unclaimed by construction.
+    Storage::fake('media');
+    Queue::fake();
+
     $scraper = Mockery::mock(InstagramScraper::class);
     $scraper->shouldReceive('fetchProfileResult')->once()->with('janedoe', Mockery::type('string'))
-        ->andReturn(ProfileFetchResult::ok(['fullName' => 'Jane Doe', 'biography' => 'Hair by Jane']));
-
-    $seeder = Mockery::mock(InstagramConnectionSeeder::class);
-    $seeder->shouldReceive('seed')->once()->andReturnUsing(function (IntegrationConnection $connection) {
-        $selection = [
-            'username' => 'janedoe',
+        ->andReturn(ProfileFetchResult::ok([
             'fullName' => 'Jane Doe',
-            'businessCategory' => 'Hair salon',
+            'biography' => 'Hair by Jane',
+            'businessCategoryName' => 'Hair salon',
             'followersCount' => 1234,
             'postsCount' => 56,
-            'images' => ['https://cdn.example/photo.jpg'],
-            'videoUrl' => 'https://cdn.example/reel.mp4',
-            'videoPoster' => 'https://cdn.example/reel-cover.jpg',
-            'website' => 'https://janedoe.example',
-            'bioLinks' => ['https://instagram.com/janedoe/tiktok'],
-            'syncFindings' => [['platform' => 'tiktok', 'outcome' => 'seeded']],
-            'unmatched' => ['https://example.com/other-link'],
-        ];
-        $connection->update([
-            'payload' => $selection,
-            'is_active' => true,
-            'last_refreshed_at' => now(),
-            'last_refresh_status' => 'ok',
-            'last_refresh_error' => null,
-            'consecutive_failures' => 0,
-        ]);
-
-        return $selection;
-    });
+        ]));
+    $scraper->shouldReceive('latestMedia')->andReturn(['photo' => null, 'video' => null]);
+    $scraper->shouldReceive('profilePicUrl')->andReturn(null);
+    // A real bio link, so bioLinks/syncFindings/unmatched are genuinely populated
+    // before the strip — otherwise this could pass on an empty auto-sync run.
+    $scraper->shouldReceive('bioLinks')->andReturn(['https://example.com/other-link']);
     app()->instance(InstagramScraper::class, $scraper);
-    app()->instance(InstagramConnectionSeeder::class, $seeder);
 
     $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null, 'display_name' => 'janedoe', 'first_name' => 'janedoe']);
     $site = Site::factory()->create(['user_id' => $user->id, 'is_published' => false]);
@@ -92,13 +82,17 @@ it('drops internal auto-sync bookkeeping from the persisted payload while keepin
 
     $payload = IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->value('payload');
 
-    expect($payload)->not->toHaveKeys(['bioLinks', 'syncFindings', 'unmatched'])
-        ->and($payload['images'])->toBe(['https://cdn.example/photo.jpg'])
-        ->and($payload['videoUrl'])->toBe('https://cdn.example/reel.mp4')
-        ->and($payload['videoPoster'])->toBe('https://cdn.example/reel-cover.jpg')
+    // Asserted key by key, not via a negated toHaveKeys: a single negated
+    // multi-key assertion passes when only ONE of them is absent.
+    expect($payload)->not->toHaveKey('bioLinks')
+        ->and($payload)->not->toHaveKey('syncFindings')
+        ->and($payload)->not->toHaveKey('unmatched');
+    // The preview fields the unclaimed sitepage renders from are untouched.
+    expect($payload['username'])->toBe('janedoe')
+        ->and($payload['fullName'])->toBe('Jane Doe')
+        ->and($payload['businessCategory'])->toBe('Hair salon')
         ->and($payload['followersCount'])->toBe(1234)
-        ->and($payload['postsCount'])->toBe(56)
-        ->and($payload['businessCategory'])->toBe('Hair salon');
+        ->and($payload['postsCount'])->toBe(56);
 });
 
 it('maps a missing profile to source_not_found', function () {

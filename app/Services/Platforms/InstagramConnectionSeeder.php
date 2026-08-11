@@ -13,6 +13,7 @@ use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -221,6 +222,32 @@ class InstagramConnectionSeeder
         if ($user !== null) {
             $this->identitySync->applyIdentity($user, $profile);
             $this->autoSaveUnmatchedLinks($user, $sync['unmatched'], $autoConnectBooking);
+        }
+
+        // PRIV-2: bioLinks/syncFindings/unmatched are internal auto-sync bookkeeping
+        // — never in PublicIntegrationConnectionResource::ALLOWLIST — so a pre-claim
+        // owner's row does not carry them. Deliberately narrow: images/videoUrl/
+        // videoPoster/followersCount/postsCount/businessCategory are the WYSIWYG
+        // preview and stay, as does `source` (it drives the /synced "Change to" flow).
+        //
+        // This lives HERE, at the writer, not in InstagramSourceGenerator where it
+        // started: the strip was per-GENERATOR while the write is per-WRITER, so every
+        // other caller of seed() slipped past it. GoogleBusinessAutoSync::
+        // dispatchInstagram() -> InstagramConnectJob -> here is the live case — an
+        // Instagram connection seeded by a GOOGLE build, which never touches the
+        // Instagram generator. Any future caller is now covered by construction.
+        //
+        // $sync['unmatched'] is still consumed in full by autoSaveUnmatchedLinks()
+        // above — this drops what is STORED, not what this run acts on.
+        //
+        // Unlike GoogleBusinessFetch's PRIV-1 strip this does NOT self-heal on claim:
+        // Instagram has no manifest FetchStrategy (so no refresh cron) and
+        // ClaimSiteService re-enriches google-business only. A user whose site was
+        // built from Google therefore loses the IG findings cards and the unmatched
+        // onboarding prefills permanently, recoverable only by a manual dashboard
+        // refresh — which re-runs seed() with this guard false.
+        if ($connection->ownerIsUnclaimed()) {
+            $selection = Arr::except($selection, ['bioLinks', 'syncFindings', 'unmatched']);
         }
 
         // PWL-7 (job/seeder half): the media mirroring + auto-sync + identity-sync
