@@ -62,6 +62,19 @@ class IriCanonicalizer
         'cutt.ly', 'shorturl.at', 'rb.gy', 'is.gd', 'linktr.ee', 'goo.gl',
     ];
 
+    /**
+     * The shortener list, for callers that must make the same judgement without
+     * a PublicSuffixList to hand (RouteContext's probe pre-filter). Exposed
+     * rather than copied so the two can never drift into disagreeing about what
+     * a shortener is.
+     *
+     * @return list<string>
+     */
+    public static function shortenerDomains(): array
+    {
+        return self::SHORTENERS;
+    }
+
     public function __construct(private readonly PublicSuffixList $psl) {}
 
     public function canonicalize(string $input): Iri

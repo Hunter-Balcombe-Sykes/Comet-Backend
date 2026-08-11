@@ -92,6 +92,12 @@ class LinkRouter
                 'booking' => $this->seedBooking($user, $platform, $url, $classified, $ctx),
                 'event', 'event-organiser' => $this->seedEvent($user, $platform, $url, $classified),
                 'shop' => $this->seedShop($user, $url, $ctx),
+                // Recognised, deliberately not connected — a marketplace or
+                // board (Amazon, LTK, Pinterest). custom() with handled:false so
+                // the platform slot stays open and a creator's second LTK link
+                // gets its own card instead of being skipped. Spends no probe:
+                // that is the entire reason these hosts are classified at all.
+                'link' => RouteResult::custom(),
                 'reservations' => $this->seedReservation($user, $platform, $url, $classified),
                 'online-ordering' => $this->seedOnlineOrdering($user, $platform, $url, $classified),
                 default => RouteResult::custom(),
@@ -152,6 +158,7 @@ class LinkRouter
             'booking' => $isBusiness ? ! $isFood : true, // partna always, business non-food only
             'event', 'event-organiser' => true,
             'shop' => true,
+            'link' => true, // recognised-but-never-connected; its arm returns custom() and the caller writes the card
             'reservations' => $isBusiness && $isFood, // business food only
             'online-ordering' => $isBusiness && $isFood, // business food only
             default => false,

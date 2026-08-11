@@ -134,7 +134,17 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
                 // surface in this async context, so seeding directly is what stops
                 // the link vanishing. seedCustom(), never seed(): seed() re-enters
                 // the router (Issue H / B1).
-                if ($result->outcome === 'custom') {
+                // 'skipped' rides with 'custom' deliberately. It means this
+                // link's platform already won its slot this run — a rule about
+                // CONNECTIONS (you have one Fresha account), not about links.
+                // Dropping it wrote nothing at all: an influencer's second LTK
+                // link, or a "watch this video" next to a channel link, simply
+                // disappeared from the page with no record anywhere. That is the
+                // "nothing vanishes" promise broken by the one outcome this
+                // branch forgot. The reentrancy guard returns 'skipped' too, but
+                // cannot fire here: allOutboundLinks() is deduped and this loop
+                // is sequential, so no URL is ever mid-route when it comes round.
+                if ($result->outcome === 'custom' || $result->outcome === 'skipped') {
                     $seeder->seedCustom($user, $url);
                 }
             } catch (Throwable $e) {

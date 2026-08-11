@@ -325,6 +325,32 @@ it('still writes syncFindings back once the owner has claimed the account', func
     expect(DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->count())->toBe(1);
 });
 
+it('still writes a card for a link skipped because its platform already won the slot', function () {
+    // First-link-per-platform is a rule about CONNECTIONS — you have one Fresha
+    // account. It must not delete the SECOND link: a creator with a profile link
+    // and a specific booking link had one of them silently disappear, which is
+    // the "nothing vanishes" promise broken by the one outcome the loop forgot.
+    Queue::fake();
+    $user = User::factory()->create(['account_type' => 'business']);
+    Http::fake([
+        'linktr.ee/*' => Http::response(
+            '<a href="https://www.fresha.com/a/venue-1">Book</a>'
+            .'<a href="https://www.fresha.com/a/venue-1/services">Services</a>',
+            200
+        ),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(LinkRouter::class),
+        app(CustomLinkSeeder::class),
+    );
+
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(1);
+});
+
 it('does nothing when the user no longer exists', function () {
     // Must not throw — mirrors ScanPreviousWebsiteContentJob's own null-user guard.
     (new LinkInBioScanJob((string) Str::uuid(), 'https://linktr.ee/venue'))->handle(

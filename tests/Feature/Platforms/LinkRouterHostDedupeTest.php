@@ -51,15 +51,16 @@ it('leaves the budget free for the links behind the repeated website', function 
         'https://crucibletattooco.com.au/artists.html',
         'https://paytherent.net.au',
         'https://bsky.app/profile/someone',
-        'https://au.pinterest.com/someone',
+        'https://someblog.example/about',
     ] as $url) {
         $seeder->seed($user, $url, $ctx);
     }
 
     // One for crucible, one each for the three that used to be starved. The
-    // latter three must stay UNCLASSIFIED for that count to hold — adding
-    // bsky or pinterest to the platform registry drops this to 3, and the
-    // failure will read like a dedupe bug rather than a registry change.
+    // latter three must stay UNCLASSIFIED for that count to hold — classifying
+    // any of them drops this to 3, and the failure will read like a dedupe bug
+    // rather than a registry change. (au.pinterest.com sat here until 2026-08-11,
+    // when Pinterest joined LINK_ONLY_HOSTS and stopped costing a probe.)
     Queue::assertPushed(CommerceProbeJob::class, 4);
     expect($ctx->probesDenied())->toBe(0);
 });

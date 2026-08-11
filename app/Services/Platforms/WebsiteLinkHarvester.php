@@ -149,6 +149,50 @@ class WebsiteLinkHarvester
     ];
 
     /**
+     * Hosts we recognise but never connect: marketplaces, affiliate networks and
+     * social boards. Category 'link' means "this IS a link card, and asking the
+     * question costs nothing".
+     *
+     * They belong here rather than in SHOP_HOSTS because a 'shop' classification
+     * still SPENDS A PROBE (LinkRouter::seedShop) — putting Amazon there would
+     * cost exactly what it costs today. And a probe on any of these can only
+     * ever miss: the commerce probes look for a self-hosted Shopify/Woo/Big
+     * Cartel/Squarespace storefront, which a marketplace listing is not.
+     *
+     * The user this protects is the creator whose page is mostly affiliate
+     * links: before this, five of a run's six probes went on discovering that
+     * amazon.com is amazon.com, and the links behind them were starved.
+     */
+    private const LINK_ONLY_HOSTS = [
+        'LTK' => '~(^|\.)(liketoknow\.it|shopltk\.com)$~',
+        'Amazon' => '~(^|\.)(amazon\.[a-z]{2,3}(\.[a-z]{2})?|amzn\.(to|eu|asia))$~',
+        'Poshmark' => '~(^|\.)poshmark\.[a-z]{2,3}(\.[a-z]{2})?$~',
+        'ShopMy' => '~(^|\.)shopmy\.us$~',
+        'Depop' => '~(^|\.)depop\.com$~',
+        'Etsy' => '~(^|\.)etsy\.com$~',
+        'Pinterest' => '~(^|\.)(pinterest\.[a-z]{2,3}(\.[a-z]{2})?|pin\.it)$~',
+    ];
+
+    /**
+     * LINK_ONLY_HOSTS label => platform slug. The slug only ever reaches
+     * $classified['platform'] for logging and suggestion labels — these routes
+     * return RouteResult::custom() with handled:false, so the slug never
+     * consumes a per-run platform slot and a creator's five Amazon links all
+     * land.
+     *
+     * @var array<string, string>
+     */
+    private const LINK_ONLY_PLATFORM = [
+        'LTK' => 'ltk',
+        'Amazon' => 'amazon',
+        'Poshmark' => 'poshmark',
+        'ShopMy' => 'shopmy',
+        'Depop' => 'depop',
+        'Etsy' => 'etsy',
+        'Pinterest' => 'pinterest',
+    ];
+
+    /**
      * SOCIAL_HOSTS key => [platform slug, display label], used only by classify().
      *
      * @var array<string, array{0: string, 1: string}>
@@ -401,6 +445,15 @@ class WebsiteLinkHarvester
         foreach (self::SHOP_HOSTS as $label => $pattern) {
             if (preg_match($pattern, $host)) {
                 return ['platform' => 'shop', 'category' => 'shop', 'label' => $label];
+            }
+        }
+
+        // LAST, after every host map that can produce a real connection: a
+        // marketplace host must never shadow one, and the only cost of losing a
+        // race here is a link card instead of a card, which is no cost at all.
+        foreach (self::LINK_ONLY_HOSTS as $label => $pattern) {
+            if (preg_match($pattern, $host)) {
+                return ['platform' => self::LINK_ONLY_PLATFORM[$label], 'category' => 'link', 'label' => $label];
             }
         }
 

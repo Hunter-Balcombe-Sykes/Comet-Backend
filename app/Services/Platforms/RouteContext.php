@@ -2,6 +2,9 @@
 
 namespace App\Services\Platforms;
 
+use App\Routing\IriCanonicalizer;
+use App\Services\Http\SafeUrlFetcher;
+
 /**
  * Per-RUN context for LinkRouter — carries the seen-platforms dedupe map
  * (Issue M: first bio link per platform wins) and the commerce probe budget
@@ -77,6 +80,14 @@ final class RouteContext
     private int $sitesDeduped = 0;
 
     /**
+     * Probes NOT spent because no probe could ever fetch the URL. Counted apart
+     * from probesDenied: "we never asked" and "we ran out of budget" are
+     * different diagnoses, and folding them together would make the pre-filter
+     * look like starvation on the run card.
+     */
+    private int $probesSkippedIneligible = 0;
+
+    /**
      * True when this run originated from a scrape of the user's OWN Instagram —
      * the only origin allowed to auto-connect a booking platform on their behalf.
      *
@@ -127,6 +138,17 @@ final class RouteContext
      */
     public function consumeProbeFor(string $url): bool
     {
+        // BEFORE the budget, because ProbeGate's identical refusal runs a queue
+        // hop too late to protect it: the slot is claimed here, the job is
+        // dispatched, and only then does the gate say "shortener, never mind" —
+        // by which point a link behind this one has already been starved. The
+        // cheapest filter must run before the scarcest resource is claimed.
+        if (! self::isProbeable($url)) {
+            $this->probesSkippedIneligible++;
+
+            return false;
+        }
+
         $key = $this->probeKey($url);
 
         if ($key !== null && isset($this->seenSites[$key])) {
@@ -161,10 +183,70 @@ final class RouteContext
         return $this->probesDenied;
     }
 
+    public function probesSkippedIneligible(): int
+    {
+        return $this->probesSkippedIneligible;
+    }
+
+    /**
+     * Could a probe fetch this URL at all? Pure string work — no DNS, no I/O —
+     * mirroring the lexical half of ProbeGate::lexicalRefusal() and
+     * IriCanonicalizer's own rejections so the two cannot disagree about what is
+     * unfetchable.
+     *
+     * Every uncertain case fails OPEN (returns true): the URL is probed exactly
+     * as it is today. This is a budget filter, not the SSRF defence —
+     * SafeUrlFetcher still resolves and validates every hop at fetch time — so
+     * being wrong here costs one probe, never a security property.
+     */
+    private static function isProbeable(string $url): bool
+    {
+        // A bare "example.com/x" is a legitimate paste shape and is assumed
+        // https, exactly as IriCanonicalizer does, so the checks below see a
+        // host rather than treating the whole string as a path.
+        $candidate = preg_match('~^[a-z][a-z0-9+.-]*:~i', $url) ? $url : 'https://'.ltrim($url, '/');
+
+        $scheme = strtolower((string) parse_url($candidate, PHP_URL_SCHEME));
+        if (! in_array($scheme, ['http', 'https'], true)) {
+            return false;
+        }
+
+        $host = strtolower((string) parse_url($candidate, PHP_URL_HOST));
+        if ($host === '') {
+            // Unparseable — we cannot say it is unfetchable, so we do not.
+            return true;
+        }
+
+        // An IP literal never carries a storefront we would connect, and is the
+        // shape every SSRF attempt takes.
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return false;
+        }
+
+        foreach (SafeUrlFetcher::deniedHostSuffixes() as $suffix) {
+            $suffix = strtolower(trim((string) $suffix));
+            if ($suffix !== '' && ($host === $suffix || str_ends_with($host, '.'.$suffix))) {
+                return false;
+            }
+        }
+
+        // Suffix match rather than the registrable-domain test the canonicaliser
+        // uses — RouteContext is constructed with `new`, so it has no
+        // PublicSuffixList. The looser match only ever over-matches subdomains
+        // of a shortener, which are shorteners too.
+        foreach (IriCanonicalizer::shortenerDomains() as $shortener) {
+            if ($host === $shortener || str_ends_with($host, '.'.$shortener)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /**
      * This run's budget accounting, for the caller's completion log.
      *
-     * @return array{probe_budget: int, probes_spent: int, probes_denied: int, sites_deduped: int}
+     * @return array{probe_budget: int, probes_spent: int, probes_denied: int, sites_deduped: int, probes_skipped_ineligible: int}
      */
     public function summary(): array
     {
@@ -173,6 +255,7 @@ final class RouteContext
             'probes_spent' => $this->probesUsed(),
             'probes_denied' => $this->probesDenied(),
             'sites_deduped' => $this->sitesDeduped(),
+            'probes_skipped_ineligible' => $this->probesSkippedIneligible(),
         ];
     }
 

@@ -189,6 +189,39 @@ it('classifies decisive store hosts as shop', function (string $url, string $lab
     ['https://acmegoods.bigcartel.com/products', 'Big Cartel'],
 ]);
 
+it('classifies marketplace and affiliate hosts as link, never shop', function (string $url, string $platform, string $label) {
+    // category 'link' is what keeps these off the probe budget — 'shop' would
+    // still spend one (LinkRouter::seedShop), which is the bug this replaced.
+    $out = classifierHarvester()->classify($url);
+
+    expect($out)->toBe(['platform' => $platform, 'category' => 'link', 'label' => $label]);
+})->with([
+    ['https://www.liketoknow.it/creator', 'ltk', 'LTK'],
+    ['https://shopltk.com/explore/creator', 'ltk', 'LTK'],
+    ['https://www.amazon.com/shop/creator', 'amazon', 'Amazon'],
+    ['https://www.amazon.com.au/dp/B01', 'amazon', 'Amazon'],
+    ['https://amazon.co.uk/dp/B01', 'amazon', 'Amazon'],
+    ['https://amzn.to/3abcDEF', 'amazon', 'Amazon'],
+    ['https://poshmark.com/closet/creator', 'poshmark', 'Poshmark'],
+    ['https://shopmy.us/collections/12345', 'shopmy', 'ShopMy'],
+    ['https://www.depop.com/creator', 'depop', 'Depop'],
+    ['https://www.etsy.com/shop/creator', 'etsy', 'Etsy'],
+    ['https://au.pinterest.com/creator', 'pinterest', 'Pinterest'],
+    ['https://pin.it/abc123', 'pinterest', 'Pinterest'],
+]);
+
+it('does not let a marketplace pattern swallow an unrelated host', function (string $url) {
+    // The (^|\.) prefix and the $ anchor are load-bearing: without them a
+    // business's own domain would be misread as a marketplace and lose the
+    // probe that could have found its storefront.
+    expect(classifierHarvester()->classify($url))->toBeNull();
+})->with([
+    'https://notamazon.com/',
+    'https://amazon.evilproxy.example/',
+    'https://mypinterestagency.com.au/',
+    'https://etsy.com.evil.example/',
+]);
+
 it('keeps square.site classified as booking, never shop (pinned ambiguity)', function () {
     $out = classifierHarvester()->classify('https://acme.square.site/');
 
