@@ -2,6 +2,13 @@
 
 namespace App\Services\Platforms;
 
+use App\Catalog\CatalogNotCompiled;
+use App\Catalog\CompiledCatalog;
+use App\Catalog\LegacyPlatformMap;
+use App\Routing\IriCanonicalizer;
+use App\Routing\LinkProjector;
+use App\Routing\PublicSuffixList;
+use App\Routing\Rulepack;
 use App\Services\Http\SafeUrlFetcher;
 
 // In-house replacement for the slice of the Google Business Apify enrichment
@@ -247,6 +254,32 @@ class WebsiteLinkHarvester
         return $this->humanitixScraper ??= new HumanitixScraper($this->fetcher);
     }
 
+    // Built lazily and directly — NOT resolved from the container — for the
+    // same reason the two scrapers above are: classify() gains catalog
+    // awareness without changing this class's construction contract
+    // (`new WebsiteLinkHarvester($fetcher)` is how every test builds it).
+    //
+    // app() would be wrong here even though both have bindings: Unit tests do
+    // not boot the app, so AppServiceProvider never registers the Rulepack
+    // singleton and autowiring dies on its `array $byRegistrableKey` primitive
+    // — nine WebsiteLinkHarvesterTest cases proved it. Both static factories
+    // work without a booted app, which is why RoutingCorpusTest uses exactly
+    // this pair. Neither is expensive: CompiledCatalog::load() memoises the
+    // artefact statically, so this is array reads, once per instance.
+    private ?LinkProjector $projector = null;
+
+    private ?IriCanonicalizer $canonicalizer = null;
+
+    private function projector(): LinkProjector
+    {
+        return $this->projector ??= new LinkProjector(Rulepack::fromCompiledCatalog());
+    }
+
+    private function canonicalizer(): IriCanonicalizer
+    {
+        return $this->canonicalizer ??= new IriCanonicalizer(PublicSuffixList::instance());
+    }
+
     /**
      * @return array<string, mixed> enrichment-shaped subset; [] when the site
      *                              is missing, unreachable, or linkless.
@@ -349,14 +382,21 @@ class WebsiteLinkHarvester
 
     /**
      * Classify a single URL by host into {platform, category, label}, or null
-     * when it matches none of this class's known host patterns. Reuses the SAME
-     * SOCIAL_HOSTS / RESERVATION_HOSTS / ORDERING_HOSTS / BOOKING_HOSTS constants
-     * harvest() classifies a scraped homepage's anchors with — the one
-     * host→platform mapping in the codebase (BE2: InstagramAutoSync classifies
-     * Instagram bio links through this, instead of a second table). Category
-     * values match GoogleBusinessAutoSync's finding categories
-     * ('social'/'booking'/'reservations'/'online-ordering') so a consumer can
-     * treat either source's findings identically.
+     * when neither this class's host patterns nor the compiled catalog can name
+     * it. Reuses the SAME SOCIAL_HOSTS / RESERVATION_HOSTS / ORDERING_HOSTS /
+     * BOOKING_HOSTS constants harvest() classifies a scraped homepage's anchors
+     * with (BE2: InstagramAutoSync classifies Instagram bio links through this,
+     * instead of a second table). Category values match GoogleBusinessAutoSync's
+     * finding categories ('social'/'booking'/'reservations'/'online-ordering')
+     * so a consumer can treat either source's findings identically.
+     *
+     * These constants are NO LONGER the only host→platform mapping consulted:
+     * classifyFromCatalog() backstops them, because being defined in
+     * app/Catalog/Definitions did not make a link classify here and 39 catalog
+     * hosts were invisible — each one spending a commerce probe to rediscover a
+     * host the catalog could already name (N1/N4, 2026-08-11). The constants
+     * still answer FIRST and are still hand-maintained; see that method for why
+     * the order is not the other way round.
      *
      * @return array{platform:string, category:string, label:string}|null
      */
@@ -462,7 +502,67 @@ class WebsiteLinkHarvester
             }
         }
 
-        return null;
+        return $this->classifyFromCatalog($url);
+    }
+
+    /**
+     * LAST resort: ask the compiled catalog whether it can name this host.
+     *
+     * The constants above run FIRST and this never overrides them — that
+     * ordering is the whole design. They are host-only by construction and have
+     * no confidence floor, so they answer correctly for the 178 catalog hosts
+     * they cover, while the projector scores a bare host-only detector in the
+     * low 30s and would downgrade Booksy, GitHub, DoorDash, Resy, Treatwell and
+     * friends from a real connection to a link card. A union recovers the 39
+     * hosts the tables miss and regresses nothing.
+     *
+     * Category is 'link' — recognised, never auto-connected, and above all
+     * costing no commerce probe (LinkRouter::routeUnclassified). Naming the
+     * catalog's real routing class here would be a lie: LinkRouter has no
+     * 'content' category, and its gateAllows()/seed* arms encode connection
+     * semantics this fallback deliberately does not claim. Promoting these to
+     * connections is the P8 migration onto LinkRoutingService
+     * (docs/plans/2026-07-28-p8-deletion-readiness.md), not this method.
+     *
+     * EXCEPT the shop routing class, which returns null and keeps its probe.
+     * Everywhere else a probe merely rediscovers a host the catalog can already
+     * name, which is the waste this method exists to stop — but on a storefront
+     * the probe reads the actual PRODUCT, so answering 'link' for gumroad.com
+     * or stan.store would trade a product card for a plain link and never look
+     * again. Same trade LINK_ONLY_HOSTS documents for Etsy and Depop, and the
+     * same answer: where the listing is the valuable thing, keep the probe.
+     *
+     * @return array{platform:string, category:string, label:string}|null
+     */
+    private function classifyFromCatalog(string $url): ?array
+    {
+        try {
+            $projection = $this->projector()->project($this->canonicalizer()->canonicalize($url));
+
+            if (! $projection->matched() || $projection->surfaceKey === null) {
+                return null;
+            }
+
+            $surface = CompiledCatalog::surface($projection->surfaceKey);
+
+            if ($surface === null) {
+                return null;
+            }
+
+            if (LegacyPlatformMap::routingClassFor($projection->surfaceKey) === 'shop') {
+                return null;
+            }
+
+            return [
+                'platform' => LegacyPlatformMap::legacyFor($projection->surfaceKey),
+                'category' => 'link',
+                'label' => (string) $surface['display_name'],
+            ];
+        } catch (CatalogNotCompiled) {
+            // An environment without the artefact classifies exactly as it did
+            // before this fallback existed. Never fatal on a scrape path.
+            return null;
+        }
     }
 
     /** Whether $host matches ANY pattern in a label => regex map. */

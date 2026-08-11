@@ -21,8 +21,28 @@ use Throwable;
  */
 class LinkProjector
 {
-    /** Confidence floor below which nothing is even considered a candidate. */
-    private const FLOOR = 35;
+    /**
+     * Confidence floor below which nothing is even considered a candidate.
+     *
+     * This is an IDENTIFICATION floor, not a write gate — the write gate is
+     * RoutingPolicy's per-class thresholds (auto 70-80, suggest 45-55), which
+     * every value admitted here falls under, so a match this low can only ever
+     * become Verdict::Note and Note::writesIntent() is false.
+     *
+     * It was 35, which is above what a host-only detector can score on a real
+     * URL: 40 base, minus the 8-point deep-path penalty below, plus a strength
+     * delta of 0 for ProfileLink — 32. So 64 of 114 surfaces matched ONLY the
+     * bare host, the one shape carrying no identity, and every real Ko-fi,
+     * Booksy, GitHub or Resident Advisor URL came back 'unrecognised link'.
+     * That is a stronger claim than the projector is entitled to make, and
+     * LinkRouter spent a commerce probe on each one rediscovering the host
+     * (N1/N4, 2026-08-11 Instagram build wave).
+     *
+     * 25 admits every host-only detector of MarketplaceListing strength (30)
+     * and above while still excluding Mention (10) — a passing reference to a
+     * brand is not evidence of a connection to it.
+     */
+    private const FLOOR = 25;
 
     public function __construct(private readonly Rulepack $rulepack) {}
 

@@ -2,6 +2,13 @@
 
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use Tests\TestCase;
+
+// Boots the app because classify() now falls back to the compiled catalog for
+// hosts its own constants do not cover, and CompiledCatalog::path() resolves
+// through base_path(). Same reason and same idiom as RoutingCorpusTest — still
+// DB-free, still sub-second.
+uses(TestCase::class)->in(__FILE__);
 
 function harvesterFor(string $html): WebsiteLinkHarvester
 {
