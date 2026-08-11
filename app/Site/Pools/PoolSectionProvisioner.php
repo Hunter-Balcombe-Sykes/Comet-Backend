@@ -33,6 +33,7 @@ class PoolSectionProvisioner
         }
 
         $pageId = $this->ensurePage($site, $pool);
+        $shape = PoolRegistry::sectionShape($pool);
 
         try {
             DB::connection('pgsql')->table('site.sections')->insert([
@@ -45,14 +46,12 @@ class PoolSectionProvisioner
                 'kind' => 'collection',
                 'sort_order' => 0,
                 // The pool contract: pins are the hand-picks, the rule is the
-                // auto half (each auto-source's newest item), excludes are
-                // removals. Mixed mode is exactly that composition.
-                'rule' => json_encode(['all' => [
-                    ['op' => 'kind_is', 'values' => PoolRegistry::kinds($pool)],
-                    ['op' => 'latest_per_auto_source', 'values' => PoolRegistry::kinds($pool)],
-                ]]),
+                // auto half, excludes are removals. Mixed mode is exactly that
+                // composition. WHICH rule is the pool's own business — see
+                // PoolRegistry::sectionShape().
+                'rule' => json_encode(['all' => $shape['rule']]),
                 'mode' => 'mixed',
-                'order_by' => 'recency',
+                'order_by' => $shape['order_by'],
                 'render' => 'cards',
                 'min_items' => 1,
                 'on_empty' => 'hide',
