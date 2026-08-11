@@ -331,3 +331,47 @@ it('returns null when every segment of a compound category is a placeholder', fu
 it('does not mis-resolve a genuine category name that contains a comma', function () {
     expect(SectorTaxonomy::fromInstagramCategory('Beauty, Cosmetic & Personal Care'))->toBeNull();
 });
+
+/**
+ * PRIMACY. Facebook pages carry up to three categories with the PRIMARY first,
+ * so an exact-map hit on a secondary segment must never outrank a
+ * substring-map hit on the primary one. Getting this backwards is not a
+ * cosmetic mis-slug: a restaurant that also lists "Digital Creator" would land
+ * on content-creator, and SectorTaxonomy::isFood() would then silently switch
+ * off can_use_menu / can_use_reservations / can_use_online_ordering — and
+ * sector is sticky once Instagram stamps it, so nothing corrects it later.
+ */
+it('resolves a compound category on its FIRST matching segment, whichever map matches', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBe($expected);
+})->with([
+    'substring primary beats exact secondary' => ['Restaurant, Digital Creator', 'restaurant'],
+    'barber before writer' => ['Barber Shop, Writer', 'barber'],
+    'hair before trainer' => ['Hair Salon, Fitness Trainer', 'hair-salon'],
+    'cafe before blogger' => ['Cafe, Blogger', 'cafe'],
+    'tattoo before creator' => ['Tattoo & Piercing Shop, Digital Creator', 'tattoo-artist'],
+    'restaurant before contractor' => ['Restaurant, Contractor', 'restaurant'],
+    // ...and the reverse order still resolves on ITS first segment.
+    'exact primary still wins' => ['Digital Creator, Restaurant', 'content-creator'],
+    // A placeholder primary is skipped, not treated as a match.
+    'placeholder primary skipped' => ['None, Restaurant, Digital Creator', 'restaurant'],
+]);
+
+it('keeps a food business on a food slug when it also lists a creator category', function (string $input) {
+    expect(SectorTaxonomy::isFood(SectorTaxonomy::fromInstagramCategory($input)))->toBeTrue();
+})->with([
+    'Restaurant, Digital Creator',
+    'Cafe, Blogger',
+    'Bakery, Content Creator',
+    'None,Fast food restaurant',
+]);
+
+/**
+ * categorySegments() splits on commas, so a KEYWORD_SECTORS key containing one
+ * could never match a segment. No key does today; this pins that assumption,
+ * because the per-segment pass is now the ONLY substring pass.
+ */
+it('has no KEYWORD_SECTORS key containing a comma', function () {
+    $keywords = array_keys((new ReflectionClass(SectorTaxonomy::class))->getConstant('KEYWORD_SECTORS'));
+
+    expect(array_filter($keywords, fn (string $k) => str_contains($k, ',')))->toBe([]);
+});
