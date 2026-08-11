@@ -462,17 +462,30 @@ caused by F4's empty category, not by a taxonomy gap.
 > returns the literal string `"None"` (F4's `crucibletattooco`) which would otherwise win and then fail to
 > map. Covered by `InstagramIdentitySyncTest.php` (3 cases) and end-to-end in `InstagramAsyncConnectTest.php`.
 >
-> **OUTSTANDING (stored payload):** `InstagramConnectionSeeder`'s `businessCategory` needs the same third
-> candidate or the payload still blanks on rollback. **Not done here** — that expression is owned by the
-> live `fix/sector-detection-repair` worktree, which has already wrapped it in a `categoryOrNull()`
-> placeholder filter. It belongs inside that wrapper, on that branch:
+> **CLOSED (stored payload) — `fix/sector-detection-repair`, 2026-08-11.** `category_name` added as the
+> third candidate, with a **deviation** from the line prescribed here. The prescribed `??` chain carried
+> the very bug this finding fixed on the user row: Instagram's literal `"None"` is non-null, so `??`
+> takes it and `categoryOrNull()` then blanks it, discarding a usable `category_name`. Mutation-verified —
+> with the prescribed line, `business_category_name: "None"` + `category_name: "Tattoo & Piercing Shop"`
+> stores `NULL`. `categoryOrNull()` is now variadic and returns the first candidate that SURVIVES the
+> placeholder filter, mirroring `applySector`'s "first that maps, not first non-null" rule:
 > ```php
 > 'businessCategory' => $this->categoryOrNull(
->     data_get($profile, 'businessCategoryName')
->         ?? data_get($profile, 'business_category_name')
->         ?? data_get($profile, 'category_name')   // ← add this line
+>     data_get($profile, 'businessCategoryName'),
+>     data_get($profile, 'business_category_name'),
+>     data_get($profile, 'category_name'),
 > ),
 > ```
+> Covered by `InstagramSeederCategoryTest.php`, which asserts the PERSISTED payload through `seed()` —
+> mutation-verified that dropping the wrapper fails it.
+>
+> **Also on that branch — the taxonomy half of F5 is NOT what the original wording assumed.** The bare
+> `"Artist"` category is deliberately left unmapped rather than reaching the `artist` slug. Sector is
+> sticky: `IdentitySync::applySector:229` returns early when `sector_source` is set and isn't
+> `google-business`, so an Instagram-stamped guess would permanently lock Google Business out of
+> correcting it — and the one live account carrying `"Artist"` (`jesshairstylist`) is a hairdresser.
+> `'makeup'`/`'make-up'` were added (unambiguous), plus an exact-match Instagram-vocabulary pass, since
+> `KEYWORD_SECTORS` was tuned to Google Places strings and reused verbatim for Facebook's Page taxonomy.
 
 **F6 — no contact fields, no workplace rows. CLOSED 2026-08-11 — not a gap.** The original wording
 ("absent from every payload") inspected `$selection`, not the raw actor item `applyContactFields`
