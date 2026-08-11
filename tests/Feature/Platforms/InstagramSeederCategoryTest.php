@@ -79,3 +79,44 @@ it('stores a real business category from the raw actor snake_case key too', func
 
     expect($connection->payload['businessCategory'])->toBe('Hair Stylist');
 });
+
+// ── category_name, the figue actor's key (F5, 2026-08-11) ────────────────────
+//
+// The figue actor NULLs businessCategoryName AND business_category_name and
+// puts the value in category_name. PARTNA_INSTAGRAM_ACTOR is a no-deploy env
+// rollback, so without this the STORED payload blanks the moment someone rolls
+// the actor back — the user-row half of this landed in 91b16f269.
+
+it('falls back to category_name when both business-category keys are null', function () {
+    $connection = igSeedCategory('igcatthird', [
+        'businessCategoryName' => null,
+        'business_category_name' => null,
+        'category_name' => 'Hair Stylist',
+    ]);
+
+    expect($connection->payload['businessCategory'])->toBe('Hair Stylist');
+});
+
+/**
+ * The placeholder must not SHADOW a usable sibling. A plain `??` chain takes
+ * the literal "None" (it is non-null), and the filter then blanks it — losing
+ * category_name entirely. This is the stored-payload twin of the "first that
+ * maps, not first non-null" rule in InstagramIdentitySync::applySector.
+ */
+it('skips a placeholder primary key and takes the real sibling instead', function () {
+    $connection = igSeedCategory('igcatshadow', [
+        'business_category_name' => 'None',
+        'category_name' => 'Tattoo & Piercing Shop',
+    ]);
+
+    expect($connection->payload['businessCategory'])->toBe('Tattoo & Piercing Shop');
+});
+
+it('prefers businessCategoryName over category_name when both are real', function () {
+    $connection = igSeedCategory('igcatpref', [
+        'businessCategoryName' => 'Hair Stylist',
+        'category_name' => 'Tattoo',
+    ]);
+
+    expect($connection->payload['businessCategory'])->toBe('Hair Stylist');
+});

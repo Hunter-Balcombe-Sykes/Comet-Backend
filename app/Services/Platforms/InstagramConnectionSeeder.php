@@ -160,8 +160,13 @@ class InstagramConnectionSeeder
             'fullName' => data_get($profile, 'fullName') ?? data_get($profile, 'full_name'),
             'profilePicUrl' => $profilePic,
             'businessCategory' => $this->categoryOrNull(
-                data_get($profile, 'businessCategoryName')
-                    ?? data_get($profile, 'business_category_name')
+                data_get($profile, 'businessCategoryName'),
+                data_get($profile, 'business_category_name'),
+                // The figue actor NULLs both keys above and puts the value here.
+                // PARTNA_INSTAGRAM_ACTOR is a no-deploy env rollback, so without
+                // this third candidate the stored payload blanks on rollback —
+                // F5 in docs/reviews/2026-08-10-instagram-build-wave-RESULTS.md.
+                data_get($profile, 'category_name'),
             ),
             'followersCount' => data_get($profile, 'followersCount'),
             'postsCount' => data_get($profile, 'postsCount'),
@@ -540,22 +545,33 @@ class InstagramConnectionSeeder
     }
 
     /**
-     * businessCategory is on the public wire
-     * (PublicIntegrationConnectionResource::ALLOWLIST), so a degraded actor
-     * run's stringified Python None must not reach it — crucibletattooco
-     * published the word "None" as its business category (F4, 2026-08-10).
-     * Same list SectorTaxonomy::classify() refuses to classify.
+     * First candidate that ISN'T a placeholder — deliberately NOT the first that
+     * is non-null. Mirrors InstagramIdentitySync::applySector's "first that
+     * maps" rule, for the same reason: Instagram returns the literal string
+     * "None" for an account with no category (crucibletattooco, 2026-08-10), so
+     * a plain `??` chain would take "None" and then blank it, discarding a
+     * usable sibling key that a different actor populated.
+     *
+     * The filter matters because businessCategory is on the public wire
+     * (PublicIntegrationConnectionResource::ALLOWLIST) — unfiltered, the word
+     * "None" renders as the professional's business category. Same list
+     * SectorTaxonomy::classify() refuses to classify.
      */
-    private function categoryOrNull(mixed $value): ?string
+    private function categoryOrNull(mixed ...$candidates): ?string
     {
-        if (! is_string($value)) {
-            return null;
+        foreach ($candidates as $value) {
+            if (! is_string($value)) {
+                continue;
+            }
+
+            $trimmed = trim($value);
+            if ($trimmed === '' || in_array(strtolower($trimmed), SectorTaxonomy::PLACEHOLDER_CATEGORIES, true)) {
+                continue;
+            }
+
+            return $trimmed;
         }
 
-        $trimmed = trim($value);
-
-        return $trimmed === '' || in_array(strtolower($trimmed), SectorTaxonomy::PLACEHOLDER_CATEGORIES, true)
-            ? null
-            : $trimmed;
+        return null;
     }
 }
