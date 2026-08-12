@@ -201,14 +201,15 @@ final class SectorTaxonomy
         'food truck' => 'food-truck',
         'caterer' => 'caterer',
         'bar' => 'bar',
-        // NO bare 'artist' key, deliberately. It reaches the `artist` slug from
-        // strings like Instagram's "Artist" category, which tattooists,
-        // musicians, hairdressers and photographers all pick — and a sector is
-        // STICKY: IdentitySync::applySector returns early when sector_source is
-        // set and isn't google-business, so an Instagram-stamped guess locks
-        // Google Business out of ever correcting it, permanently. Writing
-        // nothing keeps the field open for a better source or the user's own
-        // pick. 'art gallery'/'gallery' stay because they are unambiguous.
+        // NO bare 'artist' key, deliberately — but not for the old reason.
+        // "Artist" is one of Instagram's most generic categories: tattooists,
+        // musicians, hairdressers and photographers all pick it, and the
+        // substring map has no other signal to disambiguate it. It is handled
+        // in fromInstagramProfile's last tier instead, AFTER the handle and
+        // display name have had a go — jess.hair.stylist resolves to
+        // hair-salon there. Keeping it out of THIS map also keeps it off the
+        // Google path, which has no handle to fall back to.
+        // 'art gallery'/'gallery' stay: unambiguous.
     ];
 
     /**

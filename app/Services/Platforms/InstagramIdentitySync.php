@@ -13,11 +13,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Fold Instagram-scraped identity fields into a user's core.users columns —
- * always fill-if-empty, both account types equally (unlike Google Business,
- * which is authoritative for a Business account via IdentitySync). Instagram
- * is a supplementary source: it only ever closes gaps, never overrides
- * anything already set — by hand, by Google, or by an earlier Instagram sync.
+ * Fold Instagram-scraped identity fields into a user's core.users columns.
+ * Instagram is the LOWEST-ranked sector source (see SectorProvenance): it fills
+ * a blank, and loses to Google Business and to a human's pick. It may not even
+ * refresh its own earlier value — PARTNA_INSTAGRAM_ACTOR is a no-deploy
+ * rollback whose two actors return different keys.
  */
 class InstagramIdentitySync
 {
