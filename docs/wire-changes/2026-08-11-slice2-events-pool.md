@@ -158,29 +158,73 @@ they would have reappeared.
 
 ## Deploy order — these are migration steps, not optional
 
+> **STATUS: all three have now RUN on development (2026-08-12).** The figures
+> throughout this manifest are post-migration and measured, not projected.
+> Production has not run them.
+
 Run in this order, `--dry-run` first:
 
 1. `php artisan content:backfill-item-slugs` — seeds `content.item_slugs`.
    Nothing serves a slug until this runs. **Ongoing** minting is automatic
    from here (the projector mints on every headline change), so this is a
    one-off.
+   **Dev result: minted 14, skipped 0.**
 2. `php artisan content:migrate-hidden-events` — carries `hiddenEventIds`
    into pool excludes. Without it, previously-hidden events become visible.
+   **Dev result: "none to migrate" — dev holds zero `hiddenEventIds`, so this
+   lane is a genuine no-op there and remains unverified against live data.**
+3. `php artisan content:repair-event-items --retire` — retires event items
+   whose every source item is gone. **One-way.** **Dev result: 3 retired.**
+
+### What dev holds after those three ran
+
+| Measure | Value |
+|---|---|
+| `content.item_slugs` rows | **14** (all `is_current`) |
+| …on a LIVE item | 11 |
+| …on a RETIRED item | 3 — the items retired by step 3; the rows survive as 301 history |
+| Live `content.items` of kind `event` | 11 |
+| `site.sections` with `key = 'pool:events'` | 2 |
+| `site.pages` with `key = 'events'` | 2 |
+| Legacy `site.item_slugs` of `item_type = 'event'` | 12, all current (untouched) |
+
+Sections and pages provision on demand at first read, so 2/2 is the count
+after the pool was read — not a backfill.
 
 ## Known regressions
 
-**Hides made in the dashboard AFTER the migration do not reach the pool.**
-`EventsPlatformController::removeEvent()` still writes only `hiddenEventIds`,
-which the pool does not read. The migration is a one-shot; the dashboard verb
-was left pointing at the legacy lane pending an owner decision on where the
-Events dashboard should live (Task 9 Step 6, unmade). Until that lands, an
-owner hiding an event from the dashboard will still see it on their page.
+**~~Hides made in the dashboard AFTER the migration do not reach the pool.~~
+FIXED 2026-08-12 (`1197052f8`).** `removeEvent()` used to write only
+`hiddenEventIds`, which the pool does not read, so every hide made after the
+one-shot migration silently did nothing. It now also writes a `section_items`
+exclude via `EventExcludeSync`, using the same `EventsPayload::id()` hash rule
+as the migration command so the one-shot and the ongoing path cannot drift.
 
-**Three legacy slugs do not carry over** (measured on dev 2026-08-12: 12
-current event slugs, 9 mapped, 3 unmapped). `grand-organ-recital-…` and
-`nerve-melbourne-2026` and `hobart-mens-hair-workshop-…` have no content item
-— two were never landed by ingest, one belongs to a standalone connection
-that lands no records. Their permalinks stop resolving.
+Best-effort by design: a standalone event lands no content item, so "no pool
+item matched" is an ordinary outcome and the legacy hide still stands on its
+own. Nothing about the dashboard's request or response shape changed.
+
+Still open, and a product decision rather than a defect: the Events dashboard
+screen itself continues to read the legacy lane (Task 9 Step 6, unmade). Hiding
+works correctly in both lanes now; where that screen should ultimately live is
+the open question.
+
+**Three legacy slugs do not carry over.** RE-MEASURED after the backfill
+actually ran (2026-08-12): of the 12 current legacy event slugs, **9 now exist
+in `content.item_slugs` and all 9 sit on a LIVE item**; 3 do not carry over.
+The pre-migration prediction of 9/3 held exactly.
+
+`grand-organ-recital-…`, `nerve-melbourne-2026` and `hobart-mens-hair-workshop-…`
+have no content item — two were never landed by ingest, one belongs to a
+standalone connection that lands no records. Their permalinks stop resolving.
+Accepted by the owner 2026-08-12 (dev only, no customers).
+
+**Separately, 3 of the 14 minted slugs point at RETIRED items.** Those are not
+the same three. They belong to events whose every source item had been removed
+upstream, retired by `content:repair-event-items --retire`. The slug rows
+survive deliberately — a retired item's URL should 301 rather than 404 — but
+the items no longer render in the pool, so live event items (11) is three fewer
+than slug rows (14).
 
 Note the 9 that do map keep their exact slug only because `headline_cache`
 and the scraped event `name` agree today. The pool mints from the headline;
