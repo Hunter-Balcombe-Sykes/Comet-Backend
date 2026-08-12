@@ -99,7 +99,20 @@ class ShopContentWriter
             // COALESCE(existing, new): keep whatever this row already has and
             // only take the incoming value when the row has never recorded a
             // curation event (still null) — see the INSERT-side comment above.
-            'products_curated_at' => DB::raw('coalesce(products_curated_at, excluded.products_curated_at)'),
+            //
+            // SQLSTATE[42702]: a BARE `products_curated_at` here is ambiguous
+            // on Postgres — it cannot tell the target row's column from
+            // `excluded`'s — and Postgres rejects the whole statement at
+            // parse time, before it even checks whether a row conflicts. All
+            // 9 real stores' first-ever backfill hit exactly this on
+            // 2026-08-12, writing nothing. SQLite has no such ambiguity (it
+            // resolves a bare column to the target row), so the default
+            // (SQLite) suite passed throughout. Qualifying with the table
+            // name — Postgres's own documented ON CONFLICT idiom, no schema
+            // prefix needed since the statement has only one target table —
+            // disambiguates on both drivers; see tests/Postgres/
+            // ShopStorefrontUpsertConflictTest.php for the real-Postgres pin.
+            'products_curated_at' => DB::raw('coalesce(storefronts.products_curated_at, excluded.products_curated_at)'),
         ]);
 
         return $collectionId;
