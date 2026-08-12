@@ -156,22 +156,59 @@ the legacy lane stores one employee's filtered menu. On dev that is 87 vs 59, so
 two lanes are not row-for-row equivalent and the surplus 28 would become publicly
 visible services nobody selected.
 
-**Owner decision 2026-08-12 — the connector fetches storewide, and the selection is
-expressed as pool excludes**, seeded during backfill from the existing
-`payload.selection` so a visitor sees the same services as today. This is the same
-mechanism unit 6 already mandates for `hiddenServiceIds`, so the slice carries one
-exclusion mechanism rather than two.
+**Owner decision 2026-08-13 — the connector follows `selection.mode`.** An earlier
+decision (2026-08-12) said the connector should always fetch storewide and reduce to
+the saved selection with pool excludes. **That decision was disproved by live data on
+2026-08-13 and is reversed.** The evidence is below; do not restore it.
 
-The rejected option was plumbing the selected employee through to the connector via
-the source row. It was rejected because connectors take `Pull` + `Io` and read no
-user data — verified, not one of them touches the database — and `Pull.config` today
-carries only `scope`/`scope_n`. Widening it would change shared ingest plumbing that
-slices 4–7 inherit. **Do not re-open this by "just adding the employee id to the
-source row".**
+| Stored selection | Connector fetches |
+|---|---|
+| `mode: 'employee'` + an employee id | that employee's menu, at their prices |
+| `mode: 'storewide'` | the location menu, at store prices |
 
-Consequence to design for: `content.*` holds MORE services than render (87 vs 59 on
-dev). The coverage gate is coord coverage (parent §8.4), so a surplus is expected —
-but a test must fail if an unselected service reaches the booking surface.
+**Why excludes cannot do this job.** Excludes govern WHICH items render. They cannot
+change what a rendered item costs, and Fresha prices differ per staff member.
+Measured against `brotherwolf-south-melbourne…` on 2026-08-13, comparing the stored
+employee selection (23 services) with a live storewide fetch (25):
+
+```
+Premium Haircut & Beard Trim   employee $120   storewide "from $108"
+Men's Cut                      employee  $70   storewide "from $63"
+Clipper Cut                    employee  $35   storewide "from $31.50"
+…
+identical: 1   DIFFER: 22   absent from storewide: 0
+```
+
+The storewide menu quotes `from <cheapest staff member>`. Publishing it on an
+individual's booking page understates 22 of 23 prices — a live, customer-facing
+pricing error that no exclude can repair.
+
+Membership divergence is the half excludes DO fix, and it is real but small: 2 of the
+25 storewide rows (`$80 Barber Membership Fade`, `$80 Barber Membership Mens Cut`)
+belong to a different barber's tier. Keep excludes for that and for
+`hiddenServiceIds` — their original job.
+
+**The plumbing, and why it does not breach the connector boundary.** Connectors take
+`Pull` + `Io` and read no user data — verified, not one touches the database — and
+that stays true. The **provisioner** writes the employee id onto the ingest source at
+connect time; `RunExecutor` passes it in `Pull.config` beside the existing
+`scope`/`scope_n`; the connector remains a pure function of (identifier, config, Io).
+It is a config widening at the `RunExecutor:76-82` seam, not a connector reading a
+connection. Slices 4–7 inherit the widened config, so tell them.
+
+**There is no undecided state to design for.** `FreshaStaffMatcher::matchWithTier()`
+returns no match on a blank name, no match, or a TIE, and `FreshaAutoSelector`
+collapses all three into `mode: 'storewide'` before anything is stored. So the
+connector never sees "we could not tell who this is" — it sees a storewide selection,
+which is exactly what a pre-account or unmatched site should display. Store prices on
+a store menu are correct; the defect was only ever store prices on an individual's
+menu.
+
+**Inherited wrinkle, not created by this slice.** `FreshaAutoSelector` already warns
+that storewide is the common outcome for non-person handles, so a large salon can
+exceed `config('partna.limits.pagination.services_max')` (500) — past which the
+dashboard truncates and the owner cannot reach the tail to delete it. The pool
+inherits this and needs its own answer.
 
 ### Unit 2 — Identity and coords
 `site.services.external_id` is the Fresha `serviceId` (`s:…`) and is described as

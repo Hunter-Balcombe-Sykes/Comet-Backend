@@ -445,12 +445,21 @@ checkpoint and wire manifest committed.
 - The connector fix: `FreshaConnector.php:239` sends `shouldShowAllEmployees: true`
   and gets the employee-picker screen with an empty `screenServices`. Diagnosed
   and proven live 2026-08-12; see the kickoff prompt's unit 1.
-- The storewide-vs-selection reduction: the connector returns the whole salon
-  menu (87 on dev) where the legacy lane stores one employee's filtered menu
-  (59). The difference becomes pool excludes, seeded from `payload.selection`,
-  with `hiddenServiceIds` as the second input to the same mechanism. The 2
-  soft-deleted Fresha rows are **not** a third input — see §2, they are
-  `deleted_origin='sync'` departures that current behaviour restores on return.
+- **The connector follows `selection.mode`** — `employee` fetches that person's
+  menu at their prices, `storewide` fetches the location menu at store prices.
+  This REVERSES the 2026-08-12 storewide-plus-excludes decision, which live data
+  disproved on 2026-08-13: Fresha quotes `from <cheapest staff member>` on the
+  storewide menu, and 22 of one barber's 23 services priced differently there
+  ($120 vs "from $108", $70 vs "from $63"). Excludes govern which items render
+  and cannot change what a rendered item costs. Full evidence and the plumbing
+  (provisioner writes the employee id onto the source; `Pull.config` carries it;
+  the connector still reads no user data) are in the slice 3 kickoff prompt's
+  unit 1.
+- Pool excludes keep their original job: `hiddenServiceIds`, plus the small
+  membership divergence (2 of 25 storewide rows on the measured salon belong to
+  another barber's tier). The 2 soft-deleted Fresha rows are **not** an input —
+  see §2, they are `deleted_origin='sync'` departures that current behaviour
+  restores on return.
 - **The coord for Fresha services is not `manual:{legacy_uuid}`** — they are not
   backfilled at all. Note for 3b's own check: the legacy projector updates rows
   in place keyed on `external_id` (`FreshaServiceProjector:150-208`), it does not
