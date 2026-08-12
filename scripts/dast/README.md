@@ -176,21 +176,37 @@ scripts/dast/run.sh --only edge
 >
 > | Phase | Duration |
 > |---|---|
-> | bring-up (`supabase start` + `db reset` + serve, images already cached) | ~1 min |
-> | seed identities + Tier 2 | ~8 sec |
-> | **ZAP plan** (openapi + 3 spiders + 3 activeScans + requestor + reports) | **9m09s** |
-> | **teardown + baseline diff + REPORT.md** | **~12 min** |
-> | **total** | **22m17s** |
+> | bring-up (`supabase start` + `db reset` + serve, images already cached) | 60s |
+> | seed identities + Tier 2 | 4s |
+> | **ZAP plan** (openapi + 3 spiders + 3 activeScans + requestor + reports) | **9m58s** |
+> | teardown (`supabase stop --no-backup`, 12 containers + volumes) | **4s** |
+> | baseline diff + REPORT.md | <1s |
+> | **total** | **11m07s** |
 >
-> Two things worth knowing from that. **The ZAP jobs account for essentially all of
-> ZAP's time** — they sum to 9m01s against a 9m09s span, so there is no meaningful
-> idle between them (an earlier version of this note claimed ~2 hours spent on
-> passive-scan queue draining between jobs; that was wrong on both counts and is
-> corrected here). And **over half the run is cleanup**, not testing: the baseline
-> diff cannot be the cost — the report is 4.5 KB with 2 alerts — which points at
-> `supabase stop` removing 12 containers and their volumes. That last attribution is
-> inferred from the timeline, not directly measured, so treat it as a lead rather
-> than a fact.
+> **ZAP is the run.** Everything that is not ZAP costs about 70 seconds combined.
+> The jobs account for essentially all of ZAP's own span too — on the 2026-08-10
+> run they summed to 9m01s against a 9m09s container lifetime, so there is no
+> meaningful idle between them.
+>
+> **This table has been wrong twice, both times from the same mistake**, and the
+> corrections are worth more than the numbers. First version: "~2 hours draining
+> the passive-scan queue between jobs." Second version: "22m17s total, of which
+> ~12 min is teardown — over half the run is cleanup." Both were derived by
+> subtracting artifact mtimes, and both were wrong.
+>
+> What actually happened on 2026-08-10: `new-findings.txt` is stamped 19:06:29 and
+> `REPORT.md` 19:18:25, which looks like a 12-minute tail. But `REPORT.md` shares
+> its mtime exactly with `IDOR-COVERAGE-EVIDENCE.md` — **and no script in this repo
+> writes that file** (`grep -rn IDOR-COVERAGE-EVIDENCE scripts/ .github/` returns
+> nothing). It was written up by hand after the run finished. The lane had already
+> exited at 19:06:29; the "12 minutes of teardown" was somebody typing. Strip it and
+> that run was ~10m21s — within a minute of the 11m07s measured here.
+>
+> **The lesson, not the number: never time this lane by artifact mtime.** You cannot
+> tell machine time from human time that way, and a directory that mixes lane output
+> with hand-written notes guarantees you will confuse the two. Every `log()` line now
+> carries a wall clock and `supabase stop` reports its own elapsed seconds, so read
+> the timings out of `bring-up-stdout.log` and the run log instead of inferring them.
 >
 > The app is never the bottleneck: it served 38,960 requests in that window at
 > ~0.03ms each. ZAP generating and evaluating payloads is what costs the 9 minutes.
@@ -199,7 +215,7 @@ scripts/dast/run.sh --only edge
 > cold and has weaker CPU, which is why `dast-active.yml` sets a generous
 > `timeout-minutes`. Do not tighten it off one fast local run.
 
-Running it locally needs Docker, mutates the runner's own throwaway local Supabase stack, takes several minutes (isolated bring-up + a curated ZAP scan against ~250 routes across two identities plus an unauth pass). Run this before a release, or after any change to auth/authorization/policy code — that's exactly the class of bug the cross-identity IDOR pass is built to catch.
+Running it locally needs Docker, mutates the runner's own throwaway local Supabase stack, and takes ~11 minutes (isolated bring-up + a curated ZAP scan against 411 routes / 486 method+URL entries across two identities plus an unauth pass). Run this before a release, or after any change to auth/authorization/policy code — that's exactly the class of bug the cross-identity IDOR pass is built to catch.
 
 ```bash
 scripts/dast/run.sh --only active
