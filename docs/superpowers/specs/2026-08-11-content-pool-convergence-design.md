@@ -582,7 +582,7 @@ involve no charge:
 
 | Cause | Site | Outcome |
 |---|---|---|
-| Missing API key | `:211-214`, before any HTTP | `NoAnswer` |
+| Missing API key | `:211-214`, before any HTTP | **`EffectNotAttempted`** — corrected, see below |
 | Network exception on every attempt | `:250` | `NoAnswer` |
 | Non-2xx (429 / 5xx outage) | `:262` | `NoAnswer` |
 | Genuine not-found | mapped response | `Answered`, data null |
@@ -591,8 +591,31 @@ This matters because `partna.ingest.effect_freshness_seconds` defaults to **6048
 — seven days**. Settling a Places outage as `ok`+null would cache "no data" for that
 digest for a week, and `verdictFor()` (`:139-141`) would replay it as
 `['status'=>'ok','result'=>null,'cached'=>true]`. A missing key in an environment
-would settle *every* place as permanently-ok-null. Only `Answered` settles `ok`;
-`NoAnswer` settles `failed` and is retryable.
+would settle *every* place as permanently-ok-null. Only `Answered` settles `ok`.
+
+> **CORRECTED 2026-08-12, against the shipped code — read this before relying on
+> the table above.** This paragraph used to end "`NoAnswer` settles `failed` and
+> is retryable." **It is not retryable**, and the two claims below are the ones
+> slice 1 must design against, because its Instagram actor returns `NoAnswer` on
+> every vendor outage.
+>
+> - **`NoAnswer` settles `failed` and is NOT retryable inside the freshness
+>   window.** The row stays, settled, and `verdictFor()` replays it as
+>   `['status' => 'failed', 'result' => null, 'cached' => true]` for the full
+>   seven days. That is deliberate — `EffectLedger`'s own catch states it: "we
+>   cannot know whether the vendor billed us… this digest is inert until the
+>   freshness bucket rolls." An outage is cached as a non-answer for a week, and
+>   the connector folds it to Unavailable rather than erroring.
+> - **A missing API key is `EffectNotAttempted`, not `NoAnswer`**
+>   (`PlacesDetailsDriver:143`). That is the opposite behaviour: the claim row is
+>   DELETED, so the digest is retryable the instant the key is set. Reading the
+>   old table would lead a slice-1 author to believe a misconfigured environment
+>   self-heals only after seven days, when it recovers immediately.
+>
+> Net: `EffectNotAttempted` = nothing was sent, row removed, retry freely.
+> `NoAnswer` = something was sent and we do not know if we were billed, row
+> kept, inert for the window. The whole distinction is about whether money may
+> already have moved.
 
 **Kill switch.** `config('partna.ingest.billed_effects_enabled')`, default **false**,
 per environment. Its purpose is *activation gating*, not budget safety — `PlacesBudget`
@@ -1218,9 +1241,18 @@ Performed: Steps 4 (merge + deploy), 6 (the billed run), 7 (ledger assertion),
 - the six D1–D6 spec corrections against §5 — §5.3's closing claim that a
   `NoAnswer` is retryable is the one the plan flags as actively wrong, and §5
   still describes a design that differs from what was built
-- an explicit re-confirmation that `auto_sync` stays `false` for both billed
-  connectors (it was `false` on all three google_business sources when read
-  during the pre-flight)
+- ~~an explicit re-confirmation that `auto_sync` stays `false` for both billed
+  connectors~~ **DONE 2026-08-12**: read from dev after deploy —
+  `{"google_business":[false],"instagram":[false]}`, i.e. false on every source
+  of both kinds, so neither billed connector can be picked up by
+  `SourceScheduler::claimDue()`.
+- ~~the six D1–D6 spec corrections against §5~~ **The load-bearing one is
+  DONE**: §5.3's closing claim that a `NoAnswer` is retryable was false, and its
+  table mapped a missing API key to `NoAnswer` when the shipped driver throws
+  `EffectNotAttempted`. Both corrected in place 2026-08-12 with the reasoning,
+  because slice 1's Instagram actor returns `NoAnswer` on every vendor outage
+  and would have been designed against the wrong contract. The remaining D
+  items are descriptive drift in §5.1/§5.2, not behavioural claims.
 
 ### 13.6 #MONEY-1 and #MONEY-2 — found by audit AFTER slice 0, fixed 2026-08-12
 
