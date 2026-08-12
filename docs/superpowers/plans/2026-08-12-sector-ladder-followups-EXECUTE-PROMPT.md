@@ -6,8 +6,10 @@ Three small, independent follow-ups left behind by the sector-provenance ladder
 They share a branch because they are all small and all fall out of the same merge. They do not
 depend on each other — a reviewer can reject any one without blocking the others.
 
-**Runs concurrently with content-pool slice 1b.** Task A edits a slice-4 document and Task B adds a
-test next to `InstagramConnectionSeeder`, so the overlap is real this time. See "Concurrency" below.
+**Runs in parallel with three content-pool sessions** — slice 1b, slice 3 (services) and slice 5
+(shop) — and with connection-pooling work in the main checkout. Code overlap with all four is zero;
+the one genuine contention is a shared planning document, and the merge phase must not touch the
+main checkout. Read "Concurrency" below before starting Task A, and Phase 4 before merging.
 
 ---
 
@@ -145,6 +147,13 @@ refresh".
 
 Put it in `tests/Feature/Platforms/` — an existing directory, so no audit-pipeline wiring is needed.
 
+**DO NOT HARDCODE LINE NUMBERS.** Content-pool slice 1b is running in parallel and its Task 7 adds a
+`MediaMirror` call to the seeder's mirroring region around `:82-130` — which shifts every line below
+it, including the three this test cares about. A structural test must locate the two calls by
+searching for `applyIdentity(` and `autoSaveUnmatchedLinks(` in the source and comparing their
+offsets, never by asserting they sit at `:229` and `:230`. The same applies to any line reference
+you put in a comment: name the method, not the line.
+
 Whichever route you take, PROVE IT CAN FAIL: temporarily swap the two calls in the seeder, confirm
 RED; restore; temporarily delete the `refresh()` in `InstagramIdentitySync::applySector`, confirm
 RED; restore. Confirm `git diff app/` is empty afterwards. Record both mutations in your report — a
@@ -200,14 +209,24 @@ The schema lane is NOT needed: none of these tasks touches a constraint, a migra
 
 ## Phase 4 — merge and push
 
-1. Commit everything in the worktree.
-2. If you entered via EnterWorktree, `ExitWorktree action:keep`. If you created it with plain
-   `git worktree add` (as Phase 1 does), you can merge directly from the main checkout.
-3. From the main checkout: `git fetch origin development`, then fast-forward local `development`.
+**DO NOT MERGE FROM THE MAIN CHECKOUT.** The repository owner is doing connection-pooling work there
+on his own branch, and other sessions share it. On 2026-08-12 a peer switched that checkout's branch
+mid-task and a commit intended for `development` landed on the peer's branch instead. Use a
+dedicated worktree for the merge — `development` will not be checked out anywhere, so a worktree can
+claim it:
+
+1. Commit everything in your work worktree.
+2. `git -C "/Users/joshuahunter/Herd/Side Street/backend" worktree add ".claude/worktrees/dev-merge" development`
+   — if this fails with "already checked out", someone has `development` open. STOP and report;
+   do not force it.
+3. From `.claude/worktrees/dev-merge`: `git fetch origin development` and fast-forward `development`.
+   Copy `vendor/` and `.env` in as in Phase 1 — you need to run the suite here.
 4. Check what landed while you worked: `git log --oneline <your-base>..development` and
-   `git diff --stat <your-base>..development`. Slice 1b is active — if it touched
-   `InstagramConnectionSeeder`, `SectorTaxonomy`, `FoodContentProbe` or the slice-4 kickoff prompt,
-   read those diffs before merging, not after.
+   `git diff --stat <your-base>..development`. Three content-pool sessions are active. Read the
+   diff before merging, not after, if any of these moved:
+   `app/Services/Platforms/InstagramConnectionSeeder.php` (1b's mirror call shifts line numbers),
+   `app/Services/Profile/SectorTaxonomy.php`, `app/Services/Profile/FoodContentProbe.php`,
+   or `docs/superpowers/plans/2026-08-12-slice-4-menus-KICKOFF-PROMPT.md` (all three may edit it).
 5. `git merge --no-ff chore/sector-ladder-followups`
 6. RE-RUN THE SUITE ON THE MERGE: `COMPOSER_PROCESS_TIMEOUT=0 composer test`. This is the step that
    catches semantic conflicts — two branches that each pass alone can fail together. Do not skip it
@@ -225,22 +244,57 @@ This pushes `development` only. It does NOT deploy production; that is a separat
 ## Phase 5 — cleanup
 
     git worktree remove .claude/worktrees/ladder-followups --force
+    git worktree remove .claude/worktrees/dev-merge --force
     git branch -d chore/sector-ladder-followups
 
-`--force` is needed because the worktree holds an untracked `vendor/` copy and `.env`.
+`--force` is needed because both worktrees hold an untracked `vendor/` copy and `.env`. Leave the
+main checkout's branch exactly as you found it — you should never have switched it.
 
-## Concurrency with content-pool slice 1b
+## Concurrency — three content-pool sessions run alongside you
 
-Slice 1b is likely in flight in a sibling session. Overlap is genuine for two of these tasks:
+These run in parallel with you, each in its own worktree:
 
-- Task A edits `docs/superpowers/plans/2026-08-12-slice-4-menus-KICKOFF-PROMPT.md`, which belongs to
-  that programme. Check the sibling worktree's `git status` first and stand down on the file if it
-  is dirty there.
-- Task B adds a test next to `InstagramConnectionSeeder`, which slice 1b is expected to reorder. A
-  clean textual merge does not mean the ordering assumption survived — that is the whole point of
-  the test, so if slice 1b lands first, run your new test against the merged result and expect it to
-  do its job.
-- Task C touches `SectorTaxonomy` only if it adds a key, and slice 1b has no reason to.
+- `docs/superpowers/plans/2026-08-12-media-pool-slice-1b-EXECUTE-PROMPT.md`
+- `docs/superpowers/plans/2026-08-12-slice-3-services-KICKOFF-PROMPT.md`
+- `docs/superpowers/plans/2026-08-12-slice-5-shop-KICKOFF-PROMPT.md`
+
+I read all three against your three tasks. **Code overlap is zero.** They work
+`ProjectionWriter`, `PoolResolver`, `PoolRegistry`, `MediaUrlResolver`, `app/Services/Migration/`,
+`site.services`, `site.shop_products`, and (1b only) `app/Services/Media/MediaMirror.php` and
+`BrandAssetPipeline.php`. None of them names `SectorTaxonomy`, `SectorProvenance`,
+`FoodContentProbe`, `InstagramIdentitySync`, or `OnboardingSuggestions`.
+
+**One shared document, and it is your real conflict risk.** All three carry a "update the downstream
+prompts" table, and all three list `slice-4-menus` as a downstream consumer — 3 and 5 for the
+`SECTION_SHAPE` convention for priced undated items, 1b for `ProjectionWriter`/`PoolResolver`
+changes. Task A edits that same file. So:
+
+- Before editing `2026-08-12-slice-4-menus-KICKOFF-PROMPT.md`, run `git worktree list`, check each
+  sibling worktree's `git status`, and `git log --oneline -3 -- <that file>` on `development`.
+- Your edit is **additive and in its own section** — a short "silent consumers" note. Keep it that
+  way so a concurrent edit to their `SECTION_SHAPE` section merges cleanly beside it.
+- If the file is dirty in a sibling worktree, **stand down and report it**. A deferred note is
+  cheaper than a lost edit to someone else's planning document. Slice 4 is several slices away;
+  there is no urgency.
+
+**On `InstagramConnectionSeeder` specifically — smaller than it looks.** The old sector-provenance
+prompt warned that "slice 1 rewrites the seeder's mirroring". That is region `:82-130`, not the
+identity fold at `:227-230`. I checked 1b's plan directly: Task 7 creates `MediaMirror.php` and
+modifies `BrandAssetPipeline.php:187-222`; the seeder appears only in a comment, and **nothing in
+that plan touches `applyIdentity`, `autoSaveUnmatchedLinks` or the `:220-239` region.** So:
+
+- Task B commits **only a new test file**. It makes no permanent edit to the seeder, so there is no
+  textual conflict with 1b at all.
+- 1b may still add a `MediaMirror` call around `:82-130`, which **shifts every line number below
+  it**. That is why Task B must not hardcode line numbers (see the task).
+- If 1b lands first and your test then fails, the test is doing its job. Do not delete it — move the
+  `refresh()` so the invariant holds again, and tell the 1b session.
+
+**Reciprocate the courtesy those prompts demand.** They require a session that changes something
+downstream to edit the affected prompt in place rather than bury it in a checkpoint. If 1b has not
+merged when you finish Task B, add one line to its execute prompt saying a test now pins
+`applyIdentity` → `refresh()` → `autoSaveUnmatchedLinks` ordering in `seed()`, and that a reorder
+must carry the refresh with it. Say the fact, not the story.
 
 ## Final report
 
