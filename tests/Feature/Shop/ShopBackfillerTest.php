@@ -109,3 +109,49 @@ it('fires all three cache lanes for a touched site', function () {
     expect(DB::table('site.site_build_state')->where('site_id', $site->id)
         ->value('content_revision'))->toBeGreaterThan(0);
 });
+
+// Fix round 1, Finding 2: the test above has a product, and
+// ProjectionWriter::writeManualItem() already bumps build state per item —
+// so deleting ShopBackfiller::invalidate()'s own BuildState::bump() call
+// would NOT fail it. Only a store with ZERO products exercises invalidate()'s
+// bump in isolation (writeManualItem() never runs for it).
+it('bumps build state for a touched site even when the store has zero products', function () {
+    Queue::fake();
+    [$user, $brand, $site] = makeShopBrand(withSite: true);
+
+    app(ShopBackfiller::class)->run();
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
+    expect(DB::table('site.site_build_state')->where('site_id', $site->id)
+        ->value('content_revision'))->toBeGreaterThan(0);
+});
+
+// Fix round 1, Finding 1 (CRITICAL): upsertStore() used to key its lookup on
+// content.collections.label — the store's mutable display name
+// (site.shop_brands.name, editable via ShopController::updateBrand). A rename
+// between two backfill/sync runs missed that lookup and minted a SECOND
+// collection + storefront row, orphaning the first (and its referral_query /
+// discount_code — affiliate revenue — with it). Re-keyed on
+// (user_id, provider, external_ref = shop_brands.brand_id), which is stable
+// across a rename by construction (half of shop_brands_connection_id_brand_id_key).
+it('keeps the same collection across a store rename — keyed by external_ref, not the mutable label', function () {
+    [$user, $brand] = makeShopBrand(['name' => 'Old Name', 'referral_query' => 'ref=keep-me']);
+    makeShopProduct($brand, ['url' => 'https://s.test/a']);
+
+    app(ShopBackfiller::class)->run();
+    $before = DB::table('content.collections')->where('user_id', $user->id)->first();
+    $storeBefore = DB::table('content.storefronts')->where('collection_id', $before->id)->first();
+
+    $brand->update(['name' => 'New Name']);
+    app(ShopBackfiller::class)->run();
+
+    expect(DB::table('content.collections')->where('user_id', $user->id)->count())->toBe(1);
+
+    $after = DB::table('content.collections')->where('user_id', $user->id)->first();
+    expect($after->id)->toBe($before->id)
+        ->and($after->label)->toBe('New Name');
+
+    $storeAfter = DB::table('content.storefronts')->where('collection_id', $after->id)->first();
+    expect($storeAfter->collection_id)->toBe($storeBefore->collection_id)
+        ->and($storeAfter->referral_query)->toBe('ref=keep-me');
+});

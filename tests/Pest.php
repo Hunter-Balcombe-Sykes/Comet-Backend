@@ -2795,7 +2795,11 @@ function setupContentTables(): void
     )');
 
     // Slice 5a §3.1 (migration 20260813100000): 1:1 sidecar on a
-    // content.collections row of kind='storefront'.
+    // content.collections row of kind='storefront'. external_ref (migration
+    // 20260813100001, fix round 1): the provider's own store id
+    // (site.shop_brands.brand_id) — the stable identity upsertStore() keys
+    // its lookup on, since the collection's label (the store's display name)
+    // is user-editable and must never be the key.
     $pg->statement('CREATE TABLE IF NOT EXISTS content.storefronts (
         collection_id TEXT PRIMARY KEY NOT NULL,
         provider TEXT NOT NULL,
@@ -2813,6 +2817,7 @@ function setupContentTables(): void
         favicon_url TEXT NULL,
         logo_mark_url TEXT NULL,
         logo_mark_svg_url TEXT NULL,
+        external_ref TEXT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )');

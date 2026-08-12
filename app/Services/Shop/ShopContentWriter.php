@@ -17,16 +17,30 @@ use Illuminate\Support\Str;
 class ShopContentWriter
 {
     /**
-     * Idempotent: keyed by (user_id, kind='storefront', label) so a re-run
-     * updates the existing row rather than minting a duplicate collection.
+     * Idempotent: keyed by (user_id, provider, external_ref) — external_ref
+     * is site.shop_brands.brand_id, the PROVIDER's own store id (half of
+     * shop_brands_connection_id_brand_id_key), stable across a rename.
+     *
+     * The label (the brand's display name) was the ORIGINAL key and is a
+     * bug: it's a mutable, user-editable field (ShopController::updateBrand
+     * writes site.shop_brands.name freely). A rename between two upsertStore()
+     * calls — which Task 6's syncStore() makes on every scheduled cycle —
+     * missed the old lookup, minting a second content.collections +
+     * content.storefronts pair and orphaning the first, taking its
+     * referral_query/discount_code (affiliate revenue) with it while both
+     * rows stayed linked to the same product items.
      */
     public function upsertStore(ShopBrand $brand, string $ownerId): string
     {
-        $existing = DB::table('content.collections')
-            ->where('user_id', $ownerId)
-            ->where('kind', 'storefront')
-            ->where('label', (string) ($brand->name ?? $brand->brand_id))
-            ->value('id');
+        $externalRef = (string) $brand->brand_id;
+
+        $existing = DB::table('content.collections as c')
+            ->join('content.storefronts as s', 's.collection_id', '=', 'c.id')
+            ->where('c.user_id', $ownerId)
+            ->where('c.kind', 'storefront')
+            ->where('s.provider', (string) $brand->provider)
+            ->where('s.external_ref', $externalRef)
+            ->value('c.id');
 
         $collectionId = (string) ($existing ?? Str::uuid());
 
@@ -45,6 +59,7 @@ class ShopContentWriter
         DB::table('content.storefronts')->upsert([[
             'collection_id' => $collectionId,
             'provider' => (string) $brand->provider,
+            'external_ref' => $externalRef,
             'url' => $brand->url,
             'source_url' => $brand->source_url,
             'currency' => $brand->currency,
@@ -62,7 +77,7 @@ class ShopContentWriter
             'created_at' => now(),
             'updated_at' => now(),
         ]], ['collection_id'], [
-            'provider', 'url', 'source_url', 'currency', 'discount_code',
+            'provider', 'external_ref', 'url', 'source_url', 'currency', 'discount_code',
             'referral_query', 'is_individual', 'fetch_mode', 'connect_status',
             'connect_error', 'products_curated_at', 'logo_url', 'favicon_url',
             'logo_mark_url', 'logo_mark_svg_url', 'updated_at',
