@@ -1149,6 +1149,16 @@ class ProjectionWriter
      */
     private function mediaFingerprint(array $entry): array
     {
+        // Upload shape (slice 1a §3.4): the stable ref IS the site_media id.
+        // Inside the url- namespace by construction — only this method mints
+        // 'upload:' fingerprints, so no existing row can collide.
+        $siteMediaId = isset($entry['site_media_id']) && is_string($entry['site_media_id']) && $entry['site_media_id'] !== ''
+            ? $entry['site_media_id']
+            : null;
+        if ($siteMediaId !== null) {
+            return ['url-'.sha1('upload:'.$siteMediaId), null];
+        }
+
         $url = isset($entry['url']) && is_string($entry['url']) && $entry['url'] !== ''
             ? SecretParams::minimiseUrl($entry['url'])
             : null;
@@ -1201,14 +1211,20 @@ class ProjectionWriter
 
         $rows = [];
         foreach ($missing as $fingerprint => [$entry, $url]) {
+            $isUpload = isset($entry['site_media_id']) && is_string($entry['site_media_id']) && $entry['site_media_id'] !== '';
             $rows[] = [
                 'id' => (string) Str::uuid(),
                 'user_id' => $userId,
                 'fingerprint' => $fingerprint,
                 'source_url' => $url,
+                'site_media_id' => $isUpload ? $entry['site_media_id'] : null,
+                'mime_type' => $isUpload ? ($entry['mime_type'] ?? null) : null,
                 'width' => $entry['width'] ?? null,
                 'height' => $entry['height'] ?? null,
-                'dims_confidence' => isset($entry['width']) ? 'declared' : null,
+                // 'measured' for uploads: the variant pipeline decoded the
+                // image. 'declared' when a connector claimed dims. Unchanged
+                // for the connector shapes.
+                'dims_confidence' => $isUpload ? 'measured' : (isset($entry['width']) ? 'declared' : null),
                 'created_at' => now(),
             ];
         }
