@@ -127,6 +127,35 @@ nine commerce tables on the coverage gate alone and leave the media lane for a
 follow-up. A blocked frontend must not hold the whole teardown hostage — but neither
 may it be worked around by retiring keys the frontends still read.
 
+## What slice 1b settled for you (merged 2026-08-13)
+
+Verify each yourself — this is a pointer, not evidence (rule zero still applies).
+
+- **The `gallery` / `designMedia` retirement boundary has NOT moved.** 1b kept
+  both keys live, exactly as 1a did. Your gate 2 is unchanged: both frontends
+  must read `pools.media` before `site_media` pools `gallery` and `content` can
+  retire.
+- **`site.content_selection` still holds every row.** 1b's migration is
+  ADDITIVE: 3 upload picks became `pool:media` pins, and 91 rows
+  (85 `google-photo` + 6 `ig-*`) were recorded as dropped across 11 sites
+  **without being deleted**. Dropping the table is still yours, and the decision
+  not to carry those 91 is already on the record in checkpoint §15 — you do not
+  need to re-litigate it, only to confirm nothing new has appeared.
+- **Two items from 1b's spec §8 land in your scope, both cost issues:**
+  `carryForwardPhotoUrls()` has never worked (it matches on `ref`, and refs
+  rotate every fetch), and Place Details is billed twice per place — once by
+  `integrations:refresh` for the legacy payload, once by the ingest lane.
+  Collapsing them is the natural end of the legacy payload's life. At 500
+  connected users the carry-forward defect alone is ~$600/mo.
+- **`BorrowedAssetPruner` already exists** (`content:prune-borrowed-assets`,
+  daily 03:50) and deletes unreferenced borrowed assets past the 30-day Places
+  url expiry. It spares anything with `storage_path` OR `site_media_id` — an
+  upload's asset row legitimately has no `storage_path`, so pruning on that
+  alone would delete owner data. Keep both conditions if you touch it.
+- **A new observer-orphan candidate:** `MirrorMediaAssetJob` fires off
+  `ProjectionWriter`, not an observer, so it is not in your §9.4 list — but any
+  teardown that changes how media assets are minted needs to keep it dispatching.
+
 ## Non-negotiables
 
 - **Take a backup first.** Free plan, no PITR. Dump the ten tables to the `partna-db-backup` R2 bucket and verify the dump is readable **before** the first DROP. Record its location in the checkpoint.

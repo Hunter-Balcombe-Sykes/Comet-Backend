@@ -143,6 +143,44 @@ so it ships publicly with no payload-builder change.
 - Follow whatever `SECTION_SHAPE` slice 3 and slice 5 established for priced,
   undated items. A third variant for the same problem is a smell.
 
+## What slice 1b changed under you (merged 2026-08-13)
+
+Rebase onto `origin/development` before doing anything — 1b touched files this
+slice builds on. Verify each claim yourself; this is a pointer, not evidence.
+
+- **`ProjectionWriter::resolveMediaAssets()` gained two behaviours.** It now
+  writes a `content.media_assets.attribution` column, and it dispatches
+  `MirrorMediaAssetJob` for owned-class media. Both are **media-kind only** and
+  guarded by an explicit ref-namespace allowlist (`MediaMirror::isOwnedEntry()`),
+  so a `service` / `product` / `menu_item` projection is unaffected. The insert
+  array in that method changed shape — if your slice touches it, rebase carefully.
+- **Three stand-in schemas now carry `attribution`** and must stay in step:
+  `tests/Pest.php`, `tests/Postgres/ProjectionWriterBatchingTest.php`, and
+  `tests/Postgres/ProjectionIdentityKeyAtomicityTest.php`. Adding a column to
+  `content.media_assets` means editing all three or your tests fail on
+  `Undefined property` rather than on their assertion.
+- **`app/Services/Migration/` gained two services + two commands** —
+  `ContentSelectionMigrator` and `BorrowedAssetPruner`, modelled on
+  `MediaUploadBackfiller`. Same `run(bool $dryRun, ?string $siteId): array`
+  shape, same three-lane `invalidate()`.
+- **Put migration tests in `tests/Feature/Content/`, NOT a new
+  `tests/Feature/Migration/`.** A new directory under `tests/Feature/` fails
+  `AuditPipelineIntegrityTest` on two counts until it is wired into
+  `codebase_chunks()` in `scripts/audit/audit.sh` plus a lens scope-group. 1b hit
+  this and moved rather than expanding shared audit config mid-wave.
+- **Migration filename prefix `20260813000000` is consumed** by
+  `content_media_assets_attribution.sql`. Pick a later prefix.
+- **Every migration needs a `-- ROLLBACK:` header** (`CONVENTIONS.md` §10),
+  enforced by `tests/Feature/Database/MigrationTransactionBoundaryTest.php` — not
+  by the composer guards, so it only surfaces in a full run.
+- **A queued job needs `$tries`, `$backoff`, `$timeout`, `failed()` AND
+  `$uniqueFor`** if it is `ShouldBeUnique`, or `JobHygienePolicyTest` and
+  `HorizonQueueCoverageTest` fail. `ShouldBeUnique` with no `$uniqueFor` takes a
+  PERMANENT lock that a killed worker strands forever. Never redeclare
+  `$afterCommit` as a typed property — `Queueable` declares it untyped and the
+  clash is a fatal at class-load, which shows up as the runner exiting 2 with
+  **zero output**, not as a red test.
+
 ## Non-negotiables
 
 - **The 301s are public URLs.** Breaking them is a customer-visible regression and an SEO one. Treat slug migration as blocker-gate work.

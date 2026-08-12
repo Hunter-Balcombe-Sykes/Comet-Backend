@@ -3,19 +3,63 @@
 Part of `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md` §7
 "Slice 6".
 
-## ⛔ Do NOT start this while slice 1b is in flight
+## ✅ Slice 1b is MERGED (2026-08-13) — the rule-2 block is lifted
 
-Parent §4.3 **rule 2**. `GoogleBusinessConnector` declares three streams — `profile`,
-`reviews`, `media` — and all three are served by a **single** billed call:
+Parent §4.3 **rule 2** held this slice behind 1b because `GoogleBusinessConnector`
+declares three streams — `profile`, `reviews`, `media` — all served by a **single**
+billed call:
 
 ```php
 $effect = $io->effect('api', 'places.details', ['place_id' => $placeId]);
 ```
 
-1b enables `media`; this slice enables `reviews`. Run them together and you edit the
-same connector file, share one ledger digest (claim-first means one run gets
-`refused` while the other holds the claim), and compete for the same Places budget
-across the same 12 `google_business` sources. Confirm 1b is merged before starting.
+1b enabled `media` and is now on `development` (checkpoint §15). **You may start.**
+Rebase onto `origin/development` first — 1b changed the connector under you.
+
+### What 1b changed in your blast radius, and what it means for you
+
+**1. `mapPhoto()`'s output shape changed.** The flat `authors` list of display
+names is gone; photo credits are now a structured `attribution` block
+(`{authors:[{name,uri}], maps_uri, flag_uri}`). Reviews are untouched — but if
+you copy `mapPhoto()` as a model for a review mapper, copy the current one.
+
+**2. `PlacesDetailsDriver` now resolves photo URLs inside the same effect.** The
+digest is unchanged (still `['place_id' => …]`), deliberately: splitting media
+onto its own effect kind would cost $25/1000 twice to isolate $7/1000 photo
+calls. **Do not add an input key to this effect.** If your design needs one,
+that is a blocker-gate conversation, not a detail — it doubles the Details bill
+for every user.
+
+**3. A REPLAYED effect does not re-run the driver — verified live, and this will
+bite you.** When the ledger replays a cached Details result inside its freshness
+window (`partna.ingest.effect_freshness_seconds`, 7 days), `run()` is never
+called and you get the payload as it was captured. Observed on dev: a
+`google_business` source re-run reported `effects_count: 0, cost_claimed: 0` and
+the media assets came back **without** the new URL fields, because the cached
+result predated the change. **Consequence for you:** after you change review
+mapping, a source that ran within the last 7 days will keep landing the OLD
+shape. To verify your work live you need a place that has never run, or you must
+wait out freshness — re-running a recent source proves nothing.
+
+**4. `ThirdPartyPii` now carries a corrected premise — read it before touching
+reviewer PII.** `ThirdPartyPii::NESTED_KEYS = ['photos' => ['authors']]` strips
+Google contributor names at two read boundaries. Its docblock used to justify
+that with *"no attribution obligation attaches — photo refs are not yet resolved
+to images"*. 1b made that false for photos and resolved it **by surface**: public
+render carries photo credits (Places terms require it on display), DSAR export
+and the legacy integration payload keep stripping them.
+
+**That asymmetry is deliberate and is now documented in the class.** Do not
+"resolve the inconsistency" by making the lanes agree. And note the shape of the
+mistake, because your slice is the one most likely to repeat it: the connector
+manifest's `redactions` list is **not** the only redaction registry, and checking
+only it is exactly how 1b's spec missed this.
+
+**5. Google `auto_sync` is OFF on all 12 sources**, as it was before 1b, and
+`min_interval_secs` is now `604800` (7 days) on every one of them.
+`StreamSpec` has **no** per-stream interval — cadence is a source-row setting,
+not a manifest one. Enabling `reviews` means flipping `auto_sync`, and doing so
+bills every enabled place.
 
 **This slice handles third-party personal data and carries a P0 legal obligation.**
 Treat every PII decision as a blocker-gate item, not a detail.
@@ -179,7 +223,7 @@ and raise it. That is a decision, not an edit.
 
 ## Process — stop at every gate
 
-1. **Confirm 1b is merged.** If not, stop — that is the deliverable.
+1. **1b is merged** (2026-08-13, checkpoint §15). Rebase onto `origin/development` and re-derive its state yourself — do not cite its checkpoint (invariant #5).
 2. **Recon + entry gate.** **STOP — sign-off.**
 3. **Brainstorm** (`superpowers:brainstorming`) — unit 2 is a genuine open question and the PII contract needs deliberate design.
 4. **Spec** → `docs/superpowers/specs/2026-08-12-slice-6-reviews-design.md`, with an explicit PII section. **STOP — sign-off. This slice touches personal data and a P0 legal item; the blocker gate applies.**
