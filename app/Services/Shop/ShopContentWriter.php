@@ -227,19 +227,28 @@ class ShopContentWriter
      *
      * Task 7 widen: also carries the DASHBOARD product shape's extra keys —
      * `handle`, `vendor`, `description`, `variantId`, `createdAt`. Fix round
-     * 1, Finding 3 closed the original gap here: `handle`/`vendor`/
-     * `variantId` (stored as `variant_ref` — NOT `variantId`, see
-     * ShopProductProjection::fromBlob()'s own comment on why) now round-trip
-     * through content.f_catalog, and `description` through content.f_text.
-     * body (migration 20260813100002, ProjectionWriter's SINGLETON_FACETS
-     * widened to match) — a product written before that migration lands
-     * still reads back null for all four until its next sync, same as any
-     * other facet backfill. `createdAt` is populated from items.
-     * first_seen_at — Partna's own first-sight timestamp, not the original
-     * store's product-creation date (which is still not persisted) — an
-     * approximation, not a loss. The extra keys are harmless to the existing
-     * syncStore()-input caller: fromBlob() only reads the keys it knows and
-     * ignores the rest.
+     * 1, Finding 3 closed the original gap for the first four:
+     * `handle`/`vendor`/`variantId` (stored as `variant_ref` — NOT
+     * `variantId`, see ShopProductProjection::fromBlob()'s own comment on
+     * why) now round-trip through content.f_catalog, and `description`
+     * through content.f_text.body (migration 20260813100002,
+     * ProjectionWriter's SINGLETON_FACETS widened to match) — a product
+     * written before that migration lands still reads back null for these
+     * four until its next sync, same as any other facet backfill.
+     *
+     * `createdAt` is fix round 2, Finding 1: it is NOT cosmetic —
+     * ShopCatalog::syncLatest() sorts a fetched catalogue on it to pick a
+     * latest-mode store's newest products, ShopProductSeeder's newest-first
+     * merge reads it via currentCatalogue(), and SHOP_PRODUCT_ALLOWLIST
+     * still carries it on the public wire — so it is populated from
+     * content.f_published.published_from (ShopProductProjection now writes
+     * that facet from the blob's own createdAt, verbatim, when parseable).
+     * items.first_seen_at is a TRANSITIONAL FALLBACK ONLY, for a row that
+     * synced before this fix shipped and so has no f_published row yet —
+     * not the source of truth, and not correct once every live item has
+     * synced at least once since. The extra keys are harmless to the
+     * existing syncStore()-input caller: fromBlob() only reads the keys it
+     * knows and ignores the rest.
      *
      * Fix round 1, Finding 2 (was: DISCOVERED DEFECT, pre-existing): offer
      * `availability` is now written by ProjectionWriter::replaceCollections()
@@ -281,6 +290,12 @@ class ShopContentWriter
         // headline/body likewise share one f_text row.
         $textByItem = DB::table('content.f_text')->whereIn('item_id', $itemIds)
             ->get(['item_id', 'headline', 'body'])->keyBy('item_id');
+        // Fix round 2, Finding 1: createdAt's real home. published_from is
+        // only present once an item has synced since ShopProductProjection
+        // started writing it — items.first_seen_at (below) is the
+        // TRANSITIONAL fallback for a row backfilled/synced before that,
+        // not the primary source; see this method's docblock.
+        $publishedByItem = DB::table('content.f_published')->whereIn('item_id', $itemIds)->pluck('published_from', 'item_id');
         $firstSeenByItem = DB::table('content.items')->whereIn('id', $itemIds)->pluck('first_seen_at', 'id');
 
         $offersByItem = [];
@@ -368,9 +383,30 @@ class ShopContentWriter
                     ];
                 }
 
-                $firstSeen = $firstSeenByItem[$itemId] ?? null;
                 $catalog = $catalogByItem->get($itemId);
                 $text = $textByItem->get($itemId);
+
+                // Fix round 2, Finding 1: published_from (the real scraped
+                // createdAt) wins whenever it exists, returned VERBATIM —
+                // not reformatted through Carbon, same as every other
+                // pass-through field in this method (handle/vendor/
+                // description/sku above). Reformatting bought nothing and
+                // cost byte-parity for free: Carbon::toIso8601String()
+                // normalises 'Z' to '+00:00', which is a valid, equivalent
+                // ISO-8601 rendering of the same instant but not the literal
+                // string the store originally sent. items.first_seen_at (a
+                // Partna-side synthetic timestamp, never an external string
+                // to preserve) is ONLY the fallback for a row that synced
+                // before ShopProductProjection started writing f_published —
+                // transitional, not the source of truth. Once every live
+                // item has synced at least once since this fix, the
+                // fallback branch stops firing in practice but stays
+                // correct to keep (an item can legitimately go a long time
+                // between syncs).
+                $published = $publishedByItem[$itemId] ?? null;
+                $createdAt = $published !== null
+                    ? (string) $published
+                    : (($firstSeen = $firstSeenByItem[$itemId] ?? null) === null ? null : Carbon::parse((string) $firstSeen)->toIso8601String());
 
                 $catalogue[] = [
                     'productId' => $catalog?->sku,
@@ -389,7 +425,7 @@ class ShopContentWriter
                     'available' => $baseOffer === null || $baseOffer->availability !== 'out_of_stock',
                     'image' => $cover,
                     'images' => $images,
-                    'createdAt' => $firstSeen === null ? null : Carbon::parse((string) $firstSeen)->toIso8601String(),
+                    'createdAt' => $createdAt,
                     'variants' => $variants,
                 ];
             }

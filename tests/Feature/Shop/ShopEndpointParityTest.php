@@ -114,8 +114,14 @@ function parityFixture(): array
         'handle' => 'wool-beanie',
         'vendor' => 'Acme Apparel',
         'description' => 'Warm wool beanie.',
+        // Fix round 2: images realistically INCLUDES the cover as its first
+        // element (see ShopContentWriter::cataloguesFor()'s own comment —
+        // every real Shopify scrape's images[] does; a round-0 fixture bug
+        // set this to [] while `image` was non-null, an unrealistic shape
+        // no live scraper produces, which spuriously diffed once the
+        // reconstruction correctly started prepending the cover).
         'image' => 'https://cdn.example.com/p3.jpg',
-        'images' => [],
+        'images' => ['https://cdn.example.com/p3.jpg'],
         'price' => '18.00',
         'currency' => 'AUD',
         'variantId' => 'p3',
@@ -147,8 +153,9 @@ function parityFixture(): array
         'handle' => 'linen-napkin-set',
         'vendor' => 'Store B Goods',
         'description' => 'Set of 4 linen napkins.',
+        // Fix round 2: see the identical note on p3 above.
         'image' => 'https://cdn.example.com/q2.jpg',
-        'images' => [],
+        'images' => ['https://cdn.example.com/q2.jpg'],
         'price' => '32.00',
         'currency' => 'USD',
         'variantId' => 'q2',
@@ -231,7 +238,7 @@ function brandAProductsDashboardShape(): array
             'url' => 'https://storea.example.com/products/wool-beanie',
             'price' => '18.00', 'currency' => 'AUD', 'available' => false,
             'image' => 'https://cdn.example.com/p3.jpg',
-            'images' => [],
+            'images' => ['https://cdn.example.com/p3.jpg'],
             'variants' => [],
             'handle' => 'wool-beanie', 'vendor' => 'Acme Apparel',
             'description' => 'Warm wool beanie.', 'variantId' => 'p3',
@@ -259,7 +266,7 @@ function brandBProductsDashboardShape(): array
             'url' => 'https://storeb.example.com/product/linen-napkin-set',
             'price' => '32.00', 'currency' => 'USD', 'available' => true,
             'image' => 'https://cdn.example.com/q2.jpg',
-            'images' => [],
+            'images' => ['https://cdn.example.com/q2.jpg'],
             'variants' => [],
             'handle' => 'linen-napkin-set', 'vendor' => 'Store B Goods',
             'description' => 'Set of 4 linen napkins.', 'variantId' => 'q2',

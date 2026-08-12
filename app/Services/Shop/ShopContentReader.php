@@ -39,10 +39,14 @@ use Illuminate\Support\Facades\DB;
  *
  * 2. PRODUCT FIELD BACKFILL LAG. `handle`/`vendor`/`description`/`variantId`
  *    (stored as `variant_ref`) round-trip through content.f_catalog/f_text
- *    as of fix round 1, Finding 3 (migration 20260813100002) — but only for
- *    an item written or re-synced AFTER that migration landed. An item
- *    whose facets were written earlier reads back null for these four until
- *    its next sync — a backfill-lag caveat, not a structural loss.
+ *    as of fix round 1, Finding 3 (migration 20260813100002, APPLIED to the
+ *    shared dev database) — but only for an item written or re-synced AFTER
+ *    that migration landed. `createdAt` (fix round 2, Finding 1) round-trips
+ *    through content.f_published.published_from the same way. An item whose
+ *    facets were written earlier reads back null (or, for `createdAt` only,
+ *    the items.first_seen_at transitional fallback — see
+ *    ShopContentWriter::cataloguesFor()'s docblock) until its next sync — a
+ *    backfill-lag caveat, not a structural loss.
  *
  * 3. `selectionMode`/`linkMode` are NOT stored per brand — fix round 1,
  *    Finding 4: `selection_mode` was dead (every real row's value was

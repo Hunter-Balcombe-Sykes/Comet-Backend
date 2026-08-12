@@ -46,6 +46,21 @@ final class ShopProductProjection
                 // writeFacets() merges this with the projection's top-level
                 // `headline` into the same f_text row.
                 'f_text' => ($description = self::str($data['description'] ?? null)) === null ? null : ['body' => $description],
+                // fix round 2, Finding 1: createdAt is not cosmetic —
+                // ShopCatalog::syncLatest() sorts on it to pick a latest-mode
+                // store's newest products, and the public wire still carries
+                // it. Only `published_from` — the dominant shape every other
+                // f_published-writing projector uses (BandcampReleaseProjector,
+                // YoutubeVideoProjector, SubstackArticleProjector, etc. all set
+                // published_from alone; `verbatim` is reserved for a source
+                // whose OWN date is relative prose, e.g.
+                // GoogleBusinessReviewProjector's "3 months ago" — not this
+                // case, and `precision` is registered but unused by any
+                // projector today, so there is no convention to follow for
+                // it here). published_from is a real timestamptz column, so
+                // an unparseable string must not reach it — checked with
+                // strtotime(), not written through.
+                'f_published' => ($createdAt = self::publishedFrom($data['createdAt'] ?? null)) === null ? null : ['published_from' => $createdAt],
             ]),
             'offers' => self::offers($data, $variants, $currency, $url),
             'variants' => array_map(
@@ -152,5 +167,21 @@ final class ShopProductProjection
         $value = is_string($value) ? trim($value) : null;
 
         return ($value === null || $value === '') ? null : $value;
+    }
+
+    /**
+     * The raw createdAt string, unchanged, when it parses as a real instant
+     * — passed through verbatim rather than reformatted, matching every
+     * other f_published-writing projector (they hand the source's own date
+     * string straight to published_from and let Postgres' timestamptz cast
+     * do the parsing on write). null on anything unparseable, so a
+     * corrupt/hand-typed value writes no f_published row at all rather than
+     * a garbage or epoch timestamp.
+     */
+    private static function publishedFrom(mixed $value): ?string
+    {
+        $value = self::str($value);
+
+        return ($value === null || strtotime($value) === false) ? null : $value;
     }
 }

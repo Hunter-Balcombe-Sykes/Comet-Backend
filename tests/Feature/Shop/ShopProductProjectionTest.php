@@ -128,6 +128,33 @@ it('drops f_catalog/f_text keys the blob omits, without emitting null noise', fu
         ->and($p['facets'])->not->toHaveKey('f_text');
 });
 
+it('writes createdAt to f_published.published_from, verbatim', function () use ($blob) {
+    // Fix round 2, Finding 1: createdAt is not cosmetic — ShopCatalog::
+    // syncLatest() sorts on it to pick a latest-mode store's newest
+    // products, so a lossy round-trip silently changes what a store shows.
+    // Passed through unchanged, matching every other f_published-writing
+    // projector (they hand the source's own date string straight to
+    // published_from; the timestamptz cast on write does the parsing).
+    $p = ShopProductProjection::fromBlob($blob(), 'AUD');
+
+    expect($p['facets']['f_published'])->toBe(['published_from' => '2026-08-04T13:16:08+10:00']);
+});
+
+it('writes no f_published row when createdAt is absent', function () use ($blob) {
+    $p = ShopProductProjection::fromBlob($blob(['createdAt' => null]), 'AUD');
+
+    expect($p['facets'])->not->toHaveKey('f_published');
+});
+
+it('writes no f_published row when createdAt is unparseable, rather than a null/epoch timestamp', function () use ($blob) {
+    // published_from is a real timestamptz column — an unparseable string
+    // must never reach it (Postgres would either reject it outright or, worse,
+    // silently misparse it into something that isn't the source's actual date).
+    $p = ShopProductProjection::fromBlob($blob(['createdAt' => 'not-a-date']), 'AUD');
+
+    expect($p['facets'])->not->toHaveKey('f_published');
+});
+
 it('derives a coord from the url and is stable across calls', function () {
     expect(ShopProductProjection::coordFor('https://x.test/p'))
         ->toBe('manual:'.sha1('https://x.test/p'))
