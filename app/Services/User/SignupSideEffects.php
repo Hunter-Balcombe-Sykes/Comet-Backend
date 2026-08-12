@@ -48,7 +48,15 @@ class SignupSideEffects
         ]);
     }
 
-    public function createWelcomeNotification(User $professional): void
+    /**
+     * @return int Rows actually inserted (0 or 1) — the caller's signal for
+     *             "this is a genuinely new account", not just "this call
+     *             succeeded" (a retry through an idempotency-first branch
+     *             elsewhere never reaches here at all, but a caller that DOES
+     *             reach here on every call needs this to gate one-shot
+     *             side effects like a welcome email).
+     */
+    public function createWelcomeNotification(User $professional): int
     {
         // Atomic dedup via the notifications_dedupe_key_per_pro_uq unique index
         // (user_id, dedupe_key): insertOrIgnore compiles to ON CONFLICT DO NOTHING, so a
@@ -58,7 +66,7 @@ class SignupSideEffects
         // bypasses Eloquent, so id + timestamps are set explicitly.
         $now = now();
 
-        Notification::query()->insertOrIgnore([
+        return Notification::query()->insertOrIgnore([
             'id' => (string) Str::uuid(),
             'user_id' => $professional->id,
             'type' => 'Info',

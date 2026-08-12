@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Dev;
 
 use App\Http\Controllers\Controller;
+use App\Mail\Account\WelcomeMail;
 use App\Mail\Auth\EmailChangeMail;
 use App\Mail\Auth\EmailConfirmMail;
 use App\Mail\Auth\InviteMail;
@@ -150,6 +151,7 @@ class MailPreviewController extends Controller
                 'two-factor-enabled' => ['label' => 'Two-factor enabled', 'make' => fn () => new TwoFactorEnabledMail('sam@example.com', 'Sam')],
             ],
             'Account' => [
+                'welcome' => ['label' => 'Welcome', 'make' => fn () => new WelcomeMail('sam@example.com', 'sams-cafe')],
                 'deletion-requested' => ['label' => 'Deletion requested', 'make' => fn () => new AccountDeletionRequestedMail('Sam', 'https://app.partna.au/account/deletion/confirm?token=preview')],
                 'deletion-scheduled' => ['label' => 'Deletion scheduled', 'make' => fn () => new AccountDeletionScheduledMail('Sam', now()->addDays(30)->toDayDateTimeString().' (UTC)', 'https://app.partna.au/account/deletion/cancel?token=preview')],
                 'deletion-cancelled' => ['label' => 'Deletion cancelled', 'make' => fn () => new AccountDeletionCancelledMail('Sam')],
