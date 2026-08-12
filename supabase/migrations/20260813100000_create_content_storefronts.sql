@@ -2,6 +2,8 @@
 -- Slice 5a §3.1. A 1:1 sidecar on content.collections carrying storefront
 -- behaviour, so content.collections stays generic for the service and menu
 -- categories that slices 3 and 4 put in it.
+--
+-- ROLLBACK: DROP TABLE IF EXISTS content.storefronts;
 CREATE TABLE IF NOT EXISTS content.storefronts (
     collection_id       uuid PRIMARY KEY REFERENCES content.collections(id) ON DELETE CASCADE,
     provider            text        NOT NULL,
