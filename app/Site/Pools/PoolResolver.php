@@ -300,7 +300,7 @@ class PoolResolver
             ->get(['item_id', 'handle'])
             ->keyBy('item_id');
 
-        $covers = DB::connection('pgsql')->table('content.item_media')
+        $coverRows = DB::connection('pgsql')->table('content.item_media')
             ->join('content.media_assets', 'content.media_assets.id', '=', 'content.item_media.asset_id')
             ->whereIn('content.item_media.item_id', $ids)
             ->whereIn('content.item_media.role', ['cover', 'poster', 'gallery'])
@@ -315,13 +315,12 @@ class PoolResolver
                 'content.media_assets.site_media_id',
                 'content.media_assets.width',
                 'content.media_assets.height',
-            ])
-            ->groupBy('item_id');
+            ]);
 
         // ONE resolver call for the page — MediaUrlResolver batches its
         // variant lookup, and this sits on the public hot path.
         $resolvedUrls = $this->mediaUrls->resolve(
-            $covers->flatten(1)->map(fn (object $row) => (object) [
+            $coverRows->map(fn (object $row): object => (object) [
                 'id' => $row->asset_id,
                 'source_url' => $row->source_url,
                 'storage_path' => $row->storage_path,
@@ -330,6 +329,8 @@ class PoolResolver
                 'height' => $row->height,
             ])
         );
+
+        $covers = $coverRows->groupBy('item_id');
 
         $out = [];
         foreach ($items as $itemId => $item) {
