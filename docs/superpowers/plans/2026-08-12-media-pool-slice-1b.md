@@ -403,7 +403,7 @@ git commit -m "feat(ingest): mapPhoto carries photographer attribution and the r
 - Consumes: Task 2's `mapPhoto()` output, arriving as a `RecordView`.
 - Produces: a media entry carrying `role`, `ref`, `url`, `width`, `height`, `attribution`. `headline` stays `null` (D7). Consumed by Task 4.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Unit/Ingest/Projection/GoogleBusinessMediaProjectorTest.php`:
 
@@ -448,12 +448,11 @@ it('projects without url or attribution when Google supplied neither', function 
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
-Run: `./vendor/bin/pest tests/Unit/Ingest/Projection/GoogleBusinessMediaProjectorTest.php`
-Expected: FAIL on the first test — no `url` key.
+Observed: 2 failed, 3 passed — the missing `url` key and the un-bumped `version()`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace `project()` in `app/Ingest/Projection/GoogleBusinessMediaProjector.php`, and update the class docblock, which currently claims the projector emits no URL:
 
@@ -520,12 +519,13 @@ volatile. All three `GoogleBusinessConnector` streams declare `volatile: []`
 
 The `version()` bump to 2 is load-bearing: `content.source_items.projector_version` records which shape produced a row, and leaving it at 1 makes rows written before and after this task indistinguishable.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
-Run: `./vendor/bin/pest tests/Unit/Ingest/Projection/GoogleBusinessMediaProjectorTest.php`
-Expected: PASS, 3 tests.
+5 passed. `tests/Feature/Ingest` + `tests/Unit/Ingest` → 450 passed.
 
-- [ ] **Step 5: Commit**
+Added a case the plan did not list: the pre-1b projector's reason for existing was that it emitted no keyed url, pinned in `ProjectionTest.php` by `json_encode($projected)` not containing `key=`. Now that a url IS emitted, that guard is restated in this file against a populated url — the resolved lh3 link is unkeyed, so an api key still never reaches a content row.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/Ingest/Projection/GoogleBusinessMediaProjector.php tests/Unit/Ingest/Projection/GoogleBusinessMediaProjectorTest.php
