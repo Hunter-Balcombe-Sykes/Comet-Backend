@@ -177,6 +177,7 @@ Unchanged and adjacent: the raw Instagram `businessCategory` string *is* on the 
 | 5 | How does free-text matching avoid false positives? | **A separate, vetted, food-free `TEXT_KEYWORD_SECTORS`**, pinned by an adversarial corpus. |
 | 6 | Scope, after review? | **One branch, all findings fixed together.** |
 | 7 | **[rev3]** Google demotes a business out of food while menu content is live? | **Refuse the demotion when content exists.** §4.8. |
+| 8 | **[rev4]** Wait for the content-pool convergence to finish first? | **No — implement now, ahead of the Instagram media-pool work.** §9. |
 
 ---
 
@@ -489,18 +490,22 @@ Five files plus comment repairs. No migration.
 
 ### 4.1 `IdentitySync::applySector`
 
-Collapses from two branches to one. `$overwrite` stops governing sector but stays on
-`applyUserIdentityFields` for `applyWorkplaceFields` (`:126`) and `mirrorPublicContactNumber`
-(`:188`). The call at `:187` drops its `$overwrite` argument.
+Collapses from two branches to one. **`$overwrite` stops governing sector precedence**, but the
+parameter stays on `applySector` — §4.8 needs it as the sanctioned `$isBusiness` discriminator, and
+`applyUserIdentityFields` still passes it to `applyWorkplaceFields` (`:126`) and
+`mirrorPublicContactNumber` (`:188`). The signature at `:187` is unchanged; what changes is that
+`$overwrite` no longer selects between two precedence branches.
 
 ```php
-private function applySector(User $user, ?string $mappedSector): void
+private function applySector(User $user, bool $overwrite, ?string $mappedSector): void
 {
     if ($mappedSector === null) return;
     if (! SectorProvenance::mayWrite($user, SectorProvenance::GOOGLE)) return;
 
     // §4.8 — pure predicate first, DB probe only on an actual demotion attempt.
-    if (SectorProvenance::isFoodDemotion($user, $mappedSector) && $this->foodContent->existsFor($user)) {
+    // $overwrite is already AccountCapabilities::for($user)->google_business_full_sync (:56).
+    if (SectorProvenance::isFoodDemotion($overwrite, $user->sector, $mappedSector)
+        && $this->foodContent->existsFor($user)) {
         SectorProvenance::logTransition($user, $mappedSector, self::GOOGLE_SOURCE, __METHOD__, 'refused_food_demotion');
         return;
     }
@@ -704,14 +709,22 @@ there is no cleanup (`UserObserver::updated:102-104` branches on `account_type` 
 class un-unit-testable without a database.
 
 ```php
-// SectorProvenance — pure, no DB.
-public static function isFoodDemotion(User $user, string $incomingSector): bool
+// SectorProvenance — pure, no DB, no account_type read.
+public static function isFoodDemotion(bool $isBusiness, ?string $currentSector, string $incomingSector): bool
 {
-    return $user->isBusiness()
-        && SectorTaxonomy::isFood($user->sector)
+    return $isBusiness
+        && SectorTaxonomy::isFood($currentSector)
         && ! SectorTaxonomy::isFood($incomingSector);
 }
 ```
+
+**[rev4] `$isBusiness` is passed in, not derived.** An earlier draft called `$user->isBusiness()`,
+which reads `account_type` — CLAUDE.md permits that only inside `AccountCapabilities`, and
+`OnboardingSuggestions.php:170` names `google_business_full_sync` "the one sanctioned account-type
+discriminator (never raw account_type)". Callers resolve it from the capability:
+`IdentitySync` already holds it as `$overwrite` (`:56`), and `InstagramIdentitySync` resolves
+`AccountCapabilities::for($user)->google_business_full_sync` once per fold. Passing a bool also keeps
+the predicate trivially unit-testable with no model at all.
 
 ```php
 // App\Services\Profile\FoodContentProbe — one query, injected into both sync writers.
@@ -732,7 +745,11 @@ query** so the lock holds for one round-trip:
 - `site.platform_connections` where `platform = 'online-ordering'` (the shape `MenuSource::entries`
   uses, `MenuSource.php:240-245`).
 - `site.pages` where `capability IN ('menu','online_ordering','reservations')`.
-- `site.sections` of gated kind `menu_item` (`PageCapabilities.php:36-40`).
+- `content.items` where `kind = 'menu_item'` and `removed_at IS NULL`. **[rev4]** An earlier draft
+  said `site.sections` of kind `menu_item` — impossible: `site.sections.kind` is CHECK-constrained to
+  `collection|richtext|contact_form|newsletter|map|document|policy`. `menu_item` is a *content item*
+  kind (`PageCapabilities::GATED_KINDS`, `:36-40`). This clause therefore already reads the table
+  slice 4 migrates `site.menu_items` into.
 
 **Use an explicit `Site::query()->where('user_id', …)` sub-select, never `$fresh->site`.**
 `AppServiceProvider.php:372` sets `Model::preventLazyLoading(! app()->isProduction())`, so touching
@@ -857,7 +874,7 @@ names what makes it *fail*.
 | `IdentitySyncConcurrencyTest` | stays green **unmodified** (`'manual'` at `:82`, rank 3 > 2) | — |
 | **cache/purge** (new) | a sector change from either writer touches the site → `SiteObserver::saved` dispatches the purge; and the touch happens **outside** the lock | the rev-2 C4 regression returns, or a site write lands inside the user-row lock |
 | **food demotion** (new) | business + food sector + food content + non-food incoming → refused and logged with `refused_food_demotion`; same without content → allowed; **Menu page but zero menu items → still refused** (§4.8's missed case); manual pick always allowed | §4.8 is dropped, leaks into `SectorController`, or the probe omits `site.pages` |
-| — **harness [rev4]** | `IdentitySyncTest`'s `beforeEach` (`:16-22`) creates users/sites/blocks only — **not `site.menus`** (`tests/Pest.php:910` is a separate helper). `:284-300` (`bizgooglesector`: business, `cafe`+google-business, mapped to `barber`) lands directly on the demotion path and would **error** with `no such table` | the tables aren't added to the harness |
+| — **harness [rev4, corrected]** | The rev-3 review claimed `IdentitySyncTest` lacks `site.menus` and would error. **Verified false:** the menus DDL at `tests/Pest.php:900-930` sits *inside* `setupSitesTable()` (which spans `:679-1041`), and that helper creates `site.menus`, `site.menu_items`, `site.menu_categories`, `site.menu_item_categories`, `site.menu_item_platforms` **and** `site.platform_connections`. `IdentitySyncTest:18` calls it. What is genuinely absent is **`site.pages` and `site.sections`**, created by `setupSectionsTables()` (`:2149`), which this suite does not call — so it is the *pages* clause that errors, not the menus one. Add `setupSectionsTables()` to `IdentitySyncTest`'s `beforeEach`. `:284-300` (`bizgooglesector`: business, `cafe`+google-business, mapped to `barber`) still lands on the demotion path and still needs the fix | `setupSectionsTables()` is not added |
 | **`logTransition`** (new) | fires with `outcome: applied` on every actual change and `outcome: refused_food_demotion` on every §4.8 refusal, reading `from`/`from_source` off the **locked** row | §4.9 is stubbed, or a writer passes its pre-lock instance |
 | `OnboardingSuggestionsTest` — **update `:66` and `:103` [rev4]** | there are three `askSector` assertions (`:54`, `:66`, `:103`) and `onboardingUser` (`:21-32`) never sets `sector_source`. Both `:66` (partna, `hair-salon`) **and** `:103` (business, `restaurant`) flip false→true. Rev 3 named only `:66` | — |
 | — new | `askSector` true for an instagram-sourced sector on **both** partna and business; false for manual | the `! $isBusiness` gate returns |
@@ -936,3 +953,42 @@ current statement of the law.
   divergent implementations of one rule is a known hazard.
 - **Whether `OnboardingSuggestions` is one-shot or polled** (§4.6). Needs a frontend answer; does not
   block the backend change.
+
+---
+
+## 9. Sequencing against the content-pool programme **[rev4 — Decision 8]**
+
+**Implement now. Do not wait for the convergence, and land ahead of the Instagram media-pool work.**
+
+Two in-flight programmes touch surfaces this spec uses:
+
+| Programme | Overlap | Status when this was decided |
+|---|---|---|
+| `2026-08-11-content-pool-convergence-design.md` | retires `site.menu_items` et al onto `content.items` — **one of §4.8's four probe clauses** | slice 2 (events) in flight; **menus are slice 4** of seven, each with its own spec → plan → implement cycle |
+| `2026-08-11-media-pool-instagram-EXECUTE-PROMPT.md` + `2026-08-11-instagram-multi-photo-mirror-design.md` | rewrites `InstagramConnectionSeeder`'s photo mirroring — **the file §4.3 changes** | **not started.** The seeder has zero `pool` references; the mirror spec is "pending owner sign-off" |
+
+**Why not wait.** The decisive argument is specific to Decision 4. This spec deliberately has **no
+backfill**, and §1.5 establishes that a partna + instagram pre-account build has no self-healing
+path — not cron, not the dashboard button, not a user. So every Instagram build between now and
+slice 4 acquires a null or wrong sector that **nothing later corrects**. Delay does not postpone the
+cost; it accumulates permanently-wrong rows. Every other consideration here is reversible and that
+one is not.
+
+Against that, the convergence tax is one expression: three of four probe clauses survive (§4.8), and
+the menu-items clause is isolated as a single named sub-query precisely so slice 4 swaps it rather
+than rewriting the probe.
+
+**Why ahead of the media-pool work specifically.** Going first means that work rebases onto a
+surgical lock-and-refresh. Going second means §4.3 must be re-derived against a rewritten `seed()` —
+and its `$user->refresh()` placement depends on `$user` being resolved at `:227` and consumed at
+`:230`, an assumption that survives a clean textual merge while silently ceasing to hold. A conflict
+git cannot see is worse than one it can.
+
+**Obligations this creates on other work:**
+
+1. **Slice 4 (menus)** owns migrating `FoodContentProbe`'s menu-items clause from
+   `site.menus`/`site.menu_items` to `content.items where kind = 'menu_item'`. Add it to that
+   slice's migration checklist — the probe is a silent consumer, not a wire surface, so nothing else
+   will surface it.
+2. **The Instagram media-pool / multi-photo-mirror work** re-checks §4.3's `refresh()` placement
+   after reordering `seed()`.
