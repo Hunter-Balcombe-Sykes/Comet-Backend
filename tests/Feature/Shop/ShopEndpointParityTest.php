@@ -2,8 +2,10 @@
 
 use App\Models\Core\Site\ShopBrand;
 use App\Services\Migration\ShopBackfiller;
+use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\WooCommerceScraper;
+use Illuminate\Support\Facades\DB;
 
 // Slice 5a Task 7 §Step 1-2. A response-shape diff, not a shape review: the
 // expected arrays below were CAPTURED by dumping the real JSON these five
@@ -511,4 +513,140 @@ it('GET /brands/{id}/connect/status — matches the pre-Task-7 dump', function (
             'logoMarkSvg' => 'https://cdn.example.com/a-mark.svg',
         ],
     ]);
+});
+
+// ── Task 8: the nine write endpoints, repointed to content.* ──────────────
+//
+// Scope note carried over from the header above: this file's fixtures now
+// also exercise the WRITE endpoints Task 8 repoints. makeStoreCollection()
+// (tests/Pest.php) builds a store already landed in content.* the same way
+// ShopBackfiller does — through the real ShopContentWriter::upsertStore() +
+// ProjectionWriter::writeManualItem() lane, not hand-rolled rows.
+
+it('setProducts writes the selection to content.* in the given order', function () {
+    // setProducts() always re-fetches the LIVE catalog (picker-cache miss
+    // here) rather than reading what's already selected, so the mocked
+    // catalog below is what the user is choosing from — withProducts: 0
+    // keeps the fixture from seeding site.shop_products at all, so the
+    // toBe(0) assertion below proves the ENDPOINT writes nothing there,
+    // not merely that it doesn't add to what the fixture itself seeded.
+    // makeShopBrand()'s defaults: provider=shopify, url=https://store.test,
+    // currency=AUD.
+    [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 0);
+    mockShopService(ShopifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchProducts')->with('https://store.test', 'AUD')->andReturn([
+            ['productId' => 'sku-a', 'title' => 'A', 'url' => 'https://store.test/a', 'price' => '10.00', 'currency' => 'AUD', 'available' => true],
+            ['productId' => 'sku-b', 'title' => 'B', 'url' => 'https://store.test/b', 'price' => '10.00', 'currency' => 'AUD', 'available' => true],
+        ]);
+    });
+
+    actingAsUser($user)->putJson("/api/platforms/shop/brands/{$brandId}/selection", [
+        'productIds' => ['sku-b', 'sku-a'],
+    ])->assertOk();
+
+    $positions = DB::table('content.collection_items')->where('collection_id', $collectionId)
+        ->orderBy('position')->pluck('item_id');
+    expect($positions)->toHaveCount(2);
+    $itemIdForSku = fn (string $sku) => DB::table('content.f_catalog')->where('sku', $sku)->value('item_id');
+    expect($positions->all())->toBe([$itemIdForSku('sku-b'), $itemIdForSku('sku-a')]);
+    expect(DB::table('site.shop_products')->count())->toBe(0);
+});
+
+it('setProducts stamps products_curated_at on the storefront', function () {
+    // #SEM-1: this is the flag ShopContentWriter::isCurated() reads FIRST —
+    // not the legacy site.shop_brands column (Task 8 stops writing it).
+    [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 1);
+    mockShopService(ShopifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchProducts')->with('https://store.test', 'AUD')->andReturn([
+            ['productId' => 'sku-a', 'title' => 'A', 'url' => 'https://store.test/a', 'price' => '10.00', 'currency' => 'AUD', 'available' => true],
+        ]);
+    });
+
+    actingAsUser($user)->putJson("/api/platforms/shop/brands/{$brandId}/selection",
+        ['productIds' => ['sku-a']])->assertOk();
+
+    expect(DB::table('content.storefronts')->where('collection_id', $collectionId)
+        ->value('products_curated_at'))->not->toBeNull();
+});
+
+it('removeBrand retires items rather than deleting them', function () {
+    [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 2);
+
+    actingAsUser($user)->deleteJson("/api/platforms/shop/brands/{$brandId}")->assertOk();
+
+    expect(DB::table('content.items')->where('kind', 'product')->count())->toBe(2)
+        ->and(DB::table('content.items')->whereNull('removed_at')->count())->toBe(0)
+        ->and(DB::table('content.collections')->count())->toBe(0);
+});
+
+it('removeProduct retires one item and leaves its siblings alone', function () {
+    // The individual-products bucket, not a connected store — removeProduct()
+    // only ever operates on ShopController::INDIVIDUAL_BRAND_ID. Built via
+    // three real addProduct() calls (not makeStoreCollection(), which seeds a
+    // regular store) so this exercises the actual endpoint pairing under test.
+    [$user] = makeShopBrand();
+
+    mockShopService(GenericShopScraper::class, function ($m) {
+        $m->shouldReceive('readProductPage')->andReturn(
+            ['outcome' => GenericShopScraper::OUTCOME_PRODUCT, 'product' => ['productId' => 'p1', 'title' => 'One', 'url' => 'https://s.test/p1', 'price' => '10.00'], 'storeUrl' => null],
+            ['outcome' => GenericShopScraper::OUTCOME_PRODUCT, 'product' => ['productId' => 'p2', 'title' => 'Two', 'url' => 'https://s.test/p2', 'price' => '10.00'], 'storeUrl' => null],
+            ['outcome' => GenericShopScraper::OUTCOME_PRODUCT, 'product' => ['productId' => 'p3', 'title' => 'Three', 'url' => 'https://s.test/p3', 'price' => '10.00'], 'storeUrl' => null],
+        );
+    });
+
+    actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => 'https://s.test/p1'])->assertSuccessful();
+    actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => 'https://s.test/p2'])->assertSuccessful();
+    actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => 'https://s.test/p3'])->assertSuccessful();
+    expect(DB::table('content.items')->whereNull('removed_at')->count())->toBe(3);
+
+    actingAsUser($user)->deleteJson('/api/platforms/shop/products/p2')->assertOk();
+
+    expect(DB::table('content.items')->whereNull('removed_at')->count())->toBe(2);
+});
+
+it('forget removes every store for the user and retires their items', function () {
+    [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 2);
+
+    actingAsUser($user)->deleteJson('/api/platforms/shop')->assertOk();
+
+    expect(DB::table('content.collections')->count())->toBe(0)
+        ->and(DB::table('content.items')->whereNull('removed_at')->count())->toBe(0);
+});
+
+// ── Step 5: the inertness proof ────────────────────────────────────────────
+//
+// site.shop_products is fully retired — no write endpoint touches it anymore
+// (setProducts/addProduct/removeProduct all moved to ShopContentWriter).
+//
+// site.shop_brands is a DELIBERATE deviation from the brief's "written by
+// nothing" framing, reported in the Task 8 report rather than silently
+// forced green: it stays the operational anchor row MAX_BRANDS/dedup/
+// position/ShopBrandConnectJob/ProcessShopBrandLogoJob depend on (none of
+// those are Task 8's to rewrite), AND — more importantly — it is still what
+// PublicIntegrationConnectionResource reads for the LIVE, CDN-cached public
+// sitepage (app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php
+// eager-loads `shopBrands.products` and never touches content.*). Stopping
+// those writes would make a visitor's shop card go stale the moment a user
+// edits their store, with nothing in this slice's scope to fix it. The two
+// tests below assert the real, verified state of both tables rather than one
+// aspirational claim that doesn't hold for both.
+
+it('no shop endpoint writes site.shop_products — the JSONB blob table is fully retired', function () {
+    // exerciseAllShopWrites() calls updateSettings(), which hard-requires a
+    // current site.
+    [$user, $brand] = makeShopBrand(withSite: true);
+    $before = DB::table('site.shop_products')->max('updated_at');
+
+    exerciseAllShopWrites($this, $user, $brand);
+
+    expect(DB::table('site.shop_products')->max('updated_at'))->toBe($before);
+});
+
+it('site.shop_brands keeps being written — the anchor row + live public-wire read source', function () {
+    [$user, $brand] = makeShopBrand(withSite: true);
+    $before = DB::table('site.shop_brands')->max('updated_at');
+
+    exerciseAllShopWrites($this, $user, $brand);
+
+    expect(DB::table('site.shop_brands')->max('updated_at'))->not->toBe($before);
 });

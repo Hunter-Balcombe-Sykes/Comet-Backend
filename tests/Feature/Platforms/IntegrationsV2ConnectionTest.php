@@ -15,6 +15,9 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 8: addBrand()/setProducts() now write content.* (ShopContentWriter)
+    // — the stand-in schema must exist for the shop tests below.
+    setupContentTables();
 });
 
 function iv2User(string $h): User

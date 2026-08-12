@@ -14,6 +14,7 @@ use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\SquarespaceScraper;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\PublicSite\SitepageDataResolverService;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -119,7 +120,17 @@ it('T1: with the deferred flag empty, addBrand returns the pre-change 200 shape 
             'logo' => 'https://t1.example.com/logo.png',
             'discountCode' => '',
             'selectionMode' => 'manual',
-            'linkMode' => 'product',
+            // Task 8: addBrand()'s response is now built from ShopContentReader
+            // (matching GET /brands, which Task 7 already repointed) instead of
+            // the legacy ShopBrand::toBrandArray() — linkMode is derived from
+            // site.sites.shop_link_mode, and shopAsyncUser() has no site row,
+            // so it falls to Site::DEFAULT_SHOP_LINK_MODE ('checkout') rather
+            // than ShopBrand's own per-brand column default ('product'). Same
+            // documented divergence ShopEndpointParityTest's GET /brands test
+            // already accepted for brand-b. A real dashboard user always has a
+            // site by the time they can connect a shop, so this never surfaces
+            // in production.
+            'linkMode' => 'checkout',
             'referralQuery' => '',
             'individual' => false,
             'products' => [],
@@ -498,7 +509,13 @@ it('T5: a pending brand settles to ready after the job runs, and the poll report
                 'logo' => 'https://t5.example.com/logo.png',
                 'discountCode' => '',
                 'selectionMode' => 'manual',
-                'linkMode' => 'product',
+                // Task 8: ShopBrandConnectJob's success write now also
+                // upserts content.storefronts, so connectStatus()'s
+                // brandPayload() finds a content.* row here (no legacy
+                // fallback needed) — same site-default divergence as T1
+                // above ('checkout' vs the legacy per-brand 'product'
+                // default), shopAsyncUser() has no site row.
+                'linkMode' => 'checkout',
                 'referralQuery' => '',
                 'individual' => false,
                 'products' => [],
@@ -720,12 +737,18 @@ it('T20: a failed brand is retained, still returns products, and re-POSTing its 
         'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    ShopBrand::create([
+    $brand = ShopBrand::create([
         'connection_id' => $conn->id, 'brand_id' => 't20-brand', 'provider' => 'shopify',
         'url' => 'https://t20.example.com', 'source_url' => 'https://t20.example.com',
         'position' => 0, 'connect_status' => 'failed',
         'connect_error' => 'We could not load that account. Please try again.',
     ]);
+    // Task 8: brandProducts() now reads ShopContentReader with no legacy
+    // fallback (hybridBrandMap() is gone) — a brand this test builds by hand
+    // needs the content.* row a real deferred connect would already have
+    // (ShopBrandConnectJob::markTerminal() upserts one on every 'failed'
+    // transition; see that job's own docblock).
+    app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
 
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));

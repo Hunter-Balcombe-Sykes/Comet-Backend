@@ -36,12 +36,13 @@ use App\Services\Platforms\StrandedPendingWindow;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\Shop\ShopContentReader;
+use App\Services\Shop\ShopContentWriter;
+use App\Site\Documents\BuildState;
 use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // PROVIDER-AGNOSTIC shop endpoints (formerly ShopifyController) — MULTI-BRAND.
@@ -114,6 +115,7 @@ class ShopController extends ApiController
         private readonly ShopBrandIdentity $identity,
         private readonly ContentPopularityReader $popularity,
         private readonly ShopContentReader $contentReader,
+        private readonly ShopContentWriter $content,
     ) {}
 
     protected function platform(): string
@@ -121,15 +123,16 @@ class ShopController extends ApiController
         return 'shop';
     }
 
-    // GET /api/platforms/shop/brands — all connected brands. Task 7: served
-    // from content.* (ShopContentReader) merged over site.shop_brands — see
-    // hybridBrandMap()'s docblock for why a bare content.*-only read is
-    // unsafe (a brand not yet synced into content.* would silently vanish
-    // from this list until Task 8 repoints the writes).
+    // GET /api/platforms/shop/brands — all connected brands. Task 7 served
+    // this from content.* (ShopContentReader) merged over the live
+    // site.shop_brands, because addBrand()/the deferred-connect job/
+    // setProducts() didn't write content.* yet. Task 8 makes all three do
+    // so (see each method below), so the merge is gone — a bare
+    // ShopContentReader::brandMap() read is now safe.
     public function brands(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $map = $this->hybridBrandMap($user);
+        $map = $this->contentReader->brandMap($user, $this->productRanksFor($user));
 
         return $this->success([
             'brands' => ShopBrandResource::collection(array_values($map))->resolve(),
@@ -337,10 +340,20 @@ class ShopController extends ApiController
                 Cache::put($this->catalogKey($id), $detectedProducts, self::applyJitter(self::CATALOG_TTL_MINUTES * 60));
             }
 
+            // Task 8: keep content.* current the SAME moment the legacy
+            // anchor row is — even on the deferred branch, which writes only
+            // url/provider/source_url/currency/connect_status='pending' here
+            // (name/favicon/logo land later via ShopBrandConnectJob's own
+            // upsertStore() call, mirroring this one). This is what makes
+            // the Task 7 hybridBrandMap() merge droppable: brands()/
+            // brandProducts()/selection() now always find a row.
+            $this->content->upsertStore($brandRow->fresh(), (string) $user->id);
+
             // The connection's payload is a static marker (FOUND-25) — the
             // observer's payload-dirty gate won't fire for a brand add after the
             // first connect, so purge + preset-resolve explicitly, once.
             $this->refresher->refresh($connection);
+            $this->bumpSiteCache($user);
 
             // P3 review fix: build the response body INSIDE the lock (restored
             // pre-W9 behaviour). Reading $brandRow->fresh() AFTER the lock
@@ -351,7 +364,14 @@ class ShopController extends ApiController
             // stay outside the lock (self-deadlocks under the sync driver —
             // see the sentinel comment above); the response payload itself has
             // no such constraint and is cheap to build while still holding it.
-            $resolved = (new ShopBrandResource($brandRow->fresh('products')->toBrandArray()))->resolve();
+            //
+            // Built from ShopContentReader now (Task 8), matching brands()/
+            // etc — the upsertStore() call just above guarantees a row exists
+            // to read; the legacy toBrandArray() fallback covers only a
+            // theoretical read-your-own-write miss.
+            $resolved = (new ShopBrandResource(
+                $this->contentReader->brandMap($user)[$id] ?? $brandRow->fresh('products')->toBrandArray()
+            ))->resolve();
 
             if (! $deferred) {
                 // Best-effort mark processing (background removal + SVG) —
@@ -443,16 +463,19 @@ class ShopController extends ApiController
      *
      * Deliberately NOT a bare ShopContentReader::brandMap() call like brands()/
      * brandProducts()/selection() below: connectStatus() is a real-time poll
-     * of an in-flight/just-settled async job (ShopBrandConnectJob), and that
-     * job settles connect_status/connect_error/name/currency/favicon/logo on
-     * site.shop_brands directly — it never calls ShopContentWriter::
-     * upsertStore(). So at the exact moment this endpoint has anything
-     * interesting to report ('failed' or freshly-'ready'), content.* almost
-     * always has NO row for this brand yet (see ShopContentReader's gap 1) —
-     * a bare content.*-only read would 404-shaped-empty the response right
-     * when the dashboard's "connecting your store…" UI is watching it
-     * resolve. The fallback closes that window; once the brand has been
-     * through its first sync, content.* takes over transparently.
+     * of an in-flight/just-settled async job (ShopBrandConnectJob). As of
+     * Task 8 that job DOES call ShopContentWriter::upsertStore() on every
+     * settle (success or terminal failure) — same-request-cycle read-your-
+     * own-write, so the content.* branch is what actually serves the
+     * overwhelming majority of polls now. The legacy fallback stays for two
+     * narrower cases this endpoint alone still needs to cover: (1) a brand
+     * connected before Task 8 shipped that was never backfilled/synced, and
+     * (2) addBrand()'s SYNCHRONOUS (non-deferred) branch settles the legacy
+     * row and calls upsertStore() itself inside the SAME lock — genuinely
+     * atomic — but this endpoint is never the one polled for a sync connect
+     * in practice (the 200 response already carries the full brand), so the
+     * fallback here is defence-in-depth rather than a load-bearing gap-
+     * closer the way it was pre-Task-8.
      */
     private function brandPayload(User $user, ShopBrand $brand): array
     {
@@ -509,6 +532,21 @@ class ShopController extends ApiController
                 $brand->update($updates);
             }
 
+            // Task 8: mirror onto content.* so the dashboard read endpoints
+            // (bare ShopContentReader calls now, no legacy fallback) see
+            // this edit immediately.
+            $collectionId = $this->content->upsertStore($brand->fresh(), (string) $user->id);
+            if (($validated['selectionMode'] ?? null) === 'latest') {
+                // #SEM-1 opt-back-in, content.* side: upsertStore()'s own
+                // conflict clause deliberately COALESCEs products_curated_at
+                // (never lets a routine sync clobber an existing stamp — see
+                // that method's docblock), so it cannot itself un-curate a
+                // brand. This direct write is the one place allowed to
+                // un-set it — mirrors the legacy $updates write above.
+                DB::table('content.storefronts')->where('collection_id', $collectionId)
+                    ->update(['products_curated_at' => null, 'updated_at' => now()]);
+            }
+
             $syncFailed = false;
             if (($validated['selectionMode'] ?? null) === 'latest') {
                 // Sync now (idempotent on re-set). null = reachable but empty;
@@ -526,8 +564,11 @@ class ShopController extends ApiController
 
             $connection = $this->writeConnection($user, self::MARKER);
             $this->refresher->refresh($connection);
+            $this->bumpSiteCache($user);
 
-            $payload = (new ShopBrandResource($brand->fresh('products')->toBrandArray()))->resolve();
+            $payload = (new ShopBrandResource(
+                $this->contentReader->brandMap($user)[$id] ?? $brand->fresh('products')->toBrandArray()
+            ))->resolve();
             $payload['latestSyncPending'] = $syncFailed;
 
             return $this->success($payload);
@@ -581,6 +622,17 @@ class ShopController extends ApiController
 
             $brand = ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first();
             if ($brand) {
+                // Task 8: retire this store's items and drop its content.*
+                // row BEFORE the legacy delete below — collectionIdFor() is
+                // read-only (never mints a row just to immediately delete
+                // it), so a brand that never synced into content.* is a
+                // no-op here. NEVER a hard delete of content.items — see
+                // ShopContentWriter::retireStore()'s own docblock.
+                $collectionId = $this->content->collectionIdFor($brand, (string) $user->id);
+                if ($collectionId !== null) {
+                    $this->content->retireStore((string) $user->id, $collectionId);
+                }
+
                 // Explicit child delete (not just relying on the DB's ON DELETE
                 // CASCADE) — mirrors MenuFetchJob's pattern elsewhere in this
                 // codebase, and keeps this deterministic on SQLite in tests,
@@ -591,6 +643,7 @@ class ShopController extends ApiController
 
             $connection = $this->writeConnection($user, self::MARKER);
             $this->refresher->refresh($connection);
+            $this->bumpSiteCache($user);
 
             return $this->success(['brands' => ShopBrandResource::collection($this->allBrands($user))->resolve()]);
         });
@@ -621,14 +674,14 @@ class ShopController extends ApiController
     // Cache::remember short-circuits the live scrape when the cache was already
     // warmed by addBrand or a recent GET, so re-opening the picker within the
     // 10-min window is instant and doesn't re-scrape the upstream store.
-    // Task 7: the existence check + the {url, provider, sourceUrl, fetchMode}
-    // dispatch shape providerProducts() reads now come from hybridBrandMap()
-    // (content.* merged over site.shop_brands) — see that method's docblock
-    // for why the merge, not a bare ShopContentReader::brandMap() call.
+    // Task 8: the existence check + the {url, provider, sourceUrl, fetchMode}
+    // dispatch shape providerProducts() reads now come straight from
+    // ShopContentReader::brandMap() — every writer below keeps content.* in
+    // sync, so the Task 7 hybrid merge is no longer needed.
     public function brandProducts(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        $map = $this->hybridBrandMap($user);
+        $map = $this->contentReader->brandMap($user, $this->productRanksFor($user));
         if (! isset($map[$id])) {
             return $this->error('Brand not found.', 404);
         }
@@ -722,68 +775,54 @@ class ShopController extends ApiController
                 ->filter()
                 ->values();
 
-            // Rebuild the product rows wholesale — mirrors the old
-            // whole-array-replace semantics of the JSONB `products` write.
-            // Transactional (MenuFetchJob::persist() precedent): the old single
-            // JSONB write was atomic by nature, so the delete+reinsert here must
-            // be too — a mid-loop failure must not leave a partial product set.
-            //
-            // Bulk insert (MenuFetchJob::persist()'s own idiom), not a per-row
-            // create() loop: up to 250 productIds (SetShopProductsRequest's
-            // max) means up to 250 sequential round-trips over Supavisor inside
-            // this lock's 10s TTL — the exact failure mode unit 5 exists to
-            // close. A single insert() bypasses ShopProduct's HasUuids hook and
-            // `data` array cast, so both are reproduced by hand below.
-            DB::connection('pgsql')->transaction(function () use ($brand, $selected) {
-                ShopProduct::where('brand_id', $brand->id)->delete();
-                if ($selected->isNotEmpty()) {
-                    $now = now();
-                    $rows = $selected->map(fn (array $productData, int $index) => [
-                        'id' => (string) Str::uuid7(),
-                        'brand_id' => $brand->id,
-                        'product_id' => (string) ($productData['productId'] ?? ''),
-                        'position' => $index,
-                        'data' => json_encode($productData),
-                        'created_at' => $now,
-                        'updated_at' => $now,
-                    ])->all();
-                    ShopProduct::query()->insert($rows);
-                }
-            });
+            // Task 8: reconcile straight into content.* — syncStore() upserts
+            // by coord and retires (items.removed_at) whatever this
+            // collection no longer carries, never a hard delete (analytics.
+            // item_views references item ids). Order preserved: $selected is
+            // already in the caller's chosen order, and syncStore() writes
+            // content.collection_items.position from the array index. This
+            // replaces the old delete+reinsert into site.shop_products
+            // entirely — that table is written by nothing from this endpoint
+            // now (Step 1/Step 5 of the Task 8 plan).
+            $collectionId = $this->content->upsertStore($brand, (string) $user->id);
+            $this->content->syncStore((string) $user->id, $collectionId, $selected->all(), $brand->currency);
 
-            // #SEM-1: products_curated_at is what ShopFetch actually reads to
-            // skip this brand on the next scheduled sync (see that class's
-            // docblock) — selection_mode alone can't carry this fact, since
-            // its default IS 'manual' and addBrand() never sets it. Still
-            // write selection_mode too: it stays a truthful dashboard label,
-            // just no longer pretends to be the guard.
-            $updates = ['products_curated_at' => now()];
-            if (($brand->selection_mode ?? 'manual') === 'latest') {
-                $updates['selection_mode'] = 'manual';
-            }
-            $brand->update($updates);
+            // #SEM-1: products_curated_at is what ShopFetch's ShopContentWriter::
+            // isCurated() reads FIRST to skip this brand on the next scheduled
+            // sync — a direct write, not routed through upsertStore()'s own
+            // COALESCE conflict clause, because that clause deliberately
+            // refuses to move an already-non-null stamp (a routine sync must
+            // never clobber a curation event) and would therefore also refuse
+            // to REFRESH it to a newer "now" on a second curation of the same
+            // brand. selection_mode is not written here — it is a derived
+            // constant on the content.* read path now (always 'manual'; see
+            // ShopContentReader's docblock, gap 3), so the legacy column has
+            // nothing left reading it.
+            DB::table('content.storefronts')->where('collection_id', $collectionId)
+                ->update(['products_curated_at' => now(), 'updated_at' => now()]);
 
             $connection = $this->writeConnection($user, self::MARKER);
             $this->refresher->refresh($connection);
+            $this->bumpSiteCache($user);
             // Invalidate the picker catalog so a subsequent GET re-scrapes the
             // store instead of serving the pre-selection snapshot for up to 10 min.
             Cache::forget($this->catalogKey($id));
 
-            return $this->success((new ShopBrandResource($brand->fresh('products')->toBrandArray()))->resolve());
+            return $this->success((new ShopBrandResource(
+                $this->contentReader->brandMap($user)[$id] ?? $brand->fresh('products')->toBrandArray()
+            ))->resolve());
         });
     }
 
     // GET /api/platforms/shop/selection — COMPAT flat view of the primary brand
     // (first brand that has products) so partna-pages' existing Shop card keeps
-    // rendering. Returns null when no brand has products. Task 7: served from
-    // hybridBrandMap() (content.* merged over site.shop_brands) — this endpoint
-    // also feeds a public path (context note in the Task 7 brief), so a brand
-    // curated moments ago via setProducts() (no content.* row yet — Task 8's
-    // territory) must not go dark here.
+    // rendering. Returns null when no brand has products. Served straight from
+    // ShopContentReader as of Task 8 — setProducts() now stamps content.*
+    // synchronously, so a brand curated moments ago is never dark here.
     public function selection(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $primary = ShopPayload::fromArray($this->hybridBrandMap($user))->primaryWithProducts();
+        $primary = ShopPayload::fromArray($this->contentReader->brandMap($user, $this->productRanksFor($user)))->primaryWithProducts();
 
         $selection = $primary ? [
             'url' => $primary['url'],
@@ -811,11 +850,25 @@ class ShopController extends ApiController
                 ShopProduct::whereIn('brand_id', $brandIds)->delete();
                 ShopBrand::where('connection_id', $connection->id)->delete();
             }
+
+            // Task 8: retire every content.* storefront this user has — not
+            // scoped to $connection above, so a store that somehow landed in
+            // content.* without (or after losing) its legacy anchor row still
+            // gets cleaned up. NEVER a hard delete of content.items — see
+            // ShopContentWriter::retireStore()'s own docblock.
+            $collectionIds = DB::table('content.collections')
+                ->where('user_id', (string) $user->id)->where('kind', 'storefront')
+                ->pluck('id');
+            foreach ($collectionIds as $collectionId) {
+                $this->content->retireStore((string) $user->id, (string) $collectionId);
+            }
+
             // forgetConnection() soft-deletes the connection row, which fires the
             // observer's deleted() → unconditional cache refresh — so unlike the
             // other mutations (which only touch child rows) no explicit refresh is
             // needed here.
             $this->forgetConnection($user);
+            $this->bumpSiteCache($user);
 
             return $this->success(['brands' => []]);
         });
@@ -870,33 +923,26 @@ class ShopController extends ApiController
 
             $productId = $product['productId'] ?? null;
 
-            // Newest first, de-duped by productId, capped.
-            $ordered = ShopProduct::where('brand_id', $individual->id)
-                ->orderBy('position')
-                ->get()
-                ->reject(fn (ShopProduct $p) => $p->product_id === $productId)
-                ->map(fn (ShopProduct $p) => $p->data)
+            // Task 8: mirrors ShopProductSeeder::seed() exactly (that class
+            // is the reference implementation for this same reserved-bucket
+            // pattern, already shipped) — newest first, de-duped by
+            // productId, capped, reconstructed from content.* rather than
+            // read off the now-unwritten site.shop_products rows.
+            $collectionId = $this->content->upsertStore($individual, (string) $user->id);
+            $ordered = collect($this->content->currentCatalogue($collectionId))
+                ->reject(fn (array $p) => ($p['productId'] ?? null) === $productId)
                 ->prepend($product)
                 ->take(self::MAX_INDIVIDUAL_PRODUCTS)
                 ->values();
 
-            // Transactional rebuild — see setProducts() for why (mid-loop
-            // failure must not leave a partial product set).
-            DB::connection('pgsql')->transaction(function () use ($individual, $ordered) {
-                ShopProduct::where('brand_id', $individual->id)->delete();
-                foreach ($ordered as $index => $productData) {
-                    ShopProduct::create([
-                        'brand_id' => $individual->id,
-                        'product_id' => (string) ($productData['productId'] ?? ''),
-                        'position' => $index,
-                        'data' => $productData,
-                    ]);
-                }
-            });
+            $this->content->syncStore((string) $user->id, $collectionId, $ordered->all(), $individual->currency);
 
             $this->refresher->refresh($connection);
+            $this->bumpSiteCache($user);
 
-            return $this->success((new ShopBrandResource($individual->fresh('products')->toBrandArray()))->resolve());
+            return $this->success((new ShopBrandResource(
+                $this->contentReader->brandMap($user)[self::INDIVIDUAL_BRAND_ID] ?? $individual->fresh('products')->toBrandArray()
+            ))->resolve());
         });
     }
 
@@ -917,11 +963,25 @@ class ShopController extends ApiController
 
             ShopProduct::where('brand_id', $individual->id)->where('product_id', $productId)->delete();
 
+            // Task 8: content.* side — reconstruct what remains (mirrors
+            // addProduct()'s currentCatalogue() read), sync it, and if
+            // nothing's left, retire the collection the same way removeBrand()
+            // does rather than leaving an empty content.storefronts row behind.
+            $collectionId = $this->content->upsertStore($individual, (string) $user->id);
+            $remaining = collect($this->content->currentCatalogue($collectionId))
+                ->reject(fn (array $p) => ($p['productId'] ?? null) === $productId)
+                ->values();
+            $this->content->syncStore((string) $user->id, $collectionId, $remaining->all(), $individual->currency);
+            if ($remaining->isEmpty()) {
+                $this->content->retireStore((string) $user->id, $collectionId);
+            }
+
             if (ShopProduct::where('brand_id', $individual->id)->doesntExist()) {
                 $individual->delete();
             }
             $connection = $this->writeConnection($user, self::MARKER);
             $this->refresher->refresh($connection);
+            $this->bumpSiteCache($user);
 
             return $this->success(['brands' => ShopBrandResource::collection($this->allBrands($user))->resolve()]);
         });
@@ -974,6 +1034,7 @@ class ShopController extends ApiController
         if ($connection) {
             $this->refresher->refresh($connection);
         }
+        $this->bumpSiteCache($user);
 
         return $this->success($this->settingsPayload($site->fresh()));
     }
@@ -1083,52 +1144,36 @@ class ShopController extends ApiController
     }
 
     /**
-     * ============================================================
-     * TEMPORARY — Task 7 fix round 1, Finding 6. DELETE THIS METHOD, and
-     * call ShopContentReader::brandMap() directly from brands()/
-     * brandProducts()/selection(), the moment Task 8 ships.
-     * ============================================================
-     *
-     * This exists ONLY because three writers still bypass content.* today:
-     *   1. ShopController::addBrand()
-     *   2. ShopBrandConnectJob (the deferred-connect settle job)
-     *   3. ShopController::setProducts()
-     * None of the three call ShopContentWriter::upsertStore() — Task 8 is
-     * what repoints them. Until all three do, a brand has no content.* row
-     * between "just connected"/"just curated" and "first synced", and a
-     * bare ShopContentReader::brandMap() call 404s/empties it out — proven,
-     * not just predicted: three PRE-EXISTING tests that seed a brand the
-     * same way addBrand()/setProducts() do — ShopPayloadFeatureTest's
-     * "shop selection returns…"/"…seeded popularityRank…", ShopUrlValidation
-     * Test's "connects a WooCommerce store end-to-end…" — broke under a bare
-     * content.*-only read in exactly this way.
-     *
-     * The brand map brands()/brandProducts()/selection() actually read —
-     * content.* (ShopContentReader) MERGED over the legacy site.shop_brands
-     * map, not content.* alone. Legacy is authoritative for EXISTENCE and
-     * ORDER (so a request never loses a brand), content.* wins PER BRAND
-     * once it has a row (so the reconstruction — and its documented field
-     * losses/backfill lag, see ShopContentReader — takes over transparently
-     * as brands sync). Mirrors ShopContentWriter::isCurated()'s own
-     * transitional-read precedent elsewhere in this slice.
+     * Brands as a plain ordered list — the content.* shape, matching
+     * brands()/brandProducts()/selection() above (Task 8 dropped the Task 7
+     * hybridBrandMap() merge once addBrand()/ShopBrandConnectJob/
+     * setProducts() all started keeping content.* current).
      */
-    private function hybridBrandMap(User $user): array
-    {
-        $legacy = $this->brandMap($user);
-        $content = $this->contentReader->brandMap($user, $this->productRanksFor($user));
-
-        $merged = [];
-        foreach ($legacy as $id => $brand) {
-            $merged[$id] = $content[$id] ?? $brand;
-        }
-
-        return $merged;
-    }
-
-    /** Brands as a plain ordered list. */
     private function allBrands(User $user): array
     {
-        return array_values($this->brandMap($user));
+        return array_values($this->contentReader->brandMap($user, $this->productRanksFor($user)));
+    }
+
+    /**
+     * The two cache lanes IntegrationConnectionCacheRefresher doesn't own
+     * (that class only dispatches the edge purge — see its own docblock).
+     * Every write endpoint below now bypasses Eloquent for its content.*
+     * writes (ShopContentWriter is raw DB::table(), no model, no observer),
+     * so nothing else fires BuildState::bump()/site.sites.updated_at for
+     * them — mirrors ShopBackfiller::invalidate()'s identical "raw-write
+     * seam, all three lanes by hand" discipline. Site-nullable: a fixture/
+     * connection with no site row simply skips both (mirrors the
+     * refresher's own nullable subdomain lookup).
+     */
+    private function bumpSiteCache(User $user): void
+    {
+        $site = $user->site;
+        if ($site === null) {
+            return;
+        }
+
+        BuildState::bump((string) $site->id);
+        DB::connection('pgsql')->table('site.sites')->where('id', $site->id)->update(['updated_at' => now()]);
     }
 
     /** Per-brand picker-catalog cache key. */

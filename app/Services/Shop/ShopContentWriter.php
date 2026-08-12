@@ -46,13 +46,7 @@ class ShopContentWriter
     {
         $externalRef = (string) $brand->brand_id;
 
-        $existing = DB::table('content.collections as c')
-            ->join('content.storefronts as s', 's.collection_id', '=', 'c.id')
-            ->where('c.user_id', $ownerId)
-            ->where('c.kind', 'storefront')
-            ->where('s.provider', (string) $brand->provider)
-            ->where('s.external_ref', $externalRef)
-            ->value('c.id');
+        $existing = $this->collectionIdFor($brand, $ownerId);
 
         $collectionId = (string) ($existing ?? Str::uuid());
 
@@ -109,6 +103,71 @@ class ShopContentWriter
         ]);
 
         return $collectionId;
+    }
+
+    /**
+     * Read-only counterpart to upsertStore()'s own existence lookup — never
+     * creates. Task 8: removeBrand()/forget() need this to find what (if
+     * anything) to retire without forcing a content.* row into existence
+     * just to immediately delete it.
+     */
+    public function collectionIdFor(ShopBrand $brand, string $ownerId): ?string
+    {
+        $id = DB::table('content.collections as c')
+            ->join('content.storefronts as s', 's.collection_id', '=', 'c.id')
+            ->where('c.user_id', $ownerId)
+            ->where('c.kind', 'storefront')
+            ->where('s.provider', (string) $brand->provider)
+            ->where('s.external_ref', (string) $brand->brand_id)
+            ->value('c.id');
+
+        return $id === null ? null : (string) $id;
+    }
+
+    /**
+     * Task 8 / removeBrand() + forget(): a store is leaving — retire every
+     * item this collection carries (unless it survives via another of the
+     * user's storefronts, same §1.7 URL-only-coord reasoning as
+     * retireAbsent()), then delete the collection. The FK cascades
+     * content.storefronts; content.collection_items is dropped explicitly
+     * first anyway (not just relying on the cascade) — deterministic on
+     * SQLite in tests, which doesn't enforce FK ON DELETE, same discipline
+     * ShopController::removeBrand() already applies to the legacy tables.
+     *
+     * NEVER a hard delete of content.items — analytics.item_views
+     * references item ids, and a merge's curation check reads
+     * site.section_items. removed_at only.
+     */
+    public function retireStore(string $userId, string $collectionId): void
+    {
+        $itemIds = DB::table('content.collection_items')
+            ->where('collection_id', $collectionId)
+            ->pluck('item_id')->unique()->all();
+
+        // Drop this collection's own links FIRST — mirrors retireAbsent()'s
+        // ordering exactly, so the "still live elsewhere" check below can
+        // never see this collection's own (soon-to-be-gone) link and
+        // wrongly count an item as still live off its own about-to-be-
+        // deleted store.
+        DB::table('content.collection_items')->where('collection_id', $collectionId)->delete();
+
+        if ($itemIds !== []) {
+            $stillLive = DB::table('content.collection_items as ci')
+                ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
+                ->where('c.user_id', $userId)
+                ->where('c.kind', 'storefront')
+                ->whereIn('ci.item_id', $itemIds)
+                ->pluck('ci.item_id')->unique()->all();
+
+            $toRetire = array_diff($itemIds, $stillLive);
+            if ($toRetire !== []) {
+                DB::table('content.items')->whereIn('id', $toRetire)->whereNull('removed_at')
+                    ->update(['removed_at' => now(), 'updated_at' => now()]);
+            }
+        }
+
+        DB::table('content.storefronts')->where('collection_id', $collectionId)->delete();
+        DB::table('content.collections')->where('id', $collectionId)->delete();
     }
 
     /**

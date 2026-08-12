@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\ShopBrand;
+use App\Services\Shop\ShopContentWriter;
 
 beforeEach(function () {
     setupUsersTable();
@@ -471,19 +472,28 @@ it('freezes the shop brands list contract', function () {
     // columns mean there's no stray key to leak, but ShopBrandResource must
     // still shape the row into exactly this contract.
     $conn = gmSeed($user, 'shop', ['storage' => 'relational']);
-    ShopBrand::create([
+    $brand = ShopBrand::create([
         'connection_id' => $conn->id, 'brand_id' => 'brand-1', 'provider' => 'shopify',
         'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
         'favicon' => null, 'logo' => null, 'discount_code' => 'SAVE',
     ]);
+    // Task 8: brands() now reads ShopContentReader with no legacy fallback
+    // (hybridBrandMap() is gone) — land this fixture in content.* the same
+    // way a real addBrand() connect would.
+    app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
 
     actingAsUser($user)->getJson('/api/platforms/shop/brands')
         ->assertOk()
         ->assertExactJson(['brands' => [[
             'id' => 'brand-1', 'provider' => 'shopify', 'url' => 'https://b', 'name' => 'B',
             'currency' => 'AUD', 'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE',
-            // Store link-out fields (2026-07-07): additive, defaulted.
-            'selectionMode' => 'manual', 'linkMode' => 'product', 'referralQuery' => '',
+            // Store link-out fields (2026-07-07): additive, defaulted. Task 8:
+            // linkMode now comes from ShopContentReader (site.sites.
+            // shop_link_mode) — gmUser() has no site row, so it falls to
+            // Site::DEFAULT_SHOP_LINK_MODE ('checkout'), not ShopBrand's own
+            // per-brand column default ('product'). Same documented
+            // divergence as ShopEndpointParityTest's GET /brands test.
+            'selectionMode' => 'manual', 'linkMode' => 'checkout', 'referralQuery' => '',
             'individual' => false, 'products' => [],
         ]]]);
 });

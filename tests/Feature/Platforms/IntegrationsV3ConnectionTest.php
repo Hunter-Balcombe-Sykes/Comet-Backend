@@ -16,6 +16,9 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 8: addBrand() now upserts content.* (ShopContentWriter) for every
+    // connect — the stand-in schema must exist for the shop tests below.
+    setupContentTables();
 });
 
 function iv3User(string $h): User

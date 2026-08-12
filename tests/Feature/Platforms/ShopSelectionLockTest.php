@@ -29,6 +29,7 @@ use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\ShopifyScraper;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -37,6 +38,10 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 8: setProducts() now writes content.* (ShopContentWriter) instead
+    // of site.shop_products — the stand-in schema must exist for every test
+    // in this file that calls the real (non-mocked-away) endpoint.
+    setupContentTables();
 });
 
 function shopSelLockUser(string $h): User
@@ -138,8 +143,11 @@ it('T16c: the full ShopBrandResource shape, including the productsCuratedAt stam
     $user = shopSelLockUser('lockbody1');
     shopSelLockBrand($user, 'lockbrand');
 
+    // createdAt supplied so the content.* round-trip is deterministic
+    // (ShopContentWriter::cataloguesFor() falls back to items.first_seen_at —
+    // now() at write time — for a blob with none).
     $this->mock(ShopifyScraper::class, fn ($m) => $m->shouldReceive('fetchProducts')->once()->andReturn([
-        ['productId' => 'p1', 'title' => 'One', 'url' => 'https://lockbrand.example.com/p1'],
+        ['productId' => 'p1', 'title' => 'One', 'url' => 'https://lockbrand.example.com/p1', 'createdAt' => '2026-01-01T00:00:00Z'],
     ]));
 
     $response = actingAsUser($user)->putJson('/api/platforms/shop/brands/lockbrand/selection', ['productIds' => ['p1']])
@@ -147,10 +155,12 @@ it('T16c: the full ShopBrandResource shape, including the productsCuratedAt stam
 
     // #SEM-1: setProducts() IS the moment of curation, so this response now
     // carries productsCuratedAt (conditional key, present only when set —
-    // T16d/T16e's still-uncurated brands never see it). Assert its shape
-    // (ISO-8601 string) via the model rather than pinning an exact timestamp.
-    $brand = ShopBrand::where('brand_id', 'lockbrand')->firstOrFail();
-    expect($brand->products_curated_at)->not->toBeNull();
+    // T16d/T16e's still-uncurated brands never see it). Task 8: the stamp
+    // lands on content.storefronts now, not the legacy site.shop_brands
+    // column (setProducts() no longer writes it) — read it back the same
+    // way ShopContentReader does.
+    $curatedAt = DB::table('content.storefronts')->where('external_ref', 'lockbrand')->value('products_curated_at');
+    expect($curatedAt)->not->toBeNull();
 
     $response->assertExactJson([
         'id' => 'lockbrand',
@@ -162,13 +172,30 @@ it('T16c: the full ShopBrandResource shape, including the productsCuratedAt stam
         'logo' => null,
         'discountCode' => '',
         'selectionMode' => 'manual',
-        'linkMode' => 'product',
+        // Task 8: linkMode now comes from ShopContentReader (site.sites.
+        // shop_link_mode) — shopSelLockUser() has no site row, so it falls
+        // to Site::DEFAULT_SHOP_LINK_MODE ('checkout'), not ShopBrand's own
+        // per-brand column default ('product'). Same documented divergence
+        // as ShopEndpointParityTest's GET /brands test.
+        'linkMode' => 'checkout',
         'referralQuery' => '',
         'individual' => false,
-        'products' => [
-            ['productId' => 'p1', 'title' => 'One', 'url' => 'https://lockbrand.example.com/p1'],
-        ],
-        'productsCuratedAt' => $brand->products_curated_at->toIso8601String(),
+        // Task 8: the ShopContentReader reconstruction shape — a bare
+        // {productId, title, url} blob reads back with every other field
+        // present as explicit null/empty/default, not omitted (documented
+        // divergence, same as ShopEndpointParityTest's brand-c fixture).
+        // currency reads back null, not the brand's AUD: content.offers has
+        // NO row for this item at all (ShopProductProjection::offers()
+        // skips the base offer entirely when the blob carries no `price`),
+        // and `currency` is read off the offer row, not the brand.
+        'products' => [[
+            'productId' => 'p1', 'title' => 'One', 'url' => 'https://lockbrand.example.com/p1',
+            'price' => null, 'currency' => null, 'available' => true,
+            'handle' => null, 'image' => null, 'images' => [],
+            'variantId' => null, 'createdAt' => '2026-01-01T00:00:00+00:00',
+            'variants' => [],
+        ]],
+        'productsCuratedAt' => Carbon::parse((string) $curatedAt)->toIso8601String(),
     ]);
 });
 
@@ -179,8 +206,14 @@ it('T16c: the full ShopBrandResource shape, including the productsCuratedAt stam
 // locked write.
 it('T16f: setProducts stamps products_curated_at', function () {
     $user = shopSelLockUser('lockcurate1');
-    $brand = shopSelLockBrand($user, 'lockbrand');
-    expect($brand->products_curated_at)->toBeNull();
+    shopSelLockBrand($user, 'lockbrand');
+    // Task 8: the stamp lands on content.storefronts.products_curated_at —
+    // setProducts() no longer writes the legacy site.shop_brands column at
+    // all, so there is nothing there to assert null-then-non-null on; no
+    // content.storefronts row exists yet either (brand never synced), so
+    // the value() call below is null pre-PUT by construction.
+    expect(DB::table('content.storefronts')->where('external_ref', 'lockbrand')->value('products_curated_at'))
+        ->toBeNull();
 
     $this->mock(ShopifyScraper::class, fn ($m) => $m->shouldReceive('fetchProducts')->once()->andReturn([
         ['productId' => 'p1', 'title' => 'One', 'url' => 'https://lockbrand.example.com/p1'],
@@ -189,7 +222,8 @@ it('T16f: setProducts stamps products_curated_at', function () {
     actingAsUser($user)->putJson('/api/platforms/shop/brands/lockbrand/selection', ['productIds' => ['p1']])
         ->assertOk();
 
-    expect($brand->fresh()->products_curated_at)->not->toBeNull();
+    expect(DB::table('content.storefronts')->where('external_ref', 'lockbrand')->value('products_curated_at'))
+        ->not->toBeNull();
 });
 
 it('T16d: a scraper HttpException still surfaces as 502, same body', function () {
@@ -237,15 +271,26 @@ it('T16e: a brand deleted between the pre-lock read and the locked write yields 
     expect(ShopBrand::where('brand_id', 'lockbrand')->exists())->toBeFalse();
 });
 
-// ── Fix 1 (P1 review finding) — the in-lock write is a single bulk insert ──
+// ── Fix 1 (P1 review finding) — was: the in-lock write is a single bulk insert ──
 //
-// The delete+reinsert used to be a per-product ShopProduct::create() loop —
-// up to 250 sequential round-trips (SetShopProductsRequest's productIds max)
-// inside the SAME 10s lock TTL that unit 5's whole restructure exists to
-// respect. A per-row loop over Supavisor (not localhost) could exhaust that
-// TTL by itself, defeating the fix. The rewrite is one Model::insert() call.
+// TASK 8 UPDATE: the delete+reinsert-as-one-bulk-INSERT this pinned is GONE —
+// setProducts() no longer touches site.shop_products at all (ShopContentWriter::
+// syncStore() replaces it). The "single INSERT, not one per row" invariant
+// this test used to pin no longer applies to the real write path: syncStore()
+// writes ONE upsert per product (ProjectionWriter::writeManualItem(), each
+// in its own transaction) plus one content.collection_items upsert per
+// product — genuinely N round-trips again, just against content.* now
+// rather than site.shop_products. FINDING for the Task 8 report: this is a
+// real performance-characteristic regression versus the old bulk insert
+// (though DB round-trips are cheap relative to the 10s lock TTL the F1
+// tests below still exercise at 250 products — no failure observed in this
+// suite's run). Restructuring ShopContentWriter::syncStore() into a genuine
+// bulk write is out of this task's scope (that class is Task 5's deliverable,
+// shared by every syncStore() caller, not just this endpoint). What this
+// test can still usefully pin: site.shop_products stays untouched (0 rows,
+// 0 inserts) and the selection lands correctly in content.*.
 
-it('F1: setProducts bulk-inserts the selection in a single INSERT statement, not one per row', function () {
+it('F1: setProducts writes zero rows to the legacy site.shop_products table', function () {
     $user = shopSelLockUser('lockqc1');
     shopSelLockBrand($user, 'lockbrand');
 
@@ -273,13 +318,13 @@ it('F1: setProducts bulk-inserts the selection in a single INSERT statement, not
         fn ($q) => str_starts_with(strtolower(ltrim((string) $q['query'])), 'insert')
             && str_contains($q['query'], 'shop_products'),
     ));
-    expect($insertQueries)->toHaveCount(1);
+    expect($insertQueries)->toHaveCount(0);
+    expect(ShopProduct::count())->toBe(0);
 
-    $brand = ShopBrand::where('brand_id', 'lockbrand')->firstOrFail();
-    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(6);
+    expect(orderedProductIdsFor('lockbrand'))->toBe(['p1', 'p2', 'p3', 'p4', 'p5', 'p6']);
 });
 
-it('F1: a 250-product selection round-trips correctly through the bulk insert', function () {
+it('F1: a 250-product selection round-trips correctly through content.*', function () {
     $user = shopSelLockUser('lock2501');
     shopSelLockBrand($user, 'lockbrand');
 
@@ -300,22 +345,15 @@ it('F1: a 250-product selection round-trips correctly through the bulk insert', 
     // Response order follows the request, not the shuffled catalog.
     expect(array_column($responseProducts, 'productId'))->toBe($productIds);
 
-    $brand = ShopBrand::where('brand_id', 'lockbrand')->firstOrFail();
-    $rows = ShopProduct::where('brand_id', $brand->id)->orderBy('position')->get();
+    // content.* replacement for the old ShopProduct-row assertions —
+    // position ordering preserved, matching the requested order, and
+    // site.shop_products stays entirely untouched.
+    expect(orderedProductIdsFor('lockbrand'))->toBe($productIds);
+    expect(ShopProduct::count())->toBe(0);
 
-    expect($rows)->toHaveCount(250);
-    // ids unique — the hand-rolled uuid7() generation didn't collide or default-null.
-    expect($rows->pluck('id')->unique())->toHaveCount(250);
-    // position ordering preserved, 0-based, matching the requested order.
-    expect($rows->pluck('position')->all())->toBe(range(0, 249));
-    expect($rows->pluck('product_id')->all())->toBe($productIds);
-    // `data` reads back through the array cast as a real array with the
-    // right content — the real risk of a raw bulk insert: a hand-encoded
-    // `data` the cast then double-decodes would corrupt every row.
-    $first = $rows->first();
-    expect($first->data)->toBeArray();
-    expect($first->data['title'])->toBe('Title for '.$first->product_id);
-    expect($first->data['price'])->toBe('9.99');
+    $first = collect($responseProducts)->firstWhere('productId', $productIds[0]);
+    expect($first['title'])->toBe('Title for '.$productIds[0]);
+    expect($first['price'])->toBe('9.99');
 });
 
 // ── Fix 2 (P2 review finding) — a fresher cached catalog wins inside the lock ──
@@ -349,6 +387,9 @@ it('F2: a fresher catalog that lands after the pre-lock snapshot wins over the s
         ->assertOk()
         ->assertJsonPath('products.0.title', 'Fresh Title');
 
-    $brand = ShopBrand::where('brand_id', 'lockbrand')->firstOrFail();
-    expect(ShopProduct::where('brand_id', $brand->id)->first()->data['title'])->toBe('Fresh Title');
+    // Task 8: content.f_text.headline replaces the legacy ShopProduct.data
+    // JSONB read — setProducts() no longer writes site.shop_products.
+    $collectionId = DB::table('content.storefronts')->where('external_ref', 'lockbrand')->value('collection_id');
+    $itemId = DB::table('content.collection_items')->where('collection_id', $collectionId)->value('item_id');
+    expect(DB::table('content.f_text')->where('item_id', $itemId)->value('headline'))->toBe('Fresh Title');
 });

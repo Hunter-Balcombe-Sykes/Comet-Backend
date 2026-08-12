@@ -9,6 +9,7 @@ use App\Services\Http\FetchBudget;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopBrandProfiler;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -85,7 +86,7 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         return [];
     }
 
-    public function handle(ShopBrandProfiler $profiler, IntegrationConnectionCacheRefresher $refresher, FetchBudget $budget): void
+    public function handle(ShopBrandProfiler $profiler, IntegrationConnectionCacheRefresher $refresher, FetchBudget $budget, ShopContentWriter $content): void
     {
         // ::find() has no soft-delete scope of its own (site.shop_brands is
         // hard-delete-only) — null already covers "never existed" and "user
@@ -116,7 +117,7 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         // land a fresh profile — terminal 'failed' instead, profile discarded.
         $user = $connection->user;
         if ($user === null || ! FeatureAvailability::for($user)->allows('integration.shop')) {
-            $this->markTerminal($brand, self::UNAVAILABLE_ERROR);
+            $this->markTerminal($brand, self::UNAVAILABLE_ERROR, $content);
 
             return;
         }
@@ -180,7 +181,7 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
                 'connection_id' => $connection->id,
                 'user_id' => $connection->user_id,
             ]);
-            $this->markTerminal($brand, FetchUnavailableException::STALE_CONNECT_ERROR);
+            $this->markTerminal($brand, FetchUnavailableException::STALE_CONNECT_ERROR, $content);
 
             return;
         }
@@ -197,6 +198,15 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         // — never ShopBrand — so nothing else will ever purge this settle.
         $refresher->refresh($connection);
 
+        // Task 8: mirror the settled profile onto content.* — addBrand()
+        // already wrote a 'pending' content.storefronts row at 202 time (this
+        // job's own success write is what the ShopController docblocks call
+        // "the deferred-connect job" writing content.*). Without this, a
+        // deferred connect would settle on the legacy row but stay stuck at
+        // connect_status='pending'/nameless on the content.*-only read
+        // endpoints until the brand's next scheduled sync.
+        $content->upsertStore($brand->fresh(), (string) $connection->user_id);
+
         // The settle just stored the fetched favicon/logo — kick off the
         // best-effort processed mark (background removal + SVG).
         ProcessShopBrandLogoJob::dispatch((string) $brand->id);
@@ -212,7 +222,11 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
 
         $brand = ShopBrand::find($this->brandRowId);
         if ($brand) {
-            $this->markTerminal($brand, FetchUnavailableException::GENERIC_USER_MESSAGE);
+            // No method-injected params reach failed() (the queue worker
+            // calls it with just the exception) — container-fallback
+            // resolve, same convention ShopCatalog's own nullable
+            // ShopContentWriter constructor param uses.
+            $this->markTerminal($brand, FetchUnavailableException::GENERIC_USER_MESSAGE, app(ShopContentWriter::class));
         }
 
         // Deliberately does NOT release the ShouldBeUnique dedupe lock here.
@@ -239,13 +253,25 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
      * A 'failed' brand stays fully usable — brand_id/provider/url/source_url
      * are already truthful, so it is NOT reset back to a broken state (plan §3g).
      */
-    private function markTerminal(ShopBrand $brand, string $error): void
+    private function markTerminal(ShopBrand $brand, string $error, ShopContentWriter $content): void
     {
-        ShopBrand::whereKey($brand->id)
+        $updated = ShopBrand::whereKey($brand->id)
             ->where('connect_status', 'pending')
             ->update([
                 'connect_status' => 'failed',
                 'connect_error' => $error,
-            ]);
+            ]) > 0;
+
+        // Task 8: mirror onto content.* only on a REAL transition (the
+        // compare-and-set above is a no-op otherwise) — a brand mid deferred-
+        // connect has a 'pending' content.storefronts row from addBrand()
+        // already; without this it would stay stuck there on the content.*-
+        // only read endpoints even though the legacy row correctly moved to
+        // 'failed'. $brand->connection is null for a soft-deleted parent
+        // (BelongsTo respects SoftDeletes) — skip rather than resolve a
+        // user id that doesn't exist.
+        if ($updated && $brand->connection !== null) {
+            $content->upsertStore($brand->fresh(), (string) $brand->connection->user_id);
+        }
     }
 }

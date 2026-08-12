@@ -28,6 +28,11 @@ uses(TestCase::class)->in(__FILE__);
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 8: handle() now mirrors a settled/failed row onto content.* via
+    // ShopContentWriter::upsertStore() — every test below reaches that call
+    // (success write or markTerminal()), so the stand-in schema must exist
+    // even for the tests that don't assert on it directly.
+    setupContentTables();
 });
 
 function sbcjUser(string $h): User

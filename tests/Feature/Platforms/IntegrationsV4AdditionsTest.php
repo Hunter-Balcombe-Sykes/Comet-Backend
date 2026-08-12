@@ -248,7 +248,10 @@ it('connects a WAF-blocked WooCommerce store via the client-assisted payload', f
     actingAsUser($user)->putJson('/api/platforms/shop/brands/fearnoevil-example/selection', [
         'productIds' => ['2964'],
     ])->assertOk();
-    expect($brand->fresh('products')->products->first()->product_id)->toBe('2964');
+    // Task 8: setProducts() writes content.* only — site.shop_products
+    // (the legacy ShopBrand::products() relation this asserted against) is
+    // no longer touched.
+    expect(orderedProductIdsFor('fearnoevil-example'))->toBe(['2964']);
 });
 
 it('re-warms a client-mode brand catalog via the catalog endpoint', function () {

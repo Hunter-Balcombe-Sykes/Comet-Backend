@@ -4,6 +4,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -167,10 +168,14 @@ it('returns the coded store_catalog_blocked 422 when a connected store 429s its 
         'payload' => ['storage' => 'relational'],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    ShopBrand::create([
+    $brand = ShopBrand::create([
         'connection_id' => $conn->id, 'brand_id' => 'blockedstore-example', 'provider' => 'shopify',
         'url' => 'https://blockedstore.example', 'discount_code' => '', 'position' => 0,
     ]);
+    // Task 8: brandProducts() now reads ShopContentReader with no legacy
+    // fallback (hybridBrandMap() is gone) — land this fixture in content.*
+    // the same way a real addBrand() connect would.
+    app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
 
     fakeShopFetcher([
         '/products.json' => [429, 'Too Many Requests'],

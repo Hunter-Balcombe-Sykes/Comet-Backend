@@ -764,6 +764,44 @@ function makeStoreCollection(int $withProducts = 0): array
 }
 
 /**
+ * Task 8: content.* replacement for the pre-Task-8 `ShopProduct::where(
+ * 'brand_id', $brand->id)->orderBy('position')->pluck('product_id')->all()`
+ * assertion idiom — setProducts()/addProduct()/removeProduct()/syncLatest()
+ * all reconcile into content.* now instead of site.shop_products, so tests
+ * read productId back off content.f_catalog.sku through the brand's
+ * storefront collection, in content.collection_items position order.
+ * Shared here (not file-local) because more than one Shop test file needs
+ * it — PHP has no per-file function scoping, so a second `function
+ * orderedProductIdsFor()` declaration in another file would fatal with
+ * "Cannot redeclare" the moment both load in the same process.
+ *
+ * @return list<string>
+ */
+function orderedProductIdsFor(string $brandId): array
+{
+    $collectionId = DB::table('content.storefronts')->where('external_ref', $brandId)->value('collection_id');
+
+    return DB::table('content.collection_items as ci')
+        ->join('content.f_catalog as f', 'f.item_id', '=', 'ci.item_id')
+        ->where('ci.collection_id', $collectionId)
+        ->orderBy('ci.position')
+        ->pluck('f.sku')
+        ->all();
+}
+
+/**
+ * Task 8: content.* replacement for `$brand->products_curated_at` —
+ * setProducts()/updateBrand() no longer write the legacy column (#SEM-1's
+ * real source of truth is content.storefronts.products_curated_at now;
+ * ShopContentWriter::isCurated() reads it first). Shared for the same
+ * redeclaration reason as orderedProductIdsFor() above.
+ */
+function curatedAtFor(string $brandId): ?string
+{
+    return DB::table('content.storefronts')->where('external_ref', $brandId)->value('products_curated_at');
+}
+
+/**
  * TestCase::mock()/instance() are `protected` — callable from a test method,
  * not from a plain global helper function bound to no class. Container::
  * instance() is public, so replicate the same Mockery-registration TestCase::

@@ -33,26 +33,9 @@ beforeEach(function () {
     setupContentTables();
 });
 
-/**
- * Task 6: content.* replacement for the pre-Task-6 `ShopProduct::where('brand_id',
- * $brand->id)->orderBy('position')->pluck('product_id')->all()` assertion idiom —
- * syncLatest() now reconciles into content.* instead of site.shop_products, so
- * these tests read productId back off content.f_catalog.sku through the brand's
- * storefront collection, in content.collection_items position order.
- *
- * @return list<string>
- */
-function orderedProductIdsFor(string $brandId): array
-{
-    $collectionId = DB::table('content.storefronts')->where('external_ref', $brandId)->value('collection_id');
-
-    return DB::table('content.collection_items as ci')
-        ->join('content.f_catalog as f', 'f.item_id', '=', 'ci.item_id')
-        ->where('ci.collection_id', $collectionId)
-        ->orderBy('ci.position')
-        ->pluck('f.sku')
-        ->all();
-}
+// orderedProductIdsFor()/curatedAtFor(): moved to tests/Pest.php (shared
+// across Shop test files — PHP has no per-file function scoping, and
+// ShopSelectionLockTest also needs them).
 
 function shopStorageUser(string $h): User
 {
@@ -117,9 +100,10 @@ it('addBrand + setProducts persist the relational marker and child rows, not a J
 
     $brand = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'rel-brand')->firstOrFail();
     expect($brand->provider)->toBe('shopify');
-    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(2);
-    expect(ShopProduct::where('brand_id', $brand->id)->orderBy('position')->pluck('product_id')->all())
-        ->toBe(['p1', 'p2']);
+    // Task 8: setProducts() writes the selection to content.* only —
+    // site.shop_products is no longer touched (see the Task 8 report).
+    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(0);
+    expect(orderedProductIdsFor('rel-brand'))->toBe(['p1', 'p2']);
 });
 
 it('removeBrand hard-deletes the brand row and its products', function () {
@@ -207,16 +191,20 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
     $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
     $individual = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'individual')->firstOrFail();
     expect($individual->is_individual)->toBeTrue();
-    expect(ShopProduct::where('brand_id', $individual->id)->count())->toBe(20);
+    // Task 8: addProduct() writes content.* only — site.shop_products is no
+    // longer touched (mirrors ShopProductSeeder::seed(), the already-shipped
+    // reference implementation for this same reserved-bucket pattern).
+    expect(ShopProduct::where('brand_id', $individual->id)->count())->toBe(0);
 
-    $ids = ShopProduct::where('brand_id', $individual->id)->orderBy('position')->pluck('product_id')->all();
+    $ids = orderedProductIdsFor('individual');
+    expect($ids)->toHaveCount(20);
     expect($ids[0])->toBe('p21'); // newest first
     expect($ids)->not->toContain('p1'); // oldest evicted by the 20-cap
 
     // Re-adding an already-present product moves it to the front without duplicating.
     actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => 'https://example.com/p10'])
         ->assertOk();
-    $idsAfter = ShopProduct::where('brand_id', $individual->id)->orderBy('position')->pluck('product_id')->all();
+    $idsAfter = orderedProductIdsFor('individual');
     expect($idsAfter[0])->toBe('p10');
     expect(array_count_values($idsAfter)['p10'])->toBe(1);
     expect(count($idsAfter))->toBe(20);
@@ -272,11 +260,22 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
     $res = $this->getJson('/api/public/profiles/pubshop/platforms');
     $res->assertOk();
 
-    // toEqual (not toBe): key ORDER inside the brand object shifts slightly
-    // (id now precedes provider — see ShopBrand::toBrandArray()) but the value
-    // set is exactly the pre-FOUND-25 contract PLUS the store link-out fields
-    // (linkMode/referralQuery — additive, defaulted); JSON object key order is
-    // not a meaningful part of the wire contract for any real consumer.
+    // TASK 8 FINDING (see the report): `products` is now [], not the
+    // selected product. PublicIntegrationConnectionResource — the LIVE
+    // public sitepage's shop card — still reads site.shop_brands/
+    // site.shop_products directly (app/Http/Controllers/Api/PublicSite/
+    // PublicIntegrationController.php eager-loads `shopBrands.products`,
+    // untouched by this slice), and setProducts() stopped writing
+    // site.shop_products entirely. Every OTHER brand field here (name/
+    // currency/favicon/logo/discountCode) stays correct because addBrand()
+    // still writes the legacy ShopBrand row — only the PRODUCT SELECTION
+    // itself goes stale on the public wire until a follow-up task repoints
+    // this resource to content.*. toEqual (not toBe): key ORDER inside the
+    // brand object shifts slightly (id now precedes provider — see
+    // ShopBrand::toBrandArray()) but the value set is otherwise exactly the
+    // pre-FOUND-25 contract PLUS the store link-out fields (linkMode/
+    // referralQuery — additive, defaulted); JSON object key order is not a
+    // meaningful part of the wire contract for any real consumer.
     expect($res->json('data.platforms.shop.0.payload'))->toEqual([
         'pub-brand' => [
             'id' => 'pub-brand',
@@ -289,9 +288,10 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
             'discountCode' => 'SAVE10',
             'linkMode' => 'product',
             'referralQuery' => '',
-            'products' => [
-                ['productId' => 'p1', 'title' => 'Mug', 'url' => 'https://pub.example.com/p1', 'available' => true, 'price' => '10.00', 'currency' => 'AUD', 'popularityRank' => null],
-            ],
+            // See the FINDING comment above — was the single selected
+            // product pre-Task-8; site.shop_products (this resource's
+            // source) is no longer written by setProducts().
+            'products' => [],
         ],
     ]);
 });
@@ -468,7 +468,12 @@ it('selectionMode=latest syncs the selection to the newest products immediately'
 
     $res = actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['selectionMode' => 'latest']);
     $res->assertOk()
-        ->assertJsonPath('selectionMode', 'latest')
+        // Task 8: updateBrand()'s response is built from ShopContentReader
+        // now (matching GET /brands) — selectionMode is the derived constant
+        // 'manual' there (ShopContentReader gap 3: selection_mode was always
+        // dead — every real row's value was already the default), not the
+        // legacy per-brand column echoed back.
+        ->assertJsonPath('selectionMode', 'manual')
         ->assertJsonPath('latestSyncPending', false);
 
     // Task 6: syncLatest() now reconciles into content.*, not site.shop_products.
@@ -483,9 +488,11 @@ it('a manual selection PUT flips a latest-mode brand back to manual', function (
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['selectionMode' => 'latest'])->assertOk();
     actingAsUser($user)->putJson('/api/platforms/shop/brands/modes-brand/selection', ['productIds' => ['p1']])->assertOk();
 
-    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
-    expect($brand->selection_mode)->toBe('manual')
-        ->and(ShopProduct::where('brand_id', $brand->id)->pluck('product_id')->all())->toBe(['p1']);
+    // Task 8: setProducts() no longer writes the legacy selection_mode
+    // column at all (it's vestigial now — content.* has no per-brand
+    // selectionMode; see ShopContentReader gap 3) — the real, meaningful
+    // assertion is the product selection itself, in content.*.
+    expect(orderedProductIdsFor('modes-brand'))->toBe(['p1']);
 });
 
 // #SEM-1: ShopFetch::fetch() never read selection_mode (a comment's own
@@ -503,15 +510,18 @@ it('a hand-picked selection survives a scheduled ShopFetch run while the global 
         ->assertOk();
 
     $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
-    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
-    expect($brand->products_curated_at)->not->toBeNull();
+    // Task 8: setProducts() stamps content.storefronts.products_curated_at
+    // directly now — isCurated() (what ShopFetch actually calls) reads that
+    // column first, not the legacy site.shop_brands one setProducts() no
+    // longer writes.
+    expect(curatedAtFor('modes-brand'))->not->toBeNull();
 
     // Global shop_auto_latest defaults ON (no site row = null → treated as on
     // by ShopFetch's own gate) — the curated brand must still be skipped.
     expect(fn () => app(ShopFetch::class)->fetch($conn->fresh()))
         ->toThrow(FetchNotModifiedException::class);
 
-    expect(ShopProduct::where('brand_id', $brand->id)->pluck('product_id')->all())->toBe(['p1']);
+    expect(orderedProductIdsFor('modes-brand'))->toBe(['p1']);
 });
 
 it('a non-curated brand still syncs to the newest products on a scheduled ShopFetch run', function () {
@@ -537,32 +547,23 @@ it('selectionMode=latest clears products_curated_at, opting the brand back into 
 
     actingAsUser($user)->putJson('/api/platforms/shop/brands/modes-brand/selection', ['productIds' => ['p1']])
         ->assertOk();
-    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
-    expect($brand->products_curated_at)->not->toBeNull();
+    // Task 8: setProducts() stamps content.storefronts.products_curated_at
+    // directly — the legacy site.shop_brands column is no longer written.
+    expect(curatedAtFor('modes-brand'))->not->toBeNull();
 
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['selectionMode' => 'latest'])
         ->assertOk();
-    $brand->refresh();
-    expect($brand->products_curated_at)->toBeNull();
-    // Task 6 fix round 1, Finding 3 (reviewed and ruled LEGITIMATE — a real
-    // but self-correcting transitional over-sync, not a bug, and NOT to be
-    // "fixed" back to ['p3'] by a future edit): syncLatest() now sizes its
-    // count-preserving selection from content.collection_items, not the
-    // legacy relation — and this brand's content.* collection doesn't exist
-    // yet at this point (the curated PUT above is setProducts(), which this
-    // task does not repoint, so it never touched content.*).
-    // storeCollectionId() mints that collection fresh INSIDE this very sync,
-    // with zero prior collection_items, so $count falls back to
-    // DEFAULT_LATEST_COUNT (8) instead of preserving the legacy selection's
-    // size of 1 — all 3 catalog products land, not just the single newest.
-    // (Pre-Task-6, this read the legacy relation, which setProducts() DID
-    // keep current, and asserted just ['p3'].) No data loss: nothing is
-    // retired, the brand just syncs MORE than the old count would have,
-    // once. Expected to revert to preserving the true prior count once
-    // Task 8 repoints setProducts() to write content.* too, at which point
-    // this assertion should go back to a size-1 selection — if you're
-    // "fixing" this back to ['p3'] before then, check Task 8 shipped first.
-    expect(orderedProductIdsFor('modes-brand'))->toBe(['p3', 'p2', 'p1']);
+    expect(curatedAtFor('modes-brand'))->toBeNull();
+    // Task 6 fix round 1, Finding 3's transitional over-sync is CLOSED by
+    // Task 8, exactly as this comment block anticipated (kept for the
+    // history): setProducts() now calls upsertStore() + syncStore() itself,
+    // so the curated PUT above already minted modes-brand's content.*
+    // collection with ONE collection_items row (p1) — syncLatest()'s
+    // count-preserving read (DB::table('content.collection_items')->
+    // where('collection_id',...)->count()) now finds that 1, not an
+    // empty-collection miss falling back to DEFAULT_LATEST_COUNT (8). Back
+    // to the true pre-Task-6 behaviour: only the single newest product.
+    expect(orderedProductIdsFor('modes-brand'))->toBe(['p3']);
 
     // The opt-back-in proof: the NEXT scheduled fetch() also runs (not
     // skipped) now that products_curated_at is null again — a curated brand

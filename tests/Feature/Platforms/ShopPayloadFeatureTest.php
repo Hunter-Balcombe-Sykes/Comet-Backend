@@ -4,6 +4,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
+use App\Services\Migration\ShopBackfiller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -79,7 +80,17 @@ it('shop selection returns the compat flat view of the first brand with products
         'connection_id' => $conn->id, 'brand_id' => 'full', 'provider' => 'shopify',
         'url' => 'https://f', 'discount_code' => 'SAVE', 'position' => 1,
     ]);
-    ShopProduct::create(['brand_id' => $full->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1', 'url' => 'https://f/p1']]);
+    // createdAt supplied so the content.* round-trip below is deterministic
+    // (ShopContentWriter::cataloguesFor() falls back to items.first_seen_at —
+    // now() at backfill time — when a blob has none, which this assertion
+    // can't pin).
+    ShopProduct::create(['brand_id' => $full->id, 'product_id' => 'p1', 'position' => 0, 'data' => [
+        'productId' => 'p1', 'url' => 'https://f/p1', 'createdAt' => '2026-01-01T00:00:00Z',
+    ]]);
+    // Task 8: selection() reads ShopContentReader with no legacy fallback
+    // (hybridBrandMap() is gone) — land this fixture in content.* via the
+    // real migration path, same as ShopEndpointParityTest's parityFixture().
+    app(ShopBackfiller::class)->run();
 
     actingAsUser($user)->getJson('/api/platforms/shop/selection')
         ->assertOk()
@@ -90,7 +101,18 @@ it('shop selection returns the compat flat view of the first brand with products
             // popularityRank rides every dashboard product since 2026-08-04
             // (brandMap annotates from content_popularity_scores; null when
             // the site has no ranks) — the Smart order switch sorts on it.
-            'products' => [['productId' => 'p1', 'url' => 'https://f/p1', 'popularityRank' => null]],
+            // The rest of these keys are ShopContentReader's own fuller
+            // reconstruction shape (Task 7) — a bare {productId, url} blob
+            // like this fixture's reads back with every other field present
+            // as explicit null/empty, not omitted (documented divergence,
+            // same as ShopEndpointParityTest's brand-c fixture).
+            'products' => [[
+                'productId' => 'p1', 'title' => null, 'url' => 'https://f/p1',
+                'price' => null, 'currency' => null, 'available' => true,
+                'handle' => null, 'image' => null, 'images' => [],
+                'variantId' => null, 'createdAt' => '2026-01-01T00:00:00+00:00',
+                'variants' => [], 'popularityRank' => null,
+            ]],
         ]]);
 });
 
@@ -123,6 +145,10 @@ it('shop selection surfaces a seeded popularityRank keyed by product handle', fu
         'brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0,
         'data' => ['productId' => 'p1', 'handle' => 'mug', 'url' => 'https://f/p1'],
     ]);
+    // Task 8: selection() reads ShopContentReader with no legacy fallback —
+    // land this fixture in content.* (handle='mug' round-trips through
+    // content.f_catalog) via the real migration path.
+    app(ShopBackfiller::class)->run();
 
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
         'id' => (string) Str::uuid(),
@@ -163,11 +189,11 @@ it('shop selection is null when no brand has products', function () {
 // extracted in round 1) — measured as 5 analytics.content_popularity_scores
 // queries for 4 brands on GET /selection, a path that also feeds the public
 // wire. Hoisted back out; this pins the fixed count so it cannot regress.
-// The count is 2, not 1: hybridBrandMap() (fix round 1, Finding 6 —
-// TEMPORARY until Task 8) still merges TWO brand-map builds — the legacy
-// site.shop_brands one and ShopContentReader's content.* one — and each
-// calls productRanksFor() once. Delete this test's "2" expectation and
-// re-derive it once hybridBrandMap() is deleted; it should drop to 1.
+// The count is 1, not 2: Task 8 deleted hybridBrandMap() (fix round 1,
+// Finding 6's TEMPORARY merge of the legacy site.shop_brands map and
+// ShopContentReader's content.* map, each calling productRanksFor() once) —
+// selection() now calls ShopContentReader::brandMap() directly, a single
+// build, a single ranks query.
 it('calls analytics.content_popularity_scores at most once per brand-map build, not once per brand', function () {
     setupContentPopularityScoresTable();
     $user = shopPayloadUser('shp5');
@@ -190,6 +216,9 @@ it('calls analytics.content_popularity_scores at most once per brand-map build, 
             'data' => ['productId' => "p-{$brandId}", 'handle' => $brandId, 'url' => "https://{$brandId}.example.com/p"],
         ]);
     }
+    // Task 8: land all 4 brands in content.* — selection() reads
+    // ShopContentReader with no legacy fallback now.
+    app(ShopBackfiller::class)->run();
 
     DB::connection('pgsql')->enableQueryLog();
     actingAsUser($user)->getJson('/api/platforms/shop/selection')->assertOk();
@@ -197,6 +226,6 @@ it('calls analytics.content_popularity_scores at most once per brand-map build, 
     DB::connection('pgsql')->disableQueryLog();
 
     $rankQueries = array_filter($log, fn ($q) => str_contains($q['query'], 'content_popularity_scores'));
-    expect(count($rankQueries))->toBe(2, 'Expected exactly 2 popularity-rank queries for 4 brands (one per '.
-        'brandMap() build inside hybridBrandMap() — see this test\'s own docblock), not one per brand.');
+    expect(count($rankQueries))->toBe(1, 'Expected exactly 1 popularity-rank query for 4 brands (one '.
+        'brandMap() build — see this test\'s own docblock), not one per brand.');
 });

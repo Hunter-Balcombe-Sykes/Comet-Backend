@@ -8,6 +8,7 @@ use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\EventsPayload;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -373,7 +374,13 @@ it('shopify addBrand returns the canonical brand object shape', function () {
             'logo' => 'https://b/logo.png',
             'discountCode' => '',
             'selectionMode' => 'manual',
-            'linkMode' => 'product',
+            // Task 8: addBrand()'s response is now built from ShopContentReader
+            // (matching GET /brands) — linkMode is derived from site.sites.
+            // shop_link_mode, and platformContractUser() has no site row, so
+            // it falls to Site::DEFAULT_SHOP_LINK_MODE ('checkout') rather
+            // than ShopBrand's own per-brand column default ('product'). Same
+            // documented divergence as ShopEndpointParityTest's GET /brands.
+            'linkMode' => 'checkout',
             'referralQuery' => '',
             'individual' => false,
             'products' => [],
@@ -386,18 +393,23 @@ it('shopify brands list strips unknown per-brand keys', function () {
     // "unknown key" to leak, but ShopBrandResource must still shape the row into
     // exactly this contract (no internal columns like source_url/fetch_mode).
     $conn = seedPlatformConnection($user, 'shop', ['storage' => 'relational']);
-    ShopBrand::create([
+    $brand = ShopBrand::create([
         'connection_id' => $conn->id, 'brand_id' => 'brand-1', 'provider' => 'shopify',
         'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
         'favicon' => null, 'logo' => null, 'discount_code' => 'SAVE',
     ]);
+    // Task 8: brands() now reads ShopContentReader with no legacy fallback
+    // (hybridBrandMap() is gone) — land this fixture in content.* the same
+    // way a real addBrand() connect would.
+    app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
 
     actingAsUser($user)->getJson('/api/platforms/shop/brands')
         ->assertOk()
         ->assertExactJson(['brands' => [[
             'id' => 'brand-1', 'provider' => 'shopify', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
             'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE',
-            'selectionMode' => 'manual', 'linkMode' => 'product', 'referralQuery' => '',
+            // Task 8: see the addBrand test above for why 'checkout'.
+            'selectionMode' => 'manual', 'linkMode' => 'checkout', 'referralQuery' => '',
             'individual' => false, 'products' => [],
         ]]]);
 });

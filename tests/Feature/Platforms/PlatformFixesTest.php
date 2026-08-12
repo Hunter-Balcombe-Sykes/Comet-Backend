@@ -18,6 +18,10 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 8: setProducts() now writes content.* (ShopContentWriter) instead
+    // of site.shop_products — the stand-in schema must exist for the shop
+    // tests below.
+    setupContentTables();
 });
 
 // Facebook is per-user + authenticated now — connect stores under the logged-in
