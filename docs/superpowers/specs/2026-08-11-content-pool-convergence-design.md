@@ -181,7 +181,7 @@ Deliberately out of scope in 2026-08-05, in scope here. All ten counts verified:
 | `site.service_category_assignments` | 61 | (collection membership) |
 | `site.service_categories` | 18 | (collections) |
 | `site.shop_products` | 51 | `product` |
-| `site.shop_brands` | 9 | (`f_catalog` / collections) |
+| `site.shop_brands` | 9 | collections + a `content.storefronts` sidecar (decided in 5a; **not** `f_catalog`, which is a music facet) |
 | `site.content_selection` | 91 | `media` — but see §2.4, it is not uniformly reference-resolved |
 
 `content.f_review` holds 0 rows; Google reviews have never reached the content
@@ -504,7 +504,8 @@ split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 | 1b | Google pass-through, IG mirroring, the 91 selections | L | **Merged** — checkpoint §15 | — |
 | 3 | Services → `content.*` | L | Not started | — |
 | 4 | Menus → `content.*` | XL | Not started | — |
-| 5 | Shop → `content.*` | L | Not started | — |
+| 5a | Shop data move → `content.*` | L | Spec written 2026-08-12 — `2026-08-12-slice-5a-shop-data-design.md` | — |
+| 5b | Shop pool + public render | M | Kickoff written, spec not started | 5a **merged** + partna-monorepo |
 | 6 | Reviews → `content.*` | M | Not started | — |
 | 7 | Legacy teardown | M | Not started | 1b, 3, 4, 5, 6 **+ frontend + standalone events** |
 
@@ -523,7 +524,13 @@ so that lane cannot be dropped yet.
 
 ### 4.2 Execution order
 
-**Merge 1a → { 1b · 3 · 5 } concurrent → 6 → 4 → 7.**
+**Merge 1a → { 1b · 3 · 5a } concurrent → 6 → 4 → 5b → 7.**
+
+**Revised 2026-08-12:** slice 5 split into 5a (data) and 5b (pool + public
+render). 5a keeps 5's original concurrency slot — it is `product`-kind and
+touches no shared read path, so §4.3 rule 1 still holds. 5b is sequenced late
+because it is the only remaining slice that needs partna-monorepo to move in
+step, and slice 7's teardown gate does not depend on it.
 
 Sizes were revised upward from revision 1 (3 and 5 from M, 4 from L, 7 from S)
 because §1.7 removed the assumption that a manual write lane exists, and §8.3 added
@@ -975,10 +982,22 @@ categories, 464 multi-category links, 370 platform rows. `base/pickup/delivery` 
 `offers` keyed by `channel`. `is_manual` → manual source. `badges` → `item_tags`;
 `rating`/`rating_count` → `f_rated`. **Must migrate `site.item_slugs`** — see §9.3.
 
-### Slice 5 — Shop → `content.*` · L
-`GumroadProductProjector` exists. Decompose `shop_products.data` jsonb into `items`,
-`offers`, `item_variants`, `item_media`. `shop_brands` → `f_catalog` or collections,
-decided in that slice's spec.
+### Slice 5 — Shop → `content.*` · L → split into 5a + 5b on 2026-08-12
+Decompose `shop_products.data` jsonb into `items`, `offers`, `item_variants`,
+`item_media`. Sub-specs: `2026-08-12-slice-5a-shop-data-design.md` (the data move,
+14 endpoint repoints, legacy goes inert) and
+`2026-08-12-slice-5b-shop-render-KICKOFF-PROMPT.md` (the pool, the `shop` page,
+the public wire change).
+
+**Two claims in this paragraph were false and are corrected here in place.**
+`GumroadProductProjector` "exists" but shares no field name with the blob
+(`title`/`price` string/`variants` vs `name`/`price_cents`/`pay_what_you_want`)
+and has **no `ingest.sources` row at all** — nothing in slice 5 runs a projector.
+And `shop_brands → f_catalog` is not an option: `f_catalog` is a *music* facet
+(`release_type`, `track_number`, `isrc`, `gtin`, `sku`) keyed `(item_id,
+source_id)`, so it cannot describe a store. **Decided in 5a:** brands become
+`content.collections` rows with a `content.storefronts` 1:1 sidecar carrying the
+behaviour; `f_catalog` holds product identifiers only.
 
 ### Slice 6 — Reviews → `content.*` · M
 Depends on slice 0. Must preserve the `when_unclaimed` redaction scope for

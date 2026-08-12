@@ -1,0 +1,216 @@
+# KICKOFF PROMPT — Slice 5b: the shop pool and the public render
+
+Second half of `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md`
+§7 "Slice 5". Slice 5 was cut in two on 2026-08-12, the same seam slice 1 took.
+
+- **5a — MERGED FIRST, and this is blocked on it.** The data move: 51 products
+  and 9 stores into `content.*`, a `content.storefronts` sidecar, and all 14
+  `/platforms/shop/*` endpoints plus `syncLatest()` repointed. Nothing public
+  changed. Spec: `docs/superpowers/specs/2026-08-12-slice-5a-shop-data-design.md`.
+- **5b (this prompt)** — the render. The `shop` pool, the `shop` page, the
+  outbound-URL composition moving to the backend, and retiring the legacy shop
+  keys from `/integrations`.
+
+**This is the half that cannot be un-shipped quietly.** 5a was verifiable with
+SQL against dev and touched no visitor-facing byte. 5b changes a CDN-cached
+public wire that partna-monorepo reads today, and it retires a function
+(`productHref()`) that lives in that other repo. Treat the cross-repo
+coordination as the slice, not as a follow-up to it.
+
+Paste everything below the line into a fresh session. It is self-contained.
+
+---
+
+**First action: rename this session to `slice-5b-shop-render`** so it is
+identifiable in Remote Control instead of appearing as a machine name.
+
+Read, in full, before touching anything:
+
+1. `CLAUDE.md`
+2. `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md` — §3
+   **Invariants**, §4.3 concurrency rules, §8.4, §9.2, §10.
+3. `docs/superpowers/specs/2026-08-12-slice-5a-shop-data-design.md` — **all of
+   it**, especially §7 "Conventions this slice establishes". 5a decided your
+   `SECTION_SHAPE`, your ordering mechanism and your `LATEST_TAG_POOLS` answer,
+   and recorded why. Re-derive the figures; do not re-litigate the decisions
+   without saying what changed.
+4. `docs/superpowers/plans/2026-08-11-content-pool-slice2-events.md` — slice 2 is
+   the reference for adopting a pool: registry entry, page provisioning for
+   existing users, section re-provisioning, and the payload work.
+5. `app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php` — the
+   shop branch (`filterPayload`, `SHOP_BRAND_ALLOWLIST`, `SHOP_PRODUCT_ALLOWLIST`)
+   is the wire you are replacing.
+6. `app/Site/Pools/PoolResolver.php` and `app/Site/Sections/SectionCandidates.php`.
+
+## Rule zero — you may not assume any checkpoint is true
+
+Parent invariant #5: **no slice may cite another slice's checkpoint as evidence
+for its own claims.** Invariant #6: **registration is not execution.** 5a's
+checkpoint is not proof for you. Re-derive every figure from dev. Where dev and
+this prompt disagree, dev wins and you say so.
+
+### Entry gate — run these first, paste output into your spec's §1
+
+```sql
+-- 5a's output, re-measured. If any of these is 0, 5a did not land and you stop.
+SELECT count(*) FROM content.items WHERE kind='product' AND removed_at IS NULL;
+SELECT count(*) FROM content.collections;
+SELECT count(*) FROM content.storefronts;
+SELECT count(*) FROM content.collection_items;
+SELECT count(*) FROM content.item_variants;
+SELECT count(*) FROM content.offers;
+
+-- the legacy tables must be inert. If these move between two runs an hour
+-- apart, something still writes them and 5a is incomplete.
+SELECT max(updated_at) FROM site.shop_products;
+SELECT max(updated_at) FROM site.shop_brands;
+
+-- what you are provisioning into. No 'shop' row existed on 2026-08-12.
+SELECT key, count(*) FROM site.pages GROUP BY 1 ORDER BY 2 DESC;
+SELECT key, count(*) FROM site.sections WHERE key LIKE 'pool:%' GROUP BY 1;
+
+-- store behaviour that must reach the wire
+SELECT provider, count(*) FROM content.storefronts GROUP BY 1;
+SELECT count(*) FILTER (WHERE referral_query <> '') AS with_referral,
+       count(*) FILTER (WHERE coalesce(discount_code,'') <> '') AS with_discount
+FROM content.storefronts;
+
+-- the ONE live input to link mode (per-brand link_mode was dropped by 5a)
+SELECT shop_link_mode, count(*) FROM site.sites GROUP BY 1;
+```
+
+## Scope
+
+### Unit 1 — Register the pool
+`PoolRegistry`: `POOLS['shop'] = ['product']`, `PAGE_KEYS['shop'] = 'shop'`,
+`PAGE_LABELS['shop'] = 'Shop'`, and the `SECTION_SHAPE` 5a decided:
+
+```php
+'shop' => ['rule' => [['op' => 'kind_is']], 'order_by' => 'recency'],
+```
+
+**Shop is NOT in `LATEST_TAG_POOLS`** — 5a §7 argues it both ways and decides.
+`buildPools()` loops every `POOLS` key, so the pool reaches
+`GET /api/public/profiles/{handle}` with no payload-builder change; that was
+verified on 2026-08-12 at `IndividualProfilePayloadBuilder:315`. Verify it again.
+
+### Unit 2 — Provision pages and sections for existing users
+**No `shop` page exists on dev.** Slice 2 provisioned events; copy that
+implementation, including the artisan command with `--dry-run` and counts, run
+against dev with output pasted into the checkpoint.
+
+`PoolSectionProvisioner::ensure()` early-returns on an existing section, so a
+constant change does not reshape existing rows. That bites slice 1a and slice 2
+both; assume it bites you.
+
+### Unit 3 — Ordering is pins, and pins are also the §8.3 armour
+`site.shop_products.position` is the owner's hand-chosen order. The pool's auto
+half offers exactly three orderings — `alphabetical`, `occurrence`, `recency`
+(`SectionCandidates:105-116`) — and **none is "the order the owner chose"**.
+
+So every migrated product is **pinned** in `site.section_items` at its position.
+`SectionCandidates:119` excludes already-pinned ids from the auto half, so there
+is no duplication. This also satisfies parent §8.3 for free: `mergeInto()`'s
+`hasCuration` check is `exists in site.section_items OR content.manual_overrides`,
+so a pinned product cannot be hard-deleted by a merge.
+
+New products arriving from a later `syncLatest()` land unpinned and fall to the
+auto half at the end of the list. **Decide and state** whether that is the
+intended behaviour or whether the sync should pin them at their catalogue
+position too.
+
+### Unit 4 — The outbound URL moves to the backend. This is the money unit.
+Owner decision 2026-08-12: `content.f_link.url` holds the **bare** product URL,
+and the composition — `site.sites.shop_link_mode` (`checkout|product`) plus the
+store's `referral_query`, plus the Shopify checkout deep link built from the
+variant id — becomes a **backend read-time** concern. `productHref()` in
+partna-monorepo then retires.
+
+Why it moved: referral revenue becomes testable in this repo, and a change to the
+site's link mode takes effect on the next payload build with nothing to
+re-backfill.
+
+- `referral_query` is affiliate revenue. Treat losing it the way you would treat
+  losing a price. It is `''` on all 9 dev stores, so **your tests are the only
+  place this behaviour is exercised** — dev data will not catch a regression.
+- `link_mode` per-brand is dormant and was dropped by 5a. The **global**
+  `site.sites.shop_link_mode` is the live input and must keep working.
+- The composition sits behind the 60s payload cache on the public hot path.
+  Batch it; do not compose per row inside a loop over items.
+
+### Unit 5 — The wire change, and the other repo
+The Shop page today renders from `/api/public/profiles/{handle}/integrations`,
+brand-keyed, via `PublicIntegrationConnectionResource`'s shop branch. After this
+slice it renders from `profile.pools.shop`.
+
+- The sitepage rebuilds its **store cards** from the collections map — store
+  name, logo, favicon, currency, discount code. Decide that map's shape and put
+  it in the manifest before writing the resolver, not after.
+- `SHOP_PRODUCT_ALLOWLIST` (#API-1) is the enforcement point that keeps
+  unvetted scraper keys off a CDN-cached public wire. **The pool payload needs
+  an equivalent.** Do not let the item payload become "whatever the projector
+  emitted".
+- Retiring the legacy shop keys from `/integrations` is a **breaking** change to
+  a live consumer. It needs its own wire manifest and partna-monorepo has to
+  land its side first. If that repo lags, ship the pool additively and leave the
+  legacy keys — and say in the checkpoint that the retirement criterion is
+  **unmet** rather than ticking it. Slice 2 set that precedent for standalone
+  events; follow it.
+
+## Non-negotiables
+
+- **Cache invalidation is three lanes.** `BuildState::bump($siteId)`, touch `site.sites.updated_at` (the payload cache key composes from it), dispatch `CloudflareCachePurgeJob`. No CI check enforces this despite the docblock claiming one — assert it directly.
+- **Schema changes are raw SQL** under `supabase/migrations/`. Pre-assigned prefix block: `20260813110000`–`20260813119999`. 5a owns `20260813100000`–`20260813109999`; do not take from it.
+- **Tests run SQLite, production is Postgres.** Verify every constraint-bound write against the DDL, not a green suite.
+- **Outbound fetches go through `SafeUrlFetcher`.** Product and store URLs arrive in third-party payloads and are untrusted by definition. A host allowlist entry is not the fix.
+- **`site.shop_products` / `site.shop_brands` are not dropped** — that is slice 7. 5a already made them inert.
+
+## If reality diverges, update the downstream prompts — do not just note it
+
+**A checkpoint is not a communication channel.** Parent invariant #5 forbids any
+slice citing another's checkpoint as evidence, so writing a discovery only into
+your own checkpoint guarantees the next session never acts on it. **Edit their
+prompt.**
+
+| You discover / change | Update |
+|---|---|
+| A parent-spec fact is now wrong (a count, a claim, a constraint) | The parent spec's §1 and its revision note, in place |
+| You changed `PoolResolver`, `PoolRegistry`, `PoolSectionProvisioner` or `SectionCandidates` | Every remaining prompt that builds on it — `slice-4-menus`, `slice-6-reviews`, `slice-7-teardown`, `media-pool-slice-1b` |
+| You changed the pool item payload shape | `slice-4-menus` explicitly — menus are the next priced kind and are told to reuse your shape |
+| You settled how a pool payload carries collections | `slice-4-menus` — menu categories are the same problem |
+| You added an allowlist / enforcement point for pool payloads | Every remaining prompt, under its non-negotiables |
+| You consumed migration filename prefixes outside your block | Whichever slice owns the block you took from |
+
+Two rules for the edit itself:
+
+- **Edit in place; do not append a "correction" section.** A prompt read top to
+  bottom must be true.
+- **Say the fact, not the story.**
+
+If you find something that invalidates another slice's *approach* rather than a
+detail — stop and raise it rather than rewriting their scope unilaterally.
+
+## Process — stop at every gate
+
+1. **Recon + entry gate.** Confirm 5a landed and the legacy tables are inert. **STOP — sign-off.**
+2. **Brainstorm** (`superpowers:brainstorming`) — units 4 and 5 are genuine decisions, and unit 5 is cross-repo.
+3. **Spec** → `docs/superpowers/specs/2026-08-12-slice-5b-shop-render-design.md`. **STOP — sign-off.**
+4. **Plan** (`superpowers:writing-plans`) → `docs/superpowers/plans/2026-08-12-slice-5b-shop-render.md`. **STOP — sign-off.**
+5. **Implement** in a dedicated worktree off `development`, per unit: plan → implement → independent review → tick.
+6. **Independent review** of the whole diff. **STOP — sign-off** before verification.
+7. **Verify on dev.** Live SQL assertions plus a real `PoolResolver` call — SQL cannot stand in for the resolver. Wire manifest at `docs/wire-changes/2026-08-12-slice-5b-shop-render.md`.
+8. **Merge + push.** Rebase onto `development`, full suite + PHPStan + Pint green, **STOP — explicit sign-off**, then merge and push. Never push to `production`.
+
+## Definition of done
+
+A dev account's Shop page renders from `profile.pools.shop` with its products in
+the owner's chosen order, grouped into store cards rebuilt from the collections
+map; the outbound URL is composed by the backend and a `referral_query` +
+`checkout` link-mode combination is proven correct **by test**, since dev data
+carries neither; the pool payload has an enforcement point equivalent to
+`SHOP_PRODUCT_ALLOWLIST`; every `pool:shop` section carries the corrected rule;
+coverage gate green (parent §8.4 — coord coverage, **not** row-count equality);
+checkpoint and wire manifest committed.
+
+If the legacy `/integrations` shop keys are still live because partna-monorepo
+has not landed its side, **say so and mark that criterion unmet.** Do not tick it.

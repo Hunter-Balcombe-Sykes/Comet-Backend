@@ -179,6 +179,14 @@ but a test must fail if an unselected service reaches the booking surface.
 coord component. Owner-authored rows have no `external_id` and take
 `manual:{legacy_uuid}` per parent §8.1.
 
+**§8.1 holds here only because `site.services` rows are stable.** Slice 5a had to
+diverge from it (`2026-08-12-slice-5a-shop-data-design.md` §3.3):
+`ShopCatalog::syncLatest()` DELETEs and re-INSERTs every `shop_products` row each
+sync, so the legacy uuid is a fresh value per cycle and a uuid-keyed coord would
+mint a new item every run. The rule is **check the writer**: update-in-place →
+`manual:{legacy_uuid}`; delete-and-reinsert → `manual:{sha1(canonical_url)}`.
+Confirm the Fresha path updates rather than rebuilds before relying on the uuid.
+
 Three states to preserve, not two:
 | `source` | `is_manual` | Meaning |
 |---|---|---|
@@ -200,6 +208,11 @@ read their DDL rather than assuming a shape.
 (`amount_minor`, `currency`, `qualifier`) plus `f_duration`. Note
 `services_price_cents_check CHECK (price_cents >= 0)` — a zero price is legal and
 means free, which maps to `qualifier='free'`, not `'exact'` with 0.
+
+`content.offers.availability` was NULL on all 14 existing rows and carries no
+CHECK. Slice 5a established the vocabulary `in_stock` / `out_of_stock`
+(schema.org ItemAvailability shorthand). If a service needs a third state, add to
+that vocabulary rather than minting a parallel spelling.
 
 ### Unit 5 — Soft delete
 Legacy `deleted_at` (+ `deleted_origin`) → `content.items.removed_at`. **Never write

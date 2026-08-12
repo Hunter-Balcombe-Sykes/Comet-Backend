@@ -1,16 +1,24 @@
 # KICKOFF PROMPT — Slice 5: Shop → `content.*`
 
+> **CONSUMED AND SPLIT — 2026-08-12. Do not paste this prompt into a new
+> session.** It was run, its recon reached the owner, and slice 5 was cut in two:
+>
+> - **5a — the data move.** Spec: `docs/superpowers/specs/2026-08-12-slice-5a-shop-data-design.md`
+> - **5b — the pool and the public render.** Kickoff: `docs/superpowers/plans/2026-08-12-slice-5b-shop-render-KICKOFF-PROMPT.md`
+>
+> Several premises below were falsified against dev and are corrected in 5a §1.2
+> and §1.4 — in short: `selection_mode` is dead, per-brand `link_mode` has been
+> dormant since 2026-07-08, `style_analysis` has no reader anywhere in `app/`,
+> `f_catalog` is a music facet that cannot describe a store, and
+> `GumroadProductProjector` shares no field name with the blob and has no
+> `ingest.sources` row. **Read 5a's §1 before trusting anything here.**
+
 Part of `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md` §7
 "Slice 5". Runs concurrently with 1b and slice 3 (parent §4.3 rule 1 — distinct
 kinds). Blocked by nothing; 0b is merged.
 
-**This is the lowest-fidelity-risk commerce migration and should be treated as the
-rehearsal for menus.** `site.shop_products` is a `data jsonb` blob with no relational
-structure, so nothing relational can be lost — but `site.shop_brands` is the
-opposite, a 20-column table full of behaviour, and that is where the real design
-work is.
-
-Paste everything below the line into a fresh session. It is self-contained.
+Retained below as the historical record of what the slice was scoped as before
+its recon ran.
 
 ---
 

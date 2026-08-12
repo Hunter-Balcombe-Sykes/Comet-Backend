@@ -140,8 +140,25 @@ so it ships publicly with no payload-builder change.
   collections group them for display, or whether categories are themselves
   selectable. The first is almost certainly right; say so rather than leaving it
   implied.
-- Follow whatever `SECTION_SHAPE` slice 3 and slice 5 established for priced,
-  undated items. A third variant for the same problem is a smell.
+- **The `SECTION_SHAPE` for priced, undated items is settled — reuse it, do not
+  invent a third.** Slice 5a decided it on 2026-08-12
+  (`2026-08-12-slice-5a-shop-data-design.md` §7):
+
+  ```php
+  'menus' => ['rule' => [['op' => 'kind_is']], 'order_by' => 'recency'],
+  ```
+
+  `latest_per_auto_source` emits exactly ONE item per connection source, which
+  for a menu means one dish visible and the rest hidden — the same pathology
+  slice 2 hit with events and slice 1a with media.
+- **Owner-chosen ordering lives in pins, not in the rule.** `SectionCandidates`
+  (`:105-116`) offers exactly three orderings — `alphabetical`, `occurrence`,
+  `recency` — and **none of them is "the order the owner chose"**. A hand-ordered
+  list is expressed by pinning each item in `site.section_items` at its position;
+  `SectionCandidates:119` excludes already-pinned ids from the auto half, so
+  there is no duplication. This also satisfies parent §8.3 for free —
+  `mergeInto()`'s `hasCuration` check reads `site.section_items`, so a pinned
+  dish cannot be hard-deleted by a merge.
 
 ## What slice 1b changed under you (merged 2026-08-13)
 
@@ -189,6 +206,8 @@ slice builds on. Verify each claim yourself; this is a pointer, not evidence.
 - **Backfill is production code** under `app/Services/Migration/`, artisan command, `--dry-run`, idempotent, counts reported.
 - **Schema changes are raw SQL** under `supabase/migrations/`. Pre-assigned prefix block: `20260813120000`–`20260813129999`.
 - **Tests run SQLite, production is Postgres.** The `menus.dining_modes` shape CHECK and `offers_qualifier_check` must be verified against the DDL.
+- **`content.offers.availability` has a vocabulary now.** It was NULL on all 14 rows and carries no CHECK; slice 5a established `in_stock` / `out_of_stock` (schema.org ItemAvailability shorthand). Use it rather than minting a second spelling.
+- **The coord rule depends on whether the legacy writer rewrites rows.** Parent §8.1 prescribes `manual:{legacy_uuid}`, and that holds only where the legacy id is stable. Slice 5a had to diverge: `ShopCatalog::syncLatest()` DELETEs and re-INSERTs every row each sync, so the uuid is a fresh value per cycle and a uuid-keyed coord would mint a new item every run. **Check your writers before choosing.** Where a platform scrape rewrites `site.menu_items` rather than updating in place, key on the canonical URL — `manual:{sha1(url)}` — which also satisfies §1.7's one-coord-per-URL rule by construction.
 - **The k6 harness hard-codes menu invariants** (`scripts/launch-check/k6/`). If this slice changes menu shape, re-check `seed.sql` and `jobs.js`.
 
 ## If reality diverges, update the downstream prompts — do not just note it
