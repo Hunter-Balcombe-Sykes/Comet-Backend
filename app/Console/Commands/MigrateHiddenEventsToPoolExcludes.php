@@ -7,6 +7,7 @@ use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Services\Platforms\EventsPayload;
 use App\Site\Documents\BuildState;
+use App\Site\Pools\EventExcludeSync;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -60,11 +61,26 @@ class MigrateHiddenEventsToPoolExcludes extends Command
         $excluded = 0;
         $unmatched = 0;
         $failed = 0;
+        $noSite = 0;
+        $skippedPinned = 0;
+        /** @var list<string> $unmatchedDetail */
+        $unmatchedDetail = [];
 
         foreach ($hiddenByUser as $userId => $hiddenIds) {
             try {
-                $itemIds = $this->itemIdsForHiddenIds($userId, $hiddenIds);
-                $unmatched += count($hiddenIds) - count($itemIds);
+                // Keyed by the HIDDEN ID, not just the item ids: two hidden ids
+                // can hash to the same item (the same event listed twice), and
+                // counting `count($hiddenIds) - count($itemIds)` reported that
+                // as an unmatched hide when it was a matched duplicate.
+                $matchedByHiddenId = $this->matchHiddenIds($userId, $hiddenIds);
+                $itemIds = array_values(array_unique(array_filter($matchedByHiddenId)));
+
+                foreach ($hiddenIds as $hiddenId) {
+                    if (($matchedByHiddenId[$hiddenId] ?? null) === null) {
+                        $unmatched++;
+                        $unmatchedDetail[] = "{$userId}/{$hiddenId}";
+                    }
+                }
 
                 if ($itemIds === []) {
                     continue;
@@ -80,7 +96,12 @@ class MigrateHiddenEventsToPoolExcludes extends Command
                 $site = Site::query()->where('user_id', $userId)->first();
                 if ($site === null) {
                     // Curation with no site to apply it to. Not an error —
-                    // there is simply no Events page for it to affect.
+                    // there is simply no Events page for it to affect — but it
+                    // IS an unapplied hide, so it must not be silently folded
+                    // into the success line.
+                    $noSite += count($itemIds);
+                    $this->warn("  ! user {$userId}: ".count($itemIds).' hide(s) not applied — no site');
+
                     continue;
                 }
 
@@ -94,7 +115,12 @@ class MigrateHiddenEventsToPoolExcludes extends Command
 
                     // A PIN beats a legacy hide: the owner picked this item in
                     // the new lane more recently than they hid it in the old.
+                    // Reported, not swallowed — it is a hide that deliberately
+                    // did not apply, and the operator should see the count.
                     if ($row !== null && $row->state === SectionItem::STATE_PINNED) {
+                        $skippedPinned++;
+                        $this->warn("  ! user {$userId}: hide skipped for item {$itemId} — pinned in the pool");
+
                         continue;
                     }
 
@@ -129,6 +155,22 @@ class MigrateHiddenEventsToPoolExcludes extends Command
 
         $verb = $dry ? 'would exclude' : 'excluded';
         $this->info("Hidden events: {$verb} {$excluded}, unmatched {$unmatched}".($failed > 0 ? ", {$failed} failed" : '.'));
+
+        // A hide that did not land is the whole risk of this migration — the
+        // owner believes the event is hidden and the pool will show it. Saying
+        // "success" and burying the number in an info line is how that gets
+        // missed, so every non-applied hide is warned about by name.
+        $notApplied = $unmatched + $noSite + $skippedPinned;
+        if ($notApplied > 0) {
+            $this->warn("  {$notApplied} hide(s) did NOT reach the pool: {$unmatched} unmatched, {$noSite} no-site, {$skippedPinned} pinned-in-pool.");
+            $this->warn('  Those events will be VISIBLE on the pool-derived Events page. Review before treating this as done.');
+            foreach (array_slice($unmatchedDetail, 0, 20) as $detail) {
+                $this->warn("    unmatched: {$detail}");
+            }
+            if (count($unmatchedDetail) > 20) {
+                $this->warn('    … '.(count($unmatchedDetail) - 20).' more');
+            }
+        }
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }
@@ -166,15 +208,23 @@ class MigrateHiddenEventsToPoolExcludes extends Command
     }
 
     /**
-     * The user's live event items whose link hashes to one of $hiddenIds.
+     * hidden id => the live event item whose link hashes to it, or null.
+     *
+     * Keyed by hidden id rather than returning a bare item list so the caller
+     * can tell a genuinely unmatched hide from two hides landing on one item.
+     *
+     * The hash rule is EventsPayload::id() and it is shared with
+     * {@see EventExcludeSync}, which does the same join for
+     * hides made after this migration runs. If one changes, both change.
      *
      * @param  list<string>  $hiddenIds
-     * @return list<string>
+     * @return array<string, string|null>
      */
-    private function itemIdsForHiddenIds(string $userId, array $hiddenIds): array
+    private function matchHiddenIds(string $userId, array $hiddenIds): array
     {
         $wanted = array_flip($hiddenIds);
         $matched = [];
+        $byHiddenId = array_fill_keys($hiddenIds, null);
 
         // JOIN-free two-step for the SQLite mirror's sake, and because the
         // hash has to happen in PHP either way — there is no sha1 in SQLite.
@@ -187,23 +237,25 @@ class MigrateHiddenEventsToPoolExcludes extends Command
             ->all();
 
         if ($itemIds === []) {
-            return [];
+            return $byHiddenId;
         }
 
         DB::connection('pgsql')->table('content.f_link')
             ->whereIn('item_id', $itemIds)
             ->select(['item_id', 'url'])
             ->cursor()
-            ->each(function (object $link) use ($wanted, &$matched) {
+            ->each(function (object $link) use ($wanted, &$matched, &$byHiddenId) {
                 $url = (string) ($link->url ?? '');
                 if ($url === '') {
                     return;
                 }
-                if (isset($wanted[EventsPayload::id($url)])) {
+                $hashed = EventsPayload::id($url);
+                if (isset($wanted[$hashed])) {
                     $matched[(string) $link->item_id] = true;
+                    $byHiddenId[$hashed] = (string) $link->item_id;
                 }
             });
 
-        return array_keys($matched);
+        return $byHiddenId;
     }
 }

@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\Site;
 use App\Services\Platforms\EventsPayload;
+use App\Site\Pools\EventExcludeSync;
 use App\Site\Pools\PoolResolver;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
@@ -182,4 +183,63 @@ it('does nothing when no connection hides anything', function () {
 it('derives the dashboard id from the link exactly', function () {
     expect(EventsPayload::id('https://www.eventbrite.com/e/connect-sydney-grant-writing-workshop-tickets-1993572537124'))
         ->toBe('a53103b7e77fd64f');
+});
+
+// ── The ONGOING half ───────────────────────────────────────────────────────
+// The migration above is a one-shot. Without EventExcludeSync every hide made
+// AFTER it runs writes only hiddenEventIds, which the pool does not read — so
+// the dashboard's hide button becomes a control that silently does nothing.
+
+it('a hide made after the migration still reaches the pool', function () {
+    $pro = createTenant('hidden-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+
+    $link = 'https://www.eventbrite.com/e/later-hide-tickets-987';
+    // Nothing hidden yet — this is the state the migration leaves behind.
+    $connection = hiddenConnection($pro->id, [], [['id' => EventsPayload::id($link), 'link' => $link]]);
+    $sourceId = hiddenSource($pro->id, $connection);
+    $itemId = hiddenEventItem($pro->id, $sourceId, 'Later hide', $link);
+
+    $section = app(PoolSectionProvisioner::class)->ensure($site, 'events');
+    expect(DB::table('site.section_items')->where('section_id', $section->id)->count())->toBe(0);
+
+    $applied = app(EventExcludeSync::class)
+        ->excludeByLegacyEventId($site, (string) $pro->id, EventsPayload::id($link));
+
+    expect($applied)->toBeTrue()
+        ->and(DB::table('site.section_items')
+            ->where('section_id', $section->id)->where('item_id', $itemId)->value('state'))
+        ->toBe('excluded');
+
+    // And the pool actually stops serving it.
+    $pool = app(PoolResolver::class)->resolve($site, 'events');
+    expect(collect($pool['selection'])->pluck('id')->all())->not->toContain($itemId);
+});
+
+it('reports a hide it cannot map rather than pretending it applied', function () {
+    // A standalone event lands no content item, so there is nothing to
+    // exclude. That must read as false to the caller, not as success.
+    $pro = createTenant('hidden-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+
+    $applied = app(EventExcludeSync::class)
+        ->excludeByLegacyEventId($site, (string) $pro->id, EventsPayload::id('https://www.eventbrite.com/e/nothing-here-1'));
+
+    expect($applied)->toBeFalse();
+});
+
+it('uses the same hash rule as the migration command, so the two cannot drift', function () {
+    // If EventsPayload::id() ever changes, both the one-shot and the ongoing
+    // half must change together or hides stop matching. Pinned as one fact.
+    $pro = createTenant('hidden-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+
+    $link = 'https://www.eventbrite.com/e/shared-rule-tickets-555';
+    $connection = hiddenConnection($pro->id, [], [['id' => EventsPayload::id($link), 'link' => $link]]);
+    $sourceId = hiddenSource($pro->id, $connection);
+    $itemId = hiddenEventItem($pro->id, $sourceId, 'Shared rule', $link);
+
+    expect(app(EventExcludeSync::class)
+        ->itemIdForLegacyEventId((string) $pro->id, EventsPayload::id($link)))
+        ->toBe($itemId);
 });

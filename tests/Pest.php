@@ -2519,6 +2519,17 @@ function setupContentTables(): void
         UNIQUE (user_id, slug)
     )');
 
+    // Mirrors idx_content_item_slugs_one_current (20260812040000): one CURRENT
+    // slug per item. Without it a retire-then-promote written in the wrong
+    // order leaves two current slugs and the suite stays green while the
+    // item's public URL flips between them run to run.
+    try {
+        $pg->statement('CREATE UNIQUE INDEX IF NOT EXISTS content.idx_content_item_slugs_one_current
+            ON item_slugs (item_id) WHERE is_current');
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
+
     $pg->statement('CREATE TABLE IF NOT EXISTS content.item_links (
         id TEXT PRIMARY KEY NOT NULL,
         item_id TEXT NOT NULL,

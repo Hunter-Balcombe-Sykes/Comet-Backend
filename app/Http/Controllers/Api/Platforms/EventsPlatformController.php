@@ -7,11 +7,13 @@ use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\EventsPayload;
 use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\StandaloneEventPayload;
+use App\Site\Pools\EventExcludeSync;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -275,6 +277,21 @@ abstract class EventsPlatformController extends ApiController
                     [...$account->hiddenEventIds(), $id],
                 );
                 $this->writeConnection($user, $next, $row->resource_id);
+
+                // Mirror the hide into the events pool. The legacy lane hides
+                // at WRITE time by pruning the stored payload; the pool reads
+                // content.items directly and would keep showing the event.
+                // content:migrate-hidden-events carried the existing hides
+                // over once — without this line every hide made AFTER that
+                // migration is a button that silently does nothing.
+                //
+                // Best-effort: a standalone event lands no content item, so
+                // false here is an ordinary outcome, not a failure. The legacy
+                // hide has already been written either way.
+                $site = Site::query()->where('user_id', $user->id)->first();
+                if ($site !== null) {
+                    app(EventExcludeSync::class)->excludeByLegacyEventId($site, (string) $user->id, $id);
+                }
 
                 return $this->success(['selection' => $this->selectionData($user)]);
             }
