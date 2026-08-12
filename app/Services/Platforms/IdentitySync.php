@@ -6,6 +6,8 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Profile\FoodContentProbe;
+use App\Services\Profile\SectorProvenance;
 use App\Services\Profile\SectorTaxonomy;
 use App\Support\BusinessName;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +40,8 @@ class IdentitySync
     // Google's opening-hours `period.open.day` / `period.close.day` are 0=Sunday
     // .. 6=Saturday. We store per-day under these slugs.
     private const DAY_SLUGS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+    public function __construct(private readonly FoodContentProbe $foodContent) {}
 
     /**
      * Fold a google-business payload into the user's identity stores. Silent
@@ -178,6 +182,8 @@ class IdentitySync
      */
     private function applyUserIdentityFields(User $user, bool $overwrite, ?string $mappedSector, ?string $phone): void
     {
+        $sectorBefore = $user->sector;
+
         DB::connection($user->getConnectionName())->transaction(function () use ($user, $overwrite, $mappedSector, $phone) {
             $fresh = User::query()->whereKey($user->getKey())->lockForUpdate()->first();
             if ($fresh === null) {
@@ -189,29 +195,26 @@ class IdentitySync
         });
 
         $user->refresh();
+
+        // AFTER the commit, on the caller's instance: sector drives the design
+        // presets, and only SiteObserver::saved dispatches the Cloudflare purge
+        // — a bare $user->save() busts Redis but leaves the edge stale. Never
+        // inside the lock: $fresh->site is unloaded and preventLazyLoading throws.
+        if ($user->sector !== $sectorBefore) {
+            $user->site()->first()?->touch();
+        }
     }
 
     /**
-     * Sector precedence (widened 2026-07-20 — any non-Google source is now
-     * permanent, not just 'manual'): apply precedence in two steps against
-     * $mappedSector (already resolved from Google's category by
-     * SectorTaxonomy::fromGoogleCategory — see applyUserIdentityFields,
-     * LIFE-107: that mapping is pure so it happens OUTSIDE the lock this
-     * method now runs under). First, any sector_source that is neither null
-     * nor Google's own (`self::GOOGLE_SOURCE`) is NEVER overwritten by a
-     * business account's Google resync — originally this only protected
-     * 'manual' (the 2026-07-15 fix: business used to silently revert a
-     * user's own pick on every resync), but the same clobbering bug applies
-     * to any other automated source (e.g. a sector seeded by an Instagram
-     * connect ahead of Google during pre-account signup): first non-Google
-     * source to write wins. Only once that's ruled out does the account-type
-     * rule apply: business overwrites a blank value or one it previously
-     * stamped itself; partna fills only when sector is currently blank.
-     * Provenance in users.sector_source.
+     * One ladder, both account types: manual > google-business > instagram.
      *
-     * $user MUST be the locked $fresh row from applyUserIdentityFields — the
-     * source guard below reads $user->sector_source, and evaluating it
-     * against a stale pre-lock instance is exactly the race LIFE-107 closes.
+     * Was two branches. The business branch froze any non-Google source
+     * permanently (commit 30e3d3abb widened a manual-only guard), and the
+     * partna branch filled only blanks — so an Instagram guess locked Google
+     * out on both. $overwrite no longer selects a precedence branch; it is
+     * kept only as the sanctioned isBusiness discriminator for the food guard.
+     *
+     * $user MUST be the locked $fresh row from applyUserIdentityFields.
      */
     private function applySector(User $user, bool $overwrite, ?string $mappedSector): void
     {
@@ -219,29 +222,20 @@ class IdentitySync
             return;
         }
 
-        if ($overwrite) {
-            // Any other source's stamped value is permanent from Google's
-            // perspective — first non-Google source to write wins. Google may
-            // still fill a blank sector or replace one it set itself on an
-            // earlier sync. The `sector !== null` leg is defensive: provenance
-            // can be stamped ahead of the value being cleared elsewhere, and a
-            // (null, <source>) row must not block Google's fill forever.
-            if ($user->sector_source !== null && $user->sector_source !== self::GOOGLE_SOURCE && $user->sector !== null) {
-                return;
-            }
+        if (! SectorProvenance::mayWrite($user, SectorProvenance::GOOGLE)) {
+            return;
+        }
 
-            if ($user->sector !== $mappedSector) {
-                $user->sector = $mappedSector;
-                $user->sector_source = self::GOOGLE_SOURCE;
-                $user->save();
-            }
+        // Pure predicate first — the probe only queries on a real demotion.
+        if (SectorProvenance::isFoodDemotion($overwrite, $user->sector, $mappedSector)
+            && $this->foodContent->existsFor($user)) {
+            SectorProvenance::logTransition($user, $mappedSector, self::GOOGLE_SOURCE, __METHOD__, 'refused_food_demotion');
 
             return;
         }
 
-        // partna: fill only when nothing is set yet — inherently safe
-        // regardless of the current source, so no source check needed here.
-        if ($this->isBlank($user->sector)) {
+        if ($user->sector !== $mappedSector || $user->sector_source !== self::GOOGLE_SOURCE) {
+            SectorProvenance::logTransition($user, $mappedSector, self::GOOGLE_SOURCE, __METHOD__);
             $user->sector = $mappedSector;
             $user->sector_source = self::GOOGLE_SOURCE;
             $user->save();

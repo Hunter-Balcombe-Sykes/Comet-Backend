@@ -9,6 +9,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\IdentitySync;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -19,6 +20,8 @@ beforeEach(function () {
     // The manual upsert re-evaluates the 'workplace' section's visibility, which
     // queries site.blocks — needed even though no block row is seeded.
     setupBlocksTable();
+    // FoodContentProbe queries site.pages, which lives under site.sections' setup.
+    setupSectionsTables();
     AccountCapabilities::flushCache();
 });
 
@@ -300,28 +303,95 @@ it('still lets Google replace its OWN previously google-sourced sector on a busi
     expect($user->sector_source)->toBe('google-business');
 });
 
-it('never overwrites a non-Google automated source (e.g. instagram) sector on a business google resync', function () {
-    idsyncFakePlaces();
-    $user = idsyncUser('bizinstasector', 'business');
-    $siteId = idsyncSite($user);
-    // A different automated source's stamped value — not manual, not Google's
-    // own prior write. The 2026-07-15 fix only protected 'manual'; this is the
-    // same bug class for any other non-Google source (e.g. a value seeded by
-    // an Instagram connect during pre-account signup, before Google runs).
-    $user->forceFill(['sector' => 'restaurant', 'sector_source' => 'instagram'])->save();
+it('overwrites an instagram-sourced sector on a business google resync', function () {
+    // Was the opposite until 2026-08-12. Commit 30e3d3abb widened a guard meant
+    // to protect a MANUAL pick so it protected every non-Google source, which
+    // let a scraper's guess outrank Google permanently.
+    // Site MUST exist before the forceFill+save below: UserObserver::updated's
+    // catch-all cache-bust (UserCacheService::invalidateUser) touches
+    // $user->site synchronously (no wrapping transaction in tests), which
+    // would cache the relation as null forever if the site row didn't exist
+    // yet — silently turning applyFromGooglePayload into a no-op. Every other
+    // sector test in this file creates the site first for the same reason.
+    $user = idsyncUser('bizgooglesector2', 'business');
+    idsyncSite($user);
+    $user->forceFill(['sector' => 'artist', 'sector_source' => 'instagram'])->save();
 
-    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
-        'placeId' => 'ChIJidsync',
-        'name' => 'Fade Lab',
-        'lat' => -37.0,
-        'lng' => 144.0,
-    ])->assertOk();
+    app(IdentitySync::class)->applyFromGooglePayload($user, ['category' => 'Barber shop']);
+
+    $user->refresh();
+    expect($user->sector)->toBe('barber')
+        ->and($user->sector_source)->toBe('google-business');
+});
+
+it('overwrites an instagram-sourced sector on a partna account too', function () {
+    // The account type Instagram pre-account builds actually produce.
+    // Site before forceFill+save — see the comment on the test above.
+    $user = idsyncUser('partnagooglesector', 'partna');
+    idsyncSite($user);
+    $user->forceFill(['sector' => 'artist', 'sector_source' => 'instagram'])->save();
+
+    app(IdentitySync::class)->applyFromGooglePayload($user, ['category' => 'Barber shop']);
+
+    $user->refresh();
+    expect($user->sector)->toBe('barber')
+        ->and($user->sector_source)->toBe('google-business');
+});
+
+it('never overwrites a manual sector pick, on either account type', function (string $accountType) {
+    // Site before forceFill+save — see the comment on the first "overwrites" test above.
+    $user = idsyncUser("manualsector{$accountType}", $accountType);
+    idsyncSite($user);
+    $user->forceFill(['sector' => 'artist', 'sector_source' => 'manual'])->save();
+
+    app(IdentitySync::class)->applyFromGooglePayload($user, ['category' => 'Barber shop']);
+
+    $user->refresh();
+    expect($user->sector)->toBe('artist')
+        ->and($user->sector_source)->toBe('manual');
+})->with(['business', 'partna']);
+
+it('refuses to demote a business out of food while food content is live', function () {
+    // Site before forceFill+save — see the comment on the first "overwrites" test above.
+    $user = idsyncUser('foodlock', 'business');
+    $siteId = idsyncSite($user);
+    $user->forceFill(['sector' => 'restaurant', 'sector_source' => 'google-business'])->save();
+    DB::connection('pgsql')->table('site.pages')->insert([
+        'id' => (string) Str::uuid(), 'site_id' => $siteId,
+        'key' => 'menu', 'label' => 'Menu', 'sort_order' => 1, 'capability' => 'menu',
+        // site.pages.created_at/updated_at are NOT NULL with no default (test
+        // schema mirrors the real migration) — the brief's insert omitted them.
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    app(IdentitySync::class)->applyFromGooglePayload($user, ['category' => 'Event venue']);
 
     $user->refresh();
     expect($user->sector)->toBe('restaurant');
-    expect($user->sector_source)->toBe('instagram');
-    // Confirms this connect really did run (workplace fields still overwrite).
-    expect(Workplace::query()->where('site_id', $siteId)->value('name'))->toBe('Fade Lab');
+});
+
+it('allows the demotion when no food content exists', function () {
+    // Site before forceFill+save — see the comment on the first "overwrites" test above.
+    $user = idsyncUser('foodfree', 'business');
+    idsyncSite($user);
+    $user->forceFill(['sector' => 'restaurant', 'sector_source' => 'google-business'])->save();
+
+    app(IdentitySync::class)->applyFromGooglePayload($user, ['category' => 'Event venue']);
+
+    $user->refresh();
+    expect($user->sector)->toBe('event-venue');
+});
+
+it('touches the site when the sector changes so the edge cache purges', function () {
+    $user = idsyncUser('sectortouch', 'partna');
+    $siteId = idsyncSite($user);
+    DB::connection('pgsql')->table('site.sites')->where('id', $siteId)
+        ->update(['updated_at' => '2020-01-01 00:00:00']);
+
+    app(IdentitySync::class)->applyFromGooglePayload($user, ['category' => 'Barber shop']);
+
+    $touched = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('updated_at');
+    expect($touched)->not->toBe('2020-01-01 00:00:00');
 });
 
 // ── (c) Email is never written by Google ─────────────────────────────────────
