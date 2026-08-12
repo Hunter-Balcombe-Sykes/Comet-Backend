@@ -4,8 +4,6 @@ use App\Models\Core\Site\ShopBrand;
 use App\Services\Migration\ShopBackfiller;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\WooCommerceScraper;
-use App\Services\Shop\ShopContentWriter;
-use Illuminate\Support\Facades\DB;
 
 // Slice 5a Task 7 §Step 1-2. A response-shape diff, not a shape review: the
 // expected arrays below were CAPTURED by dumping the real JSON these five
@@ -27,14 +25,14 @@ use Illuminate\Support\Facades\DB;
 //
 // Fixture: one user, THREE stores (brand-a/b fully populated Shopify/
 // WooCommerce-shaped; brand-c nameless + a urlless product, bigcartel-shaped),
-// six products total. brand-a/b are seeded via site.shop_brands/
+// six products total. ALL THREE are seeded via site.shop_brands/
 // site.shop_products (what the pre-Task-7 controllers read) then landed in
-// content.* via app(ShopBackfiller::class)->run() — the real migration path.
-// brand-c's product is landed via a DIRECT ShopContentWriter::syncStore()
-// call instead (see the fixture's own comment for why: ShopBackfiller::run()
-// has the SAME urlless-skip gap syncStore() had before fix round 3, Finding
-// 3 — out of this round's explicit scope, flagged in the Task 7 report, not
-// fixed here).
+// content.* via app(ShopBackfiller::class)->run() — the real migration path,
+// with no workaround. Fix round 4, Finding 2 closed the backfiller's own
+// urlless-skip gap (it had survived syncStore()'s round-3 fix), so brand-c's
+// urlless product no longer needs the direct ShopContentWriter::syncStore()
+// call this fixture used to make on its behalf — the backfiller landing it
+// unaided is now part of what this test proves.
 
 beforeEach(function () {
     setupUsersTable();
@@ -170,11 +168,23 @@ function parityFixture(): array
         'variants' => [],
     ]);
     // Fix round 3, Finding 2/6: deliberately Squarespace-shaped — no
-    // 'vendor', no 'description', no 'images' key at all (matching
-    // SquarespaceScraper::fetchProducts()'s real return array exactly).
+    // 'vendor' and no 'description', matching SquarespaceScraper::
+    // fetchProducts(), which emits neither (nor an 'images' key: its product
+    // array carries a single 'image' only, SquarespaceScraper.php:104).
     // vendor/description are OMITTED from the reconstructed response too
-    // (Finding 2's fix), so this round-trips cleanly; `images` still
-    // diverges the same way p3's does (see above).
+    // (Finding 2's fix), so this round-trips cleanly.
+    //
+    // Fix round 4, Finding 5 — comment corrected to what this fixture
+    // ACTUALLY exercises: `images` below is an EMPTY ARRAY, not an absent
+    // key. makeShopProduct() cannot express key-absence at all — it merges
+    // $data over a default blob that always carries 'images' => [] (see
+    // tests/Pest.php), and every key it forces is one fromBlob() reads
+    // without a `??` fallback. Nothing is lost on the WRITE side by that:
+    // ShopProductProjection::media() reads `$data['images'] ?? []`, so
+    // absent and `[]` are the same input. It does mean this fixture probes
+    // the empty-array case, NOT the key-absent case, and the divergence
+    // asserted below (`images` reading back as [cover]) is the same one p3
+    // demonstrates rather than an additional Squarespace-specific one.
     makeShopProduct($brandB, [
         'productId' => 'q2',
         'title' => 'Linen Napkin Set',
@@ -208,19 +218,12 @@ function parityFixture(): array
     ];
     makeShopProduct($brandC, $rBlob);
 
-    // The actual production migration path — lands brand-a/b's seeded data
-    // in content.* the same way ShopBackfiller does on real dev/prod data.
-    app(ShopBackfiller::class)->run();
-
-    // brand-c's collection now exists (upsertStore() ran unconditionally),
-    // but ShopBackfiller::run()'s own per-product loop ALSO skips a urlless
-    // product (`if ($url === '') { $result['skipped_no_url']++; continue; }`
-    // — the same gap syncStore() had before this round, NOT fixed here, out
-    // of explicit scope — see the Task 7 report). Land r1 via the REAL,
-    // FIXED sync path directly instead — exactly what a scheduled
-    // ShopCatalog::syncLatest() resync does in production.
-    $collectionCId = DB::table('content.storefronts')->where('external_ref', 'brand-c')->value('collection_id');
-    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionCId, [$rBlob], 'AUD');
+    // The actual production migration path — lands ALL THREE brands' seeded
+    // data in content.* the same way ShopBackfiller does on real dev/prod
+    // data, brand-c's urlless product included (fix round 4, Finding 2).
+    $backfill = app(ShopBackfiller::class)->run();
+    expect($backfill['products'])->toBe(6)
+        ->and($backfill['skipped_unidentifiable'])->toBe(0);
 
     return [$user, $brandA, $brandB, $brandC, $site];
 }
@@ -334,8 +337,9 @@ function brandBProductsDashboardShape(): array
             'price' => '32.00', 'currency' => 'USD', 'available' => true,
             'image' => 'https://cdn.example.com/q2.jpg',
             // DOCUMENTED DIVERGENCE — see p3's identical note above. The
-            // legacy blob (deliberately Squarespace-shaped: no 'images' key
-            // at all) also showed [].
+            // legacy blob showed [] (fix round 4, Finding 5: [] is what the
+            // fixture actually stores — makeShopProduct() cannot express an
+            // absent 'images' key; see the fixture's own corrected comment).
             'images' => ['https://cdn.example.com/q2.jpg'],
             'variants' => [],
             'handle' => 'linen-napkin-set',

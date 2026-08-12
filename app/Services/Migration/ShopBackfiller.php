@@ -29,10 +29,26 @@ class ShopBackfiller
         private readonly ShopContentWriter $stores,
     ) {}
 
-    /** @return array{stores: int, products: int, skipped_no_url: int, failed: int} */
+    /**
+     * Fix round 4, Finding 2: this loop mirrors ShopContentWriter::syncStore()
+     * exactly on a urlless product — same collection-namespaced coord
+     * fallback, same "only skip when there is no identifier at all" rule. It
+     * did not before, and the two writers disagreeing on identical input was
+     * not merely untidy: upsertStore() still runs for the brand, so the
+     * per-brand fallback in ShopController::hybridBrandMap() does NOT engage,
+     * and a urlless product in an otherwise-normal store just vanished from
+     * /brands, /selection and the public payload — with no self-healing for a
+     * curated store that never re-syncs.
+     *
+     * `skipped_unidentifiable` (was `skipped_no_url`) counts only the genuinely
+     * unidentifiable product — no url AND no productId — so the count keeps
+     * naming what it actually holds.
+     *
+     * @return array{stores: int, products: int, skipped_unidentifiable: int, failed: int}
+     */
     public function run(bool $dryRun = false, ?string $userId = null): array
     {
-        $result = ['stores' => 0, 'products' => 0, 'skipped_no_url' => 0, 'failed' => 0];
+        $result = ['stores' => 0, 'products' => 0, 'skipped_unidentifiable' => 0, 'failed' => 0];
         $touchedSites = [];
 
         $brands = ShopBrand::query()
@@ -61,17 +77,29 @@ class ShopBackfiller
                 $collectionId = $this->stores->upsertStore($brand, (string) $ownerId);
                 $result['stores']++;
 
-                foreach ($brand->products as $index => $product) {
-                    $url = trim((string) (($product->data['url'] ?? '')));
-                    if ($url === '') {
-                        $result['skipped_no_url']++;
+                foreach ($brand->products as $product) {
+                    $url = trim((string) ($product->data['url'] ?? ''));
+                    $productId = trim((string) ($product->data['productId'] ?? ''));
+
+                    if ($url !== '') {
+                        $coord = ShopProductProjection::coordFor($url);
+                    } elseif ($productId !== '') {
+                        $coord = ShopProductProjection::coordForProductId($collectionId, $productId);
+                    } else {
+                        // Never silent: counted here AND logged, the same way
+                        // syncStore() logs its own unidentifiable product.
+                        $result['skipped_unidentifiable']++;
+                        Log::warning('shop.backfill.unidentifiable_product', [
+                            'shop_brand_id' => $brand->id,
+                            'shop_product_id' => $product->id,
+                        ]);
 
                         continue;
                     }
 
                     $itemId = $this->writer->writeManualItem(
                         (string) $ownerId,
-                        ShopProductProjection::coordFor($url),
+                        $coord,
                         ShopProductProjection::fromBlob($product->data, $brand->currency),
                     );
 

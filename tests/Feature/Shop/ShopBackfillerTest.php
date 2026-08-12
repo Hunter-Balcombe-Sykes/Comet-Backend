@@ -1,7 +1,9 @@
 <?php
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Models\Core\Site\ShopBrand;
 use App\Services\Migration\ShopBackfiller;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
@@ -84,11 +86,83 @@ it('writes nothing on a dry run but still counts', function () {
         ->and(DB::table('content.items')->count())->toBe(0);
 });
 
-it('skips and counts a product with no url rather than minting a coord for empty string', function () {
+// Fix round 4, Finding 2: the backfiller kept syncStore()'s round-3 urlless
+// bug after syncStore() lost it — the two writers behaved differently on
+// identical input. It matters because upsertStore() still runs for the brand,
+// so ShopController::hybridBrandMap()'s per-brand legacy fallback does NOT
+// engage: a urlless product in an otherwise-normal store simply vanished from
+// /brands, /selection and the public payload, with no self-healing for a
+// curated store that never re-syncs.
+it('lands a urlless but product-id-identified product rather than dropping it', function () {
     [$user, $brand] = makeShopBrand();
-    makeShopProduct($brand, ['url' => '']);
+    makeShopProduct($brand, ['url' => '', 'productId' => 'pid-1', 'title' => 'Mystery Box']);
 
-    expect(app(ShopBackfiller::class)->run()['skipped_no_url'])->toBe(1);
+    $result = app(ShopBackfiller::class)->run();
+
+    expect($result['products'])->toBe(1)
+        ->and($result['skipped_unidentifiable'])->toBe(0)
+        ->and(DB::table('content.items')->where('kind', 'product')->count())->toBe(1)
+        ->and(DB::table('content.collection_items')->count())->toBe(1);
+});
+
+it('derives the same urlless coord as syncStore, so the two writers never mint two items for one product', function () {
+    [$user, $brand] = makeShopBrand();
+    makeShopProduct($brand, ['url' => '', 'productId' => 'pid-1']);
+
+    app(ShopBackfiller::class)->run();
+    $collectionId = (string) DB::table('content.storefronts')->value('collection_id');
+
+    // A scheduled resync of the same catalogue through the OTHER writer must
+    // land on the same content.items row, not a second one.
+    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [[
+        'url' => null, 'productId' => 'pid-1', 'title' => 'Mystery Box', 'price' => '9.99',
+    ]], 'AUD');
+
+    expect(DB::table('content.items')->where('kind', 'product')->count())->toBe(1);
+});
+
+// Fix round 4, Finding 1: coords resolve per (user_id, kind), NOT per
+// collection — so an unnamespaced 'pid:'.$productId fallback collapses one
+// user's two stores that each carry a urlless product with the same provider
+// product id onto a single content.items row, and the later write overwrites
+// the earlier one's title/price/media. Safe to namespace precisely BECAUSE
+// there is no canonical URL involved (§1.7's one-coord-per-URL rule protects
+// the identity resolver's URL key; a urlless product contributes none).
+it('keeps two stores urlless products with the SAME product id as two distinct items', function () {
+    [$user, $brandA] = makeShopBrand(['brand_id' => 'store-a', 'position' => 0]);
+    $brandB = ShopBrand::create([
+        'connection_id' => $brandA->connection_id,
+        'brand_id' => 'store-b',
+        'provider' => 'bigcartel',
+        'url' => 'https://storeb.test',
+        'source_url' => 'https://storeb.test',
+        'name' => 'Store B',
+        'currency' => 'AUD',
+        'discount_code' => '',
+        'referral_query' => '',
+        'is_individual' => false,
+        'position' => 1,
+    ]);
+
+    makeShopProduct($brandA, ['url' => '', 'productId' => 'shared-1', 'title' => 'Store A Box']);
+    makeShopProduct($brandB, ['url' => '', 'productId' => 'shared-1', 'title' => 'Store B Box']);
+
+    expect(app(ShopBackfiller::class)->run()['products'])->toBe(2);
+
+    $titles = DB::table('content.items')->where('kind', 'product')->pluck('headline_cache')->sort()->values();
+    expect(DB::table('content.items')->where('kind', 'product')->count())->toBe(2)
+        ->and($titles->all())->toBe(['Store A Box', 'Store B Box']);
+});
+
+it('skips AND counts a product with neither a url nor a product id', function () {
+    [$user, $brand] = makeShopBrand();
+    makeShopProduct($brand, ['url' => '', 'productId' => '']);
+
+    $result = app(ShopBackfiller::class)->run();
+
+    expect($result['skipped_unidentifiable'])->toBe(1)
+        ->and($result['products'])->toBe(0)
+        ->and(DB::table('content.items')->count())->toBe(0);
 });
 
 it('fires all three cache lanes for a touched site', function () {

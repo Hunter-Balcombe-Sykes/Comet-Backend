@@ -74,13 +74,36 @@ final class ShopProductProjection
     /**
      * Fix round 3, Finding 3: takes any stable per-user identifier, not only
      * a url — ShopContentWriter::syncStore() passes the url when the
-     * product has one, else `'pid:'.$productId` (Squarespace/BigCartel both
-     * legitimately emit a urlless product). The hashing is identical either
-     * way; only the caller decides what identifies the product.
+     * product has one, else coordForProductId() below (Squarespace/BigCartel
+     * both legitimately emit a urlless product). The hashing is identical
+     * either way; only the caller decides what identifies the product.
      */
     public static function coordFor(string $identifier): string
     {
         return 'manual:'.sha1($identifier);
+    }
+
+    /**
+     * The urlless-product coord: the ONE derivation both writers use, so
+     * ShopContentWriter::syncStore() and ShopBackfiller::run() can never
+     * disagree on the identity of the same product (fix round 4, Findings
+     * 1+2 — they were separately hand-rolling `'pid:'.$productId`).
+     *
+     * Namespaced by COLLECTION, unlike coordFor($url). Coords resolve per
+     * (user_id, kind), not per collection, so an unnamespaced provider
+     * product id collapses one user's two stores that each carry a urlless
+     * product with the same id onto a single content.items row — the later
+     * sync then overwrites the earlier store's title, price and media. That
+     * is safe to fix by namespacing here precisely BECAUSE there is no
+     * canonical URL involved: the one-coord-per-canonical-URL-per-user rule
+     * (§1.7) exists to stop a URL key being poisoned in the identity
+     * resolver, and a urlless product contributes no URL key at all. Do NOT
+     * namespace the url-derived coord the same way — that reintroduces the
+     * poisoning bug §1.7 was written against.
+     */
+    public static function coordForProductId(string $collectionId, string $productId): string
+    {
+        return self::coordFor('pid:'.$collectionId.':'.$productId);
     }
 
     /**

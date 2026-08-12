@@ -21,7 +21,7 @@ class BackfillShopContentCommand extends Command
 
         $verb = $dry ? 'would backfill' : 'backfilled';
         $this->info("Shop: {$verb} {$r['stores']} stores, {$r['products']} products"
-            .($r['skipped_no_url'] > 0 ? ", skipped {$r['skipped_no_url']} without a url" : '')
+            .($r['skipped_unidentifiable'] > 0 ? ", skipped {$r['skipped_unidentifiable']} with neither a url nor a product id" : '')
             .($r['failed'] > 0 ? ", {$r['failed']} FAILED" : '.'));
 
         if ($r['failed'] > 0) {

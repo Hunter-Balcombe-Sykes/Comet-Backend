@@ -322,6 +322,62 @@ it('round-trips a urlless product through currentCatalogue() with url: null on t
         ->and($catalogue[0]['url'])->toBeNull();
 });
 
+// ── Fix round 4, Finding 1: the urlless coord fallback is namespaced by
+// COLLECTION ───────────────────────────────────────────────────────────────
+//
+// Coords resolve per (user_id, kind), not per collection. Round 3's
+// unnamespaced 'pid:'.$productId therefore collapsed one user's two stores
+// that each carry a urlless product with the same provider product id onto a
+// single content.items row — and the later sync overwrote the earlier one's
+// title, price and media. Namespacing is safe here precisely BECAUSE no
+// canonical URL is involved: §1.7's one-coord-per-URL-per-user rule exists to
+// stop a URL key being poisoned in the identity resolver, and a urlless
+// product contributes no URL key at all. The url-derived coord stays
+// unnamespaced for exactly that reason (pinned by the test above).
+
+it('gives two stores urlless products that share a product id their own items, titles intact', function () {
+    [$user, $brandA] = makeShopBrand(['brand_id' => 'store-a', 'position' => 0]);
+    $brandB = ShopBrand::create([
+        'connection_id' => $brandA->connection_id,
+        'brand_id' => 'store-b',
+        'provider' => 'bigcartel',
+        'url' => 'https://storeb.test',
+        'source_url' => 'https://storeb.test',
+        'name' => 'Store B',
+        'currency' => 'AUD',
+        'discount_code' => '',
+        'referral_query' => '',
+        'is_individual' => false,
+        'position' => 1,
+    ]);
+
+    $writer = app(ShopContentWriter::class);
+    $collectionA = $writer->upsertStore($brandA, (string) $user->id);
+    $collectionB = $writer->upsertStore($brandB, (string) $user->id);
+
+    // Same provider product id, two different stores — the exact collision.
+    $writer->syncStore((string) $user->id, $collectionA, [
+        ['productId' => 'shared-1', 'title' => 'Store A Box', 'price' => '10.00', 'available' => true],
+    ], 'AUD');
+    $writer->syncStore((string) $user->id, $collectionB, [
+        ['productId' => 'shared-1', 'title' => 'Store B Box', 'price' => '20.00', 'available' => true],
+    ], 'AUD');
+
+    expect(DB::table('content.items')->where('kind', 'product')->count())->toBe(2);
+
+    // Each store still reads back its OWN product — the second sync did not
+    // overwrite the first's title or price.
+    $a = $writer->currentCatalogue($collectionA);
+    $b = $writer->currentCatalogue($collectionB);
+
+    expect($a)->toHaveCount(1)
+        ->and($a[0]['title'])->toBe('Store A Box')
+        ->and($a[0]['price'])->toBe('10.00')
+        ->and($b)->toHaveCount(1)
+        ->and($b[0]['title'])->toBe('Store B Box')
+        ->and($b[0]['price'])->toBe('20.00');
+});
+
 it('skips and logs a product with neither a url nor a productId, rather than dropping it silently', function () {
     Log::shouldReceive('warning')->once()->with('shop.sync_store.unidentifiable_product', Mockery::type('array'));
 

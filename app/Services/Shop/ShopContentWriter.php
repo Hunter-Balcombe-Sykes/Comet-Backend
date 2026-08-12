@@ -159,16 +159,17 @@ class ShopContentWriter
      *
      * Fix round 3, Finding 3: a urlless product is NOT dropped merely for
      * lacking a url — Squarespace and BigCartel both legitimately emit one
-     * (BigCartelScraper's own return type is `url:?string`). The coord
-     * falls back to the product id (`'pid:'.$productId`, same
-     * `manual:{sha1(...)}` shape coordFor() already produces for a url) so
-     * the product still gets an item, still gets tracked in `$seen` (so
-     * retireAbsent() doesn't wrongly retire it), and still round-trips
-     * through currentCatalogue() for ShopProductSeeder's re-seed merge.
-     * Only a product with NEITHER a url NOR a product id is genuinely
-     * unidentifiable — skipped, and logged (never silently) rather than
-     * counted in a return value, since this method's return is a plain
-     * written-count already consumed as-is by ShopCatalog::syncLatest().
+     * (BigCartelScraper's own return type is `url:?string`). The coord falls
+     * back to ShopProductProjection::coordForProductId() — collection-
+     * namespaced, see that method for why — so the product still gets an
+     * item, still gets tracked in `$seen` (so retireAbsent() doesn't wrongly
+     * retire it), and still round-trips through currentCatalogue() for
+     * ShopProductSeeder's re-seed merge. Only a product with NEITHER a url
+     * NOR a product id is genuinely unidentifiable — skipped, and logged
+     * (never silently) rather than counted in a return value, since this
+     * method's return is a plain written-count already consumed as-is by
+     * ShopCatalog::syncLatest(). ShopBackfiller::run() mirrors this exact
+     * branch (fix round 4, Finding 2); the two must not drift.
      *
      * @param  list<array<string,mixed>>  $products  raw scraper blobs, catalogue order
      */
@@ -182,9 +183,9 @@ class ShopContentWriter
             $productId = trim((string) ($blob['productId'] ?? ''));
 
             if ($url !== '') {
-                $identifier = $url;
+                $coord = ShopProductProjection::coordFor($url);
             } elseif ($productId !== '') {
-                $identifier = 'pid:'.$productId;
+                $coord = ShopProductProjection::coordForProductId($collectionId, $productId);
             } else {
                 Log::warning('shop.sync_store.unidentifiable_product', [
                     'user_id' => $userId,
@@ -195,7 +196,6 @@ class ShopContentWriter
                 continue;
             }
 
-            $coord = ShopProductProjection::coordFor($identifier);
             // §1.7: one coord per canonical identifier per user. Two catalogue
             // entries sharing a URL (or, now, sharing a productId with no url)
             // would poison that key for the whole resolution run, so the
@@ -452,10 +452,15 @@ class ShopContentWriter
                 // the fallback for a row that synced before
                 // ShopProductProjection started writing f_published —
                 // transitional, not the source of truth.
+                // Fix round 4, Finding 4: the fallback branch needs ->utc()
+                // for exactly the same reason as the primary one above —
+                // items.first_seen_at is a timestamptz too, so without it the
+                // emitted offset tracks whatever zone the driver's text
+                // happens to carry rather than being canonically UTC.
                 $published = $publishedByItem[$itemId] ?? null;
                 $createdAt = $published !== null
                     ? Carbon::parse((string) $published)->utc()->toIso8601String()
-                    : (($firstSeen = $firstSeenByItem[$itemId] ?? null) === null ? null : Carbon::parse((string) $firstSeen)->toIso8601String());
+                    : (($firstSeen = $firstSeenByItem[$itemId] ?? null) === null ? null : Carbon::parse((string) $firstSeen)->utc()->toIso8601String());
 
                 $product = [
                     'productId' => $catalog?->sku,
