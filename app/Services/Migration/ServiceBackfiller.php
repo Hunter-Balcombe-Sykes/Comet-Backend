@@ -3,6 +3,11 @@
 namespace App\Services\Migration;
 
 use App\Ingest\Projection\ProjectionWriter;
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Models\Core\Site\SectionItem;
+use App\Models\Core\Site\Site;
+use App\Site\Documents\BuildState;
+use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -23,12 +28,16 @@ use Illuminate\Support\Facades\Log;
  */
 class ServiceBackfiller
 {
-    public function __construct(private readonly ProjectionWriter $writer) {}
+    public function __construct(
+        private readonly ProjectionWriter $writer,
+        private readonly PoolSectionProvisioner $sections,
+    ) {}
 
     /** @return array{backfilled: int, retired: int, skipped_no_user: int, failed: int} */
     public function run(bool $dryRun = false, ?string $userId = null): array
     {
         $result = ['backfilled' => 0, 'retired' => 0, 'skipped_no_user' => 0, 'failed' => 0];
+        $touchedSites = [];
 
         $rows = DB::connection('pgsql')->table('site.services')
             ->whereNull('source')
@@ -56,7 +65,7 @@ class ServiceBackfiller
                     continue;
                 }
 
-                $this->writer->writeManualItem($owner, 'manual:'.$service->id, $this->projectionFor($service));
+                $itemId = $this->writer->writeManualItem($owner, 'manual:'.$service->id, $this->projectionFor($service));
 
                 if ($isDeleted) {
                     // items.removed_at ONLY. source_items.removed_at is cleared
@@ -68,6 +77,12 @@ class ServiceBackfiller
                     continue;
                 }
 
+                $site = Site::query()->where('user_id', $owner)->first();
+                if ($site !== null) {
+                    $this->pin($site, $itemId, (int) ($service->sort_order ?? 0));
+                    $touchedSites[(string) $site->id] = true;
+                }
+
                 $result['backfilled']++;
             } catch (\Throwable $e) {
                 report($e);
@@ -76,6 +91,10 @@ class ServiceBackfiller
                 ]);
                 $result['failed']++;
             }
+        }
+
+        if (! $dryRun) {
+            $this->invalidate(array_keys($touchedSites));
         }
 
         return $result;
@@ -131,5 +150,55 @@ class ServiceBackfiller
             ->where('id', $itemId)
             ->whereNull('removed_at')
             ->update(['removed_at' => $deletedAt, 'updated_at' => now()]);
+    }
+
+    /**
+     * Owner ordering lives in the CURATION half. The auto half offers only
+     * recency/alphabetical/occurrence (SectionCandidates:105), none of which
+     * preserve a hand-chosen sort_order — and SectionCandidates:119 excludes
+     * pinned ids from the auto half, so there is no duplication.
+     *
+     * A pin also protects the row: mergeInto()'s hasCuration check reads
+     * site.section_items, so a pinned item cannot be hard-deleted by a merge
+     * (parent §8.3).
+     */
+    private function pin(Site $site, string $itemId, int $sortOrder): void
+    {
+        $section = $this->sections->ensure($site, 'services');
+
+        $row = SectionItem::query()
+            ->where('section_id', $section->id)
+            ->where('item_id', $itemId)
+            ->first() ?? new SectionItem;
+
+        $row->section_id = (string) $section->id;
+        $row->item_id = $itemId;
+        $row->state = SectionItem::STATE_PINNED;
+        $row->sort_key = (float) $sortOrder;
+        if (! $row->exists) {
+            $row->created_at = now();
+        }
+        $row->save();
+    }
+
+    /**
+     * Raw-write seam — all three lanes per touched site (spec §4).
+     * writeManualItem() bumped build state per item already; updated_at and
+     * the edge purge are the two lanes it deliberately does not own.
+     *
+     * @param  list<string>  $siteIds
+     */
+    private function invalidate(array $siteIds): void
+    {
+        foreach ($siteIds as $siteId) {
+            BuildState::bump($siteId);
+            DB::connection('pgsql')->table('site.sites')
+                ->where('id', $siteId)->update(['updated_at' => now()]);
+            $subdomain = (string) (DB::connection('pgsql')->table('site.sites')
+                ->where('id', $siteId)->value('subdomain') ?? '');
+            if ($subdomain !== '') {
+                CloudflareCachePurgeJob::dispatch($subdomain);
+            }
+        }
     }
 }

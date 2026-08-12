@@ -1,6 +1,8 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Services\Migration\ServiceBackfiller;
+use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -26,6 +28,15 @@ beforeEach(function () {
 function serviceOwner(): string
 {
     return createTenant('svc-'.Str::lower(Str::random(8)))->id;
+}
+
+// Task 3's pin/invalidation tests need the site id alongside the owner id —
+// serviceOwner() only returns the id half createTenant() gives back.
+function seedUserWithSite(): array
+{
+    $tenant = createTenant('svc-'.Str::lower(Str::random(8)));
+
+    return [$tenant->id, $tenant->site->id];
 }
 
 it('lands an owner-authored service as a content item on the manual source', function () {
@@ -127,4 +138,57 @@ it('writes nothing under dry run but still counts', function () {
 
     expect($result['backfilled'])->toBe(1);
     expect(DB::table('content.items')->count())->toBe(0);
+});
+
+it('pins each service at its sort_order so the owner ordering survives', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $second = ownerService($userId, ['title' => 'Second', 'sort_order' => 1]);
+    $first = ownerService($userId, ['title' => 'First', 'sort_order' => 0]);
+
+    app(ServiceBackfiller::class)->run();
+
+    $pins = DB::table('site.section_items as si')
+        ->join('content.source_items as csi', 'csi.item_id', '=', 'si.item_id')
+        ->whereIn('csi.coord', ['manual:'.$first, 'manual:'.$second])
+        ->orderBy('si.sort_key')
+        ->pluck('csi.coord')
+        ->all();
+
+    expect($pins)->toBe(['manual:'.$first, 'manual:'.$second]);
+    expect(DB::table('site.section_items')->value('state'))->toBe('pinned');
+});
+
+it('does not pin a soft-deleted service', function () {
+    [$userId] = seedUserWithSite();
+    ownerService($userId, ['deleted_at' => now()]);
+
+    app(ServiceBackfiller::class)->run();
+
+    expect(DB::table('site.section_items')->count())->toBe(0);
+});
+
+it('invalidates all three cache lanes for each touched site', function () {
+    // No CI check enforces this despite BuildState's docblock claiming one
+    // (parent §9.1), so it is asserted directly.
+    [$userId, $siteId] = seedUserWithSite();
+    ownerService($userId);
+    // Laravel binds timestamps at SECOND precision (MediaUploadBackfillerTest
+    // documents the same hazard) — without backdating, this run's own
+    // updated_at can land in the same second as the fixture's and the
+    // "changed" assertion below would pass or fail on wall-clock luck.
+    DB::table('site.sites')->where('id', $siteId)->update(['updated_at' => now()->subMinute()]);
+    $before = DB::table('site.sites')->where('id', $siteId)->value('updated_at');
+    $beforeRevision = BuildState::read($siteId)['content_revision'];
+
+    app(ServiceBackfiller::class)->run();
+
+    // writeManualItem() bumps once on its own (ProjectionWriter::bumpSite());
+    // ServiceBackfiller::invalidate() must bump AGAIN on top of that. Asserting
+    // merely ">0" would pass even with invalidate()'s own bump call deleted,
+    // since writeManualItem()'s bump alone already clears that bar — verified
+    // by temporarily deleting the line, which left this weaker form green.
+    expect(DB::table('site.site_build_state')->where('site_id', $siteId)->value('content_revision'))
+        ->toBe($beforeRevision + 2);
+    expect(DB::table('site.sites')->where('id', $siteId)->value('updated_at'))->not->toBe($before);
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
 });
