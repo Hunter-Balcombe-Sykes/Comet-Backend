@@ -201,14 +201,15 @@ final class SectorTaxonomy
         'food truck' => 'food-truck',
         'caterer' => 'caterer',
         'bar' => 'bar',
-        // NO bare 'artist' key, deliberately. It reaches the `artist` slug from
-        // strings like Instagram's "Artist" category, which tattooists,
-        // musicians, hairdressers and photographers all pick — and a sector is
-        // STICKY: IdentitySync::applySector returns early when sector_source is
-        // set and isn't google-business, so an Instagram-stamped guess locks
-        // Google Business out of ever correcting it, permanently. Writing
-        // nothing keeps the field open for a better source or the user's own
-        // pick. 'art gallery'/'gallery' stay because they are unambiguous.
+        // NO bare 'artist' key, deliberately — but not for the old reason.
+        // "Artist" is one of Instagram's most generic categories: tattooists,
+        // musicians, hairdressers and photographers all pick it, and the
+        // substring map has no other signal to disambiguate it. It is handled
+        // in fromInstagramProfile's last tier instead, AFTER the handle and
+        // display name have had a go — jess.hair.stylist resolves to
+        // hair-salon there. Keeping it out of THIS map also keeps it off the
+        // Google path, which has no handle to fall back to.
+        // 'art gallery'/'gallery' stay: unambiguous.
     ];
 
     /**
@@ -234,6 +235,16 @@ final class SectorTaxonomy
         'fitness coach' => 'personal-trainer',
         'music lessons & instruction school' => 'music-teacher',
         'music teacher' => 'music-teacher',
+
+        // The substring map's trailing 'bar' and 'sport' keys capture these.
+        // Three would otherwise resolve to the FOOD slug 'bar' and flip
+        // can_use_booking off on a business account.
+        'sports bar' => 'bar',
+        'juice bar' => 'cafe',
+        'bartender' => 'bartender',
+        'barre studio' => 'yoga-instructor',
+        'sportswear store' => 'clothing-boutique',
+        'hair removal service' => 'esthetician',
 
         // Creative
         'digital creator' => 'content-creator',
@@ -286,6 +297,145 @@ final class SectorTaxonomy
         // and sector drives FOOD_SECTORS capability gating — null is safer than
         // a guess, and the user can pick from the dashboard.
     ];
+
+    /**
+     * Keywords safe to substring-match against FREE TEXT — an Instagram handle
+     * or display name — when the category is too vague to classify.
+     *
+     * Separate from KEYWORD_SECTORS on purpose. That map is safe against
+     * Facebook's closed category vocabulary and dangerous against free text:
+     * it holds 'spa' at index 5 and 'fitness' at index 8, so "Spartan Fitness"
+     * resolves to 'spa'. Word-boundary anchoring would fix that but break the
+     * run-together handles this exists to catch ('\btattoo' misses
+     * crucibletattooco). A vetted map with plain substring matching does both.
+     *
+     * A key qualifies only if it (1) is >=5 characters, (2) is not a substring
+     * of a common English word or Australian surname, (3) names a TRADE rather
+     * than a medium, and (4) cannot be manufactured by joining across a
+     * separator in a plausible handle. Clause 4 is why there is no bare 'hair'
+     * (beth.airbnb -> bethairbnb), no bare 'chiro' ('Arch Ironing Services' ->
+     * archironingservices), and no bare 'plumb' ('Kim Plumbago Florals', the
+     * plant genus, -> kimplumbagoflorals).
+     *
+     * NO VALUE MAY BE IN FOOD_SECTORS. A wrong food slug flips four
+     * capabilities and misroutes links via LinkRouter's own copy of the arms.
+     * That rules out coffee/catering/baker — Baker is a top-20 AU surname.
+     *
+     * ORDER: first substring hit wins. Where a key is commonly a surname
+     * ('barber') or a qualifier of another trade ('realestate', 'wedding'), it
+     * MUST come after every trade key that can co-occur with it in one handle.
+     * The medium someone practises beats the subject they practise it on.
+     *
+     * @var array<string, string>
+     */
+    private const TEXT_KEYWORD_SECTORS = [
+        // Media first — these co-occur with surnames and qualifiers below.
+        'photograph' => 'photographer',
+        'videograph' => 'videographer',
+        'graphicdesign' => 'graphic-designer',
+
+        // Beauty & personal care
+        'hairstylist' => 'hair-salon',
+        'hairdress' => 'hair-salon',
+        'hairsalon' => 'hair-salon',
+        'hairstudio' => 'hair-salon',
+        'barber' => 'barber',
+        'tattoo' => 'tattoo-artist',
+        'makeup' => 'makeup-artist',
+        'lashes' => 'brows-lashes',
+        'airbrushtanning' => 'esthetician',
+        'spraytan' => 'esthetician',
+        'skincare' => 'esthetician',
+        'esthetic' => 'esthetician',
+        // ACCEPTED false positive (round-1 fix review, 2026-08-12): 'Amass
+        // Agency' -> amassagency -> contains 'massage'. No safe substring
+        // variant exists — 'massage' IS the trade word — so this is kept, like
+        // thebarberlin -> barber below. See the corpus entry for the ruling.
+        'massage' => 'spa',
+        'nailtech' => 'nail-technician',
+        'nailsalon' => 'nail-technician',
+
+        // Health & fitness
+        'pilates' => 'yoga-instructor',
+        'yogateacher' => 'yoga-instructor',
+        'personaltrainer' => 'personal-trainer',
+        'fitness' => 'gym',
+        'physio' => 'physiotherapist',
+        // Not bare 'chiro' — 'Arch Ironing Services'/'Monarch Ironworks'
+        // normalise to archironingservices/monarchironworks, both containing
+        // 'chiro'. 'chiroprac' still catches baysidechiropractic /
+        // melbchiropractor; bare-'chiro' handles (bayside.chiro) are an
+        // accepted miss.
+        'chiroprac' => 'chiropractor',
+        'dentist' => 'dentist',
+        'nutrition' => 'nutritionist',
+
+        // Trades & automotive
+        // Two keys, not one 'plumb': 'kimplumbagoflorals' (the plant genus)
+        // would match a bare 'plumb' stem. 'plumbing' catches abcplumbing,
+        // 'plumber' catches samtheplumber; neither alone covers both.
+        'plumbing' => 'plumber',
+        'plumber' => 'plumber',
+        'electrician' => 'electrician',
+        'landscap' => 'landscaper',
+        'carpentry' => 'builder',
+        'carpenter' => 'builder',
+        'mechanic' => 'mechanic',
+        'cardetailing' => 'car-detailer',
+
+        // Retail & professional — after the media keys above.
+        'florist' => 'florist',
+        'jeweller' => 'jewellery',
+        'realestate' => 'real-estate-agent',
+        'bookkeep' => 'accountant',
+        'tutoring' => 'tutor',
+    ];
+
+    /**
+     * Categories too vague to classify on their own, mapped as a LAST RESORT —
+     * only after the category pass and the free-text pass have both missed.
+     *
+     * "Artist" is the case this exists for: tattooists, musicians, hairdressers
+     * and photographers all pick it. Under the old first-writer-wins rule
+     * stamping a guess here locked Google out permanently, so the map's policy
+     * was "vague => null". The rank ladder makes the guess correctable, so a
+     * last-resort guess is now better than nothing.
+     *
+     * Still deliberately absent: health/beauty, public figure, personal blog,
+     * entrepreneur, product/service, local business. No single slug is a
+     * defensible guess for any of them.
+     *
+     * @var array<string, string>
+     */
+    private const AMBIGUOUS_CATEGORY_SECTORS = ['artist' => 'artist'];
+
+    /**
+     * Classify free text (an Instagram handle or display name) into a sector.
+     *
+     * Normalises to a-z only — dots, underscores, spaces, digits and emoji all
+     * removed — then takes the first substring hit in map order. Stripping
+     * separators is what lets 'crucibletattooco' match; the map's clause-4
+     * admission rule is what stops it manufacturing false positives.
+     */
+    public static function classifyText(?string $raw): ?string
+    {
+        if (! is_string($raw)) {
+            return null;
+        }
+
+        $normalised = preg_replace('/[^a-z]/', '', strtolower($raw)) ?? '';
+        if ($normalised === '') {
+            return null;
+        }
+
+        foreach (self::TEXT_KEYWORD_SECTORS as $keyword => $slug) {
+            if (str_contains($normalised, $keyword)) {
+                return $slug;
+            }
+        }
+
+        return null;
+    }
 
     /**
      * The picker payload: sectors grouped into their sections, in list order.
@@ -408,7 +558,8 @@ final class SectorTaxonomy
         // restaurant whose page also lists "Digital Creator" would resolve to
         // content-creator, isFood() would go false, and can_use_menu /
         // can_use_reservations / can_use_online_ordering would silently switch
-        // off — permanently, since sector is sticky once Instagram stamps it.
+        // off — no longer permanent: Google or a manual pick outranks Instagram
+        // and can correct it, but the capabilities stay dark until one does.
         //
         // No trailing whole-string classify(): a single (comma-free) input is
         // itself one segment, and no KEYWORD_SECTORS key contains a comma, so
@@ -419,6 +570,59 @@ final class SectorTaxonomy
 
             if ($mapped !== null) {
                 return $mapped;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve a sector from a whole Instagram profile — the live classifier.
+     *
+     * Three tiers, in order:
+     *   1. fromInstagramCategory() per candidate, UNCHANGED. First that maps wins.
+     *   2. classifyText() over the handle, then the display name.
+     *   3. AMBIGUOUS_CATEGORY_SECTORS per segment.
+     *
+     * TIER 1 DELEGATES ON PURPOSE — do not inline it. fromInstagramCategory is
+     * segment-major (for each segment: exact ?? keyword), and Instagram
+     * comma-joins categories PRIMARY FIRST, so segment-major is what makes the
+     * primary category win. Resolving exact-matches across all segments before
+     * keyword-matches lets a secondary category outrank the primary one:
+     * "Restaurant, Digital Creator" becomes content-creator, isFood() goes
+     * false, and can_use_menu / can_use_reservations / can_use_online_ordering
+     * silently switch off. Three revisions of the design spec proposed exactly
+     * that reordering; delegating makes it unrepresentable.
+     *
+     * @param  list<mixed>  $categoryCandidates  raw per-actor category keys, in precedence order
+     */
+    public static function fromInstagramProfile(array $categoryCandidates, ?string $username, ?string $fullName): ?string
+    {
+        foreach ($categoryCandidates as $candidate) {
+            $mapped = self::fromInstagramCategory(is_string($candidate) ? $candidate : null);
+            if ($mapped !== null) {
+                return $mapped;
+            }
+        }
+
+        foreach ([$username, $fullName] as $text) {
+            $mapped = self::classifyText($text);
+            if ($mapped !== null) {
+                return $mapped;
+            }
+        }
+
+        // Per segment, not whole-string: Instagram emits its literal "None" as a
+        // real segment, so "None,Artist" would never match whole-string.
+        foreach ($categoryCandidates as $candidate) {
+            if (! is_string($candidate)) {
+                continue;
+            }
+            foreach (self::categorySegments($candidate) as $segment) {
+                $mapped = self::AMBIGUOUS_CATEGORY_SECTORS[strtolower(trim($segment))] ?? null;
+                if ($mapped !== null) {
+                    return $mapped;
+                }
             }
         }
 

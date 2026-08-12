@@ -8,6 +8,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use App\Services\Profile\SectorProvenance;
 
 /**
  * Server-computed payload for the post-claim signup setup steps (signup-v2
@@ -211,7 +212,12 @@ class OnboardingSuggestions
 
         return [
             'sector' => $sector,
-            'askSector' => ! $isBusiness && $sector === null,
+            // Ask until a HUMAN picks one. Gating on `$sector === null` meant a
+            // scraped guess silently removed the only prompt that lets the user
+            // correct it. Business included: it is the one type where sector
+            // gates capabilities, and it can acquire an Instagram guess via
+            // GoogleBusinessAutoSync::dispatchInstagram.
+            'askSector' => $user->sector_source !== SectorProvenance::MANUAL,
             'askStore' => ! $isBusiness,
             'askWorkplace' => ! $isBusiness
                 && $sector !== null

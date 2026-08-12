@@ -375,3 +375,159 @@ it('has no KEYWORD_SECTORS key containing a comma', function () {
 
     expect(array_filter($keywords, fn (string $k) => str_contains($k, ',')))->toBe([]);
 });
+
+// ── categories the substring map gets wrong (2026-08-12) ─────────────────────
+//
+// All six reach a wrong slug through KEYWORD_SECTORS' trailing 'bar' and
+// 'sport' entries. Three land on the FOOD slug 'bar', which flips
+// can_use_booking OFF for a business — a barre studio and a mobile bartender
+// are exactly the accounts that need booking on.
+it('exact-maps categories the substring classifier gets wrong', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBe($expected);
+})->with([
+    ['Sports Bar', 'bar'],
+    ['Juice Bar', 'cafe'],
+    ['Bartender', 'bartender'],
+    ['Barre Studio', 'yoga-instructor'],
+    ['Sportswear Store', 'clothing-boutique'],
+    ['Hair Removal Service', 'esthetician'],
+]);
+
+// ── free-text classification over handles and display names (2026-08-12) ─────
+
+it('classifies a trade from a handle or display name', function (string $input, string $expected) {
+    expect(SectorTaxonomy::classifyText($input))->toBe($expected);
+})->with([
+    'dotted handle' => ['jess.hair.stylist', 'hair-salon'],
+    'run-together handle' => ['crucibletattooco', 'tattoo-artist'],
+    'display name' => ['Melbourne Barre Pilates', 'yoga-instructor'],
+    'underscored' => ['sam_the_plumber', 'plumber'],
+    'chiropractic' => ['baysidechiropractic', 'chiropractor'],
+    'plumbing suffix' => ['abcplumbing', 'plumber'],
+    'carpenter' => ['joethecarpenter', 'builder'],
+]);
+
+// Each of these was a real false positive in an earlier draft of the map.
+it('does not manufacture a match across a separator or a surname', function (string $input, ?string $expected) {
+    expect(SectorTaxonomy::classifyText($input))->toBe($expected);
+})->with([
+    // <name ending in h> + <word starting "air"> — a productive AU handle pattern.
+    'airbnb host' => ['beth.airbnb', null],
+    'hvac tradie' => ['sarah.airconditioning', null],
+    'spray tanner' => ['leah.airbrushtanning', 'esthetician'],
+    'airbnb host 2' => ['hannah.airbnbhost', null],
+    'pet groomer' => ['hairyhounds', null],
+    // Surnames and qualifiers must lose to the trade actually named.
+    'Barber the surname' => ['sarahbarberphotography', 'photographer'],
+    'real estate niche' => ['realestatephotography', 'photographer'],
+    'Baker the surname' => ['jessbakerphotography', 'photographer'],
+    // 'spa' is absent from the map precisely so this cannot happen.
+    'Spartan' => ['Spartan Fitness', 'gym'],
+    'barber not bakery' => ['bakerstreetbarbers', 'barber'],
+    'not a painter' => ['facepainting.co', null],
+    'furniture' => ['mrchairs.furniture', null],
+    'not a barber' => ['thebarberlin', 'barber'],
+    'IT consultant' => ['coffeeandcode', null],
+    'ironing not a chiro' => ['Arch Ironing Services', null],
+    'plumbago not a plumber' => ['Kim Plumbago Florals', null],
+    // ACCEPTED false positive, like thebarberlin: 'massage' is the trade word
+    // itself and has no safe substring variant. A wrong NON-food slug is
+    // correctable — google-business and manual both outrank instagram now.
+    'agency not a spa' => ['Amass Agency', 'spa'],
+]);
+
+it('never resolves free text to a FOOD_SECTORS slug', function () {
+    $map = (new ReflectionClass(SectorTaxonomy::class))->getConstant('TEXT_KEYWORD_SECTORS');
+
+    foreach ($map as $keyword => $slug) {
+        expect(SectorTaxonomy::isFood($slug))->toBeFalse("'{$keyword}' maps to food slug '{$slug}'");
+    }
+});
+
+it('maps every free-text keyword to a real sector slug', function () {
+    $map = (new ReflectionClass(SectorTaxonomy::class))->getConstant('TEXT_KEYWORD_SECTORS');
+
+    foreach ($map as $keyword => $slug) {
+        expect(SectorTaxonomy::isValid($slug))->toBeTrue("'{$keyword}' maps to unknown slug '{$slug}'")
+            ->and($keyword)->toBe(strtolower($keyword))
+            ->and(preg_match('/^[a-z]+$/', $keyword))->toBe(1, "'{$keyword}' must be lowercase a-z only (normalisation strips everything else)");
+    }
+});
+
+// ── fromInstagramProfile: the live classifier (2026-08-12) ───────────────────
+
+// PRIMACY, migrated from fromInstagramCategory. After this change the live
+// path is fromInstagramProfile, so the primacy guarantee must be pinned HERE.
+// Tier 1 delegates to fromInstagramCategory precisely so these cannot regress:
+// resolving exact-matches across all segments before keyword-matches lets a
+// SECONDARY category outrank the primary one, and three of these become a
+// food -> non-food demotion that silently kills can_use_menu.
+it('keeps the primary category when a secondary one also matches', function (string $category, string $expected) {
+    expect(SectorTaxonomy::fromInstagramProfile([$category], null, null))->toBe($expected);
+})->with([
+    ['Restaurant, Digital Creator', 'restaurant'],
+    ['Barber Shop, Writer', 'barber'],
+    ['Hair Salon, Fitness Trainer', 'hair-salon'],
+    ['Cafe, Blogger', 'cafe'],
+    ['Tattoo & Piercing Shop, Digital Creator', 'tattoo-artist'],
+    ['Restaurant, Contractor', 'restaurant'],
+    ['None, Restaurant, Digital Creator', 'restaurant'],
+    ['Bakery, Content Creator', 'bakery'],
+    ['Digital Creator, Restaurant', 'content-creator'],
+]);
+
+it('prefers the category over the handle', function () {
+    // The category tier must beat free text. A restaurant whose handle mentions
+    // fitness is a restaurant.
+    expect(SectorTaxonomy::fromInstagramProfile(['Restaurant'], 'fitzroyfitnesskitchen', null))->toBe('restaurant');
+    expect(SectorTaxonomy::fromInstagramProfile(['Nail Salon'], 'sarahsbeautyandhair', null))->toBe('nail-technician');
+});
+
+it('falls back to the handle, then the display name, when no category maps', function () {
+    // The motivating case: a Prahran hairdresser whose Instagram category is "Artist".
+    expect(SectorTaxonomy::fromInstagramProfile(['Artist'], 'jess.hair.stylist', null))->toBe('hair-salon');
+    // Handle beats display name.
+    expect(SectorTaxonomy::fromInstagramProfile(['Artist'], 'crucibletattooco', 'Jane Photography'))->toBe('tattoo-artist');
+    // Display name used when the handle says nothing.
+    expect(SectorTaxonomy::fromInstagramProfile(['Artist'], 'jd_official', 'Jane Photography'))->toBe('photographer');
+});
+
+it('falls back to an ambiguous category only when nothing else matches', function () {
+    expect(SectorTaxonomy::fromInstagramProfile(['Artist'], 'jd_official', null))->toBe('artist');
+    // Per SEGMENT, not whole-string: Instagram emits its literal "None" as a
+    // real segment, so "None,Artist" must still reach the ambiguous map.
+    expect(SectorTaxonomy::fromInstagramProfile(['None,Artist'], null, null))->toBe('artist');
+});
+
+it('resolves the first candidate that maps, not the first that is non-null', function () {
+    // The figue actor nulls business_category_name and fills category_name.
+    expect(SectorTaxonomy::fromInstagramProfile(['None', null, 'Hair Stylist'], null, null))->toBe('hair-salon');
+});
+
+it('returns null when every tier misses', function () {
+    expect(SectorTaxonomy::fromInstagramProfile(['Public Figure'], 'jd_official', 'JD'))->toBeNull();
+    expect(SectorTaxonomy::fromInstagramProfile([], null, null))->toBeNull();
+});
+
+it('never resolves an instagram profile to a food slug from free text alone', function () {
+    $handles = [
+        'beth.airbnb', 'sarah.airconditioning', 'hairyhounds', 'sarahbarberphotography',
+        'realestatephotography', 'jessbakerphotography', 'coffeeandcode', 'Spartan Fitness',
+        'bakerstreetbarbers', 'facepainting.co', 'mrchairs.furniture', 'thebarberlin',
+    ];
+
+    foreach ($handles as $handle) {
+        $slug = SectorTaxonomy::fromInstagramProfile(['Artist'], $handle, null);
+        expect(SectorTaxonomy::isFood($slug))->toBeFalse("'{$handle}' resolved to food slug '{$slug}'");
+    }
+});
+
+it('maps every ambiguous category to a real, non-food sector slug', function () {
+    $map = (new ReflectionClass(SectorTaxonomy::class))->getConstant('AMBIGUOUS_CATEGORY_SECTORS');
+
+    foreach ($map as $category => $slug) {
+        expect(SectorTaxonomy::isValid($slug))->toBeTrue("'{$category}' maps to unknown slug '{$slug}'")
+            ->and(SectorTaxonomy::isFood($slug))->toBeFalse("'{$category}' maps to food slug '{$slug}'")
+            ->and($category)->toBe(strtolower(trim($category)));
+    }
+});

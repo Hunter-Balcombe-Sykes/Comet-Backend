@@ -8,12 +8,11 @@ use App\Http\Requests\Api\User\Profile\UpdateSectorRequest;
 use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Http\JsonResponse;
 
-// Sets the user's sector/industry from the curated picker. A manual PICK stamps
-// sector_source='manual' so IdentitySync's precedence rule knows the value was
-// user-chosen (manual is permanent vs Google, 2026-07-15). CLEARING the pick
-// clears provenance too — a null sector stamped 'manual' would permanently
-// block Google from ever filling the field, freezing a business's
-// sector-derived capabilities in the not-food state.
+// Writes sector_source='manual', the top rank in SectorProvenance's ladder:
+// nothing automated overwrites a human's pick. Clearing the sector nulls the
+// source too, which returns the row to "any source may fill it".
+// Keep the sector/sector_source writes below coupled: askSector's gate reads
+// sector_source alone, so a stuck 'manual' row with no sector is never asked.
 class SectorController extends ApiController
 {
     use ResolveCurrentUser;
