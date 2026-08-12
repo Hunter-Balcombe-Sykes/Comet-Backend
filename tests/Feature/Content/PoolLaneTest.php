@@ -442,3 +442,77 @@ it('re-adding the same url upserts one coord rather than poisoning it', function
         ->and(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->count())->toBe(1)
         ->and(DB::connection('pgsql')->table('content.source_items')->count())->toBe(1);
 });
+
+// ── Code-review regressions, slice 0b ──────────────────────────────────────
+// All four were introduced by the deterministic coord and the owner-preference
+// merge, and all four were confirmed by probe before being fixed.
+
+it('re-adding a url the owner previously deleted brings the item back', function () {
+    // HIGH. The coord is deterministic, so a re-add resolves to the SAME item.
+    // upsertSourceItem() clears source_items.removed_at but the user-level
+    // delete lives on items.removed_at, which PoolResolver filters on — so the
+    // re-add returned 201 with an empty selection and no route back.
+    [$pro] = poolTenant();
+    $route = route('content.pools.items.store', ['pool' => 'watch']);
+    $payload = ['url' => 'https://vimeo.com/999', 'title' => 'Our showreel'];
+
+    actingAsUser($pro)->postJson($route, $payload)->assertCreated();
+    $itemId = DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('content.items')->where('id', $itemId)->update(['removed_at' => now()]);
+
+    $response = actingAsUser($pro)->postJson($route, $payload)->assertCreated();
+
+    expect(DB::connection('pgsql')->table('content.items')->where('id', $itemId)->value('removed_at'))->toBeNull()
+        ->and($response->json('selection'))->toHaveCount(1);
+});
+
+it('re-adding an excluded item pins it rather than leaving it excluded', function () {
+    // HIGH. section_items holds pinned AND excluded under one UNIQUE
+    // (section_id, item_id), so an exists() guard matched the excluded row and
+    // skipped the pin — a hand-add that silently did nothing.
+    [$pro] = poolTenant();
+    $route = route('content.pools.items.store', ['pool' => 'watch']);
+    $payload = ['url' => 'https://vimeo.com/999', 'title' => 'Our showreel'];
+
+    actingAsUser($pro)->postJson($route, $payload)->assertCreated();
+    $itemId = DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->value('id');
+    DB::connection('pgsql')->table('site.section_items')->where('item_id', $itemId)->update(['state' => 'excluded']);
+
+    $response = actingAsUser($pro)->postJson($route, $payload)->assertCreated();
+
+    expect(DB::connection('pgsql')->table('site.section_items')->where('item_id', $itemId)->value('state'))
+        ->toBe('pinned')
+        ->and($response->json('selection'))->toHaveCount(1);
+});
+
+it('a title-less re-add keeps the stored headline instead of the url host', function () {
+    // The manual source is priority 200, so the host fallback would beat every
+    // connector headline and rename the item to "vimeo.com" product-wide.
+    [$pro] = poolTenant();
+    $route = route('content.pools.items.store', ['pool' => 'watch']);
+
+    actingAsUser($pro)->postJson($route, ['url' => 'https://vimeo.com/999', 'title' => 'Our showreel'])
+        ->assertCreated();
+    actingAsUser($pro)->postJson($route, ['url' => 'https://vimeo.com/999'])->assertCreated();
+
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->value('headline_cache'))
+        ->toBe('Our showreel');
+});
+
+it('refuses a kind change on a url already in the library', function () {
+    // Applying it would desynchronise source_items.kind from the anchored
+    // items.kind and strand the item from every future resolve of its own
+    // kind. Folding kind into the coord is the other way to stay consistent,
+    // but that mints two coords for one url and poisons it.
+    [$pro] = poolTenant();
+    $route = route('content.pools.items.store', ['pool' => 'listen']);
+
+    actingAsUser($pro)->postJson($route, ['url' => 'https://open.spotify.com/track/x', 'kind' => 'track'])
+        ->assertCreated();
+
+    actingAsUser($pro)->postJson($route, ['url' => 'https://open.spotify.com/track/x', 'kind' => 'release'])
+        ->assertStatus(422);
+
+    expect(DB::connection('pgsql')->table('content.source_items')->value('kind'))->toBe('track');
+});

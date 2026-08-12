@@ -348,3 +348,95 @@ it('poisons a url before the connector arrives, so it never converges at all', f
         ->selectRaw('item_id, count(*) as c')->groupBy('item_id')->pluck('c')->all();
     expect($perItem)->toBe([1, 1, 1]);
 });
+
+// ── Code-review regressions on the merge path, slice 0b ────────────────────
+// Inverting the merge survivor moved the destruction onto the CONNECTOR side.
+// These pin what must survive that inversion.
+
+it('never lets a user-removed owner item win a merge', function () {
+    // The owner preference ignored content.items.removed_at, so a deleted
+    // owner item could beat a live connector item — mergeInto() would then
+    // hard-DELETE the visible one (no curation spares it) and the content
+    // would vanish from the library entirely. Strictly worse than the
+    // oldest-binding rule the preference overrides.
+    $userId = createTenant('manual-'.Str::lower(Str::random(6)))->id;
+    $album = 'https://artist.bandcamp.com/album/first';
+    $writer = app(ProjectionWriter::class);
+
+    [$source, $streamId] = manualLaneBandcamp($userId, 'album/first', 'First Album', $album);
+    $writer->projectStream($source, $streamId, 'releases');
+    $syncedItemId = (string) DB::table('content.items')->where('user_id', $userId)->value('id');
+    DB::table('content.item_anchors')->where('user_id', $userId)->update(['bound_at' => now()->subHour()]);
+
+    $coord = 'manual:'.Str::uuid();
+    $ownerItemId = $writer->writeManualItem($userId, $coord, manualLaneRelease('Mine', 'https://example.test/mine'));
+
+    // The owner deletes their own item, then the connector's record moves onto
+    // that url and the two coords union.
+    DB::table('content.items')->where('id', $ownerItemId)->update(['removed_at' => now()]);
+    $resolved = $writer->writeManualItem($userId, $coord, manualLaneRelease('Mine', $album));
+
+    // The live connector item survives; the removed one does not win.
+    expect($resolved)->toBe($syncedItemId)
+        ->and(DB::table('content.items')->where('id', $syncedItemId)->exists())->toBeTrue();
+});
+
+it('moves the discarded item hand-saved links onto the survivor', function () {
+    // item_links cascades on items.id and no projection rewrites it, so the
+    // merge must not lose it. Sparing the row instead would manufacture a
+    // source-item-less ghost that PoolResolver lists in `library` forever.
+    $userId = createTenant('manual-'.Str::lower(Str::random(6)))->id;
+    $album = 'https://artist.bandcamp.com/album/first';
+    $writer = app(ProjectionWriter::class);
+
+    [$source, $streamId] = manualLaneBandcamp($userId, 'album/first', 'First Album', $album);
+    $writer->projectStream($source, $streamId, 'releases');
+    $syncedItemId = (string) DB::table('content.items')->where('user_id', $userId)->value('id');
+    DB::table('content.item_anchors')->where('user_id', $userId)->update(['bound_at' => now()->subHour()]);
+
+    DB::table('content.item_links')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $syncedItemId, 'platform' => 'spotify',
+        'url' => 'https://open.spotify.com/album/x', 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $coord = 'manual:'.Str::uuid();
+    $ownerItemId = $writer->writeManualItem($userId, $coord, manualLaneRelease('Mine', 'https://example.test/mine'));
+    $writer->writeManualItem($userId, $coord, manualLaneRelease('Mine', $album));
+
+    // The link followed the survivor, and the discarded item is gone rather
+    // than lingering with no source items.
+    expect(DB::table('content.item_links')->where('item_id', $ownerItemId)->value('platform'))->toBe('spotify')
+        ->and(DB::table('content.item_links')->where('item_id', $syncedItemId)->count())->toBe(0)
+        ->and(DB::table('content.items')->where('id', $syncedItemId)->exists())->toBeFalse();
+});
+
+it('keeps the discarded item published slug as a redirecting alias', function () {
+    // content.item_slugs cascades on items.id. Since the CONNECTOR item is now
+    // the discarded side, deleting it would break a live public URL and the
+    // 301 history behind it.
+    $userId = createTenant('manual-'.Str::lower(Str::random(6)))->id;
+    $album = 'https://artist.bandcamp.com/album/first';
+    $writer = app(ProjectionWriter::class);
+
+    [$source, $streamId] = manualLaneBandcamp($userId, 'album/first', 'First Album', $album);
+    $writer->projectStream($source, $streamId, 'releases');
+    $syncedItemId = (string) DB::table('content.items')->where('user_id', $userId)->value('id');
+    DB::table('content.item_anchors')->where('user_id', $userId)->update(['bound_at' => now()->subHour()]);
+
+    DB::table('content.item_slugs')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $userId, 'item_id' => $syncedItemId,
+        'slug' => 'first-album', 'is_current' => true, 'created_at' => now(),
+    ]);
+
+    $coord = 'manual:'.Str::uuid();
+    $ownerItemId = $writer->writeManualItem($userId, $coord, manualLaneRelease('Mine', 'https://example.test/mine'));
+    $writer->writeManualItem($userId, $coord, manualLaneRelease('Mine', $album));
+
+    $slug = DB::table('content.item_slugs')->where('slug', 'first-album')->first();
+    expect($slug)->not->toBeNull()
+        ->and($slug->item_id)->toBe($ownerItemId)
+        // The survivor had no slug of its own, so the published one is
+        // PROMOTED rather than retired — the public URL keeps working as-is.
+        ->and((bool) $slug->is_current)->toBeTrue()
+        ->and($slug->retired_at)->toBeNull();
+});

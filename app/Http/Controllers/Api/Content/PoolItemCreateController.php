@@ -14,6 +14,7 @@ use App\Site\Pools\PoolResolver;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 // The hand-add half of a pool (platforms-as-sources): POST a URL, get a
 // MANUAL-source content item, pinned into the selection.
@@ -59,12 +60,6 @@ class PoolItemCreateController extends ApiController
         $user = $this->currentUser($request);
         $site = $this->currentSite($user);
 
-        $kind = $data['kind'] ?? $kinds[0];
-        $title = trim((string) ($data['title'] ?? ''));
-        if ($title === '') {
-            $title = (string) (parse_url($data['url'], PHP_URL_HOST) ?: $data['url']);
-        }
-
         // ONE coord per url, never a fresh uuid per request. Two manual coords
         // carrying the same url poison it for the whole resolution run —
         // Resolver::poisonedKeys() drops a value a single source contributes
@@ -73,6 +68,43 @@ class PoolItemCreateController extends ApiController
         // KeyClass::CanonicalUrl does it, so two urls that would union always
         // share a coord.
         $coord = 'manual:'.sha1(strtolower(trim($data['url'])));
+
+        // What this url already resolved to, if the owner has added it before.
+        // Three of the decisions below turn on it, and a deterministic coord
+        // is what makes "before" reachable at all.
+        $existing = DB::connection('pgsql')->table('content.source_items as si')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->where('cs.user_id', $user->id)
+            ->where('cs.kind', 'manual')
+            ->where('si.coord', $coord)
+            ->first(['si.kind', 'si.item_id']);
+
+        // A kind change on an existing coord is REFUSED, not applied. Folding
+        // kind into the coord would be the other way to keep them consistent,
+        // but that mints a second coord for one url and poisons it. Letting
+        // the change through instead desynchronises source_items.kind from the
+        // anchored items.kind, and the item then has no live source item of
+        // its own kind — no future resolveItems($user, $kind) pass ever touches
+        // it again.
+        $kind = $data['kind'] ?? $kinds[0];
+        if ($existing !== null && (string) $existing->kind !== $kind) {
+            if (isset($data['kind'])) {
+                abort(422, "This link is already in your library as a '{$existing->kind}'. Remove it first to add it as a '{$kind}'.");
+            }
+            // No explicit kind was asked for, so the pool default collided with
+            // what is already there. Keep what is already there.
+            $kind = (string) $existing->kind;
+        }
+
+        $title = trim((string) ($data['title'] ?? ''));
+        if ($title === '') {
+            // Only fall back to the host for a genuinely NEW item. The manual
+            // source sits at priority 200, so on a re-add this would otherwise
+            // overwrite the owner's real title with "vimeo.com" and win against
+            // every connector headline product-wide.
+            $title = $this->storedHeadline($user->id, $existing?->item_id)
+                ?? (string) (parse_url($data['url'], PHP_URL_HOST) ?: $data['url']);
+        }
 
         // No wrapping transaction: writeManualItem() manages its own, and
         // ProjectionWriter::replaceCollections() documents that no caller
@@ -87,29 +119,43 @@ class PoolItemCreateController extends ApiController
             'facets' => ['f_link' => ['url' => $data['url']]],
         ]);
 
+        // A hand-add is an explicit "I want this", so it un-deletes. The
+        // deterministic coord means a re-add resolves to the SAME item, and
+        // upsertSourceItem() clears only source_items.removed_at — the
+        // user-level delete lives on items.removed_at, which PoolResolver
+        // filters on. Without this the owner re-adds a link they previously
+        // removed, gets a 201, and nothing appears, with no route back.
+        //
+        // Deliberately here and not in writeManualItem(): a BACKFILL running
+        // through the same lane must not resurrect what someone deleted. Only
+        // a person typing the link again means "bring it back".
+        DB::connection('pgsql')->table('content.items')
+            ->where('id', $itemId)
+            ->where('user_id', $user->id)
+            ->whereNotNull('removed_at')
+            ->update(['removed_at' => null, 'updated_at' => now()]);
+
         $section = $this->provisioner->ensure($site, $pool);
 
-        // A hand-add is a pick by definition — pin it at the end. Conditional
-        // because the fold-in above can hand back an item that is ALREADY
-        // pinned, and site.section_items carries UNIQUE (section_id, item_id).
-        $alreadyPinned = SectionItem::query()
+        // A hand-add is a pick by definition — pin it at the end. Find-or-new
+        // and FORCE the state, mirroring PoolController::select(): the fold-in
+        // above can hand back an item that already has a curation row, and
+        // site.section_items carries UNIQUE (section_id, item_id) across BOTH
+        // states. Testing only for existence would skip an `excluded` row and
+        // leave the item excluded — a hand-add that silently does nothing.
+        $pin = SectionItem::query()
             ->where('section_id', $section->id)
             ->where('item_id', $itemId)
-            ->exists();
+            ->first() ?? new SectionItem;
 
-        if (! $alreadyPinned) {
-            $highest = SectionItem::query()
-                ->where('section_id', $section->id)
-                ->where('state', SectionItem::STATE_PINNED)
-                ->max('sort_key');
-            $pin = new SectionItem;
-            $pin->section_id = (string) $section->id;
-            $pin->item_id = $itemId;
-            $pin->state = SectionItem::STATE_PINNED;
-            $pin->sort_key = $highest === null ? 1.0 : ((float) $highest) + 1.0;
+        $pin->section_id = (string) $section->id;
+        $pin->item_id = $itemId;
+        $pin->state = SectionItem::STATE_PINNED;
+        $pin->sort_key = $pin->sort_key ?? $this->nextSortKey((string) $section->id);
+        if (! $pin->exists) {
             $pin->created_at = now();
-            $pin->save();
         }
+        $pin->save();
 
         // writeManualItem() already bumped the build state for the content
         // write; this covers the curation write above. Both are cheap
@@ -120,5 +166,31 @@ class PoolItemCreateController extends ApiController
         }
 
         return $this->success($this->resolver->resolve($site, $pool), 201);
+    }
+
+    /** The headline this item already carries, so a title-less re-add does not clobber it. */
+    private function storedHeadline(string $userId, ?string $itemId): ?string
+    {
+        if ($itemId === null) {
+            return null;
+        }
+
+        $headline = DB::connection('pgsql')->table('content.items')
+            ->where('id', $itemId)
+            ->where('user_id', $userId)
+            ->value('headline_cache');
+
+        return is_string($headline) && $headline !== '' ? $headline : null;
+    }
+
+    /** Next free pin position, matching PoolController::select()'s ordering. */
+    private function nextSortKey(string $sectionId): float
+    {
+        $highest = SectionItem::query()
+            ->where('section_id', $sectionId)
+            ->where('state', SectionItem::STATE_PINNED)
+            ->max('sort_key');
+
+        return $highest === null ? 1.0 : ((float) $highest) + 1.0;
     }
 }

@@ -421,8 +421,15 @@ class ProjectionWriter
             return (string) $existing->id;
         }
 
+        // insertOrIgnore + re-read, not insert: the SELECT above and this write
+        // are not atomic, and source_items_coord_unique (source_id, coord)
+        // turns the loser of that race into a 23505. Unreachable while every
+        // coord was minted per-run, but PoolItemCreateController now derives
+        // the coord from the URL, so a double-clicked "Add" is two concurrent
+        // requests writing the SAME coord — the loser would have surfaced as a
+        // 500. Same reasoning as ensureManualSource().
         $id = (string) Str::uuid();
-        DB::table('content.source_items')->insert([
+        DB::table('content.source_items')->insertOrIgnore([
             'id' => $id,
             'source_id' => $contentSourceId,
             'coord' => $coord,
@@ -434,7 +441,16 @@ class ProjectionWriter
             'last_seen_at' => now(),
         ]);
 
-        return $id;
+        $landed = DB::table('content.source_items')
+            ->where('source_id', $contentSourceId)
+            ->where('coord', $coord)
+            ->value('id');
+
+        if ($landed === null) {
+            throw new \RuntimeException("Could not resolve a source item for coord {$coord}.");
+        }
+
+        return (string) $landed;
     }
 
     /**
@@ -724,9 +740,16 @@ class ProjectionWriter
 
         $ownerAuthored = DB::table('content.source_items as si')
             ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->join('content.items as ci', 'ci.id', '=', 'si.item_id')
             ->whereIn('si.item_id', $effective->all())
             ->where('cs.kind', 'manual')
             ->whereNull('si.removed_at')
+            // A user-REMOVED item must never win. It is invisible to
+            // PoolResolver, so preferring it would delete the visible
+            // connector item (no curation spares it) and take the content out
+            // of the library altogether — strictly worse than the
+            // oldest-binding rule this preference overrides.
+            ->whereNull('ci.removed_at')
             ->distinct()
             ->pluck('si.item_id')
             ->map(fn ($id) => (string) $id)
@@ -780,16 +803,82 @@ class ProjectionWriter
             'merged_at' => now(),
         ]);
 
-        // item_links is the owner's hand-saved cross-platform link set. Like a
-        // pin and an override it is typed by a person, is never rewritten by a
-        // projection, and cascades on items.id — so a merge must not delete it
-        // out from under them.
+        $this->moveLinks($keptItemId, $discardedItemId);
+        $this->moveSlugs($userId, $keptItemId, $discardedItemId);
+
         $hasCuration = DB::table('site.section_items')->where('item_id', $discardedItemId)->exists()
-            || DB::table('content.manual_overrides')->where('item_id', $discardedItemId)->exists()
-            || DB::table('content.item_links')->where('item_id', $discardedItemId)->exists();
+            || DB::table('content.manual_overrides')->where('item_id', $discardedItemId)->exists();
 
         if (! $hasCuration) {
             DB::table('content.items')->where('id', $discardedItemId)->delete();
+        }
+    }
+
+    /**
+     * The owner's hand-saved cross-platform links follow the survivor.
+     *
+     * They are typed by a person and no projection ever rewrites them, so the
+     * cascade on items.id would lose them for good. Sparing the row instead —
+     * adding item_links to $hasCuration — would be worse: it manufactures
+     * exactly the source-item-less ghost preferOwnerAnchored()'s docblock
+     * calls out, which PoolResolver still lists in `library` forever because
+     * that query filters on user_id + kind + removed_at and nothing else.
+     *
+     * item_links_unique (item_id, platform) means a platform the survivor
+     * already carries cannot move; the survivor's own link is the better one
+     * to keep, and the loser's goes with the cascade.
+     */
+    private function moveLinks(string $keptItemId, string $discardedItemId): void
+    {
+        $keptPlatforms = DB::table('content.item_links')
+            ->where('item_id', $keptItemId)
+            ->pluck('platform')
+            ->all();
+
+        $movable = DB::table('content.item_links')->where('item_id', $discardedItemId);
+        if ($keptPlatforms !== []) {
+            $movable->whereNotIn('platform', $keptPlatforms);
+        }
+
+        $movable->update(['item_id' => $keptItemId, 'updated_at' => now()]);
+    }
+
+    /**
+     * Published URLs follow the survivor, as RETIRED aliases that still 301.
+     *
+     * content.item_slugs cascades on items.id, and since bindGroup() may now
+     * discard a CONNECTOR item in favour of an owner-authored one, the
+     * discarded side is often the one whose slug is already public — deleting
+     * it would break a live URL and the retired-slug history behind it.
+     *
+     * Mirrors ItemMerger::moveSlugs() deliberately, including its ordering
+     * hazard: stamp every moved row retired FIRST, then clear the stamp on the
+     * one being promoted. Reversing that order re-stamps the promoted row and
+     * the nightly slugs:prune-retired sweep hard-deletes a slug that is
+     * currently serving as the item's URL.
+     */
+    private function moveSlugs(string $userId, string $keptItemId, string $discardedItemId): void
+    {
+        $keptHasCurrent = DB::table('content.item_slugs')
+            ->where('item_id', $keptItemId)
+            ->where('is_current', true)
+            ->exists();
+
+        $promote = $keptHasCurrent
+            ? null
+            : DB::table('content.item_slugs')
+                ->where('item_id', $discardedItemId)
+                ->where('is_current', true)
+                ->orderByDesc('created_at')
+                ->value('id');
+
+        DB::table('content.item_slugs')
+            ->where('user_id', $userId)
+            ->where('item_id', $discardedItemId)
+            ->update(['item_id' => $keptItemId, 'is_current' => false, 'retired_at' => now()]);
+
+        if ($promote !== null) {
+            DB::table('content.item_slugs')->where('id', $promote)->update(['is_current' => true, 'retired_at' => null]);
         }
     }
 
