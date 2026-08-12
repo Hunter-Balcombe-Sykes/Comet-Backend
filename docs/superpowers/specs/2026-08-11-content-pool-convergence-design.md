@@ -927,3 +927,153 @@ the DDL in `supabase/migrations/`, not merely against a green suite.
 That sentence is false and has already mis-scoped downstream work. It must be
 amended in place to state that Media never shipped, with a pointer here — as long as
 it reads complete, every future session starts from a false map.
+
+---
+
+## 12. Slice 0b checkpoint — 2026-08-12
+
+**Status: implemented and test-verified; live-dev assertion OUTSTANDING.**
+
+Per §3 invariant 1 a slice is not done without a live database assertion with
+pasted output. That half cannot run yet and is **not** ticked here — see
+"Outstanding" below. This section records what has been established and states
+plainly what has not, rather than reporting a slice as closed on unit tests.
+
+### 12.1 Pre-implementation baseline (run against dev, `glncumufgaqcmqhzwrxm`, 2026-08-12)
+
+```sql
+SELECT kind, count(*) AS sources, min(priority) AS min_priority, max(priority) AS max_priority
+FROM content.sources GROUP BY 1 ORDER BY 1;
+```
+
+```
+kind        | sources | min_priority | max_priority
+------------+---------+--------------+-------------
+connection  |      27 |          100 |          100
+```
+
+One row group. **Zero `manual`, zero `import`** — so the corrective UPDATE in
+`ensureManualSource()` is defensive on dev, not load-bearing. §1.7 said 25
+connections; it is 27.
+
+```sql
+SELECT count(*) AS orphan_items
+FROM content.items i
+WHERE i.removed_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM content.source_items si WHERE si.item_id = i.id);
+```
+
+```
+orphan_items
+------------
+           0
+```
+
+A true zero, so the post-deploy gate is "still 0" rather than "no increase".
+
+### 12.2 What shipped
+
+| Change | Where |
+|---|---|
+| `MANUAL_SOURCE_PRIORITY = 200` + `ensureManualSource()` | `ProjectionWriter` |
+| `writeManualItem()` — the lane | `ProjectionWriter` |
+| `upsertSourceItem()` accepts a stream-less record (`?string`) | `ProjectionWriter` |
+| Owner-anchored item wins a merge (`preferOwnerAnchored()`) | `ProjectionWriter::bindGroup()` |
+| `content.item_links` joins the curation predicate | `ProjectionWriter::mergeInto()` |
+| Hand-adds routed onto the lane; URL-derived coord; conditional pin | `PoolItemCreateController` |
+| `idx_content_sources_manual` and `section_items_unique` mirrored | `tests/Pest.php` |
+
+### 12.3 Pest cases
+
+`tests/Feature/Ingest/ManualSourceLaneTest.php` — 9, all passing:
+
+1. it creates exactly one manual source per user, above connection priority
+2. it raises a manual source left at connection priority by the old writer
+3. it lands an owner-authored item with identity keys, an anchor, and every facet family
+4. it is idempotent on the coord, so a backfill can be re-run
+5. it bumps the site build state so the public document rebuilds
+6. it keeps the owner-authored item when a connector run merges it with a synced one
+7. it still merges two connector items on the oldest binding when no owner row is involved
+8. it poisons a url on the second manual coord, which then cannot fold in
+9. it poisons a url before the connector arrives, so it never converges at all
+
+`tests/Feature/Content/PoolLaneTest.php` — 2 added (16 total, all passing):
+
+10. it hand-adds an item that a later connector run enriches instead of stranding
+11. it re-adding the same url upserts one coord rather than poisoning it
+
+`composer test`: 7523 passed, 2 failed. Both failures are in
+`RunExecutorProjectionTest` and are pre-existing parallel flakes — they pass
+serially, pass in a parallel run scoped to `tests/Feature/Ingest/`, and a
+second full parallel run fails a different Redis-centric set without touching
+them. Serial run of the affected suites (`Ingest`, `Content`, `Site`,
+`Unit/Ingest`, `Unit/Site`): **810 passed**.
+
+### 12.4 Two plan corrections established by running the code
+
+Both were specified wrongly in
+`docs/superpowers/plans/2026-08-11-content-pool-slice-0b-manual-write-lane.md`
+and are recorded here because later slices inherit the same reasoning.
+
+**1. `bindGroup()`'s loser set is not `slice(1)`.** The plan changed only the
+winner selection and left losers as "everything after the first". Those agree
+only while the winner IS first. `preferOwnerAnchored()` can pick a later
+element, and `slice(1)` then hands `mergeInto()` the winner as its own
+`discardedItemId` — whose hard DELETE destroys the owner row the change exists
+to protect — while leaving the real loser unmerged. Verified by reverting the
+one line: the winner is chosen correctly and `content.items` no longer holds
+it. Losers are now derived from the winner.
+
+**2. Poisoning costs different amounts depending on ordering.** The plan
+expected 3 `content.items` and instructed a stop-and-report if not; the actual
+figure for the case it described is 2. The pure Resolver does return three
+GROUPS, but a group is not an item — `content.item_anchors` is sticky, so
+coords that converged before the poisoning rebind to the anchor they already
+have. Both orderings are now pinned (§1.7 table). The expensive one — two
+backfilled rows, then the connector — is the one slices 3–5 produce.
+
+### 12.5 Outstanding — required before slice 0b may be called done
+
+Dev runs the `development` branch, which does not carry this work (slice 0b
+sits on `feat/content-pool-slice2-events`, 32 commits ahead of `development`,
+alongside slices 0 and 2). The live assertion therefore cannot run yet.
+
+After that branch merges and deploys, run:
+
+```bash
+cloud command:run partna development "tinker --execute=\"
+  \\\$u = App\\\\Models\\\\Core\\\\User\\\\User::whereHas('site', fn(\\\$q) => \\\$q->where('subdomain','<handle>'))->firstOrFail();
+  \\\$id = app(App\\\\Ingest\\\\Projection\\\\ProjectionWriter::class)->writeManualItem(
+      \\\$u->id,
+      'manual:'.sha1('https://vimeo.com/76979871'),
+      ['kind' => 'video', 'headline' => 'Slice 0b smoke', 'facets' => ['f_link' => ['url' => 'https://vimeo.com/76979871']]]
+  );
+  echo \\\$id;
+\""
+```
+
+```sql
+SELECT cs.kind AS source_kind, cs.priority, si.coord, si.stream_id, si.item_id,
+       i.kind AS item_kind, i.headline_cache,
+       (SELECT count(*) FROM content.identity_keys k WHERE k.source_item_id = si.id) AS keys,
+       (SELECT count(*) FROM content.item_anchors a WHERE a.coord = si.coord)        AS anchors
+FROM content.source_items si
+JOIN content.sources cs ON cs.id = si.source_id
+LEFT JOIN content.items i ON i.id = si.item_id
+WHERE cs.kind = 'manual';
+```
+
+Expected per row: `priority` 200, `stream_id` NULL, `item_id` non-null,
+`keys` = 2, `anchors` = 1. Then re-run the §12.1 orphan query — the gate is
+**still 0** — and `cloud env:logs partna development --minutes 10`, expecting
+no `RuntimeException: Manual coord … did not resolve to an item`, no
+`Could not resolve a manual content source`, and no 23505 on
+`section_items_unique`.
+
+### 12.6 Cache invalidation (§9.2, all three lanes)
+
+| Lane | This slice |
+|---|---|
+| `site.site_build_state` build state | **Bumped** — `writeManualItem()` → `bumpSite()`, and the controller bumps again for the curation write |
+| 60s public-profile payload cache | **Not busted.** A content write does not move `site.sites.updated_at`, so the key does not roll. TTL-bounded staleness only (default 60s) |
+| Cloudflare edge | **Purged on the endpoint only** — the controller's existing `CloudflareCachePurgeJob`. The `bindGroup()` change lands on the connector path, which has no edge purge, so a connector-triggered survivor change is visible at the edge only after TTL. Accepted: already true of every projection run |
