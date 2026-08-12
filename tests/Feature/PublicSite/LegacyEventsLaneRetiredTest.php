@@ -63,15 +63,20 @@ it('publishes nothing for an events account row', function () {
     expect($payload)->toBe([]);
 });
 
-it('publishes nothing for a standalone event row', function () {
-    $user = retiredLaneUser('evretired2');
+// The ONE part of the lane that is NOT retired. A standalone row has no
+// ingest connector (ConnectorRegistry::MAP holds eventbrite/humanitix only,
+// and SourceProvisioner provisions from an ORGANISER url), so it lands no
+// content.items and has no pool representation. Emptying its allowlist too
+// would make the whole add-an-event-by-URL feature publicly inert.
+it('keeps publishing a standalone event row, which the pool cannot represent', function () {
+    $user = retiredLaneUser('evstandalone1');
 
     IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'humanitix',
         'resource_id' => 'event-hexbbb',
         'resource_kind' => 'event',
-        'payload' => ['kind' => 'event', 'id' => 'hexbbb', 'name' => 'Comedy Gala', 'link' => 'https://events.humanitix.com/comedy'],
+        'payload' => ['kind' => 'event', 'id' => 'hexbbb', 'name' => 'Comedy Gala', 'link' => 'https://events.humanitix.com/comedy', 'venue' => 'The Depot'],
         'is_active' => true,
     ]);
 
@@ -79,11 +84,18 @@ it('publishes nothing for a standalone event row', function () {
         ->assertOk()
         ->json('data.platforms.humanitix.0.payload');
 
-    expect($payload)->toBe([]);
+    expect($payload['kind'])->toBe('event');
+    expect($payload['name'])->toBe('Comedy Gala');
+    expect($payload['venue'])->toBe('The Depot');
+    // slug/aliases are GONE even here: the annotation that wrote them went
+    // with the lane, and a standalone event has no content item to carry a
+    // content.item_slugs row.
+    expect($payload)->not->toHaveKey('slug');
+    expect($payload)->not->toHaveKey('aliases');
 });
 
-it('publishes nothing for a custom event row', function () {
-    $user = retiredLaneUser('evretired3');
+it('keeps publishing a standalone events-custom row', function () {
+    $user = retiredLaneUser('evstandalone2');
 
     IntegrationConnection::create([
         'user_id' => $user->id,
@@ -98,7 +110,7 @@ it('publishes nothing for a custom event row', function () {
         ->assertOk()
         ->json('data.platforms.events-custom.0.payload');
 
-    expect($payload)->toBe([]);
+    expect($payload['name'])->toBe('Launch Party');
 });
 
 // hiddenEventIds was ALWAYS private, and must stay private now that the

@@ -36,6 +36,21 @@ use Illuminate\Support\Str;
  */
 class ContentItemSlugAllocator
 {
+    /**
+     * The kinds that get a public URL slug minted for them.
+     *
+     * Events only, for now: they are the kind with a detail permalink, and the
+     * lane this registry replaced (site.item_slugs) covered exactly events and
+     * menu items. Every pool item's payload carries the `slug` key regardless,
+     * null off this list — the wire shape does not vary by kind.
+     *
+     * The projector and the backfill BOTH read this, so widening it is one
+     * edit and the two cannot disagree about which items should have slugs.
+     *
+     * @var list<string>
+     */
+    public const SLUGGED_KINDS = ['event'];
+
     private const MAX_BASE = 80;
 
     private const TABLE = 'content.item_slugs';
@@ -46,8 +61,24 @@ class ContentItemSlugAllocator
         $base = $this->base($name, $itemId);
         $current = $this->currentRow($userId, $itemId);
 
-        if ($current !== null && (string) $current->slug === $base) {
-            return $base;
+        if ($current !== null) {
+            $live = (string) $current->slug;
+            if ($live === $base) {
+                return $base;
+            }
+
+            // The live slug may be `base-N` because the bare base was taken by
+            // another item — that is still the right slug for this name, not a
+            // rename. Without this arm, every re-projection of a collided item
+            // walks to the next free suffix and retires the last one: an item
+            // holding `grant-writing-2` re-mints `-3`, then `-4`, growing a row
+            // per run and changing the public URL each time. ItemSlugAllocator
+            // learned this the hard way and its docblock warns whoever writes
+            // this class; both checks cost zero extra queries in the no-op case.
+            $n = $this->collisionSuffix($live, $base);
+            if ($n !== null && $this->canonicalSlug($userId, $itemId, $base, $n) === $live) {
+                return $live;
+            }
         }
 
         // Rename-back: this item already owns a retired row for this base, so
@@ -151,6 +182,68 @@ class ContentItemSlugAllocator
         }
 
         return $slug;
+    }
+
+    /**
+     * The N in `$base-N`, or null when the trailing digits are not a suffix
+     * allocate() could ever have minted.
+     *
+     * Trailing digits are NOT a reliable collision marker on their own:
+     * "Table 9" slugifies to `table-9` at n=1, which is shape-identical to the
+     * -9 a collision would mint. Excluding leading zeros, <2 and >200 is what
+     * separates "the allocator put this here" from "the name ends in a number".
+     */
+    private function collisionSuffix(string $slug, string $base): ?int
+    {
+        $prefix = $base.'-';
+        if (! str_starts_with($slug, $prefix)) {
+            return null;
+        }
+        $digits = substr($slug, strlen($prefix));
+        if ($digits === '' || ! ctype_digit($digits) || $digits[0] === '0') {
+            return null;
+        }
+        $n = (int) $digits;
+
+        return ($n >= 2 && $n <= 200) ? $n : null;
+    }
+
+    /**
+     * Which of `$base`, `$base-2` … `$base-$upTo` would allocate() land on for
+     * this item right now? Null when every candidate is held by someone else.
+     *
+     * ONE bounded SELECT replaying allocate()'s walk. Availability is keyed on
+     * (user_id, slug) because idx_item_slugs_unique is non-partial; ownership
+     * is (user_id, item_id), so a row this item already holds — current or
+     * retired — does not block it.
+     *
+     * Advisory only: insertOrIgnore stays the race-safe allocator of record.
+     * A plain SELECT, so it cannot abort a caller's transaction (25P02).
+     */
+    private function canonicalSlug(string $userId, string $itemId, string $base, int $upTo): ?string
+    {
+        $candidates = [$base];
+        for ($n = 2; $n <= $upTo; $n++) {
+            $candidates[] = $base.'-'.$n;
+        }
+
+        /** @var array<string, bool> $mine slug => owned by this item */
+        $mine = [];
+        $rows = DB::connection('pgsql')->table(self::TABLE)
+            ->where('user_id', $userId)
+            ->whereIn('slug', $candidates)
+            ->get(['slug', 'item_id']);
+        foreach ($rows as $row) {
+            $mine[(string) $row->slug] = (string) $row->item_id === $itemId;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (! array_key_exists($candidate, $mine) || $mine[$candidate]) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function currentRow(string $userId, string $itemId): ?object

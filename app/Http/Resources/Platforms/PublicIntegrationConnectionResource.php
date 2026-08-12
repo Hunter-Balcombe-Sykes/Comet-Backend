@@ -76,6 +76,24 @@ class PublicIntegrationConnectionResource extends ApiResource
      * current public contract — i.e. exactly what each platform stores today,
      * minus internal keys (e.g. Instagram's `_folder`, added by CONS-21).
      */
+    /** The platforms whose rows can be a standalone event. */
+    private const EVENT_PLATFORMS = ['eventbrite', 'humanitix', 'events-custom'];
+
+    /**
+     * What a STANDALONE event row publishes. The payload IS the event here, so
+     * every key is top-level and must be listed individually — unlike an
+     * account row, whose nested upcoming[]/next objects used to pass through
+     * whole. `slug`/`aliases` are gone: the annotation that stamped them was
+     * removed with the lane, so listing them would allowlist keys nothing
+     * writes. A standalone event has no content item and therefore no
+     * content.item_slugs row to serve one from either.
+     */
+    private const STANDALONE_EVENT_KEYS = [
+        'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate',
+        'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency',
+        'availability', 'soldOut', 'image', 'link',
+    ];
+
     private const ALLOWLIST = [
         'instagram' => ['username', 'fullName', 'profilePicUrl', 'businessCategory', 'followersCount', 'postsCount', 'mode', 'images', 'videoUrl', 'videoPoster', 'imagesDropped'],
         'youtube' => ['handle', 'name', 'description', 'link', 'thumbnail', 'latest'],
@@ -98,6 +116,9 @@ class PublicIntegrationConnectionResource extends ApiResource
         //
         // Owners who hid events keep them hidden: the hides were carried into
         // section_items excludes by content:migrate-hidden-events.
+        //
+        // ACCOUNT rows only. Standalone (resource_kind='event') rows keep
+        // publishing via STANDALONE_EVENT_KEYS below — see filterPayload().
         'eventbrite' => [],
         'humanitix' => [],
         'events-custom' => [],
@@ -369,6 +390,27 @@ class PublicIntegrationConnectionResource extends ApiResource
         }
 
         $allowed = self::ALLOWLIST[$platform] ?? null;
+
+        // Standalone event rows are the ONE part of the events lane the pool
+        // cannot replace yet, so they keep publishing (slice 2 Task 9).
+        //
+        // An account row is an organiser feed: the ingest connectors fetch the
+        // same events into content.items, so profile.pools.events serves them
+        // with more detail and the row's own payload can go dark. A standalone
+        // row — resource_kind 'event', one event added by URL from the Tickets
+        // & Events card — has NO connector (ConnectorRegistry::MAP holds only
+        // eventbrite/humanitix, and SourceProvisioner only provisions from an
+        // organiser URL), so it lands no content item and has no pool
+        // representation at all. Emptying its allowlist too would have made the
+        // whole add-an-event-by-URL feature publicly inert (2 active rows on
+        // dev at the time of writing).
+        //
+        // Remove this branch when the manual write lane (slice 0b) lands these
+        // as content.items — then the pool covers them and the exception ends.
+        if (in_array($platform, self::EVENT_PLATFORMS, true) && $this->resource_kind === 'event') {
+            $allowed = self::STANDALONE_EVENT_KEYS;
+        }
+
         if ($allowed === null) {
             // A new platform shipped without an allowlist entry — fail CLOSED to
             // never leak unvetted stored keys (e.g. _folder, source, sourceUrl) on

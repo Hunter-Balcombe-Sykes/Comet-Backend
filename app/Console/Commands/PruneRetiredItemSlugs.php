@@ -8,10 +8,10 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Sweeps two tables that share the retired_at/is_current retention shape
- * (271-PRIV-1): site.item_slugs (the live public-URL registry, with its own
- * allocator and 301-alias read path) and content.item_slugs (a currently
- * vestigial table -- ItemMerger::moveSlugs() is its only writer, and nothing
- * reads it for a public payload). One command, one shared cutoff, because the
+ * (271-PRIV-1): site.item_slugs (the legacy public-URL registry for the menu
+ * lane, with its own allocator and 301-alias read path) and
+ * content.item_slugs (the pool lane's equivalent). One command, one shared
+ * cutoff, because the
  * predicates and reasoning are identical; splitting them would just be two
  * copies of the same TOCTOU note.
  */
@@ -46,13 +46,13 @@ class PruneRetiredItemSlugs extends Command
             ->where('is_current', false)->whereNull('retired_at')
             ->where('created_at', '<', $cutoff);
 
-        // Same two-arm shape against content.item_slugs. The stranded arm here
-        // is theoretical today -- ItemMerger::moveSlugs() stamps retired_at and
-        // is_current in the SAME update, so it cannot itself produce a stranded
-        // row -- but the predicate is kept symmetric with the site table so a
-        // future minter/allocator for this table (see the migration's trap
-        // comment) is covered by construction rather than by someone remembering
-        // to come back and add it.
+        // Same two-arm shape against content.item_slugs. The stranded arm is
+        // REAL here, in two ways: retired_at shipped with no backfill
+        // (20260731210000), and ContentItemSlugAllocator::allocate() inserts a
+        // non-current row before promote() stamps it, so a crash between the
+        // two strands one. ContentItemSlugAllocator::lookupCurrent() serves
+        // stranded rows off created_at, and this arm ages them out on the same
+        // window -- the two must agree.
         $expiredRetiredContent = fn () => $pgsql->table('content.item_slugs')
             ->whereNotNull('retired_at')->where('retired_at', '<', $cutoff);
 
@@ -83,13 +83,13 @@ class PruneRetiredItemSlugs extends Command
         // serving a row as a 301 alias in the public payload the instant that
         // same cutoff crossed it.
         //
-        // content.item_slugs has no such read path to worry about at all: it is
-        // not built into site.documents (the cache-fronted public payload) or
-        // any Cache:: key -- content staleness is tracked separately via
-        // BuildState::bump()/site_build_state.content_revision, and nothing
-        // populates that revision from this table today because nothing reads
-        // it. The delete is observably a no-op the same instant it runs, for a
-        // stronger reason than the site table: there was never a live reader.
+        // content.item_slugs DOES have a live read path now (slice 2 Task 9):
+        // PoolResolver::itemPayloads() serves slug/aliases from it on every
+        // pool resolve, and that payload is Redis- and edge-cached. It is not
+        // built into site.documents, so the same-cutoff reasoning above still
+        // holds -- an alias this sweep deletes had already stopped resolving,
+        // because lookupCurrent() filters on the identical window. What is no
+        // longer true is the old claim that there was never a live reader.
         $pgsql->transaction(function () use ($expiredRetired, $strandedRows, $expiredRetiredContent, $strandedRowsContent) {
             $expiredRetired()->delete();
             $strandedRows()->delete();

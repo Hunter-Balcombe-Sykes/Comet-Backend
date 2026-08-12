@@ -11,6 +11,7 @@ use App\Content\Identity\SourceItem;
 use App\Content\Values\Contribution;
 use App\Content\Values\ValueResolver;
 use App\Routing\SecretParams;
+use App\Services\Content\ContentItemSlugAllocator;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -70,6 +71,7 @@ class ProjectionWriter
     public function __construct(
         private readonly Resolver $resolver,
         private readonly ValueResolver $values,
+        private readonly ContentItemSlugAllocator $slugs,
     ) {}
 
     /**
@@ -1003,7 +1005,7 @@ class ProjectionWriter
             }
 
             $rowsById = DB::table('content.items')->whereIn('id', $batch)
-                ->get(['id', 'headline_cache', 'facets_cache'])->keyBy('id');
+                ->get(['id', 'user_id', 'kind', 'headline_cache', 'facets_cache'])->keyBy('id');
 
             // Every item in the batch is "seen" this run regardless of
             // whether its cache changed — one UPDATE for the whole batch.
@@ -1045,6 +1047,26 @@ class ProjectionWriter
                         'headline_cache' => $headline,
                         'facets_cache' => json_encode($present),
                     ]);
+                }
+
+                // Mint / refresh the public URL slug whenever the headline
+                // that names it is set or changes. THIS is the ongoing minter
+                // for content.item_slugs: content:backfill-item-slugs seeds
+                // history once, and without this every item landed afterwards
+                // would serve a null slug forever. The retired lane had the
+                // same continuous duty (IntegrationConnectionObserver →
+                // EventSlugSync::syncEvents on every connect and refresh).
+                //
+                // Best-effort by design: slug bookkeeping must never fail a
+                // projection run, and ensureCurrent() is a no-op when the live
+                // slug already matches, so the common path costs one SELECT.
+                if ($headline !== null && $headline !== ''
+                    && in_array((string) $row->kind, ContentItemSlugAllocator::SLUGGED_KINDS, true)) {
+                    try {
+                        $this->slugs->ensureCurrent((string) $row->user_id, (string) $itemId, (string) $headline);
+                    } catch (\Throwable $e) {
+                        report($e);
+                    }
                 }
             }
         }

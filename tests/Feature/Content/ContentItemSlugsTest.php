@@ -205,3 +205,38 @@ it('skips a removed item', function () {
 
     expect(DB::table('content.item_slugs')->count())->toBe(0);
 });
+
+// Review finding: without the collisionSuffix/canonicalSlug no-op check, an
+// item holding `grant-writing-2` (because another item took the bare base)
+// walks to -3, then -4, on every re-projection — a new row and a NEW PUBLIC
+// URL each run. ItemSlugAllocator's docblock warns whoever writes this class.
+it('does not rotate the slug of a collided item on repeated calls', function () {
+    $pro = createTenant('slug-'.Str::lower(Str::random(6)));
+    $allocator = app(ContentItemSlugAllocator::class);
+
+    $first = slugItem($pro->id, 'Grant writing');
+    $second = slugItem($pro->id, 'Grant writing');
+
+    $allocator->ensureCurrent($pro->id, $first, 'Grant writing');
+    expect($allocator->ensureCurrent($pro->id, $second, 'Grant writing'))->toBe('grant-writing-2');
+
+    // Re-run three times, as re-projection would.
+    foreach (range(1, 3) as $ignored) {
+        expect($allocator->ensureCurrent($pro->id, $second, 'Grant writing'))->toBe('grant-writing-2');
+    }
+
+    expect(DB::table('content.item_slugs')->where('item_id', $second)->count())->toBe(1);
+});
+
+// The other half of the same trap: digits that came from the NAME must not be
+// mistaken for a collision suffix, or a genuine rename reads as a no-op.
+it('treats trailing digits in a name as part of the slug, not a suffix', function () {
+    $pro = createTenant('slug-'.Str::lower(Str::random(6)));
+    $allocator = app(ContentItemSlugAllocator::class);
+    $itemId = slugItem($pro->id, 'Table 9');
+
+    expect($allocator->ensureCurrent($pro->id, $itemId, 'Table 9'))->toBe('table-9');
+    // 'Table' is a real rename away from 'Table 9' — base 'table' != 'table-9',
+    // and -9 is not a suffix `table` would have minted for this item.
+    expect($allocator->ensureCurrent($pro->id, $itemId, 'Table'))->toBe('table');
+});

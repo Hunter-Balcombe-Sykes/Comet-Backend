@@ -94,13 +94,12 @@ connection but nothing upcoming. See "Removed" below.
 
 `GET /api/public/profiles/{handle}/integrations` (and its `/platforms` alias).
 
-### `eventbrite`, `humanitix` and `events-custom` publish nothing
+### ACCOUNT rows on `eventbrite` / `humanitix` / `events-custom` publish nothing
 
-Before, each carried a filtered payload — account rows `{url, organiser,
-next, upcoming[]}`, standalone rows the flat event fields — with `slug` and
-`aliases` stamped onto every event object.
+An **account row** is an organiser feed — `{url, organiser, next,
+upcoming[]}`, with `slug`/`aliases` stamped onto every nested event.
 
-After: **`payload` is `{}`** for all three.
+After: **`payload` is `{}`** for account rows.
 
     "platforms": {
       "eventbrite": [ { "resourceId": "acct-abc", "payload": {}, "lastRefreshedAt": null } ]
@@ -109,7 +108,27 @@ After: **`payload` is `{}`** for all three.
 The connection **row and its envelope remain** (`resourceId`, `payload`,
 `lastRefreshedAt`), so a consumer iterating `platforms` sees no shape change —
 only an empty payload. The platforms stay registered because the dashboard
-connect/refresh lane still uses them; they are simply dashboard-only now.
+connect/refresh lane still uses them.
+
+### STANDALONE event rows are UNCHANGED — read this before migrating
+
+A row with `resource_kind: "event"` (one event added by URL from the Tickets
+& Events card) **still publishes its event fields** exactly as before:
+
+    kind, id, name, venue, location, startDate, endDate, description,
+    startsAt, endsAt, price, priceMin, currency, availability, soldOut,
+    image, link
+
+The two keys it **loses** are `slug` and `aliases`.
+
+Why the exception: standalone rows have no ingest connector, so they land no
+`content.items` and have **no pool representation at all**. Retiring them
+would have made the add-an-event-by-URL feature publicly inert rather than
+migrating it. They move to the pool when the manual write lane lands.
+
+**So: an Events page may need BOTH sources** until then — `pools.events` for
+the organiser feed, and standalone `resource_kind: "event"` rows from this
+endpoint for one-off events.
 
 **Migrate to `profile.pools.events`.** It carries the same events with more:
 occurrence, place and price facets the legacy shape could not express, plus
@@ -137,12 +156,40 @@ legacy lane hid at write time, pruning hidden events out of the stored
 payload; the pool reads `content.items` directly, so without the migration
 they would have reappeared.
 
+## Deploy order — these are migration steps, not optional
+
+Run in this order, `--dry-run` first:
+
+1. `php artisan content:backfill-item-slugs` — seeds `content.item_slugs`.
+   Nothing serves a slug until this runs. **Ongoing** minting is automatic
+   from here (the projector mints on every headline change), so this is a
+   one-off.
+2. `php artisan content:migrate-hidden-events` — carries `hiddenEventIds`
+   into pool excludes. Without it, previously-hidden events become visible.
+
+## Known regressions
+
+**Hides made in the dashboard AFTER the migration do not reach the pool.**
+`EventsPlatformController::removeEvent()` still writes only `hiddenEventIds`,
+which the pool does not read. The migration is a one-shot; the dashboard verb
+was left pointing at the legacy lane pending an owner decision on where the
+Events dashboard should live (Task 9 Step 6, unmade). Until that lands, an
+owner hiding an event from the dashboard will still see it on their page.
+
+**Three legacy slugs do not carry over** (measured on dev 2026-08-12: 12
+current event slugs, 9 mapped, 3 unmapped). `grand-organ-recital-…` and
+`nerve-melbourne-2026` and `hobart-mens-hair-workshop-…` have no content item
+— two were never landed by ingest, one belongs to a standalone connection
+that lands no records. Their permalinks stop resolving.
+
+Note the 9 that do map keep their exact slug only because `headline_cache`
+and the scraped event `name` agree today. The pool mints from the headline;
+the legacy lane minted from the payload name and pinned it. They are not
+guaranteed to agree in future.
+
 ## Not changed
 
 `site.item_slugs` is untouched — its rows still exist and the menu lane still
 uses it. Dropping it is slice 7's teardown.
 
-Four of the 13 legacy event slugs had no corresponding content item and were
-therefore not carried over (two whose events the ingest pipeline never landed,
-two belonging to standalone connections that land no ingest records). Their
-permalinks stop resolving with this change.
+`hiddenEventIds` is still written by the dashboard and still never public.

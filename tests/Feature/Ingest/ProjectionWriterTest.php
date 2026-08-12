@@ -2,6 +2,7 @@
 
 use App\Ingest\Projection\ProjectionWriter;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Content\ContentItemSlugAllocator;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -417,4 +418,67 @@ it('pre-fetches streams once per chunk, not once per source', function () {
     expect($streamsQueries)->toHaveCount(3);
 
     DB::connection('pgsql')->disableQueryLog();
+});
+
+// The ONGOING minter for content.item_slugs. content:backfill-item-slugs
+// seeds history once; this is what keeps it populated afterwards. The lane it
+// replaces had the same continuous duty (IntegrationConnectionObserver →
+// EventSlugSync::syncEvents on every connect and every 6-hourly refresh), so
+// without a minter here every event landed after the backfill would serve
+// `slug: null` on the public pool payload forever — silently.
+it('mints a public URL slug for a projected event', function () {
+    [$userId, , $source, $streamId] = projectableEventbrite([
+        'e/slugged' => [
+            'name' => 'Laneway Session',
+            'url' => 'https://www.eventbrite.com/e/laneway-session-1234567890',
+            'start_date' => '2026-06-20T09:00:00+10:00',
+        ],
+    ]);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'events');
+
+    $itemId = DB::table('content.items')->where('user_id', $userId)->where('kind', 'event')->value('id');
+
+    $slug = DB::table('content.item_slugs')
+        ->where('item_id', $itemId)->where('is_current', true)->value('slug');
+
+    expect($slug)->toBe('laneway-session');
+});
+
+// Re-projection must not churn the registry — a new row per run would rotate
+// the public URL and strand the last one as a 301 for no reason.
+it('does not re-mint a slug when the headline is unchanged', function () {
+    [$userId, , $source, $streamId] = projectableEventbrite([
+        'e/stable' => [
+            'name' => 'Laneway Session',
+            'url' => 'https://www.eventbrite.com/e/laneway-session-1234567890',
+            'start_date' => '2026-06-20T09:00:00+10:00',
+        ],
+    ]);
+
+    $writer = app(ProjectionWriter::class);
+    $writer->projectStream($source, $streamId, 'events');
+    $writer->projectStream($source, $streamId, 'events');
+    $writer->projectStream($source, $streamId, 'events');
+
+    $itemId = DB::table('content.items')->where('user_id', $userId)->where('kind', 'event')->value('id');
+
+    expect(DB::table('content.item_slugs')->where('item_id', $itemId)->count())->toBe(1);
+});
+
+// Slugs are minted for SLUGGED_KINDS only — a release has no detail permalink,
+// and minting for every kind would squat names in the (user_id, slug) unique.
+it('does not mint a slug for a kind outside SLUGGED_KINDS', function () {
+    [$userId, , $source, $streamId] = projectableEventbrite([
+        'e/kindcheck' => [
+            'name' => 'Laneway Session',
+            'url' => 'https://www.eventbrite.com/e/laneway-session-1234567890',
+            'start_date' => '2026-06-20T09:00:00+10:00',
+        ],
+    ]);
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'events');
+
+    expect(ContentItemSlugAllocator::SLUGGED_KINDS)->toBe(['event']);
+    expect(DB::table('content.item_slugs')->count())->toBe(1);
+    expect(DB::table('content.items')->where('kind', 'event')->count())->toBe(1);
 });
