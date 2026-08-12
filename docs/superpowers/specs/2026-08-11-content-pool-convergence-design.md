@@ -50,6 +50,25 @@ document's own claims and sharpened two others. Revision 3:
 | §9.2: "name the keys it invalidates" | Necessary but not sufficient. `BuildState::bump()` does **not** invalidate the public-profile payload cache — different lane entirely. Spelled out in §9.2 |
 | §1.3: unread kinds are a uniform problem to be solved by adding pools | `event` is; `channel` and `article` are not. Slice 2 is events-only, and the reasons are structural rather than scheduling — see §7 slice 2 |
 
+## 0c. Revision note — slice 3 entry gate, 2026-08-12
+
+Re-deriving §1's figures from dev before starting slice 3 corrected one cause and
+moved two counts. Revision 4:
+
+| Was | Is |
+|---|---|
+| §1.6: the Fresha zero is a projector that "has never run" | The ingest connector yields `Unavailable` on every run. One wrong request variable, and a misleading error message that blames a hash rotation that has not happened — see §1.6 |
+| Slice 3's kickoff prompt: the cause is F7 (`selection: null` → 304) | F7 was fixed 2026-08-11 (`2ca21904e`) and governs the **legacy** `site.services` lane. Two different classes share the name `FreshaServiceProjector` |
+| §1.5: `content.offers` 10 | **14** |
+| §1.7: `content.sources` 27 connection / 0 manual | **29 connection @100 / 6 manual @200** — slice 0b's lane is live and exercised |
+
+**The name collision is the transferable lesson.** §1.6 counted
+`App\Ingest\Projection\FreshaServiceProjector` while the review that diagnosed it
+was reading `App\Services\Platforms\FreshaServiceProjector`. Both are real, both
+are current, both project Fresha services — and one works. A slice that reasons
+about "the projector" without a fully-qualified name is reasoning about an
+ambiguity.
+
 The §9.1 error is the same failure mode this document exists to correct. §11 amends
 `2026-08-05-platforms-as-sources.md` for claiming a programme was complete when the
 database said otherwise; §9.1 asserted a CI gate that the codebase said otherwise.
@@ -172,7 +191,7 @@ schema, blocked by the same driver gap.
 
 | Table | Rows | Note |
 |---|---|---|
-| `content.offers` | 10 | `channel`, `variant_label`, `amount_minor`, `qualifier` (`exact\|from\|upto\|range\|free\|variable\|on_request`), `amount_max_minor`, `availability` |
+| `content.offers` | 14 | `channel`, `variant_label`, `amount_minor`, `qualifier` (`exact\|from\|upto\|range\|free\|variable\|on_request`), `amount_max_minor`, `availability` |
 | `content.item_variants` | 0 | label / sku / position |
 | `content.item_tags` | 186 | tag + tag_type |
 | `content.collections` / `collection_items` | 0 / 0 | grouping — menu and service categories |
@@ -198,6 +217,35 @@ So `site.services`' 82 rows come entirely from the legacy non-ingest path, and
 **slice 3 is not "backfill onto a working projector"** — the projector has never
 run against real data. Any slice depending on one of these must first prove it
 executes.
+
+**Cause established 2026-08-12 (slice 3 entry gate), for the Fresha rows.** The
+zero is a connector defect, not a projector one, and it is not the F7 /
+`selection: null` dead end the 08-11 Instagram review handed to slice 3 — that
+was fixed at `2ca21904e` on 2026-08-11 and governs a different lane.
+
+**Two classes share the name `FreshaServiceProjector`.**
+`App\Services\Platforms\FreshaServiceProjector` is fed by `FreshaFetch` and
+writes `site.services` — it works, and produced the 59 live `source='fresha'`
+rows. `App\Ingest\Projection\FreshaServiceProjector` is fed by
+`FreshaConnector::pull()` and writes `content.*` — it is the one counted here.
+`ProjectorRegistry.php:28` maps `fresha/services` to the ingest class, which
+never reads `payload.selection`.
+
+`ingest.runs` records `services` as `unavailable` on all four sources on every
+run since 2026-07-28 — not a 304. `FreshaConnector.php:239` sends
+`shouldShowAllEmployees: true`, which returns Fresha's employee-picker screen
+with an empty `screenServices`; the connector reads the absent
+`screenServices.categories` as the pinned-hash rotation symptom and yields
+`Unavailable`. The hash is valid — three live calls on 2026-08-12 returned HTTP
+200 with well-formed `bookingFlowInitialize` and no `errors`. With
+`shouldShowAllEmployees: false` the same request returns
+`BookingFlowScreenServices` and 25 / 40 / 22 services parsing cleanly through
+the connector's existing mapper.
+
+Two consequences later slices inherit: an error message naming a specific cause
+is a claim that can be wrong and cost more than a generic one, and the ingest
+lane returns the **storewide** menu where the legacy lane stores one employee's
+filtered menu — so the two are not row-for-row equivalent (87 vs 59 on dev).
 
 ### 1.7 The manual lane exists and is broken
 

@@ -113,30 +113,53 @@ carried it forward in error.
 
 ---
 
-## Not deferred — hand this to slice 3 before it starts
+## F7 — CLOSED. Fixed 2026-08-11, before this document was written
 
-**F7 — an auto-routed Fresha connection can never acquire services by any automatic path.**
+**F7 was "an auto-routed Fresha connection can never acquire services by any automatic path".** It
+was fixed at `2ca21904e` ("fix(fresha): self-heal failed auto connects on scheduled refresh"), an
+ancestor of `development`. `FreshaFetch.php:51-68` now detects `payload.connectMode === 'auto'`,
+scrapes the menu and runs `FreshaAutoSelector` to mint a selection, so the state F7 describes
+repairs itself on the next scheduled sweep. Dev carries **zero** connections in it.
 
-Slice 3's first task is *already* "prove `FreshaServiceProjector` executes — it has landed zero
-records" (§1.6). That is the same dead end, observed from the other end: the spec recorded the
-**symptom** (0 records); the 08-11 run traced the **cause**.
+This is the same error this document already records for F8: a finding carried forward from the
+RESULTS report after the code had been fixed. Verify a finding against the current tree before
+handing it on.
 
-- `LinkRouter::seedBooking` writes `{url, provider, source:"auto"}` with `selection: null`.
-- `FreshaFetch.php:36-39` throws `FetchNotModifiedException` whenever `payload.selection` is not an
-  array — so every refresh 304s *before* reaching `FreshaServiceProjector::sync()`.
-- `selection` is only ever written by the dashboard's save-selection flow, and the descriptor's own
-  completeness predicate agrees these rows are incomplete (`complete(fn ($c) => is_array(...))`).
-- `integrations:refresh` covers `fresha` on a 2-day TTL, so these rows are re-selected forever and
-  304 forever.
+**Two premises in the original entry were also wrong**, recorded so they are not reused:
 
-**The defect is a state collision, not a missing fetch.** `selection: null` encodes "a human still
-has to choose whose menu this is". Dashboard team-mode connects sit there legitimately — but they
-carry a `teamMenu` snapshot and a picker pointed at them, so the choice gets made. The auto-routed
-row lands in the *same* state with no `teamMenu` and no picker: parked waiting for a human who was
-never asked, and nothing distinguishes it from a row that is merely mid-flow.
+- The state is keyed on `payload.connectMode`, not `payload.source`. On dev `source` holds routing
+  provenance (`instagram`, `showcase`, NULL) and is never `"auto"`.
+- `FreshaFetch`'s guard is `is_array($selection)`, which a decoded JSON **object** satisfies. SQL
+  testing `jsonb_typeof(...) <> 'array'` reports live selections as blocked.
 
-Slice 3 cannot complete without resolving this, but it is **not currently written as** "fix the
-auto-route path". Give whoever picks it up this mechanism rather than letting them rediscover it.
+### What F7 was mistaken for — slice 3's real blocker, verified 2026-08-12
+
+`FreshaServiceProjector` has landed zero `content.*` records (convergence spec §1.6), and F7 is
+**not** the cause. There are two classes of that name and they sit on different lanes:
+
+| Class | Fed by | Writes | State |
+|---|---|---|---|
+| `App\Services\Platforms\FreshaServiceProjector` | `FreshaFetch` | `site.services` | working — 59 live rows, refreshed 2026-08-12 |
+| `App\Ingest\Projection\FreshaServiceProjector` | `FreshaConnector::pull()` | `content.*` | 0 records — the §1.6 figure |
+
+`ProjectorRegistry.php:28` maps `fresha/services` to the ingest class. `FreshaConnector` never reads
+`payload.selection`; it takes a slug and fires a pinned GraphQL persisted query. `selection: null`
+therefore cannot explain the zero, and fixing F7 lands no `content.source_items`.
+
+`ingest.runs` shows `services` `unavailable` on all four sources on every run since 2026-07-28 — not
+a 304. The cause is one hardcoded variable: `FreshaConnector.php:239` sends
+`shouldShowAllEmployees: true`, which returns the employee-picker screen with an empty
+`screenServices`. Verified live against three real dev slugs on 2026-08-12:
+
+```
+allEmployees=true   -> screen=BookingFlowScreenAllEmployees  screenServices={}  categories=None
+allEmployees=false  -> screen=BookingFlowScreenServices      categories=5/12/7  services=25/40/22
+```
+
+The pinned hash is **valid** — every call returned HTTP 200 with a well-formed
+`bookingFlowInitialize` and no `errors`. The connector's `Unavailable` message blames a rotated
+persisted-query hash and sends the reader to a re-pin runbook for a hash that is fine; correcting
+that message is part of the fix.
 
 ---
 

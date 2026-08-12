@@ -4,12 +4,16 @@ Part of `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md` �
 "Slice 3". Runs concurrently with 1b and slice 5 (parent §4.3 rule 1 — distinct
 kinds). Blocked by nothing; 0b is merged.
 
-**This slice opens on a known defect, not an unknown.** `FreshaServiceProjector` has
-landed **zero records** (parent §1.6), and the cause was traced on 2026-08-11: the
-projector is never called, because auto-routed Fresha connections 304 before
-reaching it. Unit 1 is a fix with a design decision in it, not a diagnosis. Full
-mechanism in `docs/reviews/2026-08-12-instagram-build-wave-DEFERRED.md`; summarised
-under Unit 1 below.
+**This slice opens on a diagnosed defect.** `App\Ingest\Projection\FreshaServiceProjector`
+has landed **zero records** (parent §1.6). The cause was established against dev on
+2026-08-12: `FreshaConnector` asks Fresha for the wrong screen, so every run yields
+`Unavailable` and the projector is never reached. Unit 1 is a one-variable fix plus a
+corrected error message.
+
+**F7 is closed and is not this defect.** The `selection: null` / 304 mechanism handed
+over by `docs/reviews/2026-08-12-instagram-build-wave-DEFERRED.md` was fixed at
+`2ca21904e` on 2026-08-11 and governs the **legacy** `site.services` lane. That review
+has been corrected in place; read it for the record, not for a task.
 
 Paste everything below the line into a fresh session. It is self-contained.
 
@@ -46,21 +50,34 @@ FROM site.services GROUP BY 1,2,3 ORDER BY 4 DESC;
 SELECT count(*) FROM site.service_categories;              -- expect 18
 SELECT count(*) FROM site.service_category_assignments;    -- expect 61
 
--- Expect 0 — the F7 dead end (unit 1). Sources run and look healthy; they 304.
+-- Expect 0 (unit 1). The sources are NOT healthy: health='unavailable',
+-- consecutive_failures=3, services stream failing every run since 2026-07-28.
 SELECT count(*) FROM content.source_items WHERE kind = 'service';
 SELECT s.source_key, st.stream_name, s.last_run_at, s.health, s.consecutive_failures
 FROM ingest.sources s LEFT JOIN ingest.streams st ON st.source_id = s.id
 WHERE s.source_key = 'fresha';
 
--- The F7 mechanism itself: how many fresha connections have selection = null,
--- and of those, how many are auto-routed (source='auto') with no teamMenu?
-SELECT payload->>'source' AS routed_by,
-       (payload->'selection' IS NULL OR jsonb_typeof(payload->'selection') <> 'array') AS blocks_fetch,
+-- The failure itself. Expect every 'services' entry 'unavailable', and 'profile'
+-- 'ok' with a no_profile_fields note — the signature of a 200 response carrying
+-- neither screenServices.categories nor location.
+SELECT r.source_id, r.outcome, r.started_at, r.detail
+FROM ingest.runs r JOIN ingest.sources s ON s.id = r.source_id
+WHERE s.source_key = 'fresha' ORDER BY r.started_at DESC LIMIT 8;
+
+-- Legacy-lane state. The two rows with a selection hold mode='employee' and
+-- 23 + 36 services = the 59 live source='fresha' site.services rows.
+-- NOTE: test connectMode, NOT payload->>'source' (which is routing provenance),
+-- and do NOT test jsonb_typeof(...) <> 'array' — FreshaFetch's guard is
+-- is_array(), which a decoded JSON OBJECT satisfies. Both real selections are
+-- objects, so that predicate reports live rows as blocked.
+SELECT payload->>'connectMode' AS connect_mode,
+       jsonb_typeof(payload->'selection') AS selection_type,
+       payload->'selection'->>'mode' AS selection_mode,
        (payload ? 'teamMenu') AS has_team_menu,
        count(*)
 FROM site.platform_connections
 WHERE platform = 'fresha' AND deleted_at IS NULL
-GROUP BY 1,2,3 ORDER BY 4 DESC;
+GROUP BY 1,2,3,4 ORDER BY 5 DESC;
 
 -- The manual lane 0b built — you write through it, you do not reinvent it.
 SELECT kind, count(*) FROM content.sources GROUP BY 1;
@@ -69,7 +86,11 @@ SELECT kind, count(*) FROM content.sources GROUP BY 1;
 ### The two-surface rule — DECIDED 2026-08-12, do not re-open
 
 Services render on **two different public surfaces** today.
-`SitepageDataResolverService::buildServicesData()` filters `->whereNull('source')`:
+`SitepageDataResolverService::buildServicesData()` (`:930`) filters
+`->whereNull('source')`. **It is five call sites, not one** — re-express all of them:
+`SitepageDataResolverService:930` and `:289`, `ServicesVisibility:27`,
+`BookingVisibility:30`, `PurgeSoftDeleted:107`. The two visibility rules decide
+whether the section appears at all, so missing them hides or reveals a whole surface:
 
 ```php
 // Manual services only — Fresha projections belong to the booking
@@ -94,37 +115,63 @@ that fails if an owner-authored service appears on the booking surface.
 
 ## Scope
 
-### Unit 1 — Fix the auto-route dead end (F7) — cause already traced, do not re-derive
+### Unit 1 — Make the Fresha ingest connector return services
 
-The parent spec records the **symptom** — `FreshaServiceProjector` has landed zero
-records. A separate review traced the **cause** on 2026-08-11. Read
-`docs/reviews/2026-08-12-instagram-build-wave-DEFERRED.md` §"Not deferred — hand this
-to slice 3 before it starts" in full before writing anything.
+**Mind the name collision before reading anything else.** Two current classes are
+called `FreshaServiceProjector`:
 
-The mechanism, summarised so you can confirm rather than discover it:
+| Class | Fed by | Writes | State |
+|---|---|---|---|
+| `App\Services\Platforms\FreshaServiceProjector` | `FreshaFetch` | `site.services` | working — the 59 live `source='fresha'` rows |
+| `App\Ingest\Projection\FreshaServiceProjector` | `FreshaConnector::pull()` | `content.*` | 0 records — this unit |
 
-- `LinkRouter::seedBooking` writes `{url, provider, source:"auto"}` with
-  **`selection: null`**.
-- `FreshaFetch.php:36-39` throws `FetchNotModifiedException` whenever
-  `payload.selection` is not an array — so every refresh **304s before reaching
-  `FreshaServiceProjector::sync()`**. The projector is not broken; it is never
-  called.
-- `selection` is only ever written by the dashboard's save-selection flow, and the
-  descriptor's own completeness predicate agrees these rows are incomplete.
-- `integrations:refresh` covers `fresha` on a 2-day TTL, so these rows are
-  re-selected forever and 304 forever.
+`ProjectorRegistry.php:28` maps `fresha/services` to the ingest class, which never
+reads `payload.selection`. Any reasoning about "the projector" that does not
+fully-qualify it is reasoning about an ambiguity.
 
-**It is a state collision, not a missing fetch.** `selection: null` legitimately
-means "a human still has to choose whose menu this is" — dashboard team-mode
-connects sit in that state on purpose, carrying a `teamMenu` snapshot and a picker
-pointed at them. The auto-routed row lands in the *same* state with no `teamMenu`
-and no picker: parked waiting for a human nobody asked, and indistinguishable from a
-row that is merely mid-flow.
+**The defect.** `FreshaConnector.php:239` sends `shouldShowAllEmployees: true`.
+Fresha answers with its employee-picker screen, whose `screenServices` is `{}`, so
+`servicesMessages()` finds no `screenServices.categories` and yields `Unavailable`
+on every run. Verified live against three real dev slugs on 2026-08-12:
 
-**So unit 1 is a fix, not a diagnosis** — and the fix is a design decision: make the
-two states distinguishable, or give auto-routed rows a path to a selection. Confirm
-the mechanism against dev first (invariant #5 — that review is not your evidence),
-then decide. Slice 3 cannot complete without it.
+```
+allEmployees=true   -> screen=BookingFlowScreenAllEmployees  screenServices={}  categories=None
+allEmployees=false  -> screen=BookingFlowScreenServices      categories=5/12/7  services=25/40/22
+```
+
+All 87 parse through the existing `mapServiceItem()` regex unchanged.
+
+**The error message is the second half of the fix.** The connector attributes the
+empty response to a rotated persisted-query hash and points at a re-pin runbook. The
+hash is valid — every probe returned HTTP 200 with a well-formed
+`bookingFlowInitialize` and no `errors`. Leaving that message in place sends the next
+reader to re-pin a hash that is fine.
+
+**Do confirm it yourself** (invariant #5): re-run the probe before changing the
+variable. `location` is null in the corrected response too, so `profile` keeps
+degrading to its `no_profile_fields` Note — expected, and out of scope here.
+
+**The decision this unit forces.** The ingest lane returns the **storewide** menu;
+the legacy lane stores one employee's filtered menu. On dev that is 87 vs 59, so the
+two lanes are not row-for-row equivalent and the surplus 28 would become publicly
+visible services nobody selected.
+
+**Owner decision 2026-08-12 — the connector fetches storewide, and the selection is
+expressed as pool excludes**, seeded during backfill from the existing
+`payload.selection` so a visitor sees the same services as today. This is the same
+mechanism unit 6 already mandates for `hiddenServiceIds`, so the slice carries one
+exclusion mechanism rather than two.
+
+The rejected option was plumbing the selected employee through to the connector via
+the source row. It was rejected because connectors take `Pull` + `Io` and read no
+user data — verified, not one of them touches the database — and `Pull.config` today
+carries only `scope`/`scope_n`. Widening it would change shared ingest plumbing that
+slices 4–7 inherit. **Do not re-open this by "just adding the employee id to the
+source row".**
+
+Consequence to design for: `content.*` holds MORE services than render (87 vs 59 on
+dev). The coverage gate is coord coverage (parent §8.4), so a surplus is expected —
+but a test must fail if an unselected service reaches the booking surface.
 
 ### Unit 2 — Identity and coords
 `site.services.external_id` is the Fresha `serviceId` (`s:…`) and is described as
@@ -171,6 +218,10 @@ payload-builder change.
 - Existing `hiddenServiceIds` curation migrates into pool **excludes**, exactly the
   way slice 2 migrated `hiddenEventIds`. Read that implementation before writing
   yours; it is the reference.
+- **Excludes carry unit 1's decision too.** The connector lands the storewide menu,
+  so every service NOT in the connection's `payload.selection` is seeded as an
+  exclude by the same backfill pass. Two inputs (`hiddenServiceIds`, and
+  not-in-selection), one exclusion mechanism — do not build a second.
 - The pool holds **both** source kinds. The two-surface rule above still governs
   what renders where — the pool is eligibility, not placement.
 
@@ -254,8 +305,8 @@ detail — stop and raise it rather than rewriting their scope unilaterally.
 
 ## Process — stop at every gate
 
-1. **Recon + entry gate.** Confirm the F7 mechanism against dev rather than taking the review's word for it. **STOP — sign-off** on the unit 1 fix approach before designing the rest, since it decides whether auto-routed connections are a state to distinguish or a flow to complete.
-2. **Brainstorm** (`superpowers:brainstorming`) — the scope question and the three-state mapping are genuine decisions.
+1. **Recon + entry gate.** Reproduce the unit 1 failure against dev yourself rather than taking this prompt's word for it — invariant #5. **STOP — sign-off** on the unit 1 fix before designing the rest; a services backfill has nothing to migrate until the ingest lane actually lands records.
+2. **Brainstorm** (`superpowers:brainstorming`) — the two-surface rule's mechanism and the three-state mapping are genuine decisions.
 3. **Spec** → `docs/superpowers/specs/2026-08-12-slice-3-services-design.md`. **STOP — sign-off.**
 4. **Plan** (`superpowers:writing-plans`) → `docs/superpowers/plans/2026-08-12-slice-3-services.md`. **STOP — sign-off.**
 5. **Implement** in a dedicated worktree, per unit: plan → implement → independent review → tick.
