@@ -137,13 +137,17 @@ class ClaimSiteService
             return ['professional' => $professional->fresh(), 'site' => $site->fresh(), 'is_new_claim' => $isNewClaim];
         });
 
+        $userId = (string) $result['professional']->id;
+
         // Post-commit: bust caches and re-sync KV (status active → permanent
         // entry, clearing the unclaimed TTL). SyncSubdomainToKvJob remains the
-        // single KV writer — this only dispatches it.
-        $this->userCache->invalidateUser($result['professional']);
-        $this->siteCache->invalidateSite($result['site']);
-        SyncSubdomainToKvJob::dispatch((string) $result['professional']->id);
-        $this->reEnrichClaimedGoogleBusinessConnection($result['professional']);
+        // single KV writer — this only dispatches it. Every step goes through
+        // afterClaim() so a Redis blip can't report a committed claim as failed
+        // (see its docblock).
+        $this->afterClaim('cache.user', $userId, fn () => $this->userCache->invalidateUser($result['professional']));
+        $this->afterClaim('cache.site', $userId, fn () => $this->siteCache->invalidateSite($result['site']));
+        $this->afterClaim('kv.sync', $userId, fn () => SyncSubdomainToKvJob::dispatch($userId));
+        $this->afterClaim('google_business.reenrich', $userId, fn () => $this->reEnrichClaimedGoogleBusinessConnection($result['professional']));
 
         // Welcome email — genuinely post-commit (the transaction above has
         // already committed by this point) and gated on is_new_claim so a
@@ -175,17 +179,52 @@ class ClaimSiteService
             ? (string) $result['site']->custom_domain
             : null;
         if ($handle !== '') {
-            CloudflareCachePurgeJob::dispatch($handle, $customDomain)->afterCommit();
+            $this->afterClaim('edge.purge', $userId, fn () => CloudflareCachePurgeJob::dispatch($handle, $customDomain)->afterCommit());
 
             // Pre-warm the freshly-published claimed site: saveQuietly() above
             // skipped SiteObserver::saved(), which would have dispatched this same
             // job when is_published flips true. Mirrors the observer's own gate.
             if ((bool) $result['site']->is_published) {
-                WarmPublicSiteCacheJob::dispatch($handle)->afterCommit();
+                $this->afterClaim('cache.warm', $userId, fn () => WarmPublicSiteCacheJob::dispatch($handle)->afterCommit());
             }
         }
 
         return $result;
+    }
+
+    /**
+     * Runs one post-commit side effect without letting it fail the claim.
+     *
+     * Everything below the transaction runs against an ALREADY COMMITTED claim:
+     * the account is bound, the build consumed, the site published. An exception
+     * escaping from here reports a successful claim as a failure — the claimer
+     * sees an error for an account they now own, and (worse) is likely to treat
+     * it as "the claim didn't work". A Redis outage inside invalidateUser() is
+     * enough to trigger it; surfaced by tests/Postgres/ClaimConcurrencyTest.php,
+     * where an under-provisioned fixture made a genuinely successful claim
+     * report 42P01.
+     *
+     * Swallowing is safe HERE specifically because the endpoint is idempotent:
+     * a retry re-enters through claim()'s idempotency-first branch and re-runs
+     * every step below it, including the KV dispatch the site's routing depends
+     * on. report() keeps it visible in Nightwatch rather than silent — the same
+     * CCH-101 discipline UserObserver applies to its own cache busts.
+     *
+     * Per-step isolation is the point: one wrapper around the whole block would
+     * let a failed cache bust skip the KV sync behind it.
+     */
+    private function afterClaim(string $step, string $userId, callable $effect): void
+    {
+        try {
+            $effect();
+        } catch (\Throwable $e) {
+            Log::warning('claim.post_commit_failed', [
+                'step' => $step,
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            report($e);
+        }
     }
 
     /**

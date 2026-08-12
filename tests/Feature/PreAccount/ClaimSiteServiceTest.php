@@ -2,12 +2,14 @@
 
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Mail\Account\WelcomeMail;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
+use App\Services\Cache\UserCacheService;
 use App\Services\PreAccount\ClaimSiteService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -371,4 +373,35 @@ it('REV1: only refreshes the claimed users own connection, never another users',
 
     expect($otherConnection->fresh()->payload)->toHaveKey('detailsFetchedAt');
     Queue::assertNotPushed(RefreshConnectionJob::class, fn ($job) => $job->connectionId === $otherConnection->id);
+});
+
+// The post-commit block runs against an ALREADY COMMITTED claim, so a fault
+// there must not be reported to the claimer as a failed claim. Found while
+// building tests/Postgres/ClaimConcurrencyTest.php: an under-provisioned
+// fixture made a forked claimer report 42P01 for a claim that had in fact
+// succeeded — in production a Redis blip inside invalidateUser() does the same.
+it('returns a successful claim even when a post-commit side effect throws, and still runs the steps behind it', function () {
+    Mail::fake();
+    [$user, $site, $build] = makeReadyBuild();
+
+    $broken = Mockery::mock(UserCacheService::class);
+    $broken->shouldReceive('invalidateUser')->andThrow(new RuntimeException('redis is down'));
+    app()->instance(UserCacheService::class, $broken);
+
+    $result = app(ClaimSiteService::class)->claim('auth-uid-boom', 'boom@example.com', 'janedoe');
+
+    // The caller is told it worked...
+    expect($result['professional']->id)->toBe($user->id);
+
+    // ...and the database agrees: this claim is real and must not be retried
+    // into an ALREADY_CLAIMED dead end by a client that saw a 500.
+    $fresh = $user->fresh();
+    expect($fresh->auth_user_id)->toBe('auth-uid-boom')
+        ->and($fresh->status)->toBe('active')
+        ->and($build->fresh()->claimed_at)->not->toBeNull();
+
+    // Per-step isolation: the KV sync sits AFTER the failing cache bust, and
+    // it is what makes <handle>.partna.au resolve at all. A single try/catch
+    // around the whole block would have skipped it.
+    Queue::assertPushed(SyncSubdomainToKvJob::class);
 });

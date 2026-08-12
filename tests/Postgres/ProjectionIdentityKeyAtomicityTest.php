@@ -278,14 +278,24 @@ beforeEach(function () {
         )");
     }
 
+    // Shape tracks supabase/migrations/20260727140000_content_schema.sql:353 plus
+    // 20260812090000's site_media_id. site_media_id carries no FK here on purpose —
+    // ProjectionWriter only ever writes NULL into it, and the ON DELETE SET NULL
+    // behaviour is MediaAssetSiteMediaFkTest's subject, not this file's.
     $pg->statement('CREATE TABLE content.media_assets (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
         fingerprint text NOT NULL,
         source_url text,
+        storage_path text,
+        site_media_id uuid,
+        mime_type text,
         width integer,
         height integer,
-        dims_confidence text,
+        dims_confidence text CHECK (dims_confidence IS NULL OR dims_confidence IN (\'measured\', \'declared\', \'guessed\')),
+        palette jsonb,
+        variant_family text CHECK (variant_family IS NULL OR variant_family IN (\'google\', \'shopify\', \'ytimg\', \'native\', \'proxy\')),
+        blurhash text,
         created_at timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT pika_media_assets_fingerprint_unique UNIQUE (user_id, fingerprint)
     )');
