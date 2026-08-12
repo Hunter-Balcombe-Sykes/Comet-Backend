@@ -458,7 +458,7 @@ split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 | 4 | Menus → `content.*` | XL | Not started | — |
 | 5 | Shop → `content.*` | L | Not started | — |
 | 6 | Reviews → `content.*` | M | Not started | — |
-| 7 | Legacy teardown | M | Not started | 1b, 3, 4, 5, 6 **+ frontend** |
+| 7 | Legacy teardown | M | Not started | 1b, 3, 4, 5, 6 **+ frontend + standalone events** |
 
 With 0, 0b and 2 merged, the blocker graph has almost emptied: **3, 4, 5 and 6 are
 unblocked now.** Only 1b (needs 1a merged) and 7 are gated.
@@ -467,6 +467,11 @@ unblocked now.** Only 1b (needs 1a merged) and 7 are gated.
 boundary keeps the legacy `gallery` / `designMedia` wire keys, because the frontends
 still read them. Retiring those keys is therefore blocked on Partna-App's Media page
 and the monorepo gallery render — work outside this programme's backend-only mandate.
+
+**Slice 7 gained a second one from slice 2: standalone events.** See §7 slice 7's
+"Carried from slice 2". Slice 2 retired the ACCOUNT half of the legacy events lane
+but deliberately left STANDALONE `resource_kind='event'` rows publishing through it,
+so that lane cannot be dropped yet.
 
 ### 4.2 Execution order
 
@@ -938,6 +943,46 @@ Drop the ten tables in §1.4. Re-home the orphaned observers and policies (§9).
 
 **Gate:** the §8.4 coverage gate green on dev for every migrated type. Irreversible —
 Supabase is on the Free plan with no PITR and no managed backups.
+
+#### Carried from slice 2 — standalone events still ride the legacy wire
+
+**Deferred deliberately on 2026-08-12, not overlooked.** Slice 2 retired the ACCOUNT
+half of the legacy events lane: organiser rows now publish `payload: {}` and the
+Events page is pool-derived. It did **not** retire STANDALONE rows — a
+`resource_kind='event'` connection, one event added by URL from the Tickets & Events
+card — which still publish their full event fields through
+`GET /api/public/profiles/{handle}/integrations`.
+
+**Why they were left.** A standalone row has no ingest connector
+(`ConnectorRegistry::MAP` holds `eventbrite` and `humanitix` only, and
+`SourceProvisioner` provisions from an ORGANISER url), so it lands no
+`content.items` and the pool cannot represent it. Emptying its payload would have
+made add-an-event-by-URL publicly **inert** rather than migrating it. Dev carried 2
+active standalone rows at the time.
+
+**What changed since, and why this is now doable.** Slice 0b shipped the manual write
+lane, so there is now a writer that can put an owner-authored item into
+`content.items` without a connector — which is exactly what a standalone event is.
+`ProjectionWriter::writeManualItem()` is the seam, with a coord derived from the
+event URL (§1.7's one-coord-per-URL rule applies).
+
+**Scope when someone picks this up** — it is a slice-sized piece of work, not a
+tidy-up:
+
+1. Write existing standalone rows into `content.items` through the manual lane, as a
+   backfill (§8 applies: idempotent, production code, coord = `manual:{sha1(url)}`).
+2. Repoint the Tickets & Events card's add-an-event verb at that lane, so new
+   standalone events land as content items rather than connection payloads.
+3. Only then empty the standalone payload on the integrations wire — a **breaking
+   wire change** needing its own manifest, because a frontend Events page currently
+   reads BOTH `profile.pools.events` and standalone rows from `/integrations`.
+4. Decide what happens to `site.item_slugs` permalinks for standalone events, which
+   the pool's `content.item_slugs` lane does not yet hold.
+
+**Until all four land, slice 7 must not drop the legacy events wire.** Step 3 is the
+one that unblocks the teardown; steps 1 and 2 are prerequisites for it not being a
+data-loss event. Recorded in slice 2's wire manifest under "STANDALONE event rows are
+UNCHANGED — read this before migrating".
 
 **Second gate, added 2026-08-12 — frontend.** Slice 1a deliberately keeps the legacy
 `gallery` and `designMedia` wire keys because Partna-App and partna-monorepo still
@@ -1632,11 +1677,12 @@ drift. Three regression tests cover it.
 have no content item to map to (two never imported, one a standalone row that
 lands none) and their URLs stop resolving. Dev only, no customers.
 
-**Carried to a later slice:** standalone `resource_kind='event'` rows still
-publish through the legacy integrations wire, because they land no content
-item. The manual write lane (slice 0b) now exists to hold them, but pointing
-the Tickets & Events card at it is its own change with its own wire impact.
-Until then a frontend Events page reads BOTH sources.
+**Carried to a later slice: standalone events.** Standalone
+`resource_kind='event'` rows still publish through the legacy integrations
+wire, so a frontend Events page reads BOTH sources. The full scope, why it was
+deferred, and the four steps it needs are recorded once — in **§7 slice 7,
+"Carried from slice 2"** — because slice 7 is the slice it blocks. Do not
+restate it here; a deferral described in two places drifts.
 
 Its plan file `docs/superpowers/plans/2026-08-11-content-pool-slice2-events.md`
 is likewise still untracked.
