@@ -1113,7 +1113,7 @@ git commit -m "feat(pools): borrowed media is displayable but not pinnable"
 - Consumes: `SafeUrlFetcher`, `config('partna.media_disk')`.
 - Produces: `MediaMirror::mirror(string $userId, string $assetId, string $sourceUrl): bool` — fetches, re-encodes to webp, stores at a content-addressed path, and **updates the existing** `content.media_assets` row with `storage_path`, `mime_type`, measured `width`/`height`, `dims_confidence='measured'`, `variant_family='native'`. Never writes `fingerprint`. Returns false on any failure, leaving the row untouched.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Feature/Media/MediaMirrorTest.php`:
 
@@ -1202,12 +1202,11 @@ it('leaves the row untouched when the fetch fails', function () {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
-Run: `./vendor/bin/pest tests/Feature/Media/MediaMirrorTest.php`
-Expected: FAIL — class `App\Services\Media\MediaMirror` not found.
+Observed: 7 failed, class not found.
 
-- [ ] **Step 3: Read the donor before extracting from it**
+- [x] **Step 3: Read the donor before extracting from it**
 
 ```bash
 sed -n '150,230p' app/Services/Brand/BrandAssetPipeline.php
@@ -1215,7 +1214,7 @@ sed -n '150,230p' app/Services/Brand/BrandAssetPipeline.php
 
 `storeAsset()` fetches via `SafeUrlFetcher`, re-encodes to webp, puts to `config('partna.media_disk')`, and inserts with measured dims. **It has produced zero rows on dev** (0 of 501 assets carry `storage_path`) — it is built and unexercised, so treat its behaviour as unproven and cover the extracted path with this task's tests rather than trusting it.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 Create `app/Services/Media/MediaMirror.php`. Key requirements, each covered by a test above:
 
@@ -1226,9 +1225,28 @@ Create `app/Services/Media/MediaMirror.php`. Key requirements, each covered by a
 - Return `false` and leave the row untouched on any failure. Log at warning; do not throw into the projection run.
 - Size-cap the download, matching `InstagramConnectionSeeder`'s existing cap, so a pathological file cannot fill the temp disk or R2.
 
-Extract the shared fetch/encode/store body out of `BrandAssetPipeline::storeAsset()` into a private collaborator both classes use, so there is one encoder rather than two. `BrandAssetPipeline` keeps its own content-hash fingerprint and its own insert — that is its `#PRIV-5` contract and this task does not change it.
+Extract the shared encode body into `App\Services\Media\WebpEncoder`, injected
+into both classes. `BrandAssetPipeline` keeps its own content-hash fingerprint
+and its own insert — that is its `#PRIV-5` contract and this task does not
+change it.
 
-- [ ] **Step 5: Run the tests**
+> **The max edge had to become a parameter, not stay a constant.**
+> `BrandAssetPipeline::VARIANT_EDGE` is **512**, which is right for a logo and a
+> visible quality regression for a gallery photo — the upload pipeline's own
+> `optimized` tier allows **2400** (`config('partna.image_variants.optimized.width')`).
+> Sharing the encoder verbatim, as drafted, would have silently downsampled every
+> mirrored Instagram photo to 512px. `WebpEncoder::encode($body, $maxEdge)` takes
+> the edge from the caller; the mirror reads it from that config key so the two
+> cannot drift, and a test pins that a 1600px photo survives at 1600px.
+
+Two failure modes are covered beyond the drafted list, because the encoder is a
+sanitiser as much as a resizer: undecodable bytes behind an `image/*`
+content-type are refused and store nothing, and the fingerprint is asserted
+unchanged across a bytes change.
+
+- [x] **Step 5: Run the tests**
+
+7 passed. `OutboundHttpGuardTest` 5 passed (run explicitly — it has its own CI job because the Feature suite can abort first). `tests/Feature/Brand` + `tests/Feature/Media` 75 passed. PG lane `BrandAssetPipelineTest` 9 passed, so the donor is intact against real Postgres.
 
 ```bash
 ./vendor/bin/pest tests/Feature/Media/MediaMirrorTest.php
@@ -1237,7 +1255,7 @@ Extract the shared fetch/encode/store body out of `BrandAssetPipeline::storeAsse
 ```
 Expected: PASS. The outbound guard has its own CI job and the Feature suite can abort before reaching it — run it explicitly.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/Services/Media/MediaMirror.php app/Services/Brand/BrandAssetPipeline.php tests/Feature/Media/MediaMirrorTest.php

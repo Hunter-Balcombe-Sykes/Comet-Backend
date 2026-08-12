@@ -7,6 +7,7 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Routing\SecretParams;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Media\WebpEncoder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -46,7 +47,10 @@ class BrandAssetPipeline
     /** Longest edge of the stored variant. */
     private const VARIANT_EDGE = 512;
 
-    public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+    public function __construct(
+        private readonly SafeUrlFetcher $fetcher,
+        private readonly WebpEncoder $encoder,
+    ) {}
 
     /**
      * Queue the store-logo ingest for a freshly seeded shop brand.
@@ -132,45 +136,16 @@ class BrandAssetPipeline
     }
 
     /**
-     * Re-encode to WebP through GD. This is the sanitising step as much as the
-     * variant step: decoding to a raster and re-encoding drops every chunk
-     * that was not pixels, so an EXIF payload or an appended archive cannot
-     * survive it.
+     * Slice 1b: the decode/re-encode body moved to WebpEncoder so the brand
+     * lane and the media mirror share one encoder. VARIANT_EDGE stays here —
+     * 512 is a brand-logo decision, and the mirror deliberately uses a far
+     * larger edge for gallery photos.
      *
      * @return array{bytes: string, width: int, height: int}|null
      */
     private function toWebp(string $body): ?array
     {
-        if (! extension_loaded('gd') || ! function_exists('imagewebp')) {
-            return null;
-        }
-
-        $source = @imagecreatefromstring($body);
-        if ($source === false) {
-            return null;
-        }
-
-        try {
-            $width = imagesx($source);
-            $height = imagesy($source);
-            $scale = min(1.0, self::VARIANT_EDGE / max(1, max($width, $height)));
-            $targetW = max(1, (int) round($width * $scale));
-            $targetH = max(1, (int) round($height * $scale));
-
-            $canvas = imagecreatetruecolor($targetW, $targetH);
-            imagealphablending($canvas, false);
-            imagesavealpha($canvas, true);
-            imagecopyresampled($canvas, $source, 0, 0, 0, 0, $targetW, $targetH, $width, $height);
-
-            ob_start();
-            imagewebp($canvas, null, 90);
-            $bytes = (string) ob_get_clean();
-            imagedestroy($canvas);
-
-            return $bytes === '' ? null : ['bytes' => $bytes, 'width' => $targetW, 'height' => $targetH];
-        } finally {
-            imagedestroy($source);
-        }
+        return $this->encoder->encode($body, self::VARIANT_EDGE);
     }
 
     private function existingAsset(string $userId, string $fingerprint): ?string
