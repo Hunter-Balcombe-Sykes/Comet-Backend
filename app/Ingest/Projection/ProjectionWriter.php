@@ -46,7 +46,10 @@ class ProjectionWriter
         'f_embed' => ['provider', 'embed_key', 'variant'],
         'f_playable' => ['stream_url', 'preview_url', 'is_explicit'],
         'f_authored' => ['creator', 'creator_url', 'collaborators'],
-        'f_catalog' => ['release_type', 'track_number', 'disc_number', 'isrc', 'gtin', 'sku'],
+        // handle/vendor/variant_ref: slice 5a Task 7 fix round 1, Finding 3
+        // (migration 20260813100002) — shop-specific product fields, on the
+        // generic catalogue-identity facet like sku/gtin already were.
+        'f_catalog' => ['release_type', 'track_number', 'disc_number', 'isrc', 'gtin', 'sku', 'handle', 'vendor', 'variant_ref'],
         'f_place' => ['venue_name', 'address', 'locality', 'region', 'country_code', 'latitude', 'longitude'],
         'f_rated' => ['rating', 'rating_max', 'ratings_count'],
         'f_review' => ['author_name', 'author_photo_url', 'rating', 'text', 'reviewed_at'],
@@ -1068,6 +1071,14 @@ class ProjectionWriter
                     'qualifier' => (string) ($offer['qualifier'] ?? 'exact'),
                     'amount_max_minor' => $offer['amount_max_minor'] ?? null,
                     'url' => SecretParams::minimiseUrl($offer['url'] ?? null),
+                    // Slice 5a Task 7 fix round 1, Finding 2: the column has
+                    // existed since the schema's own migration
+                    // (20260727140000) but was never populated by any
+                    // projector — additive, same discipline as every other
+                    // key here (?? null): a projection that never sets
+                    // 'availability' (every projector but Shop's, today)
+                    // writes null, byte-identical to before this fix.
+                    'availability' => $offer['availability'] ?? null,
                     'updated_at' => now(),
                 ];
             }

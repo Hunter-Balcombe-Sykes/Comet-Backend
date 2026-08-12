@@ -105,6 +105,29 @@ it('maps a minimal blob — url only — without error, with no offer and no var
         ->and($p)->not->toHaveKey('headline');
 });
 
+it('writes handle, vendor and the default variantId to f_catalog, and description to f_text.body', function () use ($blob) {
+    // Fix round 1, Finding 3: these were previously never emitted at all
+    // (the spec's original claim that they went to items.facets_cache was
+    // wrong — that column is a derived, read-only cache of facet TYPES, not
+    // a data payload). variant_ref carries the top-level variantId, not a
+    // per-variant sku — variants() drops the Default Title placeholder
+    // entirely, so this is the only surviving home for that id.
+    $p = ShopProductProjection::fromBlob($blob(['variantId' => '478113']), 'AUD');
+
+    expect($p['facets']['f_catalog']['sku'])->toBe('8961996521650')
+        ->and($p['facets']['f_catalog']['handle'])->toBe('slick-smooth')
+        ->and($p['facets']['f_catalog']['vendor'])->toBe('Natalie Anne')
+        ->and($p['facets']['f_catalog']['variant_ref'])->toBe('478113')
+        ->and($p['facets']['f_text']['body'])->toBe('Six pieces.');
+});
+
+it('drops f_catalog/f_text keys the blob omits, without emitting null noise', function () {
+    $p = ShopProductProjection::fromBlob(['url' => 'https://s.test/bare', 'productId' => 'p1'], null);
+
+    expect($p['facets']['f_catalog'])->toBe(['sku' => 'p1'])
+        ->and($p['facets'])->not->toHaveKey('f_text');
+});
+
 it('derives a coord from the url and is stable across calls', function () {
     expect(ShopProductProjection::coordFor('https://x.test/p'))
         ->toBe('manual:'.sha1('https://x.test/p'))

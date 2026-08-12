@@ -2,6 +2,7 @@
 
 namespace App\Services\Shop;
 
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -33,34 +34,46 @@ use Illuminate\Support\Facades\DB;
  *    ships, a brand between "just connected" (or just settled from a
  *    deferred connect) and "first synced" has NO row here and is silently
  *    ABSENT from brandMap() — see the Task 7 report for the blast radius on
- *    brands()/brandProducts()/connectStatus().
+ *    brands()/brandProducts()/connectStatus(), closed there by
+ *    ShopController::hybridBrandMap() (see that method's docblock).
  *
- * 2. FIELD LOSS, product level. `handle`, `vendor`, `description`,
- *    `variantId` come back null for every product, unconditionally — see
- *    ShopContentWriter::cataloguesFor()'s own docblock; not recoverable from
- *    the read side.
+ * 2. PRODUCT FIELD BACKFILL LAG. `handle`/`vendor`/`description`/`variantId`
+ *    (stored as `variant_ref`) round-trip through content.f_catalog/f_text
+ *    as of fix round 1, Finding 3 (migration 20260813100002) — but only for
+ *    an item written or re-synced AFTER that migration landed. An item
+ *    whose facets were written earlier reads back null for these four until
+ *    its next sync — a backfill-lag caveat, not a structural loss.
  *
- * 3. FIELD LOSS, brand level. `selectionMode` and `linkMode` have no column
- *    on content.storefronts at all (migration 20260813100000) — this class
- *    reports the code-side DEFAULTS ('manual' / 'product') for every brand,
- *    the same fallback ShopBrand::toBrandArray() itself uses for a NULL
- *    column. A brand whose owner set selectionMode='latest' or
- *    linkMode='checkout' via updateBrand() reads back as the default here —
- *    not fixable from the read side without a schema change.
+ * 3. `selectionMode`/`linkMode` are NOT stored per brand — fix round 1,
+ *    Finding 4: `selection_mode` was dead (every real row's value was
+ *    already the default), and `link_mode` was already effectively one
+ *    global setting in practice (see ShopController's own "DORMANT as of
+ *    2026-07-08" comment on updateBrand() — the PUBLIC payload has stamped
+ *    it from site.sites.shop_link_mode for a while; this class now does the
+ *    same for the DASHBOARD shape). `selectionMode` is always the constant
+ *    'manual'; `linkMode` is read from site.sites.shop_link_mode (one query
+ *    per brandMap() call, not per brand — it is the same value for every
+ *    brand a user has), falling back to Site::DEFAULT_SHOP_LINK_MODE when
+ *    the site has no row or the column is null. This is a DELIBERATE
+ *    behaviour change from the old per-brand ShopBrand::toBrandArray()
+ *    shape (which showed whatever was last written to that brand's own,
+ *    now-vestigial link_mode/selection_mode columns) — see the Task 7
+ *    report, Fix round 1, for why the parity fixture's expectations moved
+ *    to match.
  *
  * 4. popularityRank is keyed by product HANDLE (content_popularity_scores'
  *    own scoring-pipeline convention — see ShopBrand::toBrandArray()'s own
- *    docblock), and gap 2 above means `handle` is always null here. So even
- *    with real ranking data, every product's popularityRank comes back null
- *    post-repoint, not just in a fixture with no ranks seeded. Confirmed
- *    empirically, not from the docblock: ShopController's own private
- *    brandMap() (the pre-Task-7 path this class replaces for brands()/
- *    brandProducts()/selection()) ALWAYS passes a ranks array — never null —
- *    to ShopBrand::toBrandArray(), so popularityRank is present (not
- *    omitted) on the DASHBOARD shape too, despite that method's docblock
- *    describing the key as public-path-only. This class mirrors that: pass
- *    $productRanks (even an empty array) to get the key; pass null (as
- *    connectStatus()'s fallback does) to omit it, matching
+ *    docblock). Since gap 2 above, `handle` is populated once an item has
+ *    synced since the Finding 3 migration, so the rank lookup can hit for
+ *    up-to-date items — same backfill-lag caveat, not a permanent miss.
+ *    ShopController's own private brandMap() (the pre-Task-7 path this
+ *    class replaces for brands()/brandProducts()/selection()) ALWAYS passes
+ *    a ranks array — never null — to ShopBrand::toBrandArray(), so
+ *    popularityRank is present (not omitted) on the DASHBOARD shape too,
+ *    despite that method's docblock describing the key as public-path-only
+ *    — confirmed empirically, not from the docblock. This class mirrors
+ *    that: pass $productRanks (even an empty array) to get the key; pass
+ *    null (as connectStatus()'s fallback does) to omit it, matching
  *    ShopBrand::toBrandArray()'s own contract exactly.
  */
 class ShopContentReader
@@ -100,6 +113,10 @@ class ShopContentReader
         }
 
         $catalogues = $this->writer->cataloguesFor($rows->pluck('collection_id')->all());
+        // Fix round 1, Finding 4 — one value for the whole map (see class
+        // docblock, gap 3), not a per-brand lookup.
+        $linkMode = DB::table('site.sites')->where('user_id', (string) $user->id)
+            ->value('shop_link_mode') ?? Site::DEFAULT_SHOP_LINK_MODE;
 
         $map = [];
         foreach ($rows as $row) {
@@ -122,9 +139,11 @@ class ShopContentReader
                 'favicon' => $row->favicon_url,
                 'logo' => $row->logo_url,
                 'discountCode' => $row->discount_code ?? '',
-                // See class docblock, gap 3: no content.* column for either.
+                // See class docblock, gap 3: derived constants, not stored
+                // per brand — selection_mode was always the default in
+                // practice; link_mode is one global site setting.
                 'selectionMode' => 'manual',
-                'linkMode' => 'product',
+                'linkMode' => $linkMode,
                 'referralQuery' => $row->referral_query ?? '',
                 'products' => self::withPopularityRank($catalogues[$row->collection_id] ?? [], $productRanks),
             ];

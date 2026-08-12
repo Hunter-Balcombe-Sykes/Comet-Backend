@@ -1077,28 +1077,34 @@ class ShopController extends ApiController
     }
 
     /**
-     * Task 7: the brand map brands()/brandProducts()/selection() actually
-     * read — content.* (ShopContentReader) MERGED over the legacy
-     * site.shop_brands map, not content.* alone.
+     * ============================================================
+     * TEMPORARY — Task 7 fix round 1, Finding 6. DELETE THIS METHOD, and
+     * call ShopContentReader::brandMap() directly from brands()/
+     * brandProducts()/selection(), the moment Task 8 ships.
+     * ============================================================
      *
-     * Why not a bare ShopContentReader::brandMap() call: ShopContentReader's
-     * own docblock (gap 1) documents that a brand has no content.* row until
-     * ShopContentWriter::upsertStore() has run for it at least once, and
-     * none of addBrand(), ShopBrandConnectJob (the deferred-connect settle),
-     * or setProducts() call it yet (Task 8 is what repoints those). Proven,
+     * This exists ONLY because three writers still bypass content.* today:
+     *   1. ShopController::addBrand()
+     *   2. ShopBrandConnectJob (the deferred-connect settle job)
+     *   3. ShopController::setProducts()
+     * None of the three call ShopContentWriter::upsertStore() — Task 8 is
+     * what repoints them. Until all three do, a brand has no content.* row
+     * between "just connected"/"just curated" and "first synced", and a
+     * bare ShopContentReader::brandMap() call 404s/empties it out — proven,
      * not just predicted: three PRE-EXISTING tests that seed a brand the
      * same way addBrand()/setProducts() do — ShopPayloadFeatureTest's
      * "shop selection returns…"/"…seeded popularityRank…", ShopUrlValidation
      * Test's "connects a WooCommerce store end-to-end…" — broke under a bare
-     * content.*-only read: a brand connected and curated in the SAME request
-     * cycle a real dashboard session performs came back 404/empty, because
-     * content.* had not synced yet. This merge is what makes that a
-     * non-issue: legacy is authoritative for EXISTENCE and ORDER (so a
-     * request never loses a brand), content.* wins PER BRAND once it has a
-     * row (so the reconstruction — and its documented field losses, see
-     * ShopContentReader — takes over transparently as brands sync). Mirrors
-     * ShopContentWriter::isCurated()'s own transitional-read precedent
-     * elsewhere in this slice.
+     * content.*-only read in exactly this way.
+     *
+     * The brand map brands()/brandProducts()/selection() actually read —
+     * content.* (ShopContentReader) MERGED over the legacy site.shop_brands
+     * map, not content.* alone. Legacy is authoritative for EXISTENCE and
+     * ORDER (so a request never loses a brand), content.* wins PER BRAND
+     * once it has a row (so the reconstruction — and its documented field
+     * losses/backfill lag, see ShopContentReader — takes over transparently
+     * as brands sync). Mirrors ShopContentWriter::isCurated()'s own
+     * transitional-read precedent elsewhere in this slice.
      */
     private function hybridBrandMap(User $user): array
     {

@@ -2664,7 +2664,11 @@ function setupContentTables(): void
         'f_embed' => 'provider TEXT NOT NULL, embed_key TEXT NOT NULL, variant TEXT NULL',
         'f_playable' => 'stream_url TEXT NULL, preview_url TEXT NULL, is_explicit INTEGER NULL',
         'f_authored' => 'creator TEXT NULL, creator_url TEXT NULL, collaborators TEXT NULL',
-        'f_catalog' => 'release_type TEXT NULL, track_number INTEGER NULL, disc_number INTEGER NULL, isrc TEXT NULL, gtin TEXT NULL, sku TEXT NULL',
+        // handle/vendor/variant_ref: slice 5a Task 7 fix round 1, Finding 3
+        // (supabase/migrations/20260813100002_f_catalog_product_fields.sql —
+        // NOT yet applied to the shared dev database, per that migration's
+        // own header).
+        'f_catalog' => 'release_type TEXT NULL, track_number INTEGER NULL, disc_number INTEGER NULL, isrc TEXT NULL, gtin TEXT NULL, sku TEXT NULL, handle TEXT NULL, vendor TEXT NULL, variant_ref TEXT NULL',
         'f_place' => 'venue_name TEXT NULL, address TEXT NULL, locality TEXT NULL, region TEXT NULL, country_code TEXT NULL, latitude REAL NULL, longitude REAL NULL',
         'f_rated' => 'rating REAL NULL, rating_max REAL NULL, ratings_count INTEGER NULL',
         'f_review' => 'author_name TEXT NULL, author_photo_url TEXT NULL, rating REAL NULL, text TEXT NULL, reviewed_at TEXT NULL',

@@ -25,7 +25,27 @@ final class ShopProductProjection
             'headline' => self::str($data['title'] ?? null),
             'facets' => array_filter([
                 'f_link' => $url === '' ? null : ['url' => $url],
-                'f_catalog' => ($sku = self::str($data['productId'] ?? null)) === null ? null : ['sku' => $sku],
+                // handle/vendor/variant_ref: fix round 1, Finding 3 — the
+                // generic catalogue-identity facet, same as sku/gtin.
+                // variant_ref carries the blob's top-level variantId (the
+                // DEFAULT/first variant's provider id — the Shopify checkout
+                // deep link is built from it), not the per-variant list
+                // below: variants() drops the "Default Title" placeholder
+                // entirely (the common single-variant case), so that id has
+                // no other surviving home.
+                'f_catalog' => array_filter([
+                    'sku' => self::str($data['productId'] ?? null),
+                    'handle' => self::str($data['handle'] ?? null),
+                    'vendor' => self::str($data['vendor'] ?? null),
+                    'variant_ref' => self::str($data['variantId'] ?? null),
+                ]),
+                // fix round 1, Finding 3: f_text.body, not items.facets_cache
+                // (that column is a derived, read-only cache of which facet
+                // TYPES are present — never a data payload; see the Task 7
+                // report for the original wrong claim). ProjectionWriter's
+                // writeFacets() merges this with the projection's top-level
+                // `headline` into the same f_text row.
+                'f_text' => ($description = self::str($data['description'] ?? null)) === null ? null : ['body' => $description],
             ]),
             'offers' => self::offers($data, $variants, $currency, $url),
             'variants' => array_map(

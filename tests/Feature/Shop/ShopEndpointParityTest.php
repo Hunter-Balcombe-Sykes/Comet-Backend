@@ -278,7 +278,14 @@ it('GET /brands — matches the pre-Task-7 dump', function () {
             [
                 'id' => 'brand-a', 'provider' => 'shopify', 'url' => 'https://storea.example.com',
                 'name' => 'Store A', 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
-                'discountCode' => 'SAVE10', 'selectionMode' => 'latest', 'linkMode' => 'checkout',
+                // Fix round 1, Finding 4: the ORIGINAL dump showed 'latest'
+                // (this fixture's ShopBrand.selection_mode) — selectionMode
+                // is now the derived constant 'manual' (see
+                // ShopContentReader's docblock, gap 3). A deliberate,
+                // coordinator-directed spec change, not a forced pass —
+                // selection_mode's only real-world value was already the
+                // default.
+                'discountCode' => 'SAVE10', 'selectionMode' => 'manual', 'linkMode' => 'checkout',
                 'referralQuery' => 'ref=abc123', 'individual' => false,
                 'products' => brandAProductsDashboardShape(),
                 'logoMark' => 'https://cdn.example.com/a-mark.png',
@@ -287,7 +294,15 @@ it('GET /brands — matches the pre-Task-7 dump', function () {
             [
                 'id' => 'brand-b', 'provider' => 'woocommerce', 'url' => 'https://storeb.example.com',
                 'name' => 'Store B', 'currency' => 'USD', 'favicon' => null, 'logo' => null,
-                'discountCode' => '', 'selectionMode' => 'manual', 'linkMode' => 'product',
+                // Fix round 1, Finding 4: the ORIGINAL dump showed 'product'
+                // (this fixture never set ShopBrand.link_mode, so
+                // toBrandArray()'s per-brand default applied) — linkMode is
+                // now read from site.sites.shop_link_mode (one value for
+                // the whole map), which this fixture's site defaults to
+                // 'checkout' — same brand-a now shows, since it is really
+                // ONE site-wide setting, never a per-brand one. Deliberate
+                // spec change, not a forced pass.
+                'discountCode' => '', 'selectionMode' => 'manual', 'linkMode' => 'checkout',
                 'referralQuery' => '', 'individual' => false,
                 'products' => brandBProductsDashboardShape(),
             ],
@@ -357,7 +372,9 @@ it('GET /brands/{id}/connect/status — matches the pre-Task-7 dump', function (
         'brand' => [
             'id' => 'brand-a', 'provider' => 'shopify', 'url' => 'https://storea.example.com',
             'name' => 'Store A', 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
-            'discountCode' => 'SAVE10', 'selectionMode' => 'latest', 'linkMode' => 'checkout',
+            // Fix round 1, Finding 4 — see the identical note in the
+            // GET /brands test above.
+            'discountCode' => 'SAVE10', 'selectionMode' => 'manual', 'linkMode' => 'checkout',
             'referralQuery' => 'ref=abc123', 'individual' => false,
             'products' => $productsNoRank,
             'logoMark' => 'https://cdn.example.com/a-mark.png',

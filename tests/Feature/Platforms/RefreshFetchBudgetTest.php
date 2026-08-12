@@ -90,6 +90,14 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupServicesTable();
+    // Fix round 1, Finding 1: this file's shop-brand tests reach
+    // ShopFetch::fetch() -> ShopContentWriter::isCurated(), which queries
+    // content.* for real since Task 6 fix round 2 dropped isCurated()'s
+    // try/catch — the content.* SQLite stand-in schema must be attached or
+    // that query 500s with "no such table". Same fix as ShopGlobalSettingsTest
+    // / ShopSyncFailureObservabilityTest.
+    setupIngestTables();
+    setupContentTables();
     shimPgAdvisoryLockForSqlite();
 
     // Every test here creates a fresha (a hasCompletenessPredicate() platform)

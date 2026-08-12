@@ -226,41 +226,31 @@ class ShopContentWriter
      * on this one, not a NEW loss introduced by reading it back.
      *
      * Task 7 widen: also carries the DASHBOARD product shape's extra keys —
-     * `handle`, `vendor`, `description`, `variantId`, `createdAt` — that the
-     * sync-input shape never needed before ShopContentReader::brandMap()
-     * became a second caller. Four of the five are structurally
-     * unrecoverable, not just absent from THIS fixture: fromBlob() never
-     * writes a facet for handle, vendor, description or variantId (there is
-     * no content.f_catalog.handle/vendor column, and f_text.body /
-     * f_authored.creator — the nearest existing columns — are never
-     * populated from a shop blob), so content.* has nothing to read them
-     * back FROM. They come back null for every product, always — see the
-     * Task 7 report for the full accounting. `createdAt` is populated from
-     * items.first_seen_at — Partna's own first-sight timestamp, not the
-     * original store's product-creation date (which was never persisted
-     * either) — an approximation, not a total loss. The extra keys are
-     * harmless to the existing syncStore()-input caller: fromBlob() only
-     * reads the keys it knows and ignores the rest.
+     * `handle`, `vendor`, `description`, `variantId`, `createdAt`. Fix round
+     * 1, Finding 3 closed the original gap here: `handle`/`vendor`/
+     * `variantId` (stored as `variant_ref` — NOT `variantId`, see
+     * ShopProductProjection::fromBlob()'s own comment on why) now round-trip
+     * through content.f_catalog, and `description` through content.f_text.
+     * body (migration 20260813100002, ProjectionWriter's SINGLETON_FACETS
+     * widened to match) — a product written before that migration lands
+     * still reads back null for all four until its next sync, same as any
+     * other facet backfill. `createdAt` is populated from items.
+     * first_seen_at — Partna's own first-sight timestamp, not the original
+     * store's product-creation date (which is still not persisted) — an
+     * approximation, not a loss. The extra keys are harmless to the existing
+     * syncStore()-input caller: fromBlob() only reads the keys it knows and
+     * ignores the rest.
      *
-     * Task 7 DISCOVERED DEFECT (pre-existing, not introduced here):
-     * `available`/variant `available` is unreliable for every product that
-     * has ever gone through content.*, not just via this method. fromBlob()
-     * DOES compute `offers[].availability` ('in_stock'/'out_of_stock') for
-     * both the base offer and every variant offer, but
-     * ProjectionWriter::replaceCollections() (app/Ingest/Projection/
-     * ProjectionWriter.php, the $offerRows builder) never includes
-     * `availability` in the row it inserts into content.offers — the column
-     * exists (migration 20260727140000) but is written NOWHERE. So
-     * content.offers.availability is NULL for every offer, always, and this
-     * method's fail-open read (`$offer === null || $offer->availability !==
-     * 'out_of_stock'`) then reports every product/variant as available
-     * regardless of the original scrape. This bug predates Task 7 (it was
-     * already live in Task 6's single-collection currentCatalogue(), the
-     * only prior reader of this data) but Task 7 is the first caller to put
-     * it on a customer-facing surface (the public-serving /selection
-     * endpoint) — see the Task 7 report. Not fixed here: ProjectionWriter is
-     * outside this task's file list, and the fix needs its own review (it
-     * changes what every projector's offers look like, not just Shop's).
+     * Fix round 1, Finding 2 (was: DISCOVERED DEFECT, pre-existing): offer
+     * `availability` is now written by ProjectionWriter::replaceCollections()
+     * (app/Ingest/Projection/ProjectionWriter.php's $offerRows builder,
+     * additive — `$offer['availability'] ?? null`), so this method's
+     * fail-open read (`$offer === null || $offer->availability !==
+     * 'out_of_stock'`) reflects the real scrape once an item has synced
+     * since that fix landed. An item whose offers were written BEFORE the
+     * fix still reads back available=true regardless of true stock until
+     * its next sync — same backfill-lag caveat as the facet fields above,
+     * not a new gap.
      *
      * @param  list<string>  $collectionIds
      * @return array<string, list<array<string,mixed>>> collection id => catalogue, position order
@@ -283,8 +273,14 @@ class ShopContentWriter
         $itemIds = $links->pluck('item_id')->unique()->values()->all();
 
         $urlByItem = DB::table('content.f_link')->whereIn('item_id', $itemIds)->pluck('url', 'item_id');
-        $skuByItem = DB::table('content.f_catalog')->whereIn('item_id', $itemIds)->pluck('sku', 'item_id');
-        $titleByItem = DB::table('content.f_text')->whereIn('item_id', $itemIds)->pluck('headline', 'item_id');
+        // Fix round 1, Finding 3: sku/handle/vendor/variant_ref all live on
+        // this one facet row (migration 20260813100002) — one keyed fetch,
+        // not four.
+        $catalogByItem = DB::table('content.f_catalog')->whereIn('item_id', $itemIds)
+            ->get(['item_id', 'sku', 'handle', 'vendor', 'variant_ref'])->keyBy('item_id');
+        // headline/body likewise share one f_text row.
+        $textByItem = DB::table('content.f_text')->whereIn('item_id', $itemIds)
+            ->get(['item_id', 'headline', 'body'])->keyBy('item_id');
         $firstSeenByItem = DB::table('content.items')->whereIn('id', $itemIds)->pluck('first_seen_at', 'id');
 
         $offersByItem = [];
@@ -373,19 +369,23 @@ class ShopContentWriter
                 }
 
                 $firstSeen = $firstSeenByItem[$itemId] ?? null;
+                $catalog = $catalogByItem->get($itemId);
+                $text = $textByItem->get($itemId);
 
                 $catalogue[] = [
-                    'productId' => $skuByItem[$itemId] ?? null,
-                    'title' => $titleByItem[$itemId] ?? null,
-                    // Structurally unrecoverable — see this method's docblock.
-                    'handle' => null,
-                    'vendor' => null,
-                    'description' => null,
+                    'productId' => $catalog?->sku,
+                    'title' => $text?->headline,
+                    // Fix round 1, Finding 3: previously always null (see
+                    // this method's OLD docblock in git history) — now
+                    // round-trips through content.f_catalog/f_text (migration
+                    // 20260813100002).
+                    'handle' => $catalog?->handle,
+                    'vendor' => $catalog?->vendor,
+                    'description' => $text?->body,
                     'url' => $url,
                     'price' => $baseOffer !== null ? self::formatMinorUnits((int) $baseOffer->amount_minor) : null,
                     'currency' => $baseOffer?->currency,
-                    // Structurally unrecoverable — see this method's docblock.
-                    'variantId' => null,
+                    'variantId' => $catalog?->variant_ref,
                     'available' => $baseOffer === null || $baseOffer->availability !== 'out_of_stock',
                     'image' => $cover,
                     'images' => $images,
