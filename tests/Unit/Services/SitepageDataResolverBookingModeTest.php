@@ -12,9 +12,12 @@ use Tests\TestCase;
 uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
-    // buildServicesData queries site.services; stub an empty result so the test
-    // is purely column-vs-settings focused without a full DB fixture.
-    setupServicesTable();
+    // Slice 3a §3.4: buildServicesData reads content.* (via ManualServiceItems)
+    // now, not site.services — provision the content/ingest schema so the
+    // (empty) read succeeds; these tests stay purely column-vs-settings
+    // focused, with no service rows seeded.
+    setupIngestTables();
+    setupContentTables();
 });
 
 it('reads booking_mode from the column not settings', function () {

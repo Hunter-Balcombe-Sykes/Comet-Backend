@@ -15,12 +15,21 @@ use App\Services\Accounts\AccountCapabilities;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\Log;
 
+// pinPoolPresence() lives in tests/Pest.php — shared with
+// PresenceProbeEscalationTest.php, which needs the exact same trick.
+
 it('tags a presence-probe failure with the services-probe label and the site/user id', function () {
     $pro = createTenant('probe-services');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
+    // setupSectionsTables() (not setupContentTables()) — provisions the pool
+    // tables the P4 probes need, but leaves content.sources/content.source_items
+    // absent, so the services probe (content.items x source_items x sources)
+    // genuinely faults. pinPoolPresence() keeps the watch/listen/events pool
+    // probes themselves clean (see its docblock) so the ONLY warning below
+    // is the services probe's.
+    setupSectionsTables();
     setupBlocksTable();
     setupMediaTables();
-    // Deliberately no setupServicesTable() — Service::query() faults.
+    pinPoolPresence($pro->site);
 
     Log::spy();
 
@@ -58,11 +67,16 @@ it('tags a presence-probe failure with a DIFFERENT label for the links probe', f
 
 it('threads two distinct probe labels when two different probes fault in the same call, proving the labels are not hardcoded once', function () {
     $pro = createTenant('probe-multi');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
+    // setupSectionsTables() (not setupContentTables()) — the services probe's
+    // content.sources/content.source_items stay absent. Neither services nor
+    // blocks exists — both probes must fault, each with its own label.
+    // pinPoolPresence() keeps the watch/listen/events pool probes clean so
+    // this test's count stays at exactly these two. Collected via a real
+    // listener (not Log::spy's cardinality matcher) since this test asserts
+    // on TWO distinct calls at once.
+    setupSectionsTables();
     setupMediaTables();
-    // Neither services nor blocks exists — both probes must fault, each with
-    // its own label. Collected via a real listener (not Log::spy's cardinality
-    // matcher) since this test asserts on TWO distinct calls at once.
+    pinPoolPresence($pro->site);
     $warnings = [];
     Log::listen(function ($event) use (&$warnings) {
         if ($event->level === 'warning' && $event->message === 'sitepage.presence_probe_failed') {

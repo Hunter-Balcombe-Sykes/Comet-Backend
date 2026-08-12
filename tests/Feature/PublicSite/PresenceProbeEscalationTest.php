@@ -52,14 +52,20 @@ function lifeProbeResolver(): SitepageDataResolverService
     return app(SitepageDataResolverService::class);
 }
 
+// pinPoolPresence() lives in tests/Pest.php — shared with
+// PresenceProbeLoggingTest.php, which needs the exact same trick.
+
 // ── Case 1 — single blip stays quiet AND degrades ───────────────────────
 
 it('keeps a single probe fault a quiet breadcrumb and still degrades the page gracefully', function () {
     $pro = createTenant('probe-esc-single');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
+    // setupSectionsTables() (not setupContentTables()) — provisions the pool
+    // tables the P4 probes need, but leaves content.sources/content.source_items
+    // absent, so the services probe (content.items x source_items x sources)
+    // genuinely faults.
+    setupSectionsTables();
     setupBlocksTable();
     setupMediaTables();
-    // Deliberately no setupServicesTable() — Service::query() genuinely faults.
 
     Exceptions::fake();
 
@@ -73,10 +79,14 @@ it('keeps a single probe fault a quiet breadcrumb and still degrades the page gr
 
 it('escalates to Nightwatch exactly once when one probe sustains faults across the threshold, and does not re-fire within the window', function () {
     $pro = createTenant('probe-esc-sustained');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
+    // setupSectionsTables() (not setupContentTables()) — the services probe's
+    // content.sources/content.source_items stay absent, so it genuinely faults.
+    // pinPoolPresence() keeps the watch/listen/events pool probes clean (see
+    // its docblock) so THIS test's counts are the services probe alone.
+    setupSectionsTables();
     setupBlocksTable();
     setupMediaTables();
-    // Deliberately no setupServicesTable().
+    pinPoolPresence($pro->site);
 
     Exceptions::fake();
     $threshold = SitepageDataResolverService::FAULT_THRESHOLD;
@@ -105,11 +115,12 @@ it('escalates to Nightwatch exactly once when one probe sustains faults across t
 
 it('keeps two different probe labels in separate buckets so their faults never sum toward the same threshold', function () {
     $pro = createTenant('probe-esc-partition');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
+    // setupSectionsTables() (not setupContentTables()) — the services probe's
+    // content.sources/content.source_items stay absent. Combined with no
+    // setupBlocksTable() call, BOTH the services probe and the live-link-block
+    // probe fault on every call, each landing in its OWN bucket.
+    setupSectionsTables();
     setupMediaTables();
-    // Deliberately no setupServicesTable() AND no setupBlocksTable() — BOTH
-    // the services probe and the live-link-block probe fault on every call,
-    // each landing in its OWN bucket.
 
     Exceptions::fake();
     $threshold = SitepageDataResolverService::FAULT_THRESHOLD;
@@ -201,10 +212,11 @@ it('collapses platform_complete_{platform} faults from different platforms into 
 
 it('never turns a fault into a 500 even when the exception reporter itself throws', function () {
     $pro = createTenant('probe-esc-broken-reporter');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
+    // setupSectionsTables() (not setupContentTables()) — the services probe's
+    // content.sources/content.source_items stay absent, so it faults on every call.
+    setupSectionsTables();
     setupBlocksTable();
     setupMediaTables();
-    // Deliberately no setupServicesTable() — faults on every call.
 
     $handler = Mockery::mock(ExceptionHandler::class);
     $handler->shouldReceive('report')->andThrow(new RuntimeException('reporter is broken'));
@@ -240,9 +252,13 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
     // from other already-existing fail-open paths.
     setupPublicSitePayloadTable();
     setupHandleAliasesTable();
-    setupContentTables(); // pool presence probes (P4) must not add faults of their own
-    // Deliberately no setupServicesTable() — Service::query() genuinely faults
-    // inside presentPageIds() on every request below.
+    // setupSectionsTables() (not setupContentTables()) — pool presence probes
+    // (P4) must not add faults of their own, so the pool tables ARE
+    // provisioned; content.sources/content.source_items stay absent so the
+    // services probe (content.items x source_items x sources) genuinely
+    // faults inside presentPageIds() on every request below, without the pool
+    // probes tripping too.
+    setupSectionsTables();
 
     Exceptions::fake();
     $threshold = SitepageDataResolverService::FAULT_THRESHOLD;
@@ -263,8 +279,21 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
         ]);
         // Site::user_id is not fillable (tenancy FK) — go through the
         // relation like ->associate() would, same as
-        // IncompleteBookingPagePresenceTest's bookingPresenceSite().
-        $user->site()->create(['subdomain' => $handle, 'is_published' => true]);
+        // IncompleteBookingPagePresenceTest's bookingPresenceSite(). Wrapped
+        // in a transaction WITH the pin: SiteObserver::saved() dispatches
+        // WarmPublicSiteCacheJob->afterCommit(), which (on the sync queue,
+        // with no enclosing transaction) would otherwise run BEFORE
+        // pinPoolPresence() — building the public payload once with the pool
+        // sections unpinned, genuinely faulting the pool probes too and
+        // diluting this test's exactly-1-report assertion below. Committing
+        // the pin together with the site means the deferred warm job only
+        // ever sees the already-pinned state.
+        $site = DB::connection('pgsql')->transaction(function () use ($user, $handle) {
+            $site = $user->site()->create(['subdomain' => $handle, 'is_published' => true]);
+            pinPoolPresence($site);
+
+            return $site;
+        });
 
         $res = $this->getJson("/api/public/profiles/{$handle}")->assertOk();
 

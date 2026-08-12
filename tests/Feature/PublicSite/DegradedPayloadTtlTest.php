@@ -59,11 +59,15 @@ it('does not report degradation when every probe answers from the database', fun
 
 it('reports degradation when a probe answers from a fault', function () {
     $pro = createTenant('degrade-faulted');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
+    // setupSectionsTables() (not the full setupContentTables()) — it provisions
+    // content.items + the pool tables the P4 probes need, but deliberately
+    // leaves content.sources/content.source_items absent, so the services
+    // probe's join (SitepageDataResolverService::presentPageIds()) genuinely
+    // faults and the probe answers "no services page" from the exception
+    // rather than the DB.
+    setupSectionsTables();
     setupBlocksTable();
     setupMediaTables();
-    // Deliberately no setupServicesTable() — Service::query() faults, and the
-    // probe answers "no services page" from the exception rather than the DB.
     $resolver = app(SitepageDataResolverService::class);
     $resolver->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
 
@@ -79,10 +83,12 @@ it('expires a degraded payload — and its stale twin — within the short TTL',
     config(['partna.public_profile.degraded_cache_ttl_seconds' => 10]);
 
     $pro = createTenant('degrade-ttl');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
+    // setupSectionsTables() (not setupContentTables()) — content.sources/
+    // content.source_items stay absent, so the services probe faults and
+    // this build is degraded.
+    setupSectionsTables();
     setupBlocksTable();
     setupMediaTables();
-    // No services table — the probe faults, so this build is degraded.
 
     $this->getJson("/api/public/profiles/{$pro->handle}")->assertOk();
 
@@ -122,7 +128,9 @@ it('keeps the flag scoped to one build rather than leaking across resolvers', fu
     // transient. If it were shared, one site's blip would shorten every other
     // site's cache entry for the rest of the process.
     $faulted = createTenant('degrade-scope-a');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
+    // setupSectionsTables() only — content.sources/content.source_items stay
+    // absent, so the services probe genuinely faults for THIS build.
+    setupSectionsTables();
     setupBlocksTable();
     setupMediaTables();
 
@@ -130,11 +138,12 @@ it('keeps the flag scoped to one build rather than leaking across resolvers', fu
     $first->presentPageIds($faulted->site, AccountCapabilities::for($faulted), collect());
     expect($first->hasDegraded())->toBeTrue();
 
-    setupServiceCategoriesTable();
-    setupServicesTable();
+    // NOW provision the rest of content.* (content.sources/source_items) —
+    // SQLite's :memory: tables persist process-wide, so this only takes
+    // effect for builds run AFTER this point, i.e. $clean below.
+    setupContentTables(); // pool presence probes (P4) need the pool tables
 
     $clean = createTenant('degrade-scope-b');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
     $second = app(SitepageDataResolverService::class);
     $second->presentPageIds($clean->site, AccountCapabilities::for($clean), collect());
 

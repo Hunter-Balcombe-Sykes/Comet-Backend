@@ -24,6 +24,7 @@ use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\ShopProductProjection;
+use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -2633,6 +2634,34 @@ function setupSectionsTables(): void
         last_built_at TEXT NULL,
         updated_at TEXT NOT NULL
     )');
+}
+
+/**
+ * Pins a dummy item into the watch/listen/events pool sections so
+ * PoolResolver::hasSelection() answers true from the pinned row alone,
+ * without ever reaching its `latest_per_auto_source`/`upcoming_occurrence`
+ * rule candidates — the only place those probes would touch
+ * content.sources/content.source_items. Used by presence-probe fault tests
+ * (PresenceProbeLoggingTest, PresenceProbeEscalationTest) that deliberately
+ * fault the SERVICES probe on those same two missing tables and need the
+ * pool probes to stay clean so their fault counts/log assertions aren't
+ * diluted. Global here (not file-local) — both test files use it, and
+ * cross-file global function definitions depend on Pest's load order (same
+ * reasoning as ownerService()'s docblock above).
+ */
+function pinPoolPresence(Site $site): void
+{
+    foreach (['watch', 'listen', 'events'] as $pool) {
+        $section = app(PoolSectionProvisioner::class)->ensure($site, $pool);
+        DB::connection('pgsql')->table('site.section_items')->insert([
+            'id' => (string) Str::uuid(),
+            'section_id' => $section->id,
+            'item_id' => (string) Str::uuid(),
+            'state' => 'pinned',
+            'sort_key' => 0,
+            'created_at' => now()->toDateTimeString(),
+        ]);
+    }
 }
 
 /**

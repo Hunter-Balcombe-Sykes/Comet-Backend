@@ -1,6 +1,7 @@
 <?php
 
 use App\Catalog\LegacyPlatformMap;
+use App\Services\Migration\ServiceBackfiller;
 use App\Services\PublicSite\SiteActionsService;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\DB;
@@ -175,16 +176,16 @@ it('D1: booking-services links straight to the booking url when services page is
 });
 
 it('D1: booking-services is a page action to /services when the services page is present', function () {
+    // Slice 3a §3.4: the services engine reads content.* now — seed the
+    // legacy row and run the backfiller, the same route production's
+    // owner-authored services took, rather than writing site.services and
+    // expecting presence to see it directly (it no longer does).
+    setupIngestTables();
+    setupContentTables();
+
     $tenant = createTenant('cat-d1-page');
-    DB::connection('pgsql')->table('site.services')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $tenant->id,
-        'title' => 'Haircut',
-        'is_active' => 1,
-        'sort_order' => 0,
-        'created_at' => now()->toISOString(),
-        'updated_at' => now()->toISOString(),
-    ]);
+    ownerService($tenant->id, ['title' => 'Haircut']);
+    app(ServiceBackfiller::class)->run();
 
     $pool = collect(actionsPool($tenant))->keyBy('id');
 
