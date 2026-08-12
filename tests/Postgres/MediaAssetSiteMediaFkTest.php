@@ -50,7 +50,7 @@ beforeEach(function () {
     )');
 
     // Apply the real migration SQL, read off disk — not retyped.
-    applyMigrationSql(MIGRATION_SQL_PATH);
+    mediaFkApplyMigrationSql(MIGRATION_SQL_PATH);
 });
 
 afterAll(function () {
@@ -64,7 +64,7 @@ afterAll(function () {
  * Strip the transaction wrapper (BEGIN/COMMIT/SET LOCAL) and comments from a
  * migration file and execute the remaining ALTER/CREATE statements one at a time.
  */
-function applyMigrationSql(string $relativePath): void
+function mediaFkApplyMigrationSql(string $relativePath): void
 {
     $sql = (string) file_get_contents(base_path($relativePath));
 
