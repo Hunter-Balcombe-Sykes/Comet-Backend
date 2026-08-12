@@ -13,12 +13,19 @@ if [[ -f "$DAST_DIR/.env" ]]; then
     set +a
 fi
 
+# Timestamped because the only timing evidence this tool has ever produced came
+# from subtracting artifact mtimes, and that is exactly how the README's "~12
+# minutes goes to teardown" ended up an inference rather than a measurement (and
+# how an earlier "~2 hours in passive-scan draining" ended up simply wrong).
+# Local time, so a line here lines up directly with the mtimes in
+# audits/dast/<date>-<lane>/. `date` rather than printf's %(...)T builtin —
+# macOS still ships bash 3.2, which does not have it.
 log() {
-    echo "[dast] $*" >&2
+    echo "[dast $(date '+%H:%M:%S')] $*" >&2
 }
 
 die() {
-    echo "[dast] ERROR: $*" >&2
+    echo "[dast $(date '+%H:%M:%S')] ERROR: $*" >&2
     exit 1
 }
 
