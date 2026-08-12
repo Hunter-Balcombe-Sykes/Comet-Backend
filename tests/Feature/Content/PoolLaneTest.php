@@ -387,3 +387,58 @@ it('hand-adds an item by link: manual source, pinned, titled', function () {
     expect(DB::connection('pgsql')->table('content.sources')
         ->where('user_id', $pro->id)->where('kind', 'manual')->count())->toBe(1);
 });
+
+it('hand-adds an item that a later connector run enriches instead of stranding', function () {
+    // The defect this slice replaces: the old hand-rolled writer wrote no
+    // identity keys and no anchor, so resolveItems() — which unions every
+    // live source item for (user, kind) across ALL sources — saw a keyless
+    // singleton, minted a blank content.items row for it, and repointed the
+    // hand-added source item onto that blank. The owner kept seeing their
+    // item only because the pin references it by id.
+    [$pro] = poolTenant();
+
+    actingAsUser($pro)
+        ->postJson(route('content.pools.items.store', ['pool' => 'watch']), [
+            'url' => 'https://vimeo.com/999', 'title' => 'Our showreel',
+        ])
+        ->assertCreated();
+
+    $sourceId = DB::connection('pgsql')->table('content.sources')
+        ->where('user_id', $pro->id)->where('kind', 'manual')->value('id');
+    $sourceItem = DB::connection('pgsql')->table('content.source_items')->where('source_id', $sourceId)->first();
+
+    expect(DB::connection('pgsql')->table('content.identity_keys')
+        ->where('source_item_id', $sourceItem->id)->count())->toBe(2)
+        ->and(DB::connection('pgsql')->table('content.item_anchors')
+            ->where('user_id', $pro->id)->where('coord', $sourceItem->coord)->value('item_id'))
+        ->toBe($sourceItem->item_id)
+        // One coord per url, so a repeat POST cannot poison it (Task 4).
+        ->and($sourceItem->coord)->toBe('manual:'.sha1('https://vimeo.com/999'));
+
+    // Exactly one item, and it is the one the source row points at — no blank
+    // duplicate, nothing stranded.
+    $items = DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->get();
+    expect($items)->toHaveCount(1)
+        ->and($items[0]->id)->toBe($sourceItem->item_id)
+        ->and($items[0]->headline_cache)->toBe('Our showreel');
+});
+
+it('re-adding the same url upserts one coord rather than poisoning it', function () {
+    // Two coords on one url would poison that url for the whole resolution
+    // run (Task 4). The deterministic coord makes the second POST an upsert.
+    [$pro] = poolTenant();
+    $payload = ['url' => 'https://vimeo.com/999', 'title' => 'Our showreel'];
+    $route = route('content.pools.items.store', ['pool' => 'watch']);
+
+    actingAsUser($pro)->postJson($route, $payload)->assertCreated();
+
+    // The second call must not 500 on section_items_unique, and must not add
+    // a second item, a second source item, or a second pin.
+    $response = actingAsUser($pro)->postJson($route, $payload)->assertCreated();
+
+    // ApiController::success() returns the payload unwrapped — there is no
+    // `data` envelope on this endpoint.
+    expect($response->json('selection'))->toHaveCount(1)
+        ->and(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->count())->toBe(1)
+        ->and(DB::connection('pgsql')->table('content.source_items')->count())->toBe(1);
+});

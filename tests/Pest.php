@@ -2230,7 +2230,12 @@ function setupSectionsTables(): void
         item_id TEXT NOT NULL,
         state TEXT NOT NULL CHECK (state IN (\'pinned\', \'excluded\')),
         sort_key REAL NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        -- Mirrors section_items_unique (20260727150000_sections_and_documents.sql:87).
+        -- Postgres has it; the stand-in did not, so a double pin — which a
+        -- hand-add folding onto an already-pinned item now produces — raised
+        -- 23505 in production and nothing under `composer test`.
+        UNIQUE (section_id, item_id)
     )');
 
     $pg->statement('CREATE TABLE IF NOT EXISTS site.site_documents (
