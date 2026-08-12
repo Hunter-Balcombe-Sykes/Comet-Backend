@@ -5,6 +5,7 @@ namespace App\Services\Platforms;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
+use App\Services\Profile\FoodContentProbe;
 use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Support\Str;
 
@@ -18,6 +19,8 @@ use Illuminate\Support\Str;
 class InstagramIdentitySync
 {
     private const INSTAGRAM_SOURCE = 'instagram';
+
+    public function __construct(private readonly FoodContentProbe $foodContent) {}
 
     public function applyIdentity(User $user, array $payload): void
     {
