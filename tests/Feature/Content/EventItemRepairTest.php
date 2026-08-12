@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -181,4 +182,55 @@ it('leaves an orphaned item alone without --retire', function () {
     $this->artisan('content:repair-event-items')->assertExitCode(0);
 
     expect(DB::table('content.items')->where('id', $itemId)->value('removed_at'))->toBeNull();
+});
+
+it('--retire actually performs all three invalidations, not just the retirement', function () {
+    // The regression this pins is not the retirement — that always worked. It
+    // is the half AFTER it. The site lookup carried a `deleted_at` filter for
+    // a column site.sites does not have: Postgres raised 42703 and aborted the
+    // command with the retirement already committed, so the document bump, the
+    // sites.updated_at touch and the edge purge never happened on dev.
+    //
+    // SQLite hid it completely. An unknown DOUBLE-QUOTED identifier is
+    // reinterpreted as a string literal, so the filter compiled to
+    // `'deleted_at' is null` — always false, zero sites, no error, loop
+    // skipped. The pre-existing test asserted removed_at only and passed.
+    // Asserting the INVALIDATION is what makes the bug visible here.
+    $pro = createTenant('repair-'.Str::lower(Str::random(6)));
+    $siteId = (string) DB::table('site.sites')->where('user_id', $pro->id)->value('id');
+    $sourceId = repairSource($pro->id);
+
+    $gone = (string) Str::uuid();
+    DB::table('content.items')->insert([
+        'id' => $gone, 'user_id' => $pro->id, 'kind' => 'event',
+        'headline_cache' => 'Workshop', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => 'eventbrite:acct-test:'.$gone, 'item_id' => $gone,
+        'kind' => 'event', 'removed_at' => now()->subDay(),
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    DB::table('content.f_text')->insert([
+        'item_id' => $gone, 'source_id' => $sourceId,
+        'headline' => 'Workshop', 'updated_at' => now(),
+    ]);
+
+    DB::table('site.sites')->where('id', $siteId)->update(['updated_at' => now()->subDay()]);
+    $before = (string) DB::table('site.sites')->where('id', $siteId)->value('updated_at');
+
+    $this->artisan('content:repair-event-items --retire')->assertExitCode(0);
+
+    expect(DB::table('content.items')->where('id', $gone)->value('removed_at'))->not->toBeNull()
+        // 1. the document build state moved
+        ->and((int) DB::table('site.site_build_state')->where('site_id', $siteId)->value('content_revision'))
+        ->toBeGreaterThan(0)
+        // 2. sites.updated_at moved — the 60s payload cache key composes from it
+        ->and((string) DB::table('site.sites')->where('id', $siteId)->value('updated_at'))
+        ->not->toBe($before);
+
+    // 3. the edge purge was dispatched
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
 });

@@ -79,9 +79,17 @@ class ContentRepairEventItemsCommand extends Command
                 ->whereIn('id', $orphaned->pluck('id')->all())
                 ->update(['removed_at' => now(), 'updated_at' => now()]);
 
+            // NO deleted_at filter: site.sites has no such column and never
+            // has — Site declares no SoftDeletes. Postgres raised 42703 here
+            // and killed the run AFTER the retirement above had committed,
+            // leaving the three invalidations below undone. SQLite hid it:
+            // an unknown DOUBLE-QUOTED identifier is silently reinterpreted as
+            // a string literal, so `"deleted_at" is null` compiled to
+            // `'deleted_at' is null` — always false, zero rows, no error, and
+            // the loop below simply never ran. The test asserted removed_at
+            // only, so it passed while proving nothing about the invalidation.
             $sites = DB::connection('pgsql')->table('site.sites')
                 ->whereIn('user_id', $orphaned->pluck('user_id')->unique()->all())
-                ->whereNull('deleted_at')
                 ->get(['id', 'subdomain']);
 
             foreach ($sites as $site) {
