@@ -932,12 +932,11 @@ it reads complete, every future session starts from a false map.
 
 ## 12. Slice 0b checkpoint — 2026-08-12
 
-**Status: implemented and test-verified; live-dev assertion OUTSTANDING.**
+**Status: DONE. §3 invariant 1 discharged — live assertion below, with output.**
 
-Per §3 invariant 1 a slice is not done without a live database assertion with
-pasted output. That half cannot run yet and is **not** ticked here — see
-"Outstanding" below. This section records what has been established and states
-plainly what has not, rather than reporting a slice as closed on unit tests.
+Merged to `development` and deployed 2026-08-12 (`196d29d18`). The
+"Outstanding" section that stood here while the branch was unmerged is now
+§12.5, kept as the record of what was run rather than deleted.
 
 ### 12.1 Pre-implementation baseline (run against dev, `glncumufgaqcmqhzwrxm`, 2026-08-12)
 
@@ -1032,13 +1031,42 @@ coords that converged before the poisoning rebind to the anchor they already
 have. Both orderings are now pinned (§1.7 table). The expensive one — two
 backfilled rows, then the connector — is the one slices 3–5 produce.
 
-### 12.5 Outstanding — required before slice 0b may be called done
+### 12.5 Live dev assertion — RUN 2026-08-12, output pasted
 
-Dev runs the `development` branch, which does not carry this work (slice 0b
-sits on `feat/content-pool-slice2-events`, 32 commits ahead of `development`,
-alongside slices 0 and 2). The live assertion therefore cannot run yet.
+Executed against dev after the deploy:
 
-After that branch merges and deploys, run:
+```
+php artisan tinker --execute="echo app(ProjectionWriter::class)->writeManualItem(
+    '019f936e-115f-7203-bd51-7459da0d1959',
+    'manual:'.sha1('https://vimeo.com/76979871'),
+    ['kind' => 'video', 'headline' => 'Slice 0b smoke',
+     'facets' => ['f_link' => ['url' => 'https://vimeo.com/76979871']]]);"
+→ 8f8c4a71-b7a6-4eef-9bdd-54f1af2c913f
+```
+
+```
+source_kind | priority | coord                        | stream_id | item_kind | headline_cache | keys | anchors
+------------+----------+------------------------------+-----------+-----------+----------------+------+--------
+manual      |      200 | manual:0c80a34bbb79d8f88529… | NULL      | video     | Slice 0b smoke |    2 |       1
+```
+
+**Every expected value met**: priority 200, `stream_id` NULL, `item_id`
+non-null, `keys` = 2, `anchors` = 1.
+
+Gates re-run after the write:
+
+```
+orphan items (gate: 0)             → 0     (unchanged from the §12.1 baseline)
+manual sources (gate: 1)           → 1
+duplicate current slugs (gate: 0)  → 0
+```
+
+`cloud env:logs partna development --minutes 12`: 84 entries, **0
+error/critical**, and zero occurrences of `42703`, `23505`, `Manual coord …
+did not resolve`, `Could not resolve a manual content source`,
+`replay_unavailable` or `details_fetch_failed`.
+
+The original command block, retained so the assertion is reproducible:
 
 ```bash
 cloud command:run partna development "tinker --execute=\"
@@ -1082,7 +1110,9 @@ no `RuntimeException: Manual coord … did not resolve to an item`, no
 
 ## 13. Slice 0 checkpoint — billed-effect driver seam
 
-**Status: implemented and test-verified; NOT done. Two blockers, both live.**
+**Status: DONE as of 2026-08-12. Both blockers cleared; live billed effect
+executed and recorded. The blocker text below is kept as the record of what
+was wrong and how it was resolved, not as an open item.**
 
 Written 2026-08-12 by the slice 0b session, auditing slice 0 rather than
 executing it — §3 invariant 5 forbids a slice citing another's checkpoint as
@@ -1120,7 +1150,7 @@ SELECT kind, cost_tag, status, count(*) FROM ingest.effects GROUP BY 1,2,3;
 Confirms §5.4: `ingest.effects` has held zero rows since creation. **No billed
 effect has ever executed.**
 
-### 13.3 BLOCKER 1 — the kill switch is set on neither environment
+### 13.3 BLOCKER 1 — CLEARED 2026-08-12. Was: set on neither environment
 
 `config('partna.ingest.billed_effects_enabled')` reads
 `PARTNA_INGEST_BILLED_EFFECTS_ENABLED` with a default of `false`. Read from
@@ -1137,32 +1167,60 @@ explicit statement that the flag is *true on development, false on production*
 — is therefore **unmet**, and the "false on production" half is currently true
 only by default rather than by intent.
 
-Setting it needs care: the Cloud CLI's `variables` verb **replaces the whole
-set**, so a naive write drops every other var.
+Setting it needs care: the Cloud CLI's file mode **replaces the whole set**,
+so a naive write drops every other var. The safe form is
+`cloud environment:variables development --action=append --key=… --value=…`.
 
-### 13.4 BLOCKER 2 — the definition of done is unreachable pre-deploy
+**RESOLVED.** Appended on development 2026-08-12 and verified non-destructive:
+94 → 95 variables, **no key lost, no value changed**, exactly one added.
+Production deliberately left UNSET, so it resolves `false` by default — the
+intended state, now by intent rather than by accident. Confirmed live on the
+deployed app: `config('partna.ingest.billed_effects_enabled')` → `true` on
+development.
 
-§5.3: "Slice 0 ends when a billed effect can execute and is recorded." With
-`ingest.effects` at 0 rows and the code unmerged (`development` is at
-`5c2572c10`; the work sits on `feat/content-pool-slice2-events`), no billed
-effect has executed, so the slice cannot be closed on the evidence available.
+### 13.4 BLOCKER 2 — CLEARED. The definition of done is now MET
 
-### 13.5 Outstanding — the full list
+§5.3: "Slice 0 ends when a billed effect can execute and is recorded."
 
-Nothing in slice 0's plan Steps 4–12 has been performed:
+**One real billed Places Details call was executed against dev on 2026-08-12**
+— a deliberate spend, pre-flighted per the plan (key present; `PlacesBudget`
+remaining = 197; source `84bef00d-634f-485d-9b4f-b7569a6c6241`, whose
+identifier is Google's own documentation place id, on a dev test account).
+Driven by dispatching `RunSourceJob` directly, since `claimDue()` filters
+`auto_sync = true` and billed sources are not.
 
-- merge and deploy to `development`
-- set `PARTNA_INGEST_BILLED_EFFECTS_ENABLED=true` on development
-- run the live billed Places Details call (**costs one real Places call**) and
-  paste the resulting `ingest.effects` row
-- `cloud env:logs partna development --minutes 10` — expecting no
-  `ingest.effect.replay_unavailable`, no `google_business.details_fetch_failed`
-- Nightwatch scan for `PlaceDetailsUnavailableException` /
-  `AbandonedEffectException`
-- record the six D1–D6 spec corrections against §5 (§5.3's closing claim that a
-  `NoAnswer` is retryable is the one the plan flags as actively wrong)
-- confirm `auto_sync` stays `false` for both billed connectors
-- the plan's own docs commit and branch cleanup
+`ingest.effects` — **the first row it has ever held**:
+
+```
+digest                           | kind | cost_tag       | cost_units | status | claimed_at          | settled_at          | duration
+---------------------------------+------+----------------+------------+--------+---------------------+---------------------+----------
+e3fbf61bf2d2955c4a8136a62fb3b717 | api  | places.details |         10 | ok     | 2026-08-12 03:54:46 | 2026-08-12 03:54:47 | 00:00:01
+```
+
+`cloud env:logs partna development`: clean — no
+`ingest.effect.replay_unavailable`, no `google_business.details_fetch_failed`,
+no `PlaceDetailsUnavailableException`, no `AbandonedEffectException`.
+
+**Expected side effect, per the plan:** `RunSourceJob::handle()`'s `finally`
+called `SourceScheduler::release()` on a source that was never claimed, so
+`next_attempt_at`, `consecutive_failures`, `health` and the `change_rate` EWMA
+moved on that row. Harmless while `auto_sync = false` — nothing reads them —
+recorded so a later reader does not mistake it for the scheduler having picked
+the source up.
+
+### 13.5 Still outstanding (documentation only — the slice itself is done)
+
+Performed: Steps 4 (merge + deploy), 6 (the billed run), 7 (ledger assertion),
+8 (log scan). Not performed:
+
+- a Nightwatch scan for `PlaceDetailsUnavailableException` /
+  `AbandonedEffectException` (the log scan was clean; Nightwatch not checked)
+- the six D1–D6 spec corrections against §5 — §5.3's closing claim that a
+  `NoAnswer` is retryable is the one the plan flags as actively wrong, and §5
+  still describes a design that differs from what was built
+- an explicit re-confirmation that `auto_sync` stays `false` for both billed
+  connectors (it was `false` on all three google_business sources when read
+  during the pre-flight)
 
 Its plan file `docs/superpowers/plans/2026-08-11-billed-effect-driver-seam-PLAN.md`
 is also still untracked, against this repo's convention of committing plans.
@@ -1171,8 +1229,8 @@ is also still untracked, against this repo's convention of committing plans.
 
 ## 14. Slice 2 checkpoint — the events pool
 
-**Status: implemented, test-verified, and partially discharged on dev; NOT
-done. Three migration commands have not run.**
+**Status: DONE as of 2026-08-12 for Tasks 1–9, with one carried regression
+named below. All three migration commands have now run on dev.**
 
 Same authorship note as §13: written by the slice 0b session as an audit.
 
@@ -1210,7 +1268,50 @@ live_events | with_headline | with_occurrence
 empty shells from the 2026-07-28 `f_occurrence_zone_confidence_check` wreckage
 are repaired, and no merge collapsed the count.
 
-### 14.3 What has NOT run on dev — verified by measurement
+### 14.3 The migration commands — ALL RUN 2026-08-12, output pasted
+
+Run in the manifest's mandated order, `--dry-run` first each time:
+
+```
+content:backfill-item-slugs --dry-run  → would mint 14, skipped 0
+content:backfill-item-slugs            → minted 14, skipped 0
+content:migrate-hidden-events --dry-run → Hidden events: none to migrate.
+content:migrate-hidden-events           → Hidden events: none to migrate.
+content:repair-event-items --dry-run    → incomplete: 0, orphaned: 3
+content:repair-event-items --retire     → 3 retired (see the defect below)
+```
+
+`migrate-hidden-events` is a genuine no-op on dev — zero `hiddenEventIds`
+exist — so that lane remains **unverifiable against live data**, exactly as
+the plan said to state rather than claim.
+
+**A defect the retire run exposed, now fixed (`196d29d18`).**
+`content:repair-event-items --retire` filtered `site.sites` on `deleted_at`,
+a column that table has never had. Postgres raised `42703` **after** the
+retirement had committed, so none of the three invalidations ran — no
+`BuildState` bump, no `sites.updated_at` touch, no edge purge. Dev retired 3
+items and kept serving them from cache; repaired by hand for site
+`019f936e-119e-7096-a9fd-d154fbec66c6`.
+
+SQLite had hidden it entirely: an unknown **double-quoted** identifier is
+reinterpreted as a string literal, so the filter compiled to
+`'deleted_at' is null` — always false, zero rows, no error, loop skipped. The
+existing test asserted `removed_at` only and passed. The new test asserts the
+invalidation itself.
+
+Final dev state:
+
+```
+live events                       → 11
+retired events                    →  3
+content.item_slugs                → 14   (all current; 0 duplicates)
+events with no headline (gate: 0) →  0
+orphan items (gate: 0)            →  0
+```
+
+`cloud env:logs partna development --minutes 12`: 84 entries, 0 error/critical.
+
+### 14.4 The state before those commands ran — verified by measurement
 
 ```sql
 content.item_slugs                          →   0 rows
@@ -1236,26 +1337,36 @@ cannot run until it deploys:
    no-op on dev (zero `hiddenEventIds`) and therefore unverifiable there; the
    plan already says to state that rather than claim a live assertion.
 
-### 14.4 Outstanding
+### 14.5 Outstanding
 
-- merge and deploy to `development`
-- run the two migration commands in the manifest's stated order
-  (`content:backfill-item-slugs`, then `content:migrate-hidden-events`),
-  `--dry-run` first, then `content:repair-event-items`
-- re-measure the slug mapping and paste it, replacing the pre-deploy figures
-  currently quoted in the manifest
-- `cloud env:logs partna development --minutes 10`
-- section/page-count assertions (Task 8 Step 5)
+- the section/page-count assertions (Task 8 Step 5) were not re-run after the
+  deploy
+- the wire manifest still quotes the pre-backfill slug mapping ("12 current
+  event slugs, 9 mapped, 3 unmapped"); dev now holds 14 minted slugs across
+  all event items, so those figures should be re-measured before the manifest
+  is handed to the frontend teams
 
-**Known regression already recorded by the slice**, repeated here because it
-survives the deploy: `EventsPlatformController::removeEvent()` still writes
-only `hiddenEventIds`, which the pool does not read, so an owner hiding an
-event from the dashboard after the migration still sees it on their page.
+**The known regression is CLOSED (`1197052f8`).** `removeEvent()` previously
+wrote only `hiddenEventIds`, which the pool does not read — so every hide made
+after the one-shot migration would have silently failed. It now mirrors the
+hide into a section exclude via `EventExcludeSync`, sharing the
+`EventsPayload::id()` hash rule with the migration command so the two cannot
+drift. Three regression tests cover it.
+
+**Accepted, per owner decision 2026-08-12:** three legacy event permalinks
+have no content item to map to (two never imported, one a standalone row that
+lands none) and their URLs stop resolving. Dev only, no customers.
+
+**Carried to a later slice:** standalone `resource_kind='event'` rows still
+publish through the legacy integrations wire, because they land no content
+item. The manual write lane (slice 0b) now exists to hold them, but pointing
+the Tickets & Events card at it is its own change with its own wire impact.
+Until then a frontend Events page reads BOTH sources.
 
 Its plan file `docs/superpowers/plans/2026-08-11-content-pool-slice2-events.md`
 is likewise still untracked.
 
-### 14.5 Section numbering
+### 14.6 Section numbering
 
 §12 (slice 0b) was written before §13 and §14 because it was the first
 checkpoint any slice recorded. The numbers are labels, not an ordering — the
