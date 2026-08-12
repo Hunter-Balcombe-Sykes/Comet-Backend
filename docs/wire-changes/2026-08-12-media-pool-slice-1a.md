@@ -39,17 +39,19 @@ No existing key changed or removed.
 ### Unchanged, deliberately: `thumbnail`
 
 Still a bare string (cover → poster → gallery role priority), on every pool.
-For a media item with a single upload frame (today's items), `frames[0]` is
-the same asset `thumbnail` resolves to — read dimensions from there. When
+For a media item with a single upload frame (the case until 1b), `frames[0]`
+is the same asset `thumbnail` resolves to — read dimensions from there. When
 multi-frame items land (1b, Instagram carousels), match on role `'cover'`
 rather than position 0 if you need the thumbnail's dimensions, as `frames()`
 is positional while `cover()` is role-priority and the two will diverge.
 Making `thumbnail` an object was rejected: it is live on watch/listen/events
 today and would break three surfaces to serve one.
 
-### Now populated: `pools.media`
+### Ready for population: `pools.media`
 
-The media pool now resolves upload-backed items (25 on dev after backfill).
-The legacy `gallery` / `designMedia` payload keys STAY until both frontends
-stop reading them — nothing to change today, but new gallery work should
-read `pools.media` + `frames`, not the legacy keys.
+Once Task 9's backfill (`content:backfill-upload-media`) and section re-shape
+(`content:reshape-media-sections`) run on dev, the media pool will resolve
+upload-backed items (25 uploads exist in dev's `site.site_media` source data).
+The legacy `gallery` / `designMedia` payload keys remain on the wire and
+should continue to work; new gallery work going forward should read
+`pools.media` + `frames` instead.
