@@ -39,6 +39,25 @@ One reviewer finding was **not** adopted: it reported `logo_square = 9` against 
 spec's 6. Both are correct — this spec counts live rows (`deleted_at IS NULL`); the
 reviewer counted all rows. Clarified in §2.1 rather than changed.
 
+## 0b. Revision note — slice 2 planning, 2026-08-12
+
+Planning slice 2 and reviewing that plan against the codebase falsified one of this
+document's own claims and sharpened two others. Revision 3:
+
+| Was | Is |
+|---|---|
+| §9.1: `BuildState` names its raw-write seams "with a CI check keeping the list current" | **There is no list and no CI check.** That sentence exists in `BuildState`'s docblock and this spec repeated it. Rewritten — see §9.1 |
+| §9.2: "name the keys it invalidates" | Necessary but not sufficient. `BuildState::bump()` does **not** invalidate the public-profile payload cache — different lane entirely. Spelled out in §9.2 |
+| §1.3: unread kinds are a uniform problem to be solved by adding pools | `event` is; `channel` and `article` are not. Slice 2 is events-only, and the reasons are structural rather than scheduling — see §7 slice 2 |
+
+The §9.1 error is the same failure mode this document exists to correct. §11 amends
+`2026-08-05-platforms-as-sources.md` for claiming a programme was complete when the
+database said otherwise; §9.1 asserted a CI gate that the codebase said otherwise.
+A design document repeating a docblock it never checked is exactly how the 2026-08-05
+claim propagated in the first place. **Verify assertions about guardrails before
+writing them down — a guardrail nobody checked is worse than none, because plans
+budget for its protection.**
+
 ---
 
 ## 1. Verified current state
@@ -121,6 +140,13 @@ rows at all**, so they contribute nothing.
 `ProjectorRegistry::for()` returns `null` for an unmapped stream by design — "this
 stream projects to no item" is a legitimate state — so an unread kind never errors.
 The write half is loudly tested; the read half is only tested where a pool exists.
+
+**Do not read this table as a work list (added 2026-08-12).** The three kinds are
+one *symptom* and three different problems. Slice 2 adopts `event` alone; `channel`
+and `article` are deferred on product grounds, and a row count is not evidence a
+kind is ready for a pool. Of the 14 `event` rows, 6 are empty shells and 3 are
+stale — see §7 slice 2. The same caution applies to any later slice that sizes
+itself from a count in this section.
 
 ### 1.4 What still runs on legacy tables
 
@@ -373,7 +399,7 @@ Eight slices, each independently shippable and independently verifiable.
 | 0 | Billed-effect driver seam | M | — | — |
 | 0b | Manual-source write lane | M | — | before 1 |
 | 1 | Media pool live (Instagram + Google + uploads) | XL | 0, 0b | after 2 |
-| 2 | Orphan kinds get pools (`event`, `channel`, `article`) | S | — | first |
+| 2 | The events pool (`event` only — see §7) | M | — | first |
 | 3 | Services → `content.*` | L | 0b | after 2 |
 | 4 | Menus → `content.*` | XL | 0b | after 5 |
 | 5 | Shop → `content.*` | L | 0b | after 3 |
@@ -384,13 +410,19 @@ Eight slices, each independently shippable and independently verifiable.
 
 Sizes revised upward from revision 1 (slices 3 and 5 from M, 4 from L, 7 from S)
 because §1.7 removed the assumption that a manual write lane exists, and §7.3 added
-per-backfiller work that revision 1 did not account for.
+per-backfiller work that revision 1 did not account for. Slice 2 revised S → M on
+2026-08-12 for the reasons in §7 — the rule and payload changes, plus a data repair
+revision 2's row counts concealed.
 
 Deliberate ordering choices:
 
 - **Slice 2 first.** Its items already exist in `content.items`, so it needs no
   connector, no driver and no migration — the cheapest proof that adopting a kind
-  into the pool lane works, and a template every later slice copies.
+  into the pool lane works, and a template every later slice copies. **Cheapest is
+  not cheap** (revised 2026-08-12): the pool's auto-rule and item payload both turn
+  out to be shaped for undated content, and adopting a dated kind changes each. That
+  is a finding worth having first, since menus, services and shop all carry prices
+  and several carry dates.
 - **Shop (5) before menus (4).** `shop_products` is a `data jsonb` blob with no
   relational structure to preserve. Menus carry multi-category membership,
   per-platform pricing and `is_manual` authorship.
@@ -583,12 +615,62 @@ Google photos in a single library with a single selection, rendered publicly;
 `content.items WHERE kind='media'` is non-zero; no duplicate assets after two
 consecutive Instagram syncs; `site.content_selection` has no readers.
 
-### Slice 2 — Orphan kinds get pools · S
-`PoolRegistry` entries, `PAGE_KEYS`, `PAGE_LABELS`, section provisioning for
-existing users, and read paths for `event`, `channel`, `article`.
+### Slice 2 — The events pool · M
+**Scoped down and re-sized 2026-08-12**, after planning it against the database.
+Revision 2 read the three unread kinds as one problem — "adopt the kind, add the
+pool" — and sized it S on the strength of the items already existing. They are not
+one problem, and two of the three cannot be adopted without a decision this document
+has no authority to make.
 
-**Done when:** the 22 existing rows are reachable through a pool and rendered, and
-the legacy events lane has no readers.
+`PoolRegistry` entry, `PAGE_KEYS`, `PAGE_LABELS`, per-pool section shape, section
+provisioning for existing users, and the read path for **`event` only**.
+
+- **`event` is buildable and carries the value.** It already has a page
+  (`SitepageId::Events`), a working projector, and 14 rows. But it is not a registry
+  one-liner: the pool contract's auto half (`latest_per_auto_source`) emits exactly
+  ONE item per connection source, which for a ticketing platform shows a visitor one
+  event and hides the rest. Events need their own rule (`upcoming_occurrence`) and
+  ordering (`occurrence`), and `PoolResolver`'s payload has no `startsAt`, venue or
+  price — so `f_occurrence`, `f_place` and `offers` cannot reach the wire at all.
+  That is the real content of this slice, and the reason it is M, not S.
+- **`channel` is deferred on product grounds.** Not architecturally blocked — two
+  pools may share a page key — but its 7 rows are Twitch 3 / Spotify 3 / SoundCloud
+  1, platforms that already own **two different** pages (Watch and Listen). One pool
+  cannot route them to both, so any single-pool answer mixes them onto one page. And
+  a channel card is a *profile*, not a piece of content. Owner's call, unmade.
+- **`article` is deferred on product grounds.** Technically unblocked; needs a
+  Writing page, which is a new `SitepageId` case in LOCKSTEP with
+  `partna-monorepo/.../page-taxonomy.ts`. Owner declined 2026-08-11. Its one row is
+  `"Please update feed subscription"` — Substack feed housekeeping, not content.
+
+**Two data problems this slice owns**, both found by asserting against dev rather
+than trusting the row counts in §1.3:
+
+- 6 of the 14 event rows are empty shells — `headline_cache` NULL, no facets —
+  wreckage from the 2026-07-28 `f_occurrence_zone_confidence_check` violation
+  logged in `ingest.anomalies`. Both underlying bugs are already fixed
+  (`20260731230000` widened the CHECK; `RunExecutor:196` raised the anomaly to
+  `critical`), but the data never re-derived because `RunExecutor:168` gates
+  projection on records having *changed* and theirs never did. **The repair is
+  `ingest:project`, not a code change** — but it is not optional, and §1.3's
+  "14 rows" overstates what is renderable.
+- 3 more carry `source_items.removed_at` with a live `content.items` — the §9.8
+  asymmetry, arriving early. Settled here: an item whose every source item is
+  retired is itself retired. **One-way** — `content.items.removed_at` is never
+  cleared by reappearance (`ProjectionWriter:272-275`), so a re-listed event does
+  not return.
+
+**Done when:** the live `event` rows are reachable through a pool and rendered
+publicly with their dates, venues and prices; every live event item has a headline
+and an occurrence; and the legacy events lane has no readers.
+
+**Note the last clause is separable.** Retiring the legacy lane means migrating 13
+`site.item_slugs` event permalinks and their 301s into `content.item_slugs` (which
+holds 0), and the two tables key differently — `item_key` is a payload hex id, not
+a coord — so at least 3 of the 13 have no content item to map to. If that half is
+deferred, the checkpoint must say the criterion is unmet rather than tick it.
+
+Plan: `docs/superpowers/plans/2026-08-11-content-pool-slice2-events.md`.
 
 ### Slice 3 — Services → `content.*` · L
 **First: prove `FreshaServiceProjector` executes** (§1.6 — it has landed zero
@@ -689,18 +771,47 @@ Item-level collapse is then expected and visible rather than a test failure.
 
 Revision 1 omitted all of this. None of it is optional.
 
-### 9.1 `BuildState` raw-write registry
-`app/Site/Documents/BuildState.php:15-19`: `bump()` is called from Eloquent
-observers for modelled tables **and explicitly at every raw-write seam, with a CI
-check keeping the list current**. Every backfiller is a raw-write seam. Without a
-bump, migrated content never rebuilds the public document; without registration, CI
-fails.
+### 9.1 `BuildState` bumps are manual, and nothing enforces them
 
-### 9.2 Cache invalidation
+**Corrected 2026-08-12.** Revision 2 stated that `bump()` is called at every
+raw-write seam "with a CI check keeping the list current". That sentence is in
+`BuildState`'s own docblock (`app/Site/Documents/BuildState.php:15-19`) and this
+spec repeated it without checking. **It is false.** The class contains `bump()`,
+`read()` and `commit()` — no list, no constant, no test. Nothing greps as a
+registry, and `./vendor/bin/pest --filter=BuildState` matches no test description,
+so it reports no-tests-found, which reads like a pass.
+
+The *practice* is real — 17 call sites bump by hand — but it is discipline, not a
+gate. Every backfiller in this programme is a raw-write seam, and **if one forgets
+to bump, no test and no CI job will say so.** Plans must not budget for protection
+that does not exist.
+
+What `bump()` actually buys: it increments `site.site_build_state.content_revision`,
+which `DocumentBuilder` reads before a build and compare-and-sets on commit
+(`:36`, `:51`, `:70`), and which `SectionTracer` reads to explain a section. That
+is the **document build lane only**. See §9.2 for what it does not do.
+
+### 9.2 Cache invalidation — three separate lanes, not one
+
 CLAUDE.md: any write path bypassing Eloquent "MUST invalidate the affected cache
 keys explicitly; it will not be caught by an observer." Ten backfillers, all raw.
-§2.2 also changes the *content* of every cached public profile payload. Each slice
-must name the keys it invalidates and whether a Cloudflare/KV purge is required.
+§2.2 also changes the *content* of every cached public profile payload.
+
+**Sharpened 2026-08-12.** Revision 2 asked each slice to "name the keys it
+invalidates". Necessary, but it left the impression that a `BuildState::bump()`
+covers the public surface. It does not — a raw write that changes rendered content
+must touch **all three** of these, and they are independent:
+
+| Lane | Invalidated by | Bumping alone is enough? |
+|---|---|---|
+| `site.site_documents` build state | `BuildState::bump($siteId)` | yes — this is what it is for |
+| The 60s public-profile payload cache | `site.sites.updated_at` moving | **no.** `IndividualProfilePayloadBuilder::cacheKey()` (`:723-730`) composes the key from `$site?->updated_at?->timestamp`, and `bump()` writes `site.site_build_state`, a different table. Without an explicit touch the stale payload is served for the full TTL |
+| The Cloudflare edge | `CloudflareCachePurgeJob::dispatch($subdomain)` | **no.** The CDN outlives the origin write — found verifying P2 of the 2026-08-05 programme, and why `PoolController::poolChanged()` purges as well as bumps |
+
+`PoolController::poolChanged()` is the reference implementation for the second and
+third; it is the shape every backfiller should copy. Each slice must still name its
+keys, and must additionally state whether it touched `site.sites.updated_at` and
+whether an edge purge was dispatched.
 
 ### 9.3 `site.item_slugs` and the 301 lane
 `MenuItemObserver` maintains `site.item_slugs` for `menu_item`, retaining old slugs
