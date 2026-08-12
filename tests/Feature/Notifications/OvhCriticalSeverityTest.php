@@ -169,12 +169,18 @@ it('non-critical, unmapped category sends nothing (in-app only)', function () {
         'primary_email' => 'pro@example.com',
     ]);
     DB::table('notifications.notifications')->insert([
-        'id' => 'n-info', 'user_id' => 'pro-1', 'type' => 'Info', 'category' => 'achievement',
+        // content_scrape stays unmapped (null) in config('partna.notifications.mailables')
+        // — achievement no longer qualifies as "unmapped" since it gained
+        // AchievementMail (2026-08-12); it now sends via a direct dispatch
+        // from AchievementNotifier rather than through this job's fallback,
+        // so this fixture just needs a category this job's own lookup still
+        // resolves to null.
+        'id' => 'n-info', 'user_id' => 'pro-1', 'type' => 'Info', 'category' => 'content_scrape',
         'title' => 'Milestone', 'body' => 'x', 'severity' => 'info', 'critical' => 0,
         'starts_at' => now(), 'ends_at' => now()->addDays(30), 'dedupe_key' => 'k3', 'created_at' => now(), 'updated_at' => now(),
     ]);
 
-    (new SendTransactionalNotificationEmailJob('n-info', 'achievement', 'pro-1'))->handle();
+    (new SendTransactionalNotificationEmailJob('n-info', 'content_scrape', 'pro-1'))->handle();
 
     Mail::assertNothingSent();
 });
