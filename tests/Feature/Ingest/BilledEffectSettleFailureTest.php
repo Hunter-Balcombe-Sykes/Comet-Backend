@@ -1,6 +1,15 @@
 <?php
 
+use App\Ingest\Manifest\CostClass;
+use App\Ingest\Manifest\Manifest;
+use App\Ingest\Manifest\SourceKey;
 use App\Ingest\Runtime\EffectLedger;
+use App\Ingest\Runtime\Effects\BilledEffectContext;
+use App\Ingest\Runtime\Effects\BilledEffectDriver;
+use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
+use App\Ingest\Runtime\Effects\BilledEffectResult;
+use App\Ingest\Runtime\HttpIo;
+use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -101,4 +110,62 @@ it('still settles and rethrows when the EFFECT itself fails', function () {
     expect($row->status)->toBe('failed')
         ->and($row->settled_at)->not->toBeNull()
         ->and(json_decode((string) $row->meta, true)['error'])->toBe('RuntimeException');
+});
+
+/**
+ * A driver that answers successfully. Deliberately NOT named recordingDriver()
+ * / ioWith() like BilledEffectDispatchTest's helpers — Pest shares one global
+ * function namespace, so a full-suite run loading both files would fatal on a
+ * redeclare.
+ */
+function settleFailDriver(): BilledEffectDriver
+{
+    return new class implements BilledEffectDriver
+    {
+        public function supports(string $kind, string $name): bool
+        {
+            return $kind === 'api' && $name === 'places.details';
+        }
+
+        public function run(BilledEffectContext $ctx): BilledEffectResult
+        {
+            return BilledEffectResult::answered(['place' => 'answered']);
+        }
+    };
+}
+
+it('hands the connector its paid data even when the ledger cannot record it', function () {
+    // Same failure, one layer up. HttpIo is the only production Io, so this is
+    // the seam a real connector sees: `data` must carry the answer, not null.
+    config()->set('partna.ingest.billed_effects_enabled', true);
+    config()->set('partna.ingest.effect_freshness_seconds', 604800);
+
+    // Fire on the SETTLE write specifically — NEW.status = 'ok' — so the claim
+    // insert still succeeds and we reproduce "paid, then bookkeeping failed"
+    // rather than "could not claim". No digest arithmetic needed.
+    DB::connection('pgsql')->statement(
+        "CREATE TRIGGER ingest.tg_effects_ok_boom BEFORE UPDATE ON effects
+         WHEN NEW.status = 'ok'
+         BEGIN SELECT RAISE(ABORT, 'settle write failed'); END"
+    );
+
+    $io = new HttpIo(
+        manifest: new Manifest(source: SourceKey::of('settle_fail_test'), identifierKind: 'test', hosts: [], streams: [], cost: CostClass::Metered),
+        fetcher: app(SafeUrlFetcher::class),
+        ledger: new EffectLedger,
+        drivers: new BilledEffectDriverRegistry([settleFailDriver()]),
+        runId: 'run-1',
+        sourceId: 'source-1',
+        userId: 'user-1',
+    );
+
+    try {
+        $outcome = $io->effect('api', 'places.details', ['place_id' => 'ChIJtest']);
+    } finally {
+        DB::connection('pgsql')->statement('DROP TRIGGER IF EXISTS ingest.tg_effects_ok_boom');
+    }
+
+    expect($outcome['status'])->toBe('ok')
+        ->and($outcome['data'])->toBe(['place' => 'answered'])
+        ->and($outcome['cached'])->toBeFalse();
 });
