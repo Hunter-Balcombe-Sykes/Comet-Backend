@@ -309,6 +309,25 @@ they do not interact.
 **Slices 3, 4 and 7 must know this**, because §8.1 as written would send them the
 other way for any legacy table whose rows are rewritten rather than updated.
 
+**The consequence, found during implementation (Task 5 review, 2026-08-13).**
+A URL-derived coord is deliberately NOT store-scoped, so if one user lists the
+same product URL in two stores, both resolve to **one** `content.items` row.
+That is correct — it is the same product — but it makes retirement a
+cross-catalogue question: dropping the URL from store A must not hide the item
+in store B, and `content.items.removed_at` is never auto-cleared, so a wrong
+retirement is permanent.
+
+**The rule, matching parent §9.8:** an item is retired only when it is absent
+from **every** live catalogue of that user. Its `collection_items` link to the
+store it left is removed regardless. Store-scoping the coord instead would mint
+two manual coords carrying one canonical URL for a single user, which poisons
+that URL in the identity resolver (§1.7) and stops connector items carrying it
+from unioning at all — strictly worse.
+
+Dev carries 0 duplicate `(user_id, url)` pairs today, so this is latent rather
+than live. It is written down because the next commerce slice inherits the same
+coord convention and the same trap.
+
 ### 3.4 `ShopBackfiller`
 
 `app/Services/Migration/ShopBackfiller.php` plus an artisan command, per
