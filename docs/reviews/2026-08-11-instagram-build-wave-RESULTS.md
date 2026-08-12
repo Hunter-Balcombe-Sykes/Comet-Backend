@@ -474,6 +474,12 @@ requested start. Anyone re-running this should not trust a single wide `--minute
 
 ## 4. Findings
 
+> **Triage, 2026-08-12 — read `docs/reviews/2026-08-12-instagram-build-wave-DEFERRED.md` before
+> acting on anything below.** N1 and N4 are since **fixed** (`5c2572c10`, live on dev). **F8 was
+> never open** — it was fixed at `751277dd9`, an ancestor of the commit tested here; it is carried
+> below in error and should be ignored. N2, N3 and F9 are deferred with a shape-of-fix each; F7 is
+> handed to pool slice 3.
+
 **N1 — being defined in `app/Catalog/Definitions/` does not make a link classify on the Instagram
 auto-route path. (New.)** `LinkRouter` classifies via `WebsiteLinkHarvester::classify()` (`:363`), which
 walks **hand-maintained host constants** — `SOCIAL_HOSTS` (21 entries), `BOOKING_HOSTS` (18),
