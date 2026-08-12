@@ -622,7 +622,7 @@ an unexplained key is indistinguishable from a buried bug.
 
 | Key | Accepted | Reason |
 |---|---|---|
-| `10021@…/robots.txt` | 2026-07-31 | X-Content-Type-Options missing on a static `robots.txt`. No user data, no injection surface. |
+| `10021@…/robots.txt` | 2026-07-31 | X-Content-Type-Options missing on a static `robots.txt`. **A harness artifact, not an app gap — do not "fix" it.** `SecureHeaders::apply()` sets `nosniff` on every response (`app/Http/Middleware/SecureHeaders.php`), but `php artisan serve` — the throwaway server this lane scans — serves `public/robots.txt` as a static file without booting Laravel, so no middleware runs. The real deployment does send it: `curl -I https://dev-api.partna.au/robots.txt` returns `x-content-type-options: nosniff` + `x-frame-options: deny` (verified 2026-08-12). Adding a header here would be a no-op and the alert would return on the next run. |
 | `10096@…/api/sessions` | 2026-08-07 | Timestamp Disclosure (Unix). `created_at`/`last_seen_at` are deliberately `(int)` epochs (`TokenRevocationService::listSessionsForUser`), rendered by the dashboard as "This device" / "Active …". They are the caller's **own** session times behind auth; ZAP 10096 fires on any epoch-shaped integer. Emitting ISO-8601 instead would be a breaking frontend change for no security gain. **Accepted, not fixed** — revisit only if the endpoint starts exposing other users' timestamps. |
 
 The 17 keys accepted into `zap-passive-baseline.json` on **2026-08-03** are the edge
