@@ -63,7 +63,7 @@ it('asks a workplace-sector partna account for a workplace and suggests booking'
 
     $json = actingAsUser($user)->getJson('/api/onboarding/suggestions')->assertOk()->json();
 
-    expect($json['askSector'])->toBeFalse();
+    expect($json['askSector'])->toBeTrue();
     expect($json['askWorkplace'])->toBeTrue();
     expect(array_column($json['suggestions'], 'key'))->toBe(['booking']);
 });
@@ -100,7 +100,7 @@ it('serves a food BUSINESS reservations + online-ordering (never booking) and as
 
     $json = actingAsUser($user)->getJson('/api/onboarding/suggestions')->assertOk()->json();
 
-    expect($json['askSector'])->toBeFalse();
+    expect($json['askSector'])->toBeTrue();
     expect($json['askStore'])->toBeFalse();
     expect($json['askWorkplace'])->toBeFalse();
     expect($json['askInstagram'])->toBeTrue();
@@ -177,3 +177,16 @@ it('leaves no sector without something to suggest', function () {
 
     expect($empty)->toBe([], 'Sectors with no suggestion: '.implode(', ', $empty));
 });
+
+it('keeps asking for the sector until a human picks one', function (string $accountType, ?string $source, bool $expected) {
+    $user = onboardingUser("asksector{$accountType}".($source ?? 'null'), $accountType, 'hair-salon');
+    $user->forceFill(['sector_source' => $source])->save();
+
+    expect(app(OnboardingSuggestions::class)->for($user)['askSector'])->toBe($expected);
+})->with([
+    'partna, instagram guess' => ['partna', 'instagram', true],
+    'business, instagram guess' => ['business', 'instagram', true],
+    'partna, google sync' => ['partna', 'google-business', true],
+    'partna, manual pick' => ['partna', 'manual', false],
+    'business, manual pick' => ['business', 'manual', false],
+]);
