@@ -140,7 +140,16 @@ teardown() {
     teardown_ran=1
     log "bring-up: tearing down (exit was $status)"
     [[ -n "$SERVE_PID" ]] && kill "$SERVE_PID" 2>/dev/null || true
+    # Timed explicitly rather than left to mtime subtraction. The README charges
+    # ~12 of a 22-minute run to this one line — `--no-backup` stops 12 containers
+    # AND destroys their volumes — but that figure was derived from the gap
+    # between ZAP's last artifact and REPORT.md, a window which also contains
+    # ZAP's own exit and the baseline diff. Those are not distinguishable by
+    # subtraction, so the attribution stayed a lead. This prints the number.
+    local stop_started
+    stop_started=$(date +%s)
     ( cd "$REPO_ROOT" && supabase stop --workdir "$SCRATCH" --no-backup >/dev/null 2>&1 ) || true
+    log "bring-up: supabase stop --no-backup took $(( $(date +%s) - stop_started ))s (12 containers + volumes)"
     rm -rf "$SCRATCH"
     rm -f "$REPO_ROOT/.env.dast"   # written at $REPO_ROOT (not $SCRATCH) — see ENV_DAST below
 }

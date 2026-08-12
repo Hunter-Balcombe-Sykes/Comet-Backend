@@ -176,21 +176,37 @@ scripts/dast/run.sh --only edge
 >
 > | Phase | Duration |
 > |---|---|
-> | bring-up (`supabase start` + `db reset` + serve, images already cached) | ~1 min |
-> | seed identities + Tier 2 | ~8 sec |
-> | **ZAP plan** (openapi + 3 spiders + 3 activeScans + requestor + reports) | **9m09s** |
-> | **teardown + baseline diff + REPORT.md** | **~12 min** |
-> | **total** | **22m17s** |
+> | bring-up (`supabase start` + `db reset` + serve, images already cached) | 60s |
+> | seed identities + Tier 2 | 4s |
+> | **ZAP plan** (openapi + 3 spiders + 3 activeScans + requestor + reports) | **9m58s** |
+> | teardown (`supabase stop --no-backup`, 12 containers + volumes) | **4s** |
+> | baseline diff + REPORT.md | <1s |
+> | **total** | **11m07s** |
 >
-> Two things worth knowing from that. **The ZAP jobs account for essentially all of
-> ZAP's time** — they sum to 9m01s against a 9m09s span, so there is no meaningful
-> idle between them (an earlier version of this note claimed ~2 hours spent on
-> passive-scan queue draining between jobs; that was wrong on both counts and is
-> corrected here). And **over half the run is cleanup**, not testing: the baseline
-> diff cannot be the cost — the report is 4.5 KB with 2 alerts — which points at
-> `supabase stop` removing 12 containers and their volumes. That last attribution is
-> inferred from the timeline, not directly measured, so treat it as a lead rather
-> than a fact.
+> **ZAP is the run.** Everything that is not ZAP costs about 70 seconds combined.
+> The jobs account for essentially all of ZAP's own span too — on the 2026-08-10
+> run they summed to 9m01s against a 9m09s container lifetime, so there is no
+> meaningful idle between them.
+>
+> **This table has been wrong twice, both times from the same mistake**, and the
+> corrections are worth more than the numbers. First version: "~2 hours draining
+> the passive-scan queue between jobs." Second version: "22m17s total, of which
+> ~12 min is teardown — over half the run is cleanup." Both were derived by
+> subtracting artifact mtimes, and both were wrong.
+>
+> What actually happened on 2026-08-10: `new-findings.txt` is stamped 19:06:29 and
+> `REPORT.md` 19:18:25, which looks like a 12-minute tail. But `REPORT.md` shares
+> its mtime exactly with `IDOR-COVERAGE-EVIDENCE.md` — **and no script in this repo
+> writes that file** (`grep -rn IDOR-COVERAGE-EVIDENCE scripts/ .github/` returns
+> nothing). It was written up by hand after the run finished. The lane had already
+> exited at 19:06:29; the "12 minutes of teardown" was somebody typing. Strip it and
+> that run was ~10m21s — within a minute of the 11m07s measured here.
+>
+> **The lesson, not the number: never time this lane by artifact mtime.** You cannot
+> tell machine time from human time that way, and a directory that mixes lane output
+> with hand-written notes guarantees you will confuse the two. Every `log()` line now
+> carries a wall clock and `supabase stop` reports its own elapsed seconds, so read
+> the timings out of `bring-up-stdout.log` and the run log instead of inferring them.
 >
 > The app is never the bottleneck: it served 38,960 requests in that window at
 > ~0.03ms each. ZAP generating and evaluating payloads is what costs the 9 minutes.
@@ -199,7 +215,7 @@ scripts/dast/run.sh --only edge
 > cold and has weaker CPU, which is why `dast-active.yml` sets a generous
 > `timeout-minutes`. Do not tighten it off one fast local run.
 
-Running it locally needs Docker, mutates the runner's own throwaway local Supabase stack, takes several minutes (isolated bring-up + a curated ZAP scan against ~250 routes across two identities plus an unauth pass). Run this before a release, or after any change to auth/authorization/policy code — that's exactly the class of bug the cross-identity IDOR pass is built to catch.
+Running it locally needs Docker, mutates the runner's own throwaway local Supabase stack, and takes ~11 minutes (isolated bring-up + a curated ZAP scan against 411 routes / 486 method+URL entries across two identities plus an unauth pass). Run this before a release, or after any change to auth/authorization/policy code — that's exactly the class of bug the cross-identity IDOR pass is built to catch.
 
 ```bash
 scripts/dast/run.sh --only active
@@ -606,7 +622,7 @@ an unexplained key is indistinguishable from a buried bug.
 
 | Key | Accepted | Reason |
 |---|---|---|
-| `10021@…/robots.txt` | 2026-07-31 | X-Content-Type-Options missing on a static `robots.txt`. No user data, no injection surface. |
+| `10021@…/robots.txt` | 2026-07-31 | X-Content-Type-Options missing on a static `robots.txt`. **A harness artifact, not an app gap — do not "fix" it.** `SecureHeaders::apply()` sets `nosniff` on every response (`app/Http/Middleware/SecureHeaders.php`), but `php artisan serve` — the throwaway server this lane scans — serves `public/robots.txt` as a static file without booting Laravel, so no middleware runs. The real deployment does send it: `curl -I https://dev-api.partna.au/robots.txt` returns `x-content-type-options: nosniff` + `x-frame-options: deny` (verified 2026-08-12). Adding a header here would be a no-op and the alert would return on the next run. |
 | `10096@…/api/sessions` | 2026-08-07 | Timestamp Disclosure (Unix). `created_at`/`last_seen_at` are deliberately `(int)` epochs (`TokenRevocationService::listSessionsForUser`), rendered by the dashboard as "This device" / "Active …". They are the caller's **own** session times behind auth; ZAP 10096 fires on any epoch-shaped integer. Emitting ISO-8601 instead would be a breaking frontend change for no security gain. **Accepted, not fixed** — revisit only if the endpoint starts exposing other users' timestamps. |
 
 The 17 keys accepted into `zap-passive-baseline.json` on **2026-08-03** are the edge
