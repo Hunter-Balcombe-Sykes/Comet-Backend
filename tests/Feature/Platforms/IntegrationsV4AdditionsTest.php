@@ -16,6 +16,11 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 7: GET /api/platforms/shop/brands now reads content.storefronts
+    // (ShopContentReader) with a fallback to the legacy site.shop_brands map
+    // — attach the stand-in schema so the content.* half of that read
+    // doesn't 500 on SQLite's real absence of the table.
+    setupContentTables();
 });
 
 function iv4User(string $h): User
