@@ -97,6 +97,7 @@ class ModerationCase extends BaseModel
         return $this->hasMany(Evidence::class, 'case_id');
     }
 
+    /** @return HasMany<Decision, $this> */
     public function decisions(): HasMany
     {
         return $this->hasMany(Decision::class, 'case_id');

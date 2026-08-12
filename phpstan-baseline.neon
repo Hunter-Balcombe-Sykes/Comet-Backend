@@ -25,12 +25,6 @@ parameters:
 			path: app/Console/Commands/ComputeContentPopularityScores.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$case_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/Moderation/ModerationReverseDecisionCommand.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Gdpr\\DataExportAudit\:\:\$file_path\.$#'
 			identifier: property.notFound
 			count: 1
@@ -313,18 +307,6 @@ parameters:
 			path: app/Http/Controllers/Api/Staff/Segments/StaffSegmentController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$category\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffNotificationController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffNotificationController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>mode" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -407,18 +389,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/User/Customers/UserCustomerController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$customer_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
 
 		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
@@ -1531,18 +1501,6 @@ parameters:
 			path: app/Jobs/Moderation/NotifyOnCallStaffJob.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$decision_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyOnCallStaffJob.php
-
-		-
-			message: '#^Parameter \#1 \$decision of class App\\Notifications\\Moderation\\CaseEscalatedStaffNotification constructor expects App\\Models\\Moderation\\Decision, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Jobs/Moderation/NotifyOnCallStaffJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1555,30 +1513,6 @@ parameters:
 			path: app/Jobs/Moderation/NotifyReportedUserJob.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$decision_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyReportedUserJob.php
-
-		-
-			message: '#^Parameter \#1 \$decision of class App\\Notifications\\Moderation\\AccountBannedNotification constructor expects App\\Models\\Moderation\\Decision, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Jobs/Moderation/NotifyReportedUserJob.php
-
-		-
-			message: '#^Parameter \#1 \$decision of class App\\Notifications\\Moderation\\AccountSuspendedNotification constructor expects App\\Models\\Moderation\\Decision, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Jobs/Moderation/NotifyReportedUserJob.php
-
-		-
-			message: '#^Parameter \#1 \$decision of class App\\Notifications\\Moderation\\ContentHiddenNotification constructor expects App\\Models\\Moderation\\Decision, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Jobs/Moderation/NotifyReportedUserJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1587,12 +1521,6 @@ parameters:
 		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$status\.$#'
 			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyReporterJob.php
-
-		-
-			message: '#^Parameter \#2 \$decision of method App\\Jobs\\Moderation\\NotifyReporterJob\:\:sendTo\(\) expects App\\Models\\Moderation\\Decision, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
 			count: 1
 			path: app/Jobs/Moderation/NotifyReporterJob.php
 
@@ -1621,64 +1549,10 @@ parameters:
 			path: app/Jobs/Moderation/SuspendUserJob.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$decision_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/SuspendUserJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$confirmation_sent_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendEnquiryConfirmationJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendEnquiryConfirmationJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Jobs/Notifications/SendEnquiryConfirmationJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$subject\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendEnquiryConfirmationJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$email_sent_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendEnquiryNotificationJob.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$primary_email\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Notifications/SendFeedbackEmailJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$email_sent_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php
 
 		-
 			message: '#^Offset string on array\{\} on left side of \?\? does not exist\.$#'
@@ -1705,54 +1579,6 @@ parameters:
 			path: app/Jobs/Streaming/CheckStreamingLiveStatusJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/Notifications/CriticalNotificationMail.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/Notifications/FeatureAnnouncementMail.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/Notifications/IncidentMail.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/Notifications/PolicyUpdateMail.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/Notifications/ProfileTaskMail.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/SiteEnquiryNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$subject\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/SiteEnquiryNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/StaffBroadcastMail.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\FeatureAvailabilityRule\:\:\$feature_key\.$#'
 			identifier: property.notFound
 			count: 2
@@ -1775,12 +1601,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Models/Core/Gdpr/DataExportAudit.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$notification_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/Enquiry.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'
@@ -1831,76 +1651,10 @@ parameters:
 			path: app/Models/Core/User/UserDeletionAuditEntry.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$reason\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Notifications/Moderation/AccountBannedNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$decided_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Notifications/Moderation/AccountSuspendedNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$reason\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Notifications/Moderation/AccountSuspendedNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$case_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Notifications/Moderation/CaseEscalatedStaffNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$decision_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Notifications/Moderation/CaseEscalatedStaffNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$case_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Notifications/Moderation/ContentHiddenNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$decision_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Notifications/Moderation/ContentHiddenNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$reason\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Notifications/Moderation/ContentHiddenNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$decision_type\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Notifications/Moderation/ReportOutcomeNotification.php
-
-		-
 			message: '#^Using nullsafe property access on non\-nullable type App\\Models\\Core\\Site\\Site\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Observers/Core/SiteMediaObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Policies/EnquiryPolicy.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Policies/NotificationPolicy.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$user_id\.$#'
@@ -2123,60 +1877,6 @@ parameters:
 			identifier: property.notFound
 			count: 3
 			path: app/Services/Moderation/ModerationActionDispatcher.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$case_id\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Services/Moderation/ModerationActionDispatcher.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$decision_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Moderation/ModerationActionDispatcher.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/Adapters/EmailEnquiryNotificationAdapter.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$message\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/Adapters/InAppEnquiryNotificationAdapter.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$notification_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/Adapters/InAppEnquiryNotificationAdapter.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/Adapters/InAppEnquiryNotificationAdapter.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$ends_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/NotificationListingService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$starts_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/NotificationListingService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/NotificationListingService.php
 
 		-
 			message: '#^Offset ''body'' on array\{userId\: string, frontendType\: string, category\: string, title\: string, body\: string, dedupeKey\: string, ctaUrl\?\: string\|null, primaryActionLabel\?\: string\|null, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'

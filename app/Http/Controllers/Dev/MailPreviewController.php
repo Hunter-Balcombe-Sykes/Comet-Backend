@@ -44,7 +44,7 @@ use App\Notifications\Moderation\AccountBannedNotification;
 use App\Notifications\Moderation\AccountSuspendedNotification;
 use App\Notifications\Moderation\ContentHiddenNotification;
 use App\Notifications\Moderation\ReportOutcomeNotification;
-use Illuminate\Contracts\Mail\Mailable;
+use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Markdown;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification as LaravelNotification;
@@ -70,7 +70,7 @@ class MailPreviewController extends Controller
     public function show(string $key)
     {
         $entry = collect($this->groups())->flatMap(fn ($g) => $g)->get($key);
-        abort_unless($entry, 404);
+        abort_unless($entry !== null, 404);
 
         try {
             $html = $this->render($entry['make']());
@@ -96,8 +96,15 @@ class MailPreviewController extends Controller
             return $renderable->render();
         }
 
-        if ($renderable instanceof LaravelNotification) {
+        // toMail() is convention, not contract — the base Notification class
+        // does not declare it, so a fixture wired to a non-mail notification
+        // would fatal here rather than land in the catch in show().
+        if ($renderable instanceof LaravelNotification && method_exists($renderable, 'toMail')) {
             $message = $renderable->toMail($this->fakeNotifiable());
+
+            if (! $message instanceof MailMessage) {
+                throw new \RuntimeException('toMail() did not return a MailMessage: '.get_class($renderable));
+            }
 
             return $this->renderMailMessage($message);
         }
