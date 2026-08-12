@@ -392,3 +392,55 @@ it('exact-maps categories the substring classifier gets wrong', function (string
     ['Sportswear Store', 'clothing-boutique'],
     ['Hair Removal Service', 'esthetician'],
 ]);
+
+// ── free-text classification over handles and display names (2026-08-12) ─────
+
+it('classifies a trade from a handle or display name', function (string $input, string $expected) {
+    expect(SectorTaxonomy::classifyText($input))->toBe($expected);
+})->with([
+    'dotted handle' => ['jess.hair.stylist', 'hair-salon'],
+    'run-together handle' => ['crucibletattooco', 'tattoo-artist'],
+    'display name' => ['Melbourne Barre Pilates', 'yoga-instructor'],
+    'underscored' => ['sam_the_plumber', 'plumber'],
+]);
+
+// Each of these was a real false positive in an earlier draft of the map.
+it('does not manufacture a match across a separator or a surname', function (string $input, ?string $expected) {
+    expect(SectorTaxonomy::classifyText($input))->toBe($expected);
+})->with([
+    // <name ending in h> + <word starting "air"> — a productive AU handle pattern.
+    'airbnb host' => ['beth.airbnb', null],
+    'hvac tradie' => ['sarah.airconditioning', null],
+    'spray tanner' => ['leah.airbrushtanning', 'esthetician'],
+    'airbnb host 2' => ['hannah.airbnbhost', null],
+    'pet groomer' => ['hairyhounds', null],
+    // Surnames and qualifiers must lose to the trade actually named.
+    'Barber the surname' => ['sarahbarberphotography', 'photographer'],
+    'real estate niche' => ['realestatephotography', 'photographer'],
+    'Baker the surname' => ['jessbakerphotography', 'photographer'],
+    // 'spa' is absent from the map precisely so this cannot happen.
+    'Spartan' => ['Spartan Fitness', 'gym'],
+    'barber not bakery' => ['bakerstreetbarbers', 'barber'],
+    'not a painter' => ['facepainting.co', null],
+    'furniture' => ['mrchairs.furniture', null],
+    'not a barber' => ['thebarberlin', 'barber'],
+    'IT consultant' => ['coffeeandcode', null],
+]);
+
+it('never resolves free text to a FOOD_SECTORS slug', function () {
+    $map = (new ReflectionClass(SectorTaxonomy::class))->getConstant('TEXT_KEYWORD_SECTORS');
+
+    foreach ($map as $keyword => $slug) {
+        expect(SectorTaxonomy::isFood($slug))->toBeFalse("'{$keyword}' maps to food slug '{$slug}'");
+    }
+});
+
+it('maps every free-text keyword to a real sector slug', function () {
+    $map = (new ReflectionClass(SectorTaxonomy::class))->getConstant('TEXT_KEYWORD_SECTORS');
+
+    foreach ($map as $keyword => $slug) {
+        expect(SectorTaxonomy::isValid($slug))->toBeTrue("'{$keyword}' maps to unknown slug '{$slug}'")
+            ->and($keyword)->toBe(strtolower($keyword))
+            ->and(preg_match('/^[a-z]+$/', $keyword))->toBe(1, "'{$keyword}' must be lowercase a-z only (normalisation strips everything else)");
+    }
+});

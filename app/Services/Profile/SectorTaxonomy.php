@@ -298,6 +298,113 @@ final class SectorTaxonomy
     ];
 
     /**
+     * Keywords safe to substring-match against FREE TEXT — an Instagram handle
+     * or display name — when the category is too vague to classify.
+     *
+     * Separate from KEYWORD_SECTORS on purpose. That map is safe against
+     * Facebook's closed category vocabulary and dangerous against free text:
+     * it holds 'spa' at index 5 and 'fitness' at index 8, so "Spartan Fitness"
+     * resolves to 'spa'. Word-boundary anchoring would fix that but break the
+     * run-together handles this exists to catch ('\btattoo' misses
+     * crucibletattooco). A vetted map with plain substring matching does both.
+     *
+     * A key qualifies only if it (1) is >=5 characters, (2) is not a substring
+     * of a common English word or Australian surname, (3) names a TRADE rather
+     * than a medium, and (4) cannot be manufactured by joining across a
+     * separator in a plausible handle. Clause 4 is why there is no bare 'hair':
+     * normalisation turns beth.airbnb into bethairbnb.
+     *
+     * NO VALUE MAY BE IN FOOD_SECTORS. A wrong food slug flips four
+     * capabilities and misroutes links via LinkRouter's own copy of the arms.
+     * That rules out coffee/catering/baker — Baker is a top-20 AU surname.
+     *
+     * ORDER: first substring hit wins. Where a key is commonly a surname
+     * ('barber') or a qualifier of another trade ('realestate', 'wedding'), it
+     * MUST come after every trade key that can co-occur with it in one handle.
+     * The medium someone practises beats the subject they practise it on.
+     *
+     * @var array<string, string>
+     */
+    private const TEXT_KEYWORD_SECTORS = [
+        // Media first — these co-occur with surnames and qualifiers below.
+        'photograph' => 'photographer',
+        'videograph' => 'videographer',
+        'graphicdesign' => 'graphic-designer',
+
+        // Beauty & personal care
+        'hairstylist' => 'hair-salon',
+        'hairdress' => 'hair-salon',
+        'hairsalon' => 'hair-salon',
+        'hairstudio' => 'hair-salon',
+        'barber' => 'barber',
+        'tattoo' => 'tattoo-artist',
+        'makeup' => 'makeup-artist',
+        'lashes' => 'brows-lashes',
+        'browsandlashes' => 'brows-lashes',
+        'airbrushtanning' => 'esthetician',
+        'spraytan' => 'esthetician',
+        'skincare' => 'esthetician',
+        'esthetic' => 'esthetician',
+        'massage' => 'spa',
+        'nailtech' => 'nail-technician',
+        'nailsalon' => 'nail-technician',
+
+        // Health & fitness
+        'pilates' => 'yoga-instructor',
+        'barrepilates' => 'yoga-instructor',
+        'yogateacher' => 'yoga-instructor',
+        'personaltrainer' => 'personal-trainer',
+        'fitness' => 'gym',
+        'physio' => 'physiotherapist',
+        'chiro' => 'chiropractor',
+        'dentist' => 'dentist',
+        'nutrition' => 'nutritionist',
+
+        // Trades & automotive
+        'plumb' => 'plumber',
+        'electrician' => 'electrician',
+        'landscap' => 'landscaper',
+        'carpentry' => 'builder',
+        'mechanic' => 'mechanic',
+        'cardetailing' => 'car-detailer',
+
+        // Retail & professional — after the media keys above.
+        'florist' => 'florist',
+        'jeweller' => 'jewellery',
+        'realestate' => 'real-estate-agent',
+        'bookkeep' => 'accountant',
+        'tutoring' => 'tutor',
+    ];
+
+    /**
+     * Classify free text (an Instagram handle or display name) into a sector.
+     *
+     * Normalises to a-z only — dots, underscores, spaces, digits and emoji all
+     * removed — then takes the first substring hit in map order. Stripping
+     * separators is what lets 'crucibletattooco' match; the map's clause-4
+     * admission rule is what stops it manufacturing false positives.
+     */
+    public static function classifyText(?string $raw): ?string
+    {
+        if (! is_string($raw)) {
+            return null;
+        }
+
+        $normalised = preg_replace('/[^a-z]/', '', strtolower($raw)) ?? '';
+        if ($normalised === '') {
+            return null;
+        }
+
+        foreach (self::TEXT_KEYWORD_SECTORS as $keyword => $slug) {
+            if (str_contains($normalised, $keyword)) {
+                return $slug;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * The picker payload: sectors grouped into their sections, in list order.
      *
      * @return list<array{group: string, options: list<array{slug: string, label: string}>}>
