@@ -83,8 +83,11 @@ class SitepageDataResolverService
         'youtube' => 'watch', 'twitch' => 'watch', 'vimeo' => 'watch',
         // Shop — storefronts + Bandcamp (sells via Shop per the taxonomy).
         'shop' => 'shop', 'bandcamp' => 'shop',
-        // Events — ticketing + standalone events.
-        'eventbrite' => 'events', 'humanitix' => 'events', 'events-custom' => 'events',
+        // Events are NOT here (slice 2 Task 9, 2026-08-12). A ticketing
+        // connection used to grant the Events page on its own; the pool is now
+        // the only grantor, so a connected owner with nothing upcoming gets no
+        // Events page instead of an empty one. Re-adding an entry here would
+        // silently restore the empty-page behaviour.
         // Services — booking links.
         'fresha' => 'services', 'square' => 'services', 'booking' => 'services',
         // Reservations — keyless reservation widgets (Business-only page).

@@ -532,8 +532,13 @@ it('a pending account row is publicly active and renders {url} only — never a 
 
     $res = $this->getJson("/api/public/profiles/{$user->handle}/platforms")->assertOk();
 
+    // The legacy events lane was retired in slice 2 Task 9: eventbrite's
+    // public allowlist is now empty, so a pending row publishes NOTHING rather
+    // than {url}. The envelope still resolves — the row and its null
+    // lastRefreshedAt are what this test is really about, and events now reach
+    // the wire via profile.pools.events.
     $payload = $res->json('data.platforms.eventbrite.0.payload');
-    expect($payload)->toBe(['url' => $url]);
+    expect($payload)->toBe([]);
     expect($payload)->not->toHaveKey('organiser');
     expect($payload)->not->toHaveKey('next');
     expect($payload)->not->toHaveKey('upcoming');

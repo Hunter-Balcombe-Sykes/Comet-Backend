@@ -81,24 +81,26 @@ class PublicIntegrationConnectionResource extends ApiResource
         'youtube' => ['handle', 'name', 'description', 'link', 'thumbnail', 'latest'],
         'apple-music' => ['input', 'name', 'thumbnail', 'releaseDate', 'link', 'latest'],
         'apple-podcast' => ['input', 'name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest'],
-        // Events platforms carry two row kinds: account rows ({url, organiser,
-        // next, upcoming}) and standalone-event rows ({kind:'event', id, ...flat
-        // event fields}). hiddenEventIds stays private (dashboard-only state).
-        // The enriched-event keys (description / startsAt / endsAt / priceMin /
-        // currency / soldOut, 2026-07-17) are listed for the STANDALONE rows —
-        // account rows' next/upcoming event objects pass through whole (the
-        // allowlist filters top-level keys only) and carry them implicitly.
-        // slug/aliases (item-url-slugs, 2026-07-24) are injected onto every
-        // event object by PublicIntegrationController before this resource
-        // resolves — listed here so they survive the STANDALONE top-level
-        // filter; account rows' upcoming/next carry them for free (pass-through).
-        'eventbrite' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases'],
-        'humanitix' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases'],
-        // events-custom: a non-Eventbrite/Humanitix link added via the Tickets &
-        // Events card, stored as a standalone event row so it renders in the
-        // sitepage Events section. Single card — no organiser/upcoming. Snapshot
-        // once, never refreshed (absent from the registry's refreshable set).
-        'events-custom' => ['kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases'],
+        // RETIRED 2026-08-12 (slice 2, Task 9). The events platforms are now
+        // DASHBOARD-ONLY: events reach the public wire through
+        // `profile.pools.events` instead, which serves the same events from
+        // content.items with occurrence/place/price facets the legacy shape
+        // could not carry, plus slug/aliases from content.item_slugs.
+        //
+        // `=> []` rather than deletion, deliberately. The platforms are still
+        // REGISTERED (PlatformRegistryServiceProvider:314/315/328) because the
+        // dashboard connect/refresh lane still uses them, and
+        // PublicAllowlistCoverageTest requires every registered platform to
+        // carry an entry — deleting the keys would report a
+        // MissingPublicAllowlistException to Nightwatch on every public
+        // request. An empty allowlist is that test's sanctioned form for a
+        // dashboard-only platform, same as booking/reservations.
+        //
+        // Owners who hid events keep them hidden: the hides were carried into
+        // section_items excludes by content:migrate-hidden-events.
+        'eventbrite' => [],
+        'humanitix' => [],
+        'events-custom' => [],
         // custom: one row per user-attached link.
         'custom' => ['kind', 'url', 'name', 'description', 'favicon', 'logo'],
         'facebook' => ['username', 'url'],

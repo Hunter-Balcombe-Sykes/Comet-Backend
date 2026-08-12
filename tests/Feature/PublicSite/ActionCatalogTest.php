@@ -298,9 +298,49 @@ it('shop-tracks: present only via an active bandcamp connection', function () {
         ->and($pool['shop-tracks'])->toMatchArray(['kind' => 'page', 'pageId' => 'shop-tracks']);
 });
 
-it('events: present via an eventbrite connection, page action to /events', function () {
-    $tenant = createTenant('cat-events');
+// Slice 2 Task 9 flipped Events presence from connection-derived to
+// pool-derived: PLATFORM_TO_PAGE no longer maps eventbrite/humanitix, so the
+// connection alone grants nothing. An UPCOMING event in the pool is now the
+// whole qualification — which is the point, an organiser with nothing on
+// should not advertise an empty Events page.
+it('events: a ticketing connection alone no longer grants the action', function () {
+    $tenant = createTenant('cat-events-empty');
     insertConnection($tenant, 'eventbrite', ['url' => 'https://eventbrite.com/o/maha']);
+
+    expect(poolIds($tenant))->not->toContain('events');
+});
+
+it('events: present via an upcoming event in the pool, page action to /events', function () {
+    setupContentTables();
+
+    $tenant = createTenant('cat-events');
+    $connectionId = insertConnection($tenant, 'eventbrite', ['url' => 'https://eventbrite.com/o/maha']);
+
+    $sourceId = (string) Str::uuid();
+    DB::connection('pgsql')->table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $tenant->id, 'kind' => 'connection',
+        'connection_id' => $connectionId, 'priority' => 100,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $itemId = (string) Str::uuid();
+    DB::connection('pgsql')->table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $tenant->id, 'kind' => 'event',
+        'headline_cache' => 'Clothes swap', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::connection('pgsql')->table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => 'eventbrite:acct:swap', 'item_id' => $itemId, 'kind' => 'event',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    DB::connection('pgsql')->table('content.f_occurrence')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId,
+        'starts_at_local' => now()->addDays(5)->toDateTimeString(),
+        'starts_at_utc' => now()->addDays(5)->toDateTimeString(),
+        'zone_confidence' => 'offset_only', 'is_all_day' => 0, 'updated_at' => now(),
+    ]);
 
     $pool = collect(actionsPool($tenant))->keyBy('id');
 

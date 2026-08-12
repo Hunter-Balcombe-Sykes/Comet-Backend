@@ -358,7 +358,7 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
     expect($platforms['vimeo'][0]['payload'])->not->toHaveKey('highlights');
 });
 
-it('passes the enriched event fields to the public wire and keeps hiddenEventIds private', function () {
+it('publishes nothing for the retired events platforms, enriched fields included', function () {
     $user = allowlistUser('allowevents');
 
     $enriched = [
@@ -380,8 +380,10 @@ it('passes the enriched event fields to the public wire and keeps hiddenEventIds
         'link' => 'https://www.eventbrite.com/e/warehouse-rave-tickets-123',
     ];
 
-    // Account row: upcoming[] event objects pass through WHOLE (top-level filter
-    // only), so the enriched keys ride inside; hiddenEventIds must never leak.
+    // Slice 2 Task 9 retired this lane. Both row kinds — the account row whose
+    // upcoming[] used to pass through whole, and the standalone row whose
+    // enriched keys were top-level and individually allowlisted — now emit an
+    // empty payload. Events reach the wire via profile.pools.events instead.
     IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'eventbrite',
@@ -396,8 +398,6 @@ it('passes the enriched event fields to the public wire and keeps hiddenEventIds
         'is_active' => true,
         'last_refresh_status' => 'ok',
     ]);
-    // Standalone event row: the enriched keys are TOP-level, so they must be on
-    // the platform allowlist to survive.
     IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'humanitix',
@@ -412,29 +412,13 @@ it('passes the enriched event fields to the public wire and keeps hiddenEventIds
         ->assertOk()
         ->json('data.platforms');
 
-    $account = $platforms['eventbrite'][0]['payload'];
-    expect($account)->not->toHaveKey('hiddenEventIds');
-    expect($account['upcoming'][0])->toMatchArray([
-        'description' => 'All-night warehouse party.',
-        'startsAt' => '2026-09-05T21:00:00+10:00',
-        'endsAt' => '2026-09-06T05:00:00+10:00',
-        'priceMin' => 20.0,
-        'currency' => 'AUD',
-        'soldOut' => false,
-    ]);
-
-    $standalone = $platforms['humanitix'][0]['payload'];
-    expect($standalone)->toMatchArray([
-        'kind' => 'event',
-        'description' => 'All-night warehouse party.',
-        'startsAt' => '2026-09-05T21:00:00+10:00',
-        'endsAt' => '2026-09-06T05:00:00+10:00',
-        'priceMin' => 20.0,
-        'currency' => 'AUD',
-        'soldOut' => false,
-        'venue' => 'The Depot',
-    ]);
+    expect($platforms['eventbrite'][0]['payload'])->toBe([]);
+    expect($platforms['humanitix'][0]['payload'])->toBe([]);
+    // Was private before the retirement and stays private after it — the two
+    // are different mechanisms and only one is doing the work now.
+    expect($platforms['eventbrite'][0]['payload'])->not->toHaveKey('hiddenEventIds');
 });
+
 it('keeps the stored bandcamp releases grid and stale highlights off the public wire', function () {
     // Which releases appear publicly is the Listen pool's selection now
     // (platforms-as-sources P4): the stored scrape keeps `releases` for

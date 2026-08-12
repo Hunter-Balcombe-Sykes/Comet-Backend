@@ -67,17 +67,82 @@ Scraped events land `from`, or `free` at zero: the scrape sees the lowest
 tier of a multi-tier offer set and `from` is the only honest reading. On dev
 today the live spread is one `from` at 661 AUD and the rest `free` at 0.
 
+### New: `slug` and `aliases` on every `poolItem`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `slug` | string \| null | The item's current public URL slug. `null` when none has been minted. |
+| `aliases` | string[] | Every other value that should **301 to `slug`** — retired slugs first, then the raw item id. Never empty: the raw id is always present. |
+
+This replaces the identically-shaped `slug`/`aliases` the legacy events lane
+stamped onto the integrations payload, and degrades the same way (`slug:
+null`, `aliases: [id]`) so a permalink resolves rather than 404s.
+
+Served from `content.item_slugs`. A slug retires rather than being deleted,
+and keeps redirecting for `partna.item_slugs.retirement_days` (90) before the
+prune sweep removes it.
+
 ### Page presence
 
 `page_order` may now include `events` for a user with a non-empty events pool
-selection and no active ticketing connection — e.g. hand-added events. Pools
-add presence and never remove it, so no user loses the Events page: an
-Eventbrite-connected owner with nothing upcoming keeps the page they have
-today.
+selection and no active ticketing connection — e.g. hand-added events.
 
-## Not changed in this slice
+**Changed:** it may also now EXCLUDE `events` for a user who has a ticketing
+connection but nothing upcoming. See "Removed" below.
 
-The legacy events lane on `GET /api/public/integrations/{handle}`
-(`eventbrite` / `humanitix` payload keys, `hiddenEventIds` curation) is
-untouched. Until it is retired, an Eventbrite-connected user's events appear
-in **both** surfaces — consumers should pick one. See slice 2 Task 9.
+## Removed — the legacy events lane
+
+`GET /api/public/profiles/{handle}/integrations` (and its `/platforms` alias).
+
+### `eventbrite`, `humanitix` and `events-custom` publish nothing
+
+Before, each carried a filtered payload — account rows `{url, organiser,
+next, upcoming[]}`, standalone rows the flat event fields — with `slug` and
+`aliases` stamped onto every event object.
+
+After: **`payload` is `{}`** for all three.
+
+    "platforms": {
+      "eventbrite": [ { "resourceId": "acct-abc", "payload": {}, "lastRefreshedAt": null } ]
+    }
+
+The connection **row and its envelope remain** (`resourceId`, `payload`,
+`lastRefreshedAt`), so a consumer iterating `platforms` sees no shape change —
+only an empty payload. The platforms stay registered because the dashboard
+connect/refresh lane still uses them; they are simply dashboard-only now.
+
+**Migrate to `profile.pools.events`.** It carries the same events with more:
+occurrence, place and price facets the legacy shape could not express, plus
+owner curation (pins, excludes) the legacy lane expressed only as a private
+`hiddenEventIds` list.
+
+`hiddenEventIds` was never on the public wire and still is not.
+
+### Events-page presence is now pool-derived
+
+`eventbrite` / `humanitix` / `events-custom` were removed from the
+backend's platform→page presence map. A ticketing connection **no longer
+grants the Events page on its own**; a non-empty events pool selection does.
+
+Net effect: an organiser whose events have all finished no longer advertises
+an empty Events page. Previously the page appeared as long as the connection
+existed. This also removes the `events` entry from the site actions catalog
+for such a user.
+
+### Owner curation was migrated, not dropped
+
+Events an owner had hidden via `hiddenEventIds` were carried into the pool as
+section excludes (`content:migrate-hidden-events`), so they stay hidden. The
+legacy lane hid at write time, pruning hidden events out of the stored
+payload; the pool reads `content.items` directly, so without the migration
+they would have reappeared.
+
+## Not changed
+
+`site.item_slugs` is untouched — its rows still exist and the menu lane still
+uses it. Dropping it is slice 7's teardown.
+
+Four of the 13 legacy event slugs had no corresponding content item and were
+therefore not carried over (two whose events the ingest pipeline never landed,
+two belonging to standalone connections that land no ingest records). Their
+permalinks stop resolving with this change.

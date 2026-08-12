@@ -345,10 +345,10 @@ it('grants the events page presence from a pool with no ticketing connection', f
     expect($present)->toContain('events');
 });
 
-// Pools ADD presence and never veto it: an Eventbrite connection with nothing
-// upcoming keeps the Events page it has today. Flipping that to a veto is
-// Task 9's job, not this slice's.
-it('keeps the events page for a connected user with nothing upcoming', function () {
+// Task 9 flipped this. Before it, PLATFORM_TO_PAGE granted Events off the
+// mere existence of a ticketing connection, so an organiser with nothing on
+// advertised an empty page. The pool is now the only grantor.
+it('gives no events page to a connected user with nothing upcoming', function () {
     setupMediaTables();
     setupBlocksTable();
     setupServicesTable();
@@ -364,7 +364,7 @@ it('keeps the events page for a connected user with nothing upcoming', function 
         ->presentPageIds($site, $caps, collect());
 
     expect(app(PoolResolver::class)->hasSelection($site, 'events'))->toBeFalse();
-    expect($present)->toContain('events');
+    expect($present)->not->toContain('events');
 });
 
 // Task 9 moves slug service off the legacy integrations wire and onto the

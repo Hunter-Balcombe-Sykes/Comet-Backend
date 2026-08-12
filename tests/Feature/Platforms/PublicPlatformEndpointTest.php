@@ -34,7 +34,11 @@ it("returns a handle's platform connections grouped by platform", function () {
     $res->assertOk();
     expect($res->json('data.platforms.custom'))->toHaveCount(2);
     expect($res->json('data.platforms.custom.0.payload.name'))->toBe('Store A'); // sort_order 0 first
-    expect($res->json('data.platforms.eventbrite.0.payload.organiser'))->toBe('Acme');
+    // The grouping is what this asserts, not the payload: eventbrite's public
+    // allowlist emptied when slice 2 Task 9 retired the legacy events lane, so
+    // the row still groups under its platform key but carries nothing.
+    expect($res->json('data.platforms.eventbrite'))->toHaveCount(1);
+    expect($res->json('data.platforms.eventbrite.0.payload'))->toBe([]);
 });
 
 it('404s an unknown handle (no existence leak)', function () {

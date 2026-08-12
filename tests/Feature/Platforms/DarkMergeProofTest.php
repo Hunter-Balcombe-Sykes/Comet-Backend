@@ -532,7 +532,9 @@ it('a pending row renders publicly with allowlisted keys ONLY — none of the de
     expect($platforms['fresha'][0]['lastRefreshedAt'])->toBeNull();
 
     expect($platforms['skool'][0]['payload'])->toBe(['url' => 'https://www.skool.com/pending-community']);
-    expect($platforms['eventbrite'][0]['payload'])->toBe(['url' => $ebUrl]);
+    // eventbrite publishes {} since slice 2 Task 9 retired the legacy events
+    // lane — its public allowlist is empty, unlike skool's above.
+    expect($platforms['eventbrite'][0]['payload'])->toBe([]);
     expect($platforms['apple-music'][0]['payload'])->toBe(['input' => 'Pending Artist']);
 
     // Belt-and-braces: no row's public payload carries ANY key outside its
