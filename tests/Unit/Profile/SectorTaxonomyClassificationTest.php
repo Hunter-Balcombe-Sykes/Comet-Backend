@@ -375,3 +375,20 @@ it('has no KEYWORD_SECTORS key containing a comma', function () {
 
     expect(array_filter($keywords, fn (string $k) => str_contains($k, ',')))->toBe([]);
 });
+
+// ── categories the substring map gets wrong (2026-08-12) ─────────────────────
+//
+// All six reach a wrong slug through KEYWORD_SECTORS' trailing 'bar' and
+// 'sport' entries. Three land on the FOOD slug 'bar', which flips
+// can_use_booking OFF for a business — a barre studio and a mobile bartender
+// are exactly the accounts that need booking on.
+it('exact-maps categories the substring classifier gets wrong', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBe($expected);
+})->with([
+    ['Sports Bar', 'bar'],
+    ['Juice Bar', 'cafe'],
+    ['Bartender', 'bartender'],
+    ['Barre Studio', 'yoga-instructor'],
+    ['Sportswear Store', 'clothing-boutique'],
+    ['Hair Removal Service', 'esthetician'],
+]);

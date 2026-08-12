@@ -235,6 +235,16 @@ final class SectorTaxonomy
         'music lessons & instruction school' => 'music-teacher',
         'music teacher' => 'music-teacher',
 
+        // The substring map's trailing 'bar' and 'sport' keys capture these.
+        // Three would otherwise resolve to the FOOD slug 'bar' and flip
+        // can_use_booking off on a business account.
+        'sports bar' => 'bar',
+        'juice bar' => 'cafe',
+        'bartender' => 'bartender',
+        'barre studio' => 'yoga-instructor',
+        'sportswear store' => 'clothing-boutique',
+        'hair removal service' => 'esthetician',
+
         // Creative
         'digital creator' => 'content-creator',
         'content creator' => 'content-creator',
