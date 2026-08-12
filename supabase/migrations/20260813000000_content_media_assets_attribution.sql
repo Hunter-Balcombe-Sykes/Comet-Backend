@@ -6,4 +6,6 @@
 -- entries carry attribution at all, so "absent" is a real and expected state,
 -- not a backfill gap. jsonb rather than columns because the shape is Google's
 -- and may gain keys (googleMapsUri, flagContentUri) without a migration.
+--
+-- ROLLBACK: ALTER TABLE content.media_assets DROP COLUMN IF EXISTS attribution;
 ALTER TABLE content.media_assets ADD COLUMN attribution jsonb NULL;
