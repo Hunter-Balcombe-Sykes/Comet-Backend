@@ -286,6 +286,35 @@ slice builds on. Verify each claim yourself; this is a pointer, not evidence.
 - **`UserServiceController` is ~14 endpoints** (`/services` CRUD, `/reorder`, `/resync`, `/restore`, `/service-categories/*`, `/{id}/category`, `/reorder-layout`). Every one is a wire contract. Changes go in the manifest.
 - **DSAR:** `DataExportPayloadBuilder` streams `site.services` as a named export section and pins `services` / `service_categories` in its declared return shape. Do not break it; slice 7 drops the tables, so the export must read `content.*` by then.
 
+## Concurrency — you will collide with slice 5b in exactly one file
+
+**Added 2026-08-13, after 5a shipped.** Slice 5b adds a `shop` pool, and you add
+a `services` pool. Parent §4.3 rule 1 protects the *data* — different kinds,
+different `site.pages` keys — but not *files*. Both of you edit
+`app/Site/Pools/PoolRegistry.php`:
+
+- both add an entry to `POOLS`, `PAGE_KEYS`, `PAGE_LABELS` and `SECTION_SHAPE`;
+- both edit the SAME docblock sentence, the one reading *"Sell / Services / Menu
+  are NOT here"* — each of you deletes a different word from it.
+
+A union merge, not a design conflict. `PoolRegistryTest` only pins that a kind
+belongs to at most one pool, which both satisfy.
+
+**The rule, for whichever of you merges SECOND:** re-run `PoolRegistryTest` and
+the pool provisioning tests *after* resolving the conflict, not before. A union
+merge that silently drops one half of a const array still passes every test
+written by the branch that added the other half. Do not take "theirs" or "mine"
+wholesale on that file — read both hunks.
+
+Also inherited from 5a, and worth your attention because it cost real time:
+tests run SQLite and production is Postgres, and 5a shipped two bugs through a
+fully green suite because of it — a bare column in an `ON CONFLICT DO UPDATE` is
+ambiguous on Postgres (it failed all 9 stores on the first real backfill), and a
+`timestamptz` returns a different string format than the TEXT stand-in. The lane
+that catches both is `tests/Postgres/`; any change under `app/Ingest/` must run
+it, because its hand-written stand-in DDL drifts from the real migrations
+silently.
+
 ## If reality diverges, update the downstream prompts — do not just note it
 
 **A checkpoint is not a communication channel.** Parent invariant #5 forbids any

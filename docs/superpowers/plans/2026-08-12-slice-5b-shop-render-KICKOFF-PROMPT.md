@@ -242,6 +242,28 @@ slice it renders from `profile.pools.shop`.
 - **Tests run SQLite, production is Postgres.** Verify every constraint-bound write against the DDL, not a green suite.
 - **Outbound fetches go through `SafeUrlFetcher`.** Product and store URLs arrive in third-party payloads and are untrusted by definition. A host allowlist entry is not the fix.
 - **`site.shop_products` / `site.shop_brands` are not dropped** — that is slice 7. 5a already made them inert.
+- **Tests run SQLite, production is Postgres — and this slice's predecessor was bitten by that TWICE.** A bare column in an `ON CONFLICT DO UPDATE` is ambiguous on Postgres and silently fine on SQLite (it failed all 9 stores on 5a's first real backfill while the whole 7830-test suite was green); and a `timestamptz` round-trip returns a different string format than the TEXT stand-in. The lane that catches both is `tests/Postgres/` (`composer test:pg`, `Tests\PostgresTestCase`, `phpunit.pg.xml`). **Any change under `app/Ingest/` must run it** — its hand-written stand-in DDL drifts from the real migrations silently.
+
+## Concurrency — you will collide with slice 3a in exactly one file
+
+**3a is live right now** (`feat/slice-3-services`, mid-implementation) and it adds
+a pool too. Parent §4.3 rule 1 protects the *data* — 3a is `service` kind, you are
+`product`, and you provision different `site.pages` keys — but it does not protect
+*files*, and you will both edit `app/Site/Pools/PoolRegistry.php`:
+
+- both add an entry to `POOLS`, `PAGE_KEYS`, `PAGE_LABELS` and `SECTION_SHAPE`;
+- both edit the SAME docblock sentence, the one reading *"Sell / Services / Menu
+  are NOT here"* — each of you is deleting a different word from it.
+
+It is a union merge, not a design conflict. The two pools are independent and
+`PoolRegistryTest` only pins that a kind belongs to at most one pool, which both
+satisfy.
+
+**The rule that matters, for whichever of you merges SECOND:** re-run
+`PoolRegistryTest` and the pool provisioning tests *after* resolving the
+conflict, not before. A union merge that silently drops one half of a const array
+still passes every test written by the branch that added the other half. Do not
+take "theirs" or "mine" wholesale on that file — read both hunks.
 
 ## If reality diverges, update the downstream prompts — do not just note it
 
