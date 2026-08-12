@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Core\User\User;
+use App\Site\Pools\BorrowedMedia;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
@@ -40,6 +41,33 @@ class ContentItemPolicy extends BasePolicy
     public function delete(User $actor, Model $resource): bool|Response
     {
         return $this->update($actor, $resource);
+    }
+
+    /**
+     * Slice 1b D5 — pinning an item into a pool's curated half.
+     *
+     * Ownership is checked FIRST and denies as 404, before the borrowed test
+     * runs. Reversed, a stranger probing uuids would learn which ones are real
+     * Google media items from the 403 — the enumeration oracle the class
+     * docblock above exists to close.
+     *
+     * The 403 here is a capability restriction on a resource the actor
+     * legitimately owns, not a hidden resource, which is why it is not the 404
+     * every other denial on this policy returns.
+     */
+    public function pin(User $actor, Model $resource): bool|Response
+    {
+        if ($denied = $this->denyIfPendingDeletion($actor)) {
+            return $denied;
+        }
+
+        if (! $this->ownerMatches($actor, $resource)) {
+            return $this->denyAsNotFound();
+        }
+
+        return BorrowedMedia::isBorrowed($resource)
+            ? Response::deny('This photo comes from Google and cannot be pinned.')
+            : true;
     }
 
     private function ownerMatches(User $actor, Model $resource): bool

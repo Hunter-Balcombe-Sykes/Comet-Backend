@@ -927,9 +927,9 @@ avoid splitting one billed Details call into two."
 **Interfaces:**
 - Produces: `BorrowedMedia::isBorrowed(Item $item): bool` — true when the item's `content.sources` row is a `connection` source whose `ingest.sources.source_key` is `google_business`. Used only by `PoolController::select()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
-Create `tests/Feature/Api/Content/PoolBorrowedMediaPinTest.php`:
+Create `tests/Feature/Content/PoolBorrowedMediaPinTest.php`:
 
 ```php
 <?php
@@ -975,14 +975,35 @@ it('allows a pin on an instagram media item', function () {
 });
 ```
 
-**Helpers:** reuse the auth helper the existing pool tests use. Run `grep -rn 'withSupabaseJwt\|actingAsSupabase' tests/Feature/Api/Content/ | head -3` and match it exactly — `Auth::user()` is always null under Supabase JWT, so a wrong helper produces a misleading 401.
+> **CORRECTED — three things in this task's draft do not match the codebase.**
+>
+> 1. **`tests/Feature/Api/Content/` does not exist**, and neither does
+>    `withSupabaseJwt()`. Pool tests live at `tests/Feature/Content/`, and the
+>    auth helper is `actingAsUser($user)` (`tests/Pest.php:105`). Written as
+>    `tests/Feature/Content/PoolBorrowedMediaPinTest.php`.
+> 2. **There is no `error.code` in this API's error envelope.** Every arm of
+>    `bootstrap/app.php`'s handler emits `{"message": …}` with a status. So the
+>    drafted `assertJsonPath('error.code', 'BORROWED_MEDIA_NOT_PINNABLE')` could
+>    never pass. Asserting status 403 plus the absence of a pin row instead.
+> 3. **Route-level, not direct controller calls.** The sibling `PoolLaneTest`
+>    calls `PoolController` methods directly with a bare `Request`; that pattern
+>    hid three live bugs in one 2026-07-27 audit because it skips routing,
+>    middleware and policy resolution. An authorization check verified that way
+>    would prove nothing.
+>
+> **Extra case added:** a stranger hitting the same route still gets 404, not
+> 403. The ownership check has to run BEFORE the borrowed test, or the 403
+> becomes an enumeration oracle telling a prober which uuids are real Google
+> media items.
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
-Run: `./vendor/bin/pest tests/Feature/Api/Content/PoolBorrowedMediaPinTest.php`
-Expected: FAIL — the first test gets 200 instead of 403.
+Observed: 1 failed (200 instead of 403), 4 passed. The four passing are what prove the fixture is sound rather than inert — uploads and Instagram DO pin, the item IS visible in the auto half, and a stranger DOES get 404.
 
-- [ ] **Step 3: Implement the predicate**
+- [x] **Step 3: Implement the predicate**
+
+Join verified against dev before trusting it: returns **20**, matching the 20 Google media items in the spec.
+
 
 Create `app/Site/Pools/BorrowedMedia.php`:
 
@@ -1036,30 +1057,33 @@ WHERE i.kind='media' AND ing.source_key='google_business';
 ```
 Expected: 20. If it returns 0, `content.sources.connection_id` and `ingest.sources.connection_id` do not refer to the same thing — inspect both and correct the join rather than the expectation.
 
-- [ ] **Step 4: Wire it into `select()`**
+- [x] **Step 4: Wire it into `select()`**
 
-In `app/Http/Controllers/Api/Content/PoolController.php`, immediately after `$item = $this->findPoolItem(...)` inside `select()` only:
+> **The inline `abort(403)` was NOT viable — took the fallback, as drafted.**
+> `InlineAuthBypassGuardTest` scans all of `app/Http/Controllers` via
+> `ControllerAbortScanner::inlineForbiddenAborts()` and flags **every** inline
+> 403, with paren-depth tracking that catches wrapped and multi-line forms. It
+> does not distinguish a capability restriction from an ownership check, so the
+> drafted note ("not the pattern the guard targets") is wrong. It is also what
+> CLAUDE.md mandates anyway.
+
+Added `pin` to `ContentItemPolicy` and called it from `select()`:
 
 ```php
-        // D5: borrowed media is displayable but not pinnable. 403 not 404 — the
-        // owner legitimately owns this item, so this is a capability restriction,
-        // not a hidden resource (CLAUDE.md's 403-vs-404 rule).
-        if (BorrowedMedia::isBorrowed($item)) {
-            abort(403, 'This photo comes from Google and cannot be pinned.');
-        }
+        $this->authorizeForUser($user, 'pin', $item);
 ```
+
+The policy checks ownership first (`denyAsNotFound()` → 404), then borrowed
+(`Response::deny(...)` → `AccessDeniedHttpException` → the handler's 403 arm,
+`{"message": …}`). `Response::deny()` rather than `denyWithStatus(403, …)`
+deliberately: the latter produces a bare `HttpException(403)`, which
+`bootstrap/app.php` only special-cases for 404 and 423 and would fall through.
 
 `deselect()` and `reorder()` are untouched — there is nothing to remove or order.
 
-**Note on the inline `abort(403)`:** CI fails the build on inline 403 aborts that implement *ownership* checks. This is a capability restriction on an already-owned resource, not an ownership check, so it is not the pattern the guard targets. Run the guard to confirm rather than assuming:
+- [x] **Step 5: Run the tests**
 
-```bash
-./vendor/bin/pest tests/Feature/Architecture --filter=Policy
-```
-
-If it fails, move the check into the media pool's policy as an `pin` ability and call `$this->authorizeForUser($user, 'pin', $item)` instead. Do not suppress the guard.
-
-- [ ] **Step 5: Run the tests**
+5 passed. `tests/Feature/Architecture` 90 passed (InlineAuthBypassGuardTest included); `tests/Feature/Content` + `tests/Feature/Policies` 158 passed.
 
 ```bash
 ./vendor/bin/pest tests/Feature/Api/Content/PoolBorrowedMediaPinTest.php
@@ -1067,10 +1091,10 @@ If it fails, move the check into the media pool's policy as an `pin` ability and
 ```
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
-git add app/Site/Pools/BorrowedMedia.php app/Http/Controllers/Api/Content/PoolController.php tests/Feature/Api/Content/PoolBorrowedMediaPinTest.php
+git add app/Site/Pools/BorrowedMedia.php app/Http/Controllers/Api/Content/PoolController.php app/Policies/ContentItemPolicy.php tests/Feature/Content/PoolBorrowedMediaPinTest.php
 git commit -m "feat(pools): borrowed media is displayable but not pinnable"
 ```
 

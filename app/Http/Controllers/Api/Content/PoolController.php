@@ -56,6 +56,12 @@ class PoolController extends ApiController
         $site = $this->currentSite($user);
         $item = $this->findPoolItem((string) $user->id, $pool, $itemId);
 
+        // D5: borrowed media is displayable but not pinnable. Via the policy
+        // rather than an inline abort — InlineAuthBypassGuardTest fails the
+        // build on any inline 403 in a controller, and it does not care whether
+        // the check is ownership or capability.
+        $this->authorizeForUser($user, 'pin', $item);
+
         $section = $this->provisioner->ensure($site, $pool);
 
         $row = SectionItem::query()
