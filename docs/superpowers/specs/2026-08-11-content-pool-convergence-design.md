@@ -1222,6 +1222,57 @@ Performed: Steps 4 (merge + deploy), 6 (the billed run), 7 (ledger assertion),
   connectors (it was `false` on all three google_business sources when read
   during the pre-flight)
 
+### 13.6 #MONEY-1 and #MONEY-2 — found by audit AFTER slice 0, fixed 2026-08-12
+
+Making `runBilledEffect()` reachable made a latent defect reachable with it.
+Both were fixed on `audit-fix/effect-ledger-money-2026-08-12` (merged
+`99579b046`); plan:
+`docs/superpowers/plans/2026-08-12-effect-ledger-money-findings.md`.
+
+**#MONEY-1 (P1).** `EffectLedger::once()` wrapped the vendor call and the
+settle write in one `try`, so its catch-all could not tell "the paid call
+failed" from "the paid call succeeded and the bookkeeping failed". A DB hiccup
+on the settle write stamped the row `failed`, discarded the paid result, and —
+since `verdictFor()` serves a settled row for the whole freshness window —
+locked that digest out for seven days behind an error naming the DB exception.
+The `try` now covers `$effect()` alone; `settleOk()` cannot throw, and on
+failure leaves the row CLAIMED so `markAbandoned()` owns it while the caller
+still receives what it paid for.
+
+**#MONEY-2 (P3).** The claim row was written before the driver's budget check,
+so a capped day cost an INSERT plus the DELETE that undoes it, per attempt.
+`PrecheckableBilledEffect` is an opt-in interface consulted after the
+existing-row read and before the claim — a settled `ok` row still replays when
+the budget is gone, which is pinned by its own test.
+
+**A regression the review caught in the #MONEY-2 fix**, worth recording because
+the shape recurs: `PlacesBudget::remaining()` is the one budget method with no
+`try/catch`, and `once()` invokes the precheck outside every `try` it has — so
+a Valkey blip escaped to `RunExecutor`'s catch-all and turned a
+`budget_skipped` (rank 3) into a paging `error` (rank 7). The precheck now
+reports and allows on any `Throwable`; allowing is safe only because `run()`'s
+`claim()` remains the authority and still fails closed.
+
+**Live verification, 2026-08-12 after deploy.** One further real billed Places
+Details call (a DIFFERENT place id — the freshness bucket would otherwise have
+replayed the 03:54 row and proved nothing):
+
+```
+digest                           | cost_tag       | cost_units | status | claimed_at          | settled_at
+---------------------------------+----------------+------------+--------+---------------------+--------------------
+6a684e00ee60b969b24674dbd80484c3 | places.details |         10 | ok     | 2026-08-12 07:01:34 | 2026-08-12 07:01:35
+e3fbf61bf2d2955c4a8136a62fb3b717 | places.details |         10 | ok     | 2026-08-12 03:54:46 | 2026-08-12 03:54:47
+```
+
+`meta` on the new row is 28,305 bytes and carries the `result` key — the paid
+payload is persisted for replay, which is the property `settleOk()` exists to
+guarantee. Log scan clean: no `settle_unrecorded`, no `effect.abandoned`, no
+`details_fetch_failed`, no `replay_unavailable`.
+
+This proves the refactor did not break the SUCCESS path. It cannot prove the
+failure path — that is what the SQLite-trigger tests in
+`tests/Feature/Ingest/BilledEffectSettleFailureTest.php` are for.
+
 Its plan file `docs/superpowers/plans/2026-08-11-billed-effect-driver-seam-PLAN.md`
 is also still untracked, against this repo's convention of committing plans.
 
