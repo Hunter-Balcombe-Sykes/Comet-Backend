@@ -20,6 +20,11 @@ beforeEach(function () {
     setupServicesTable(); // also creates site.service_categories
     setupCustomersTable();
     setupPartnaStaffTable();
+    // Slice 3a Task 5: POST /api/services now creates a content.* item, not
+    // a site.services row.
+    setupIngestTables();
+    setupContentTables();
+    setupBlocksTable();
     shimPgAdvisoryLockForSqlite(); // InsertWithSortOrder takes pg_advisory_xact_lock
 
     // staff.audit middleware writes here on every staff write request.
@@ -63,15 +68,20 @@ it('persists user_id on a customer created via POST /api/customers', function ()
 });
 
 it('persists user_id on a service created via POST /api/services', function () {
+    // Slice 3a Task 5: owner-authored services are created in content.* now
+    // (ProjectionWriter::createItem() — a raw insert, not Eloquent mass
+    // assignment) rather than site.services, so this asserts the id the
+    // create response actually returned resolves to the right owner in the
+    // new backing store, not a stray/spoofed one.
     $pro = createTenant('mass-svc-user');
 
-    actingAsUser($pro)->postJson('/api/services', [
+    $response = actingAsUser($pro)->postJson('/api/services', [
         'title' => 'Haircut',
         'price_cents' => 5000,
     ])->assertStatus(201);
 
-    $service = Service::query()->where('user_id', $pro->id)->firstOrFail();
-    expect($service->fresh()->user_id)->toBe($pro->id);
+    $itemId = $response->json('service.id');
+    expect(DB::table('content.items')->where('id', $itemId)->value('user_id'))->toBe($pro->id);
 });
 
 it('persists user_id on a service category created via POST /api/service-categories', function () {

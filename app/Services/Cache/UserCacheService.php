@@ -260,7 +260,11 @@ class UserCacheService
                     ->orderBy('created_at')
                     ->get();
 
+                // §NEW-I1 (review round 2): sort the MERGED collection by
+                // sort_order rather than concatenating manual-then-Fresha —
+                // see UserServiceController::index()'s identical fix for why.
                 return $manualServices->concat($freshaServices)
+                    ->sortBy('sort_order')->values()
                     ->map(fn (Service $s) => (new ServiceResource($s))->resolve())
                     ->all();
             }

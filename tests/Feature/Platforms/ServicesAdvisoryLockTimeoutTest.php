@@ -9,10 +9,27 @@
  *
  * Real Postgres lock contention can't be reproduced under SQLite (see
  * AdvisoryLock's docblock — the shim in tests/Pest.php no-ops the lock
- * entirely), so these tests container-mock ReorderService to throw the exact
- * exception a real SET LOCAL lock_timeout abort would produce, proving the
- * controller's catch clause genuinely converts it to 423 rather than letting
- * it fall through to a 500. They do NOT prove Postgres enforces the bound.
+ * entirely), so these tests container-mock a dependency inside the locked
+ * transaction to throw the exact exception a real SET LOCAL lock_timeout
+ * abort would produce, proving the controller's catch clause genuinely
+ * converts it to 423 rather than letting it fall through to a 500. They do
+ * NOT prove Postgres enforces the bound.
+ *
+ * Slice 3a Task 5 (review round 2): UserServiceController::reorder() no
+ * longer calls ReorderService at all — it renumbers site.services.sort_order
+ * for the professional's WHOLE live legacy set (Fresha AND still-present
+ * legacy owner-authored rows) itself, via a hand-rolled two-pass renumber
+ * (renumberLegacySortOrder()), because delegating that to
+ * ReorderService::reorder() was tried and reverted: its own internal
+ * recompaction silently breaks cross-store ordering the moment an
+ * unresolvable (newly-created) manual id sits ahead of a Fresha id in the
+ * submitted order (see ServiceEndpointCutoverTest's "round-trips even when a
+ * brand-new manual service... sits between two Fresha ids" regression test).
+ * So the user-side test below can no longer mock ReorderService — nothing
+ * calls it. It mocks ManualServiceWriter::pin() instead (the other
+ * container-resolved dependency reorder() calls inside the SAME locked
+ * transaction, for the manual half) — a fixture with at least one manual id
+ * in the submitted order is required for pin() to be reached at all.
  *
  * The store()/InsertWithSortOrder path isn't covered here: InsertWithSortOrder
  * is called via a static method (not container-resolved), so it can't be
@@ -24,6 +41,7 @@
  */
 
 use App\Models\Core\Staff\PartnaStaff;
+use App\Services\Content\ManualServiceWriter;
 use App\Services\Site\AdvisoryLockTimeoutException;
 use App\Services\Site\ReorderService;
 use Illuminate\Support\Facades\DB;
@@ -33,6 +51,11 @@ beforeEach(function () {
     setupSitesTable();
     setupServicesTable();
     setupPartnaStaffTable();
+    // reorder() now reads/writes content.* (the manual half) regardless of
+    // which store the submitted ids belong to.
+    setupIngestTables();
+    setupContentTables();
+    setupBlocksTable();
     shimPgAdvisoryLockForSqlite();
 
     // staff.audit middleware writes here on every write request.
@@ -65,6 +88,8 @@ function servicesLockTimeoutTest_adminStaff(): PartnaStaff
 
 it('staff reorder returns 423 when the services advisory lock times out', function () {
     $pro = createTenant('svclock-staff');
+    // StaffServiceManagementController::reorder() is untouched by the
+    // content.* cutover — source IS NULL is still a valid fixture for it.
     $service = createServiceFor($pro);
 
     $this->mock(ReorderService::class, fn ($m) => $m->shouldReceive('reorder')->once()
@@ -78,13 +103,19 @@ it('staff reorder returns 423 when the services advisory lock times out', functi
 
 it('user reorder returns 423 when the services advisory lock times out', function () {
     $pro = createTenant('svclock-user');
-    $service = createServiceFor($pro);
 
-    $this->mock(ReorderService::class, fn ($m) => $m->shouldReceive('reorder')->once()
-        ->andThrow(new AdvisoryLockTimeoutException("services:{$pro->id}")));
+    $manualId = actingAsUser($pro)->postJson('/api/services', ['title' => 'Manual', 'price_cents' => 1000])
+        ->assertCreated()->json('service.id');
+
+    $this->mock(ManualServiceWriter::class, function ($m) {
+        // projectionFor()/write()/coordFor() are real production calls
+        // store() above already exercised — only pin(), the call inside
+        // reorder()'s own locked transaction, needs to throw.
+        $m->shouldReceive('pin')->once()->andThrow(new AdvisoryLockTimeoutException('services:pending'));
+    });
 
     actingAsUser($pro)
-        ->postJson('/api/services/reorder', ['ids' => [$service->id]])
+        ->postJson('/api/services/reorder', ['ids' => [$manualId]])
         ->assertStatus(423)
         ->assertJsonPath('message', 'Another change is still saving — please retry in a moment.');
 });

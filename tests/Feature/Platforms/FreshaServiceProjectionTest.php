@@ -12,6 +12,7 @@ use App\Console\Commands\PurgeSoftDeleted;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
+use App\Services\Migration\ServiceBackfiller;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
@@ -22,6 +23,13 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupServicesTable();
+    // Slice 3a Task 5: PATCH/DELETE /api/services/{id} try the content.*
+    // (manual) lookup first, before falling back to the untouched Fresha
+    // path these tests exercise — the tables need to exist even for a
+    // Fresha-sourced row.
+    setupIngestTables();
+    setupContentTables();
+    setupBlocksTable();
     shimPgAdvisoryLockForSqlite();
 });
 
@@ -244,7 +252,12 @@ it('resyncs a detached service back to the raw scrape version — single and bul
 it('keeps projections out of the public services section and its visibility gate', function () {
     $user = createTenant('frproj7');
     seedFreshaProjection($user, [freshaRawService('s:1', 'Haircut', 'Hair', 65)]);
-    createServiceFor($user, ['title' => 'Manual Massage', 'price_cents' => 9000, 'is_active' => 1]);
+    // Slice 3a Task 5: the public read serves owner-authored services from
+    // content.* now — a raw site.services row only reaches it via the
+    // backfill (or the cut-over create endpoint), not by existing in
+    // site.services alone.
+    ownerService($user->id, ['title' => 'Manual Massage', 'price_cents' => 9000, 'is_active' => 1]);
+    app(ServiceBackfiller::class)->run();
 
     $data = app(SitepageDataResolverService::class)->buildServicesData($user->site, (string) $user->id);
     expect(array_column($data['services'], 'title'))->toBe(['Manual Massage']);

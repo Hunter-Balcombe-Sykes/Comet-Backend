@@ -303,13 +303,16 @@ it('reorder routes a Fresha id to sort_order and a manual id to sort_key in one 
     expect($manualSortKey)->not->toBeNull();
 });
 
-it('reorder authorizes via ServicePolicy and 423s a pending-deletion account (C1 regression)', function () {
-    [$userId] = seedUserWithSite();
-    DB::table('core.users')->where('id', $userId)->update(['status' => 'pending_deletion']);
-    $user = User::query()->with('site')->findOrFail($userId);
-
-    actingAsUser($user)->postJson('/api/services/reorder', ['ids' => []])->assertStatus(423);
-});
+// C1 regression coverage deliberately lives in
+// tests/Feature/Security/TenantIsolation/ServicesIsolationTest.php, not
+// here: EnforcePendingDeletionReadOnly (registered on the whole user.api
+// route group, routes/api/user.php:55) returns 423 before the controller
+// ever runs for an HTTP-layer request, so an HTTP-layer version of this
+// test passes even with authorizeForUser() deleted from reorder() — it was
+// removed from this file for exactly that reason (review round 2). Only a
+// direct controller call (bypassing the middleware pipeline, as
+// ServicesIsolationTest does) actually exercises ServicePolicy::update's
+// own pending-deletion gate.
 
 it('rejects a cross-tenant service id as not found', function () {
     [$ownerId] = seedUserWithSite();
@@ -434,4 +437,127 @@ it('a connector-shaped merge after the cutover backfill keeps the owner item ali
     $data = app(SitepageDataResolverService::class)->buildServicesData($site, $userId);
     expect(array_column($data['services'], 'id'))->toBe([$manualItemId]);
     expect(array_column($data['services'], 'title'))->toBe(['Legacy Owner Service']);
+});
+
+// §NEW-C1 (review round 2): a professional holding both halves must not 500,
+// and the combined order must round-trip through GET.
+it('reorder mixing manual and Fresha ids does not 500 and round-trips through GET in the submitted order', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+
+    // A still-present LEGACY manual row (ServiceBackfiller never deletes
+    // site.services rows) sitting at a low sort_order, exactly like the dev
+    // reproduction (2 legacy manual rows at 0-1, Fresha rows at 2+).
+    $legacyManualId = ownerService($userId, ['title' => 'Legacy Manual', 'sort_order' => 0]);
+    app(ServiceBackfiller::class)->run();
+
+    $newManualId = actingAsUser($user)->postJson('/api/services', ['title' => 'New Manual', 'price_cents' => 1000])
+        ->assertCreated()->json('service.id');
+    $freshaA = ownerService($userId, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 1]);
+    $freshaB = ownerService($userId, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 2]);
+
+    // Interleaved: Fresha, manual, Fresha, manual.
+    $manualItemIdForLegacy = DB::table('content.source_items')->where('coord', 'manual:'.$legacyManualId)->value('item_id');
+    $submitted = [$freshaB, $manualItemIdForLegacy, $freshaA, $newManualId];
+
+    actingAsUser($user)->postJson('/api/services/reorder', ['ids' => $submitted])
+        ->assertOk()->assertJson(['ok' => true]);
+
+    $response = actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk();
+    $ids = collect($response->json('services'))->pluck('id')->all();
+
+    expect($ids)->toBe($submitted);
+});
+
+// A brand-new manual service (created through the cut-over endpoint) has NO
+// legacy site.services row at all, so renumberLegacySortOrder() cannot
+// assign it a sort_order and must skip it entirely when translating the
+// submitted order — this is the exact case where a naive re-compacted
+// renumber (e.g. delegating wholesale to ReorderService::reorder(), which
+// was tried and reverted) silently shifts every Fresha id that comes AFTER
+// the unresolvable manual id, breaking the interleave the moment more than
+// one Fresha id follows it.
+it('round-trips even when a brand-new manual service (no legacy row) sits between two Fresha ids', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+
+    $freshaA = ownerService($userId, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
+    $freshaB = ownerService($userId, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 1]);
+    $newManualId = actingAsUser($user)->postJson('/api/services', ['title' => 'Brand New', 'price_cents' => 1000])
+        ->assertCreated()->json('service.id');
+
+    $submitted = [$freshaA, $newManualId, $freshaB];
+
+    actingAsUser($user)->postJson('/api/services/reorder', ['ids' => $submitted])
+        ->assertOk()->assertJson(['ok' => true]);
+
+    $response = actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk();
+    $ids = collect($response->json('services'))->pluck('id')->all();
+
+    expect($ids)->toBe($submitted);
+});
+
+it('reorder 422s an id that belongs to neither the manual nor Fresha store', function () {
+    [$userId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+    ownerService($userId, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1']);
+
+    actingAsUser($user)->postJson('/api/services/reorder', ['ids' => [(string) Str::uuid()]])
+        ->assertStatus(422);
+});
+
+it('reorderLayout rejects an invalid category id (422)', function () {
+    [$userId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+    $cat = createServiceCategoryFor($user, ['sort_order' => 0]);
+    $svc = createServiceFor($user, ['category_id' => $cat->id, 'sort_order' => 0, 'source' => 'fresha']);
+
+    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => (string) Str::uuid(), 'service_ids' => [$svc->id]],
+        ],
+    ])->assertStatus(422);
+});
+
+it('reorderLayout rejects a duplicate service id within one category block (422)', function () {
+    [$userId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+    $cat = createServiceCategoryFor($user, ['sort_order' => 0]);
+    $svc = createServiceFor($user, ['category_id' => $cat->id, 'sort_order' => 0, 'source' => 'fresha']);
+
+    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => $cat->id, 'service_ids' => [$svc->id, $svc->id]],
+        ],
+    ])->assertStatus(422);
+});
+
+it('reorderLayout rejects a service that is both categorised and uncategorised (422)', function () {
+    [$userId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+    $cat = createServiceCategoryFor($user, ['sort_order' => 0]);
+    $svc = createServiceFor($user, ['category_id' => $cat->id, 'sort_order' => 0, 'source' => 'fresha']);
+
+    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => $cat->id, 'service_ids' => [$svc->id]],
+            ['id' => null, 'service_ids' => [$svc->id]],
+        ],
+    ])->assertStatus(422);
+});
+
+it('reorderLayout rejects a payload missing one of the owner\'s live category ids (422)', function () {
+    [$userId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+    $catA = createServiceCategoryFor($user, ['sort_order' => 0]);
+    $catB = createServiceCategoryFor($user, ['sort_order' => 1]);
+    $svcA = createServiceFor($user, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
+    createServiceFor($user, ['category_id' => $catB->id, 'sort_order' => 1, 'source' => 'fresha']);
+
+    // $catB never appears in the payload at all.
+    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => $catA->id, 'service_ids' => [$svcA->id]],
+        ],
+    ])->assertStatus(422);
 });
