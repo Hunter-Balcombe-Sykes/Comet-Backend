@@ -14,28 +14,32 @@ use Illuminate\Support\Facades\DB;
  * ShopContentWriter::cataloguesFor() for the nested `products` reconstruction
  * instead of writing a second parallel one.
  *
- * Feeds ShopController::brands()/brandProducts()/selection() directly, and
+ * Feeds ShopController::brands()/brandProducts()/selection() directly,
  * connectStatus()'s embedded brand payload (with a documented fallback — see
- * that call site). `catalog()` and the nine write endpoints are Task 8's
- * territory and keep reading site.shop_brands/site.shop_products — see the
- * class docblock on ShopController for the boundary.
+ * that call site), and — since Task 8 fix round 1 — the PUBLIC sitepage's
+ * shop card: PublicIntegrationController builds the map once per profile and
+ * threads it into PublicIntegrationConnectionResource. `catalog()` is the one
+ * endpoint still reading site.shop_brands (the live store's url/provider),
+ * deliberately — see the class docblock on ShopController for the boundary.
  *
  * KNOWN GAPS — read this before trusting a value this class returns:
  *
  * 1. TIMING / EXISTENCE. A brand only has a row here once
- *    ShopContentWriter::upsertStore() has run for it at least once: the
- *    one-time ShopBackfiller migration, ShopCatalog::syncLatest() (reached
- *    from the scheduled shop refresh — up to
- *    config('partna.platforms.shop.refresh_interval') after connect, 6h by
- *    default — or immediately via updateBrand(selectionMode: 'latest')), or
- *    ShopProductSeeder. None of ShopController::addBrand(),
- *    ShopBrandConnectJob (the deferred-connect settle job), or setProducts()
- *    call upsertStore() today — Task 8 is what repoints those. Until Task 8
- *    ships, a brand between "just connected" (or just settled from a
- *    deferred connect) and "first synced" has NO row here and is silently
- *    ABSENT from brandMap() — see the Task 7 report for the blast radius on
- *    brands()/brandProducts()/connectStatus(), closed there by
- *    ShopController::hybridBrandMap() (see that method's docblock).
+ *    ShopContentWriter::upsertStore() has run for it at least once. Task 8
+ *    repointed every writer that can mint one — addBrand(), updateBrand(),
+ *    setProducts(), addProduct(), ShopBrandConnectJob (the deferred-connect
+ *    settle, both success and terminal), ProcessShopBrandLogoJob — on top of
+ *    the pre-existing ShopCatalog::syncLatest() / ShopProductSeeder / the
+ *    one-time ShopBackfiller migration, so a brand touched by any of those
+ *    always has a row and the Task 7 hybrid merge is gone.
+ *
+ *    What that leaves — and it is a DEPLOY ORDERING FACT, not a code gap: a
+ *    brand connected BEFORE this slice ships and never touched since has no
+ *    row here, so it is silently absent from the dashboard AND from the
+ *    public sitepage (nothing falls back to the legacy tables any more).
+ *    ShopBackfiller must run BEFORE this code deploys. Pinned by
+ *    ShopPagePresenceTest's "drops the shop page for a legacy brand that was
+ *    never backfilled into content.*".
  *
  * 2. PRODUCT FIELD BACKFILL LAG. `handle`/`vendor`/`description`/`variantId`
  *    (stored as `variant_ref`) round-trip through content.f_catalog/f_text

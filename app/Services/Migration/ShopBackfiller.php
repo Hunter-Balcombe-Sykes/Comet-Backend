@@ -34,9 +34,10 @@ class ShopBackfiller
      * exactly on a urlless product — same collection-namespaced coord
      * fallback, same "only skip when there is no identifier at all" rule. It
      * did not before, and the two writers disagreeing on identical input was
-     * not merely untidy: upsertStore() still runs for the brand, so the
-     * per-brand fallback in ShopController::hybridBrandMap() does NOT engage,
-     * and a urlless product in an otherwise-normal store just vanished from
+     * not merely untidy: upsertStore() still runs for the brand, so nothing
+     * marks that store as un-migrated (Task 8 deleted the per-brand legacy
+     * fallback ShopController::hybridBrandMap() used to provide), and a
+     * urlless product in an otherwise-normal store just vanished from
      * /brands, /selection and the public payload — with no self-healing for a
      * curated store that never re-syncs.
      *

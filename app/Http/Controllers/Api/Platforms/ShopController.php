@@ -1131,6 +1131,13 @@ class ShopController extends ApiController
      * The stored brand map (id => brand), or empty. FOUND-25: reads the
      * relational site.shop_brands/site.shop_products child tables (formerly
      * a single JSONB map on the connection's payload).
+     *
+     * catalog() is its ONLY remaining caller — every other read is
+     * ShopContentReader::brandMap() now. It stays on the legacy row
+     * deliberately: catalog() dispatches a LIVE re-scrape of the store off
+     * {url, provider, sourceUrl, fetchMode}, which site.shop_brands still
+     * carries and still has written to it (the anchor row is not retired by
+     * this slice).
      */
     private function brandMap(User $user): array
     {
