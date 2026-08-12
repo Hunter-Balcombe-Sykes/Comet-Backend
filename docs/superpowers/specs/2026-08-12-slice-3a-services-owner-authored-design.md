@@ -112,8 +112,11 @@ those rows (`FreshaServiceProjector:396`), so both surfaces break at teardown
 whether or not anyone plans for it. Convergence invariant #2 — a kind is not
 adopted until something reads it — points the same way.
 
-**The 17 dashboard endpoints cut over to write `content.*`**, rather than
-dual-writing or syncing on write. If the public reads `content.*` while the
+**The dashboard endpoints cut over to write `content.*`**, rather than
+dual-writing or syncing on write. Of the 17, **3a cuts over 8** — the ones that
+touch owner-authored services — and 3b takes the remaining 9 (the two `resync`
+verbs and the seven category routes), because both are Fresha-shaped. The exact
+split is in §3.5. If the public reads `content.*` while the
 dashboard writes `site.services`, an owner edits a service and nothing changes on
 their site. **Slice 2 shipped exactly this bug**: `removeEvent()` wrote only
 `hiddenEventIds`, which the pool does not read, so every hide silently failed
@@ -153,7 +156,7 @@ Mapping:
 | `deleted_at` | `items.removed_at` |
 | `deleted_origin` | not carried — see §3.7 |
 | `is_active = false` | a pool exclude, not `removed_at` (0 rows today) |
-| `sort_order` | `section_items.position` — see §3.3 |
+| `sort_order` | `section_items.sort_key` with `state='pinned'` — see §3.3 |
 
 **`content.source_items.removed_at` is never written for a user deletion.** It is
 cleared on reappearance, so a later run would resurrect a service its owner
@@ -233,20 +236,31 @@ same semantics. 3b owns the booking surface itself.
 Wire changes recorded in `docs/wire-changes/2026-08-12-slice-3a-services.md` with
 before and after shapes and the consuming repos named, per parent §10.
 
-### 3.5 The write cutover — 17 endpoints
+### 3.5 The write cutover — 8 of the 17 endpoints
 
-`UserServiceController` (11 routes) and `UserServiceCategoryController` (6
-routes), `routes/api/user.php:309-345`. Every one is a live wire contract; the
-request and response shapes do not change, only what they read and write.
+`routes/api/user.php:309-345` carries 17 service routes across
+`UserServiceController` (11) and `UserServiceCategoryController` (6). **3a cuts
+over 8**; the other 9 are Fresha-shaped and go with 3b. Every one is a live wire
+contract; request and response shapes do not change, only what they read and
+write.
 
-| Route | After |
+| Route (line) | 3a |
 |---|---|
-| `GET/POST /services`, `GET/PATCH/DELETE /services/{service}` | CRUD against `content.*` through the manual lane |
-| `POST /services/reorder`, `/services/reorder-layout` | `section_items.position` |
-| `DELETE /services/{service}` | `items.removed_at` |
-| `POST /services/{service}/restore` | clears the exclude / re-pins; **cannot** clear `removed_at` — see below |
-| `POST /services/resync`, `/services/{service}/resync` | **3b** — Fresha-only verbs, untouched in 3a |
-| `/service-categories/*`, `/services/{service}/category` | **3b** — owner-authored services have no live categories |
+| `GET /services` (309), `GET /services/{service}` (311) | read `content.*` |
+| `POST /services` (310), `PATCH /services/{service}` (313) | write through the manual lane; pin on create |
+| `DELETE /services/{service}` (315) | `items.removed_at` |
+| `POST /services/reorder` (317), `/services/reorder-layout` (341) | `section_items.sort_key` |
+| `POST /services/{service}/restore` (323) | clears `removed_at` — see below |
+
+Deferred to 3b, unchanged in 3a: `POST /services/resync` (320),
+`POST /services/{service}/resync` (321), `PATCH /services/{service}/category`
+(345), and the six `/service-categories/*` routes (328–338). The first two are
+Fresha-only verbs; the rest are categories, which 3a does not touch because every
+live category belongs to Fresha.
+
+**Both controllers keep writing `site.services` for the Fresha half until 3b.**
+3a's cutover is scoped to the owner-authored path, so the legacy projector and
+its rows are untouched — which is what lets 3b land independently.
 
 **`restore` clears `removed_at`, and that does not weaken the one-way rule.**
 
@@ -416,7 +430,7 @@ do not repeat that gap.
 The 21 owner-authored services are represented in `content.*` with prices as
 offers, durations as `f_duration`, and the 3 deletions as `items.removed_at`
 only; the `services` pool returns them in the owner's order and the public
-services section renders from it; all 17 endpoints read and write `content.*`
+services section renders from it; the 8 owner-authored endpoints read and write `content.*`
 with unchanged wire shapes; DSAR exports from `content.*` under its existing
 keys; a connector projection after the backfill destroys nothing; the coverage
 gate (parent §8.4 — coord coverage, not row-count equality) is green on dev;
