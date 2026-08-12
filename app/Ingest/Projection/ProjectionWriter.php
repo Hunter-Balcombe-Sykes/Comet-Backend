@@ -1013,18 +1013,22 @@ class ProjectionWriter
         $mediaByItem = [];
         $offersByItem = [];
         $tagsByItem = [];
+        $variantsByItem = [];
         foreach ($byItem as $itemId => $projections) {
             $media = [];
             $offers = [];
             $tags = [];
+            $variants = [];
             foreach ($projections as $projection) {
                 $media = array_merge($media, array_values((array) ($projection['media'] ?? [])));
                 $offers = array_merge($offers, array_values((array) ($projection['offers'] ?? [])));
                 $tags = array_merge($tags, array_values((array) ($projection['tags'] ?? [])));
+                $variants = array_merge($variants, array_values((array) ($projection['variants'] ?? [])));
             }
             $mediaByItem[(string) $itemId] = $media;
             $offersByItem[(string) $itemId] = $offers;
             $tagsByItem[(string) $itemId] = $tags;
+            $variantsByItem[(string) $itemId] = $variants;
         }
 
         $assetIdByFingerprint = $this->resolveMediaAssets($userId, $mediaByItem, $chunk);
@@ -1086,11 +1090,34 @@ class ProjectionWriter
             }
         }
 
+        // content.item_variants: label is NOT NULL, so a nameless entry is
+        // dropped rather than written with an empty label — the table exists
+        // to name a choice.
+        $variantRows = [];
+        foreach ($variantsByItem as $itemId => $entries) {
+            foreach ($entries as $position => $entry) {
+                $entry = (array) $entry;
+                $label = trim((string) ($entry['label'] ?? ''));
+                if ($label === '') {
+                    continue;
+                }
+                $variantRows[$itemId][] = [
+                    'id' => (string) Str::uuid(),
+                    'item_id' => $itemId,
+                    'source_id' => $contentSourceId,
+                    'label' => $label,
+                    'sku' => $entry['sku'] ?? null,
+                    'position' => $position,
+                ];
+            }
+        }
+
         foreach (array_chunk(array_keys($mediaByItem), $chunk) as $itemIds) {
             $tables = [
                 'item_media' => $this->rowsFor($mediaRows, $itemIds),
                 'offers' => $this->rowsFor($offerRows, $itemIds),
                 'item_tags' => $this->rowsFor($tagRows, $itemIds),
+                'item_variants' => $this->rowsFor($variantRows, $itemIds),
             ];
 
             // Batching widens the window in which an item has no collection
@@ -1383,7 +1410,11 @@ class ProjectionWriter
                     $presentByItem[(string) $id][] = $facet;
                 }
             }
-            foreach (['item_media', 'offers', 'item_tags', 'f_action'] as $collection) {
+            // item_variants appended LAST on purpose: the comment above states
+            // declaration order is part of the cached eligible_cache value
+            // (I9). Inserting it among the existing entries would reshape the
+            // cached value for every item in the database.
+            foreach (['item_media', 'offers', 'item_tags', 'f_action', 'item_variants'] as $collection) {
                 $ids = DB::table("content.{$collection}")->whereIn('item_id', $batch)->distinct()->pluck('item_id');
                 foreach ($ids as $id) {
                     $presentByItem[(string) $id][] = $collection;

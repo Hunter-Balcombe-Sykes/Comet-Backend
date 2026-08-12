@@ -2505,6 +2505,15 @@ function setupContentTables(): void
         tag_type TEXT NULL
     )');
 
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_variants (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        sku TEXT NULL,
+        position INTEGER NOT NULL DEFAULT 0
+    )');
+
     // Hand-saved cross-platform links (migration 20260805090000).
     // Public URL slugs for content items. PoolResolver::itemPayloads() reads
     // this on EVERY pool resolve (it serves slug/aliases onto the public
