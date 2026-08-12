@@ -4,6 +4,7 @@ namespace App\Site\Pools;
 
 use App\Models\Core\Site\Site;
 use App\Services\Content\ContentItemSlugAllocator;
+use App\Services\Media\MediaUrlResolver;
 use App\Site\Sections\SectionCandidates;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +36,7 @@ class PoolResolver
         private readonly PoolSectionProvisioner $provisioner,
         private readonly SectionCandidates $candidates,
         private readonly ContentItemSlugAllocator $slugs,
+        private readonly MediaUrlResolver $mediaUrls,
     ) {}
 
     /**
@@ -298,7 +300,7 @@ class PoolResolver
             ->get(['item_id', 'handle'])
             ->keyBy('item_id');
 
-        $covers = DB::connection('pgsql')->table('content.item_media')
+        $coverRows = DB::connection('pgsql')->table('content.item_media')
             ->join('content.media_assets', 'content.media_assets.id', '=', 'content.item_media.asset_id')
             ->whereIn('content.item_media.item_id', $ids)
             ->whereIn('content.item_media.role', ['cover', 'poster', 'gallery'])
@@ -306,9 +308,29 @@ class PoolResolver
             ->get([
                 'content.item_media.item_id',
                 'content.item_media.role',
+                'content.item_media.alt_text',
+                'content.media_assets.id as asset_id',
                 'content.media_assets.source_url',
+                'content.media_assets.storage_path',
+                'content.media_assets.site_media_id',
+                'content.media_assets.width',
+                'content.media_assets.height',
+            ]);
+
+        // ONE resolver call for the page — MediaUrlResolver batches its
+        // variant lookup, and this sits on the public hot path.
+        $resolvedUrls = $this->mediaUrls->resolve(
+            $coverRows->map(fn (object $row): object => (object) [
+                'id' => $row->asset_id,
+                'source_url' => $row->source_url,
+                'storage_path' => $row->storage_path,
+                'site_media_id' => $row->site_media_id,
+                'width' => $row->width,
+                'height' => $row->height,
             ])
-            ->groupBy('item_id');
+        );
+
+        $covers = $coverRows->groupBy('item_id');
 
         $out = [];
         foreach ($items as $itemId => $item) {
@@ -335,7 +357,13 @@ class PoolResolver
                 'publishedAt' => $published[$itemId] ?? null,
                 'firstSeenAt' => $item->first_seen_at,
                 'durationSeconds' => isset($durations[$itemId]) ? (int) $durations[$itemId] : null,
-                'thumbnail' => $this->cover($covers->get($itemId, collect())),
+                'thumbnail' => $this->cover($covers->get($itemId, collect()), $resolvedUrls),
+                // Slice 1a §3.5: media items ship every frame (positional);
+                // every other kind ships [] — the wire shape does not change
+                // with kind, same contract startsAt/venue/price follow.
+                'frames' => $item->kind === 'media'
+                    ? $this->frames($covers->get($itemId, collect()), $resolvedUrls)
+                    : [],
                 // Dated / located / priced facets. Present on every pool item
                 // and null off events, so the wire shape does not change with
                 // kind — same contract durationSeconds already has.
@@ -400,16 +428,52 @@ class PoolResolver
         return $links;
     }
 
-    /** Prefer the cover, then poster, then any gallery frame. */
-    private function cover(Collection $rows): ?string
+    /**
+     * Prefer the cover, then poster, then any gallery frame — ROLE priority,
+     * not positional order (frames() is the positional view). Same firstWhere
+     * semantics as before slice 1a; only the URL source moved from raw
+     * source_url to the resolver seam.
+     *
+     * @param  array<string, array{url: string, width: int|null, height: int|null}>  $resolved
+     */
+    private function cover(Collection $rows, array $resolved): ?string
     {
         foreach (['cover', 'poster', 'gallery'] as $role) {
             $row = $rows->firstWhere('role', $role);
-            if ($row !== null && $row->source_url !== null && $row->source_url !== '') {
-                return (string) $row->source_url;
+            $url = $row !== null ? ($resolved[(string) $row->asset_id]['url'] ?? null) : null;
+            if ($url !== null && $url !== '') {
+                return $url;
             }
         }
 
         return null;
+    }
+
+    /**
+     * Every servable frame, in item_media.position order. An asset that
+     * resolves to no URL is OMITTED, never emitted as null — the unrenderable
+     * ref-only Google assets degrade to an empty gallery (spec §3.5).
+     *
+     * @param  array<string, array{url: string, width: int|null, height: int|null}>  $resolved
+     * @return list<array{url: string, width: int|null, height: int|null, role: string, alt: string|null}>
+     */
+    private function frames(Collection $rows, array $resolved): array
+    {
+        $frames = [];
+        foreach ($rows as $row) {
+            $hit = $resolved[(string) $row->asset_id] ?? null;
+            if ($hit === null) {
+                continue;
+            }
+            $frames[] = [
+                'url' => $hit['url'],
+                'width' => $hit['width'],
+                'height' => $hit['height'],
+                'role' => (string) $row->role,
+                'alt' => $row->alt_text === null ? null : (string) $row->alt_text,
+            ];
+        }
+
+        return $frames;
     }
 }

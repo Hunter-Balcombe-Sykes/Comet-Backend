@@ -1136,7 +1136,10 @@ class ProjectionWriter
      * is the UNIQUE (user_id, fingerprint) dedupe key, and a fingerprint
      * computed from the raw URL while a minimised URL is stored would let a
      * re-run mint a second row for the same image. The vendor's stable ref is
-     * the fallback for images with no fetchable URL (GBP photo resource names).
+     * PREFERRED over the URL (slice 1a §3.1): Instagram URLs re-sign on every
+     * sync (`oh`/`oe` params survive minimisation), so a URL-keyed asset
+     * re-mints per sync the moment a projector emits url beside ref. The URL
+     * is the fallback for entries with no ref.
      *
      * ONE implementation, called from both the bulk resolve and the row build
      * — the two must never disagree about what an entry's fingerprint is.
@@ -1146,15 +1149,31 @@ class ProjectionWriter
      */
     private function mediaFingerprint(array $entry): array
     {
+        // Upload shape (slice 1a §3.4): the stable ref IS the site_media id.
+        // Inside the url- namespace by construction — only this method mints
+        // 'upload:' fingerprints, so no existing row can collide.
+        $siteMediaId = $this->uploadSiteMediaId($entry);
+        if ($siteMediaId !== null) {
+            return ['url-'.sha1('upload:'.$siteMediaId), null];
+        }
+
         $url = isset($entry['url']) && is_string($entry['url']) && $entry['url'] !== ''
             ? SecretParams::minimiseUrl($entry['url'])
             : null;
         $url = ($url === '' ? null : $url); // minimiseUrl fails closed to ''
         $ref = isset($entry['ref']) && is_string($entry['ref']) && $entry['ref'] !== '' ? $entry['ref'] : null;
 
-        $fingerprint = $url ?? $ref;
+        $fingerprint = $ref ?? $url;
 
         return [$fingerprint === null ? null : 'url-'.sha1($fingerprint), $url];
+    }
+
+    /** The upload shape: a non-empty site_media_id IS the discriminator (slice 1a §3.4). */
+    private function uploadSiteMediaId(array $entry): ?string
+    {
+        $id = $entry['site_media_id'] ?? null;
+
+        return is_string($id) && $id !== '' ? $id : null;
     }
 
     /**
@@ -1198,14 +1217,21 @@ class ProjectionWriter
 
         $rows = [];
         foreach ($missing as $fingerprint => [$entry, $url]) {
+            $uploadSiteMediaId = $this->uploadSiteMediaId($entry);
+            $isUpload = $uploadSiteMediaId !== null;
             $rows[] = [
                 'id' => (string) Str::uuid(),
                 'user_id' => $userId,
                 'fingerprint' => $fingerprint,
                 'source_url' => $url,
+                'site_media_id' => $uploadSiteMediaId,
+                'mime_type' => $isUpload ? ($entry['mime_type'] ?? null) : null,
                 'width' => $entry['width'] ?? null,
                 'height' => $entry['height'] ?? null,
-                'dims_confidence' => isset($entry['width']) ? 'declared' : null,
+                // 'measured' for uploads: the variant pipeline decoded the
+                // image. 'declared' when a connector claimed dims. Unchanged
+                // for the connector shapes.
+                'dims_confidence' => $isUpload ? 'measured' : (isset($entry['width']) ? 'declared' : null),
                 'created_at' => now(),
             ];
         }

@@ -91,3 +91,10 @@ it('provisions every pool with a registered operator and a valid ordering', func
 it('keeps the deferred kinds out of every pool', function (string $kind) {
     expect(PoolRegistry::poolForKind($kind))->toBeNull();
 })->with(['channel', 'article']);
+
+it('provisions media with a bare kind_is rule — a gallery wants every photo, not one per source', function () {
+    $shape = PoolRegistry::sectionShape('media');
+
+    expect($shape['rule'])->toBe([['op' => 'kind_is', 'values' => ['media']]])
+        ->and($shape['order_by'])->toBe('recency');
+});

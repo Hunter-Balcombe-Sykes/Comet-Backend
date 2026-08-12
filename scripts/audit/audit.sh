@@ -360,7 +360,7 @@ writers-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Co
 writers-ingest-landing|app/Ingest/Landing app/Ingest/Projection app/Content
 writers-routing-site|app/Routing app/Site
 services-platforms|app/Services/Platforms app/Services/Brand
-services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
+services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan app/Services/Migration
 services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit app/Services/Redis
 services-rest|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks
@@ -382,7 +382,7 @@ consumers-ingest-routing|app/Ingest app/Routing
 consumers-jobs|app/Jobs
 consumers-console-mw|app/Console app/Http/Middleware
 services-platforms|app/Services/Platforms app/Services/Brand
-services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
+services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan app/Services/Migration
 services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Moderation app/Services/Segments app/Services/Audit app/Services/Redis
 services-rest|app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Auth app/Services/Cloudflare app/Services/Streaming app/Services/BotProtection app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/Accounts app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding
@@ -455,7 +455,7 @@ EOF
         ;;
         code-quality-slop) cat <<'EOF'
 services-platforms|app/Services/Platforms app/Services/Brand
-services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
+services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan app/Services/Migration
 services-site|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit app/Services/Redis
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
@@ -476,7 +476,7 @@ EOF
         ;;
         semantic-correctness) cat <<'EOF'
 services-platforms|app/Services/Platforms app/Services/Brand
-services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
+services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan app/Services/Migration
 services-site|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit app/Services/Redis
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
