@@ -115,3 +115,30 @@ it('distinguishes a refusal from an applied write', function () {
 
     SectorProvenance::logTransition($user, 'event-venue', SectorProvenance::GOOGLE, 'IdentitySync::applySector', 'refused_food_demotion');
 });
+
+it('ranks exactly the sources the migrations permit', function () {
+    // Fast-lane mirror of tests/Schema/SectorSourceCheckTest.php, which does not
+    // run in `composer test`. Scans every migration, not just the baseline — a
+    // later one is how the CHECK would actually widen.
+    $allowed = [];
+    foreach (glob(base_path('supabase/migrations/*.sql')) as $file) {
+        $sql = file_get_contents($file);
+        if (! str_contains($sql, 'users_sector_source_check')) {
+            continue;
+        }
+        preg_match('/users_sector_source_check.*?ARRAY\[(.*?)\]/s', $sql, $m);
+        if (isset($m[1])) {
+            preg_match_all("/'([a-z-]+)'/", $m[1], $values);
+            $allowed = $values[1];
+        }
+    }
+
+    expect($allowed)->not->toBeEmpty('users_sector_source_check not found in any migration');
+
+    $ranked = array_keys((new ReflectionClass(SectorProvenance::class))->getConstant('RANKS'));
+
+    sort($allowed);
+    sort($ranked);
+
+    expect($ranked)->toBe($allowed);
+});
