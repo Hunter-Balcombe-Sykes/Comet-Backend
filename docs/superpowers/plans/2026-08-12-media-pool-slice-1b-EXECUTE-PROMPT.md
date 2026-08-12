@@ -49,9 +49,16 @@ gate failure** — Task 2 will otherwise silently re-key existing Google assets 
 `UNIQUE (user_id, fingerprint)`, mint duplicates via `insertOrIgnore`, and orphan
 `content.item_media.asset_id`. That is the exact duplication 1a exists to prevent.
 
-Also confirm on **production**, not just dev, that no `content.media_assets` row is
-keyed off a URL for a projector that also emits a ref. 1a verified this on dev only
-and explicitly deferred prod.
+**Prod verification is deferred** (owner decision, 2026-08-12). This prompt
+previously asked you to confirm the same fingerprint property on production. Do not:
+prod database access could not be established on 2026-08-12 (`password
+authentication failed`; the project itself is `ACTIVE_HEALTHY`, so it is a
+credentials matter, not an outage), and `production` is 777 commits behind
+`development`, so none of this code runs there yet.
+
+**Record the gap rather than closing it.** Note in your checkpoint that 1a's
+no-migration-needed argument remains unverified on prod, so whoever reconciles
+production inherits a known open question instead of a silent assumption.
 
 Where dev and the plan disagree, **dev wins**, and you record the correction in the
 checkpoint rather than quietly adapting.
@@ -115,7 +122,7 @@ detail — stop and raise it rather than rewriting their scope unilaterally.
 
 ## Process — stop at every gate
 
-1. **Task 0 precondition.** Confirm 1a merged, code gate passes on dev *and* prod, 1a's commands run. **STOP — sign-off on the gate report.** If it fails, that report is the deliverable.
+1. **Task 0 precondition.** Confirm 1a merged, the code gate passes **on dev**, and 1a's commands have run. **STOP — sign-off on the gate report.** If it fails, that report is the deliverable. Prod is out of scope — see rule zero.
 2. **Tasks 1–11**, in order, with per-task independent review. Blocker-gate tasks get plan sign-off first.
 3. **Independent review of the whole diff.** **STOP — sign-off.**
 4. **Live dev assertions** (plan Task 11), SQL and output pasted into a parent-spec checkpoint. Includes the two proofs the parent demands: **no duplicate assets after two consecutive Instagram syncs**, and the `mergeInto()` regression — a Google or Instagram run landing after migration leaves the upload items and migrated selections alive.

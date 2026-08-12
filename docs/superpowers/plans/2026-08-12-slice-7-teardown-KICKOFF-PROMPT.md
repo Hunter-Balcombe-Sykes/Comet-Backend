@@ -159,11 +159,32 @@ Verify each yourself — this is a pointer, not evidence (rule zero still applie
 ## Non-negotiables
 
 - **Take a backup first.** Free plan, no PITR. Dump the ten tables to the `partna-db-backup` R2 bucket and verify the dump is readable **before** the first DROP. Record its location in the checkpoint.
-- **Dev first, then prod.** Apply on dev, verify, merge, deploy, verify again, and only then apply to prod against the ref you mean. `git push origin development:production` **is** the deploy — there is no promote step and no CI gate on that push.
+- **DEV ONLY — production is out of scope for this slice** (owner decision, 2026-08-12). Apply on dev, verify, merge to `development`, and stop. Do **not** apply migrations to the prod ref, and do **not** `git push origin development:production`. See "Production is deferred" below.
 - **One migration concern per file**, raw SQL, never a Laravel migration.
 - **Cache invalidation** — dropping the tables changes every affected public payload. `BuildState::bump`, `site.sites.updated_at`, `CloudflareCachePurgeJob`.
 - **Post-deploy:** `cloud env:logs partna development --minutes 10` **and** a Nightwatch scan, on both environments.
-- **Prod push requires explicit human sign-off**, separately from the dev merge.
+## Production is deferred — read this before planning
+
+Owner decision, 2026-08-12: **this slice ships to dev and stops there.**
+
+The reasoning, so nobody "helpfully" completes it:
+
+- `production` is **777 commits behind `development`**, so the code for every slice
+  in this programme is absent there regardless.
+- `CLAUDE.md` still claims prod and dev schemas are identical on the 2026-07-26
+  baseline. Dev has taken **14 migrations** since, three from this programme. Unless
+  someone applied them to prod in parallel, **the schemas have diverged and that
+  claim is stale.** Verify it before believing it.
+- Prod database access could not be confirmed on 2026-08-12 (the Supabase MCP
+  returned `password authentication failed`; the project itself is
+  `ACTIVE_HEALTHY`, so it is a credentials matter, not an outage).
+
+An irreversible teardown must not be the operation that discovers a 14-migration
+gap on a database you could not read. Reconciling prod is **separate work, ordered
+before any prod teardown**, and it needs its own plan.
+
+If your recon finds prod already reconciled and readable, say so — but do not act
+on it. That is a change to this slice's scope and it is the owner's call.
 
 ## If reality diverges, the direction reverses — you raise, you do not edit
 
@@ -195,17 +216,18 @@ what started this whole programme.
 5. **Implement** in a dedicated worktree: units 1–4 first, DROPs last. Independent review per unit.
 6. **Independent review** of the whole diff. **STOP — sign-off.**
 7. **Verify on dev.** Assertions pasted into the parent-spec checkpoint. Wire manifest at `docs/wire-changes/2026-08-12-slice-7-teardown.md`.
-8. **Merge + push to `development`.** Full suite + PHPStan + Pint green. **STOP — explicit sign-off.**
-9. **Production.** Apply migrations to the prod ref, deploy, verify, log + Nightwatch scan. **STOP — separate explicit sign-off before this step.**
+8. **Merge + push to `development`.** Full suite + PHPStan + Pint green. **STOP — explicit sign-off.** This is where the slice ends.
+9. **Do not proceed to production.** Instead, write up what a prod teardown would require — the migration gap, the access question, the ordering — as a follow-up under `docs/superpowers/plans/`. That document is the slice's final deliverable.
 
 ## Definition of done
 
-The ten tables (or nine, if split) are gone from dev and prod; every observer
-side-effect is re-homed and registered; `PolicyCoverageTest` green; DSAR export
-works from `content.*`; the analytics decision is recorded; a verified backup exists
-and its location is in the checkpoint; the programme's closing checkpoint states
-plainly what shipped, what was dropped, and what — if anything — was deliberately
-left behind.
+The ten tables (or nine, if split) are gone **from dev**; every observer side-effect
+is re-homed and registered; `PolicyCoverageTest` green; DSAR export works from
+`content.*`; the analytics decision is recorded; a verified backup exists and its
+location is in the checkpoint; a prod-reconciliation follow-up is written; and the
+programme's closing checkpoint states plainly what shipped, what was dropped, what
+was deliberately left behind, **and that production still carries the legacy
+schema.**
 
 **Then, and only then:** amend `docs/2026-08-05-platforms-as-sources.md`, whose
 closing line still reads *"The program is complete"* (parent §11). That sentence has
