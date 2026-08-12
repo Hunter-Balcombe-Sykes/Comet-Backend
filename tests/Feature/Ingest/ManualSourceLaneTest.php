@@ -1,6 +1,7 @@
 <?php
 
 use App\Ingest\Projection\ProjectionWriter;
+use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -158,4 +159,113 @@ it('bumps the site build state so the public document rebuilds', function () {
 
     expect((int) DB::table('site.site_build_state')->where('site_id', $siteId)->value('content_revision'))
         ->toBeGreaterThan(0);
+});
+
+/** A bandcamp connection with its ingest source/stream and one landed release doc. */
+function manualLaneBandcamp(string $userId, string $key, string $title, string $url): array
+{
+    $connection = IntegrationConnection::create([
+        'user_id' => $userId,
+        'platform' => 'bandcamp',
+        'resource_id' => 'acct-'.substr(sha1(Str::random(8)), 0, 16),
+        'payload' => ['url' => 'https://'.Str::lower(Str::random(8)).'.bandcamp.com'],
+        'is_active' => true,
+    ]);
+
+    $source = (array) DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
+    $streamId = (string) Str::uuid();
+    DB::table('ingest.streams')->insert([
+        'id' => $streamId, 'source_id' => $source['id'], 'stream_name' => 'releases',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $doc = ['title' => $title, 'url' => $url, 'artist' => 'Some Artist', 'type' => 'album'];
+    DB::table('ingest.record_versions')->insert([
+        'stream_id' => $streamId, 'key' => $key, 'doc_hash' => sha1(json_encode($doc)),
+        'doc' => json_encode($doc), 'first_seen_at' => now(), 'is_current' => 1,
+    ]);
+    $versionId = DB::table('ingest.record_versions')->where('stream_id', $streamId)->where('key', $key)->value('id');
+    DB::table('ingest.record_state')->insert([
+        'stream_id' => $streamId, 'key' => $key, 'current_version_id' => $versionId, 'last_seen_at' => now(),
+    ]);
+
+    return [$source, $streamId];
+}
+
+it('keeps the owner-authored item when a connector run merges it with a synced one', function () {
+    $userId = createTenant('manual-'.Str::lower(Str::random(6)))->id;
+    $album = 'https://artist.bandcamp.com/album/first';
+    $writer = app(ProjectionWriter::class);
+
+    // 1. The connector lands first.
+    [$source, $streamId] = manualLaneBandcamp($userId, 'album/first', 'First Album', $album);
+    $writer->projectStream($source, $streamId, 'releases');
+    $syncedItemId = (string) DB::table('content.items')->where('user_id', $userId)->value('id');
+
+    // Age the synced anchor explicitly. Laravel binds timestamps at SECOND
+    // precision, so without this the two anchors tie on bound_at and
+    // bindGroup()'s orderBy has no tiebreak — the pre-fix run would pass
+    // spuriously about half the time and the post-fix assertion would prove
+    // nothing. The synced side MUST be strictly older, because "oldest
+    // binding wins" is exactly the rule this task overrides.
+    DB::table('content.item_anchors')->where('user_id', $userId)->update(['bound_at' => now()->subHour()]);
+
+    // 2. The owner hand-adds something with a DIFFERENT url, so it gets its
+    //    own item — nothing unions the two yet.
+    $coord = 'manual:'.Str::uuid();
+    $ownerItemId = $writer->writeManualItem($userId, $coord, manualLaneRelease('The owner name', 'https://example.test/mine'));
+    expect($ownerItemId)->not->toBe($syncedItemId);
+
+    // 3. The owner corrects the link to the one the connector already carries.
+    //    Both coords are now anchored to DIFFERENT items and share a
+    //    CanonicalUrl — the only union mechanism ProjectionWriter writes, and
+    //    the shape that reaches mergeInto()'s DELETE. The two coords sit on
+    //    DIFFERENT sources, so the key is not poisoned.
+    $resolved = $writer->writeManualItem($userId, $coord, manualLaneRelease('The owner name', $album));
+
+    // The owner's row is the survivor, not the scrape's.
+    expect($resolved)->toBe($ownerItemId);
+
+    // Asserted as the ITEM ROW, deliberately: the loss mechanism is a
+    // Postgres FK cascade off items.id, and the SQLite stand-ins declare no
+    // foreign keys, so asserting "the facets survived" would pass vacuously
+    // under `composer test` even with the bug present. "The row was never
+    // deleted" is driver-independent and is what stops the cascade firing.
+    expect(DB::table('content.items')->where('id', $ownerItemId)->exists())->toBeTrue();
+
+    // Both coords now point at the owner's item.
+    expect(DB::table('content.source_items')->where('item_id', $ownerItemId)->count())->toBe(2);
+
+    // And the owner's own words are still there, at a priority that wins.
+    $manualSourceId = DB::table('content.sources')->where('user_id', $userId)->where('kind', 'manual')->value('id');
+    expect(DB::table('content.f_text')->where('item_id', $ownerItemId)->where('source_id', $manualSourceId)->value('headline'))
+        ->toBe('The owner name')
+        ->and(DB::table('content.items')->where('id', $ownerItemId)->value('headline_cache'))->toBe('The owner name');
+});
+
+it('still merges two connector items on the oldest binding when no owner row is involved', function () {
+    // The owner preference must not change the survivor when nothing is
+    // owner-authored — otherwise it is not a narrow addition, it is a rewrite
+    // of merge semantics.
+    $userId = createTenant('manual-'.Str::lower(Str::random(6)))->id;
+    $writer = app(ProjectionWriter::class);
+    $shared = 'https://artist.bandcamp.com/album/shared';
+
+    [$sourceA, $streamA] = manualLaneBandcamp($userId, 'album/a', 'Album A', 'https://artist.bandcamp.com/album/a');
+    $writer->projectStream($sourceA, $streamA, 'releases');
+    $firstItemId = (string) DB::table('content.items')->where('user_id', $userId)->value('id');
+    // Same second-precision hazard as above: force A's anchor strictly older.
+    DB::table('content.item_anchors')->where('user_id', $userId)->update(['bound_at' => now()->subHour()]);
+
+    [$sourceB, $streamB] = manualLaneBandcamp($userId, 'album/b', 'Album B', $shared);
+    $writer->projectStream($sourceB, $streamB, 'releases');
+
+    // Repoint A's record at B's url so the two coords union.
+    DB::table('ingest.record_versions')->where('stream_id', $streamA)->update([
+        'doc' => json_encode(['title' => 'Album A', 'url' => $shared, 'artist' => 'Some Artist', 'type' => 'album']),
+    ]);
+    $writer->projectStream($sourceA, $streamA, 'releases');
+
+    // Oldest anchor still wins: the first-projected item is the survivor.
+    expect(DB::table('content.source_items')->where('item_id', $firstItemId)->count())->toBe(2);
 });

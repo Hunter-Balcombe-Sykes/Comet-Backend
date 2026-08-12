@@ -13,6 +13,7 @@ use App\Content\Values\ValueResolver;
 use App\Routing\SecretParams;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Site\Documents\BuildState;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -658,7 +659,9 @@ class ProjectionWriter
             ->unique()
             ->values();
 
-        $winner = $effective->first() ?? $this->createItem($userId, $kind);
+        $winner = $this->preferOwnerAnchored($effective)
+            ?? $effective->first()
+            ?? $this->createItem($userId, $kind);
 
         foreach ($group as $coord) {
             $existing = $anchors->firstWhere('coord', $coord);
@@ -672,11 +675,66 @@ class ProjectionWriter
             }
         }
 
-        foreach ($effective->slice(1) as $loser) {
+        // Losers are "everything that is not the winner", NOT slice(1). Those
+        // were the same thing while the winner was always $effective->first();
+        // preferOwnerAnchored() can pick a later element, and slice(1) would
+        // then hand mergeInto() the winner as its own discarded item — whose
+        // hard DELETE would destroy the row this preference exists to protect
+        // — while leaving the real loser at index 0 unmerged. $effective is
+        // unique(), so this is identical to slice(1) whenever the winner is
+        // first, which is every connection-only group.
+        foreach ($effective->reject(fn (string $itemId) => $itemId === $winner) as $loser) {
             $this->mergeInto($userId, keptItemId: $winner, discardedItemId: (string) $loser);
         }
 
         return $winner;
+    }
+
+    /**
+     * The owner outranks the machine (C8) at merge time: when a group already
+     * spans more than one item, an item the user authored through their
+     * manual source is the one that survives.
+     *
+     * Not a preference — a correctness requirement. mergeInto() below hard-
+     * DELETEs a discarded item that carries no pin and no override, and every
+     * content.f_* / item_media / offers / item_tags / item_links / item_slugs
+     * table cascades on items.id, so that DELETE takes those rows with it. A
+     * connection survives because its next projection rewrites them; a manual
+     * source has no next projection, so the owner's words would be gone.
+     *
+     * Suppressing the DELETE instead would be worse: it leaves a row with no
+     * source items that PoolResolver still returns in `library`, since that
+     * query filters on user_id + kind + removed_at and nothing else.
+     *
+     * This DOES invert which side is destroyed in a manual/connection merge —
+     * the connection's item row is now the discarded one, and its facets are
+     * restored on that connection's next run. That is the same restoration
+     * ItemMerger already relies on, and it is the trade the C8 rule requires.
+     *
+     * Consulted ONLY when a merge is actually about to happen. In steady state
+     * every group is a singleton, so this costs zero queries on the hot path.
+     *
+     * @param  Collection<int, string>  $effective  candidate item ids, oldest binding first
+     */
+    private function preferOwnerAnchored(Collection $effective): ?string
+    {
+        if ($effective->count() < 2) {
+            return null;
+        }
+
+        $ownerAuthored = DB::table('content.source_items as si')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->whereIn('si.item_id', $effective->all())
+            ->where('cs.kind', 'manual')
+            ->whereNull('si.removed_at')
+            ->distinct()
+            ->pluck('si.item_id')
+            ->map(fn ($id) => (string) $id)
+            ->flip();
+
+        // Oldest-binding-wins still applies WITHIN the owner-authored set:
+        // $effective arrives in bound_at order, so the first match is oldest.
+        return $effective->first(fn (string $itemId) => $ownerAuthored->has($itemId));
     }
 
     private function createItem(string $userId, string $kind): string
@@ -722,8 +780,13 @@ class ProjectionWriter
             'merged_at' => now(),
         ]);
 
+        // item_links is the owner's hand-saved cross-platform link set. Like a
+        // pin and an override it is typed by a person, is never rewritten by a
+        // projection, and cascades on items.id — so a merge must not delete it
+        // out from under them.
         $hasCuration = DB::table('site.section_items')->where('item_id', $discardedItemId)->exists()
-            || DB::table('content.manual_overrides')->where('item_id', $discardedItemId)->exists();
+            || DB::table('content.manual_overrides')->where('item_id', $discardedItemId)->exists()
+            || DB::table('content.item_links')->where('item_id', $discardedItemId)->exists();
 
         if (! $hasCuration) {
             DB::table('content.items')->where('id', $discardedItemId)->delete();
