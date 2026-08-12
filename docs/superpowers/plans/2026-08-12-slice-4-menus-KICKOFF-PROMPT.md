@@ -99,9 +99,11 @@ collapse them.
 
 ### Unit 3 — Multi-category → collections
 464 `menu_item_categories` rows over 318 dishes: a dish belongs to **several**
-categories. `content.collections` / `collection_items` are your target and are still
-empty unless slice 3 or 5 populated them — check, and follow their shape rather than
-inventing a second one.
+categories. `content.collections` / `collection_items` are your target. **Slice 3a
+does NOT populate them** — every one of the 61 service-category assignments belongs
+to Fresha, so collections moved wholly to slice 3b. Check whether 3b or 5 has landed
+first and follow their shape rather than inventing a second one; if neither has, you
+are the first user and must read the DDL rather than assume.
 
 ### Unit 4 — Identity across three platforms
 `MenuItemProjector` serves DoorDash, Square and Uber Eats because they land the same
@@ -197,6 +199,13 @@ slice builds on. Verify each claim yourself; this is a pointer, not evidence.
   `$afterCommit` as a typed property — `Queueable` declares it untyped and the
   clash is a fatal at class-load, which shows up as the runner exiting 2 with
   **zero output**, not as a red test.
+- **Do NOT add a `position` ordering operator to solve hand-ordering.** Slices 3a
+  and 5a independently reached the pins answer above and reconciled on it, and both
+  explicitly rejected a new operator. The section rule DSL spans FOUR registries —
+  the operator enum, `phrase()`, `EXECUTED_OPERATORS` and `ORDER_BY` — and missing
+  one is a runtime 500, not a red test. The curation half already expresses
+  hand-ordering, so an operator buys nothing and costs a four-place edit.
+
 
 ## Non-negotiables
 

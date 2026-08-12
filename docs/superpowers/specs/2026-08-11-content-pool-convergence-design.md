@@ -502,15 +502,25 @@ split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 | 2 | The events pool (`event` only) | M | **Merged** — checkpoint §14 | — |
 | 1a | Media asset spine + upload lane | L | **Merged** — live on dev | — |
 | 1b | Google pass-through, IG mirroring, the 91 selections | L | **Merged** — checkpoint §15 | — |
-| 3 | Services → `content.*` | L | Not started | — |
+| 3a | Services — owner-authored, pool, write cutover | L | Implemented on `feat/slice-3-services` | — |
+| 3b | Services — Fresha connector, excludes, collections | L | Not started | 3a **merged** |
 | 4 | Menus → `content.*` | XL | Not started | — |
 | 5a | Shop data move → `content.*` | L | **Merged** — checkpoint §16 | — |
 | 5b | Shop pool + public render | M | Kickoff written, spec not started | partna-monorepo |
 | 6 | Reviews → `content.*` | M | Not started | — |
-| 7 | Legacy teardown | M | Not started | 1b, 3, 4, 5, 6 **+ frontend + standalone events** |
+| 7 | Legacy teardown | M | Not started | 1b, 3a, 3b, 4, 5, 6 **+ frontend + standalone events** |
 
-With 0, 0b and 2 merged, the blocker graph has almost emptied: **3, 4, 5 and 6 are
-unblocked now.** Only 1b (needs 1a merged) and 7 are gated.
+With 0, 0b and 2 merged, the blocker graph has almost emptied: **3a, 4, 5 and 6
+are unblocked now.** 1b needs 1a merged, 3b needs 3a merged, and 7 is gated on all
+of them.
+
+**Slice 3 split into 3a/3b on 2026-08-12**, on a seam the database dictated rather
+than a preference: all 61 `service_category_assignments` and 16 of the 18
+`service_categories` belong to Fresha, and the two owner-authored categories are
+both already soft-deleted. The owner half therefore carries no collections work and
+the Fresha half carries all of it. The split also keeps the write cutover (17
+endpoints) away from the connector fix, so neither waits on the other. Same
+reasoning as 1a/1b.
 
 **Slice 7 gained a dependency revision 2 did not anticipate.** Slice 1a's scope
 boundary keeps the legacy `gallery` / `designMedia` wire keys, because the frontends
@@ -524,13 +534,18 @@ so that lane cannot be dropped yet.
 
 ### 4.2 Execution order
 
-**Merge 1a → { 1b · 3 · 5a } concurrent → 6 → 4 → 5b → 7.**
+**Merge 1a → { 1b · 3a · 5a } concurrent → 3b → 6 → 4 → 5b → 7.**
 
 **Revised 2026-08-12:** slice 5 split into 5a (data) and 5b (pool + public
 render). 5a keeps 5's original concurrency slot — it is `product`-kind and
 touches no shared read path, so §4.3 rule 1 still holds. 5b is sequenced late
 because it is the only remaining slice that needs partna-monorepo to move in
 step, and slice 7's teardown gate does not depend on it.
+
+**Revised 2026-08-13:** slice 3 split into 3a (owner-authored services, the
+pool, the write cutover) and 3b (the Fresha connector, excludes, collections)
+— see §4.1. 3b follows 3a rather than running beside it because it builds on
+3a's pool and its `content.*` read path.
 
 Sizes were revised upward from revision 1 (3 and 5 from M, 4 from L, 7 from S)
 because §1.7 removed the assumption that a manual write lane exists, and §8.3 added

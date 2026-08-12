@@ -98,8 +98,13 @@ two-surface rule depends on — and would produce the ordering parent §1.7
 measures as permanently non-convergent (backfilled rows first, connector after).
 3a therefore migrates the 21 owner-authored rows only.
 
-The 2 soft-deleted Fresha services still need carrying, or the connector
-resurrects them. That is 3b's, not 3a's.
+**And the 2 soft-deleted Fresha rows need no carrying at all** — measured
+2026-08-12, both carry `deleted_origin = 'sync'`, meaning the scrape stopped
+listing them, not that an owner deleted them. The legacy projector restores
+exactly such a row if it reappears (`FreshaServiceProjector:180-195`), so a
+connector that re-lands them is reproducing current behaviour, not regressing it.
+Zero Fresha rows carry `deleted_origin = 'user'`, which is the state that must
+never be resurrected.
 
 **The public surfaces switch to `content.*` in this programme, not at teardown.**
 Slice 7 drops `site.services`, and the Fresha booking blob is *composed from*
@@ -161,7 +166,7 @@ clears it) and is the correct home. Asserted by test, not by comment.
 'services' => ['service'],                       // POOLS
 'services' => 'services',                        // PAGE_KEYS
 'services' => 'Services',                        // PAGE_LABELS
-'services' => ['rule' => [['op' => 'kind_is']], 'order_by' => 'alphabetical'],  // SECTION_SHAPE
+'services' => ['rule' => [['op' => 'kind_is']], 'order_by' => 'recency'],  // SECTION_SHAPE
 ```
 
 **Not** in `LATEST_TAG_POOLS` — a "latest service" is meaningless.
@@ -185,8 +190,22 @@ ordering vocabulary is `recency`, `alphabetical` and `occurrence`
 
 **The backfill pins each item into the section at its `sort_order` position**,
 using the existing curation half (`site.section_items`), exactly as slice 2's
-`EventExcludeSync` writes excludes. `order_by` is set to `alphabetical` as the
-fallback for anything unpinned.
+`EventExcludeSync` writes excludes. `SectionCandidates:119` excludes already-pinned
+ids from the auto half, so there is no duplication.
+
+A pin buys a second thing worth naming: `mergeInto()`'s `hasCuration` check reads
+`site.section_items`, so a pinned item cannot be hard-deleted by a merge (parent
+§8.3). Every backfilled service is pinned, so every one is protected — but the
+§5.2 regression test still runs, because "protected by a side effect" is a
+property that should be pinned by a test rather than inferred.
+
+`order_by` is the fallback for anything unpinned, and is set to **`recency`** to
+match the convention slice 5a establishes for priced, undated items. Alphabetical
+would arguably read better for a services list, but it governs only the case where
+a service has no pin — which the backfill and the cut-over create endpoint both
+prevent — and one convention across the commerce kinds is worth more than a
+marginal improvement to a state that should not occur. Reconciled with the
+slice-5-shop session, 2026-08-12.
 
 The rejected alternative was a `position` ordering operator. The section rule DSL
 spans four registries — the operator enum, `phrase()`, `EXECUTED_OPERATORS` and
@@ -262,11 +281,33 @@ Re-source from `content.*`. **Keep the existing `services` /
 allowlists deliberately retain legacy keys so previously-stored payloads stay
 disclosable.
 
-### 3.7 Deliberately not carried
+#### 3.7 `deleted_origin` — not carried, but it is not vestigial
 
-`deleted_origin` (`user` vs system) has no `content.*` home and no reader on the
-public wire. It is retained in `site.services` until slice 7 drops the table. If
-a reader appears, it is a facet decision, not a backfill one.
+`deleted_origin` distinguishes "the owner deleted this" (`user`) from "the scrape
+stopped listing it" (`sync`), and it **is** load-bearing:
+`FreshaServiceProjector:180-195` reads it to decide whether a returning service is
+restored or stays suppressed. Calling it unread would be the same class of error
+this programme keeps correcting.
+
+It is nonetheless not carried into `content.*`, because its semantics are already
+expressed there:
+
+| Legacy state | `content.*` equivalent |
+|---|---|
+| `deleted_origin = 'user'` | `items.removed_at` set, and never cleared by a projection run |
+| `deleted_origin = 'sync'` | no live `source_item` — the connector simply stops landing it, and lands it again if it returns |
+
+All 3 owner-authored deletions carry `deleted_origin = NULL` (measured
+2026-08-12) and map to `removed_at`. The column stays in `site.services` until
+slice 7 drops the table.
+
+### 3.8 `offers.availability` stays NULL
+
+Slice 5a establishes `in_stock` / `out_of_stock` for products (schema.org
+`ItemAvailability` shorthand) on a column that is NULL on all 14 existing rows and
+carries no CHECK. A service is not stocked, so 3a writes NULL rather than minting
+a third spelling. An unbookable service is expressed as a pool exclude, the same
+as `is_active = false`.
 
 ---
 
@@ -392,9 +433,17 @@ checkpoint and wire manifest committed.
   and proven live 2026-08-12; see the kickoff prompt's unit 1.
 - The storewide-vs-selection reduction: the connector returns the whole salon
   menu (87 on dev) where the legacy lane stores one employee's filtered menu
-  (59). The difference becomes pool excludes, seeded from
-  `payload.selection` — with `hiddenServiceIds` and the 2 owner-deleted Fresha
-  services as the other two inputs to the same mechanism.
+  (59). The difference becomes pool excludes, seeded from `payload.selection`,
+  with `hiddenServiceIds` as the second input to the same mechanism. The 2
+  soft-deleted Fresha rows are **not** a third input — see §2, they are
+  `deleted_origin='sync'` departures that current behaviour restores on return.
+- **The coord for Fresha services is not `manual:{legacy_uuid}`** — they are not
+  backfilled at all. Note for 3b's own check: the legacy projector updates rows
+  in place keyed on `external_id` (`FreshaServiceProjector:150-208`), it does not
+  delete-and-reinsert, so `site.services.id` is stable. Slice 5a found the
+  opposite for `shop_products` (`ShopCatalog::syncLatest()` deletes then
+  re-creates, so uuids churn every sync) — confirm the writer's behaviour before
+  keying a coord on a legacy uuid.
 - `service_categories` (16 live, all Fresha) → `content.collections`;
   `service_category_assignments` (61, all Fresha) → `collection_items`. Both
   destination tables hold 0 rows, so 3b is their first user and must read their
