@@ -142,3 +142,20 @@ it('ranks exactly the sources the migrations permit', function () {
 
     expect($ranked)->toBe($allowed);
 });
+
+it('keeps SELF_REFRESH keyed identically to RANKS', function () {
+    // A same-rank write with no SELF_REFRESH entry evaluates the coalesced
+    // null against a `: bool` return type — a TypeError inside the
+    // Instagram fold, on a path with no exception handler. A `?? false`
+    // default would silently pick a policy for a newly-permitted source
+    // instead; failing here forces whoever widens users_sector_source_check
+    // to decide that source's self-refresh policy on purpose.
+    $reflection = new ReflectionClass(SectorProvenance::class);
+    $ranked = array_keys($reflection->getConstant('RANKS'));
+    $selfRefresh = array_keys($reflection->getConstant('SELF_REFRESH'));
+
+    sort($ranked);
+    sort($selfRefresh);
+
+    expect($selfRefresh)->toBe($ranked);
+});

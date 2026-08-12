@@ -12,6 +12,7 @@ use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\IdentitySync;
 use App\Services\PreAccount\Generators\GoogleBusinessSourceGenerator;
 use App\Services\PreAccount\SourceGenerationException;
+use App\Services\Profile\FoodContentProbe;
 use App\Support\BusinessName;
 use Illuminate\Support\Facades\Queue;
 
@@ -33,7 +34,9 @@ it('fetches place details, seeds a connection, and folds identity into the workp
     // generator no longer double-folds: IntegrationConnectionObserver::saved()
     // is the ONLY caller of applyFromGooglePayload now, so it fires exactly
     // once even though this test's generate() call also triggers a save.
-    $identitySyncSpy = Mockery::mock(IdentitySync::class)->makePartial();
+    // Pass the readonly FoodContentProbe dependency explicitly — makePartial()
+    // alone skips the real constructor, leaving the property uninitialized.
+    $identitySyncSpy = Mockery::mock(IdentitySync::class, [app(FoodContentProbe::class)])->makePartial();
     $identitySyncSpy->shouldReceive('applyFromGooglePayload')->once()->passthru();
     app()->instance(IdentitySync::class, $identitySyncSpy);
 
