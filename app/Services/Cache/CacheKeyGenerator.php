@@ -42,6 +42,13 @@ class CacheKeyGenerator
         return "pro:id:{$id}";
     }
 
+    // SecurityEventCooldownService's replay-spam cooldown (P4, 2026-08-12) —
+    // one key per user per client-reported security event.
+    public static function securityEventCooldown(string $userId, string $event): string
+    {
+        return "security-event-mail:{$userId}:{$event}";
+    }
+
     public static function professionalByAuthId(string $authUserId): string
     {
         return "pro:auth:{$authUserId}";
