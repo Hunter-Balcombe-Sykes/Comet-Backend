@@ -302,6 +302,80 @@ class ProjectionWriter
     }
 
     /**
+     * Land ONE owner-authored item through the same spine a connector record
+     * travels: source item, identity keys, resolved item, typed facets.
+     *
+     * The alternative — each backfiller and each hand-add writing content.*
+     * directly — was measured and rejected in the slice 0b design: it
+     * duplicates this class's semantics per call site, and any divergence
+     * produces items the identity resolver treats inconsistently. The live
+     * proof is the hand-rolled writer this method replaces, which skipped
+     * identity_keys and item_anchors and so had every hand-added item
+     * detached from its own source row by the next connector run.
+     *
+     * The returned id is the RESOLVED item, not necessarily a new one: a
+     * hand-typed URL that matches a synced item folds into it, which is the
+     * convergence the content schema exists for.
+     *
+     * CALLER CONSTRAINT: at most ONE coord per canonical URL per user.
+     * Resolver::poisonedKeys() poisons a key value that a SINGLE source
+     * contributes twice, and there is exactly one manual source per user — so
+     * two manual coords carrying the same URL do not merge, they disable that
+     * URL as a joining key for the whole run, taking any connector item
+     * carrying it down with them.
+     *
+     * MUST NOT be called inside a transaction — replaceCollections() documents
+     * its own as the outermost one.
+     *
+     * @param  string  $coord  stable and caller-owned: 'manual:{sha1(canonical url)}'
+     *                         for a hand-add, 'manual:{legacy_uuid}' for a backfill
+     *                         (spec §8.1), so a re-run updates rather than
+     *                         duplicates and the legacy identifier survives its
+     *                         table being dropped
+     * @param  array<string, mixed>  $projection  the shape Projector::project() returns
+     */
+    public function writeManualItem(string $userId, string $coord, array $projection): string
+    {
+        $contentSourceId = $this->ensureManualSource($userId);
+        $kind = (string) $projection['kind'];
+
+        // Same one-transaction-per-record boundary the connector path uses,
+        // and for the same reason: a committed source item visible with zero
+        // identity keys resolves as an unrelated singleton and mints a
+        // spurious item. See the long note at the projectStream() call site.
+        DB::transaction(function () use ($contentSourceId, $coord, $kind, $projection) {
+            $sourceItemId = $this->upsertSourceItem(
+                contentSourceId: $contentSourceId,
+                coord: $coord,
+                streamId: null,
+                recordKey: null,
+                kind: $kind,
+                // 0 = no projector governs this row. Nothing branches on the
+                // value (its only reader is the DSAR export), and a real
+                // version number would imply a rebuild could re-derive it.
+                projectorVersion: 0,
+            );
+            $this->writeIdentityKeys($sourceItemId, $coord, $projection);
+        });
+
+        $itemByCoord = $this->resolveItems($userId, $kind);
+
+        if (! isset($itemByCoord[$coord])) {
+            // Unreachable: the row was just written live and resolveItems()
+            // reads every live source item for (user, kind). Loud rather than
+            // a null return, because a silent miss here would hand a caller
+            // an id for the wrong item.
+            throw new \RuntimeException("Manual coord {$coord} did not resolve to an item.");
+        }
+
+        $this->writeFacets($contentSourceId, $userId, [$coord => $projection], $itemByCoord);
+        $this->refreshItemCaches($userId, array_values(array_unique(array_values($itemByCoord))));
+        $this->bumpSite($userId);
+
+        return $itemByCoord[$coord];
+    }
+
+    /**
      * The reconnect-stable half of a coord. Connections minted by the newer
      * flows already carry the deterministic sha16 in resource_id; legacy rows
      * derive the same shape from the identifier, which survives reconnect for
@@ -321,8 +395,8 @@ class ProjectionWriter
     private function upsertSourceItem(
         string $contentSourceId,
         string $coord,
-        string $streamId,
-        string $recordKey,
+        ?string $streamId,
+        ?string $recordKey,
         string $kind,
         int $projectorVersion,
     ): string {
@@ -371,8 +445,10 @@ class ProjectionWriter
      * MUST be called inside a transaction that ALSO covers the source item's
      * own upsert — the DELETE/INSERT pair below is not atomic on its own, and
      * covering only this method still leaves a first-sight source item visible
-     * with zero keys (see the long note at the call site). projectStream() is
-     * the only caller; keep it that way. Deliberately NOT self-wrapping: a
+     * with zero keys (see the long note at the call site). projectStream() and
+     * writeManualItem() are the only callers; keep it that way. Both wrap it in
+     * a transaction that ALSO covers the source item's own upsert, which is the
+     * property this method depends on. Deliberately NOT self-wrapping: a
      * nested DB::transaction here would add a SAVEPOINT round trip per record
      * and would silently re-narrow the scope to the window that does not
      * matter.
