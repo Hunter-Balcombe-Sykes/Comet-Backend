@@ -1232,6 +1232,15 @@ class ProjectionWriter
                 // image. 'declared' when a connector claimed dims. Unchanged
                 // for the connector shapes.
                 'dims_confidence' => $isUpload ? 'measured' : (isset($entry['width']) ? 'declared' : null),
+                // Slice 1b D6. Mint-only, like every other column here: a
+                // Google photo ref rotates every fetch, so a rotated photo
+                // arrives as a NEW row carrying its own credit. There is no
+                // update path to keep in sync. An empty block is stored as
+                // NULL — "Google returned no attribution" has to stay
+                // distinguishable from "a credit with no name in it".
+                'attribution' => isset($entry['attribution']) && is_array($entry['attribution']) && $entry['attribution'] !== []
+                    ? json_encode($entry['attribution'])
+                    : null,
                 'created_at' => now(),
             ];
         }

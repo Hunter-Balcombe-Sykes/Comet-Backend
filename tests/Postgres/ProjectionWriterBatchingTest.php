@@ -275,6 +275,7 @@ beforeEach(function () {
         palette jsonb,
         variant_family text CHECK (variant_family IS NULL OR variant_family IN (\'google\', \'shopify\', \'ytimg\', \'native\', \'proxy\')),
         blurhash text,
+        attribution jsonb,
         created_at timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT pwbt_media_assets_fingerprint_unique UNIQUE (user_id, fingerprint)
     )');

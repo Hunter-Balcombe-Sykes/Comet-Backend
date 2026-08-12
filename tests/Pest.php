@@ -2466,6 +2466,7 @@ function setupContentTables(): void
         palette TEXT NULL,
         variant_family TEXT NULL CHECK (variant_family IS NULL OR variant_family IN (\'google\', \'shopify\', \'ytimg\', \'native\', \'proxy\')),
         blurhash TEXT NULL,
+        attribution TEXT NULL,
         created_at TEXT NOT NULL,
         UNIQUE (user_id, fingerprint)
     )');

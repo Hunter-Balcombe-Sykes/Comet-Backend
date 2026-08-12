@@ -546,9 +546,9 @@ git commit -m "feat(ingest): google media projector carries url + attribution, h
 - Consumes: Task 3's media entry.
 - Produces: `content.media_assets.attribution` populated on mint. **Mint only** — `resolveMediaAssets()` never updates an existing row, and that is correct here: Google refs rotate, so every run mints fresh rows anyway.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
-Create `tests/Feature/Ingest/Projection/MediaAssetAttributionWriteTest.php`:
+Create `tests/Feature/Ingest/MediaAssetAttributionWriteTest.php` — flat, NOT under a new `Projection/` subdirectory. A new directory under `tests/Feature/` must be wired into the audit pipeline's `codebase_chunks()` (CLAUDE.md), and the existing ingest tests are flat anyway.:
 
 ```php
 <?php
@@ -618,14 +618,50 @@ it('does not disturb the upload shape 1a established', function () {
 });
 ```
 
-**Helpers:** `createUserWithSite()`, `createReadySiteMediaWithWebpVariant()` and `projectMediaEntries()` must exist in `tests/Pest.php` or a shared helper file. 1a's suite added equivalents — run `grep -rn 'function projectMediaEntries\|function createReadySiteMediaWithWebpVariant' tests/` first and reuse what is there rather than defining a second copy. A duplicate function in the global namespace is a fatal error, not a test failure (1a hit this: commit `f4edafb6b`).
+> **CORRECTED — none of those helpers exist.** `createUserWithSite()`,
+> `createReadySiteMediaWithWebpVariant()` and `projectMediaEntries()` return
+> nothing from a grep of `tests/`. 1a did not add them. What it actually used,
+> and what this task follows, is in `tests/Feature/Ingest/UploadMediaEntryTest.php`:
+>
+> - `beforeEach`: `setupUsersTable()`, `setupSitesTable()`, `setupIngestTables()`, `setupContentTables()`
+> - a user via `createTenant('prefix-'.Str::lower(Str::random(6)))->id`
+> - projection driven directly through `app(ProjectionWriter::class)->writeManualItem($userId, $coord, [...])` — there is no `projectMediaEntries()` wrapper and none is needed
+> - assertions straight onto `DB::table('content.media_assets')`
+>
+> The duplicate-global warning still stands and is why `uploadEntry()` (already
+> global in `UploadMediaEntryTest.php`) is not redefined here.
 
-- [ ] **Step 2: Run it to verify it fails**
+**Three schema copies must move together with this column.** The insert now
+carries `attribution`, so every stand-in table the write touches needs it or the
+tests fail on `Undefined property` rather than on the assertion:
 
-Run: `./vendor/bin/pest tests/Feature/Ingest/Projection/MediaAssetAttributionWriteTest.php`
-Expected: FAIL — `attribution` is null on the first test.
+1. `tests/Pest.php:2455` — the SQLite stand-in.
+2. `tests/Postgres/ProjectionWriterBatchingTest.php` — its own hand-written DDL.
+3. `tests/Postgres/ProjectionIdentityKeyAtomicityTest.php` — likewise.
 
-- [ ] **Step 3: Implement**
+`tests/Postgres/BrandAssetPipelineTest.php` and `MediaAssetSiteMediaFkTest.php`
+also declare `content.media_assets`, but neither goes through
+`resolveMediaAssets()` and both already omit `site_media_id`, so they are left
+alone — these copies are deliberately "enough for the test", not replicas.
+
+**Run the PG lane, it is not optional here.** SQLite will not catch a jsonb
+insert problem:
+
+```bash
+docker exec supabase_db_Partna-Development psql -U postgres -c "CREATE DATABASE partna_test_1b"
+PG_LANE_DISPOSABLE=1 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=54322 \
+  DB_DATABASE=partna_test_1b DB_USERNAME=postgres DB_PASSWORD=postgres DB_SSLMODE=disable \
+  ./vendor/bin/pest -c phpunit.pg.xml tests/Postgres/ProjectionWriterBatchingTest.php tests/Postgres/ProjectionIdentityKeyAtomicityTest.php
+```
+
+`PG_LANE_DISPOSABLE=1` is required — without it every test silently SKIPS with
+"Refusing to provision core.*/site.*", which reads as a pass. Result: 7 passed.
+
+- [x] **Step 2: Run it to verify it fails**
+
+First run failed 4/4 on `Undefined property: stdClass::$attribution` — the WRONG reason, the SQLite stand-in simply lacked the column. After adding it to `tests/Pest.php`, the run failed 1 and passed 3, which is the real red.
+
+- [x] **Step 3: Implement**
 
 In `app/Ingest/Projection/ProjectionWriter.php`, inside `resolveMediaAssets()`, add one key to the `$rows[]` array:
 
@@ -651,7 +687,7 @@ In `app/Ingest/Projection/ProjectionWriter.php`, inside `resolveMediaAssets()`, 
             ];
 ```
 
-- [ ] **Step 4: Run the new tests and the full projection suite**
+- [x] **Step 4: Run the new tests and the full projection suite**
 
 ```bash
 ./vendor/bin/pest tests/Feature/Ingest/Projection/MediaAssetAttributionWriteTest.php
@@ -659,10 +695,12 @@ In `app/Ingest/Projection/ProjectionWriter.php`, inside `resolveMediaAssets()`, 
 ```
 Expected: PASS. The second command is the regression gate — this method runs for every connector, so a green new test alone proves nothing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
+
+4 passed; `tests/Feature/Ingest` + `tests/Unit/Ingest` + `tests/Feature/Content` → 598 passed; PG lane → 7 passed.
 
 ```bash
-git add app/Ingest/Projection/ProjectionWriter.php tests/Feature/Ingest/Projection/MediaAssetAttributionWriteTest.php
+git add app/Ingest/Projection/ProjectionWriter.php tests/Feature/Ingest/MediaAssetAttributionWriteTest.php
 git commit -m "feat(ingest): persist photo attribution on asset mint"
 ```
 
