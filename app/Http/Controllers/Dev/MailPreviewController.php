@@ -22,6 +22,7 @@ use App\Mail\HandleAliasExpiringMail;
 use App\Mail\Notifications\AccountDeletionCancelledMail;
 use App\Mail\Notifications\AccountDeletionRequestedMail;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
+use App\Mail\Notifications\AchievementMail;
 use App\Mail\Notifications\CriticalNotificationMail;
 use App\Mail\Notifications\EnquiryReminderMail;
 use App\Mail\Notifications\FeatureAnnouncementMail;
@@ -177,6 +178,7 @@ class MailPreviewController extends Controller
                 'notif-feature' => ['label' => 'Feature announcement', 'make' => fn () => new FeatureAnnouncementMail($this->fakeNotification('feature_announcement', 'New: smart ordering for your links', 'Your links can now arrange themselves by engagement. Turn it on from the Site page.'))],
                 'notif-profile-task' => ['label' => 'Profile task', 'make' => fn () => new ProfileTaskMail($this->fakeNotification('profile_tasks', 'Finish setting up your site', 'Add a logo and connect your first platform to make your site look its best.'))],
                 'notif-enquiry-reminder' => ['label' => 'Enquiry reminder', 'make' => fn () => new EnquiryReminderMail($this->fakeNotification('enquiry_reminder', "Riley O'Brien is still waiting to hear back", 'Their enquiry "Booking for Saturday" arrived on Aug 10, 2026 and hasn\'t been opened yet. A quick reply keeps the lead warm.'))],
+                'notif-achievement' => ['label' => 'Achievement', 'make' => fn () => new AchievementMail($this->fakeNotification('achievement', 'Your first enquiry just arrived', 'Someone reached out through your site. Reply while it\'s warm.'))],
             ],
             'Moderation' => [
                 'mod-suspended' => ['label' => 'Account suspended', 'make' => fn () => new AccountSuspendedNotification($this->fakeDecision())],

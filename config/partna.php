@@ -1,5 +1,6 @@
 <?php
 
+use App\Mail\Notifications\AchievementMail;
 use App\Mail\Notifications\CriticalNotificationMail;
 use App\Mail\Notifications\EnquiryReminderMail;
 use App\Mail\Notifications\FeatureAnnouncementMail;
@@ -2050,7 +2051,7 @@ return [
             // The generic CriticalNotificationMail renders the notification through the
             // shared OTP layout family; SendTransactionalNotificationEmailJob also falls
             // back to it for any critical notification whose category is unmapped.
-            'achievement' => null,                                // in-app only (milestones / first-enquiry)
+            'achievement' => AchievementMail::class,              // milestones / first-enquiry — celebration mail
             'platform_connection' => CriticalNotificationMail::class, // critical: connection needs reconnecting → email
             'content_scrape' => null,                             // in-app only (transient scrape/menu warnings)
             'analytics_weekly' => null,                           // in-app only (weekly summary stub)

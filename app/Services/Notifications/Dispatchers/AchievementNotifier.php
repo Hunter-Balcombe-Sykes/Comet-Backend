@@ -2,6 +2,8 @@
 
 namespace App\Services\Notifications\Dispatchers;
 
+use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
+use App\Models\Core\Notifications\Notification;
 use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -35,7 +37,16 @@ class AchievementNotifier
     private function safePublish(string $userId, string $title, string $body, string $dedupeKey, string $ctaUrl): void
     {
         try {
-            $this->publisher->publish(
+            // Checked BEFORE publish(): publish() always returns the row (new
+            // or pre-existing) on its insertOrIgnore conflict, so its return
+            // value can't tell "just created" from "already fired" by itself
+            // (same reasoning as NotifyWeeklySummary's digest-email gate).
+            $isNew = ! Notification::query()
+                ->where('user_id', $userId)
+                ->where('dedupe_key', $dedupeKey)
+                ->exists();
+
+            $notification = $this->publisher->publish(
                 userId: $userId,
                 frontendType: 'Success',
                 category: 'achievement',
@@ -47,6 +58,19 @@ class AchievementNotifier
                 retentionConfigKey: 'achievement',
                 critical: false,
             );
+
+            // Achievements stay critical=false deliberately (auto-expiring,
+            // non-critical severity) — publish() only auto-dispatches email
+            // for critical notifications, so the celebration email is
+            // dispatched here instead, on the same 'mail' queue publish()
+            // itself would have used.
+            if ($isNew && $notification !== null && config('partna.notifications.email_enabled', false)) {
+                SendTransactionalNotificationEmailJob::dispatch(
+                    $notification->id,
+                    'achievement',
+                    $userId,
+                )->onQueue('mail');
+            }
         } catch (Throwable $e) {
             // Never let a celebratory notification break the real work that triggered it.
             report($e);
