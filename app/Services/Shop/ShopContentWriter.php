@@ -6,6 +6,7 @@ use App\Ingest\Projection\ProjectionWriter;
 use App\Models\Core\Site\ShopBrand;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -156,6 +157,19 @@ class ShopContentWriter
      * collection still links that the fetch no longer carries. Returns the
      * count written (post-dedupe, not the raw input count).
      *
+     * Fix round 3, Finding 3: a urlless product is NOT dropped merely for
+     * lacking a url — Squarespace and BigCartel both legitimately emit one
+     * (BigCartelScraper's own return type is `url:?string`). The coord
+     * falls back to the product id (`'pid:'.$productId`, same
+     * `manual:{sha1(...)}` shape coordFor() already produces for a url) so
+     * the product still gets an item, still gets tracked in `$seen` (so
+     * retireAbsent() doesn't wrongly retire it), and still round-trips
+     * through currentCatalogue() for ShopProductSeeder's re-seed merge.
+     * Only a product with NEITHER a url NOR a product id is genuinely
+     * unidentifiable — skipped, and logged (never silently) rather than
+     * counted in a return value, since this method's return is a plain
+     * written-count already consumed as-is by ShopCatalog::syncLatest().
+     *
      * @param  list<array<string,mixed>>  $products  raw scraper blobs, catalogue order
      */
     public function syncStore(string $userId, string $collectionId, array $products, ?string $currency): int
@@ -165,14 +179,27 @@ class ShopContentWriter
 
         foreach ($products as $position => $blob) {
             $url = trim((string) ($blob['url'] ?? ''));
-            if ($url === '') {
+            $productId = trim((string) ($blob['productId'] ?? ''));
+
+            if ($url !== '') {
+                $identifier = $url;
+            } elseif ($productId !== '') {
+                $identifier = 'pid:'.$productId;
+            } else {
+                Log::warning('shop.sync_store.unidentifiable_product', [
+                    'user_id' => $userId,
+                    'collection_id' => $collectionId,
+                    'position' => $position,
+                ]);
+
                 continue;
             }
 
-            $coord = ShopProductProjection::coordFor($url);
-            // §1.7: one coord per canonical URL per user. Two catalogue entries
-            // sharing a URL would poison that key for the whole resolution run,
-            // so the dedupe happens BEFORE writing, not after.
+            $coord = ShopProductProjection::coordFor($identifier);
+            // §1.7: one coord per canonical identifier per user. Two catalogue
+            // entries sharing a URL (or, now, sharing a productId with no url)
+            // would poison that key for the whole resolution run, so the
+            // dedupe happens BEFORE writing, not after.
             if (isset($seen[$coord])) {
                 continue;
             }
@@ -236,17 +263,20 @@ class ShopContentWriter
      * written before that migration lands still reads back null for these
      * four until its next sync, same as any other facet backfill.
      *
-     * `createdAt` is fix round 2, Finding 1: it is NOT cosmetic —
-     * ShopCatalog::syncLatest() sorts a fetched catalogue on it to pick a
-     * latest-mode store's newest products, ShopProductSeeder's newest-first
-     * merge reads it via currentCatalogue(), and SHOP_PRODUCT_ALLOWLIST
-     * still carries it on the public wire — so it is populated from
-     * content.f_published.published_from (ShopProductProjection now writes
-     * that facet from the blob's own createdAt, verbatim, when parseable).
-     * items.first_seen_at is a TRANSITIONAL FALLBACK ONLY, for a row that
-     * synced before this fix shipped and so has no f_published row yet —
-     * not the source of truth, and not correct once every live item has
-     * synced at least once since. The extra keys are harmless to the
+     * `createdAt` is fix round 2, Finding 1 (corrected in round 3, Finding
+     * 1 — see the inline comment at the read site below): it is NOT
+     * cosmetic — ShopCatalog::syncLatest() sorts a fetched catalogue on it
+     * to pick a latest-mode store's newest products, ShopProductSeeder's
+     * newest-first merge reads it via currentCatalogue(), and
+     * SHOP_PRODUCT_ALLOWLIST still carries it on the public wire — so it is
+     * populated from content.f_published.published_from (ShopProductProjection
+     * writes that facet from the blob's own createdAt, verbatim, when
+     * parseable), reformatted through Carbon on READ (NOT a verbatim
+     * pass-through — that was round 2's mistake, SQLite-only-correct; see
+     * below). items.first_seen_at is a TRANSITIONAL FALLBACK ONLY, for a
+     * row that synced before this fix shipped and so has no f_published row
+     * yet — not the source of truth, and not correct once every live item
+     * has synced at least once since. The extra keys are harmless to the
      * existing syncStore()-input caller: fromBlob() only reads the keys it
      * knows and ignores the rest.
      *
@@ -324,14 +354,18 @@ class ShopContentWriter
             $catalogue = [];
             foreach ($collectionLinks as $link) {
                 $itemId = $link->item_id;
+                // Fix round 3, Finding 3: a missing f_link row is REACHABLE
+                // now — syncStore() falls back to a 'pid:'-derived coord for
+                // a urlless product (Squarespace/BigCartel both legitimately
+                // emit one) rather than skipping it, so that item has no
+                // f_link facet by construction (fromBlob() never writes one
+                // for an empty url). Previously this `continue`d, silently
+                // dropping such a product from every read even after
+                // syncStore() stopped dropping it at write time — the exact
+                // "skip and count, never silently" failure this fix closes.
+                // `url` is genuinely null on the wire here, matching
+                // BigCartelScraper's own documented `url:?string` shape.
                 $url = $urlByItem[$itemId] ?? null;
-                if ($url === null) {
-                    // No f_link row to rebuild a blob from — unreachable for a
-                    // real manual product item (writeManualItem() always writes
-                    // f_link from the coord's own url), but skip rather than
-                    // mint a urlless blob syncStore() would drop anyway.
-                    continue;
-                }
 
                 $offers = $offersByItem[$itemId] ?? [];
                 $baseOffer = null;
@@ -386,29 +420,44 @@ class ShopContentWriter
                 $catalog = $catalogByItem->get($itemId);
                 $text = $textByItem->get($itemId);
 
-                // Fix round 2, Finding 1: published_from (the real scraped
-                // createdAt) wins whenever it exists, returned VERBATIM —
-                // not reformatted through Carbon, same as every other
-                // pass-through field in this method (handle/vendor/
-                // description/sku above). Reformatting bought nothing and
-                // cost byte-parity for free: Carbon::toIso8601String()
-                // normalises 'Z' to '+00:00', which is a valid, equivalent
-                // ISO-8601 rendering of the same instant but not the literal
-                // string the store originally sent. items.first_seen_at (a
-                // Partna-side synthetic timestamp, never an external string
-                // to preserve) is ONLY the fallback for a row that synced
-                // before ShopProductProjection started writing f_published —
-                // transitional, not the source of truth. Once every live
-                // item has synced at least once since this fix, the
-                // fallback branch stops firing in practice but stays
-                // correct to keep (an item can legitimately go a long time
-                // between syncs).
+                // Fix round 3, Finding 1 (CRITICAL, corrects round 2's own
+                // mistake): published_from MUST be reformatted, not passed
+                // through raw. Round 2 removed the Carbon call because it
+                // made the SQLite test byte-match the legacy fixture — but
+                // that only "worked" because the SQLite stand-in stores this
+                // column as bare TEXT and hands back the exact literal
+                // string. content.f_published.published_from is a real
+                // Postgres `timestamptz`: on write, Postgres normalises
+                // whatever offset arrives to UTC internally, and on read
+                // (session TimeZone defaults to UTC — verified against the
+                // real partna-pg-test Postgres container, not assumed) it
+                // ALWAYS returns text in ITS OWN format
+                // ('2026-01-05 00:00:00+00' — space, no 'T', two-digit
+                // offset), never the original ISO-8601 string. A raw
+                // pass-through is therefore SQLite-only-correct — exactly
+                // the "tests run SQLite, prod is Postgres" trap this repo
+                // keeps hitting. Confirmed empirically (see the Task 7
+                // report, Fix round 3): Carbon::parse($raw)->utc()->
+                // toIso8601String() produces the IDENTICAL string whether
+                // $raw came from SQLite's literal text or Postgres's
+                // UTC-normalised text, for the same instant — the ->utc()
+                // call is load-bearing, not decorative: without it, a
+                // non-UTC ORIGINAL offset (e.g. '+10:00') round-trips
+                // through Postgres as its OWN '+00:00' text, which then
+                // reformats to a DIFFERENT string than parsing the original
+                // '+10:00' string directly would — the two drivers only
+                // agree once both are forced to the same target zone before
+                // formatting. items.first_seen_at (a Partna-side synthetic
+                // timestamp, never an external string to preserve) is ONLY
+                // the fallback for a row that synced before
+                // ShopProductProjection started writing f_published —
+                // transitional, not the source of truth.
                 $published = $publishedByItem[$itemId] ?? null;
                 $createdAt = $published !== null
-                    ? (string) $published
+                    ? Carbon::parse((string) $published)->utc()->toIso8601String()
                     : (($firstSeen = $firstSeenByItem[$itemId] ?? null) === null ? null : Carbon::parse((string) $firstSeen)->toIso8601String());
 
-                $catalogue[] = [
+                $product = [
                     'productId' => $catalog?->sku,
                     'title' => $text?->headline,
                     // Fix round 1, Finding 3: previously always null (see
@@ -416,8 +465,6 @@ class ShopContentWriter
                     // round-trips through content.f_catalog/f_text (migration
                     // 20260813100002).
                     'handle' => $catalog?->handle,
-                    'vendor' => $catalog?->vendor,
-                    'description' => $text?->body,
                     'url' => $url,
                     'price' => $baseOffer !== null ? self::formatMinorUnits((int) $baseOffer->amount_minor) : null,
                     'currency' => $baseOffer?->currency,
@@ -428,6 +475,31 @@ class ShopContentWriter
                     'createdAt' => $createdAt,
                     'variants' => $variants,
                 ];
+
+                // Fix round 3, Finding 2: content.* cannot tell "the blob
+                // never had this key" from "the blob had it set to null" —
+                // both collapse to the same null column. OMITTING the key
+                // when null, rather than emitting `vendor: null`/
+                // `description: null`, is honest about that: a legacy
+                // dashboard build reading `product.vendor` gets `undefined`
+                // either way once JSON-decoded, whether the original blob
+                // never had the key (SquarespaceScraper never emits it) or
+                // had it explicitly null (GenericShopScraper's OpenGraph
+                // fallback always does) — so this is a lossless
+                // simplification for a genuinely null value, not a new
+                // divergence. `handle`/`variantId` are NOT given the same
+                // treatment: unlike vendor/description, every real scraper
+                // examined either always emits them or the field is
+                // meaningfully absent as a signal in its own right (see the
+                // Task 7 report for the field-by-field accounting).
+                if ($catalog?->vendor !== null) {
+                    $product['vendor'] = $catalog->vendor;
+                }
+                if ($text?->body !== null) {
+                    $product['description'] = $text->body;
+                }
+
+                $catalogue[] = $product;
             }
             $catalogues[$collectionId] = $catalogue;
         }

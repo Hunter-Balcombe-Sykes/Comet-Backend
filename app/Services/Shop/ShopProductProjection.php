@@ -71,9 +71,16 @@ final class ShopProductProjection
         ], static fn ($v, $k) => $v !== null && ($k === 'facets' ? $v !== [] : true), ARRAY_FILTER_USE_BOTH);
     }
 
-    public static function coordFor(string $url): string
+    /**
+     * Fix round 3, Finding 3: takes any stable per-user identifier, not only
+     * a url — ShopContentWriter::syncStore() passes the url when the
+     * product has one, else `'pid:'.$productId` (Squarespace/BigCartel both
+     * legitimately emit a urlless product). The hashing is identical either
+     * way; only the caller decides what identifies the product.
+     */
+    public static function coordFor(string $identifier): string
     {
-        return 'manual:'.sha1($url);
+        return 'manual:'.sha1($identifier);
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Services\Migration\ShopBackfiller;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 // Slice 5a §3.5: syncStore() is what Tasks 6/7/8 call on every re-fetch. The
 // legacy ShopCatalog::syncLatest() deletes every row for a brand and
@@ -234,4 +235,101 @@ it('isCurated returns true from the storefront value alone, with the legacy colu
 
     expect($brand->products_curated_at)->toBeNull()
         ->and(app(ShopContentWriter::class)->isCurated($brand))->toBeTrue();
+});
+
+// ── Fix round 3, Finding 1 (CRITICAL): createdAt must be reformatted, not
+// passed through raw — content.f_published.published_from is a real
+// Postgres timestamptz, and a raw pass-through only byte-matches because
+// the SQLite test stand-in stores this column as bare TEXT and hands back
+// the literal string untouched. Verified against a real Postgres container
+// (partna-pg-test) that this is not a hypothetical: Postgres normalises the
+// offset to UTC on write and returns '2026-01-05 00:00:00+00'-shaped text
+// on read, never the original ISO-8601 string — see the Task 7 report for
+// the full probe output. This test cannot reach that real-driver behaviour
+// (SQLite stores the literal string), but it DOES pin the one thing under
+// this task's control either way: the APPLICATION-layer transformation
+// (Carbon::parse($stored)->utc()->toIso8601String()) must normalise a
+// non-UTC offset to the UTC form, so that whatever a driver hands back —
+// literal text (SQLite) or Postgres's own UTC-normalised text — the two
+// converge on the identical output string for the same instant.
+
+it('normalises a stored createdAt with a non-UTC offset to the UTC ISO-8601 form', function () {
+    [$user, $collectionId] = makeStoreCollection();
+    $blob = [
+        'url' => 'https://s.test/tz', 'title' => 'Tee', 'price' => '10.00',
+        'available' => true, 'createdAt' => '2026-01-05T10:30:00+10:00',
+    ];
+
+    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [$blob], 'AUD');
+    $catalogue = app(ShopContentWriter::class)->currentCatalogue($collectionId);
+
+    // 10:30 AEST (+10:00) is 00:30 UTC — the SAME instant, reformatted, not
+    // the original offset preserved (timestamptz cannot preserve it; see
+    // the report). 'Z' vs '+00:00' is Carbon::toIso8601String()'s own
+    // rendering choice (always the latter), not something this task chose.
+    expect($catalogue[0]['createdAt'])->toBe('2026-01-05T00:30:00+00:00');
+});
+
+it('normalises a stored createdAt already in UTC unchanged in effect (Z-equivalent, offset-notated)', function () {
+    [$user, $collectionId] = makeStoreCollection();
+    $blob = [
+        'url' => 'https://s.test/tz2', 'title' => 'Mug', 'price' => '5.00',
+        'available' => true, 'createdAt' => '2026-01-05T00:00:00Z',
+    ];
+
+    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [$blob], 'AUD');
+    $catalogue = app(ShopContentWriter::class)->currentCatalogue($collectionId);
+
+    expect($catalogue[0]['createdAt'])->toBe('2026-01-05T00:00:00+00:00');
+});
+
+// ── Fix round 3, Finding 3: urlless products are not silently dropped ──────
+//
+// Squarespace and BigCartel both legitimately emit a product with no url
+// (BigCartelScraper's own return type is `url:?string`). syncStore() used to
+// skip any blob with an empty url unconditionally — real, silent data loss.
+
+it('keeps a urlless product identified by its productId alone, surviving a re-sync', function () {
+    [$user, $collectionId] = makeStoreCollection();
+    $blob = ['productId' => 'sq-1', 'title' => 'Handmade Mug', 'price' => '20.00', 'available' => true];
+
+    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [$blob], 'AUD');
+    $first = DB::table('content.items')->where('kind', 'product')->value('id');
+
+    expect($first)->not->toBeNull();
+
+    // Re-sync with the same urlless product (price changed) — must be
+    // recognised as the SAME item via the pid: coord, not re-minted, and
+    // must not be retired by retireAbsent() as "no longer in the catalogue".
+    app(ShopContentWriter::class)->syncStore(
+        (string) $user->id, $collectionId, [array_merge($blob, ['price' => '22.00'])], 'AUD');
+
+    expect(DB::table('content.items')->where('kind', 'product')->value('id'))->toBe($first)
+        ->and(DB::table('content.items')->where('id', $first)->value('removed_at'))->toBeNull()
+        ->and(DB::table('content.offers')->where('item_id', $first)
+            ->whereNull('variant_label')->value('amount_minor'))->toBe(2200);
+});
+
+it('round-trips a urlless product through currentCatalogue() with url: null on the wire', function () {
+    [$user, $collectionId] = makeStoreCollection();
+    $blob = ['productId' => 'sq-2', 'title' => 'Ceramic Bowl', 'price' => '15.00', 'available' => true];
+
+    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [$blob], 'AUD');
+    $catalogue = app(ShopContentWriter::class)->currentCatalogue($collectionId);
+
+    expect($catalogue)->toHaveCount(1)
+        ->and($catalogue[0]['productId'])->toBe('sq-2')
+        ->and($catalogue[0]['url'])->toBeNull();
+});
+
+it('skips and logs a product with neither a url nor a productId, rather than dropping it silently', function () {
+    Log::shouldReceive('warning')->once()->with('shop.sync_store.unidentifiable_product', Mockery::type('array'));
+
+    [$user, $collectionId] = makeStoreCollection();
+    $blob = ['title' => 'Mystery Item', 'price' => '9.00', 'available' => true];
+
+    $written = app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [$blob], 'AUD');
+
+    expect($written)->toBe(0)
+        ->and(DB::table('content.items')->where('kind', 'product')->count())->toBe(0);
 });

@@ -138,7 +138,21 @@ class ShopContentReader
                 'provider' => (string) $row->provider,
                 'url' => $row->url,
                 'sourceUrl' => $row->source_url,
-                'name' => $row->label,
+                // Fix round 3, Finding 5: content.collections.label is
+                // NOT NULL (upsertStore() writes `name ?? brand_id` into
+                // it — there is no separate "unnamed" state the column can
+                // hold), so a brand with no real name is indistinguishable
+                // from a brand whose real name happens to equal its own id.
+                // The label IS the id in the "no name" case specifically
+                // because upsertStore() falls back to it — so null it back
+                // out here rather than surface a value the legacy dashboard
+                // never showed. Narrow false-positive this accepts: a store
+                // genuinely NAMED the same string as its own brand_id would
+                // also read back null — judged acceptable (a name identical
+                // to an opaque provider id is not a real display name to
+                // begin with) rather than adding a column to
+                // content.storefronts to carry the two facts separately.
+                'name' => $row->label === $externalRef ? null : $row->label,
                 'currency' => $row->currency,
                 'favicon' => $row->favicon_url,
                 'logo' => $row->logo_url,

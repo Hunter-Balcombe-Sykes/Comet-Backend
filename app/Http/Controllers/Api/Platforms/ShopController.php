@@ -1054,9 +1054,15 @@ class ShopController extends ApiController
             return [];
         }
 
+        // Fix round 3, Finding 4: hoisted OUT of the map closure below —
+        // this used to be called PER BRAND, an N+1 on a path GET /selection
+        // (a public-feeding endpoint) shares. One value for the whole map,
+        // same as ShopContentReader::brandMap()'s own ranks parameter.
+        $ranks = $this->productRanksFor($user);
+
         return $connection->shopBrands()->with('products')->get()
             ->keyBy('brand_id')
-            ->map(fn (ShopBrand $b) => $b->toBrandArray($this->productRanksFor($user)))
+            ->map(fn (ShopBrand $b) => $b->toBrandArray($ranks))
             ->all();
     }
 

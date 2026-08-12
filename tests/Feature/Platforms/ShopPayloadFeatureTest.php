@@ -155,3 +155,48 @@ it('shop selection is null when no brand has products', function () {
         ->assertOk()
         ->assertExactJson(['selection' => null]);
 });
+
+// ── Fix round 3, Finding 4: N+1 regression guard ────────────────────────
+//
+// productRanksFor() was called PER BRAND inside ShopController::brandMap()'s
+// ->map() closure (an accidental N+1 introduced when the shared helper was
+// extracted in round 1) — measured as 5 analytics.content_popularity_scores
+// queries for 4 brands on GET /selection, a path that also feeds the public
+// wire. Hoisted back out; this pins the fixed count so it cannot regress.
+// The count is 2, not 1: hybridBrandMap() (fix round 1, Finding 6 —
+// TEMPORARY until Task 8) still merges TWO brand-map builds — the legacy
+// site.shop_brands one and ShopContentReader's content.* one — and each
+// calls productRanksFor() once. Delete this test's "2" expectation and
+// re-derive it once hybridBrandMap() is deleted; it should drop to 1.
+it('calls analytics.content_popularity_scores at most once per brand-map build, not once per brand', function () {
+    setupContentPopularityScoresTable();
+    $user = shopPayloadUser('shp5');
+    $siteId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId, 'user_id' => $user->id, 'subdomain' => 'shp5',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    foreach (['b1', 'b2', 'b3', 'b4'] as $i => $brandId) {
+        $brand = ShopBrand::create([
+            'connection_id' => $conn->id, 'brand_id' => $brandId, 'provider' => 'shopify',
+            'url' => "https://{$brandId}.example.com", 'position' => $i,
+        ]);
+        ShopProduct::create([
+            'brand_id' => $brand->id, 'product_id' => "p-{$brandId}", 'position' => 0,
+            'data' => ['productId' => "p-{$brandId}", 'handle' => $brandId, 'url' => "https://{$brandId}.example.com/p"],
+        ]);
+    }
+
+    DB::connection('pgsql')->enableQueryLog();
+    actingAsUser($user)->getJson('/api/platforms/shop/selection')->assertOk();
+    $log = DB::connection('pgsql')->getQueryLog();
+    DB::connection('pgsql')->disableQueryLog();
+
+    $rankQueries = array_filter($log, fn ($q) => str_contains($q['query'], 'content_popularity_scores'));
+    expect(count($rankQueries))->toBe(2, 'Expected exactly 2 popularity-rank queries for 4 brands (one per '.
+        'brandMap() build inside hybridBrandMap() — see this test\'s own docblock), not one per brand.');
+});
