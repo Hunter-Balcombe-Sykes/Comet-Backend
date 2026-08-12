@@ -1077,3 +1077,186 @@ no `RuntimeException: Manual coord … did not resolve to an item`, no
 | `site.site_build_state` build state | **Bumped** — `writeManualItem()` → `bumpSite()`, and the controller bumps again for the curation write |
 | 60s public-profile payload cache | **Not busted.** A content write does not move `site.sites.updated_at`, so the key does not roll. TTL-bounded staleness only (default 60s) |
 | Cloudflare edge | **Purged on the endpoint only** — the controller's existing `CloudflareCachePurgeJob`. The `bindGroup()` change lands on the connector path, which has no edge purge, so a connector-triggered survivor change is visible at the edge only after TTL. Accepted: already true of every projection run |
+
+---
+
+## 13. Slice 0 checkpoint — billed-effect driver seam
+
+**Status: implemented and test-verified; NOT done. Two blockers, both live.**
+
+Written 2026-08-12 by the slice 0b session, auditing slice 0 rather than
+executing it — §3 invariant 5 forbids a slice citing another's checkpoint as
+evidence, and this section is the reverse case: an independent audit recording
+what is and is not established. Everything below marked "verified" was run for
+this section. Nothing from slice 0's own post-deploy steps has been run, and
+none of it is reported as if it had been.
+
+### 13.1 Build state — verified complete
+
+All 11 created files and the config wiring exist:
+
+| Deliverable | State |
+|---|---|
+| `Effects/{BilledEffectDriver,Context,Outcome,Result,DriverRegistry}.php` | present |
+| `Effects/{PlacesDetailsDriver,InstagramActorDriver}.php` | present |
+| `EffectNotAttempted.php`, `EffectNoAnswer.php` | present |
+| `PlaceDetailsResult.php`, `PlaceDetailsFailure.php` | present |
+| `config/partna.php:1009` `billed_effects_enabled` | present, defaults **false** |
+| `.env.example:577` `PARTNA_INGEST_BILLED_EFFECTS_ENABLED=false` | present |
+| `AppServiceProvider:120` registry singleton | bound |
+
+Its seven Pest files run green: **56 passed, 147 assertions.**
+
+### 13.2 Pre-deploy dev baseline — verified (`glncumufgaqcmqhzwrxm`, 2026-08-12)
+
+```sql
+SELECT kind, cost_tag, status, count(*) FROM ingest.effects GROUP BY 1,2,3;
+```
+
+```
+(0 rows)
+```
+
+Confirms §5.4: `ingest.effects` has held zero rows since creation. **No billed
+effect has ever executed.**
+
+### 13.3 BLOCKER 1 — the kill switch is set on neither environment
+
+`config('partna.ingest.billed_effects_enabled')` reads
+`PARTNA_INGEST_BILLED_EFFECTS_ENABLED` with a default of `false`. Read from
+Laravel Cloud 2026-08-12:
+
+```
+development: PARTNA_INGEST_BILLED_EFFECTS_ENABLED present = 0
+production:  PARTNA_INGEST_BILLED_EFFECTS_ENABLED present = 0
+```
+
+Unset on both, so it resolves **false everywhere**. The drivers cannot dispatch
+even once the code is deployed. Slice 0's own checkpoint requirement — an
+explicit statement that the flag is *true on development, false on production*
+— is therefore **unmet**, and the "false on production" half is currently true
+only by default rather than by intent.
+
+Setting it needs care: the Cloud CLI's `variables` verb **replaces the whole
+set**, so a naive write drops every other var.
+
+### 13.4 BLOCKER 2 — the definition of done is unreachable pre-deploy
+
+§5.3: "Slice 0 ends when a billed effect can execute and is recorded." With
+`ingest.effects` at 0 rows and the code unmerged (`development` is at
+`5c2572c10`; the work sits on `feat/content-pool-slice2-events`), no billed
+effect has executed, so the slice cannot be closed on the evidence available.
+
+### 13.5 Outstanding — the full list
+
+Nothing in slice 0's plan Steps 4–12 has been performed:
+
+- merge and deploy to `development`
+- set `PARTNA_INGEST_BILLED_EFFECTS_ENABLED=true` on development
+- run the live billed Places Details call (**costs one real Places call**) and
+  paste the resulting `ingest.effects` row
+- `cloud env:logs partna development --minutes 10` — expecting no
+  `ingest.effect.replay_unavailable`, no `google_business.details_fetch_failed`
+- Nightwatch scan for `PlaceDetailsUnavailableException` /
+  `AbandonedEffectException`
+- record the six D1–D6 spec corrections against §5 (§5.3's closing claim that a
+  `NoAnswer` is retryable is the one the plan flags as actively wrong)
+- confirm `auto_sync` stays `false` for both billed connectors
+- the plan's own docs commit and branch cleanup
+
+Its plan file `docs/superpowers/plans/2026-08-11-billed-effect-driver-seam-PLAN.md`
+is also still untracked, against this repo's convention of committing plans.
+
+---
+
+## 14. Slice 2 checkpoint — the events pool
+
+**Status: implemented, test-verified, and partially discharged on dev; NOT
+done. Three migration commands have not run.**
+
+Same authorship note as §13: written by the slice 0b session as an audit.
+
+### 14.1 Build state — verified complete
+
+All 12 plan deliverables exist, including the three console commands
+(`content:repair-event-items`, `content:backfill-item-slugs`,
+`content:migrate-hidden-events`) and the wire manifest
+`docs/wire-changes/2026-08-11-slice2-events-pool.md`.
+
+`EventsPoolTest`, `EventItemRepairTest`, `PoolRegistryTest`, `RuleOperatorTest`:
+**33 passed, 135 assertions.**
+
+### 14.2 The data repair DID land on dev — verified
+
+This is the one live assertion either slice can currently show, and it passes.
+The repair was `ingest:project`, an already-deployed command, which is why it
+could run before the slice merged.
+
+```sql
+SELECT count(*) AS live_events,
+       count(*) FILTER (WHERE i.headline_cache IS NOT NULL) AS with_headline,
+       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM content.f_occurrence o WHERE o.item_id = i.id)) AS with_occurrence
+FROM content.items i
+WHERE i.kind = 'event' AND i.removed_at IS NULL;
+```
+
+```
+live_events | with_headline | with_occurrence
+------------+---------------+-----------------
+         14 |            14 |              14
+```
+
+**Gate met** (`with_headline` = `with_occurrence` = `live_events`). The six
+empty shells from the 2026-07-28 `f_occurrence_zone_confidence_check` wreckage
+are repaired, and no merge collapsed the count.
+
+### 14.3 What has NOT run on dev — verified by measurement
+
+```sql
+content.item_slugs                          →   0 rows
+site.item_slugs (legacy)                    → 330 rows, all current
+event source_items with removed_at          →   3
+live event items whose every source item is retired → 3
+```
+
+Three consequences, each tied to a command that ships in this slice and so
+cannot run until it deploys:
+
+1. **`content:backfill-item-slugs` has not run.** `content.item_slugs` is
+   empty, so every pool item currently serves `slug: null`. The manifest
+   already names this a required deploy step — "nothing serves a slug until
+   this runs" — so it is expected, not a defect. But the manifest's measured
+   "12 current event slugs, 9 mapped, 3 unmapped" describes a post-backfill
+   state that **does not yet exist on dev**.
+2. **`content:repair-event-items` retirement has not run.** The three items
+   whose every source item is retired are still live — exactly the §9.8
+   asymmetry the slice owns. Retirement is one-way, so this is correctly
+   gated behind a deliberate run.
+3. **`content:migrate-hidden-events` has not run.** Per the plan this is a
+   no-op on dev (zero `hiddenEventIds`) and therefore unverifiable there; the
+   plan already says to state that rather than claim a live assertion.
+
+### 14.4 Outstanding
+
+- merge and deploy to `development`
+- run the two migration commands in the manifest's stated order
+  (`content:backfill-item-slugs`, then `content:migrate-hidden-events`),
+  `--dry-run` first, then `content:repair-event-items`
+- re-measure the slug mapping and paste it, replacing the pre-deploy figures
+  currently quoted in the manifest
+- `cloud env:logs partna development --minutes 10`
+- section/page-count assertions (Task 8 Step 5)
+
+**Known regression already recorded by the slice**, repeated here because it
+survives the deploy: `EventsPlatformController::removeEvent()` still writes
+only `hiddenEventIds`, which the pool does not read, so an owner hiding an
+event from the dashboard after the migration still sees it on their page.
+
+Its plan file `docs/superpowers/plans/2026-08-11-content-pool-slice2-events.md`
+is likewise still untracked.
+
+### 14.5 Section numbering
+
+§12 (slice 0b) was written before §13 and §14 because it was the first
+checkpoint any slice recorded. The numbers are labels, not an ordering — the
+programme order remains 0 → 0b → 2.
