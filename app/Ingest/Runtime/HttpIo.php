@@ -6,6 +6,7 @@ use App\Ingest\Manifest\Manifest;
 use App\Ingest\Runtime\Effects\BilledEffectContext;
 use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
 use App\Ingest\Runtime\Effects\BilledEffectOutcome;
+use App\Ingest\Runtime\Effects\PrecheckableBilledEffect;
 use App\Services\Http\SafeUrlFetcher;
 
 /**
@@ -115,6 +116,17 @@ class HttpIo implements Io
             sourceId: $this->sourceId,
             costTag: $name,
             costUnits: $this->manifest->cost->budgetWeight(),
+            // #MONEY-2. A driver that already knows it will not attempt this
+            // effect says so before the ledger writes a claim row it would
+            // only delete again. Opt-in: a driver without a cheap up-front
+            // check simply does not implement the interface, and its dispatch
+            // is byte-for-byte unchanged.
+            precheck: function () use ($kind, $name, $input): void {
+                $driver = $this->drivers->for($kind, $name);
+                if ($driver instanceof PrecheckableBilledEffect) {
+                    $driver->precheck($this->contextFor($kind, $name, $input));
+                }
+            },
         );
 
         if ($outcome['status'] !== 'ok') {
@@ -149,20 +161,31 @@ class HttpIo implements Io
             );
         }
 
-        $result = $driver->run(new BilledEffectContext(
-            kind: $kind,
-            name: $name,
-            input: $input,
-            runId: $this->runId,
-            sourceId: $this->sourceId,
-            userId: $this->userId,
-        ));
+        $result = $driver->run($this->contextFor($kind, $name, $input));
 
         if ($result->outcome === BilledEffectOutcome::NoAnswer) {
             throw new EffectNoAnswer($result->reason ?? "billed effect '{$kind}/{$name}' returned no answer");
         }
 
         return $result->data;
+    }
+
+    /**
+     * The one place a BilledEffectContext is built, so precheck() and run()
+     * can never judge different inputs for the same effect.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    private function contextFor(string $kind, string $name, array $input): BilledEffectContext
+    {
+        return new BilledEffectContext(
+            kind: $kind,
+            name: $name,
+            input: $input,
+            runId: $this->runId,
+            sourceId: $this->sourceId,
+            userId: $this->userId,
+        );
     }
 
     private function admit(string $url): void

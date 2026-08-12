@@ -51,6 +51,8 @@ class EffectLedger
      * @template T
      *
      * @param  callable(): T  $effect
+     * @param  (callable(): void)|null  $precheck  runs before the claim; throwing
+     *                                             EffectNotAttempted refuses without writing a row
      * @return array{status: string, result: mixed, cached: bool}
      */
     public function once(
@@ -61,6 +63,7 @@ class EffectLedger
         ?string $sourceId = null,
         ?string $costTag = null,
         int $costUnits = 0,
+        ?callable $precheck = null,
     ): array {
         // ANY existing row for this digest means we do not act: it is either
         // already settled (reuse), freshly claimed elsewhere (refuse), or a
@@ -69,6 +72,18 @@ class EffectLedger
 
         if ($existing !== null) {
             return $this->verdictFor($existing);
+        }
+
+        // #MONEY-2. AFTER the existing-row read, BEFORE the claim: a driver
+        // that already knows it will not attempt this effect refuses here and
+        // costs no row, instead of an INSERT plus the DELETE that
+        // EffectNotAttempted performs.
+        //
+        // The order is load-bearing. A settled 'ok' row must still replay
+        // above even when today's budget is gone — that answer is already paid
+        // for, and refusing it would re-bill later for data we hold.
+        if ($precheck !== null) {
+            $precheck();
         }
 
         // Claim first, then act. An insert that loses the race means another

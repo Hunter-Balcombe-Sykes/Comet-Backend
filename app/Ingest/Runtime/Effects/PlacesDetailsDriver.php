@@ -4,6 +4,7 @@ namespace App\Ingest\Runtime\Effects;
 
 use App\Exceptions\Platforms\PlacesBudgetExhaustedException;
 use App\Ingest\Runtime\EffectNotAttempted;
+use App\Services\Cache\PlacesBudget;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\PlaceDetailsFailure;
 
@@ -20,13 +21,49 @@ use App\Services\Platforms\PlaceDetailsFailure;
  * further billed media calls per run and it belongs to slice 1, where something
  * actually renders them.
  */
-final class PlacesDetailsDriver implements BilledEffectDriver
+final class PlacesDetailsDriver implements BilledEffectDriver, PrecheckableBilledEffect
 {
-    public function __construct(private readonly GoogleBusinessService $places) {}
+    public function __construct(
+        private readonly GoogleBusinessService $places,
+        private readonly PlacesBudget $budget,
+    ) {}
 
     public function supports(string $kind, string $name): bool
     {
         return $kind === 'api' && $name === 'places.details';
+    }
+
+    /**
+     * #MONEY-2: refuse a capped day before EffectLedger writes a claim row.
+     *
+     * Budget only, deliberately. It is the case the finding was raised against
+     * (a capped day repeats all day, whereas a missing key is rare and
+     * permanent), and it is the one PlacesBudget can answer without a vendor
+     * call. Everything this misses is still caught by run()'s BudgetDenied and
+     * NotConfigured arms below, which stay the authority.
+     *
+     * remaining() documents itself as advisory and racy — "not a hard gate,
+     * claim() is the sole authority" — which is exactly the right strength
+     * here: this runs OUTSIDE the claim, so it could never be race-free, and
+     * treating it as a gate would be a bug. It only ever skips work we were
+     * going to refuse anyway.
+     *
+     * A null userId is NOT refused here: run() answers that with noAnswer(),
+     * which settles the row visibly, and a precheck may only ever throw
+     * EffectNotAttempted ("nothing was sent"). Converting one to the other
+     * would hide our own bug behind a budget-shaped excuse.
+     */
+    public function precheck(BilledEffectContext $context): void
+    {
+        if ($context->userId === null) {
+            return;
+        }
+
+        if ($this->budget->remaining('details', $context->userId) <= 0) {
+            throw new EffectNotAttempted(
+                "Places details budget exhausted before claim for user {$context->userId}"
+            );
+        }
     }
 
     public function run(BilledEffectContext $ctx): BilledEffectResult

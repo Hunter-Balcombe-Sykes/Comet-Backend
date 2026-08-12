@@ -10,6 +10,7 @@ use App\Ingest\Runtime\Effects\BilledEffectContext;
 use App\Ingest\Runtime\Effects\BilledEffectDriver;
 use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
 use App\Ingest\Runtime\Effects\BilledEffectResult;
+use App\Ingest\Runtime\Effects\PrecheckableBilledEffect;
 use App\Ingest\Runtime\HttpIo;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\DB;
@@ -150,4 +151,59 @@ it('replays the second stream of a run from the ledger instead of billing twice'
         ->and($first['cached'])->toBeFalse()
         ->and($second['cached'])->toBeTrue()
         ->and($second['data'])->toBe([['username' => 'maha']]);
+});
+
+/** A driver that refuses up front, before any vendor call. */
+function precheckingDriver(bool $refuse): BilledEffectDriver
+{
+    return new class($refuse) implements BilledEffectDriver, PrecheckableBilledEffect
+    {
+        public bool $ran = false;
+
+        public function __construct(private bool $refuse) {}
+
+        public function supports(string $kind, string $name): bool
+        {
+            return $kind === 'api' && $name === 'places.details';
+        }
+
+        public function precheck(BilledEffectContext $context): void
+        {
+            if ($this->refuse) {
+                throw new EffectNotAttempted('budget exhausted before claim');
+            }
+        }
+
+        public function run(BilledEffectContext $ctx): BilledEffectResult
+        {
+            $this->ran = true;
+
+            return BilledEffectResult::answered(['ok' => true]);
+        }
+    };
+}
+
+it('lets a precheckable driver refuse before any ledger row is claimed', function () {
+    // #MONEY-2 at the seam. The instanceof wiring in HttpIo::effect() is the
+    // thing under test — an instanceof that never matched would silently
+    // no-op and this whole change would be inert.
+    $driver = precheckingDriver(refuse: true);
+    $io = ioWith(new BilledEffectDriverRegistry([$driver]));
+
+    expect(fn () => $io->effect('api', 'places.details', ['place_id' => 'ChIJabc']))
+        ->toThrow(EffectNotAttempted::class);
+
+    expect(DB::table('ingest.effects')->count())->toBe(0)
+        ->and($driver->ran)->toBeFalse();
+});
+
+it('claims and runs normally when the precheck allows it', function () {
+    $driver = precheckingDriver(refuse: false);
+    $io = ioWith(new BilledEffectDriverRegistry([$driver]));
+
+    $outcome = $io->effect('api', 'places.details', ['place_id' => 'ChIJabc']);
+
+    expect($outcome['status'])->toBe('ok')
+        ->and($driver->ran)->toBeTrue()
+        ->and(DB::table('ingest.effects')->where('status', 'ok')->count())->toBe(1);
 });

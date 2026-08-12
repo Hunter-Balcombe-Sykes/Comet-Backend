@@ -133,3 +133,44 @@ it('settles an answered-but-empty result as ok with a null result', function () 
     expect($ledger->once('empty-answer-digest', 'api', fn () => ['unreachable']))
         ->toBe(['status' => 'ok', 'result' => null, 'cached' => true]);
 });
+
+it('writes no claim row at all when the precheck refuses', function () {
+    // #MONEY-2. The driver already knows the budget is spent; making it say so
+    // before the claim saves an INSERT and the DELETE that undoes it.
+    $ledger = new EffectLedger;
+
+    expect(fn () => $ledger->once(
+        digest: 'precheck-refused-digest',
+        kind: 'api',
+        effect: fn () => throw new RuntimeException('the effect must never run'),
+        costTag: 'places.details',
+        precheck: fn () => throw new EffectNotAttempted('places daily cap reached'),
+    ))->toThrow(EffectNotAttempted::class);
+
+    expect(DB::table('ingest.effects')->where('digest', 'precheck-refused-digest')->count())->toBe(0);
+});
+
+it('still replays a settled ok result when the precheck would refuse', function () {
+    // The ordering that matters: the money for THIS answer is already spent.
+    // Refusing a cached replay because today's budget is gone would force a
+    // re-bill later for data we are holding.
+    $ledger = new EffectLedger;
+
+    DB::table('ingest.effects')->insert([
+        'digest' => 'already-paid-digest', 'kind' => 'api', 'cost_tag' => 'places.details',
+        'cost_units' => 10, 'claimed_at' => now(), 'settled_at' => now(), 'status' => 'ok',
+        'meta' => json_encode(['result' => ['place' => 'cached answer']]),
+    ]);
+
+    $outcome = $ledger->once(
+        digest: 'already-paid-digest',
+        kind: 'api',
+        effect: fn () => throw new RuntimeException('must not run'),
+        costTag: 'places.details',
+        precheck: fn () => throw new EffectNotAttempted('places daily cap reached'),
+    );
+
+    expect($outcome['status'])->toBe('ok')
+        ->and($outcome['result'])->toBe(['place' => 'cached answer'])
+        ->and($outcome['cached'])->toBeTrue();
+});
