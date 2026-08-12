@@ -719,7 +719,7 @@ git commit -m "feat(ingest): persist photo attribution on asset mint"
 - Consumes: `GoogleBusinessService::fetchPlaceDetailsRaw(string $placeId, string $userId)`, already called by this driver.
 - Produces: the raw Places response with each `photos[]` entry carrying an added `url` key where resolution succeeded. Task 2's `mapPhoto()` reads it.
 
-- [ ] **Step 1: Read the existing resolution path before touching anything**
+- [x] **Step 1: Read the existing resolution path before touching anything**
 
 Run:
 ```bash
@@ -730,9 +730,9 @@ grep -n 'function resolvePhotoUrls\|function fetchPlaceDetailsRaw\|PHOTO_REF_PAT
 
 If `resolvePhotoUrls()` is private, add a narrowly-typed public method on `GoogleBusinessService` that delegates to it, rather than duplicating the body.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
-Create `tests/Feature/Ingest/Effects/PlacesDetailsPhotoResolutionTest.php`:
+Create `tests/Feature/Ingest/PlacesDetailsPhotoResolutionTest.php` — flat, not under a new `Effects/` subdirectory (a new dir under `tests/Feature/` needs audit-pipeline wiring, and the sibling `PlacesDetailsDriverTest.php` is already flat):
 
 ```php
 <?php
@@ -793,14 +793,30 @@ it('does not change the effect digest', function () {
 });
 ```
 
-**Helpers:** `fakePlacesDetails()`, `fakePlacesPhotoResolution()` and `effectDigestFor()` may not exist. Check with `grep -rn 'function fakePlacesDetails' tests/`. If absent, write them in this test file (not the global helper file) using `Http::fake()` against the Places hosts, following the pattern in `tests/Feature/Platforms/` for the existing Places tests.
+**Helpers:** none of `fakePlacesDetails()`, `fakePlacesPhotoResolution()` or
+`effectDigestFor()` exist. Written locally in the test file, following
+`tests/Feature/Platforms/PlaceDetailsRawFetchTest.php`'s idiom (a `beforeEach`
+setting the Places config keys, plus a single `Http::fake()` closure that
+branches on `/media` in the request url and echoes the ref back as a photoUri).
 
-- [ ] **Step 3: Run it to verify it fails**
+> **The digest test as drafted was vacuous** — it compared
+> `effectDigestFor(...)` against a second call to `effectDigestFor(...)` with
+> identical arguments, which is true regardless of the code under test.
+> Replaced with the property that actually protects D2: run the driver and count
+> requests **by endpoint**, asserting exactly ONE Details call and the photo
+> calls landing on the media endpoint. Splitting media onto its own effect kind
+> would surface as a second Details call, which is the regression the digest
+> test was reaching for.
+>
+> `BilledEffectContext` also takes six required parameters
+> (`kind`, `name`, `input`, `runId`, `sourceId`, `userId`), not the two the
+> drafted test passed.
 
-Run: `./vendor/bin/pest tests/Feature/Ingest/Effects/PlacesDetailsPhotoResolutionTest.php`
-Expected: FAIL — no `url` key on the photo.
+- [x] **Step 3: Run it to verify it fails**
 
-- [ ] **Step 4: Implement the driver change**
+Observed: 2 failed, 2 passed. The two that passed are the degradation cases (resolution failure, budget exhausted), which pass trivially before the change — kept because they are what stops a later version from failing the whole effect over one dead photo.
+
+- [x] **Step 4: Implement the driver change**
 
 In `app/Ingest/Runtime/Effects/PlacesDetailsDriver.php`, update the class docblock — it currently states the opposite of what this task does — and resolve photos on the success path:
 
@@ -855,7 +871,7 @@ And add:
 
 Add `resolveRawPhotoUrls(array $photos, string $userId): array` to `GoogleBusinessService` — it maps the raw `name`-keyed shape onto the `ref`-keyed shape `resolvePhotoUrls()` expects, delegates, and maps the resolved urls back onto the raw entries by `name`. It must not duplicate the budget-claim or pattern-guard logic.
 
-- [ ] **Step 5: Set the media stream cadence to 7 days**
+- [x] **Step 5: Set the media stream cadence to 7 days**
 
 In `app/Ingest/Connectors/GoogleBusinessConnector.php`, the connector's `defaultIntervalSeconds: 172800` (48h) governs all three streams. Per D3 the `media` stream needs 7 days.
 
@@ -877,7 +893,7 @@ UPDATE ingest.sources SET min_interval_secs = 604800 WHERE source_key = 'google_
 Record in the checkpoint that per-stream cadence is unavailable, so D3's 7-day
 figure is understood as a source-row setting rather than a manifest guarantee.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 ```bash
 ./vendor/bin/pest tests/Feature/Ingest/Effects/PlacesDetailsPhotoResolutionTest.php
@@ -886,7 +902,7 @@ figure is understood as a source-row setting rather than a manifest guarantee.
 ```
 Expected: PASS. The Places suite matters — `PlacesBudgetGuardTest` fails the build if a second billing origin appeared.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/Ingest/Runtime/Effects/PlacesDetailsDriver.php app/Services/Platforms/GoogleBusinessService.php app/Ingest/Connectors/GoogleBusinessConnector.php tests/Feature/Ingest/Effects/PlacesDetailsPhotoResolutionTest.php

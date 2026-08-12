@@ -208,8 +208,19 @@ it('lets GoogleBusinessConnector produce profile, review and media records', fun
         ->and($media[0]->doc['ref'])->toBe('places/abc/photos/p1')
         ->and($media[0]->doc['width_px'])->toBe(1200);
 
-    // One billed request for all three streams — the other two replayed the digest.
-    Http::assertSentCount(1);
+    // One billed DETAILS request for all three streams — the other two replayed
+    // the digest. Slice 1b added photo-media calls to the same effect, so a bare
+    // assertSentCount() no longer expresses this; count by endpoint instead,
+    // which is what the assertion always meant. Splitting media onto its own
+    // effect kind would show up here as a second Details call.
+    $details = 0;
+    $media = 0;
+    foreach (Http::recorded() as [$request, $response]) {
+        str_contains($request->url(), '/media') ? $media++ : $details++;
+    }
+
+    expect($details)->toBe(1)
+        ->and($media)->toBe(1);
 });
 
 it('precheck allows the effect through when the budget cache is unavailable', function () {

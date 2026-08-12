@@ -494,6 +494,54 @@ class GoogleBusinessService extends PlatformScraper
     }
 
     /**
+     * Resolve RAW Places photo entries (vendor shape, keyed by `name`) to
+     * servable urls — the ingest lane's entry point into the same billed path
+     * the legacy lane uses.
+     *
+     * Slice 1b D2. A Places photo resource name is REISSUED on every Details
+     * fetch, so a ref and a url are only consistent within ONE fetch: there is
+     * no join key between a ref stored yesterday and a url resolved today.
+     * That is why PlacesDetailsDriver resolves photos inside its own Details
+     * call rather than reading urls back out of the legacy payload, and why the
+     * parent spec's recommendation to do the latter is not implementable.
+     *
+     * Delegates to resolvePhotoUrls() and reimplements nothing: the
+     * PlacesBudget 'photos' claim, the PHOTO_REF_PATTERN guard and the pooled
+     * concurrency cap all stay in one place. PlacesBudgetGuardTest fails the
+     * build if a second billing origin appears, and it should.
+     *
+     * @param  array<int, array<string,mixed>>  $photos  raw Places photos
+     * @return array<int, array<string,mixed>> the same entries, each gaining `url` where resolution succeeded
+     */
+    public function resolveRawPhotoUrls(array $photos, string $placeId, string $userId): array
+    {
+        $key = config('services.google_maps.server_api_key');
+        if (! is_string($key) || $key === '') {
+            return $photos;
+        }
+
+        $photos = array_values($photos);
+
+        // resolvePhotoUrls() speaks the MAPPED shape (`ref`); the ingest lane
+        // holds the vendor shape (`name`). Translate by position — it
+        // array_values()es its input and preserves order, and a null ref is
+        // skipped there exactly as an absent one is.
+        $resolved = $this->resolvePhotoUrls($key, $placeId, array_map(
+            static fn ($p) => ['ref' => is_array($p) && is_string($p['name'] ?? null) ? $p['name'] : null],
+            $photos,
+        ), $userId);
+
+        foreach ($resolved as $i => $entry) {
+            $url = $entry['url'] ?? null;
+            if (is_string($url) && $url !== '' && is_array($photos[$i] ?? null)) {
+                $photos[$i]['url'] = $url;
+            }
+        }
+
+        return $photos;
+    }
+
+    /**
      * Resolve stored photo refs to servable image URLs via the Place Photos
      * media endpoint — one billed call per photo, pooled for latency. A
      * failed resolve keeps the ref without a url; the next weekly refresh

@@ -17,9 +17,16 @@ use App\Services\Platforms\PlaceDetailsFailure;
  * reads displayName.text, photos[].name and reviews[].authorAttribution, and its
  * when_unclaimed reviewer-PII redaction is declared over those exact keys.
  *
- * Deliberately does NOT resolve photo refs to servable URLs. That is up to 15
- * further billed media calls per run and it belongs to slice 1, where something
- * actually renders them.
+ * Slice 1b D2: photo refs ARE now resolved to servable urls, inside this same
+ * effect. Not an optimisation — a Places photo ref is reissued on EVERY Details
+ * fetch, so a ref and a url are only consistent within one fetch, and there is
+ * no join key between a ref stored yesterday and a url resolved today. Cost:
+ * up to 15 photos per run at $7/1000, claimed through PlacesBudget's existing
+ * 'photos' SKU, one claim per photo before the request fires.
+ *
+ * Deliberately NOT a separate effect kind. A distinct digest would split
+ * profile/reviews from media into two billed Details calls at $25/1000 each,
+ * to isolate photo calls that cost a quarter of that.
  */
 final class PlacesDetailsDriver implements BilledEffectDriver, PrecheckableBilledEffect
 {
@@ -125,7 +132,9 @@ final class PlacesDetailsDriver implements BilledEffectDriver, PrecheckableBille
         }
 
         if ($result->place !== null) {
-            return BilledEffectResult::answered($result->place);
+            return BilledEffectResult::answered(
+                $this->withResolvedPhotoUrls($result->place, $placeId, $ctx->userId)
+            );
         }
 
         return match ($result->failure) {
@@ -152,5 +161,31 @@ final class PlacesDetailsDriver implements BilledEffectDriver, PrecheckableBille
                 "places.details did not answer for {$placeId} ({$result->failure?->value})"
             ),
         };
+    }
+
+    /**
+     * Resolve each photo ref to a servable url through GoogleBusinessService's
+     * existing path, so the PlacesBudget 'photos' claim, the PHOTO_REF_PATTERN
+     * guard and the pooled-concurrency cap all still apply — this adds a call
+     * site, not a second billing route.
+     *
+     * A photo that fails to resolve keeps its ref and gains no url, which is
+     * already a supported state downstream (the frame is omitted). Degrading
+     * rather than failing is the point: profile and reviews ride this same
+     * call, and one dead photo must not throw both away.
+     *
+     * @param  array<string, mixed>  $place
+     * @return array<string, mixed>
+     */
+    private function withResolvedPhotoUrls(array $place, string $placeId, string $userId): array
+    {
+        $photos = $place['photos'] ?? null;
+        if (! is_array($photos) || $photos === []) {
+            return $place;
+        }
+
+        $place['photos'] = $this->places->resolveRawPhotoUrls($photos, $placeId, $userId);
+
+        return $place;
     }
 }
