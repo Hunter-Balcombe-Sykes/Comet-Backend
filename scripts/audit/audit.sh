@@ -359,7 +359,7 @@ writers-platforms-controllers|app/Http/Controllers/Api/Platforms
 writers-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
 writers-ingest-landing|app/Ingest/Landing app/Ingest/Projection app/Content
 writers-routing-site|app/Routing app/Site
-services-platforms|app/Services/Platforms app/Services/Brand
+services-platforms|app/Services/Platforms app/Services/Brand app/Services/Shop
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan app/Services/Migration
 services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit app/Services/Redis
@@ -381,7 +381,7 @@ consumers-catalog|app/Catalog/Enums bootstrap/catalog
 consumers-ingest-routing|app/Ingest app/Routing
 consumers-jobs|app/Jobs
 consumers-console-mw|app/Console app/Http/Middleware
-services-platforms|app/Services/Platforms app/Services/Brand
+services-platforms|app/Services/Platforms app/Services/Brand app/Services/Shop
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan app/Services/Migration
 services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Moderation app/Services/Segments app/Services/Audit app/Services/Redis
@@ -409,7 +409,7 @@ feature-domain|tests/Feature/Cache tests/Feature/Resilience tests/Feature/Public
 feature-domain-b|tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/Design tests/Feature/WebsiteScan
 feature-media-jobs|tests/Feature/Media tests/Feature/Mail tests/Feature/Documents tests/Feature/Jobs tests/Feature/Services tests/Feature/Database tests/Feature/Auth tests/Feature/Bootstrap tests/Feature/Gallery tests/Feature/Content tests/Feature/Observers tests/Feature/Commands tests/Feature/Middleware tests/Postgres tests/Schema tests/Authz
 feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/CustomerLeads tests/Feature/Accounts tests/Feature/PreAccount tests/Feature/EarlyAccess tests/Feature/Onboarding tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Feature/Profile tests/Helpers
-feature-platforms|tests/Feature/Platforms
+feature-platforms|tests/Feature/Platforms tests/Feature/Shop
 feature-catalog-routing|tests/Feature/Catalog tests/Feature/Routing tests/Feature/Brand tests/fixtures/Routing
 feature-ingest|tests/Feature/Ingest tests/Unit/Ingest
 feature-content|tests/Feature/Site tests/Unit/Content tests/Unit/Site
@@ -454,7 +454,7 @@ schema-pii|supabase/migrations
 EOF
         ;;
         code-quality-slop) cat <<'EOF'
-services-platforms|app/Services/Platforms app/Services/Brand
+services-platforms|app/Services/Platforms app/Services/Brand app/Services/Shop
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan app/Services/Migration
 services-site|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit app/Services/Redis
@@ -475,7 +475,7 @@ content|app/Content app/Site
 EOF
         ;;
         semantic-correctness) cat <<'EOF'
-services-platforms|app/Services/Platforms app/Services/Brand
+services-platforms|app/Services/Platforms app/Services/Brand app/Services/Shop
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan app/Services/Migration
 services-site|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit app/Services/Redis

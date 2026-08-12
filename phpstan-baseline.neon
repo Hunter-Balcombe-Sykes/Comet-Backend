@@ -127,18 +127,6 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/ReservationsController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ShopController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$product_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ShopController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>discount_code" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -1603,14 +1591,14 @@ parameters:
 			path: app/Models/Core/Gdpr/DataExportAudit.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Support\\HigherOrderCollectionProxy\<string, App\\Models\\Core\\Site\\ShopProduct, Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Core\\Site\\ShopProduct\>\>\:\:\$data\.$#'
-			identifier: property.notFound
+			# Slice 5a Task 9: ShopProduct::$data is now typed array<string, mixed>
+			# via a model @property (was undefined before, masking this check).
+			# The is_array() guard here predates that annotation and defends
+			# against genuinely malformed jsonb (the column's own NOT NULL/array
+			# invariant is a DB constraint, not something PHPStan's PHPDoc-derived
+			# type can prove at runtime) — kept, not deleted.
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Models/Core/Site/ShopBrand.php
 
@@ -2069,18 +2057,6 @@ parameters:
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/Platforms/MenuScanApplier.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/ShopProductSeeder.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$product_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/ShopProductSeeder.php
 
 		-
 			message: '#^Parameter \#1 \$array \(non\-empty\-list\<non\-empty\-string\>\) of array_values is already a list, call has no effect\.$#'
