@@ -10,6 +10,7 @@ use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopBrandProfiler;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Shop\ShopContentWriter;
+use App\Site\Documents\BuildState;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -18,6 +19,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -206,6 +208,7 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         // connect_status='pending'/nameless on the content.*-only read
         // endpoints until the brand's next scheduled sync.
         $content->upsertStore($brand->fresh(), (string) $connection->user_id);
+        self::bumpSiteCache((string) $connection->user_id);
 
         // The settle just stored the fetched favicon/logo — kick off the
         // best-effort processed mark (background removal + SVG).
@@ -272,6 +275,29 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         // user id that doesn't exist.
         if ($updated && $brand->connection !== null) {
             $content->upsertStore($brand->fresh(), (string) $brand->connection->user_id);
+            self::bumpSiteCache((string) $brand->connection->user_id);
         }
+    }
+
+    /**
+     * Fix round 1, I5: the two cache lanes IntegrationConnectionCacheRefresher
+     * doesn't own. upsertStore() is a raw DB::table() write — no model, no
+     * observer — so nothing else bumps the build state or the site's
+     * updated_at for it. Same discipline ShopController::bumpSiteCache() and
+     * ShopBackfiller::invalidate() already apply at every other raw-write
+     * seam; this job was the one that skipped it.
+     *
+     * Site-nullable (a fixture or a user mid-signup may have no site row):
+     * skip both lanes rather than guess an id, mirroring the controller.
+     */
+    private static function bumpSiteCache(string $userId): void
+    {
+        $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $userId)->value('id');
+        if ($siteId === null) {
+            return;
+        }
+
+        BuildState::bump((string) $siteId);
+        DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->update(['updated_at' => now()]);
     }
 }

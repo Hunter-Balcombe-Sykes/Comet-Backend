@@ -9,6 +9,7 @@ use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -247,8 +248,12 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
             'id' => 'pub-brand', 'name' => 'Pub Store', 'currency' => 'AUD',
             'favicon' => 'https://pub.example.com/favicon.ico', 'logo' => 'https://pub.example.com/logo.png',
         ]);
+        // createdAt is a DETERMINISM PIN, not a shape change: content.* always
+        // emits the key (from f_published, falling back to items.first_seen_at),
+        // so without a fixed input the assertion below would carry a wall-clock
+        // timestamp.
         $m->shouldReceive('fetchProducts')->andReturn([
-            ['productId' => 'p1', 'title' => 'Mug', 'url' => 'https://pub.example.com/p1', 'available' => true, 'price' => '10.00', 'currency' => 'AUD'],
+            ['productId' => 'p1', 'title' => 'Mug', 'url' => 'https://pub.example.com/p1', 'available' => true, 'price' => '10.00', 'currency' => 'AUD', 'createdAt' => '2026-01-05T00:00:00Z'],
         ]);
     });
 
@@ -260,22 +265,25 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
     $res = $this->getJson('/api/public/profiles/pubshop/platforms');
     $res->assertOk();
 
-    // TASK 8 FINDING (see the report): `products` is now [], not the
-    // selected product. PublicIntegrationConnectionResource — the LIVE
-    // public sitepage's shop card — still reads site.shop_brands/
-    // site.shop_products directly (app/Http/Controllers/Api/PublicSite/
-    // PublicIntegrationController.php eager-loads `shopBrands.products`,
-    // untouched by this slice), and setProducts() stopped writing
-    // site.shop_products entirely. Every OTHER brand field here (name/
-    // currency/favicon/logo/discountCode) stays correct because addBrand()
-    // still writes the legacy ShopBrand row — only the PRODUCT SELECTION
-    // itself goes stale on the public wire until a follow-up task repoints
-    // this resource to content.*. toEqual (not toBe): key ORDER inside the
-    // brand object shifts slightly (id now precedes provider — see
-    // ShopBrand::toBrandArray()) but the value set is otherwise exactly the
-    // pre-FOUND-25 contract PLUS the store link-out fields (linkMode/
-    // referralQuery — additive, defaulted); JSON object key order is not a
-    // meaningful part of the wire contract for any real consumer.
+    // Fix round 1 (C2): the selected product is BACK. This assertion was
+    // briefly `'products' => []` while PublicIntegrationConnectionResource
+    // still read the (no-longer-written) site.shop_products table; it now
+    // reads content.* through ShopContentReader::brandMap(), so the wire
+    // carries the live selection again. toEqual (not toBe): key ORDER inside
+    // the brand object shifts slightly but the value set is the contract.
+    //
+    // Two DOCUMENTED DIVERGENCES from the pre-slice wire are asserted here
+    // rather than hidden (full accounting in the Task 8 report, fix round 1):
+    //  1. the product object carries every key content.* can reconstruct, so
+    //     keys the raw scraper blob simply OMITTED (handle/variantId/image/
+    //     images/variants) are now present and explicitly null/empty;
+    //  2. `linkMode` is 'checkout', not 'product' — this fixture's user has
+    //     NO site row, so the controller resolves no global override and the
+    //     content reader falls back to Site::DEFAULT_SHOP_LINK_MODE. Not
+    //     reachable in production: site.sites.shop_link_mode is NOT NULL
+    //     DEFAULT 'checkout', so a real profile always threads an override
+    //     and the value is unchanged. Same Task-7-sanctioned divergence the
+    //     dashboard fixtures carry.
     expect($res->json('data.platforms.shop.0.payload'))->toEqual([
         'pub-brand' => [
             'id' => 'pub-brand',
@@ -286,12 +294,23 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
             'favicon' => 'https://pub.example.com/favicon.ico',
             'logo' => 'https://pub.example.com/logo.png',
             'discountCode' => 'SAVE10',
-            'linkMode' => 'product',
+            'linkMode' => 'checkout',
             'referralQuery' => '',
-            // See the FINDING comment above — was the single selected
-            // product pre-Task-8; site.shop_products (this resource's
-            // source) is no longer written by setProducts().
-            'products' => [],
+            'products' => [[
+                'productId' => 'p1',
+                'title' => 'Mug',
+                'handle' => null,
+                'url' => 'https://pub.example.com/p1',
+                'price' => '10.00',
+                'currency' => 'AUD',
+                'variantId' => null,
+                'available' => true,
+                'image' => null,
+                'images' => [],
+                'createdAt' => '2026-01-05T00:00:00+00:00',
+                'variants' => [],
+                'popularityRank' => null,
+            ]],
         ],
     ]);
 });
@@ -329,10 +348,13 @@ it('serves the second public platforms request from cache — one DB read, ident
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'cache-brand', 'provider' => 'shopify', 'url' => 'https://cache.example.com', 'position' => 0]);
-    ShopProduct::create([
-        'brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0,
-        'data' => ['productId' => 'p1', 'handle' => 'mug', 'title' => 'Mug', 'url' => 'https://cache.example.com/p1'],
-    ]);
+    // Fix round 1 (C2): the public wire reads content.* now, so the fixture
+    // lands through the same writer addBrand()/setProducts() use.
+    $collectionId = app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [[
+        'productId' => 'p1', 'handle' => 'mug', 'title' => 'Mug', 'url' => 'https://cache.example.com/p1',
+        'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
+    ]], null);
 
     // content_popularity_scores keys shop_product by product HANDLE (test at
     // "keys public popularityRank by product HANDLE" above pins this).
@@ -468,12 +490,12 @@ it('selectionMode=latest syncs the selection to the newest products immediately'
 
     $res = actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['selectionMode' => 'latest']);
     $res->assertOk()
-        // Task 8: updateBrand()'s response is built from ShopContentReader
-        // now (matching GET /brands) — selectionMode is the derived constant
-        // 'manual' there (ShopContentReader gap 3: selection_mode was always
-        // dead — every real row's value was already the default), not the
-        // legacy per-brand column echoed back.
-        ->assertJsonPath('selectionMode', 'manual')
+        // Fix round 1, I2: a PATCH echoes back the mode the client set. The
+        // GET side still reports the derived constant 'manual' (Task 7's
+        // sanctioned divergence — ShopContentReader gap 3); applying that to
+        // the mutation RESPONSE would make a dashboard toggle visibly flip
+        // back the moment it was switched.
+        ->assertJsonPath('selectionMode', 'latest')
         ->assertJsonPath('latestSyncPending', false);
 
     // Task 6: syncLatest() now reconciles into content.*, not site.shop_products.
@@ -481,7 +503,12 @@ it('selectionMode=latest syncs the selection to the newest products immediately'
     expect(orderedProductIdsFor('modes-brand'))->toBe(['p3', 'p2', 'p1']);
 });
 
-it('a manual selection PUT flips a latest-mode brand back to manual', function () {
+// Fix round 1, M2: renamed. The old name ("…flips a latest-mode brand back to
+// manual") promised an assertion this test no longer makes — selection_mode is
+// vestigial and setProducts() doesn't write it. What it does prove is that a
+// manual PUT after selectionMode=latest wins: the stored selection is the
+// user's, not the sync's.
+it('a manual selection PUT after selectionMode=latest stores the user\'s chosen products', function () {
     $user = shopStorageUser('modes3');
     modesBrandFor($user);
 

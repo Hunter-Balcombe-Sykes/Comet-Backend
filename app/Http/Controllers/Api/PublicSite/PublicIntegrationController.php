@@ -11,6 +11,7 @@ use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Shop\ShopContentReader;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -45,6 +46,7 @@ class PublicIntegrationController extends ApiController
     public function __construct(
         private readonly ContentPopularityReader $popularity,
         private readonly CacheLockService $cache,
+        private readonly ShopContentReader $shopContent,
     ) {}
 
     public function show(string $handle): JsonResponse
@@ -54,10 +56,13 @@ class PublicIntegrationController extends ApiController
             return $this->error('Not found.', 404);
         }
 
-        $userId = User::query()->where('handle_lc', $handleLc)->value('id');
-        if (! $userId) {
+        // The MODEL, not just the id: ShopContentReader::brandMap() takes a
+        // User. Same single indexed lookup either way.
+        $user = User::query()->where('handle_lc', $handleLc)->first(['id']);
+        if (! $user) {
             return $this->error('Not found.', 404);
         }
+        $userId = $user->id;
 
         // Grouped by platform → list of {resourceId, payload, lastRefreshedAt}.
         // Most platforms have one connection; Shopify can have up to five brands.
@@ -79,11 +84,11 @@ class PublicIntegrationController extends ApiController
             ->orderBy('platform')
             ->orderBy('sort_order')
             ->orderBy('created_at')
-            // FOUND-25: shop brands live in the relational child tables now —
-            // eager load so PublicIntegrationConnectionResource can build the
-            // brand-keyed map without an N+1. `id` is required for the relation
-            // to hydrate (it wasn't previously selected).
-            ->with(['shopBrands.products'])
+            // The `shopBrands.products` eager load is GONE (slice 5a Task 8,
+            // fix round 1): shop brands are read from content.* below and
+            // threaded into the Resource, so loading the two legacy child
+            // tables here would cost two queries per public profile read and
+            // feed nothing.
             // display_settings rides along so the Resource can suppress
             // toggled-off sections (reviews/hours/photos/…) from the payload.
             // resource_kind is still selected: the events-slug annotation that
@@ -107,6 +112,7 @@ class PublicIntegrationController extends ApiController
         // lookup yields the site id used to read shop-product popularity ranks.
         $shopLinkMode = null;
         $productRanks = [];
+        $shopBrands = [];
         if ($connections->has('shop')) {
             $site = Site::query()->where('user_id', $userId)->first(['id', 'shop_link_mode']);
             $shopLinkMode = $site?->shop_link_mode;
@@ -123,6 +129,13 @@ class PublicIntegrationController extends ApiController
                 )
                 : [];
             $productRanks = $ranks['shop_product'] ?? [];
+            // ONE brandMap() per profile, threaded into every shop resource
+            // below — it takes a User and issues a fixed handful of queries,
+            // so resolving it inside the Resource would multiply them by the
+            // number of shop connection rows on an uncached public route.
+            // Ranks go in here (keyed by product handle) rather than through a
+            // separate setter, so the annotation happens once, at the source.
+            $shopBrands = $this->shopContent->brandMap($user, $productRanks);
         }
 
         // The event-slug annotation block that used to live here is GONE
@@ -141,7 +154,7 @@ class PublicIntegrationController extends ApiController
                 ? $rows->values()
                     ->map(fn ($row) => (new PublicIntegrationConnectionResource($row))
                         ->withShopLinkMode($shopLinkMode)
-                        ->withProductRanks($productRanks)
+                        ->withShopBrands($shopBrands)
                         ->resolve())
                     ->all()
                 : PublicIntegrationConnectionResource::collection($rows->values())->resolve())

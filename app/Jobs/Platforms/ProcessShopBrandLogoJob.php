@@ -7,6 +7,7 @@ use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\Exceptions\LogoProcessorException;
 use App\Services\Media\LogoProcessorClient;
 use App\Services\Media\MediaDiskResolver;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -43,7 +44,7 @@ class ProcessShopBrandLogoJob implements ShouldQueue
 
     public function __construct(public readonly string $brandRowId) {}
 
-    public function handle(LogoProcessorClient $client, SafeUrlFetcher $fetcher): void
+    public function handle(LogoProcessorClient $client, SafeUrlFetcher $fetcher, ShopContentWriter $content): void
     {
         if (! (bool) config('partna.logo_removal.store_enabled', false)) {
             return;
@@ -119,6 +120,22 @@ class ProcessShopBrandLogoJob implements ShouldQueue
             'logo_mark_url' => $disk->url($pngPath),
             'logo_mark_svg_url' => $svgUrl,
         ]);
+
+        // Slice 5a Task 8, fix round 1 (I1): mirror the marks onto content.*
+        // — the dashboard reads ShopContentReader (content.storefronts) now,
+        // with no legacy fallback, and this job runs AFTER the upsertStore()
+        // in addBrand()/ShopBrandConnectJob, so without this write the
+        // processed marks would not surface until some later upsertStore()
+        // (next scheduled sync, 6h by default, or the next brand edit).
+        // The connection is null for a soft-deleted parent (BelongsTo
+        // respects SoftDeletes) — nothing to own the row, so skip.
+        // No edge purge is owed: logoMark/logoMarkSvg are dashboard-only
+        // (SHOP_BRAND_ALLOWLIST doesn't carry them), so the public wire is
+        // unchanged by this write.
+        $connection = $brand->connection;
+        if ($connection !== null) {
+            $content->upsertStore($brand->fresh(), (string) $connection->user_id);
+        }
     }
 
     // R3-OBS-6: exists so Nightwatch sees a permanent failure at all — every

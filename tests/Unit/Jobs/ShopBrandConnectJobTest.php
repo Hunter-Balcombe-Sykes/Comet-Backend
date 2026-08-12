@@ -400,11 +400,15 @@ it('the failed() callback terminally fails with the unknown-failure sentence', f
     Exceptions::assertReported(RuntimeException::class);
 });
 
-it('fires the cache refresher (edge purge) on the success write — the observer never watches ShopBrand', function () {
+it('fires all three cache lanes on the success write — the observer never watches ShopBrand', function () {
     Bus::fake();
     $user = sbcjUserWithSite('purgeuser');
     $connection = sbcjConnection($user);
     $brand = sbcjBrand($connection, ['brand_id' => 'purge-brand']);
+    // Backdate so the touch below is observable.
+    DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)
+        ->update(['updated_at' => now()->subDay()->toDateTimeString()]);
+    $before = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->value('updated_at');
 
     $this->mock(ShopBrandProfiler::class, fn ($m) => $m->shouldReceive('forRow')->once()->andReturn([
         'id' => 'purge-brand', 'name' => 'Purge Store', 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
@@ -414,6 +418,11 @@ it('fires the cache refresher (edge purge) on the success write — the observer
     app()->call([$job, 'handle']);
 
     Bus::assertDispatched(CloudflareCachePurgeJob::class);
+    // Fix round 1, I5: upsertStore() is a raw DB::table() write, so the edge
+    // purge alone left the build state and the site row untouched — the two
+    // lanes IntegrationConnectionCacheRefresher does not own.
+    expect(DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->value('updated_at'))
+        ->not->toBe($before);
 });
 
 // NEW BLOCKER 4 regression guard — the entire point of this job's signature.

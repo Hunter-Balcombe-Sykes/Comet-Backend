@@ -569,6 +569,17 @@ class ShopController extends ApiController
             $payload = (new ShopBrandResource(
                 $this->contentReader->brandMap($user)[$id] ?? $brand->fresh('products')->toBrandArray()
             ))->resolve();
+            // Fix round 1, I2: echo back the mode the client just set. The
+            // content.* read path reports `selectionMode` as the derived
+            // constant 'manual' (ShopContentReader gap 3 — the column was
+            // dead), which Task 7 sanctioned for GET. Letting that constant
+            // answer a PATCH that just sent 'latest' is different: a dashboard
+            // that reconciles its toggle from the mutation response would
+            // visibly flip back. The write itself still happened
+            // (products_curated_at cleared + the immediate sync below).
+            if (array_key_exists('selectionMode', $validated)) {
+                $payload['selectionMode'] = $validated['selectionMode'];
+            }
             $payload['latestSyncPending'] = $syncFailed;
 
             return $this->success($payload);

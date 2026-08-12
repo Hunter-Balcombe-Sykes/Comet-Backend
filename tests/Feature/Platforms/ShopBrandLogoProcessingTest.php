@@ -6,6 +6,8 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\LogoProcessorClient;
+use App\Services\Shop\ShopContentWriter;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -17,6 +19,10 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Fix round 1, I1: the job mirrors the processed marks onto content.*
+    // (the dashboard's only source since Task 8), so the stand-in schema has
+    // to exist for the job to complete.
+    setupContentTables();
     config()->set('partna.logo_removal.store_enabled', true);
     config()->set('partna.logo_removal.url', 'https://logo-processor.test');
     config()->set('partna.logo_removal.token', 'test-token');
@@ -95,7 +101,7 @@ it('stores processed mark urls on the brand row', function () {
     ]);
 
     (new ProcessShopBrandLogoJob((string) $brand->id))
-        ->handle(app(LogoProcessorClient::class), logoJobFetcher(logoJobPngResponse()));
+        ->handle(app(LogoProcessorClient::class), logoJobFetcher(logoJobPngResponse()), app(ShopContentWriter::class));
 
     $brand->refresh();
     expect($brand->logo_mark_url)->not->toBeNull();
@@ -105,6 +111,15 @@ it('stores processed mark urls on the brand row', function () {
     $array = $brand->toBrandArray();
     expect($array['logoMark'])->toBe($brand->logo_mark_url);
     expect($array['logoMarkSvg'])->toBe($brand->logo_mark_svg_url);
+
+    // Fix round 1, I1: and so does content.storefronts — the dashboard reads
+    // ShopContentReader with no legacy fallback since Task 8, and this job
+    // runs AFTER addBrand()/ShopBrandConnectJob's own upsertStore(), so
+    // without its own mirror write the marks stayed invisible until the next
+    // scheduled sync (6h) or brand edit.
+    $storefront = DB::table('content.storefronts')->where('external_ref', $brand->brand_id)->first();
+    expect($storefront->logo_mark_url)->toBe($brand->logo_mark_url)
+        ->and($storefront->logo_mark_svg_url)->toBe($brand->logo_mark_svg_url);
 });
 
 it('no-ops when the store switch is off', function () {
@@ -116,7 +131,7 @@ it('no-ops when the store switch is off', function () {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
     $fetcher->shouldNotReceive('tryFetch');
 
-    (new ProcessShopBrandLogoJob((string) $brand->id))->handle(app(LogoProcessorClient::class), $fetcher);
+    (new ProcessShopBrandLogoJob((string) $brand->id))->handle(app(LogoProcessorClient::class), $fetcher, app(ShopContentWriter::class));
 
     Http::assertNothingSent();
     expect($brand->refresh()->logo_mark_url)->toBeNull();
@@ -130,7 +145,7 @@ it('leaves the row untouched when the processor fails', function () {
     ]);
 
     (new ProcessShopBrandLogoJob((string) $brand->id))
-        ->handle(app(LogoProcessorClient::class), logoJobFetcher(logoJobPngResponse()));
+        ->handle(app(LogoProcessorClient::class), logoJobFetcher(logoJobPngResponse()), app(ShopContentWriter::class));
 
     $brand->refresh();
     expect($brand->logo_mark_url)->toBeNull();
@@ -150,7 +165,7 @@ it('never fetches a private-network logo url (SSRF)', function () {
     Http::fake();
 
     (new ProcessShopBrandLogoJob((string) $brand->id))
-        ->handle(app(LogoProcessorClient::class), app(SafeUrlFetcher::class));
+        ->handle(app(LogoProcessorClient::class), app(SafeUrlFetcher::class), app(ShopContentWriter::class));
 
     Http::assertNothingSent();
     expect($brand->refresh()->logo_mark_url)->toBeNull();

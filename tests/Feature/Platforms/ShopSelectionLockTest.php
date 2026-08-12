@@ -290,7 +290,7 @@ it('T16e: a brand deleted between the pre-lock read and the locked write yields 
 // test can still usefully pin: site.shop_products stays untouched (0 rows,
 // 0 inserts) and the selection lands correctly in content.*.
 
-it('F1: setProducts writes zero rows to the legacy site.shop_products table', function () {
+it('setProducts writes zero rows to the legacy site.shop_products table (was F1: single bulk INSERT)', function () {
     $user = shopSelLockUser('lockqc1');
     shopSelLockBrand($user, 'lockbrand');
 
@@ -324,7 +324,7 @@ it('F1: setProducts writes zero rows to the legacy site.shop_products table', fu
     expect(orderedProductIdsFor('lockbrand'))->toBe(['p1', 'p2', 'p3', 'p4', 'p5', 'p6']);
 });
 
-it('F1: a 250-product selection round-trips correctly through content.*', function () {
+it('a 250-product selection round-trips correctly through content.* (was F1: single bulk INSERT)', function () {
     $user = shopSelLockUser('lock2501');
     shopSelLockBrand($user, 'lockbrand');
 

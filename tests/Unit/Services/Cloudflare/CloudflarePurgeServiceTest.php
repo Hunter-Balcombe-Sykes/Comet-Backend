@@ -224,8 +224,11 @@ it('logs a volume-warning when purgeHandle enumerates more URLs than the configu
     // Seed the tables the product/menu/event enrichment lookups join against so
     // they resolve to empty result sets instead of throwing "no such table" —
     // otherwise the unrelated OBS-101 lookup-failure warnings pollute the count.
+    // content.* since slice 5a Task 8: the product-handle lookup reads
+    // content.collection_items/f_catalog, not site.shop_products.
     setupUsersTable();
     setupSitesTable();
+    setupContentTables();
     Config::set('services.cloudflare.zone_id', 'zoneXYZ');
     Config::set('services.cloudflare.cache_purge_token', 'tok');
     Config::set('app.url', 'https://dev-api.partna.au');
@@ -249,6 +252,7 @@ it('logs a volume-warning when purgeHandle enumerates more URLs than the configu
 it('does not log a volume-warning when the URL count is at or below the configured threshold (LIFE-1 residual)', function () {
     setupUsersTable();
     setupSitesTable();
+    setupContentTables();
     Config::set('services.cloudflare.zone_id', 'zoneXYZ');
     Config::set('services.cloudflare.cache_purge_token', 'tok');
     Config::set('app.url', '');
@@ -346,8 +350,8 @@ it('does not pace a single-chunk purge (no gap to pace between)', function () {
 
 it('reports and warns (not silently debug-logs) when the product/menu/event enrichment lookups fail (OBS-101)', function () {
     // Deliberately skip setupSitesTable() — the schemas are ATTACHed (empty) but
-    // none of site.shop_products / site.menu_items / site.platform_connections /
-    // core.users exist, so all three DB::table(...) lookups inside purgeHandle()
+    // none of content.collection_items / site.menu_items / core.users exist,
+    // so all three DB::table(...) lookups inside purgeHandle()
     // throw "no such table". Proves: (a) each is now reported to Nightwatch at
     // 'warning' — not the previous 'debug', invisible under the default
     // log_level=warning gate (config/nightwatch.php) — and (b) the purge itself
@@ -385,9 +389,36 @@ it('reports and warns (not silently debug-logs) when the product/menu/event enri
     );
 });
 
+/**
+ * Slice 5a Task 8: the two rows purgeHandle()'s PDP lookup joins — a
+ * storefront collection and one product item carrying a handle facet.
+ * Hand-rolled (not ShopContentWriter) deliberately: this file's fixtures are
+ * raw rows with fixed ids ('u-1', …) and no model layer at all, which is what
+ * keeps it a purge-URL unit test rather than a second shop-storage test.
+ */
+function cfStorefront(object $db, string $collectionId, string $userId): void
+{
+    $db->table('content.collections')->insert([
+        'id' => $collectionId, 'user_id' => $userId, 'label' => 'Store',
+        'kind' => 'storefront', 'position' => 0, 'is_user_created' => 0,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+}
+
+function cfStorefrontProduct(object $db, string $collectionId, string $itemId, ?string $handle): void
+{
+    $db->table('content.collection_items')->insert([
+        'collection_id' => $collectionId, 'item_id' => $itemId, 'source_id' => null, 'position' => 0,
+    ]);
+    $db->table('content.f_catalog')->insert([
+        'item_id' => $itemId, 'source_id' => 'src-1', 'handle' => $handle, 'updated_at' => now(),
+    ]);
+}
+
 it('purgeHandle also purges shop product detail pages + their shadows', function () {
     setupUsersTable();
     setupSitesTable();
+    setupContentTables();
     Config::set('services.cloudflare.zone_id', 'zoneXYZ');
     Config::set('services.cloudflare.cache_purge_token', 'tok');
     Config::set('app.url', 'https://dev-api.partna.au');
@@ -401,13 +432,12 @@ it('purgeHandle also purges shop product detail pages + their shadows', function
         'status' => 'active', 'auth_user_id' => 'auth-1',
         'primary_email' => 'prodowner@example.com',
     ]);
-    $db->table('site.platform_connections')->insert(['id' => 'c-1', 'user_id' => 'u-1', 'surface_key' => 'partna.storefront', 'routing_class' => 'shop', 'resource_id' => 'shop']);
-    $db->table('site.shop_brands')->insert(['id' => 'b-1', 'connection_id' => 'c-1', 'provider' => 'shopify']);
-    $db->table('site.shop_products')->insert([
-        ['id' => 'p-1', 'brand_id' => 'b-1', 'product_id' => 'sp1', 'data' => json_encode(['handle' => 'crest-pants'])],
-        // No handle in data → contributes nothing (and must not break the purge).
-        ['id' => 'p-2', 'brand_id' => 'b-1', 'product_id' => 'sp2', 'data' => json_encode(['title' => 'No handle'])],
-    ]);
+    // Slice 5a Task 8: PDP handles come from the storefront collection's items
+    // (content.f_catalog.handle), not site.shop_products.
+    cfStorefront($db, 'col-1', 'u-1');
+    cfStorefrontProduct($db, 'col-1', 'i-1', 'crest-pants');
+    // No handle on the facet row → contributes nothing (and must not break the purge).
+    cfStorefrontProduct($db, 'col-1', 'i-2', null);
 
     (new CloudflarePurgeService)->purgeHandle('prodowner');
 
@@ -425,6 +455,7 @@ it('percent-encodes the handle and product handle before they land in a purge UR
     // from scraped shop data (Shopify), which is even less trustworthy.
     setupUsersTable();
     setupSitesTable();
+    setupContentTables();
     Config::set('services.cloudflare.zone_id', 'zoneXYZ');
     Config::set('services.cloudflare.cache_purge_token', 'tok');
     Config::set('app.url', 'https://dev-api.partna.au');
@@ -438,11 +469,8 @@ it('percent-encodes the handle and product handle before they land in a purge UR
         'status' => 'active', 'auth_user_id' => 'auth-1',
         'primary_email' => 'jane@example.com',
     ]);
-    $db->table('site.platform_connections')->insert(['id' => 'c-1', 'user_id' => 'u-1', 'surface_key' => 'partna.storefront', 'routing_class' => 'shop', 'resource_id' => 'shop']);
-    $db->table('site.shop_brands')->insert(['id' => 'b-1', 'connection_id' => 'c-1', 'provider' => 'shopify']);
-    $db->table('site.shop_products')->insert([
-        'id' => 'p-1', 'brand_id' => 'b-1', 'product_id' => 'sp1', 'data' => json_encode(['handle' => 'foo/bar']),
-    ]);
+    cfStorefront($db, 'col-1', 'u-1');
+    cfStorefrontProduct($db, 'col-1', 'i-1', 'foo/bar');
 
     (new CloudflarePurgeService)->purgeHandle('jane doe');
 

@@ -26,7 +26,6 @@ use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\AppleSearch;
@@ -103,6 +102,7 @@ use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -480,10 +480,21 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // payload ships empty. `!= 'pending'` alone is WRONG — NULL !=
             // 'pending' is NULL (falsy) in SQL, which would exclude every settled
             // (NULL) brand too; the whereNull()->orWhere() is required.
-            $r->get('shop')->complete(fn (IntegrationConnection $c): bool => ShopProduct::query()
-                ->whereHas('brand', fn ($q) => $q
-                    ->where(fn ($q3) => $q3->whereNull('connect_status')->orWhere('connect_status', '<>', 'pending'))
-                    ->whereHas('connection', fn ($q2) => $q2->where('user_id', $c->user_id)))
+            //
+            // Slice 5a Task 8 (fix round 1, C2): reads content.* — the same
+            // rows filterPayload() now publishes. It used to count
+            // site.shop_products, which no shop endpoint writes any more, so a
+            // store connected and curated after that deploy would have had NO
+            // Shop page at all (not merely an empty card). Deliberately does
+            // NOT filter items.removed_at: cataloguesFor() doesn't either, so
+            // a link is exactly what the payload emits — lockstep is the
+            // requirement, not correctness-by-a-different-rule.
+            $r->get('shop')->complete(fn (IntegrationConnection $c): bool => DB::table('content.collection_items as ci')
+                ->join('content.collections as col', 'col.id', '=', 'ci.collection_id')
+                ->join('content.storefronts as sf', 'sf.collection_id', '=', 'col.id')
+                ->where('col.user_id', (string) $c->user_id)
+                ->where('col.kind', 'storefront')
+                ->where(fn ($q) => $q->whereNull('sf.connect_status')->orWhere('sf.connect_status', '<>', 'pending'))
                 ->exists());
             $r->register(PD::make('custom')->label('Custom Link')->category(Cat::Content)->resource(LinkConnectionResource::class)->payload(CardPayload::class));
             $r->register(PD::make('booking')->label('Booking')->category(Cat::Booking)->payload(CardPayload::class));

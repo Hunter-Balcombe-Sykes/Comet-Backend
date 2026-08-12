@@ -35,15 +35,23 @@ class PublicIntegrationConnectionResource extends ApiResource
     private ?string $shopLinkModeOverride = null;
 
     /**
-     * Popularity ranks for this connection's shop products (product_id → rank,
-     * content_popularity_scores content_type='shop_product'). Threaded in by
-     * PublicIntegrationController so each product gains a nullable
-     * `popularityRank` on the PUBLIC wire (inert until ONE consumes it). Null =
-     * not a shop connection / no ranks resolved.
+     * Slice 5a Task 8, fix round 1 (C2): the owner's shop brands, brand_id =>
+     * ShopBrand::toBrandArray()-shaped array, rebuilt from content.* by
+     * ShopContentReader::brandMap(). Threaded in by PublicIntegrationController
+     * — built ONCE per profile there, never per resource: brandMap() takes a
+     * User (not a connection) and resolving it here would put N queries on an
+     * uncached public route.
      *
-     * @var array<string, int>|null
+     * Replaces the `$this->shopBrands` eager-loaded relation this class used to
+     * read. site.shop_products stopped being written in 30d47f44f, so that
+     * relation now serves a frozen pre-deploy snapshot: an owner's curation
+     * would never reach a visitor again. Products (with their popularityRank
+     * annotation) come from the map — there is no separate ranks setter any
+     * more, the controller passes the ranks into brandMap().
+     *
+     * @var array<string, array<string, mixed>>
      */
-    private ?array $productRanks = null;
+    private array $shopBrandMap = [];
 
     /**
      * Fluent setter used by PublicIntegrationController to inject the owner's
@@ -58,15 +66,15 @@ class PublicIntegrationConnectionResource extends ApiResource
     }
 
     /**
-     * Fluent setter — inject the shop-product popularity ranks so filterPayload()
-     * can annotate each product. Passing an array (even empty) opts this shop
-     * resource into `popularityRank` annotation; null leaves products unannotated.
+     * Fluent setter — inject the content.*-sourced brand map (see the property
+     * above). A shop resource resolved without it publishes no brands at all,
+     * which is the fail-closed direction: an empty card, never a stale one.
      *
-     * @param  array<string, int>|null  $ranks  product_id → rank
+     * @param  array<string, array<string, mixed>>  $brands  brand_id => brand array
      */
-    public function withProductRanks(?array $ranks): self
+    public function withShopBrands(array $brands): self
     {
-        $this->productRanks = $ranks;
+        $this->shopBrandMap = $brands;
 
         return $this;
     }
@@ -242,13 +250,15 @@ class PublicIntegrationConnectionResource extends ApiResource
         'square-ordering' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'hungrypanda' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'easi' => ['url', 'name', 'favicon', 'logo', 'provider'],
-        // shop: brands live in the site.shop_brands child table now (FOUND-25) —
-        // built from $this->shopBrands below, not from this allowlist map.
+        // shop: brands live in content.collections/content.storefronts now
+        // (slice 5a) — built from the threaded brand map below, not from this
+        // allowlist map.
     ];
 
     /**
-     * Public fields of a single shop brand object (FOUND-25: sourced from a
-     * ShopBrand::toBrandArray(), not the connection's payload). `provider`
+     * Public fields of a single shop brand object (slice 5a: sourced from
+     * ShopContentReader::brandMap(), which rebuilds ShopBrand::toBrandArray()'s
+     * shape out of content.*, not from the connection's payload). `provider`
      * (shopify / woocommerce / generic) drives sitepage URL + discount
      * handling. `products` is the one nested collection this list lets
      * through — each product is then filtered per-key by
@@ -326,10 +336,11 @@ class PublicIntegrationConnectionResource extends ApiResource
     private function filterPayload(string $platform, mixed $payload): mixed
     {
         if ($platform === 'shop') {
-            // FOUND-25: brands are the relational site.shop_brands rows
-            // (eager-loaded by the controller as `shopBrands.products`), not the
-            // connection's payload — build the brand-keyed map from there,
-            // allowlisted per brand exactly as before.
+            // Slice 5a Task 8 (fix round 1, C2): brands come from content.*
+            // now — ShopContentReader::brandMap(), threaded in by the
+            // controller — not from the site.shop_brands/site.shop_products
+            // relation. Same brand-array shape, so both allowlists below
+            // filter it unchanged.
             //
             // 2026-07-08: the per-brand link mode became ONE global choice
             // (site.sites.shop_link_mode). Stamp EVERY brand's public linkMode
@@ -340,10 +351,6 @@ class PublicIntegrationConnectionResource extends ApiResource
             // per-brand value, itself defaulted to 'product', so the wire is
             // never missing the key.
             $linkMode = $this->shopLinkModeOverride;
-            // Pass the ranks map (possibly empty) so toBrandArray annotates each
-            // product with a nullable popularityRank on the public wire. null →
-            // no annotation (keeps parity if the controller didn't thread ranks).
-            $productRanks = $this->productRanks;
 
             // W9: a brand mid deferred-connect has no display profile yet — a
             // nameless, logo-less, empty-products card must never ship on the
@@ -356,11 +363,16 @@ class PublicIntegrationConnectionResource extends ApiResource
             // Hoisted: flip once, not once per product.
             $productKeys = array_flip(self::SHOP_PRODUCT_ALLOWLIST);
 
-            return $this->shopBrands
-                ->reject(fn ($b) => $b->connect_status === 'pending')
-                ->mapWithKeys(function ($b) use ($linkMode, $productRanks, $productKeys) {
-                    $brand = array_intersect_key(
-                        $b->toBrandArray($productRanks), array_flip(self::SHOP_BRAND_ALLOWLIST));
+            // The pending reject reads the ARRAY now, not an Eloquent model:
+            // brandMap() emits `connectStatus` only when the storefront row
+            // has one (upsertStore() mirrors the column, and
+            // ShopBrandConnectJob mirrors both the settle and the terminal
+            // transition), so an absent key means settled — the same fact
+            // `connect_status === null` carried on the model.
+            return collect($this->shopBrandMap)
+                ->reject(fn (array $b) => ($b['connectStatus'] ?? null) === 'pending')
+                ->mapWithKeys(function (array $b) use ($linkMode, $productKeys) {
+                    $brand = array_intersect_key($b, array_flip(self::SHOP_BRAND_ALLOWLIST));
                     // #API-1: `products` is the ONE nested collection the brand
                     // allowlist lets through whole. Filter each product to its own
                     // allowlist so a future fetcher shape change can't put an
@@ -377,7 +389,7 @@ class PublicIntegrationConnectionResource extends ApiResource
                         $brand['linkMode'] = $linkMode;
                     }
 
-                    return [$b->brand_id => $brand];
+                    return [(string) ($b['id'] ?? '') => $brand];
                 })
                 ->all();
         }

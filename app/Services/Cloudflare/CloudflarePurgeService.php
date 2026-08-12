@@ -232,16 +232,24 @@ class CloudflarePurgeService
         try {
             // BaseModel pins pgsql — match it (the default connection differs
             // in tests, and must not be assumed in prod either).
-            $productHandles = DB::connection('pgsql')->table('site.shop_products as p')
-                ->join('site.shop_brands as b', 'b.id', '=', 'p.brand_id')
-                ->join('site.platform_connections as c', 'c.id', '=', 'b.connection_id')
-                ->join('core.users as u', 'u.id', '=', 'c.user_id')
+            //
+            // Slice 5a Task 8 (fix round 1, C2): handles come from
+            // content.f_catalog now. site.shop_products stopped being written,
+            // so this lookup would have returned only the pre-deploy snapshot
+            // — every PDP created after it would sit stale at the edge for the
+            // full 24h TTL. No platform_connections join any more: the
+            // storefront collection IS the user-scoped anchor (forget()/
+            // removeBrand() delete it), so `c.deleted_at` has no counterpart.
+            $productHandles = DB::connection('pgsql')->table('content.collection_items as ci')
+                ->join('content.collections as col', 'col.id', '=', 'ci.collection_id')
+                ->join('content.f_catalog as f', 'f.item_id', '=', 'ci.item_id')
+                ->join('core.users as u', 'u.id', '=', 'col.user_id')
                 ->where('u.handle_lc', $h)
-                ->whereNull('c.deleted_at')
-                ->whereRaw("p.data->>'handle' IS NOT NULL")
-                ->selectRaw("DISTINCT p.data->>'handle' AS product_handle")
+                ->where('col.kind', 'storefront')
+                ->whereNotNull('f.handle')
+                ->distinct()
                 ->limit((int) config('partna.cloudflare_purge.products_limit', 100))
-                ->pluck('product_handle')
+                ->pluck('f.handle')
                 ->all();
         } catch (\Throwable $e) {
             // OBS-101: this lookup failing silently degrades to page-only purges

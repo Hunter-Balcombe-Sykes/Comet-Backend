@@ -657,7 +657,7 @@ it('T13: the public payload omits a pending brand, includes a failed one, and ne
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    ShopBrand::create([
+    $pending = ShopBrand::create([
         'connection_id' => $conn->id, 'brand_id' => 'pend-brand', 'provider' => 'shopify',
         'url' => 'https://pend.example.com', 'source_url' => 'https://pend.example.com',
         'position' => 0, 'connect_status' => 'pending',
@@ -668,7 +668,18 @@ it('T13: the public payload omits a pending brand, includes a failed one, and ne
         'position' => 1, 'connect_status' => 'failed',
         'connect_error' => 'We could not load that account. Please try again.',
     ]);
-    ShopProduct::create(['brand_id' => $failed->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1', 'title' => 'Still usable', 'url' => 'https://fail.example.com/p1']]);
+    // Fix round 1 (C2): the public payload is built from content.* now, and
+    // its pending reject reads the reconstructed array's `connectStatus`
+    // rather than the Eloquent model's column — so both brands land through
+    // the writer addBrand()/ShopBrandConnectJob use, exactly as production
+    // would have them.
+    $writer = app(ShopContentWriter::class);
+    $writer->upsertStore($pending, (string) $user->id);
+    $failedCollectionId = $writer->upsertStore($failed, (string) $user->id);
+    $writer->syncStore((string) $user->id, $failedCollectionId, [[
+        'productId' => 'p1', 'title' => 'Still usable', 'url' => 'https://fail.example.com/p1',
+        'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
+    ]], null);
 
     $payload = $this->getJson('/api/public/profiles/t13pub/platforms')
         ->assertOk()
@@ -678,6 +689,8 @@ it('T13: the public payload omits a pending brand, includes a failed one, and ne
     expect($payload)->toHaveKey('fail-brand');
     expect($payload['fail-brand'])->not->toHaveKey('connectStatus');
     expect($payload['fail-brand'])->not->toHaveKey('connectError');
+    // A failed brand stays fully usable (plan §3g) — its product still ships.
+    expect($payload['fail-brand']['products'][0]['productId'])->toBe('p1');
 });
 
 // ── T14 — presentPageIds() regression guard on the deferred path ────────────
