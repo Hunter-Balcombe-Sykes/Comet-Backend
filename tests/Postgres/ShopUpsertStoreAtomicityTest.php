@@ -45,6 +45,7 @@
 
 use App\Models\Core\Site\ShopBrand;
 use App\Services\Shop\ShopContentWriter;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
@@ -140,7 +141,7 @@ it('rolls back the collections write when the storefronts write fails', function
     DB::connection('pgsql')->statement('ALTER TABLE content.storefronts DROP COLUMN logo_url');
 
     expect(fn () => app(ShopContentWriter::class)->upsertStore($brand, $userId))
-        ->toThrow(\Illuminate\Database\QueryException::class);
+        ->toThrow(QueryException::class);
 
     // The incident's actual failure mode: without the transaction, this
     // count would be 1 (the collections upsert had already committed before
@@ -164,7 +165,7 @@ it('leaves both tables untouched, not just collections, on the same failure', fu
 
     $badBrand = atomicityTestBrand('store-atomic-bad');
     expect(fn () => $writer->upsertStore($badBrand, $userId))
-        ->toThrow(\Illuminate\Database\QueryException::class);
+        ->toThrow(QueryException::class);
 
     expect(DB::connection('pgsql')->table('content.collections')->count())->toBe(1)
         ->and(DB::connection('pgsql')->table('content.collections')->value('id'))->toBe($goodCollectionId)
