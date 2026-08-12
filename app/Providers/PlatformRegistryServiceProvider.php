@@ -101,6 +101,7 @@ use App\Services\Platforms\StravaClubScraper;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -465,6 +466,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('shop')->fetch(fn () => new ShopFetch(
                 app(ShopCatalog::class),
                 app(IntegrationConnectionCacheRefresher::class),
+                app(ShopContentWriter::class),
             ));
             $r->get('shop')->refreshEvery((int) config('partna.refresh.intervals.shop', 6 * 3600));
             // FOUND-25 + W9: a shop connection's payload is a static lifecycle

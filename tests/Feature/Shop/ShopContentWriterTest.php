@@ -3,6 +3,7 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Services\Migration\ShopBackfiller;
+use App\Services\Platforms\ShopCatalog;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\DB;
 
@@ -146,4 +147,60 @@ it('survives a sync run immediately after the backfill — parent 8.3', function
         ->whereNull('removed_at')->pluck('id')->sort()->values();
 
     expect($after->all())->toBe($before->all());
+});
+
+// ── Task 6: ShopCatalog::syncLatest() repointed at content.* ──────────────
+
+it('syncLatest writes content.* and leaves shop_products untouched', function () {
+    // Two pre-existing legacy products, not one (deviates from the task-6
+    // brief's literal test setup — see the Task 6 report): syncLatest()'s
+    // count-preserving selection sizes $count from the brand's LIVE
+    // content.collection_items count (this test's whole point is proving
+    // that source), and after ShopBackfiller migrates these 2 rows that
+    // count is 2 — matching this test's 2-item fetched catalog so both get
+    // selected. A single pre-existing row would size $count at 1 and
+    // legitimately cap the selection at 1, which the brief's original
+    // setup — count=1 preserved, but asserting toBe(2) — did not account
+    // for. 'stale' is deliberately absent from the fetched catalog so this
+    // also exercises retireAbsent() alongside the storage-target change.
+    [$user, $brand] = makeShopBrand();
+    makeShopProduct($brand, ['url' => 'https://s.test/old', 'price' => '1.00']);
+    makeShopProduct($brand, ['url' => 'https://s.test/stale', 'price' => '3.00']);
+    app(ShopBackfiller::class)->run();
+
+    fakeProviderCatalog($brand, [
+        ['url' => 'https://s.test/old', 'title' => 'Old', 'price' => '1.00'],
+        ['url' => 'https://s.test/new', 'title' => 'New', 'price' => '2.00'],
+    ]);
+    $legacyBefore = DB::table('site.shop_products')->count();
+
+    expect(app(ShopCatalog::class)->syncLatest($brand))->toBe(2)
+        ->and(DB::table('site.shop_products')->count())->toBe($legacyBefore)
+        ->and(DB::table('content.items')->where('kind', 'product')
+            ->whereNull('removed_at')->count())->toBe(2);
+});
+
+it('syncLatest still returns null for a reachable but empty store', function () {
+    [$user, $brand] = makeShopBrand();
+    fakeProviderCatalog($brand, []);
+
+    expect(app(ShopCatalog::class)->syncLatest($brand))->toBeNull();
+});
+
+// ── Task 6: ShopContentWriter::isCurated() ─────────────────────────────────
+
+it('isCurated reads the live ShopBrand column, not a content.storefronts snapshot', function () {
+    // #SEM-1: a brand curated via ShopController::setProducts() (which sets
+    // this column directly and does not touch content.storefronts) must read
+    // as curated immediately — even before any sync/backfill has ever run for
+    // it, i.e. before a content.collections/storefronts row even exists.
+    [$user, $brand] = makeShopBrand(['products_curated_at' => now()]);
+
+    expect(app(ShopContentWriter::class)->isCurated($brand))->toBeTrue();
+});
+
+it('isCurated is false for a brand with no curation on record', function () {
+    [$user, $brand] = makeShopBrand();
+
+    expect(app(ShopContentWriter::class)->isCurated($brand))->toBeFalse();
 });

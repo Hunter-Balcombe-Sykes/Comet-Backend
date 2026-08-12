@@ -7,9 +7,9 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 // Job-context seeding of ONE individually-added product from a scanned product
@@ -29,7 +29,10 @@ class ShopProductSeeder
     /** Mirrors ShopController::MARKER (FOUND-25 relational storage anchor). */
     private const MARKER = ['storage' => 'relational'];
 
-    public function __construct(private readonly IntegrationConnectionCacheRefresher $refresher) {}
+    public function __construct(
+        private readonly IntegrationConnectionCacheRefresher $refresher,
+        private readonly ShopContentWriter $content,
+    ) {}
 
     /**
      * @param  array<string,mixed>  $product  GenericShopScraper::readProductPage()'s product shape
@@ -80,7 +83,19 @@ class ShopProductSeeder
                 $productId = $product['productId'] ?? null;
 
                 // Newest first, de-duped by productId, capped — byte-for-byte
-                // the addProduct() ordering contract.
+                // the addProduct() ordering contract. Reads site.shop_products
+                // unchanged (Task 6 brief §Step 4: "build $ordered as today")
+                // — ShopController::addProduct() (the human path, not
+                // repointed by this task) is still the thing keeping this
+                // table current for the individual bucket. KNOWN GAP: once
+                // this seeder is the ONLY writer to touch a given product
+                // (i.e. two seed() calls for the same user with no
+                // addProduct() in between — CommerceProbeJob can legitimately
+                // fire this more than once per user as different scanned
+                // links resolve), the second call's $ordered won't see what
+                // the first call wrote to content.* (this table stays frozen
+                // for that item), and syncStore()'s retire-absent will drop
+                // it. Flagged, not fixed here — see the task report.
                 $ordered = ShopProduct::where('brand_id', $individual->id)
                     ->orderBy('position')
                     ->get()
@@ -90,17 +105,11 @@ class ShopProductSeeder
                     ->take(self::MAX_INDIVIDUAL_PRODUCTS)
                     ->values();
 
-                DB::connection('pgsql')->transaction(function () use ($individual, $ordered) {
-                    ShopProduct::where('brand_id', $individual->id)->delete();
-                    foreach ($ordered as $index => $productData) {
-                        ShopProduct::create([
-                            'brand_id' => $individual->id,
-                            'product_id' => (string) ($productData['productId'] ?? ''),
-                            'position' => $index,
-                            'data' => $productData,
-                        ]);
-                    }
-                });
+                // 5a §3.5 / Task 6: content.* is the reconciled destination —
+                // the legacy delete+reinsert above this comment used to also
+                // rebuild site.shop_products; that write stops here.
+                $collectionId = $this->content->upsertStore($individual, (string) $user->id);
+                $this->content->syncStore((string) $user->id, $collectionId, $ordered->all(), $individual->currency);
 
                 $this->refresher->refresh($connection);
 

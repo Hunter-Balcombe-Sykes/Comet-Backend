@@ -3,8 +3,8 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\ShopBrand;
-use App\Models\Core\Site\ShopProduct;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -24,6 +24,13 @@ class ShopCatalog
         private readonly SquarespaceScraper $squarespace,
         private readonly BigCartelScraper $bigcartel,
         private readonly GenericShopScraper $generic,
+        // Nullable + container-fallback (content()) rather than a required
+        // 6th param: ShopSyncFailureObservabilityTest constructs ShopCatalog
+        // by hand with 5 scraper mocks and no ShopContentWriter, for the two
+        // code paths above that return/throw before ever touching storage.
+        // A required param would fail construction for those tests even
+        // though they never reach the code that needs it.
+        private readonly ?ShopContentWriter $content = null,
     ) {}
 
     /**
@@ -101,7 +108,15 @@ class ShopCatalog
             return null;
         }
 
-        $count = max(1, $brand->products()->count() ?: self::DEFAULT_LATEST_COUNT);
+        $collectionId = $this->storeCollectionId($brand);
+
+        // 5a §3.5: count-preserving selection, now sized from content.*'s
+        // live link count instead of $brand->products()->count() — that
+        // relation reads site.shop_products, which this method no longer
+        // writes, so it would freeze at whatever it last held.
+        $count = max(1, DB::table('content.collection_items')
+            ->where('collection_id', $collectionId)
+            ->count() ?: self::DEFAULT_LATEST_COUNT);
 
         $latest = collect($catalog)
             ->sortByDesc(fn (array $p) => $p['createdAt'] ?? '')
@@ -113,22 +128,38 @@ class ShopCatalog
             ->take($count)
             ->values();
 
-        // Transactional rebuild — same atomicity contract as
-        // ShopController::setProducts() (a mid-loop failure must not leave a
-        // partial product set).
-        DB::connection('pgsql')->transaction(function () use ($brand, $latest) {
-            ShopProduct::where('brand_id', $brand->id)->delete();
-            foreach ($latest as $index => $productData) {
-                ShopProduct::create([
-                    'brand_id' => $brand->id,
-                    'product_id' => (string) ($productData['productId'] ?? ''),
-                    'position' => $index,
-                    'data' => $productData,
-                ]);
-            }
-        });
+        // 5a §3.5: reconcile into content.* instead of rebuilding
+        // site.shop_products. syncStore() upserts by coord and retires what
+        // the fetched catalogue no longer carries — never a delete+reinsert
+        // — so item ids (and analytics.item_views references) survive a
+        // resync. Same atomicity contract as the old transactional rebuild:
+        // syncStore() runs its own writes per-item, not one big transaction,
+        // but a mid-loop failure now leaves partially-reconciled content.*
+        // state rather than a torn legacy table — an accepted trade already
+        // made by Task 5's syncStore() implementation, not new here.
+        return $this->content()->syncStore(
+            (string) $brand->connection->user_id,
+            $collectionId,
+            $latest->all(),
+            $brand->currency,
+        );
+    }
 
-        return $latest->count();
+    /**
+     * The brand's content.collections row (kind='storefront'), created with
+     * its storefront sidecar on first sync. One implementation
+     * (ShopContentWriter::upsertStore()), two callers — ShopBackfiller's
+     * one-off migration and this scheduled resync.
+     */
+    private function storeCollectionId(ShopBrand $brand): string
+    {
+        return $this->content()->upsertStore($brand, (string) $brand->connection->user_id);
+    }
+
+    /** Real ShopContentWriter, or the container's when constructed without one (see the constructor note). */
+    private function content(): ShopContentWriter
+    {
+        return $this->content ?? app(ShopContentWriter::class);
     }
 
     /** Per-brand picker-catalog cache key (shared with ShopController). */

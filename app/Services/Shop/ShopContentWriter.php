@@ -97,6 +97,26 @@ class ShopContentWriter
     }
 
     /**
+     * Task 6 / #SEM-1: whether ShopFetch must skip this brand's scheduled
+     * resync because the user hand-picked its products
+     * (ShopController::setProducts()).
+     *
+     * Reads $brand->products_curated_at DIRECTLY (site.shop_brands), not the
+     * content.storefronts mirror upsertStore() writes: that mirror is only
+     * refreshed by a call to upsertStore(), which itself only happens inside
+     * a sync this very flag is gating — a brand curated since its last sync
+     * would read back stale (still-null) from content.storefronts and get
+     * synced (and overwritten) one more time before the mirror caught up.
+     * ShopController::setProducts()/updateBrand() (the human write paths)
+     * are not part of Task 6's repoint, so site.shop_brands stays the only
+     * always-current source for this fact.
+     */
+    public function isCurated(ShopBrand $brand): bool
+    {
+        return $brand->products_curated_at !== null;
+    }
+
+    /**
      * Reconcile a store's fetched catalogue into content.items: upsert every
      * live product by coord, then retire (items.removed_at) whatever this
      * collection still links that the fetch no longer carries. Returns the

@@ -7,6 +7,7 @@ use App\Models\Core\Site\Site;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
+use App\Services\Shop\ShopContentWriter;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // Scheduled shop refresh: re-syncs every non-individual store's selection to
@@ -19,15 +20,20 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 // addBrand() never sets it, so it could never distinguish "curated" from
 // "never touched". When auto-latest is off, nothing is synced. The
 // connection payload is a static marker (FOUND-25), so content changes live
-// in the child shop_products rows — when any brand actually re-synced we
-// purge the sitepage edge cache explicitly (the observer's payload-dirty
-// gate can never fire for shop), and when nothing changed we signal 304 so
-// the quiet bookkeeping path runs.
+// in content.* now (Task 6) — when any brand actually re-synced we purge the
+// sitepage edge cache explicitly (the observer's payload-dirty gate can
+// never fire for shop), and when nothing changed we signal 304 so the quiet
+// bookkeeping path runs.
 final readonly class ShopFetch implements FetchStrategy
 {
     public function __construct(
         private ShopCatalog $catalog,
         private IntegrationConnectionCacheRefresher $refresher,
+        // Nullable + container-fallback: ShopSyncFailureObservabilityTest and
+        // ShopGlobalSettingsTest construct ShopFetch by hand with just
+        // ($catalog, $refresher) — a required 3rd param would fail
+        // construction for every one of those, not just the curation ones.
+        private ?ShopContentWriter $content = null,
     ) {}
 
     public function fetch(IntegrationConnection $connection): array
@@ -43,11 +49,18 @@ final readonly class ShopFetch implements FetchStrategy
         // products EXCEPT a brand the user hand-curated (#SEM-1) — that
         // per-brand fact is products_curated_at, not selection_mode (see the
         // class docblock for why selection_mode can't carry it).
+        // ShopContentWriter::isCurated() replaces the whereNull() column
+        // filter as of Task 6 (still reads the same live ShopBrand column —
+        // see that method's docblock for why it isn't the content.storefronts
+        // mirror). 'connection' is eager-loaded, not 'products': syncLatest()
+        // no longer reads $brand->products (that relation is the
+        // no-longer-written legacy table) but does need $brand->connection.
+        $content = $this->content ?? app(ShopContentWriter::class);
         $latestBrands = $connection->shopBrands()
             ->where('is_individual', false)
-            ->whereNull('products_curated_at')
-            ->with('products')
-            ->get();
+            ->with('connection')
+            ->get()
+            ->reject(fn ($b) => $content->isCurated($b));
 
         if ($latestBrands->isEmpty()) {
             throw new FetchNotModifiedException('shop');

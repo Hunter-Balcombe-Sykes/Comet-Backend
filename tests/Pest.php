@@ -775,6 +775,22 @@ function mockShopService(string $abstract, Closure $callback): void
 }
 
 /**
+ * Task 6: binds a mocked ShopifyScraper (makeShopBrand()'s default provider)
+ * so app(ShopCatalog::class)->syncLatest($brand) exercises the REAL
+ * container-resolved ShopCatalog + ShopContentWriter wiring — not a hand-built
+ * ShopCatalog — without a network fetch. $products is the raw scraper shape
+ * ShopifyScraper::fetchProducts() itself returns (url/title/price/...).
+ *
+ * @param  list<array<string,mixed>>  $products
+ */
+function fakeProviderCatalog(ShopBrand $brand, array $products): void
+{
+    mockShopService(ShopifyScraper::class, function ($mock) use ($brand, $products) {
+        $mock->shouldReceive('fetchProducts')->with($brand->url, $brand->currency)->andReturn($products);
+    });
+}
+
+/**
  * Calls each of shop's 9 write endpoints once with a valid payload — used
  * only by Task 8 step 5's inertness proof (that none of them touch
  * content.*). Order matters: $b (the caller's existing brand) is used for the

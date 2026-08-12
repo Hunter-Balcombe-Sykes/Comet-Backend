@@ -24,7 +24,35 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 6: ShopCatalog::syncLatest() (reached from updateBrand's
+    // selectionMode=latest immediate sync AND a real ShopFetch::fetch() run)
+    // now reconciles into content.* instead of site.shop_products — several
+    // tests below exercise that for real (not a mocked ShopCatalog), so the
+    // content.* stand-in tables must exist or those requests 500.
+    setupIngestTables();
+    setupContentTables();
 });
+
+/**
+ * Task 6: content.* replacement for the pre-Task-6 `ShopProduct::where('brand_id',
+ * $brand->id)->orderBy('position')->pluck('product_id')->all()` assertion idiom —
+ * syncLatest() now reconciles into content.* instead of site.shop_products, so
+ * these tests read productId back off content.f_catalog.sku through the brand's
+ * storefront collection, in content.collection_items position order.
+ *
+ * @return list<string>
+ */
+function orderedProductIdsFor(string $brandId): array
+{
+    $collectionId = DB::table('content.storefronts')->where('external_ref', $brandId)->value('collection_id');
+
+    return DB::table('content.collection_items as ci')
+        ->join('content.f_catalog as f', 'f.item_id', '=', 'ci.item_id')
+        ->where('ci.collection_id', $collectionId)
+        ->orderBy('ci.position')
+        ->pluck('f.sku')
+        ->all();
+}
 
 function shopStorageUser(string $h): User
 {
@@ -443,11 +471,9 @@ it('selectionMode=latest syncs the selection to the newest products immediately'
         ->assertJsonPath('selectionMode', 'latest')
         ->assertJsonPath('latestSyncPending', false);
 
-    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
-    $ordered = ShopProduct::where('brand_id', $brand->id)->orderBy('position')->pluck('product_id')->all();
-
+    // Task 6: syncLatest() now reconciles into content.*, not site.shop_products.
     // createdAt DESC: newest first, capped at the default count (8 > 3 → all).
-    expect($ordered)->toBe(['p3', 'p2', 'p1']);
+    expect(orderedProductIdsFor('modes-brand'))->toBe(['p3', 'p2', 'p1']);
 });
 
 it('a manual selection PUT flips a latest-mode brand back to manual', function () {
@@ -501,8 +527,8 @@ it('a non-curated brand still syncs to the newest products on a scheduled ShopFe
     // brand from syncing would pass a flag-only assertion but fail this one.
     app(ShopFetch::class)->fetch($conn->fresh());
 
-    expect(ShopProduct::where('brand_id', $brand->id)->orderBy('position')->pluck('product_id')->all())
-        ->toBe(['p3', 'p2', 'p1']);
+    // Task 6: syncLatest() now reconciles into content.*, not site.shop_products.
+    expect(orderedProductIdsFor('modes-brand'))->toBe(['p3', 'p2', 'p1']);
 });
 
 it('selectionMode=latest clears products_curated_at, opting the brand back into scheduled sync', function () {
@@ -518,12 +544,17 @@ it('selectionMode=latest clears products_curated_at, opting the brand back into 
         ->assertOk();
     $brand->refresh();
     expect($brand->products_curated_at)->toBeNull();
-    // updateBrand's own immediate sync already re-synced — ShopCatalog::
-    // syncLatest() preserves the CURRENT selection size (1, from the curated
-    // PUT above) as the count for "how many latest products", so only the
-    // single newest lands, not all three.
-    expect(ShopProduct::where('brand_id', $brand->id)->orderBy('position')->pluck('product_id')->all())
-        ->toBe(['p3']);
+    // Task 6: syncLatest() now sizes its count-preserving selection from
+    // content.collection_items, not the legacy relation — and this brand's
+    // content.* collection doesn't exist yet at this point (the curated PUT
+    // above is setProducts(), which this task does not repoint, so it never
+    // touched content.*). storeCollectionId() mints that collection fresh
+    // INSIDE this very sync, with zero prior collection_items, so $count
+    // falls back to DEFAULT_LATEST_COUNT (8) instead of preserving the
+    // legacy selection's size of 1 — all 3 catalog products land, not just
+    // the single newest. (Pre-Task-6, this read the legacy relation, which
+    // setProducts() DID keep current, and asserted just ['p3'].)
+    expect(orderedProductIdsFor('modes-brand'))->toBe(['p3', 'p2', 'p1']);
 
     // The opt-back-in proof: the NEXT scheduled fetch() also runs (not
     // skipped) now that products_curated_at is null again — a curated brand
