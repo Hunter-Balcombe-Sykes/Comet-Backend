@@ -32,6 +32,10 @@ const BOT_PROTECTION_EXEMPT = [
     'api/public/signup/availability',
     // Unsubscribe — RFC 8058 token-gated.
     'api/public/unsubscribe/{token}',
+    // Category-notification unsubscribe — RFC 8058, gated by a signed URL
+    // ('signed' middleware); mailbox providers POST it directly and cannot
+    // carry a bot token.
+    'api/public/notification-unsubscribe/{userId}/{category}',
     // Early access (OV-A) — posted cross-origin from the marketing site, which
     // has no bot-token bootstrap; honeypot + form-timing check + the
     // waitlist-grade throttle (5/min IP, 12/h email) carry the abuse load.

@@ -3,12 +3,14 @@
 namespace App\Notifications\Moderation;
 
 use App\Models\Moderation\Decision;
+use App\Notifications\Concerns\BuildsPartnaMailMessage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 class ContentHiddenNotification extends Notification
 {
+    use BuildsPartnaMailMessage;
     use Queueable;
 
     public function __construct(public readonly Decision $decision) {}
@@ -20,9 +22,12 @@ class ContentHiddenNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
-            ->subject('Your Partna content has been hidden')
-            ->view('mail.moderation.content-hidden', ['decision' => $this->decision]);
+        return $this->partnaMailMessage(
+            'Your Partna content has been hidden',
+            'mail.moderation.content-hidden',
+            ['decision' => $this->decision],
+            dedupeKey: (string) $this->decision->id,
+        );
     }
 
     public function toArray(object $notifiable): array

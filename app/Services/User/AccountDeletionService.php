@@ -400,7 +400,9 @@ class AccountDeletionService
                 Mail::to($realEmail)->queue(
                     new AccountDeletionScheduledMail(
                         displayName: (string) ($professional->display_name ?? 'there'),
-                        deletesAt: $deletesAt->toDayDateTimeString(),
+                        // Legally consequential date — always name the zone
+                        // (no per-user timezone exists to render into).
+                        deletesAt: $deletesAt->toDayDateTimeString().' (UTC)',
                         cancelUrl: $cancelUrl,
                     )
                 );

@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
 use App\Http\Controllers\Api\PublicSite\PublicIntegrationController;
 use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
 use App\Http\Controllers\Api\PublicSite\PublicMenuController;
+use App\Http\Controllers\Api\PublicSite\PublicNotificationEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Controllers\Api\Webhooks\ResendWebhookController;
@@ -80,6 +81,15 @@ Route::match(['get', 'post'], '/public/unsubscribe/{token}', [PublicEmailUnsubsc
     ->where('token', '[A-Za-z0-9]+')
     ->middleware('throttle:public-site')
     ->name('public.unsubscribe');
+
+// Category-notification variant of the above (P3, 2026-08-12): flips the
+// per-user NotificationEmailPreference for one category. Signed URL rather
+// than a stored token — the signature covers userId + category, so no new
+// column and nothing to prune. Same GET/POST + CSRF-exempt reasoning.
+Route::match(['get', 'post'], '/public/notification-unsubscribe/{userId}/{category}', [PublicNotificationEmailUnsubscribeController::class, 'unsubscribe'])
+    ->where(['userId' => '[0-9a-fA-F-]+', 'category' => '[a-z_]+'])
+    ->middleware(['signed', 'throttle:public-site'])
+    ->name('public.notification-unsubscribe');
 
 // Liveness — same zero-dependency reasoning as /ping above: a static JSON
 // literal, no DB, no Redis. Left unthrottled deliberately so a hung cache

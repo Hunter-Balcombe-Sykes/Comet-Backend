@@ -90,3 +90,21 @@ it('does not re-notify the reported user when a retry follows a crash after the 
     Notification::assertSentToTimes($user, ContentHiddenNotification::class, 1);
     expect($entry->fresh()->status)->toBe('completed');
 });
+
+it('still sends the suspension notice when the status write won the race', function () {
+    // ModerationActionDispatcher fires the suspend job and this notify job
+    // order-free in one afterCommit — if the account is already suspended by
+    // the time we run, the closure notice must send anyway (right-to-notice).
+    Notification::fake();
+    $user = User::factory()->create(['status' => 'suspended']);
+    $case = ModerationCase::factory()->create([
+        'reportable_owner_user_id' => $user->id,
+    ]);
+    $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create(['decision_type' => 'suspend_user']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
+
+    (new NotifyReportedUserJob($entry->id, $case->id))->handle();
+
+    Notification::assertSentTo($user, AccountSuspendedNotification::class);
+    expect($entry->fresh()->status)->toBe('completed');
+});

@@ -17,23 +17,21 @@ it('builds a Partna-branded brand from defaults', function () {
         ->and($b->proName)->toBe('Partna')
         ->and($b->siteUrl)->toBe('https://partna.au')
         ->and($b->logoUrl)->toBeNull()
-        ->and($b->logoUrlLight)->toContain('partna-wordmark-light.png')
-        ->and($b->logoUrlDark)->toContain('partna-wordmark-dark.png')
+        ->and($b->iconUrl)->toContain('partna-icon.png')
+        ->and($b->wordmarkUrl)->toContain('partna-wordmark.png')
         ->and($b->replyToEmail)->toBeNull()
         ->and($b->palette->accent)->toBe(EmailBrandDefaults::ACCENT);
 });
 
-it('sources logo URLs from the frontend SPA domain, not the API domain', function () {
-    // app.url is the API's own domain (and is unset -> localhost in some deployed
-    // envs) — it never serves /branding/*. Regression guard for exactly that bug:
-    // the logo must resolve against app.frontend_url regardless of what app.url is.
-    config()->set('app.url', 'http://localhost');
-    config()->set('app.frontend_url', 'https://app.partna.au');
+it('sources logo URLs from the API domain, which ships the assets itself', function () {
+    // The PNGs live in this repo's public/branding/ (2026-08-12) — email
+    // branding no longer depends on whichever frontend serves app.partna.au.
+    config()->set('app.url', 'https://api.partna.au');
 
     $b = EmailBrand::partna();
 
-    expect($b->logoUrlLight)->toBe('https://app.partna.au/branding/partna-wordmark-light.png')
-        ->and($b->logoUrlDark)->toBe('https://app.partna.au/branding/partna-wordmark-dark.png');
+    expect($b->iconUrl)->toBe('https://api.partna.au/branding/partna-icon.png')
+        ->and($b->wordmarkUrl)->toBe('https://api.partna.au/branding/partna-wordmark.png');
 });
 
 it('round-trips through toArray/fromArray (cache payload)', function () {
@@ -42,10 +40,8 @@ it('round-trips through toArray/fromArray (cache payload)', function () {
         proName: 'Jane Doe',
         siteUrl: 'https://jane.partna.au',
         logoUrl: 'https://media.example/logo.webp',
-        logoUrlLight: null,
-        logoUrlDark: null,
-        iconUrlLight: null,
-        iconUrlDark: null,
+        iconUrl: null,
+        wordmarkUrl: null,
         replyToEmail: 'jane@example.com',
         palette: EmailBrandDefaults::palette(['color_accent' => '#aa0000']),
     );
@@ -56,8 +52,8 @@ it('round-trips through toArray/fromArray (cache payload)', function () {
         ->and($rebuilt->proName)->toBe('Jane Doe')
         ->and($rebuilt->siteUrl)->toBe('https://jane.partna.au')
         ->and($rebuilt->logoUrl)->toBe('https://media.example/logo.webp')
-        ->and($rebuilt->logoUrlLight)->toBeNull()
-        ->and($rebuilt->logoUrlDark)->toBeNull()
+        ->and($rebuilt->iconUrl)->toBeNull()
+        ->and($rebuilt->wordmarkUrl)->toBeNull()
         ->and($rebuilt->replyToEmail)->toBe('jane@example.com')
         ->and($rebuilt->palette)->toBeInstanceOf(EmailPalette::class)
         ->and($rebuilt->palette->accent)->toBe('#aa0000')

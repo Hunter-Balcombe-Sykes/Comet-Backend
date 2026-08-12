@@ -3,12 +3,12 @@
 @section('preheader')You're subscribed to {{ $proDisplayName }}'s updates.@endsection
 
 @section('footer_note')
-    Didn't sign up, or changed your mind? <a href="{{ $unsubscribeUrl }}" style="color:#a1a1a6; text-decoration:underline;">Unsubscribe</a>.
+    Didn't sign up, or changed your mind? <a href="{{ $unsubscribeUrl }}" style="color:#8f8f8f; text-decoration:underline;">Unsubscribe</a>.
 @endsection
 
 @section('content')
     <h1 class="headline text-primary" style="margin:0 0 16px; font-size:24px; line-height:1.2; color:{{ $brand->palette->text }};">
-        You're subscribed{{ $visitorName ? ', '.e($visitorName) : '' }}
+        You're subscribed{{ $visitorName ? ", {$visitorName}" : '' }}
     </h1>
 
     <p class="body-text" style="margin:0 0 12px; font-size:15px; line-height:1.5; color:{{ $brand->palette->text }};">
