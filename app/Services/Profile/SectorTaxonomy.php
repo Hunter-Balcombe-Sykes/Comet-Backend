@@ -311,8 +311,10 @@ final class SectorTaxonomy
      * A key qualifies only if it (1) is >=5 characters, (2) is not a substring
      * of a common English word or Australian surname, (3) names a TRADE rather
      * than a medium, and (4) cannot be manufactured by joining across a
-     * separator in a plausible handle. Clause 4 is why there is no bare 'hair':
-     * normalisation turns beth.airbnb into bethairbnb.
+     * separator in a plausible handle. Clause 4 is why there is no bare 'hair'
+     * (beth.airbnb -> bethairbnb), no bare 'chiro' ('Arch Ironing Services' ->
+     * archironingservices), and no bare 'plumb' ('Kim Plumbago Florals', the
+     * plant genus, -> kimplumbagoflorals).
      *
      * NO VALUE MAY BE IN FOOD_SECTORS. A wrong food slug flips four
      * capabilities and misroutes links via LinkRouter's own copy of the arms.
@@ -340,31 +342,43 @@ final class SectorTaxonomy
         'tattoo' => 'tattoo-artist',
         'makeup' => 'makeup-artist',
         'lashes' => 'brows-lashes',
-        'browsandlashes' => 'brows-lashes',
         'airbrushtanning' => 'esthetician',
         'spraytan' => 'esthetician',
         'skincare' => 'esthetician',
         'esthetic' => 'esthetician',
+        // ACCEPTED false positive (round-1 fix review, 2026-08-12): 'Amass
+        // Agency' -> amassagency -> contains 'massage'. No safe substring
+        // variant exists — 'massage' IS the trade word — so this is kept, like
+        // thebarberlin -> barber below. See the corpus entry for the ruling.
         'massage' => 'spa',
         'nailtech' => 'nail-technician',
         'nailsalon' => 'nail-technician',
 
         // Health & fitness
         'pilates' => 'yoga-instructor',
-        'barrepilates' => 'yoga-instructor',
         'yogateacher' => 'yoga-instructor',
         'personaltrainer' => 'personal-trainer',
         'fitness' => 'gym',
         'physio' => 'physiotherapist',
-        'chiro' => 'chiropractor',
+        // Not bare 'chiro' — 'Arch Ironing Services'/'Monarch Ironworks'
+        // normalise to archironingservices/monarchironworks, both containing
+        // 'chiro'. 'chiroprac' still catches baysidechiropractic /
+        // melbchiropractor; bare-'chiro' handles (bayside.chiro) are an
+        // accepted miss.
+        'chiroprac' => 'chiropractor',
         'dentist' => 'dentist',
         'nutrition' => 'nutritionist',
 
         // Trades & automotive
-        'plumb' => 'plumber',
+        // Two keys, not one 'plumb': 'kimplumbagoflorals' (the plant genus)
+        // would match a bare 'plumb' stem. 'plumbing' catches abcplumbing,
+        // 'plumber' catches samtheplumber; neither alone covers both.
+        'plumbing' => 'plumber',
+        'plumber' => 'plumber',
         'electrician' => 'electrician',
         'landscap' => 'landscaper',
         'carpentry' => 'builder',
+        'carpenter' => 'builder',
         'mechanic' => 'mechanic',
         'cardetailing' => 'car-detailer',
 

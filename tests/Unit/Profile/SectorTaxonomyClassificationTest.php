@@ -402,6 +402,9 @@ it('classifies a trade from a handle or display name', function (string $input, 
     'run-together handle' => ['crucibletattooco', 'tattoo-artist'],
     'display name' => ['Melbourne Barre Pilates', 'yoga-instructor'],
     'underscored' => ['sam_the_plumber', 'plumber'],
+    'chiropractic' => ['baysidechiropractic', 'chiropractor'],
+    'plumbing suffix' => ['abcplumbing', 'plumber'],
+    'carpenter' => ['joethecarpenter', 'builder'],
 ]);
 
 // Each of these was a real false positive in an earlier draft of the map.
@@ -425,6 +428,12 @@ it('does not manufacture a match across a separator or a surname', function (str
     'furniture' => ['mrchairs.furniture', null],
     'not a barber' => ['thebarberlin', 'barber'],
     'IT consultant' => ['coffeeandcode', null],
+    'ironing not a chiro' => ['Arch Ironing Services', null],
+    'plumbago not a plumber' => ['Kim Plumbago Florals', null],
+    // ACCEPTED false positive, like thebarberlin: 'massage' is the trade word
+    // itself and has no safe substring variant. A wrong NON-food slug is
+    // correctable — google-business and manual both outrank instagram now.
+    'agency not a spa' => ['Amass Agency', 'spa'],
 ]);
 
 it('never resolves free text to a FOOD_SECTORS slug', function () {
