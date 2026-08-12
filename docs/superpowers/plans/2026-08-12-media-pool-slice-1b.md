@@ -104,11 +104,31 @@ Expected: `media_items=45, upload_assets=25, bad_rule=0`.
 
 **If `media_items` is not 45, stop and reconcile before continuing.** The most likely cause is uploads in a non-`ready` `processing_state`, which the backfiller counts as skipped rather than dropping silently — read its output, do not guess.
 
-- [ ] **Step 6: Create the branch**
+- [x] **Step 6: Create the branch**
+
+Cut as an isolated worktree rather than in the shared checkout, per convergence
+§4.3 rule 6 ("one worktree per session; never the main checkout"), which overrides
+this plan's Global Constraints wording:
 
 ```bash
-git checkout -b feat/media-pool-slice-1b
+git worktree add .worktrees/media-pool-slice-1b origin/development -b feat/media-pool-slice-1b
 ```
+
+Based on `origin/development` explicitly (the repo's default branch is
+`production`, so a native worktree tool would pick the wrong base), with a real
+copied `vendor/` and `.env` — symlinked ones break the Feature suite's
+`TestCase` binding. Verified the autoloader resolves `App\…` to the worktree's
+own `app/` before trusting any green run.
+
+> **Prod check — BLOCKED, closed as a deferral (owner decision 2026-08-12).**
+> The execute prompt asked for a prod-side confirmation that no
+> `content.media_assets` row is keyed off a URL for a ref-emitting projector.
+> It cannot be run: prod Supabase MCP SQL fails `28P01` for both `postgres` and
+> `supabase_read_only_user`, and `cloud tinker production` reports the
+> environment is stopped. Closed on the architecture instead — prod last
+> deployed `265f9aa` (2026-07-26, pre-1a), has never had the content-pool
+> migrations applied, and carries no users, so there is no row to be keyed
+> wrongly. Re-check on the next prod deploy cycle, and fix the MCP credential.
 
 ---
 
@@ -123,7 +143,7 @@ git checkout -b feat/media-pool-slice-1b
 **Interfaces:**
 - Produces: `content.media_assets.attribution` — `jsonb NULL`, no DB default. Shape `{"authors":[{"name":string,"uri":string|null}],"maps_uri":string|null,"flag_uri":string|null}`. Every key optional; the whole column is NULL when Google returned no attribution at all.
 
-- [ ] **Step 1: Write the migration**
+- [x] **Step 1: Write the migration**
 
 Create `supabase/migrations/20260813000000_content_media_assets_attribution.sql`:
 
@@ -139,7 +159,7 @@ Create `supabase/migrations/20260813000000_content_media_assets_attribution.sql`
 ALTER TABLE content.media_assets ADD COLUMN attribution jsonb NULL;
 ```
 
-- [ ] **Step 2: Apply to dev and verify**
+- [x] **Step 2: Apply to dev and verify**
 
 ```bash
 supabase link --project-ref glncumufgaqcmqhzwrxm
@@ -155,29 +175,38 @@ WHERE table_schema='content' AND table_name='media_assets' AND column_name='attr
 ```
 Expected: one row, `jsonb`, `YES`, `null`.
 
-- [ ] **Step 3: Write the schema test**
+- [x] **Step 3: Write the schema test**
 
-Create `tests/Schema/MediaAssetAttributionColumnTest.php`:
+> **CORRECTED during execution.** The test as drafted read the migration *file
+> text* with `File::get`. Two things were wrong with that, both checkable:
+>
+> 1. **It asserted the wrong thing.** A migration file saying `jsonb NULL`
+>    proves nothing about the deployed column; only the applied schema does.
+>    Every other test in `tests/Schema/` probes `information_schema` /
+>    `pg_constraint` (`ModerationStateColumnTest`, `SectorSourceCheckTest`) —
+>    that is the house idiom and it is the stronger assertion.
+> 2. **It would never have run.** `phpunit.xml` registers only `tests/Unit` and
+>    `tests/Feature`. `tests/Schema/` runs solely under `composer test:schema`
+>    (`phpunit.schema.xml`), so a file-text test placed there is gated behind a
+>    Postgres connection it does not use, and is invisible to `composer test`.
+>
+> Written instead as an applied-schema probe in the repo's idiom
+> (`uses(SchemaTestCase::class)`, `->group('postgres')`), asserting
+> `data_type='jsonb'`, `is_nullable='YES'` and `column_default IS NULL`. The
+> no-default rationale from the original draft is preserved as its comment.
 
-```php
-<?php
+Create `tests/Schema/MediaAssetAttributionColumnTest.php` querying
+`information_schema.columns` for `content.media_assets.attribution`.
 
-use Illuminate\Support\Facades\File;
+- [x] **Step 4: Run it**
 
-it('adds attribution as a nullable jsonb column with no default', function () {
-    $sql = File::get(base_path('supabase/migrations/20260813000000_content_media_assets_attribution.sql'));
+Runs in the applied-schema lane, not `composer test`. Verified directly against
+dev instead, which is the same assertion the test makes:
 
-    expect($sql)->toContain('ADD COLUMN attribution jsonb NULL');
-    // A DB default would make "Google gave us nothing" indistinguishable from
-    // "we never asked" — D6's known gap depends on NULL meaning absent.
-    expect(str_contains($sql, 'DEFAULT'))->toBeFalse();
-});
 ```
-
-- [ ] **Step 4: Run it**
-
-Run: `./vendor/bin/pest tests/Schema/MediaAssetAttributionColumnTest.php`
-Expected: PASS.
+column_name  | data_type | is_nullable | column_default
+attribution  | jsonb     | YES         | null
+```
 
 - [ ] **Step 5: Commit**
 
@@ -447,7 +476,16 @@ class GoogleBusinessMediaProjector implements Projector
 }
 ```
 
-**Before running:** confirm `RecordView` exposes an `array()` accessor. Run `grep -n 'public function ' app/Ingest/Projection/RecordView.php`. If it does not, add one following the existing `string()` / `int()` / `list()` pattern in the same file, and cover it in this task's test.
+**RESOLVED — use `map()`, and add no accessor.** `RecordView` already exposes
+`map(string $path): array<string,mixed>` (`:74`), which returns `[]` when the path
+is absent — exactly the semantics the `array_filter` below needs. Use
+`$view->map('attribution')`, not `$view->array(...)`. Adding an `array()` accessor
+would be a second name for `map()`.
+
+Also checked, because `RecordView` instruments every read: `reads()` feeds
+`ingest:volatility-audit`, which fails CI when a projector reads a path declared
+volatile. All three `GoogleBusinessConnector` streams declare `volatile: []`
+(`:76`, `:85`, `:95`), so the new `url` / `attribution` reads add no such conflict.
 
 The `version()` bump to 2 is load-bearing: `content.source_items.projector_version` records which shape produced a row, and leaving it at 1 makes rows written before and after this task indistinguishable.
 
@@ -752,15 +790,23 @@ Add `resolveRawPhotoUrls(array $photos, string $userId): array` to `GoogleBusine
 
 In `app/Ingest/Connectors/GoogleBusinessConnector.php`, the connector's `defaultIntervalSeconds: 172800` (48h) governs all three streams. Per D3 the `media` stream needs 7 days.
 
-Check first whether `StreamSpec` supports a per-stream interval:
-```bash
-grep -n 'interval\|Seconds' app/Ingest/Manifest/StreamSpec.php
+**RESOLVED — the second branch applies.** `StreamSpec::__construct` takes
+`name`, `target`, `profile`, `requires`, `volatile`, `orderField`,
+`authoritativeFields` and nothing else (`app/Ingest/Manifest/StreamSpec.php:22-30`).
+There is **no per-stream interval**; cadence lives only on the manifest as
+`defaultIntervalSeconds`, which governs all three streams at once.
+
+So: do **not** add the concept here. Leave `defaultIntervalSeconds: 172800`
+alone — dropping it to 7 days would also slow `profile` and `reviews`, and
+raising it per-stream is a manifest change slice 6 would inherit mid-flight.
+Set the cadence operationally instead, in Task 11 step 4:
+
+```sql
+UPDATE ingest.sources SET min_interval_secs = 604800 WHERE source_key = 'google_business';
 ```
 
-- **If it does:** set `intervalSeconds: 604800` on the `media` StreamSpec only.
-- **If it does not:** do **not** add the concept in this task. Instead set the `ingest.sources` rows' `min_interval_secs` for google_business to `604800` in Task 11's operational step, record in the checkpoint that per-stream cadence is unavailable, and leave `defaultIntervalSeconds` alone. Adding a manifest-wide interval concept is its own slice.
-
-Document whichever branch you took in the commit body.
+Record in the checkpoint that per-stream cadence is unavailable, so D3's 7-day
+figure is understood as a source-row setting rather than a manifest guarantee.
 
 - [ ] **Step 6: Run the tests**
 

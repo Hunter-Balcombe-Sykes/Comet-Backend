@@ -1,0 +1,9 @@
+-- Slice 1b D6: Google Places terms require photo attribution on display.
+-- GoogleBusinessConnector::mapPhoto() collects authorAttributions and the
+-- projector currently discards them; this is where they land.
+--
+-- NULLABLE with no default, deliberately: only ~60 of 110 live Google photo
+-- entries carry attribution at all, so "absent" is a real and expected state,
+-- not a backfill gap. jsonb rather than columns because the shape is Google's
+-- and may gain keys (googleMapsUri, flagContentUri) without a migration.
+ALTER TABLE content.media_assets ADD COLUMN attribution jsonb NULL;
