@@ -76,6 +76,14 @@ class PoolRegistry
             ],
             'order_by' => 'occurrence',
         ],
+        // A gallery wants EVERY photo. latest_per_auto_source is the
+        // watch/listen rolling-latest semantics: one item per connection
+        // source, which for media means one Google photo visible and nine
+        // hidden (slice 1a §1.3 — the same pathology events hit in slice 2).
+        'media' => [
+            'rule' => [['op' => 'kind_is']],
+            'order_by' => 'recency',
+        ],
     ];
 
     public static function isPool(string $key): bool
