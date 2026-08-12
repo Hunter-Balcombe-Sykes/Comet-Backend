@@ -1880,6 +1880,43 @@ function createServiceFor(User $pro, array $overrides = []): Service
 }
 
 /**
+ * Insert a raw, owner-authored site.services row (source IS NULL) and
+ * return its id. Slice 3a: ServiceBackfillerTest is the sole caller today,
+ * but later slice-3 tasks land more service-backfill tests — kept global
+ * for the same reason seedContentItem() is, and distinct from
+ * createServiceFor() (which returns an Eloquent model and defaults to a
+ * generic "Test Service" row rather than the specific title/description/
+ * duration ServiceBackfillerTest's assertions are keyed on).
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function ownerService(string $userId, array $overrides = []): string
+{
+    setupServicesTable();
+
+    $id = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('site.services')->insert(array_merge([
+        'id' => $id,
+        'user_id' => $userId,
+        'title' => 'Consultation',
+        'description' => 'A chat about your hair.',
+        'price_cents' => 6500,
+        'currency_code' => 'AUD',
+        'duration_minutes' => 45,
+        'is_active' => 1,
+        'sort_order' => 0,
+        'source' => null,
+        'is_manual' => 0,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ], $overrides));
+
+    return $id;
+}
+
+/**
  * Insert a ServiceCategory row for $pro and return the Eloquent model.
  *
  * @param  array<string, mixed>  $overrides
