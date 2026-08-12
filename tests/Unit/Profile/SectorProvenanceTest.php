@@ -90,12 +90,14 @@ it('logs a transition with both sources and an outcome', function () {
     $user->id = '00000000-0000-4000-8000-000000000001';
 
     Log::shouldReceive('info')->once()->withArgs(function (string $message, array $context) {
-        return $context['from'] === 'cafe'
+        return $message === 'sector.transition'
+            && $context['from'] === 'cafe'
             && $context['from_source'] === 'google-business'
             && $context['to'] === 'barber'
             && $context['to_source'] === 'google-business'
             && $context['outcome'] === 'applied'
-            && $context['user_id'] === '00000000-0000-4000-8000-000000000001';
+            && $context['user_id'] === '00000000-0000-4000-8000-000000000001'
+            && $context['caller'] === 'IdentitySync::applySector';
     });
 
     SectorProvenance::logTransition($user, 'barber', SectorProvenance::GOOGLE, 'IdentitySync::applySector');
@@ -106,7 +108,9 @@ it('distinguishes a refusal from an applied write', function () {
     $user->id = '00000000-0000-4000-8000-000000000002';
 
     Log::shouldReceive('info')->once()->withArgs(
-        fn (string $message, array $context) => $context['outcome'] === 'refused_food_demotion'
+        fn (string $message, array $context) => $message === 'sector.transition'
+            && $context['outcome'] === 'refused_food_demotion'
+            && $context['caller'] === 'IdentitySync::applySector'
     );
 
     SectorProvenance::logTransition($user, 'event-venue', SectorProvenance::GOOGLE, 'IdentitySync::applySector', 'refused_food_demotion');
