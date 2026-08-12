@@ -10,7 +10,9 @@ use App\Ingest\Runtime\Effects\BilledEffectOutcome;
 use App\Ingest\Runtime\Effects\PlacesDetailsDriver;
 use App\Ingest\Runtime\HttpIo;
 use App\Ingest\Runtime\Pull;
+use App\Services\Cache\PlacesBudget;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Platforms\GoogleBusinessService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
@@ -208,4 +210,63 @@ it('lets GoogleBusinessConnector produce profile, review and media records', fun
 
     // One billed request for all three streams — the other two replayed the digest.
     Http::assertSentCount(1);
+});
+
+it('precheck allows the effect through when the budget cache is unavailable', function () {
+    // #MONEY-2 follow-up. remaining() is the ONE PlacesBudget method with no
+    // try/catch — claim() degrades a cache outage to Unavailable, remaining()
+    // calls Cache::get() bare, and those reads throw once the Redis request
+    // breaker opens. EffectLedger::once() invokes precheck() OUTSIDE every try
+    // it has, so an escaping exception would reach RunExecutor's catch-all and
+    // mark the stream 'error' — paging on-call for a Valkey blip that used to
+    // fold quietly to 'budget_skipped'.
+    //
+    // Allowing is safe only because run()'s claim() is the real gate and still
+    // fails closed. Failing closed HERE would silently skip billed work.
+    $exploding = new class extends PlacesBudget
+    {
+        public function remaining(string $sku, ?string $userId = null): int
+        {
+            throw new RuntimeException('Redis unavailable (breaker open)');
+        }
+    };
+
+    $driver = new PlacesDetailsDriver(app(GoogleBusinessService::class), $exploding);
+
+    $context = new BilledEffectContext(
+        kind: 'api',
+        name: 'places.details',
+        input: ['place_id' => 'ChIJtest'],
+        runId: 'run-1',
+        sourceId: 'source-1',
+        userId: 'user-1',
+    );
+
+    // No exception of ANY kind — not EffectNotAttempted either. The effect
+    // proceeds to run(), which gates it properly.
+    $driver->precheck($context);
+
+    expect(true)->toBeTrue();
+});
+
+it('precheck still refuses a genuinely exhausted budget', function () {
+    // The guard above must not swallow the case the precheck exists for.
+    $exhausted = new class extends PlacesBudget
+    {
+        public function remaining(string $sku, ?string $userId = null): int
+        {
+            return 0;
+        }
+    };
+
+    $driver = new PlacesDetailsDriver(app(GoogleBusinessService::class), $exhausted);
+
+    expect(fn () => $driver->precheck(new BilledEffectContext(
+        kind: 'api',
+        name: 'places.details',
+        input: ['place_id' => 'ChIJtest'],
+        runId: 'run-1',
+        sourceId: 'source-1',
+        userId: 'user-1',
+    )))->toThrow(EffectNotAttempted::class);
 });

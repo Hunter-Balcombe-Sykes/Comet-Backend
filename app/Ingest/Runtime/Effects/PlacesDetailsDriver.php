@@ -52,6 +52,24 @@ final class PlacesDetailsDriver implements BilledEffectDriver, PrecheckableBille
      * which settles the row visibly, and a precheck may only ever throw
      * EffectNotAttempted ("nothing was sent"). Converting one to the other
      * would hide our own bug behind a budget-shaped excuse.
+     *
+     * ALLOWS ON A CACHE OUTAGE, and that direction is deliberate. remaining()
+     * is the one PlacesBudget method with no try/catch — claim() wraps the
+     * identical Cache work and degrades to PlacesClaim::Unavailable, but
+     * remaining() calls Cache::get() bare, and those reads go through
+     * GuardedPhpRedisConnection, which throws once the request breaker opens.
+     *
+     * once() invokes this OUTSIDE every try it has, so an escaping exception
+     * reaches RunExecutor's catch-all and marks the stream 'error' — paging
+     * on-call for a Valkey blip that used to fold quietly to 'budget_skipped'
+     * via claim() → BudgetDenied → EffectNotAttempted → EffectRefused. Exactly
+     * the outcome run()'s own comment below refuses to accept for a spend
+     * ceiling.
+     *
+     * Allowing (rather than failing closed) is safe ONLY because this is an
+     * optimisation: control falls through to run(), whose claim() is the real
+     * gate and still fails closed. Failing closed here would be the worse bug
+     * — a cache blip would silently skip billed work the caller expects.
      */
     public function precheck(BilledEffectContext $context): void
     {
@@ -59,7 +77,15 @@ final class PlacesDetailsDriver implements BilledEffectDriver, PrecheckableBille
             return;
         }
 
-        if ($this->budget->remaining('details', $context->userId) <= 0) {
+        try {
+            $remaining = $this->budget->remaining('details', $context->userId);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return;
+        }
+
+        if ($remaining <= 0) {
             throw new EffectNotAttempted(
                 "Places details budget exhausted before claim for user {$context->userId}"
             );
