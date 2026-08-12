@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\Site;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Content\ContentItemSlugAllocator;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Pools\ItemLinkRules;
@@ -364,4 +365,42 @@ it('keeps the events page for a connected user with nothing upcoming', function 
 
     expect(app(PoolResolver::class)->hasSelection($site, 'events'))->toBeFalse();
     expect($present)->toContain('events');
+});
+
+// Task 9 moves slug service off the legacy integrations wire and onto the
+// pool. The degrade shape must match what that lane did exactly — null slug,
+// raw id as the only alias — or a permalink 404s instead of resolving.
+it('serves the slug and its 301 aliases on a pool item', function () {
+    setupContentCurationTables();
+
+    $pro = createTenant('evpool-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+    $source = eventsSource($pro->id, eventsConnection($pro->id));
+
+    $itemId = eventItem($pro->id, $source, 'Ultimo clothes swap', now()->addDays(6)->toDateTimeString());
+
+    $allocator = app(ContentItemSlugAllocator::class);
+    $allocator->ensureCurrent($pro->id, $itemId, 'Old name');
+    $allocator->ensureCurrent($pro->id, $itemId, 'Ultimo clothes swap');
+
+    $item = app(PoolResolver::class)->resolve($site, 'events')['selection'][0];
+
+    expect($item['slug'])->toBe('ultimo-clothes-swap');
+    expect($item['aliases'])->toContain('old-name');
+    expect($item['aliases'])->toContain($itemId);
+});
+
+it('degrades a slugless pool item to a null slug and a raw-id alias', function () {
+    setupContentCurationTables();
+
+    $pro = createTenant('evpool-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+    $source = eventsSource($pro->id, eventsConnection($pro->id));
+
+    $itemId = eventItem($pro->id, $source, 'No slug minted', now()->addDays(4)->toDateTimeString());
+
+    $item = app(PoolResolver::class)->resolve($site, 'events')['selection'][0];
+
+    expect($item['slug'])->toBeNull();
+    expect($item['aliases'])->toBe([$itemId]);
 });

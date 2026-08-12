@@ -2489,6 +2489,21 @@ function setupContentTables(): void
     )');
 
     // Hand-saved cross-platform links (migration 20260805090000).
+    // Public URL slugs for content items. PoolResolver::itemPayloads() reads
+    // this on EVERY pool resolve (it serves slug/aliases onto the public
+    // payload), so it belongs in the base content set rather than the
+    // curation-only one it started in.
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_slugs (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        is_current INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        retired_at TEXT NULL,
+        UNIQUE (user_id, slug)
+    )');
+
     $pg->statement('CREATE TABLE IF NOT EXISTS content.item_links (
         id TEXT PRIMARY KEY NOT NULL,
         item_id TEXT NOT NULL,
@@ -3307,8 +3322,11 @@ function setupContentCurationTables(): void
     // constraints those duplicate copies lacked (#PARITY-1 §2: the curation
     // lane was silently running against unchecked stand-ins). It also calls
     // setupSectionsTables(), so no coverage is lost by switching the base
-    // call. section_groups and item_slugs below are the only tables genuinely
-    // unique to the curation lane.
+    // call. section_groups below is the only table genuinely unique to the
+    // curation lane — content.item_slugs moved into setupContentTables() when
+    // PoolResolver started serving slugs from it on every pool read (slice 2
+    // Task 9), so it is no longer curation-only. The CREATE stays here too,
+    // IF NOT EXISTS, so this function's own contract is unchanged.
     setupContentTables();
     $pg = DB::connection('pgsql');
 

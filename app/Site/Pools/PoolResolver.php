@@ -3,6 +3,7 @@
 namespace App\Site\Pools;
 
 use App\Models\Core\Site\Site;
+use App\Services\Content\ContentItemSlugAllocator;
 use App\Site\Sections\SectionCandidates;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -20,8 +21,9 @@ use Illuminate\Support\Facades\DB;
  *
  * Item payloads are render-ready: headline (manual override wins), primary
  * link + platform, creator, published, duration, cover thumbnail, the dated /
- * located / priced facets (null off events), and the full per-platform link
- * set (synced source links + hand-saved item_links).
+ * located / priced facets (null off events), the public URL slug + its 301
+ * aliases, and the full per-platform link set (synced source links +
+ * hand-saved item_links).
  * popularityRank is null until watch_item/listen_item beacons compute —
  * the wire carries the field so the shape doesn't change under the FE.
  */
@@ -32,6 +34,7 @@ class PoolResolver
     public function __construct(
         private readonly PoolSectionProvisioner $provisioner,
         private readonly SectionCandidates $candidates,
+        private readonly ContentItemSlugAllocator $slugs,
     ) {}
 
     /**
@@ -277,6 +280,12 @@ class PoolResolver
             ->get(['item_id', 'amount_minor', 'amount_max_minor', 'currency', 'qualifier', 'availability'])
             ->keyBy('item_id');
 
+        // Public URL slugs. The legacy events lane served these off
+        // site.item_slugs onto the integrations wire; retiring it moves the
+        // duty here, so a slug-less item must degrade exactly as that lane did
+        // — null slug, raw id as the sole alias — rather than 404 a permalink.
+        $slugMap = $this->slugs->lookupCurrent((string) $site->user_id, $ids);
+
         $creators = DB::connection('pgsql')->table('content.f_authored')
             ->whereIn('item_id', $ids)
             ->whereNotNull('creator')
@@ -314,6 +323,8 @@ class PoolResolver
             $out[$itemId] = [
                 'id' => (string) $itemId,
                 'kind' => $item->kind,
+                'slug' => $slugMap[$itemId]['slug'] ?? null,
+                'aliases' => $slugMap[$itemId]['aliases'] ?? [(string) $itemId],
                 'headline' => is_string($overrideHeadline) && $overrideHeadline !== ''
                     ? $overrideHeadline
                     : $item->headline_cache,
