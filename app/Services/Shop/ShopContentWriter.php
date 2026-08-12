@@ -50,70 +50,85 @@ class ShopContentWriter
 
         $collectionId = (string) ($existing ?? Str::uuid());
 
-        DB::table('content.collections')->upsert([[
-            'id' => $collectionId,
-            'user_id' => $ownerId,
-            'parent_id' => null,
-            'label' => (string) ($brand->name ?? $brand->brand_id),
-            'kind' => 'storefront',
-            'position' => (int) $brand->position,
-            'is_user_created' => false,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]], ['id'], ['label', 'position', 'updated_at']);
+        // Incident 2026-08-12: these two upserts used to run un-transacted.
+        // A bug (since fixed) made the storefronts write throw on Postgres
+        // after the collections write had already committed — 9 real stores'
+        // first-ever backfill orphaned a content.collections row with no
+        // content.storefronts partner. collectionIdFor() below JOINs the two
+        // tables, so an orphan is invisible to it: the retry's lookup missed
+        // and minted a SECOND collection+storefront pair instead of reusing
+        // the first, doubling every affected store. Pinned to the 'pgsql'
+        // connection — see UserBootstrapService::bootstrap()'s identical
+        // comment: both DB::table() calls below already resolve to the
+        // default connection unqualified, which IS 'pgsql' everywhere except
+        // when a test explicitly forces something else, so this pin matches
+        // what the writes already target rather than introducing a new one.
+        DB::connection('pgsql')->transaction(function () use ($collectionId, $ownerId, $brand, $externalRef) {
+            DB::table('content.collections')->upsert([[
+                'id' => $collectionId,
+                'user_id' => $ownerId,
+                'parent_id' => null,
+                'label' => (string) ($brand->name ?? $brand->brand_id),
+                'kind' => 'storefront',
+                'position' => (int) $brand->position,
+                'is_user_created' => false,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]], ['id'], ['label', 'position', 'updated_at']);
 
-        DB::table('content.storefronts')->upsert([[
-            'collection_id' => $collectionId,
-            'provider' => (string) $brand->provider,
-            'external_ref' => $externalRef,
-            'url' => $brand->url,
-            'source_url' => $brand->source_url,
-            'currency' => $brand->currency,
-            'discount_code' => $brand->discount_code,
-            'referral_query' => (string) ($brand->referral_query ?? ''),
-            'is_individual' => (bool) $brand->is_individual,
-            'fetch_mode' => $brand->fetch_mode,
-            'connect_status' => $brand->connect_status,
-            'connect_error' => $brand->connect_error,
-            // Seeds this column on INSERT only. Fix round 1, Finding 2: the
-            // UPDATE path below does NOT list this column plainly (which
-            // would mean "always overwrite from $brand") — content.storefronts
-            // is becoming the source of truth for #SEM-1 (Task 8 stops
-            // writing site.shop_brands entirely), and every routine sync
-            // calls upsertStore(). An unconditional overwrite here would let
-            // the next sync silently clobber a value Task 8 stamped directly
-            // on this row back to whatever the (eventually frozen) legacy
-            // column says.
-            'products_curated_at' => $brand->products_curated_at,
-            'logo_url' => $brand->logo,
-            'favicon_url' => $brand->favicon,
-            'logo_mark_url' => $brand->logo_mark_url,
-            'logo_mark_svg_url' => $brand->logo_mark_svg_url,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]], ['collection_id'], [
-            'provider', 'external_ref', 'url', 'source_url', 'currency', 'discount_code',
-            'referral_query', 'is_individual', 'fetch_mode', 'connect_status',
-            'connect_error', 'logo_url', 'favicon_url',
-            'logo_mark_url', 'logo_mark_svg_url', 'updated_at',
-            // COALESCE(existing, new): keep whatever this row already has and
-            // only take the incoming value when the row has never recorded a
-            // curation event (still null) — see the INSERT-side comment above.
-            //
-            // SQLSTATE[42702]: a BARE `products_curated_at` here is ambiguous
-            // on Postgres — it cannot tell the target row's column from
-            // `excluded`'s — and Postgres rejects the whole statement at
-            // parse time, before it even checks whether a row conflicts. All
-            // 9 real stores' first-ever backfill hit exactly this on
-            // 2026-08-12, writing nothing. SQLite has no such ambiguity (it
-            // resolves a bare column to the target row), so the default
-            // (SQLite) suite passed throughout. Qualifying with the table
-            // name — Postgres's own documented ON CONFLICT idiom, no schema
-            // prefix needed since the statement has only one target table —
-            // disambiguates on both drivers; see tests/Postgres/
-            // ShopStorefrontUpsertConflictTest.php for the real-Postgres pin.
-            'products_curated_at' => DB::raw('coalesce(storefronts.products_curated_at, excluded.products_curated_at)'),
-        ]);
+            DB::table('content.storefronts')->upsert([[
+                'collection_id' => $collectionId,
+                'provider' => (string) $brand->provider,
+                'external_ref' => $externalRef,
+                'url' => $brand->url,
+                'source_url' => $brand->source_url,
+                'currency' => $brand->currency,
+                'discount_code' => $brand->discount_code,
+                'referral_query' => (string) ($brand->referral_query ?? ''),
+                'is_individual' => (bool) $brand->is_individual,
+                'fetch_mode' => $brand->fetch_mode,
+                'connect_status' => $brand->connect_status,
+                'connect_error' => $brand->connect_error,
+                // Seeds this column on INSERT only. Fix round 1, Finding 2: the
+                // UPDATE path below does NOT list this column plainly (which
+                // would mean "always overwrite from $brand") — content.storefronts
+                // is becoming the source of truth for #SEM-1 (Task 8 stops
+                // writing site.shop_brands entirely), and every routine sync
+                // calls upsertStore(). An unconditional overwrite here would let
+                // the next sync silently clobber a value Task 8 stamped directly
+                // on this row back to whatever the (eventually frozen) legacy
+                // column says.
+                'products_curated_at' => $brand->products_curated_at,
+                'logo_url' => $brand->logo,
+                'favicon_url' => $brand->favicon,
+                'logo_mark_url' => $brand->logo_mark_url,
+                'logo_mark_svg_url' => $brand->logo_mark_svg_url,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]], ['collection_id'], [
+                'provider', 'external_ref', 'url', 'source_url', 'currency', 'discount_code',
+                'referral_query', 'is_individual', 'fetch_mode', 'connect_status',
+                'connect_error', 'logo_url', 'favicon_url',
+                'logo_mark_url', 'logo_mark_svg_url', 'updated_at',
+                // COALESCE(existing, new): keep whatever this row already has and
+                // only take the incoming value when the row has never recorded a
+                // curation event (still null) — see the INSERT-side comment above.
+                //
+                // SQLSTATE[42702]: a BARE `products_curated_at` here is ambiguous
+                // on Postgres — it cannot tell the target row's column from
+                // `excluded`'s — and Postgres rejects the whole statement at
+                // parse time, before it even checks whether a row conflicts. All
+                // 9 real stores' first-ever backfill hit exactly this on
+                // 2026-08-12, writing nothing. SQLite has no such ambiguity (it
+                // resolves a bare column to the target row), so the default
+                // (SQLite) suite passed throughout. Qualifying with the table
+                // name — Postgres's own documented ON CONFLICT idiom, no schema
+                // prefix needed since the statement has only one target table —
+                // disambiguates on both drivers; see tests/Postgres/
+                // ShopStorefrontUpsertConflictTest.php for the real-Postgres pin.
+                'products_curated_at' => DB::raw('coalesce(storefronts.products_curated_at, excluded.products_curated_at)'),
+            ]);
+        });
 
         return $collectionId;
     }
@@ -134,7 +149,34 @@ class ShopContentWriter
             ->where('s.external_ref', (string) $brand->brand_id)
             ->value('c.id');
 
-        return $id === null ? null : (string) $id;
+        if ($id !== null) {
+            return (string) $id;
+        }
+
+        // Belt-and-braces orphan recovery (incident 2026-08-12): a
+        // content.collections row with no content.storefronts partner can
+        // only exist from BEFORE upsertStore()'s transaction fix — the join
+        // above is blind to it by construction, since the real identity
+        // (provider + external_ref) lives entirely on the missing storefronts
+        // row. Reusing it by label — the one thing an orphaned collection
+        // still carries — beats minting a second collection and stranding the
+        // orphan permanently, which is exactly how the incident went from 9
+        // orphans to 18 collections on retry. Label is NOT a general identity
+        // key here (it's mutable, rejected everywhere else in this file for
+        // that reason) — safe only because this fallback fires solely when
+        // the correct join above already missed, so it can never shadow a
+        // properly-linked row. New orphans cannot form going forward (the
+        // transaction above is atomic), so this path is defence for
+        // already-existing damage, not a load-bearing lookup.
+        $orphanId = DB::table('content.collections as c')
+            ->leftJoin('content.storefronts as s', 's.collection_id', '=', 'c.id')
+            ->where('c.user_id', $ownerId)
+            ->where('c.kind', 'storefront')
+            ->where('c.label', (string) ($brand->name ?? $brand->brand_id))
+            ->whereNull('s.collection_id')
+            ->value('c.id');
+
+        return $orphanId === null ? null : (string) $orphanId;
     }
 
     /**
@@ -153,34 +195,43 @@ class ShopContentWriter
      */
     public function retireStore(string $userId, string $collectionId): void
     {
-        $itemIds = DB::table('content.collection_items')
-            ->where('collection_id', $collectionId)
-            ->pluck('item_id')->unique()->all();
+        // Same orphan shape as upsertStore() (incident 2026-08-12), run
+        // backwards: a failure between the storefronts delete and the
+        // collections delete below would leave a collections row with no
+        // storefronts partner — which defeats collectionIdFor()'s join on
+        // the very next upsertStore() for this store, exactly like the
+        // incident, except reached via teardown instead of creation. One
+        // transaction closes that window the same way.
+        DB::connection('pgsql')->transaction(function () use ($userId, $collectionId) {
+            $itemIds = DB::table('content.collection_items')
+                ->where('collection_id', $collectionId)
+                ->pluck('item_id')->unique()->all();
 
-        // Drop this collection's own links FIRST — mirrors retireAbsent()'s
-        // ordering exactly, so the "still live elsewhere" check below can
-        // never see this collection's own (soon-to-be-gone) link and
-        // wrongly count an item as still live off its own about-to-be-
-        // deleted store.
-        DB::table('content.collection_items')->where('collection_id', $collectionId)->delete();
+            // Drop this collection's own links FIRST — mirrors retireAbsent()'s
+            // ordering exactly, so the "still live elsewhere" check below can
+            // never see this collection's own (soon-to-be-gone) link and
+            // wrongly count an item as still live off its own about-to-be-
+            // deleted store.
+            DB::table('content.collection_items')->where('collection_id', $collectionId)->delete();
 
-        if ($itemIds !== []) {
-            $stillLive = DB::table('content.collection_items as ci')
-                ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
-                ->where('c.user_id', $userId)
-                ->where('c.kind', 'storefront')
-                ->whereIn('ci.item_id', $itemIds)
-                ->pluck('ci.item_id')->unique()->all();
+            if ($itemIds !== []) {
+                $stillLive = DB::table('content.collection_items as ci')
+                    ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
+                    ->where('c.user_id', $userId)
+                    ->where('c.kind', 'storefront')
+                    ->whereIn('ci.item_id', $itemIds)
+                    ->pluck('ci.item_id')->unique()->all();
 
-            $toRetire = array_diff($itemIds, $stillLive);
-            if ($toRetire !== []) {
-                DB::table('content.items')->whereIn('id', $toRetire)->whereNull('removed_at')
-                    ->update(['removed_at' => now(), 'updated_at' => now()]);
+                $toRetire = array_diff($itemIds, $stillLive);
+                if ($toRetire !== []) {
+                    DB::table('content.items')->whereIn('id', $toRetire)->whereNull('removed_at')
+                        ->update(['removed_at' => now(), 'updated_at' => now()]);
+                }
             }
-        }
 
-        DB::table('content.storefronts')->where('collection_id', $collectionId)->delete();
-        DB::table('content.collections')->where('id', $collectionId)->delete();
+            DB::table('content.storefronts')->where('collection_id', $collectionId)->delete();
+            DB::table('content.collections')->where('id', $collectionId)->delete();
+        });
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Services\Platforms\ShopCatalog;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 // Slice 5a §3.5: syncStore() is what Tasks 6/7/8 call on every re-fetch. The
 // legacy ShopCatalog::syncLatest() deletes every row for a brand and
@@ -20,6 +21,44 @@ beforeEach(function () {
     setupSitesTable();
     setupIngestTables();
     setupContentTables();
+});
+
+// ── Hotfix regression (2026-08-12/13): orphan recovery ──────────────────────
+//
+// Belt-and-braces, not load-bearing: since upsertStore()'s two writes now
+// run in one transaction (see the class docblock's own incident note), a
+// content.collections row with no content.storefronts partner can only
+// exist from BEFORE that fix landed — this test simulates exactly that
+// leftover state directly, because the writer itself can no longer produce
+// it. Driver-agnostic query logic (a JOIN miss vs a LEFT JOIN match), unlike
+// the rollback proof itself — see tests/Postgres/ShopUpsertStoreAtomicityTest
+// .php for why THAT half needs a real Postgres server.
+
+it('reuses an orphaned collection with no storefronts partner rather than minting a second one', function () {
+    [$user, $brand] = makeShopBrand();
+
+    // The incident's own leftover shape: content.collections committed,
+    // content.storefronts never wrote. collectionIdFor()'s primary lookup
+    // JOINs the two tables, so this row is invisible to it — only the
+    // label-matched fallback can find it.
+    $orphanId = (string) Str::uuid();
+    DB::table('content.collections')->insert([
+        'id' => $orphanId,
+        'user_id' => (string) $user->id,
+        'parent_id' => null,
+        'label' => (string) ($brand->name ?? $brand->brand_id),
+        'kind' => 'storefront',
+        'position' => (int) $brand->position,
+        'is_user_created' => false,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $collectionId = app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+
+    expect($collectionId)->toBe($orphanId)
+        ->and(DB::table('content.collections')->count())->toBe(1)
+        ->and(DB::table('content.storefronts')->where('collection_id', $orphanId)->exists())->toBeTrue();
 });
 
 it('keeps the same item id when a product is re-synced', function () {
