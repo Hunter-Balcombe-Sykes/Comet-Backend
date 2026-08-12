@@ -1492,9 +1492,17 @@ git commit -m "feat(ingest): mirror owned-class media bytes after projection"
 **Interfaces:**
 - Produces: `ContentSelectionMigrator::run(bool $dryRun = false, ?string $siteId = null): array` returning `['migrated' => int, 'dropped_google' => int, 'dropped_ig' => int, 'skipped_no_item' => int, 'failed' => int]`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
-Create `tests/Feature/Migration/ContentSelectionMigratorTest.php`:
+Create `tests/Feature/Content/ContentSelectionMigratorTest.php`.
+
+> **NOT `tests/Feature/Migration/`.** A new directory under `tests/Feature/`
+> fails `AuditPipelineIntegrityTest` on two counts — "gets zero audit sweep
+> coverage" and "read by NO lens in the full-sweep bundle" — and clearing it
+> means editing `codebase_chunks()` in `scripts/audit/audit.sh` plus a lens
+> scope-group, which is shared infrastructure other slices are mid-flight in.
+> 1a put `MediaUploadBackfillerTest` in `tests/Feature/Content/` for the same
+> reason; this follows that. Task 10's pruner test goes there too.:
 
 ```php
 <?php
@@ -1596,12 +1604,11 @@ it('skips an upload selection whose item was never backfilled, and counts it', f
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
-Run: `./vendor/bin/pest tests/Feature/Migration/ContentSelectionMigratorTest.php`
-Expected: FAIL — class not found.
+Observed: 10 failed, class not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `app/Services/Migration/ContentSelectionMigrator.php`, modelled closely on `MediaUploadBackfiller` — same constructor-injection style, same `run(bool $dryRun, ?string $siteId): array` shape, same `invalidate(array $siteIds)` three-lane method copied verbatim.
 
@@ -1612,7 +1619,7 @@ Behaviour:
 - Never deletes from `site.content_selection`.
 - Idempotent: an existing pinned `section_items` row for the same item is left alone.
 
-- [ ] **Step 4: Implement the command**
+- [x] **Step 4: Implement the command**
 
 Create `app/Console/Commands/MigrateContentSelectionCommand.php` with signature:
 
@@ -1624,15 +1631,21 @@ Create `app/Console/Commands/MigrateContentSelectionCommand.php` with signature:
 
 It must print each count on its own line and, for dropped rows, print the affected `site_id` values — D10 requires the drop to be recorded with its site ids, and the command output is that record.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
-Run: `./vendor/bin/pest tests/Feature/Migration/ContentSelectionMigratorTest.php`
-Expected: PASS, 8 tests.
+10 passed (the drafted 8, plus two the plan did not list — see below). `tests/Feature/Content` + `tests/Feature/Console` → 316 passed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
+
+Two cases added beyond the drafted list:
+
+- **Cache lanes are NOT touched for a site with only dropped rows.** Dropping changes no payload; purging the edge for all 86 would be a self-inflicted stampede across every Google-only site. The drafted plan bumped unconditionally.
+- **Owner ordering survives.** `sort_key` carries the selection's `position`, so a curated gallery is not silently reshuffled.
+
+Also: an unrecognised `entry_type` now throws rather than falling through. Swallowing an undecided type into a drop count is exactly the silent data loss D10 exists to prevent.
 
 ```bash
-git add app/Services/Migration/ContentSelectionMigrator.php app/Console/Commands/MigrateContentSelectionCommand.php tests/Feature/Migration/ContentSelectionMigratorTest.php
+git add app/Services/Migration/ContentSelectionMigrator.php app/Console/Commands/MigrateContentSelectionCommand.php tests/Feature/Content/ContentSelectionMigratorTest.php
 git commit -m "feat(migration): carry the 3 upload selections, record the 86 that cannot be carried"
 ```
 
