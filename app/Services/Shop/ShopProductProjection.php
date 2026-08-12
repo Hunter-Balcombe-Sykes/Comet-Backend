@@ -15,17 +15,17 @@ final class ShopProductProjection
     /** @return array<string, mixed> */
     public static function fromBlob(array $data, ?string $storeCurrency): array
     {
-        $currency = self::str($data['currency']) ?? $storeCurrency;
+        $currency = self::str($data['currency'] ?? null) ?? $storeCurrency;
         $url = (string) ($data['url'] ?? '');
 
         $variants = self::variants($data['variants'] ?? []);
 
         return array_filter([
             'kind' => 'product',
-            'headline' => self::str($data['title']),
+            'headline' => self::str($data['title'] ?? null),
             'facets' => array_filter([
                 'f_link' => $url === '' ? null : ['url' => $url],
-                'f_catalog' => ($sku = self::str($data['productId'])) === null ? null : ['sku' => $sku],
+                'f_catalog' => ($sku = self::str($data['productId'] ?? null)) === null ? null : ['sku' => $sku],
             ]),
             'offers' => self::offers($data, $variants, $currency, $url),
             'variants' => array_map(
@@ -80,7 +80,7 @@ final class ShopProductProjection
     private static function offers(array $data, array $variants, ?string $currency, string $url): array
     {
         $offers = [];
-        $productAmount = self::minorUnits(self::str($data['price']));
+        $productAmount = self::minorUnits(self::str($data['price'] ?? null));
         if ($productAmount !== null) {
             $offers[] = [
                 'variant_label' => null,
@@ -113,7 +113,7 @@ final class ShopProductProjection
     /** @return list<array{role: string, url: string}> */
     private static function media(array $data): array
     {
-        $cover = self::str($data['image']);
+        $cover = self::str($data['image'] ?? null);
         $out = $cover === null ? [] : [['role' => 'cover', 'url' => $cover]];
 
         foreach ((array) ($data['images'] ?? []) as $image) {

@@ -97,16 +97,6 @@ class ShopContentWriter
     }
 
     /**
-     * ShopProductProjection::fromBlob() reads currency/productId/image with a
-     * direct array access (no ??) — makeShopProduct()'s fixture builder notes
-     * that a real scraped blob always carries these (possibly null), but a
-     * live catalogue fetch is not guaranteed to. Filled in here rather than
-     * loosening fromBlob() itself, which stays a strict reader of the shape
-     * ShopBackfiller's DB-round-tripped blobs already satisfy.
-     */
-    private const BLOB_DEFAULTS = ['currency' => null, 'productId' => null, 'image' => null];
-
-    /**
      * Reconcile a store's fetched catalogue into content.items: upsert every
      * live product by coord, then retire (items.removed_at) whatever this
      * collection still links that the fetch no longer carries. Returns the
@@ -135,7 +125,7 @@ class ShopContentWriter
             $seen[$coord] = true;
 
             $itemId = $this->writer->writeManualItem(
-                $userId, $coord, ShopProductProjection::fromBlob($blob + self::BLOB_DEFAULTS, $currency));
+                $userId, $coord, ShopProductProjection::fromBlob($blob, $currency));
 
             DB::table('content.collection_items')->upsert([[
                 'collection_id' => $collectionId,
@@ -147,13 +137,29 @@ class ShopContentWriter
             $written++;
         }
 
-        $this->retireAbsent($collectionId, array_keys($seen));
+        $this->retireAbsent($userId, $collectionId, array_keys($seen));
 
         return $written;
     }
 
     /**
-     * Items still linked to this store but absent from the fetched catalogue.
+     * Items still linked to THIS store's collection but absent from the
+     * fetched catalogue. The link to this collection is always dropped — the
+     * product genuinely left this store's catalogue. Whether the ITEM is
+     * retired is a separate question:
+     *
+     * coordFor() is URL-only, not store-scoped (§1.7 — store-scoping it would
+     * mint two manual coords for one canonical URL and poison that URL for
+     * the identity resolver). So two of the same user's stores listing the
+     * same product URL resolve to ONE content.items row. Fix round 1,
+     * Finding 2: retiring on ANY one store's drop made that shared item
+     * disappear from every OTHER store still listing it, permanently
+     * (removed_at is never auto-cleared). The correct rule (parent programme
+     * spec §9.8) is retire only when the item is absent from EVERY live
+     * catalogue of this user — i.e. no content.collection_items row still
+     * joins it to one of this user's storefront collections, checked AFTER
+     * this collection's own stale link is removed.
+     *
      * items.removed_at ONLY — source_items.removed_at is cleared on
      * reappearance (ProjectionWriter::upsertSourceItem()), so writing it
      * there would resurrect a product the owner deliberately removed. And
@@ -162,7 +168,7 @@ class ShopContentWriter
      *
      * @param  list<string>  $liveCoords
      */
-    private function retireAbsent(string $collectionId, array $liveCoords): void
+    private function retireAbsent(string $userId, string $collectionId, array $liveCoords): void
     {
         $absent = DB::table('content.collection_items as ci')
             ->join('content.source_items as si', 'si.item_id', '=', 'ci.item_id')
@@ -176,7 +182,29 @@ class ShopContentWriter
             return;
         }
 
-        DB::table('content.items')->whereIn('id', $absent)->whereNull('removed_at')
+        DB::table('content.collection_items')
+            ->where('collection_id', $collectionId)
+            ->whereIn('item_id', $absent)
+            ->delete();
+
+        // Re-check AFTER dropping this collection's own link: an item still
+        // joined to another of this user's storefront collections survives
+        // in that store's own last-synced catalogue, so it must not retire.
+        $stillLive = DB::table('content.collection_items as ci')
+            ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
+            ->where('c.user_id', $userId)
+            ->where('c.kind', 'storefront')
+            ->whereIn('ci.item_id', $absent)
+            ->pluck('ci.item_id')
+            ->unique()
+            ->all();
+
+        $toRetire = array_diff($absent, $stillLive);
+        if ($toRetire === []) {
+            return;
+        }
+
+        DB::table('content.items')->whereIn('id', $toRetire)->whereNull('removed_at')
             ->update(['removed_at' => now(), 'updated_at' => now()]);
     }
 }

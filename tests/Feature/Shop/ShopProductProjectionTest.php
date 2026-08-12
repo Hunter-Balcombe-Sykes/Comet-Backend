@@ -91,6 +91,20 @@ it('falls back to the store currency when the blob has none', function () use ($
     expect($p['offers'][0]['currency'])->toBe('AUD');
 });
 
+it('maps a minimal blob — url only — without error, with no offer and no variants', function () {
+    // Fix round 1, Finding 1: every other key fromBlob() reads (title,
+    // productId, price, image, currency) used a direct array access with no
+    // ?? — a live scrape blob missing any of them threw ErrorException
+    // (Laravel promotes PHP warnings to exceptions), not a graceful null.
+    $p = ShopProductProjection::fromBlob(['url' => 'https://s.test/minimal'], null);
+
+    expect($p['offers'])->toBe([])
+        ->and($p['variants'])->toBe([])
+        ->and($p['media'])->toBe([])
+        ->and($p['facets']['f_link']['url'])->toBe('https://s.test/minimal')
+        ->and($p)->not->toHaveKey('headline');
+});
+
 it('derives a coord from the url and is stable across calls', function () {
     expect(ShopProductProjection::coordFor('https://x.test/p'))
         ->toBe('manual:'.sha1('https://x.test/p'))
