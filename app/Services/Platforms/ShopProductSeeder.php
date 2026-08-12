@@ -4,7 +4,6 @@ namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
-use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Shop\ShopContentWriter;
@@ -82,33 +81,23 @@ class ShopProductSeeder
 
                 $productId = $product['productId'] ?? null;
 
-                // Newest first, de-duped by productId, capped — byte-for-byte
-                // the addProduct() ordering contract. Reads site.shop_products
-                // unchanged (Task 6 brief §Step 4: "build $ordered as today")
-                // — ShopController::addProduct() (the human path, not
-                // repointed by this task) is still the thing keeping this
-                // table current for the individual bucket. KNOWN GAP: once
-                // this seeder is the ONLY writer to touch a given product
-                // (i.e. two seed() calls for the same user with no
-                // addProduct() in between — CommerceProbeJob can legitimately
-                // fire this more than once per user as different scanned
-                // links resolve), the second call's $ordered won't see what
-                // the first call wrote to content.* (this table stays frozen
-                // for that item), and syncStore()'s retire-absent will drop
-                // it. Flagged, not fixed here — see the task report.
-                $ordered = ShopProduct::where('brand_id', $individual->id)
-                    ->orderBy('position')
-                    ->get()
-                    ->reject(fn (ShopProduct $p) => $p->product_id === $productId)
-                    ->map(fn (ShopProduct $p) => $p->data)
+                // Task 6 fix round 1, Finding 1: the "existing" half now
+                // reads content.* (ShopContentWriter::currentCatalogue()),
+                // not legacy site.shop_products — this seeder no longer
+                // writes that table, so a second seed() call for the same
+                // user (CommerceProbeJob fires once per resolved link, so
+                // this is a real, non-racy path, not a corner case) would
+                // otherwise read a frozen snapshot missing whatever the
+                // FIRST call wrote, and syncStore()'s retire-absent would
+                // silently drop it. Newest first, de-duped by productId,
+                // capped — byte-for-byte the addProduct() ordering contract.
+                $collectionId = $this->content->upsertStore($individual, (string) $user->id);
+                $ordered = collect($this->content->currentCatalogue($collectionId))
+                    ->reject(fn (array $p) => ($p['productId'] ?? null) === $productId)
                     ->prepend($product)
                     ->take(self::MAX_INDIVIDUAL_PRODUCTS)
                     ->values();
 
-                // 5a §3.5 / Task 6: content.* is the reconciled destination —
-                // the legacy delete+reinsert above this comment used to also
-                // rebuild site.shop_products; that write stops here.
-                $collectionId = $this->content->upsertStore($individual, (string) $user->id);
                 $this->content->syncStore((string) $user->id, $collectionId, $ordered->all(), $individual->currency);
 
                 $this->refresher->refresh($connection);

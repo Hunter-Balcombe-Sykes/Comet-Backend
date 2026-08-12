@@ -204,3 +204,34 @@ it('isCurated is false for a brand with no curation on record', function () {
 
     expect(app(ShopContentWriter::class)->isCurated($brand))->toBeFalse();
 });
+
+// ── Task 6 fix round 1, Finding 2: content.storefronts.products_curated_at
+// is becoming the source of truth for #SEM-1 ────────────────────────────
+
+it('upsertStore never clobbers an already-stamped content.storefronts.products_curated_at', function () {
+    [$user, $brand] = makeShopBrand();
+    $collectionId = app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+
+    // Simulate Task 8 having stamped the content-side column directly,
+    // independent of the (in this test, still-null) legacy column.
+    DB::table('content.storefronts')->where('collection_id', $collectionId)
+        ->update(['products_curated_at' => now()->subMinute()]);
+    expect($brand->products_curated_at)->toBeNull();
+
+    // A routine resync calls upsertStore() again for the same brand — this
+    // must NOT reset the content-side stamp back to the frozen legacy null.
+    app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+
+    expect(DB::table('content.storefronts')->where('collection_id', $collectionId)->value('products_curated_at'))
+        ->not->toBeNull();
+});
+
+it('isCurated returns true from the storefront value alone, with the legacy column null', function () {
+    [$user, $brand] = makeShopBrand();
+    $collectionId = app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    DB::table('content.storefronts')->where('collection_id', $collectionId)
+        ->update(['products_curated_at' => now()]);
+
+    expect($brand->products_curated_at)->toBeNull()
+        ->and(app(ShopContentWriter::class)->isCurated($brand))->toBeTrue();
+});

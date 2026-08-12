@@ -544,16 +544,24 @@ it('selectionMode=latest clears products_curated_at, opting the brand back into 
         ->assertOk();
     $brand->refresh();
     expect($brand->products_curated_at)->toBeNull();
-    // Task 6: syncLatest() now sizes its count-preserving selection from
-    // content.collection_items, not the legacy relation — and this brand's
-    // content.* collection doesn't exist yet at this point (the curated PUT
-    // above is setProducts(), which this task does not repoint, so it never
-    // touched content.*). storeCollectionId() mints that collection fresh
-    // INSIDE this very sync, with zero prior collection_items, so $count
-    // falls back to DEFAULT_LATEST_COUNT (8) instead of preserving the
-    // legacy selection's size of 1 — all 3 catalog products land, not just
-    // the single newest. (Pre-Task-6, this read the legacy relation, which
-    // setProducts() DID keep current, and asserted just ['p3'].)
+    // Task 6 fix round 1, Finding 3 (reviewed and ruled LEGITIMATE — a real
+    // but self-correcting transitional over-sync, not a bug, and NOT to be
+    // "fixed" back to ['p3'] by a future edit): syncLatest() now sizes its
+    // count-preserving selection from content.collection_items, not the
+    // legacy relation — and this brand's content.* collection doesn't exist
+    // yet at this point (the curated PUT above is setProducts(), which this
+    // task does not repoint, so it never touched content.*).
+    // storeCollectionId() mints that collection fresh INSIDE this very sync,
+    // with zero prior collection_items, so $count falls back to
+    // DEFAULT_LATEST_COUNT (8) instead of preserving the legacy selection's
+    // size of 1 — all 3 catalog products land, not just the single newest.
+    // (Pre-Task-6, this read the legacy relation, which setProducts() DID
+    // keep current, and asserted just ['p3'].) No data loss: nothing is
+    // retired, the brand just syncs MORE than the old count would have,
+    // once. Expected to revert to preserving the true prior count once
+    // Task 8 repoints setProducts() to write content.* too, at which point
+    // this assertion should go back to a size-1 selection — if you're
+    // "fixing" this back to ['p3'] before then, check Task 8 shipped first.
     expect(orderedProductIdsFor('modes-brand'))->toBe(['p3', 'p2', 'p1']);
 
     // The opt-back-in proof: the NEXT scheduled fetch() also runs (not
