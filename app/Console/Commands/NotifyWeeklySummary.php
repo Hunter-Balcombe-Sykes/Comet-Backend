@@ -109,7 +109,7 @@ class NotifyWeeklySummary extends Command
                         visits: $totalVisits,
                         visitors: (int) $visits->unique_visitors,
                         taps: $totalTaps,
-                        topLinkLabel: $top?->label ?? $top?->platform,
+                        topLinkLabel: $top ? ($top->label ?? $top->platform) : null,
                         topLinkClicks: $top ? (int) $top->clicks : null,
                         unsubscribeUrl: CategoryUnsubscribe::urlFor((string) $user->id, 'analytics_weekly'),
                     ));

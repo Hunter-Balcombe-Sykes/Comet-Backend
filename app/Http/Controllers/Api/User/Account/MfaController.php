@@ -80,7 +80,7 @@ class MfaController extends ApiController
         // Supabase auth id, not our primary key.
         try {
             $professional = User::query()->where('auth_user_id', $uid)->first();
-            $email = (string) ($professional?->primary_email ?? '');
+            $email = (string) ($professional->primary_email ?? '');
             if ($email !== '') {
                 Mail::to($email)->queue(new TwoFactorRemovedMail($email, $professional?->display_name));
             }
