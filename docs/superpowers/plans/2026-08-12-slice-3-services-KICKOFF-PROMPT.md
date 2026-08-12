@@ -4,10 +4,12 @@ Part of `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md` �
 "Slice 3". Runs concurrently with 1b and slice 5 (parent §4.3 rule 1 — distinct
 kinds). Blocked by nothing; 0b is merged.
 
-**This slice carries the programme's biggest unknown.** `FreshaServiceProjector` is
-registered but has landed **zero records** (parent §1.6). Whether it is merely
-unexercised or actually broken decides whether this is an L or a 2×L. Find out in
-the first hour, not the third day.
+**This slice opens on a known defect, not an unknown.** `FreshaServiceProjector` has
+landed **zero records** (parent §1.6), and the cause was traced on 2026-08-11: the
+projector is never called, because auto-routed Fresha connections 304 before
+reaching it. Unit 1 is a fix with a design decision in it, not a diagnosis. Full
+mechanism in `docs/reviews/2026-08-12-instagram-build-wave-DEFERRED.md`; summarised
+under Unit 1 below.
 
 Paste everything below the line into a fresh session. It is self-contained.
 
@@ -44,11 +46,21 @@ FROM site.services GROUP BY 1,2,3 ORDER BY 4 DESC;
 SELECT count(*) FROM site.service_categories;              -- expect 18
 SELECT count(*) FROM site.service_category_assignments;    -- expect 61
 
--- THE UNKNOWN. Expect 0. If it is still 0, unit 1 is a diagnosis, not a backfill.
+-- Expect 0 — the F7 dead end (unit 1). Sources run and look healthy; they 304.
 SELECT count(*) FROM content.source_items WHERE kind = 'service';
 SELECT s.source_key, st.stream_name, s.last_run_at, s.health, s.consecutive_failures
 FROM ingest.sources s LEFT JOIN ingest.streams st ON st.source_id = s.id
 WHERE s.source_key = 'fresha';
+
+-- The F7 mechanism itself: how many fresha connections have selection = null,
+-- and of those, how many are auto-routed (source='auto') with no teamMenu?
+SELECT payload->>'source' AS routed_by,
+       (payload->'selection' IS NULL OR jsonb_typeof(payload->'selection') <> 'array') AS blocks_fetch,
+       (payload ? 'teamMenu') AS has_team_menu,
+       count(*)
+FROM site.platform_connections
+WHERE platform = 'fresha' AND deleted_at IS NULL
+GROUP BY 1,2,3 ORDER BY 4 DESC;
 
 -- The manual lane 0b built — you write through it, you do not reinvent it.
 SELECT kind, count(*) FROM content.sources GROUP BY 1;
@@ -82,18 +94,37 @@ that fails if an owner-authored service appears on the booking surface.
 
 ## Scope
 
-### Unit 1 — Prove or fix the projector
-`FreshaServiceProjector` exists and is registered (`ProjectorRegistry`), and
-`fresha/services` streams are provisioned on 4 sources with recent `last_run_at` —
-yet zero records landed. Determine which:
+### Unit 1 — Fix the auto-route dead end (F7) — cause already traced, do not re-derive
 
-- the connector fetches but the projector returns null (shape drift), or
-- the stream lands `record_versions` but projection skips it, or
-- the fetch itself returns nothing.
+The parent spec records the **symptom** — `FreshaServiceProjector` has landed zero
+records. A separate review traced the **cause** on 2026-08-11. Read
+`docs/reviews/2026-08-12-instagram-build-wave-DEFERRED.md` §"Not deferred — hand this
+to slice 3 before it starts" in full before writing anything.
 
-`ingest.anomalies` and `ingest.record_versions` for those sources are where the
-answer lives. **The deliverable of unit 1 is the diagnosis**, and if the projector
-needs repair, that is a re-scoped slice — say so before writing a backfiller.
+The mechanism, summarised so you can confirm rather than discover it:
+
+- `LinkRouter::seedBooking` writes `{url, provider, source:"auto"}` with
+  **`selection: null`**.
+- `FreshaFetch.php:36-39` throws `FetchNotModifiedException` whenever
+  `payload.selection` is not an array — so every refresh **304s before reaching
+  `FreshaServiceProjector::sync()`**. The projector is not broken; it is never
+  called.
+- `selection` is only ever written by the dashboard's save-selection flow, and the
+  descriptor's own completeness predicate agrees these rows are incomplete.
+- `integrations:refresh` covers `fresha` on a 2-day TTL, so these rows are
+  re-selected forever and 304 forever.
+
+**It is a state collision, not a missing fetch.** `selection: null` legitimately
+means "a human still has to choose whose menu this is" — dashboard team-mode
+connects sit in that state on purpose, carrying a `teamMenu` snapshot and a picker
+pointed at them. The auto-routed row lands in the *same* state with no `teamMenu`
+and no picker: parked waiting for a human nobody asked, and indistinguishable from a
+row that is merely mid-flow.
+
+**So unit 1 is a fix, not a diagnosis** — and the fix is a design decision: make the
+two states distinguishable, or give auto-routed rows a path to a selection. Confirm
+the mechanism against dev first (invariant #5 — that review is not your evidence),
+then decide. Slice 3 cannot complete without it.
 
 ### Unit 2 — Identity and coords
 `site.services.external_id` is the Fresha `serviceId` (`s:…`) and is described as
@@ -185,7 +216,7 @@ detail — stop and raise it rather than rewriting their scope unilaterally.
 
 ## Process — stop at every gate
 
-1. **Recon + entry gate.** Unit 1's diagnosis. **STOP — sign-off** on whether this is still an L.
+1. **Recon + entry gate.** Confirm the F7 mechanism against dev rather than taking the review's word for it. **STOP — sign-off** on the unit 1 fix approach before designing the rest, since it decides whether auto-routed connections are a state to distinguish or a flow to complete.
 2. **Brainstorm** (`superpowers:brainstorming`) — the scope question and the three-state mapping are genuine decisions.
 3. **Spec** → `docs/superpowers/specs/2026-08-12-slice-3-services-design.md`. **STOP — sign-off.**
 4. **Plan** (`superpowers:writing-plans`) → `docs/superpowers/plans/2026-08-12-slice-3-services.md`. **STOP — sign-off.**
