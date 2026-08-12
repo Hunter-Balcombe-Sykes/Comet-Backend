@@ -264,15 +264,35 @@ class GoogleBusinessConnector implements Connector
         }
 
         $authors = array_values(array_filter(array_map(
-            static fn ($a) => is_array($a) && is_string($a['displayName'] ?? null) ? $a['displayName'] : null,
+            static fn ($a) => is_array($a) && is_string($a['displayName'] ?? null)
+                ? ['name' => $a['displayName'], 'uri' => is_string($a['uri'] ?? null) ? $a['uri'] : null]
+                : null,
             (array) ($photo['authorAttributions'] ?? []),
         )));
 
+        // Slice 1b D6: Places terms require crediting the author and linking
+        // back to the photo on Maps wherever the photo is DISPLAYED. Until this
+        // slice nothing resolved a ref to an image, so nothing was displayed and
+        // the credit was dropped (see ThirdPartyPii). Task 5 resolves the refs,
+        // so the obligation now attaches and the credit has to travel with the
+        // photo. Absent stays absent — Google supplies attribution for only
+        // about half the photos it returns, and an empty credit block reads as
+        // a bug rather than as missing vendor data.
+        $attribution = array_filter([
+            'authors' => $authors !== [] ? $authors : null,
+            'maps_uri' => is_string($photo['googleMapsUri'] ?? null) ? $photo['googleMapsUri'] : null,
+            'flag_uri' => is_string($photo['flagContentUri'] ?? null) ? $photo['flagContentUri'] : null,
+        ], static fn ($v) => $v !== null);
+
         return array_filter([
             'ref' => $ref,
+            // Populated by PlacesDetailsDriver inside the SAME billed fetch: a
+            // ref and a url are only consistent within one Details call, since
+            // the ref is reissued every time.
+            'url' => is_string($photo['url'] ?? null) && $photo['url'] !== '' ? $photo['url'] : null,
             'width_px' => $photo['widthPx'] ?? null,
             'height_px' => $photo['heightPx'] ?? null,
-            'authors' => $authors,
+            'attribution' => $attribution !== [] ? $attribution : null,
         ], static fn ($v) => $v !== null && $v !== []);
     }
 }

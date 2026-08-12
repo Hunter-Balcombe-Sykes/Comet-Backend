@@ -18,15 +18,40 @@ namespace App\Services\Platforms;
  * carries `authors`, a list of Google CONTRIBUTOR display names. Those are real
  * people who never signed up to Partna, so the names belong on neither surface:
  * not the public wire, and not an export whose whole premise is "data about
- * YOU". Nothing renders them (no frontend reads the key on either surface), and
- * no attribution obligation attaches — the Places terms require attribution on
- * DISPLAYED reviews and photos, and photo refs are not yet resolved to images.
+ * YOU". Nothing on THESE two surfaces renders them.
  *
- * Keyed by parent key rather than by platform ON PURPOSE: the two producers
- * spell the surrounding payload differently (GoogleBusinessService camelCases,
- * Ingest\Connectors\GoogleBusinessConnector snake_cases) but both nest under
- * `photos` as `authors`, and a structural rule covers a future platform that
- * nests the same shape without anyone remembering to register it.
+ * ── Corrected by slice 1b (2026-08-12). Read this before widening or copying
+ * the rule to a new surface. ──
+ *
+ * This class used to justify itself with "no attribution obligation attaches —
+ * photo refs are not yet resolved to images". That is no longer true.
+ * PlacesDetailsDriver now resolves each photo ref to a servable url inside the
+ * same billed Details fetch, and the pool lane displays it. Wherever a Places
+ * photo is DISPLAYED, the terms require the contributor credited — so the
+ * credit travels with the photo on that lane, as
+ * `content.media_assets.attribution` → `frames[]`.
+ *
+ * The two rules are not in conflict; they follow the two obligations, which
+ * point in different directions:
+ *
+ *   - Public RENDER of a Google photo  → credit REQUIRED (Places terms).
+ *     Carried on the pool lane, which does not pass through this class.
+ *   - DSAR export                      → credit STRIPPED. Article 15 covers the
+ *     subject's own data; a stranger's name is not the subject's data.
+ *   - Legacy integration payload       → credit STRIPPED. Nothing renders it,
+ *     so no obligation attaches and the original reasoning stands.
+ *
+ * So do NOT "resolve the inconsistency" by making these lanes agree. The
+ * asymmetry is the decision.
+ *
+ * Keyed by parent key rather than by platform ON PURPOSE: a structural rule
+ * covers a future platform that nests the same shape without anyone remembering
+ * to register it. Note that as of slice 1b only GoogleBusinessService still
+ * spells it `photos[].authors`; Ingest\Connectors\GoogleBusinessConnector now
+ * emits a structured `attribution` block instead, and deliberately never
+ * reaches either gate below — `streamContentSourceItems()` selects an explicit
+ * column list with no doc column, and `content.media_assets` is not an export
+ * section at all.
  */
 final class ThirdPartyPii
 {

@@ -152,7 +152,12 @@ it('yields a record per photo with an unknown coverage claim, never exhaustive o
 
     expect($records)->toHaveCount(1)
         ->and($records[0]->key)->toBe('places/INVENTEDPLACEID000/photos/invented-photo-1')
-        ->and($records[0]->doc['authors'])->toBe(['Invented Contributor'])
+        // Slice 1b D6: the flat `authors` list of display names became a
+        // structured `attribution` block, because the Places terms want the
+        // author's Maps profile link and the photo's own Maps/flag URIs shown
+        // alongside the name — a bare string cannot carry those.
+        ->and($records[0]->doc['attribution']['authors'])->toBe([['name' => 'Invented Contributor', 'uri' => null]])
+        ->and($records[0]->doc)->not->toHaveKey('authors')
         ->and($covered)->toHaveCount(1)
         ->and($covered[0]->coverage->toArray()['type'])->toBe('unknown');
 });

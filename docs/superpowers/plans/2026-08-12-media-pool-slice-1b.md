@@ -229,7 +229,7 @@ git commit -m "feat(media): content.media_assets.attribution — Places terms re
 - Consumes: the raw Places photo shape returned by `PlacesDetailsDriver` — `{name, widthPx, heightPx, authorAttributions:[{displayName, uri, photoUri}], googleMapsUri, flagContentUri}`.
 - Produces: `mapPhoto()` returns an added `attribution` key of the Task 1 shape, or omits the key entirely when Google supplied nothing. Consumed by Task 3.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Unit/Ingest/Connectors/GoogleBusinessPhotoAttributionTest.php`:
 
@@ -287,12 +287,11 @@ it('keeps an author whose uri is missing', function () {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
-Run: `./vendor/bin/pest tests/Unit/Ingest/Connectors/GoogleBusinessPhotoAttributionTest.php`
-Expected: FAIL — `Undefined array key "attribution"`.
+Observed: 3 failed, 2 passed. The two that passed are the "omits" cases, which pass trivially today — kept as over-emission guards.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace `mapPhoto()` in `app/Ingest/Connectors/GoogleBusinessConnector.php`:
 
@@ -337,21 +336,53 @@ Replace `mapPhoto()` in `app/Ingest/Connectors/GoogleBusinessConnector.php`:
 
 Note the `url` key: Task 5 populates it on the raw photo entry. Reading it here now means Task 5 is a driver change only.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
-Run: `./vendor/bin/pest tests/Unit/Ingest/Connectors/GoogleBusinessPhotoAttributionTest.php`
-Expected: PASS, 3 tests.
+5 passed. `tests/Feature/Ingest` + `tests/Unit/Ingest` → 445 passed, after updating `GoogleBusinessConnectorTest:155`, which pinned the old flat `authors` contract.
 
-- [ ] **Step 5: Verify the redaction manifest did not widen**
+- [x] **Step 5: Verify the redaction manifest did not widen**
 
-`GoogleBusinessConnector::manifest()` declares `redactions: ['author','author_uri','author_photo']` with `when_unclaimed` scopes. Those cover **reviewer** PII on the `reviews` stream, not photographer credits on `media`.
+`GoogleBusinessConnector::manifest()` declares `redactions: ['author','author_uri','author_photo']` with `when_unclaimed` scopes. Those cover **reviewer** PII on the `reviews` stream, not photographer credits on `media`. Verified unchanged: `tests/Feature/Ingest --filter=Redaction` → 2 passed.
 
-Run: `./vendor/bin/pest tests/Feature/Ingest --filter=Redaction`
-Expected: PASS, unchanged.
+> **THE MANIFEST IS NOT THE ONLY REDACTION REGISTRY — spec D6 checked the wrong
+> one. Owner decision taken 2026-08-12; recorded here because it has legal weight.**
+>
+> `app/Services/Platforms/ThirdPartyPii.php:38` carries a **second, structural**
+> rule: `NESTED_KEYS = ['photos' => ['authors']]`, applied at two read
+> boundaries — `PublicIntegrationConnectionResource:436` and
+> `DsarPayloadFilter:192`. Its docblock names this connector explicitly, and
+> justifies stripping the credits with:
+>
+> > "no attribution obligation attaches — the Places terms require attribution
+> > on DISPLAYED reviews and photos, and **photo refs are not yet resolved to
+> > images**."
+>
+> **Task 5 is precisely what makes that false.** Once refs resolve to servable
+> urls and `frames[]` renders them, the photos are displayed and the obligation
+> attaches. So D6's "the redaction list is not silently widened" was true of the
+> manifest and blind to this.
+>
+> **Resolution — split by surface, following the two obligations rather than
+> making the lanes agree:**
+>
+> | Surface | Credit | Why |
+> |---|---|---|
+> | Public render (`frames[]`) | **carried** | Places terms require it wherever the photo is displayed |
+> | DSAR export | **stripped** | Article 15 is the subject's own data; a contributor is a third party |
+> | Legacy integration payload | **stripped** | nothing renders it, so no obligation attaches — original reasoning stands |
+>
+> **No change to the legacy lane** — it already strips and keeps stripping. The
+> only code change is `ThirdPartyPii`'s docblock, corrected in place so the next
+> reader does not "fix" the asymmetry in either direction.
+>
+> **Checked, so it needs no further work:** attribution reaches DSAR by no route
+> today. `streamContentSourceItems()` selects an explicit column list with no
+> doc column, and `content.media_assets` is not an export section at all — it is
+> absent from `DataExportPayloadBuilder::COVERED_PII_TABLES` (`:90-106`) because
+> until now it held no PII. Whether the owner's own media catalogue *should* be
+> exported is a pre-existing Article 15 gap, not one 1b opens; flagged, not fixed.
 
-Confirm by eye that the new keys are nested under `attribution` and are not named `author` / `author_uri`, so no redaction rule matches them. If a redaction test fails, the credit is being stripped for unclaimed accounts — which would silently drop legally-required attribution. Fix the nesting, not the redaction list.
-
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/Ingest/Connectors/GoogleBusinessConnector.php tests/Unit/Ingest/Connectors/GoogleBusinessPhotoAttributionTest.php
