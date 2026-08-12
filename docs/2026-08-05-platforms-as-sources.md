@@ -411,5 +411,10 @@ the payload), already shipped in P1.
   (stale baseline entries dropped — baseline shrinks), pint clean,
   catalog recompiled, astro check + build + tokens-only audit clean.
 
-The program is complete: platforms are sources, pools are the one curation
+**This programme is NOT complete.** The Media pool never shipped — no billed-effect
+driver exists, so no `kind='media'` item has ever been written. See
+`docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md`, which
+supersedes the scope statement here and corrects this checkpoint.
+
+What P1–P4 did deliver stands: platforms are sources, pools are the one curation
 surface, the public site follows instantly, and Featured is gone end to end.

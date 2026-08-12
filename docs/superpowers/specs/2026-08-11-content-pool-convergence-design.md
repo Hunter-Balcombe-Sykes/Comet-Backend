@@ -199,7 +199,7 @@ So `site.services`' 82 rows come entirely from the legacy non-ingest path, and
 run against real data. Any slice depending on one of these must first prove it
 executes.
 
-### 1.7 The manual lane does not exist
+### 1.7 The manual lane exists and is broken
 
 `ProjectionWriter::projectStream()` (`app/Ingest/Projection/ProjectionWriter.php:89-92`):
 
@@ -217,6 +217,43 @@ Dev confirms `content.sources` is 25 rows, all `connection`, zero `manual`, zero
 Every part of this programme that writes owner-authored items — uploads in slice 1,
 hand-written services in slice 3, manual dishes in slice 4 — depends on a lane with
 no writer. **This is slice 0b**, and it is a prerequisite for slices 1, 3, 4 and 5.
+
+**Correction, established during slice 0b planning (2026-08-11).** Revision 2
+said "nothing has ever written a row" with `kind='manual'`. That is wrong.
+`PoolItemCreateController` (`routes/api/user.php:172`,
+`tests/Feature/Content/PoolLaneTest.php:365`) is a live, routed manual-source
+writer. Dev holds 0 manual rows because the endpoint has not been exercised,
+not because no writer exists.
+
+It is worse than absent. It hand-rolls the writes and skips
+`content.identity_keys` and `content.item_anchors`, so `resolveItems()` — which
+unions every live source item for `(user_id, kind)` across all sources — sees a
+keyless singleton, `createItem()` mints a blank `content.items` row for it, and
+the re-read loop repoints the hand-added source item onto that blank. Any user
+who hand-adds to a pool and holds a connector for the same kind gets a blank
+duplicate in their library and an item severed from its own source row.
+
+The `priority` claim in the `content.sources` DDL comment ("one manual source
+per user, at max priority: what makes 'the user outranks the machine' a data
+fact") was also untrue — the controller wrote 100, the same as every
+connection. Slice 0b sets it to 200 and corrects any row already written.
+
+**A constraint slices 3, 4 and 5 must design around.** `Resolver::poisonedKeys()`
+marks a key value poisoned when a SINGLE source contributes it twice, and there
+is exactly one manual source per user. So two manual coords carrying the same
+canonical URL do not merge — they poison that URL for the whole resolution run,
+and any connector item carrying it stops unioning too. Verified by running the
+pure resolver directly (three cases, `tests/Feature/Ingest/ManualSourceLaneTest.php`).
+**A backfiller must therefore mint at most one manual coord per canonical URL
+per user.** The hand-add endpoint satisfies this by deriving its coord from the
+URL rather than minting a fresh UUID per request.
+
+**Dev baseline re-run 2026-08-12, immediately before implementing slice 0b.**
+`content.sources` is now **27** rows (not 25), still all `connection`, still
+`priority` 100–100, still zero `manual` and zero `import`. The corrective UPDATE
+in `ensureManualSource()` is therefore **defensive on dev, not load-bearing** —
+no row exists to raise. Live orphan items (`removed_at IS NULL` with no source
+item) baseline at **0**, which is the figure §12's gate compares against.
 
 ---
 
