@@ -2458,6 +2458,7 @@ function setupContentTables(): void
         fingerprint TEXT NOT NULL,
         source_url TEXT NULL,
         storage_path TEXT NULL,
+        site_media_id TEXT NULL,
         mime_type TEXT NULL,
         width INTEGER NULL,
         height INTEGER NULL,
