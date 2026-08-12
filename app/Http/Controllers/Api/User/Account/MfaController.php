@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\User\Account;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Mail\Security\TwoFactorRemovedMail;
+use App\Models\Core\User\User;
 use App\Services\Auth\Aal2FreshnessGate;
 use App\Services\Auth\AuthFactorEventRepository;
 use App\Services\Auth\SupabaseAdminService;
@@ -10,6 +12,7 @@ use Illuminate\Auth\Access\Response as GateResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 /**
  * Self-service MFA management for the authenticated user.
@@ -71,6 +74,19 @@ class MfaController extends ApiController
             ip: $request->ip(),
             userAgent: (string) $request->userAgent(),
         );
+
+        // Security notice — fire-and-forget: a mail failure must never fail
+        // the factor removal itself. auth_user_id, not id — $uid is the
+        // Supabase auth id, not our primary key.
+        try {
+            $professional = User::query()->where('auth_user_id', $uid)->first();
+            $email = (string) ($professional?->primary_email ?? '');
+            if ($email !== '') {
+                Mail::to($email)->queue(new TwoFactorRemovedMail($email, $professional?->display_name));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('mfa.factor_removed_mail_failed', ['auth_user_id' => $uid, 'error' => $e->getMessage()]);
+        }
 
         return $this->success(['ok' => true]);
     }

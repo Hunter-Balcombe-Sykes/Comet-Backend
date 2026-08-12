@@ -26,6 +26,7 @@ use App\Mail\Notifications\IncidentMail;
 use App\Mail\Notifications\PolicyUpdateMail;
 use App\Mail\Notifications\ProfileTaskMail;
 use App\Mail\PreAccount\ClaimInviteMail;
+use App\Mail\Security\TwoFactorRemovedMail;
 use App\Mail\SiteEnquiryNotification;
 use App\Mail\StaffBroadcastMail;
 use App\Mail\SubscriptionConfirmationMail;
@@ -140,6 +141,9 @@ class MailPreviewController extends Controller
                 'email-change' => ['label' => 'Email change', 'make' => fn () => new EmailChangeMail('sam.new@example.com', 'Sam', 'https://app.partna.au/auth/callback?token=preview')],
                 'invite' => ['label' => 'Invite', 'make' => fn () => new InviteMail('sam@example.com', null, 'https://app.partna.au/auth/callback?token=preview')],
                 'reauthentication' => ['label' => 'Reauthentication (OTP)', 'make' => fn () => new ReauthenticationMail('sam@example.com', 'Sam', '739204')],
+            ],
+            'Security' => [
+                'two-factor-removed' => ['label' => 'Two-factor removed', 'make' => fn () => new TwoFactorRemovedMail('sam@example.com', 'Sam')],
             ],
             'Account' => [
                 'deletion-requested' => ['label' => 'Deletion requested', 'make' => fn () => new AccountDeletionRequestedMail('Sam', 'https://app.partna.au/account/deletion/confirm?token=preview')],
