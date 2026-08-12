@@ -2125,12 +2125,36 @@ not depend on a sub-spec surviving:
 - **`style_analysis`** (non-null on 4 legacy brands) is dropped with no
   migration path — no reader, no writer survives the code that produced it.
   Named as a real loss in the wire manifest, not carried into `storefronts`.
-- **Post-deploy log scan and Nightwatch scan are not recorded here.** Unlike
-  §13–§15, this checkpoint does not carry a pasted `cloud env:logs` result or a
-  Nightwatch confirmation for the 2026-08-13 deploy — that verification step is
-  outstanding, not skipped-and-forgotten. Run it before treating slice 5a as
-  fully closed per §5.4's requirement.
 - `site.shop_brands` / `site.shop_products` are **not dropped** — inert, as
   designed. Slice 7 drops them.
-- The public Shop page is **unchanged** — still legacy-sourced. That is 5b, in
-  full.
+- **Correction to an earlier draft of this section.** It read "the public Shop
+  page is unchanged — still legacy-sourced". That is **false**. Task 8's review
+  found the public regression had three heads, and all three were repointed at
+  `content.*` in this slice: `PublicIntegrationConnectionResource` (the
+  CDN-cached payload), `PlatformRegistryServiceProvider` (the page-PRESENCE
+  gate — why a store connected post-deploy would otherwise get no Shop page at
+  all, not merely an empty one), and `CloudflarePurgeService` (PDP purge
+  handles). They had to move: once nothing wrote `site.shop_products`, leaving
+  them reading it would have frozen every public shop card at its pre-deploy
+  contents. What 5b still owns is the POOL render and the `/integrations`
+  retirement, not the data source.
+
+### 16.10 Post-deploy verification — RUN 2026-08-13, output pasted
+
+```
+cloud env:logs partna development --minutes 20
+  → 98 entries, levels {info: 98}. Zero error/warning/critical.
+```
+
+**Nightwatch scanned** (§13's checkpoint recorded this as skipped; §15 and this
+one do not repeat that gap). Exactly one new issue since the deploy:
+
+```
+#427  QueryException SQLSTATE[42702]: column reference "products_curated_at" is ambiguous
+      first seen 2026-08-12T22:07:27Z · last seen 2026-08-12T22:07:27Z
+```
+
+First and last seen are the same instant — the single failed backfill run of
+§16.7. It has **not recurred** across the two successful backfill runs that
+followed the fix (22:19 and 22:21). Every other open issue predates the deploy;
+the newest is 7 hours older than it.
