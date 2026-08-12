@@ -8,9 +8,11 @@ namespace App\Site\Pools;
  * its curation hangs off. Closed on purpose — a pool key arrives from the
  * URL, and this map is what stops it naming an arbitrary kind set.
  *
- * Sell / Services / Menu are NOT here: they keep their existing live lanes
- * (shop selections, hiddenServiceIds), which already implement
- * sources→selection in their own machinery. Watch + listen were the launch
+ * Sell / Menu are NOT here: they keep their existing live lanes (shop
+ * selections), which already implement sources→selection in their own
+ * machinery. Services JOINED 2026-08-12 (slice 3a) for the owner-authored
+ * half; the Fresha half and its hiddenServiceIds lane follow in 3b, so both
+ * run side by side until then. Watch + listen were the launch
  * set; media joined with the gallery lane; events joined 2026-08-11 (slice
  * 2) and runs ALONGSIDE the legacy hiddenEventIds lane until that lane is
  * retired. `channel` and `article` are deliberately poolless — see
@@ -30,6 +32,7 @@ class PoolRegistry
         'listen' => ['track', 'release', 'episode'],
         'media' => ['media'],
         'events' => ['event'],
+        'services' => ['service'],
     ];
 
     /**
@@ -45,6 +48,7 @@ class PoolRegistry
         'listen' => 'listen',
         'media' => 'gallery',
         'events' => 'events',
+        'services' => 'services',
     ];
 
     public const PAGE_LABELS = [
@@ -52,6 +56,7 @@ class PoolRegistry
         'listen' => 'Listen',
         'media' => 'Gallery',
         'events' => 'Events',
+        'services' => 'Services',
     ];
 
     /**
@@ -81,6 +86,16 @@ class PoolRegistry
         // source, which for media means one Google photo visible and nine
         // hidden (slice 1a §1.3 — the same pathology events hit in slice 2).
         'media' => [
+            'rule' => [['op' => 'kind_is']],
+            'order_by' => 'recency',
+        ],
+        // Priced, undated. Same shape slice 5a uses for products, reconciled
+        // 2026-08-12 so slice 4 inherits one convention. order_by governs only
+        // UNPINNED items; owner ordering is carried by pins (§3.3), which is
+        // why no `position` operator exists and none should be added — the
+        // rule DSL spans four registries and missing one is a 500, not a red
+        // test.
+        'services' => [
             'rule' => [['op' => 'kind_is']],
             'order_by' => 'recency',
         ],
