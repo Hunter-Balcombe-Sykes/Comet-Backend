@@ -4,6 +4,7 @@ namespace App\Services\Shop;
 
 use App\Ingest\Projection\ProjectionWriter;
 use App\Models\Core\Site\ShopBrand;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -196,21 +197,26 @@ class ShopContentWriter
     }
 
     /**
-     * Task 6 fix round 1, Finding 1: syncStore()'s read-back counterpart —
-     * the collection's CURRENT catalogue, reconstructed from content.* into
-     * the same raw blob shape ShopProductProjection::fromBlob() (and
-     * therefore syncStore()) consumes as input, in content.collection_items
-     * position order.
+     * Task 6 fix round 1, Finding 1 / Task 7 widen: syncStore()'s read-back
+     * counterpart — the CURRENT catalogue of every collection in
+     * $collectionIds, reconstructed from content.* into the same raw blob
+     * shape ShopProductProjection::fromBlob() (and therefore syncStore())
+     * consumes as input, in each collection's content.collection_items
+     * position order. One query per table across the WHOLE set of
+     * collections, never per collection — Task 7's ShopContentReader::
+     * brandMap() is why: reading N stores' catalogues via N single-collection
+     * calls would be N queries per table, an N+1 on /platforms/shop/selection's
+     * public-serving path.
      *
-     * Why this exists: ShopProductSeeder merges one new product into the
-     * individual bucket's existing selection on every call, and — as of this
-     * task — has no durable raw-blob store left to read "what's currently
-     * selected" from (site.shop_products stops being written by that
-     * seeder). Without this, a second seed() call for the same user
-     * (CommerceProbeJob fires once per resolved link — legitimately more
-     * than once per user) would silently drop whatever the FIRST call wrote
-     * to content.*, because syncStore()'s retire-absent treats anything
-     * missing from its input array as gone.
+     * Why the single-collection form (currentCatalogue() below) exists at
+     * all: ShopProductSeeder merges one new product into the individual
+     * bucket's existing selection on every call, and — as of Task 6 — has no
+     * durable raw-blob store left to read "what's currently selected" from
+     * (site.shop_products stops being written by that seeder). Without it, a
+     * second seed() call for the same user (CommerceProbeJob fires once per
+     * resolved link — legitimately more than once per user) would silently
+     * drop whatever the FIRST call wrote to content.*, because syncStore()'s
+     * retire-absent treats anything missing from its input array as gone.
      *
      * Faithful enough to round-trip through fromBlob() again unchanged, not
      * byte-identical to the original scrape: a variant whose price never
@@ -219,23 +225,67 @@ class ShopContentWriter
      * with a null price here too — same missing offer on the next write as
      * on this one, not a NEW loss introduced by reading it back.
      *
-     * @return list<array<string,mixed>>
+     * Task 7 widen: also carries the DASHBOARD product shape's extra keys —
+     * `handle`, `vendor`, `description`, `variantId`, `createdAt` — that the
+     * sync-input shape never needed before ShopContentReader::brandMap()
+     * became a second caller. Four of the five are structurally
+     * unrecoverable, not just absent from THIS fixture: fromBlob() never
+     * writes a facet for handle, vendor, description or variantId (there is
+     * no content.f_catalog.handle/vendor column, and f_text.body /
+     * f_authored.creator — the nearest existing columns — are never
+     * populated from a shop blob), so content.* has nothing to read them
+     * back FROM. They come back null for every product, always — see the
+     * Task 7 report for the full accounting. `createdAt` is populated from
+     * items.first_seen_at — Partna's own first-sight timestamp, not the
+     * original store's product-creation date (which was never persisted
+     * either) — an approximation, not a total loss. The extra keys are
+     * harmless to the existing syncStore()-input caller: fromBlob() only
+     * reads the keys it knows and ignores the rest.
+     *
+     * Task 7 DISCOVERED DEFECT (pre-existing, not introduced here):
+     * `available`/variant `available` is unreliable for every product that
+     * has ever gone through content.*, not just via this method. fromBlob()
+     * DOES compute `offers[].availability` ('in_stock'/'out_of_stock') for
+     * both the base offer and every variant offer, but
+     * ProjectionWriter::replaceCollections() (app/Ingest/Projection/
+     * ProjectionWriter.php, the $offerRows builder) never includes
+     * `availability` in the row it inserts into content.offers — the column
+     * exists (migration 20260727140000) but is written NOWHERE. So
+     * content.offers.availability is NULL for every offer, always, and this
+     * method's fail-open read (`$offer === null || $offer->availability !==
+     * 'out_of_stock'`) then reports every product/variant as available
+     * regardless of the original scrape. This bug predates Task 7 (it was
+     * already live in Task 6's single-collection currentCatalogue(), the
+     * only prior reader of this data) but Task 7 is the first caller to put
+     * it on a customer-facing surface (the public-serving /selection
+     * endpoint) — see the Task 7 report. Not fixed here: ProjectionWriter is
+     * outside this task's file list, and the fix needs its own review (it
+     * changes what every projector's offers look like, not just Shop's).
+     *
+     * @param  list<string>  $collectionIds
+     * @return array<string, list<array<string,mixed>>> collection id => catalogue, position order
      */
-    public function currentCatalogue(string $collectionId): array
+    public function cataloguesFor(array $collectionIds): array
     {
-        $itemIds = DB::table('content.collection_items')
-            ->where('collection_id', $collectionId)
-            ->orderBy('position')
-            ->pluck('item_id')
-            ->all();
-
-        if ($itemIds === []) {
+        if ($collectionIds === []) {
             return [];
         }
+
+        $links = DB::table('content.collection_items')
+            ->whereIn('collection_id', $collectionIds)
+            ->orderBy('position')
+            ->get(['collection_id', 'item_id', 'position']);
+
+        if ($links->isEmpty()) {
+            return [];
+        }
+
+        $itemIds = $links->pluck('item_id')->unique()->values()->all();
 
         $urlByItem = DB::table('content.f_link')->whereIn('item_id', $itemIds)->pluck('url', 'item_id');
         $skuByItem = DB::table('content.f_catalog')->whereIn('item_id', $itemIds)->pluck('sku', 'item_id');
         $titleByItem = DB::table('content.f_text')->whereIn('item_id', $itemIds)->pluck('headline', 'item_id');
+        $firstSeenByItem = DB::table('content.items')->whereIn('id', $itemIds)->pluck('first_seen_at', 'id');
 
         $offersByItem = [];
         foreach (DB::table('content.offers')->whereIn('item_id', $itemIds)->get() as $offer) {
@@ -258,63 +308,107 @@ class ShopContentWriter
             $variantsByItem[$variant->item_id][] = $variant;
         }
 
-        $catalogue = [];
-        foreach ($itemIds as $itemId) {
-            $url = $urlByItem[$itemId] ?? null;
-            if ($url === null) {
-                // No f_link row to rebuild a blob from — unreachable for a
-                // real manual product item (writeManualItem() always writes
-                // f_link from the coord's own url), but skip rather than
-                // mint a urlless blob syncStore() would drop anyway.
-                continue;
-            }
-
-            $offers = $offersByItem[$itemId] ?? [];
-            $baseOffer = null;
-            $offerByVariantLabel = [];
-            foreach ($offers as $offer) {
-                if ($offer->variant_label === null) {
-                    $baseOffer = $offer;
-                } else {
-                    $offerByVariantLabel[$offer->variant_label] = $offer;
+        $catalogues = [];
+        foreach ($links->groupBy('collection_id') as $collectionId => $collectionLinks) {
+            $catalogue = [];
+            foreach ($collectionLinks as $link) {
+                $itemId = $link->item_id;
+                $url = $urlByItem[$itemId] ?? null;
+                if ($url === null) {
+                    // No f_link row to rebuild a blob from — unreachable for a
+                    // real manual product item (writeManualItem() always writes
+                    // f_link from the coord's own url), but skip rather than
+                    // mint a urlless blob syncStore() would drop anyway.
+                    continue;
                 }
-            }
 
-            $cover = null;
-            $gallery = [];
-            foreach ($mediaByItem[$itemId] ?? [] as $mediaRow) {
-                if ($mediaRow->role === 'cover' && $cover === null) {
-                    $cover = $mediaRow->source_url;
-                } elseif ($mediaRow->role === 'gallery') {
-                    $gallery[] = $mediaRow->source_url;
+                $offers = $offersByItem[$itemId] ?? [];
+                $baseOffer = null;
+                $offerByVariantLabel = [];
+                foreach ($offers as $offer) {
+                    if ($offer->variant_label === null) {
+                        $baseOffer = $offer;
+                    } else {
+                        $offerByVariantLabel[$offer->variant_label] = $offer;
+                    }
                 }
-            }
 
-            $variants = [];
-            foreach ($variantsByItem[$itemId] ?? [] as $variant) {
-                $variantOffer = $offerByVariantLabel[$variant->label] ?? null;
-                $variants[] = [
-                    'title' => $variant->label,
-                    'id' => $variant->sku,
-                    'price' => $variantOffer !== null ? self::formatMinorUnits((int) $variantOffer->amount_minor) : null,
-                    'available' => $variantOffer === null || $variantOffer->availability !== 'out_of_stock',
+                $cover = null;
+                $gallery = [];
+                foreach ($mediaByItem[$itemId] ?? [] as $mediaRow) {
+                    if ($mediaRow->role === 'cover' && $cover === null) {
+                        $cover = $mediaRow->source_url;
+                    } elseif ($mediaRow->role === 'gallery') {
+                        $gallery[] = $mediaRow->source_url;
+                    }
+                }
+                // Task 7 fix: the original (single-collection) version of this
+                // method built `images` from gallery rows ONLY, dropping the
+                // cover. That underserved its one caller silently (syncStore()
+                // re-dedupes on write regardless — ShopProductProjection::
+                // media() skips any images[] entry equal to `image` — so the
+                // omission was invisible there) but is wrong for THIS caller:
+                // a real scraped blob's `images[]` always includes the cover
+                // as its first element (see e.g. ShopifyScraper::
+                // fetchProducts()'s own "Compat single hero image (first
+                // product image)" comment), and the Task 7 brief's field
+                // mapping is explicit — images = cover then every gallery row.
+                $images = $cover === null ? $gallery : [$cover, ...$gallery];
+
+                $variants = [];
+                foreach ($variantsByItem[$itemId] ?? [] as $variant) {
+                    $variantOffer = $offerByVariantLabel[$variant->label] ?? null;
+                    $variants[] = [
+                        'title' => $variant->label,
+                        'id' => $variant->sku,
+                        'price' => $variantOffer !== null ? self::formatMinorUnits((int) $variantOffer->amount_minor) : null,
+                        'available' => $variantOffer === null || $variantOffer->availability !== 'out_of_stock',
+                        // content.item_variants has no image column — a
+                        // per-variant image was never captured on the write
+                        // side either (ShopProductProjection::fromBlob()
+                        // drops it), so this is always null, matching the
+                        // Task 7 brief's own field mapping literally.
+                        'image' => null,
+                    ];
+                }
+
+                $firstSeen = $firstSeenByItem[$itemId] ?? null;
+
+                $catalogue[] = [
+                    'productId' => $skuByItem[$itemId] ?? null,
+                    'title' => $titleByItem[$itemId] ?? null,
+                    // Structurally unrecoverable — see this method's docblock.
+                    'handle' => null,
+                    'vendor' => null,
+                    'description' => null,
+                    'url' => $url,
+                    'price' => $baseOffer !== null ? self::formatMinorUnits((int) $baseOffer->amount_minor) : null,
+                    'currency' => $baseOffer?->currency,
+                    // Structurally unrecoverable — see this method's docblock.
+                    'variantId' => null,
+                    'available' => $baseOffer === null || $baseOffer->availability !== 'out_of_stock',
+                    'image' => $cover,
+                    'images' => $images,
+                    'createdAt' => $firstSeen === null ? null : Carbon::parse((string) $firstSeen)->toIso8601String(),
+                    'variants' => $variants,
                 ];
             }
-
-            $catalogue[] = [
-                'productId' => $skuByItem[$itemId] ?? null,
-                'title' => $titleByItem[$itemId] ?? null,
-                'url' => $url,
-                'price' => $baseOffer !== null ? self::formatMinorUnits((int) $baseOffer->amount_minor) : null,
-                'currency' => $baseOffer?->currency,
-                'available' => $baseOffer === null || $baseOffer->availability !== 'out_of_stock',
-                'image' => $cover,
-                'images' => $gallery,
-                'variants' => $variants,
-            ];
+            $catalogues[$collectionId] = $catalogue;
         }
 
-        return $catalogue;
+        return $catalogues;
+    }
+
+    /**
+     * Single-collection convenience wrapper around cataloguesFor() — see that
+     * method's docblock for the shape, the field-loss accounting, and why
+     * ShopProductSeeder needs this at all.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function currentCatalogue(string $collectionId): array
+    {
+        return $this->cataloguesFor([$collectionId])[$collectionId] ?? [];
     }
 
     /** "1234" minor units → "12.34" — the inverse of ShopProductProjection::minorUnits(). */

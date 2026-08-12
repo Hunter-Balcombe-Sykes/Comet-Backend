@@ -35,6 +35,11 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 7: brands()/connectStatus() now read content.storefronts
+    // (ShopContentReader), even for a brand that has never synced (they hit
+    // the table with zero matching rows, not a missing table) — attach the
+    // stand-in schema so those queries don't 500 on SQLite's real absence.
+    setupContentTables();
 });
 
 function shopAsyncUser(string $h): User

@@ -35,6 +35,7 @@ use App\Services\Platforms\ShopProviderDetector;
 use App\Services\Platforms\StrandedPendingWindow;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ShopContentReader;
 use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -112,6 +113,7 @@ class ShopController extends ApiController
         private readonly ShopBrandProfiler $profiler,
         private readonly ShopBrandIdentity $identity,
         private readonly ContentPopularityReader $popularity,
+        private readonly ShopContentReader $contentReader,
     ) {}
 
     protected function platform(): string
@@ -119,11 +121,18 @@ class ShopController extends ApiController
         return 'shop';
     }
 
-    // GET /api/platforms/shop/brands — all connected brands.
+    // GET /api/platforms/shop/brands — all connected brands. Task 7: served
+    // from content.* (ShopContentReader) merged over site.shop_brands — see
+    // hybridBrandMap()'s docblock for why a bare content.*-only read is
+    // unsafe (a brand not yet synced into content.* would silently vanish
+    // from this list until Task 8 repoints the writes).
     public function brands(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
+        $map = $this->hybridBrandMap($user);
+
         return $this->success([
-            'brands' => ShopBrandResource::collection($this->allBrands($this->currentUser($request)))->resolve(),
+            'brands' => ShopBrandResource::collection(array_values($map))->resolve(),
         ]);
     }
 
@@ -416,15 +425,39 @@ class ShopController extends ApiController
             return $this->success([
                 'status' => 'failed',
                 'error' => $brand->connect_error ?: self::UNKNOWN_CONNECT_ERROR,
-                'brand' => (new ShopBrandResource($brand->fresh('products')->toBrandArray()))->resolve(),
+                'brand' => (new ShopBrandResource($this->brandPayload($user, $brand)))->resolve(),
             ]);
         }
 
         return $this->success([
             'status' => 'ready',
             'id' => $brand->brand_id,
-            'brand' => (new ShopBrandResource($brand->fresh('products')->toBrandArray()))->resolve(),
+            'brand' => (new ShopBrandResource($this->brandPayload($user, $brand)))->resolve(),
         ]);
+    }
+
+    /**
+     * Task 7: the embedded brand payload for connectStatus()'s 'failed'/
+     * 'ready' branches, preferring content.* (ShopContentReader) but falling
+     * back to the live site.shop_brands row when content.* has no row yet.
+     *
+     * Deliberately NOT a bare ShopContentReader::brandMap() call like brands()/
+     * brandProducts()/selection() below: connectStatus() is a real-time poll
+     * of an in-flight/just-settled async job (ShopBrandConnectJob), and that
+     * job settles connect_status/connect_error/name/currency/favicon/logo on
+     * site.shop_brands directly — it never calls ShopContentWriter::
+     * upsertStore(). So at the exact moment this endpoint has anything
+     * interesting to report ('failed' or freshly-'ready'), content.* almost
+     * always has NO row for this brand yet (see ShopContentReader's gap 1) —
+     * a bare content.*-only read would 404-shaped-empty the response right
+     * when the dashboard's "connecting your store…" UI is watching it
+     * resolve. The fallback closes that window; once the brand has been
+     * through its first sync, content.* takes over transparently.
+     */
+    private function brandPayload(User $user, ShopBrand $brand): array
+    {
+        return $this->contentReader->brandMap($user)[$brand->brand_id]
+            ?? $brand->fresh('products')->toBrandArray();
     }
 
     // PATCH /api/platforms/shop/brands/{id} — update PER-BRAND settings: the
@@ -588,9 +621,14 @@ class ShopController extends ApiController
     // Cache::remember short-circuits the live scrape when the cache was already
     // warmed by addBrand or a recent GET, so re-opening the picker within the
     // 10-min window is instant and doesn't re-scrape the upstream store.
+    // Task 7: the existence check + the {url, provider, sourceUrl, fetchMode}
+    // dispatch shape providerProducts() reads now come from hybridBrandMap()
+    // (content.* merged over site.shop_brands) — see that method's docblock
+    // for why the merge, not a bare ShopContentReader::brandMap() call.
     public function brandProducts(Request $request, string $id): JsonResponse
     {
-        $map = $this->brandMap($this->currentUser($request));
+        $user = $this->currentUser($request);
+        $map = $this->hybridBrandMap($user);
         if (! isset($map[$id])) {
             return $this->error('Brand not found.', 404);
         }
@@ -737,10 +775,15 @@ class ShopController extends ApiController
 
     // GET /api/platforms/shop/selection — COMPAT flat view of the primary brand
     // (first brand that has products) so partna-pages' existing Shop card keeps
-    // rendering. Returns null when no brand has products.
+    // rendering. Returns null when no brand has products. Task 7: served from
+    // hybridBrandMap() (content.* merged over site.shop_brands) — this endpoint
+    // also feeds a public path (context note in the Task 7 brief), so a brand
+    // curated moments ago via setProducts() (no content.* row yet — Task 8's
+    // territory) must not go dark here.
     public function selection(Request $request): JsonResponse
     {
-        $primary = ShopPayload::fromArray($this->brandMap($this->currentUser($request)))->primaryWithProducts();
+        $user = $this->currentUser($request);
+        $primary = ShopPayload::fromArray($this->hybridBrandMap($user))->primaryWithProducts();
 
         $selection = $primary ? [
             'url' => $primary['url'],
@@ -889,6 +932,9 @@ class ShopController extends ApiController
     // linkMode ('checkout'|'product') stamps every brand's public linkMode;
     // autoLatest keeps every non-individual store's selection synced to its
     // newest products. Stored on the site row (site.sites), read here.
+    // Task 7: in scope per the brief, but has no ShopBrand/content.*
+    // dependency to repoint — settingsPayload() only ever reads site.sites
+    // and the AutoSyncSetting toggle. Left as-is.
     public function settings(Request $request): JsonResponse
     {
         $site = $this->currentSite($this->currentUser($request));
@@ -1008,17 +1054,63 @@ class ShopController extends ApiController
             return [];
         }
 
-        // shop_product ranks (keyed by product HANDLE), the same annotation
-        // the public wire carries — the dashboard's Smart order switch sorts
-        // on popularityRank, and until 2026-08-04 the dashboard path omitted
-        // the key entirely, so "engagement order" silently meant "stored
-        // order". Fail-open: a read fault degrades to null ranks.
-        $ranks = $this->popularity->forSite($user->site?->id);
-
         return $connection->shopBrands()->with('products')->get()
             ->keyBy('brand_id')
-            ->map(fn (ShopBrand $b) => $b->toBrandArray($ranks['shop_product'] ?? []))
+            ->map(fn (ShopBrand $b) => $b->toBrandArray($this->productRanksFor($user)))
             ->all();
+    }
+
+    /**
+     * shop_product ranks (keyed by product HANDLE), the same annotation the
+     * public wire carries — the dashboard's Smart order switch sorts on
+     * popularityRank, and until 2026-08-04 the dashboard path omitted the
+     * key entirely, so "engagement order" silently meant "stored order".
+     * Fail-open: a read fault degrades to null ranks. Shared by the legacy
+     * (site.shop_brands) brandMap() above and Task 7's ShopContentReader
+     * call sites below — both must pass an array (never null) here so
+     * popularityRank stays PRESENT (not omitted) on every dashboard read,
+     * matching ShopBrand::toBrandArray()'s own contract.
+     */
+    private function productRanksFor(User $user): array
+    {
+        return $this->popularity->forSite($user->site?->id)['shop_product'] ?? [];
+    }
+
+    /**
+     * Task 7: the brand map brands()/brandProducts()/selection() actually
+     * read — content.* (ShopContentReader) MERGED over the legacy
+     * site.shop_brands map, not content.* alone.
+     *
+     * Why not a bare ShopContentReader::brandMap() call: ShopContentReader's
+     * own docblock (gap 1) documents that a brand has no content.* row until
+     * ShopContentWriter::upsertStore() has run for it at least once, and
+     * none of addBrand(), ShopBrandConnectJob (the deferred-connect settle),
+     * or setProducts() call it yet (Task 8 is what repoints those). Proven,
+     * not just predicted: three PRE-EXISTING tests that seed a brand the
+     * same way addBrand()/setProducts() do — ShopPayloadFeatureTest's
+     * "shop selection returns…"/"…seeded popularityRank…", ShopUrlValidation
+     * Test's "connects a WooCommerce store end-to-end…" — broke under a bare
+     * content.*-only read: a brand connected and curated in the SAME request
+     * cycle a real dashboard session performs came back 404/empty, because
+     * content.* had not synced yet. This merge is what makes that a
+     * non-issue: legacy is authoritative for EXISTENCE and ORDER (so a
+     * request never loses a brand), content.* wins PER BRAND once it has a
+     * row (so the reconstruction — and its documented field losses, see
+     * ShopContentReader — takes over transparently as brands sync). Mirrors
+     * ShopContentWriter::isCurated()'s own transitional-read precedent
+     * elsewhere in this slice.
+     */
+    private function hybridBrandMap(User $user): array
+    {
+        $legacy = $this->brandMap($user);
+        $content = $this->contentReader->brandMap($user, $this->productRanksFor($user));
+
+        $merged = [];
+        foreach ($legacy as $id => $brand) {
+            $merged[$id] = $content[$id] ?? $brand;
+        }
+
+        return $merged;
     }
 
     /** Brands as a plain ordered list. */
