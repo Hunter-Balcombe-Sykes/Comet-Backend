@@ -72,12 +72,14 @@ final class MediaMirror
         $response = $this->fetcher->tryFetch($sourceUrl);
 
         // tryFetch returns null on refusal or transport failure; dereferencing
-        // before this check is the repo's known null-deref trap.
-        if ($response === null || ($response['status'] ?? 0) < 200 || ($response['status'] ?? 0) >= 300) {
+        // before this null check is the repo's known trap. Past it, the shape
+        // is guaranteed — no `?? 0` defaults, which would only hide a change to
+        // SafeUrlFetcher's contract behind a plausible-looking fallback.
+        if ($response === null || $response['status'] < 200 || $response['status'] >= 300) {
             return $this->fail($assetId, 'fetch_failed', $sourceUrl);
         }
 
-        $body = (string) ($response['body'] ?? '');
+        $body = $response['body'];
         if ($body === '' || strlen($body) > self::MAX_BYTES) {
             return $this->fail($assetId, 'body_rejected', $sourceUrl);
         }

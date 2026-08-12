@@ -510,8 +510,11 @@ class GoogleBusinessService extends PlatformScraper
      * concurrency cap all stay in one place. PlacesBudgetGuardTest fails the
      * build if a second billing origin appears, and it should.
      *
-     * @param  array<int, array<string,mixed>>  $photos  raw Places photos
-     * @return array<int, array<string,mixed>> the same entries, each gaining `url` where resolution succeeded
+     * @param  array<int, mixed>  $photos  raw Places photos, straight off the
+     *                                     vendor response — typed loosely on
+     *                                     purpose, since nothing has validated
+     *                                     the element shape at this point
+     * @return array<int, mixed> the same entries, each gaining `url` where resolution succeeded
      */
     public function resolveRawPhotoUrls(array $photos, string $placeId, string $userId): array
     {

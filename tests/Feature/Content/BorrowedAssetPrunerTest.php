@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Migration\BorrowedAssetPruner;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -18,7 +19,7 @@ beforeEach(function () {
     setupContentTables();
 });
 
-function prunerAsset(string $userId, string $fingerprint, \DateTimeInterface $createdAt, ?string $storagePath = null): string
+function prunerAsset(string $userId, string $fingerprint, DateTimeInterface $createdAt, ?string $storagePath = null): string
 {
     $id = (string) Str::uuid();
     DB::table('content.media_assets')->insert([
@@ -143,7 +144,7 @@ it('is idempotent — a second run finds nothing left to prune', function () {
 });
 
 it('is registered on the schedule', function () {
-    $events = collect(app(\Illuminate\Console\Scheduling\Schedule::class)->events())
+    $events = collect(app(Schedule::class)->events())
         ->map(fn ($e) => $e->command ?? '');
 
     expect($events->filter(fn ($c) => str_contains($c, 'content:prune-borrowed-assets')))->not->toBeEmpty();
