@@ -3323,10 +3323,10 @@ function setupContentCurationTables(): void
     // lane was silently running against unchecked stand-ins). It also calls
     // setupSectionsTables(), so no coverage is lost by switching the base
     // call. section_groups below is the only table genuinely unique to the
-    // curation lane — content.item_slugs moved into setupContentTables() when
-    // PoolResolver started serving slugs from it on every pool read (slice 2
-    // Task 9), so it is no longer curation-only. The CREATE stays here too,
-    // IF NOT EXISTS, so this function's own contract is unchanged.
+    // curation lane now — content.item_slugs moved into setupContentTables()
+    // when PoolResolver started serving slugs from it on every pool read
+    // (slice 2 Task 9), so it is no longer curation-only and is provisioned by
+    // the base call above. This function's own contract is unchanged.
     setupContentTables();
     $pg = DB::connection('pgsql');
 
@@ -3338,17 +3338,6 @@ function setupContentCurationTables(): void
         sort_order INTEGER NOT NULL DEFAULT 0,
         is_hidden INTEGER NOT NULL DEFAULT 0,
         UNIQUE (section_id, group_key)
-    )');
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_slugs (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL,
-        item_id TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        is_current INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL,
-        retired_at TEXT NULL,
-        UNIQUE (user_id, slug)
     )');
 }
 
