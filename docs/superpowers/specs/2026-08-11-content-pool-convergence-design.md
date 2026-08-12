@@ -496,9 +496,22 @@ Target services:
 - **Instagram:** `App\Services\Platforms\InstagramScraper` — **not**
   `InstagramActorAdapter`, which is a two-method interface (`input()`, `classify()`)
   with no fetch capability. `InstagramScraper` resolves an adapter internally
-  (`:238-248`) and carries its own per-user cooldown
-  (`partna.instagram.apify_cooldown_seconds`) and daily cap — a second refusal path
-  with different semantics from Places'.
+  (`:238-248`).
+
+> **CORRECTED 2026-08-12 (deviation D2).** This bullet used to claim
+> `InstagramScraper` "carries its own per-user cooldown
+> (`partna.instagram.apify_cooldown_seconds`) and daily cap". **It does not.**
+> It claims `ApifyBudget` in exactly one place — the thin-profile retry
+> (`InstagramScraper.php:62`) — and its own comment says so: *"This class does
+> not otherwise claim Apify budget — the controllers do."* The cap lives in
+> `InstagramController::guardApifyBudget()`, which also documents that there is
+> **intentionally no per-user cooldown**; `partna.instagram.apify_cooldown_seconds`
+> is config with no live reader.
+>
+> The ingest lane has no controller in front of it, so **`InstagramActorDriver`
+> claims `ApifyBudget` itself** — as shipped. Anything slice 1 adds to the
+> Instagram lane must keep that property, or scheduled runs spend outside the
+> daily cap.
 
 ### 5.2 The change
 
@@ -525,8 +538,29 @@ keeps today's throw.**
 
 | Driver | `(kind, name)` | Delegates to |
 |---|---|---|
-| `PlacesDetailsDriver` | `('api', 'places.details')` | `GoogleBusinessService::fetchPlaceDetails()` |
+| `PlacesDetailsDriver` | `('api', 'places.details')` | `GoogleBusinessService::fetchPlaceDetailsRaw()` |
 | `InstagramActorDriver` | `('actor', 'instagram')` | `InstagramScraper` |
+
+> **CORRECTED 2026-08-12 (deviation D1).** The table used to name
+> `fetchPlaceDetails()`. That method returns `mapDetails()` output, and
+> `GoogleBusinessConnector` reads the **raw** Places (New) shape — so wiring it
+> would have landed nothing and, worse, made the manifest's `when_unclaimed`
+> reviewer-PII redaction vacuous: it would strip keys that were already null,
+> so the lane would *look* compliant while dropping attribution for claimed
+> accounts too. Slice 0 extracted `fetchPlaceDetailsRaw()`;
+> `fetchPlaceDetails()` keeps its exact public contract by calling it and
+> mapping. Using the raw variant also avoids firing `resolvePhotoUrls()`'s
+> up-to-15 extra billed media calls per run — those belong to slice 1, which
+> should budget for them explicitly.
+
+**A second, opt-in interface exists as shipped:** `PrecheckableBilledEffect`
+(`precheck(BilledEffectContext): void`). A driver that can tell it will not
+attempt an effect — an exhausted budget, a missing credential — throws
+`EffectNotAttempted` from it and no ledger row is claimed at all. Consulted
+after the existing-row read and before the claim, so a settled `ok` row still
+replays when the budget is gone. It is an OPTIMISATION, never the authority:
+it runs outside the claim, so `run()` must still enforce whatever it screens
+for, and it must guard its own I/O (see §13.6).
 
 The driver is invoked from inside the `once()` closure, exactly where the throw is
 today, so claim-first and charge-once are preserved by construction.
@@ -563,6 +597,30 @@ unsafe:
   `settled_at`. It does **not** delete.
 - `verdictFor()` learns that a `refused` row does not block a fresh claim.
 
+> **CORRECTED 2026-08-12 (deviation D3) — the three bullets above describe a
+> design that was NOT built. What shipped:**
+>
+> - The type is **`EffectNotAttempted`, a subclass of `EffectRefused`** — named
+>   for the fact it asserts ("no request left the process") rather than the
+>   reason ("budget"). A missing Places key and a missing Apify token are
+>   exactly as pre-vendor-call as a budget denial, and one type covers all
+>   three. Because it subclasses `EffectRefused`, `RunExecutor`'s existing
+>   handler already folds it to `budget_skipped` — **zero `RunExecutor`
+>   changes**.
+> - `once()` **DELETES** the row it just inserted, rather than settling
+>   `refused`. Settling could not work: `verdictFor()` returns early on
+>   `settled_at !== null` and `digest` is the PRIMARY KEY, so "does not block a
+>   fresh claim" would have needed either a delete anyway or a reclaim-UPDATE
+>   overwriting the audit trail the design existed to protect. The DELETE is
+>   guarded `->where('status','claimed')->whereNull('settled_at')`, so
+>   "provably unsettled" is an enforced precondition, not a comment.
+> - **No `verdictFor()` change and no `refused` status in play.** There is no
+>   reclaim logic to reason about.
+>
+> This is the ONE path in the class that removes a row, and `EffectLedger`'s
+> class docblock says so, keeping `reconcileAbandoned()`'s "never deletes"
+> contract honest.
+
 This preserves retryability *and* the money-adjacent audit trail. Revision 1's
 success criterion — "a budget refusal leaves no blocking row" — was satisfiable by a
 system that had destroyed the evidence, and `reconcileAbandoned()`'s docblock is
@@ -571,10 +629,26 @@ explicit that the ledger "NEVER sets settled_at, never deletes".
 Because `fetchPlaceDetails()` can throw its budget exception mid-loop, the
 `PlacesDetailsDriver` must **not** map `PlacesBudgetExhaustedException` to
 `BudgetRefused` unconditionally. It maps only when no attempt has fired; otherwise
-it is a genuine failure and the claim stays. Slice 0 either passes an
-attempt-counter out of the service or performs its own pre-flight
-`PlacesBudget::claim()` and treats any in-loop throw as failure. Recommended: the
-latter — it needs no change to `GoogleBusinessService`.
+it is a genuine failure and the claim stays.
+
+> **CORRECTED 2026-08-12 (deviation D5).** Neither prescription above shipped —
+> no attempt-counter was extracted and no pre-flight `claim()` was added inside
+> the driver's `run()`. What ships is simpler and needs no change to
+> `GoogleBusinessService`: `fetchPlaceDetailsRaw()` **reports** a first-attempt
+> denial as `PlaceDetailsFailure::BudgetDenied` (→ `EffectNotAttempted`, claim
+> released) rather than throwing, so an escaping
+> `PlacesBudgetExhaustedException` can only be a MID-LOOP denial — meaning a
+> request already reached Google and may have been billed. The driver catches
+> it and returns **`NoAnswer`**, which keeps the settled row and its claim.
+> That is the only safe reading of "we might have been charged".
+>
+> Catching rather than letting it propagate is the point: an escaping
+> `RuntimeException` reaches `RunExecutor`'s catch-all, marks the stream
+> `error` and pages on-call. **A spend ceiling is not our bug.** The same
+> reasoning is why a `NoAnswer` is RETURNED as a `failed` verdict rather than
+> rethrown — `error` means "our bug", while a Google 429 is `unavailable`.
+> (§13.6 records a regression where a later change broke exactly this property
+> and had to be fixed; the shape recurs.)
 
 **A null result is disambiguated, never blanket-settled as `ok`.**
 `fetchPlaceDetails()` returns null for four different reasons, three of which
@@ -593,8 +667,8 @@ digest for a week, and `verdictFor()` (`:139-141`) would replay it as
 `['status'=>'ok','result'=>null,'cached'=>true]`. A missing key in an environment
 would settle *every* place as permanently-ok-null. Only `Answered` settles `ok`.
 
-> **CORRECTED 2026-08-12, against the shipped code — read this before relying on
-> the table above.** This paragraph used to end "`NoAnswer` settles `failed` and
+> **CORRECTED 2026-08-12 (deviation D6), against the shipped code — read this
+> before relying on the table above.** This paragraph used to end "`NoAnswer` settles `failed` and
 > is retryable." **It is not retryable**, and the two claims below are the ones
 > slice 1 must design against, because its Instagram actor returns `NoAnswer` on
 > every vendor outage.
@@ -623,9 +697,23 @@ per environment. Its purpose is *activation gating*, not budget safety — `Plac
 caps) already bound spend, and `ingest:dispatch` only claims `auto_sync = true`
 sources, which Instagram and Google are not. The switch exists because `production`
 deploys on push, so slice 0 can reach prod weeks before slice 1 intends paid fetching
-to be live there. It must also gate `SourceProvisioner`'s stream provisioning, or
-streams get provisioned and dispatched against a switch that only throws at the last
-moment, burning run rows and `ingest.anomalies` every tick.
+to be live there.
+
+> **CORRECTED 2026-08-12 (deviation D4).** This paragraph used to end: "It must
+> also gate `SourceProvisioner`'s stream provisioning, or streams get
+> provisioned and dispatched…". **False on two counts, and no provisioner
+> change shipped.** `SourceProvisioner` never touches `ingest.streams` at all —
+> `RunExecutor::ensureStream()` does, at run time — and
+> `SourceProvisioner::schedulable()` already returns
+> `$manifest->cost === CostClass::Free`, so both billed sources are created
+> `auto_sync = false` and `SourceScheduler::claimDue()` never claims them.
+> Confirmed on dev after the slice 0 deploy: `auto_sync` is `false` on every
+> `google_business` and every `instagram` source.
+>
+> The switch is therefore activation gating only, exactly as the sentences
+> above it say. Slice 1 turning on paid fetching means setting
+> `PARTNA_INGEST_BILLED_EFFECTS_ENABLED` **and** deliberately flipping
+> `auto_sync`; neither implies the other.
 
 ### 5.4 Verification
 
@@ -1246,13 +1334,19 @@ Performed: Steps 4 (merge + deploy), 6 (the billed run), 7 (ledger assertion),
   `{"google_business":[false],"instagram":[false]}`, i.e. false on every source
   of both kinds, so neither billed connector can be picked up by
   `SourceScheduler::claimDue()`.
-- ~~the six D1–D6 spec corrections against §5~~ **The load-bearing one is
-  DONE**: §5.3's closing claim that a `NoAnswer` is retryable was false, and its
-  table mapped a missing API key to `NoAnswer` when the shipped driver throws
-  `EffectNotAttempted`. Both corrected in place 2026-08-12 with the reasoning,
-  because slice 1's Instagram actor returns `NoAnswer` on every vendor outage
-  and would have been designed against the wrong contract. The remaining D
-  items are descriptive drift in §5.1/§5.2, not behavioural claims.
+- ~~the six D1–D6 spec corrections against §5~~ **ALL SIX DONE 2026-08-12.**
+  Each is marked inline in §5 as `CORRECTED 2026-08-12 (deviation Dn)`, keeping
+  the original wording above it so the correction reads as a record rather than
+  a quiet rewrite:
+  | | Was | Is |
+  |---|---|---|
+  | D1 | §5.2 wired the driver to `fetchPlaceDetails()` | `fetchPlaceDetailsRaw()` — the mapped shape would have landed nothing and made the reviewer-PII redaction vacuous |
+  | D2 | §5.1 said `InstagramScraper` carries a per-user cooldown and daily cap | It carries neither; the driver claims `ApifyBudget` itself |
+  | D3 | §5.3 specified `BudgetRefused` settling `status='refused'` | `EffectNotAttempted` (an `EffectRefused` subclass) and a guarded DELETE; no `verdictFor()` change |
+  | D4 | §5.3 said the kill switch must also gate `SourceProvisioner` | False twice over; no provisioner change shipped |
+  | D5 | §5.3 prescribed an attempt-counter or pre-flight `claim()` | Neither; the raw fetch reports a first-attempt denial, so a mid-loop throw folds to `NoAnswer` |
+  | D6 | §5.3 said a `NoAnswer` is retryable | It is not — inert for the freshness window |
+  §5 no longer describes a design that was not built.
 
 ### 13.6 #MONEY-1 and #MONEY-2 — found by audit AFTER slice 0, fixed 2026-08-12
 
@@ -1422,12 +1516,26 @@ cannot run until it deploys:
 
 ### 14.5 Outstanding
 
-- the section/page-count assertions (Task 8 Step 5) were not re-run after the
-  deploy
-- the wire manifest still quotes the pre-backfill slug mapping ("12 current
-  event slugs, 9 mapped, 3 unmapped"); dev now holds 14 minted slugs across
-  all event items, so those figures should be re-measured before the manifest
-  is handed to the frontend teams
+- ~~the section/page-count assertions (Task 8 Step 5)~~ **DONE 2026-08-12**,
+  measured on dev after the deploy: `site.sections` with `key='pool:events'` =
+  **2**, `site.pages` with `key='events'` = **2**. Both non-zero, which is the
+  assertion — sections and pages provision on demand at first read, so these
+  are counts after the pool was read rather than a backfill.
+- ~~the wire manifest still quotes the pre-backfill slug mapping~~
+  **RE-MEASURED and corrected 2026-08-12** (`eedf32063`). Final dev state:
+
+  | Measure | Value |
+  |---|---|
+  | `content.item_slugs` | **14**, all `is_current` |
+  | …on a LIVE item | 11 |
+  | …on a RETIRED item | 3 (retired by `--retire`; rows survive as 301 history) |
+  | Live `content.items` kind `event` | 11 |
+  | Legacy `site.item_slugs` `item_type='event'` | 12, all current, untouched |
+  | Legacy slugs carried into `content.item_slugs` | **9**, all on live items |
+
+  The pre-migration 9-mapped/3-unmapped prediction held exactly. The manifest
+  now also states the distinction that trips people up: the 3 unmapped legacy
+  slugs are NOT the 3 minted slugs sitting on retired items.
 
 **The known regression is CLOSED (`1197052f8`).** `removeEvent()` previously
 wrote only `hiddenEventIds`, which the pool does not read — so every hide made
