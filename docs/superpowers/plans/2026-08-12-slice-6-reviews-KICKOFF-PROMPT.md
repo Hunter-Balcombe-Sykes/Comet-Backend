@@ -113,14 +113,24 @@ and never deletes** (`mayDelete()` is false), and no `Covered` message is ever
 emitted. The display set is simply whatever the latest ok run returned. Do not
 "improve" this into an exhaustive stream.
 
-### Unit 2 — Where reviews render
-Reviews currently reach the public wire from `platform_connections` payload. Decide
-whether they become a pool (`PoolRegistry` entry → `buildPools()` ships it
-automatically) or keep a bespoke read path fed from `content.*`. A review is not
-obviously pool-shaped — there is no meaningful "select which reviews appear"
-curation, and `LATEST_TAG_POOLS` clearly should not include it. Argue the case
-either way; do not default to a pool just because the programme is called pool
-convergence.
+### Unit 2 — Where reviews render — DECIDED, reviews get a pool
+Owner decision 2026-08-12: **all four remaining types get pools**, reviews included.
+Add a `PoolRegistry` entry (`POOLS`, `PAGE_KEYS`, `PAGE_LABELS`, plus a
+`SECTION_SHAPE` block) and provision sections for existing users. `buildPools()`
+loops all `POOLS`, so it ships publicly with no payload-builder change.
+
+Two constraints that follow from what a review *is*:
+
+- **Not** in `LATEST_TAG_POOLS`. A "latest review" tag is meaningless and would
+  misrepresent a vendor-curated sample as a chronology.
+- The stream is `SourceProfile::Sample` — vendor-curated, `orderField` null, never
+  dominates, never deletes. The pool's auto-rule must not assume a complete or
+  ordered set. If the default `SECTION_SHAPE` rule implies either, give reviews its
+  own shape rather than bending the default.
+
+Owner curation of reviews (pinning a favourable one, excluding a bad one) is now
+*possible* via the pool. Whether that is desirable is a product question — if you
+think it is not, say so in the spec rather than quietly omitting the capability.
 
 ### Unit 3 — Retire the legacy read
 Once `content.*` serves reviews, the `platform_connections`-payload read retires and

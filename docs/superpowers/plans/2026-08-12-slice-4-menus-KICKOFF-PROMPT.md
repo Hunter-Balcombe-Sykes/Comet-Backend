@@ -126,6 +126,23 @@ holds per-platform store URLs. Decide where each lands — collections, `f_link`
 `display_settings`, or explicitly nowhere. Anything dropped is a product regression;
 name it as one.
 
+### Unit 7 — The pool — DECIDED, menus get one
+Owner decision 2026-08-12: **all four remaining commerce types get pools.** Add a
+`PoolRegistry` entry (`POOLS`, `PAGE_KEYS`, `PAGE_LABELS`, plus a `SECTION_SHAPE`
+block) and provision sections for existing users. `buildPools()` loops all `POOLS`,
+so it ships publicly with no payload-builder change.
+
+- **Not** in `LATEST_TAG_POOLS` — a "latest dish" is meaningless.
+- Existing menu curation migrates into pool pins/excludes, the way slice 2 migrated
+  `hiddenEventIds`.
+- **Interaction with unit 3:** a dish belongs to several categories, and categories
+  become collections. Be explicit about whether the pool selects *dishes* while
+  collections group them for display, or whether categories are themselves
+  selectable. The first is almost certainly right; say so rather than leaving it
+  implied.
+- Follow whatever `SECTION_SHAPE` slice 3 and slice 5 established for priced,
+  undated items. A third variant for the same problem is a smell.
+
 ## Non-negotiables
 
 - **The 301s are public URLs.** Breaking them is a customer-visible regression and an SEO one. Treat slug migration as blocker-gate work.

@@ -54,27 +54,31 @@ WHERE s.source_key = 'fresha';
 SELECT kind, count(*) FROM content.sources GROUP BY 1;
 ```
 
-### The scope question you must answer before designing
+### The two-surface rule — DECIDED 2026-08-12, do not re-open
 
-`site.services.source` has `CHECK (source = 'fresha')` and this column comment:
+Services render on **two different public surfaces** today.
+`SitepageDataResolverService::buildServicesData()` filters `->whereNull('source')`:
 
-> `'fresha'` = projected from the Fresha scrape; NULL = owner-authored (manual).
-> **Public services section reads only NULL.**
+```php
+// Manual services only — Fresha projections belong to the booking
+// surface (the Fresha selection blob), never the services section.
+->whereNull('source')
+```
 
-If that comment is accurate, the 59 Fresha-projected rows **are not on the public
-site today** — only the 18 owner-authored ones are. Verify it against
-`IndividualProfilePayloadBuilder::buildServices()` and
-`SitepageDataResolverService` before you believe it.
+So the 18 owner-authored services render in the **services section**, and the 59
+Fresha-projected ones render on the **booking surface**. Neither set is hidden.
 
-It changes everything downstream:
+**Owner decision: preserve the split.** Both sets become `content.items`, but the
+two public surfaces stay distinct. After convergence the filter is on the item's
+**source kind** (`manual` vs the Fresha connection source) instead of on a
+`source` column — same outcome, different mechanism.
 
-- If only owner-authored services render, then converging Fresha services onto
-  `content.*` **adds** 59 items to a public surface that has never shown them. That
-  is a product change, not a migration. Flag it and stop for a decision.
-- If both render and the comment is stale, say so and correct the comment.
-
-Do not resolve this by guessing. It is the single most consequential ambiguity in
-the slice.
+**This is the trap in this slice.** Services also get a pool (below), and the naive
+implementation puts every service in one pool and renders them in one place — which
+is precisely what "preserve the split" forbids. The pool governs *which items are
+eligible*; the surface filter governs *which eligible items render where*. Write a
+test that fails if a Fresha-sourced service appears in the services section, and one
+that fails if an owner-authored service appears on the booking surface.
 
 ## Scope
 
@@ -125,12 +129,19 @@ Legacy `deleted_at` (+ `deleted_origin`) → `content.items.removed_at`. **Never
 reappearance, so a subsequent Fresha run would resurrect a service the owner
 deleted. Parent §7 slice 3 states this; assert it in a test.
 
-### Unit 6 — The pool
-Decide whether services get a `PoolRegistry` entry. `buildPools()` loops all
-`POOLS`, so adding one ships on the public wire automatically — which interacts
-directly with the scope question above. If services do get a pool, the existing
-`hiddenServiceIds` curation must migrate into pool excludes, the way slice 2
-migrated `hiddenEventIds`. Read that slice's implementation first.
+### Unit 6 — The pool — DECIDED, services get one
+Owner decision 2026-08-12: **all four remaining commerce types get pools.** Add a
+`PoolRegistry` entry (`POOLS`, `PAGE_KEYS`, `PAGE_LABELS`, and a `SECTION_SHAPE`
+block if the default rule does not fit), and provision sections for existing users.
+`buildPools()` loops all `POOLS`, so this ships on the public wire with no
+payload-builder change.
+
+- **Not** in `LATEST_TAG_POOLS` — a "latest service" is meaningless.
+- Existing `hiddenServiceIds` curation migrates into pool **excludes**, exactly the
+  way slice 2 migrated `hiddenEventIds`. Read that implementation before writing
+  yours; it is the reference.
+- The pool holds **both** source kinds. The two-surface rule above still governs
+  what renders where — the pool is eligibility, not placement.
 
 ## Non-negotiables
 

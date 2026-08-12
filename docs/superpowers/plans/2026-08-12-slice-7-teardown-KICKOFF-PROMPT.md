@@ -88,11 +88,20 @@ tables breaks the export outright. Re-source from `content.*` and decide the sec
 keys — noting the 2026-08-05 precedent that DSAR allowlists deliberately **retain**
 legacy keys so previously-stored payloads stay disclosable.
 
-### Unit 4 — Analytics continuity (§9.7)
-`mergeInto()` hard-deletes merged-away items, and historical `analytics.item_views` /
-`content_popularity_scores` rows reference ids that migration merged or deleted.
-State explicitly whether historical analytics are repointed, orphaned, or accepted
-as lost. This is a decision to record, not a bug to fix silently.
+### Unit 4 — Analytics continuity (§9.7) — DECIDED, accept as lost
+Owner decision 2026-08-12: historical `analytics.item_views` and
+`content_popularity_scores` rows referencing merged-away or deleted item ids are
+**accepted as lost**. Prod carries no customer data (`core.users` = 0) and dev's
+analytics are test noise, so there is nothing of value to preserve and no repoint
+work is warranted.
+
+Unit 4 is therefore **documentation, not code**: record the decision in the
+checkpoint, state the approximate row count affected, and confirm nothing *breaks* —
+there is no FK, so orphaned analytics rows are inert rather than dangerous.
+
+**One thing to verify rather than assume:** that no query joins analytics to
+`content.items` with an inner join that would silently drop rows, or worse, error.
+If one exists, it needs a null-safe path before the teardown, and that *is* code.
 
 ### Unit 5 — The DROPs, in dependency order
 The ten tables from parent §1.4:

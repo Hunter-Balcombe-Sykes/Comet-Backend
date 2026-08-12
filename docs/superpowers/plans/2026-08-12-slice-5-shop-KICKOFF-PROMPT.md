@@ -99,11 +99,20 @@ delete them (that is slice 7), so decide: do they keep writing legacy while
 correctness hazard; backfill-only means the tables diverge until slice 7. Pick one,
 state it, and make the divergence window explicit.
 
-### Unit 4 — The pool
-Decide whether shop gets a `PoolRegistry` entry. `buildPools()` loops all `POOLS`, so
-adding one ships publicly with no payload-builder change. If yes, existing shop
-selection curation migrates into pool pins/excludes the way slice 2 handled
-`hiddenEventIds` — read that implementation before designing yours.
+### Unit 4 — The pool — DECIDED, shop gets one
+Owner decision 2026-08-12: **all four remaining commerce types get pools.** Add a
+`PoolRegistry` entry (`POOLS`, `PAGE_KEYS`, `PAGE_LABELS`, plus a `SECTION_SHAPE`
+block if the default rule does not fit) and provision sections for existing users.
+`buildPools()` loops all `POOLS`, so this ships publicly with no payload-builder
+change.
+
+- Existing shop selection curation migrates into pool **pins/excludes**, the way
+  slice 2 migrated `hiddenEventIds`. Read that implementation first.
+- `shop_brands.selection_mode` (`manual|latest`) is the per-brand equivalent of
+  `auto_sync_latest`. If `latest` maps onto the pool's auto-rule, say so and reuse
+  the existing operator rather than inventing a second mechanism.
+- Decide whether shop belongs in `LATEST_TAG_POOLS`. "Newest product" is arguably
+  meaningful where "latest service" is not — argue it either way, but decide.
 
 ## Non-negotiables
 
