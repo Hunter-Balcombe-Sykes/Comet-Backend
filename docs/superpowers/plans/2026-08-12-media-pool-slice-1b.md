@@ -1,0 +1,1697 @@
+# Media Pool Slice 1b Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Put Instagram photos into the media pool on owned bytes, put Google photos on the public payload as a live display-only lane with attribution, and migrate the three upload selections while recording the eighty-six that cannot be carried.
+
+**Architecture:** Media splits into two classes. *Owned* (uploads, Instagram) mirrors bytes to R2, keys on stable identity, is poolable and pinnable. *Borrowed* (Google) is resolved live inside a ~30-day expiry window, attributed, pruned, and never pinned. The split is forced by three facts established in the spec: Places photo refs rotate every fetch, resolved URLs die at ~30 days, and Google's terms grant photos no caching exemption.
+
+**Tech Stack:** PHP 8.4, Laravel 12, PostgreSQL (Supabase), Pest 4, Redis/Horizon, Cloudflare R2 via `config('partna.media_disk')`.
+
+**Spec:** `docs/superpowers/specs/2026-08-12-media-pool-slice-1b-design.md`. Read §2 (the three findings) and §3 (D1–D10) before starting. Every task below cites its decision.
+
+## Global Constraints
+
+- **Branch:** `feat/media-pool-slice-1b` off `development`. Never commit to `development` or `production` directly.
+- **Never create Laravel migration files.** All schema changes are raw SQL under `supabase/migrations/`, one `CONCURRENTLY` statement per file. A composer guard rejects Laravel migrations.
+- **Every outbound fetch goes through `App\Services\Http\SafeUrlFetcher`** (category B). An lh3 or Instagram CDN URL arrived in a third-party payload and is untrusted by definition. Adding a host allowlist entry is **not** the fix. Guarded by `tests/Feature/Architecture/OutboundHttpGuardTest.php`, which runs as its own CI job.
+- **Authorization via Policies only.** Never `abort_unless($user->id === $x->user_id, 403)`. Use `$this->authorizeForUser($user, 'ability', $resource)`. CI fails the build on inline 403 aborts.
+- **Never return raw Eloquent from an endpoint.** Resource classes for responses, Form Request classes for validation.
+- **Tests run SQLite; production is Postgres.** Verify every constraint-bound write against the DDL in `supabase/migrations/`, not against a green suite. Live constraint values are in §6.3 of the spec.
+- **`item_media_role_check` = `cover|gallery|poster|avatar|logo`.** Nothing else may be written to `content.item_media.role`.
+- **`media_assets_variant_family_check` = `google|shopify|ytimg|native|proxy`, or NULL.**
+- **`media_assets_dims_confidence_check` = `measured|declared|guessed`, or NULL.**
+- **Cache invalidation is three lanes** on every raw-write seam: `BuildState::bump($siteId)`, touch `site.sites.updated_at`, and `CloudflareCachePurgeJob::dispatch($subdomain)`. Copy `MediaUploadBackfiller::invalidate()`. **Do not copy `PoolController::poolChanged()`** — it runs two lanes on purpose. There is **no CI check** for this; assert it directly in tests.
+- **Every migration service is production code** under `app/Services/Migration/` with an artisan command, `--dry-run`, idempotent, re-runnable, counts reported (convergence invariant #4).
+- **No unit is done without a live dev assertion** — SQL and its output pasted into the checkpoint (invariant #1).
+- **Real logs live in Laravel Cloud.** `cloud env:logs partna development --minutes 10`. Never `mcp__laravel-boost__read-log-entries`.
+- **Do not run two `scripts/audit/audit.sh` at once.** Not needed by this plan, noted because the repo enforces it.
+- **`git stash` is forbidden** in this worktree — a peer session shares the checkout.
+
+---
+
+## Task 0: Precondition — run 1a's commands against dev
+
+1a's code and schema landed (`d45e6bcbc`), but its two commands have **not been run**. Convergence invariant #6: registration is not execution. Task 8 migrates the three upload *selections* on the premise that 1a already gave those items a home, and Task 10's regression asserts 25 upload items survive — neither is true until this runs.
+
+**Files:** none — operational task.
+
+**Interfaces:**
+- Consumes: `content:backfill-upload-media` and `content:reshape-media-sections`, both merged in 1a.
+- Produces: a dev database where `content.items kind='media'` = 45, `content.media_assets.site_media_id IS NOT NULL` = 25, and zero `pool:media` sections carry `latest_per_auto_source`.
+
+- [ ] **Step 1: Confirm the code gate on the branch you are about to build on**
+
+Run:
+```bash
+git checkout development && git pull --ff-only origin development
+grep -n 'fingerprint = \$ref ?? \$url' app/Ingest/Projection/ProjectionWriter.php
+```
+Expected: one hit at approximately line 1166.
+
+**If this shows `$url ?? $ref`, STOP.** 1a has not landed and Task 5 will silently re-key the twenty existing Google assets, mint duplicates through `resolveMediaAssets()`'s `insertOrIgnore`, and leave `content.item_media.asset_id` pointing at the orphans. Report the gate failure and go no further.
+
+- [ ] **Step 2: Confirm the column exists on dev**
+
+Run against dev (`glncumufgaqcmqhzwrxm`):
+```sql
+SELECT count(*) FROM information_schema.columns
+WHERE table_schema='content' AND table_name='media_assets' AND column_name='site_media_id';
+```
+Expected: `1`.
+
+- [ ] **Step 3: Dry-run both 1a commands**
+
+```bash
+cloud command:run development "php artisan content:backfill-upload-media --dry-run"
+cloud command:run development "php artisan content:reshape-media-sections --dry-run"
+```
+Expected: the backfiller reports 25 eligible (16 gallery + 9 content); the reshaper reports 10 sections to change. Paste both outputs into the checkpoint.
+
+- [ ] **Step 4: Run both for real**
+
+```bash
+cloud command:run development "php artisan content:backfill-upload-media"
+cloud command:run development "php artisan content:reshape-media-sections"
+```
+
+- [ ] **Step 5: Assert the post-state on dev**
+
+```sql
+SELECT (SELECT count(*) FROM content.items WHERE kind='media' AND removed_at IS NULL) AS media_items,
+       (SELECT count(*) FROM content.media_assets WHERE site_media_id IS NOT NULL) AS upload_assets,
+       (SELECT count(*) FROM site.sections WHERE kind='collection'
+          AND rule::text LIKE '%latest_per_auto_source%' AND rule::text LIKE '%"media"%') AS bad_rule;
+```
+Expected: `media_items=45, upload_assets=25, bad_rule=0`.
+
+**If `media_items` is not 45, stop and reconcile before continuing.** The most likely cause is uploads in a non-`ready` `processing_state`, which the backfiller counts as skipped rather than dropping silently — read its output, do not guess.
+
+- [ ] **Step 6: Create the branch**
+
+```bash
+git checkout -b feat/media-pool-slice-1b
+```
+
+---
+
+## Task 1: `content.media_assets.attribution`
+
+**Decision:** D6. Google's terms require attribution display; `mapPhoto()` collects author names today and `GoogleBusinessMediaProjector` discards them.
+
+**Files:**
+- Create: `supabase/migrations/20260813000000_content_media_assets_attribution.sql`
+- Test: `tests/Schema/MediaAssetAttributionColumnTest.php`
+
+**Interfaces:**
+- Produces: `content.media_assets.attribution` — `jsonb NULL`, no DB default. Shape `{"authors":[{"name":string,"uri":string|null}],"maps_uri":string|null,"flag_uri":string|null}`. Every key optional; the whole column is NULL when Google returned no attribution at all.
+
+- [ ] **Step 1: Write the migration**
+
+Create `supabase/migrations/20260813000000_content_media_assets_attribution.sql`:
+
+```sql
+-- Slice 1b D6: Google Places terms require photo attribution on display.
+-- GoogleBusinessConnector::mapPhoto() collects authorAttributions and the
+-- projector currently discards them; this is where they land.
+--
+-- NULLABLE with no default, deliberately: only ~60 of 110 live Google photo
+-- entries carry attribution at all, so "absent" is a real and expected state,
+-- not a backfill gap. jsonb rather than columns because the shape is Google's
+-- and may gain keys (googleMapsUri, flagContentUri) without a migration.
+ALTER TABLE content.media_assets ADD COLUMN attribution jsonb NULL;
+```
+
+- [ ] **Step 2: Apply to dev and verify**
+
+```bash
+supabase link --project-ref glncumufgaqcmqhzwrxm
+supabase db push --dry-run
+supabase db push
+```
+
+Then:
+```sql
+SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema='content' AND table_name='media_assets' AND column_name='attribution';
+```
+Expected: one row, `jsonb`, `YES`, `null`.
+
+- [ ] **Step 3: Write the schema test**
+
+Create `tests/Schema/MediaAssetAttributionColumnTest.php`:
+
+```php
+<?php
+
+use Illuminate\Support\Facades\File;
+
+it('adds attribution as a nullable jsonb column with no default', function () {
+    $sql = File::get(base_path('supabase/migrations/20260813000000_content_media_assets_attribution.sql'));
+
+    expect($sql)->toContain('ADD COLUMN attribution jsonb NULL');
+    // A DB default would make "Google gave us nothing" indistinguishable from
+    // "we never asked" — D6's known gap depends on NULL meaning absent.
+    expect(str_contains($sql, 'DEFAULT'))->toBeFalse();
+});
+```
+
+- [ ] **Step 4: Run it**
+
+Run: `./vendor/bin/pest tests/Schema/MediaAssetAttributionColumnTest.php`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/20260813000000_content_media_assets_attribution.sql tests/Schema/MediaAssetAttributionColumnTest.php
+git commit -m "feat(media): content.media_assets.attribution — Places terms require it on display"
+```
+
+---
+
+## Task 2: `mapPhoto()` carries attribution
+
+**Decision:** D6.
+
+**Files:**
+- Modify: `app/Ingest/Connectors/GoogleBusinessConnector.php:256-277` (`mapPhoto`)
+- Test: `tests/Unit/Ingest/Connectors/GoogleBusinessPhotoAttributionTest.php`
+
+**Interfaces:**
+- Consumes: the raw Places photo shape returned by `PlacesDetailsDriver` — `{name, widthPx, heightPx, authorAttributions:[{displayName, uri, photoUri}], googleMapsUri, flagContentUri}`.
+- Produces: `mapPhoto()` returns an added `attribution` key of the Task 1 shape, or omits the key entirely when Google supplied nothing. Consumed by Task 3.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/Unit/Ingest/Connectors/GoogleBusinessPhotoAttributionTest.php`:
+
+```php
+<?php
+
+use App\Ingest\Connectors\GoogleBusinessConnector;
+
+/** mapPhoto is private; drive it through the media stream the way pull() does. */
+function mapPhotoViaReflection(array $photo): ?array
+{
+    $method = new ReflectionMethod(GoogleBusinessConnector::class, 'mapPhoto');
+
+    return $method->invoke(new GoogleBusinessConnector, $photo);
+}
+
+it('carries author name, author uri, maps uri and flag uri', function () {
+    $result = mapPhotoViaReflection([
+        'name' => 'places/ChIJtest/photos/AWCwydtoken',
+        'widthPx' => 4032,
+        'heightPx' => 3024,
+        'authorAttributions' => [
+            ['displayName' => 'Jo Rivera', 'uri' => 'https://maps.google.com/maps/contrib/1234'],
+        ],
+        'googleMapsUri' => 'https://maps.google.com/photo/abc',
+        'flagContentUri' => 'https://maps.google.com/flag/abc',
+    ]);
+
+    expect($result['attribution'])->toBe([
+        'authors' => [['name' => 'Jo Rivera', 'uri' => 'https://maps.google.com/maps/contrib/1234']],
+        'maps_uri' => 'https://maps.google.com/photo/abc',
+        'flag_uri' => 'https://maps.google.com/flag/abc',
+    ]);
+});
+
+it('omits attribution entirely when Google supplied none', function () {
+    // D6's known gap: ~50 of 110 live photos carry no authors. Absent must stay
+    // absent — an empty object would render as a credit with no name in it.
+    $result = mapPhotoViaReflection([
+        'name' => 'places/ChIJtest/photos/AWCwydtoken',
+        'widthPx' => 800,
+        'heightPx' => 600,
+    ]);
+
+    expect($result)->not->toHaveKey('attribution');
+});
+
+it('keeps an author whose uri is missing', function () {
+    $result = mapPhotoViaReflection([
+        'name' => 'places/ChIJtest/photos/AWCwydtoken',
+        'authorAttributions' => [['displayName' => 'Sam Okafor']],
+    ]);
+
+    expect($result['attribution']['authors'])->toBe([['name' => 'Sam Okafor', 'uri' => null]]);
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./vendor/bin/pest tests/Unit/Ingest/Connectors/GoogleBusinessPhotoAttributionTest.php`
+Expected: FAIL — `Undefined array key "attribution"`.
+
+- [ ] **Step 3: Implement**
+
+Replace `mapPhoto()` in `app/Ingest/Connectors/GoogleBusinessConnector.php`:
+
+```php
+    /** @return array<string, mixed>|null */
+    private function mapPhoto(mixed $photo): ?array
+    {
+        if (! is_array($photo)) {
+            return null;
+        }
+        $ref = is_string($photo['name'] ?? null) ? $photo['name'] : '';
+        if ($ref === '') {
+            return null;
+        }
+
+        $authors = array_values(array_filter(array_map(
+            static fn ($a) => is_array($a) && is_string($a['displayName'] ?? null)
+                ? ['name' => $a['displayName'], 'uri' => is_string($a['uri'] ?? null) ? $a['uri'] : null]
+                : null,
+            (array) ($photo['authorAttributions'] ?? []),
+        )));
+
+        // D6: Places terms require crediting the author and linking back to the
+        // photo on Maps. Absent stays absent — Google supplies attribution for
+        // only about half of the photos it returns, and an empty credit block
+        // reads as a bug rather than as missing vendor data.
+        $attribution = array_filter([
+            'authors' => $authors !== [] ? $authors : null,
+            'maps_uri' => is_string($photo['googleMapsUri'] ?? null) ? $photo['googleMapsUri'] : null,
+            'flag_uri' => is_string($photo['flagContentUri'] ?? null) ? $photo['flagContentUri'] : null,
+        ], static fn ($v) => $v !== null);
+
+        return array_filter([
+            'ref' => $ref,
+            'url' => is_string($photo['url'] ?? null) && $photo['url'] !== '' ? $photo['url'] : null,
+            'width_px' => $photo['widthPx'] ?? null,
+            'height_px' => $photo['heightPx'] ?? null,
+            'attribution' => $attribution !== [] ? $attribution : null,
+        ], static fn ($v) => $v !== null && $v !== []);
+    }
+```
+
+Note the `url` key: Task 5 populates it on the raw photo entry. Reading it here now means Task 5 is a driver change only.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `./vendor/bin/pest tests/Unit/Ingest/Connectors/GoogleBusinessPhotoAttributionTest.php`
+Expected: PASS, 3 tests.
+
+- [ ] **Step 5: Verify the redaction manifest did not widen**
+
+`GoogleBusinessConnector::manifest()` declares `redactions: ['author','author_uri','author_photo']` with `when_unclaimed` scopes. Those cover **reviewer** PII on the `reviews` stream, not photographer credits on `media`.
+
+Run: `./vendor/bin/pest tests/Feature/Ingest --filter=Redaction`
+Expected: PASS, unchanged.
+
+Confirm by eye that the new keys are nested under `attribution` and are not named `author` / `author_uri`, so no redaction rule matches them. If a redaction test fails, the credit is being stripped for unclaimed accounts — which would silently drop legally-required attribution. Fix the nesting, not the redaction list.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add app/Ingest/Connectors/GoogleBusinessConnector.php tests/Unit/Ingest/Connectors/GoogleBusinessPhotoAttributionTest.php
+git commit -m "feat(ingest): mapPhoto carries photographer attribution and the resolved url"
+```
+
+---
+
+## Task 3: The media projector stops discarding attribution
+
+**Decision:** D6, D7.
+
+**Files:**
+- Modify: `app/Ingest/Projection/GoogleBusinessMediaProjector.php`
+- Test: `tests/Unit/Ingest/Projection/GoogleBusinessMediaProjectorTest.php`
+
+**Interfaces:**
+- Consumes: Task 2's `mapPhoto()` output, arriving as a `RecordView`.
+- Produces: a media entry carrying `role`, `ref`, `url`, `width`, `height`, `attribution`. `headline` stays `null` (D7). Consumed by Task 4.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/Unit/Ingest/Projection/GoogleBusinessMediaProjectorTest.php`:
+
+```php
+<?php
+
+use App\Ingest\Projection\GoogleBusinessMediaProjector;
+use App\Ingest\Projection\RecordView;
+
+it('projects url and attribution onto the media entry', function () {
+    $projected = (new GoogleBusinessMediaProjector)->project(new RecordView([
+        'ref' => 'places/ChIJtest/photos/AWCwydtoken',
+        'url' => 'https://lh3.googleusercontent.com/place-photos/AG9NLjtest=s4800-w1200',
+        'width_px' => 4032,
+        'height_px' => 3024,
+        'attribution' => ['authors' => [['name' => 'Jo Rivera', 'uri' => null]]],
+    ]));
+
+    expect($projected['media'][0]['url'])->toBe('https://lh3.googleusercontent.com/place-photos/AG9NLjtest=s4800-w1200')
+        ->and($projected['media'][0]['ref'])->toBe('places/ChIJtest/photos/AWCwydtoken')
+        ->and($projected['media'][0]['attribution']['authors'][0]['name'])->toBe('Jo Rivera')
+        ->and($projected['media'][0]['role'])->toBe('gallery');
+});
+
+it('leaves the headline null by contract', function () {
+    // D7: a photo does not need a headline. Asserted so a later "fix" cannot
+    // quietly reintroduce a synthetic one.
+    $projected = (new GoogleBusinessMediaProjector)->project(new RecordView([
+        'ref' => 'places/ChIJtest/photos/AWCwydtoken',
+    ]));
+
+    expect($projected['headline'])->toBeNull();
+});
+
+it('projects without url or attribution when Google supplied neither', function () {
+    $projected = (new GoogleBusinessMediaProjector)->project(new RecordView([
+        'ref' => 'places/ChIJtest/photos/AWCwydtoken',
+    ]));
+
+    expect($projected['media'][0])->not->toHaveKey('url')
+        ->and($projected['media'][0])->not->toHaveKey('attribution');
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./vendor/bin/pest tests/Unit/Ingest/Projection/GoogleBusinessMediaProjectorTest.php`
+Expected: FAIL on the first test — no `url` key.
+
+- [ ] **Step 3: Implement**
+
+Replace `project()` in `app/Ingest/Projection/GoogleBusinessMediaProjector.php`, and update the class docblock, which currently claims the projector emits no URL:
+
+```php
+/**
+ * Places photo → the `media` item kind.
+ *
+ * Slice 1b D1/D2: the photo is BORROWED, not owned. Google's terms grant photos
+ * no caching exemption, the resolved lh3 url dies at ~30 days, and the photo
+ * `ref` is reissued on every Details fetch — so this asset is displayed live and
+ * re-resolved inside the window, never mirrored and never pinned. The url is
+ * resolved in the SAME billed fetch as the ref (PlacesDetailsDriver), because
+ * refs and urls are only consistent within one fetch.
+ *
+ * The headline stays null by contract (D7): a photo does not need one.
+ */
+class GoogleBusinessMediaProjector implements Projector
+{
+    public static function version(): int
+    {
+        // Bumped for slice 1b: the media entry gained url + attribution.
+        return 2;
+    }
+
+    public static function kind(): string
+    {
+        return 'media';
+    }
+
+    public function project(RecordView $view): ?array
+    {
+        $ref = $view->string('ref');
+        if ($ref === null) {
+            return null;
+        }
+
+        return [
+            'kind' => self::kind(),
+            'headline' => null,
+            'facets' => [],
+            'media' => [array_filter([
+                'role' => 'gallery',
+                'ref' => $ref,
+                'url' => $view->string('url'),
+                'width' => $view->int('width_px'),
+                'height' => $view->int('height_px'),
+                'attribution' => $view->array('attribution'),
+            ], static fn ($v) => $v !== null && $v !== [])],
+        ];
+    }
+}
+```
+
+**Before running:** confirm `RecordView` exposes an `array()` accessor. Run `grep -n 'public function ' app/Ingest/Projection/RecordView.php`. If it does not, add one following the existing `string()` / `int()` / `list()` pattern in the same file, and cover it in this task's test.
+
+The `version()` bump to 2 is load-bearing: `content.source_items.projector_version` records which shape produced a row, and leaving it at 1 makes rows written before and after this task indistinguishable.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `./vendor/bin/pest tests/Unit/Ingest/Projection/GoogleBusinessMediaProjectorTest.php`
+Expected: PASS, 3 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add app/Ingest/Projection/GoogleBusinessMediaProjector.php tests/Unit/Ingest/Projection/GoogleBusinessMediaProjectorTest.php
+git commit -m "feat(ingest): google media projector carries url + attribution, headline stays null by contract"
+```
+
+---
+
+## Task 4: `resolveMediaAssets()` writes attribution
+
+**Decision:** D6. This is hot code on every projection run for every connector — it gets its own task and its own review.
+
+**Files:**
+- Modify: `app/Ingest/Projection/ProjectionWriter.php:1219-1240` (the `$rows[] = [...]` block inside `resolveMediaAssets`)
+- Test: `tests/Feature/Ingest/Projection/MediaAssetAttributionWriteTest.php`
+
+**Interfaces:**
+- Consumes: Task 3's media entry.
+- Produces: `content.media_assets.attribution` populated on mint. **Mint only** — `resolveMediaAssets()` never updates an existing row, and that is correct here: Google refs rotate, so every run mints fresh rows anyway.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/Feature/Ingest/Projection/MediaAssetAttributionWriteTest.php`:
+
+```php
+<?php
+
+use Illuminate\Support\Facades\DB;
+
+it('writes attribution as jsonb on a freshly minted asset', function () {
+    $user = createUserWithSite();
+
+    projectMediaEntries($user->id, [[
+        'role' => 'gallery',
+        'ref' => 'places/ChIJtest/photos/AWCwydtoken',
+        'url' => 'https://lh3.googleusercontent.com/place-photos/AG9NLjtest',
+        'attribution' => ['authors' => [['name' => 'Jo Rivera', 'uri' => null]], 'maps_uri' => 'https://maps.google.com/p/1'],
+    ]]);
+
+    $row = DB::table('content.media_assets')
+        ->where('user_id', $user->id)
+        ->where('fingerprint', 'url-'.sha1('places/ChIJtest/photos/AWCwydtoken'))
+        ->first();
+
+    expect($row)->not->toBeNull()
+        ->and(json_decode($row->attribution, true)['authors'][0]['name'])->toBe('Jo Rivera')
+        ->and(json_decode($row->attribution, true)['maps_uri'])->toBe('https://maps.google.com/p/1');
+});
+
+it('leaves attribution null when the entry carries none', function () {
+    $user = createUserWithSite();
+
+    projectMediaEntries($user->id, [[
+        'role' => 'gallery',
+        'ref' => 'places/ChIJtest/photos/AWCwydnoattr',
+    ]]);
+
+    $row = DB::table('content.media_assets')
+        ->where('user_id', $user->id)
+        ->where('fingerprint', 'url-'.sha1('places/ChIJtest/photos/AWCwydnoattr'))
+        ->first();
+
+    expect($row->attribution)->toBeNull();
+});
+
+it('does not disturb the upload shape 1a established', function () {
+    // Regression guard: this task edits the same insert array 1a's upload branch
+    // writes. An upload must still mint with site_media_id, measured dims and a
+    // null source_url — and now a null attribution.
+    $user = createUserWithSite();
+    $siteMediaId = createReadySiteMediaWithWebpVariant($user, width: 1200, height: 800);
+
+    projectMediaEntries($user->id, [[
+        'role' => 'gallery',
+        'site_media_id' => $siteMediaId,
+        'width' => 1200,
+        'height' => 800,
+        'mime_type' => 'image/webp',
+    ]]);
+
+    $row = DB::table('content.media_assets')
+        ->where('user_id', $user->id)
+        ->where('fingerprint', 'url-'.sha1('upload:'.$siteMediaId))
+        ->first();
+
+    expect($row->site_media_id)->toBe($siteMediaId)
+        ->and($row->dims_confidence)->toBe('measured')
+        ->and($row->source_url)->toBeNull()
+        ->and($row->attribution)->toBeNull();
+});
+```
+
+**Helpers:** `createUserWithSite()`, `createReadySiteMediaWithWebpVariant()` and `projectMediaEntries()` must exist in `tests/Pest.php` or a shared helper file. 1a's suite added equivalents — run `grep -rn 'function projectMediaEntries\|function createReadySiteMediaWithWebpVariant' tests/` first and reuse what is there rather than defining a second copy. A duplicate function in the global namespace is a fatal error, not a test failure (1a hit this: commit `f4edafb6b`).
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./vendor/bin/pest tests/Feature/Ingest/Projection/MediaAssetAttributionWriteTest.php`
+Expected: FAIL — `attribution` is null on the first test.
+
+- [ ] **Step 3: Implement**
+
+In `app/Ingest/Projection/ProjectionWriter.php`, inside `resolveMediaAssets()`, add one key to the `$rows[]` array:
+
+```php
+            $rows[] = [
+                'id' => (string) Str::uuid(),
+                'user_id' => $userId,
+                'fingerprint' => $fingerprint,
+                'source_url' => $url,
+                'site_media_id' => $uploadSiteMediaId,
+                'mime_type' => $isUpload ? ($entry['mime_type'] ?? null) : null,
+                'width' => $entry['width'] ?? null,
+                'height' => $entry['height'] ?? null,
+                'dims_confidence' => $isUpload ? 'measured' : (isset($entry['width']) ? 'declared' : null),
+                // Slice 1b D6. Mint-only, like every other column here: a Google
+                // ref rotates every fetch, so a rotated photo arrives as a NEW
+                // row and carries its own credit. There is no update path to
+                // keep in sync.
+                'attribution' => isset($entry['attribution']) && is_array($entry['attribution']) && $entry['attribution'] !== []
+                    ? json_encode($entry['attribution'])
+                    : null,
+                'created_at' => now(),
+            ];
+```
+
+- [ ] **Step 4: Run the new tests and the full projection suite**
+
+```bash
+./vendor/bin/pest tests/Feature/Ingest/Projection/MediaAssetAttributionWriteTest.php
+./vendor/bin/pest tests/Feature/Ingest tests/Unit/Ingest
+```
+Expected: PASS. The second command is the regression gate — this method runs for every connector, so a green new test alone proves nothing.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add app/Ingest/Projection/ProjectionWriter.php tests/Feature/Ingest/Projection/MediaAssetAttributionWriteTest.php
+git commit -m "feat(ingest): persist photo attribution on asset mint"
+```
+
+---
+
+## Task 5: `PlacesDetailsDriver` resolves photo URLs in the same fetch
+
+**Decision:** D2, D3. **This is the money task.** It adds billed calls and it is the one Task 0's code gate exists to protect.
+
+**Files:**
+- Modify: `app/Ingest/Runtime/Effects/PlacesDetailsDriver.php`
+- Modify: `app/Ingest/Connectors/GoogleBusinessConnector.php` (`defaultIntervalSeconds` and the `media` StreamSpec)
+- Test: `tests/Feature/Ingest/Effects/PlacesDetailsPhotoResolutionTest.php`
+
+**Interfaces:**
+- Consumes: `GoogleBusinessService::fetchPlaceDetailsRaw(string $placeId, string $userId)`, already called by this driver.
+- Produces: the raw Places response with each `photos[]` entry carrying an added `url` key where resolution succeeded. Task 2's `mapPhoto()` reads it.
+
+- [ ] **Step 1: Read the existing resolution path before touching anything**
+
+Run:
+```bash
+grep -n 'function resolvePhotoUrls\|function fetchPlaceDetailsRaw\|PHOTO_REF_PATTERN' app/Services/Platforms/GoogleBusinessService.php
+```
+
+`resolvePhotoUrls()` (~`:516`) already claims one `PlacesBudget` `photos` slot per photo **before** the pool fires, validates each ref against `PHOTO_REF_PATTERN`, and caps concurrency. **Reuse it. Do not write a second resolution path** — `PlacesBudgetGuardTest` enforces that the config key has a single origin, and a parallel path would be an unbudgeted billing route.
+
+If `resolvePhotoUrls()` is private, add a narrowly-typed public method on `GoogleBusinessService` that delegates to it, rather than duplicating the body.
+
+- [ ] **Step 2: Write the failing test**
+
+Create `tests/Feature/Ingest/Effects/PlacesDetailsPhotoResolutionTest.php`:
+
+```php
+<?php
+
+use App\Ingest\Runtime\Effects\BilledEffectContext;
+use App\Ingest\Runtime\Effects\PlacesDetailsDriver;
+
+it('returns photos carrying resolved urls alongside their refs', function () {
+    fakePlacesDetails([
+        'displayName' => ['text' => 'Test Cafe'],
+        'photos' => [
+            ['name' => 'places/ChIJtest/photos/AWCwydone', 'widthPx' => 4032, 'heightPx' => 3024],
+            ['name' => 'places/ChIJtest/photos/AWCwydtwo', 'widthPx' => 800, 'heightPx' => 600],
+        ],
+    ]);
+    fakePlacesPhotoResolution([
+        'places/ChIJtest/photos/AWCwydone' => 'https://lh3.googleusercontent.com/place-photos/AG9NLjone',
+        'places/ChIJtest/photos/AWCwydtwo' => 'https://lh3.googleusercontent.com/place-photos/AG9NLjtwo',
+    ]);
+
+    $result = app(PlacesDetailsDriver::class)->run(new BilledEffectContext(
+        input: ['place_id' => 'ChIJtest'],
+        userId: 'user-1',
+    ));
+
+    expect($result->data['photos'][0]['url'])->toBe('https://lh3.googleusercontent.com/place-photos/AG9NLjone')
+        ->and($result->data['photos'][0]['name'])->toBe('places/ChIJtest/photos/AWCwydone')
+        ->and($result->data['photos'][1]['url'])->toBe('https://lh3.googleusercontent.com/place-photos/AG9NLjtwo');
+});
+
+it('returns the photo without a url when resolution fails, and does not fail the effect', function () {
+    // A photo without a servable url is an already-supported state (the frame is
+    // omitted downstream). Failing the whole Details effect over one dead photo
+    // would throw away the profile and reviews streams too.
+    fakePlacesDetails([
+        'displayName' => ['text' => 'Test Cafe'],
+        'photos' => [['name' => 'places/ChIJtest/photos/AWCwydone']],
+    ]);
+    fakePlacesPhotoResolution([]);
+
+    $result = app(PlacesDetailsDriver::class)->run(new BilledEffectContext(
+        input: ['place_id' => 'ChIJtest'],
+        userId: 'user-1',
+    ));
+
+    expect($result->outcome->value)->toBe('answered')
+        ->and($result->data['photos'][0])->not->toHaveKey('url');
+});
+
+it('does not change the effect digest', function () {
+    // D2: photo resolution rides inside the EXISTING api/places.details effect.
+    // A new input key would split profile/reviews from media into two billed
+    // Details calls at $25/1000 each — far more than the $7/1000 photo calls
+    // it would be isolating.
+    $before = effectDigestFor('api', 'places.details', ['place_id' => 'ChIJtest']);
+
+    expect($before)->toBe(effectDigestFor('api', 'places.details', ['place_id' => 'ChIJtest']));
+});
+```
+
+**Helpers:** `fakePlacesDetails()`, `fakePlacesPhotoResolution()` and `effectDigestFor()` may not exist. Check with `grep -rn 'function fakePlacesDetails' tests/`. If absent, write them in this test file (not the global helper file) using `Http::fake()` against the Places hosts, following the pattern in `tests/Feature/Platforms/` for the existing Places tests.
+
+- [ ] **Step 3: Run it to verify it fails**
+
+Run: `./vendor/bin/pest tests/Feature/Ingest/Effects/PlacesDetailsPhotoResolutionTest.php`
+Expected: FAIL — no `url` key on the photo.
+
+- [ ] **Step 4: Implement the driver change**
+
+In `app/Ingest/Runtime/Effects/PlacesDetailsDriver.php`, update the class docblock — it currently states the opposite of what this task does — and resolve photos on the success path:
+
+```php
+ * Returns the RAW Places response, not the mapped card payload: the connector
+ * reads displayName.text, photos[].name and reviews[].authorAttribution, and its
+ * when_unclaimed reviewer-PII redaction is declared over those exact keys.
+ *
+ * Slice 1b D2: photo refs ARE now resolved to servable urls, inside this same
+ * effect. It is not an optimisation — a Places photo ref is reissued on every
+ * Details fetch, so a ref and a url are only consistent within ONE fetch. There
+ * is no join key between a ref stored yesterday and a url resolved today, which
+ * is why the parent spec's "read urls from the legacy payload" recommendation is
+ * not implementable. Cost: 10 photos ≈ $0.07 per run at $7/1000, claimed through
+ * PlacesBudget's existing 'photos' SKU. Deliberately NOT a separate effect kind:
+ * a distinct digest would split profile/reviews from media into two billed
+ * Details calls at $25/1000.
+```
+
+Then in `run()`, replace the success arm:
+
+```php
+        if ($result->place !== null) {
+            return BilledEffectResult::answered($this->withResolvedPhotoUrls($result->place, $ctx->userId));
+        }
+```
+
+And add:
+
+```php
+    /**
+     * Resolve each photo ref to a servable url through GoogleBusinessService's
+     * existing path, so the PlacesBudget 'photos' claim, the PHOTO_REF_PATTERN
+     * guard and the pooled-concurrency cap all still apply. A photo that fails
+     * to resolve keeps its ref and gains no url — already a supported state.
+     *
+     * @param  array<string, mixed>  $place
+     * @return array<string, mixed>
+     */
+    private function withResolvedPhotoUrls(array $place, string $userId): array
+    {
+        $photos = $place['photos'] ?? null;
+        if (! is_array($photos) || $photos === []) {
+            return $place;
+        }
+
+        $place['photos'] = $this->places->resolveRawPhotoUrls($photos, $userId);
+
+        return $place;
+    }
+```
+
+Add `resolveRawPhotoUrls(array $photos, string $userId): array` to `GoogleBusinessService` — it maps the raw `name`-keyed shape onto the `ref`-keyed shape `resolvePhotoUrls()` expects, delegates, and maps the resolved urls back onto the raw entries by `name`. It must not duplicate the budget-claim or pattern-guard logic.
+
+- [ ] **Step 5: Set the media stream cadence to 7 days**
+
+In `app/Ingest/Connectors/GoogleBusinessConnector.php`, the connector's `defaultIntervalSeconds: 172800` (48h) governs all three streams. Per D3 the `media` stream needs 7 days.
+
+Check first whether `StreamSpec` supports a per-stream interval:
+```bash
+grep -n 'interval\|Seconds' app/Ingest/Manifest/StreamSpec.php
+```
+
+- **If it does:** set `intervalSeconds: 604800` on the `media` StreamSpec only.
+- **If it does not:** do **not** add the concept in this task. Instead set the `ingest.sources` rows' `min_interval_secs` for google_business to `604800` in Task 11's operational step, record in the checkpoint that per-stream cadence is unavailable, and leave `defaultIntervalSeconds` alone. Adding a manifest-wide interval concept is its own slice.
+
+Document whichever branch you took in the commit body.
+
+- [ ] **Step 6: Run the tests**
+
+```bash
+./vendor/bin/pest tests/Feature/Ingest/Effects/PlacesDetailsPhotoResolutionTest.php
+./vendor/bin/pest tests/Feature/Platforms --filter=Places
+./vendor/bin/pest tests/Feature/Ingest
+```
+Expected: PASS. The Places suite matters — `PlacesBudgetGuardTest` fails the build if a second billing origin appeared.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add app/Ingest/Runtime/Effects/PlacesDetailsDriver.php app/Services/Platforms/GoogleBusinessService.php app/Ingest/Connectors/GoogleBusinessConnector.php tests/Feature/Ingest/Effects/PlacesDetailsPhotoResolutionTest.php
+git commit -m "feat(ingest): resolve Places photo urls inside the Details effect
+
+Refs rotate per fetch, so a ref and a url are only consistent within one
+fetch — resolving elsewhere has no join key. Rides the existing digest to
+avoid splitting one billed Details call into two."
+```
+
+---
+
+## Task 6: Pins reject borrowed media
+
+**Decision:** D5.
+
+**Files:**
+- Modify: `app/Http/Controllers/Api/Content/PoolController.php` (`select`)
+- Create: `app/Site/Pools/BorrowedMedia.php`
+- Test: `tests/Feature/Api/Content/PoolBorrowedMediaPinTest.php`
+
+**Interfaces:**
+- Produces: `BorrowedMedia::isBorrowed(Item $item): bool` — true when the item's `content.sources` row is a `connection` source whose `ingest.sources.source_key` is `google_business`. Used only by `PoolController::select()`.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/Feature/Api/Content/PoolBorrowedMediaPinTest.php`:
+
+```php
+<?php
+
+it('rejects a pin on a google-sourced media item', function () {
+    [$user, $site] = createUserWithSite();
+    $item = createGoogleBusinessMediaItem($user);
+
+    $this->withSupabaseJwt($user)
+        ->postJson("/api/content/pools/media/selection/{$item->id}")
+        ->assertStatus(403)
+        ->assertJsonPath('error.code', 'BORROWED_MEDIA_NOT_PINNABLE');
+});
+
+it('still surfaces that same item in the auto half', function () {
+    // The point of D5 is that the photo stays VISIBLE. Only the promise of
+    // permanence is withheld. A test that only asserted the 403 would pass on a
+    // design that hid the photo entirely.
+    [$user, $site] = createUserWithSite();
+    $item = createGoogleBusinessMediaItem($user);
+
+    $response = $this->withSupabaseJwt($user)->getJson('/api/content/pools/media');
+
+    expect(collect($response->json('data.items'))->pluck('id'))->toContain((string) $item->id);
+});
+
+it('allows a pin on an upload-backed media item', function () {
+    [$user, $site] = createUserWithSite();
+    $item = createManualUploadMediaItem($user);
+
+    $this->withSupabaseJwt($user)
+        ->postJson("/api/content/pools/media/selection/{$item->id}")
+        ->assertOk();
+});
+
+it('allows a pin on an instagram media item', function () {
+    [$user, $site] = createUserWithSite();
+    $item = createInstagramMediaItem($user);
+
+    $this->withSupabaseJwt($user)
+        ->postJson("/api/content/pools/media/selection/{$item->id}")
+        ->assertOk();
+});
+```
+
+**Helpers:** reuse the auth helper the existing pool tests use. Run `grep -rn 'withSupabaseJwt\|actingAsSupabase' tests/Feature/Api/Content/ | head -3` and match it exactly — `Auth::user()` is always null under Supabase JWT, so a wrong helper produces a misleading 401.
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./vendor/bin/pest tests/Feature/Api/Content/PoolBorrowedMediaPinTest.php`
+Expected: FAIL — the first test gets 200 instead of 403.
+
+- [ ] **Step 3: Implement the predicate**
+
+Create `app/Site/Pools/BorrowedMedia.php`:
+
+```php
+<?php
+
+namespace App\Site\Pools;
+
+use App\Models\Core\Content\Item;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Slice 1b D5. A pin promises the owner that a specific item stays where they
+ * put it. For a Google Places photo we cannot keep that promise: the photo's
+ * resource name is reissued on every Details fetch, so "this item" is a
+ * different row a week later, and the underlying photo may leave the place's
+ * set entirely.
+ *
+ * The photo is still shown — the pool's auto half surfaces it through the
+ * kind_is(media) rule with no pin required. Only permanence is withheld.
+ */
+final class BorrowedMedia
+{
+    /** Source keys whose media may be displayed but never pinned. */
+    private const BORROWED_SOURCE_KEYS = ['google_business'];
+
+    public static function isBorrowed(Item $item): bool
+    {
+        if ($item->kind !== 'media') {
+            return false;
+        }
+
+        return DB::connection('pgsql')->table('content.source_items as si')
+            ->join('content.sources as s', 's.id', '=', 'si.source_id')
+            ->join('ingest.sources as ing', 'ing.connection_id', '=', 's.connection_id')
+            ->where('si.item_id', $item->id)
+            ->whereNull('si.removed_at')
+            ->whereIn('ing.source_key', self::BORROWED_SOURCE_KEYS)
+            ->exists();
+    }
+}
+```
+
+**Verify the join before trusting it.** Run against dev:
+```sql
+SELECT count(*) FROM content.source_items si
+JOIN content.sources s ON s.id = si.source_id
+JOIN ingest.sources ing ON ing.connection_id = s.connection_id
+JOIN content.items i ON i.id = si.item_id
+WHERE i.kind='media' AND ing.source_key='google_business';
+```
+Expected: 20. If it returns 0, `content.sources.connection_id` and `ingest.sources.connection_id` do not refer to the same thing — inspect both and correct the join rather than the expectation.
+
+- [ ] **Step 4: Wire it into `select()`**
+
+In `app/Http/Controllers/Api/Content/PoolController.php`, immediately after `$item = $this->findPoolItem(...)` inside `select()` only:
+
+```php
+        // D5: borrowed media is displayable but not pinnable. 403 not 404 — the
+        // owner legitimately owns this item, so this is a capability restriction,
+        // not a hidden resource (CLAUDE.md's 403-vs-404 rule).
+        if (BorrowedMedia::isBorrowed($item)) {
+            abort(403, 'This photo comes from Google and cannot be pinned.');
+        }
+```
+
+`deselect()` and `reorder()` are untouched — there is nothing to remove or order.
+
+**Note on the inline `abort(403)`:** CI fails the build on inline 403 aborts that implement *ownership* checks. This is a capability restriction on an already-owned resource, not an ownership check, so it is not the pattern the guard targets. Run the guard to confirm rather than assuming:
+
+```bash
+./vendor/bin/pest tests/Feature/Architecture --filter=Policy
+```
+
+If it fails, move the check into the media pool's policy as an `pin` ability and call `$this->authorizeForUser($user, 'pin', $item)` instead. Do not suppress the guard.
+
+- [ ] **Step 5: Run the tests**
+
+```bash
+./vendor/bin/pest tests/Feature/Api/Content/PoolBorrowedMediaPinTest.php
+./vendor/bin/pest tests/Feature/Api/Content
+```
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add app/Site/Pools/BorrowedMedia.php app/Http/Controllers/Api/Content/PoolController.php tests/Feature/Api/Content/PoolBorrowedMediaPinTest.php
+git commit -m "feat(pools): borrowed media is displayable but not pinnable"
+```
+
+---
+
+## Task 7: The Instagram mirror
+
+**Decision:** D8, D9. The largest task. Split the commit if it grows past one reviewable diff.
+
+**Files:**
+- Create: `app/Services/Media/MediaMirror.php`
+- Modify: `app/Services/Brand/BrandAssetPipeline.php:187-222` (extract the fetch/encode/store path)
+- Create: `tests/Feature/Media/MediaMirrorTest.php`
+
+**Interfaces:**
+- Consumes: `SafeUrlFetcher`, `config('partna.media_disk')`.
+- Produces: `MediaMirror::mirror(string $userId, string $assetId, string $sourceUrl): bool` — fetches, re-encodes to webp, stores at a content-addressed path, and **updates the existing** `content.media_assets` row with `storage_path`, `mime_type`, measured `width`/`height`, `dims_confidence='measured'`, `variant_family='native'`. Never writes `fingerprint`. Returns false on any failure, leaving the row untouched.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/Feature/Media/MediaMirrorTest.php`:
+
+```php
+<?php
+
+use App\Services\Media\MediaMirror;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+
+it('writes storage_path onto the existing asset row without minting a second', function () {
+    // D9: the fingerprint collision trap. BrandAssetPipeline keys on a bare
+    // content hash; ProjectionWriter keys on url-sha1(...). A mirror that minted
+    // its own row would leave two assets for one photo with item_media pointing
+    // at one of them.
+    Storage::fake('media');
+    $user = createUserWithSite();
+    $assetId = createProjectedAsset($user->id, fingerprint: 'url-'.sha1('instagram:ABC123:0'));
+    fakeImageResponse('https://scontent.cdninstagram.com/v/photo.jpg', width: 1080, height: 1350);
+
+    $before = DB::table('content.media_assets')->where('user_id', $user->id)->count();
+
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    expect($ok)->toBeTrue()
+        ->and(DB::table('content.media_assets')->where('user_id', $user->id)->count())->toBe($before)
+        ->and($row->fingerprint)->toBe('url-'.sha1('instagram:ABC123:0'))
+        ->and($row->storage_path)->not->toBeNull()
+        ->and($row->dims_confidence)->toBe('measured')
+        ->and($row->variant_family)->toBe('native')
+        ->and($row->width)->toBe(1080)
+        ->and($row->height)->toBe(1350);
+});
+
+it('content-addresses the path so changed bytes cannot overwrite in place', function () {
+    // D8: InstagramConnectionSeeder:82 writes every refresh to
+    // platforms/instagram/<connection_created_ts>/photo.jpg — one fixed path,
+    // overwritten forever. This must not reproduce that.
+    Storage::fake('media');
+    $user = createUserWithSite();
+    $assetA = createProjectedAsset($user->id, fingerprint: 'url-'.sha1('instagram:ABC123:0'));
+    $assetB = createProjectedAsset($user->id, fingerprint: 'url-'.sha1('instagram:DEF456:0'));
+
+    fakeImageResponse('https://scontent.cdninstagram.com/a.jpg', width: 100, height: 100, seed: 'aaa');
+    fakeImageResponse('https://scontent.cdninstagram.com/b.jpg', width: 100, height: 100, seed: 'bbb');
+
+    app(MediaMirror::class)->mirror($user->id, $assetA, 'https://scontent.cdninstagram.com/a.jpg');
+    app(MediaMirror::class)->mirror($user->id, $assetB, 'https://scontent.cdninstagram.com/b.jpg');
+
+    $paths = DB::table('content.media_assets')->whereIn('id', [$assetA, $assetB])->pluck('storage_path');
+
+    expect($paths->unique())->toHaveCount(2);
+});
+
+it('is idempotent — mirroring the same bytes twice writes one object and one path', function () {
+    Storage::fake('media');
+    $user = createUserWithSite();
+    $assetId = createProjectedAsset($user->id, fingerprint: 'url-'.sha1('instagram:ABC123:0'));
+    fakeImageResponse('https://scontent.cdninstagram.com/v/photo.jpg', width: 640, height: 640, seed: 'same');
+
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
+    $first = DB::table('content.media_assets')->where('id', $assetId)->value('storage_path');
+
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
+    $second = DB::table('content.media_assets')->where('id', $assetId)->value('storage_path');
+
+    expect($second)->toBe($first)
+        ->and(Storage::disk('media')->allFiles())->toHaveCount(1);
+});
+
+it('leaves the row untouched when the fetch fails', function () {
+    Storage::fake('media');
+    $user = createUserWithSite();
+    $assetId = createProjectedAsset($user->id, fingerprint: 'url-'.sha1('instagram:ABC123:0'));
+    fakeFailedFetch('https://scontent.cdninstagram.com/gone.jpg');
+
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/gone.jpg');
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    expect($ok)->toBeFalse()
+        ->and($row->storage_path)->toBeNull()
+        ->and($row->variant_family)->toBeNull();
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./vendor/bin/pest tests/Feature/Media/MediaMirrorTest.php`
+Expected: FAIL — class `App\Services\Media\MediaMirror` not found.
+
+- [ ] **Step 3: Read the donor before extracting from it**
+
+```bash
+sed -n '150,230p' app/Services/Brand/BrandAssetPipeline.php
+```
+
+`storeAsset()` fetches via `SafeUrlFetcher`, re-encodes to webp, puts to `config('partna.media_disk')`, and inserts with measured dims. **It has produced zero rows on dev** (0 of 501 assets carry `storage_path`) — it is built and unexercised, so treat its behaviour as unproven and cover the extracted path with this task's tests rather than trusting it.
+
+- [ ] **Step 4: Implement**
+
+Create `app/Services/Media/MediaMirror.php`. Key requirements, each covered by a test above:
+
+- Fetch through `SafeUrlFetcher` — category B. An Instagram CDN url arrived in a third-party payload.
+- Re-encode to webp using the same encoder `BrandAssetPipeline` uses.
+- Path: `content-media/{userId}/{sha256(bytes)|32}.webp`. Content-addressed, per D8.
+- `UPDATE content.media_assets SET storage_path, mime_type, width, height, dims_confidence='measured', variant_family='native' WHERE id = ?`. **Never** touch `fingerprint`.
+- Return `false` and leave the row untouched on any failure. Log at warning; do not throw into the projection run.
+- Size-cap the download, matching `InstagramConnectionSeeder`'s existing cap, so a pathological file cannot fill the temp disk or R2.
+
+Extract the shared fetch/encode/store body out of `BrandAssetPipeline::storeAsset()` into a private collaborator both classes use, so there is one encoder rather than two. `BrandAssetPipeline` keeps its own content-hash fingerprint and its own insert — that is its `#PRIV-5` contract and this task does not change it.
+
+- [ ] **Step 5: Run the tests**
+
+```bash
+./vendor/bin/pest tests/Feature/Media/MediaMirrorTest.php
+./vendor/bin/pest tests/Feature/Architecture/OutboundHttpGuardTest.php
+./vendor/bin/pest tests/Feature/Brand
+```
+Expected: PASS. The outbound guard has its own CI job and the Feature suite can abort before reaching it — run it explicitly.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add app/Services/Media/MediaMirror.php app/Services/Brand/BrandAssetPipeline.php tests/Feature/Media/MediaMirrorTest.php
+git commit -m "feat(media): MediaMirror — owned bytes onto the projection-minted asset row
+
+Content-addressed paths, so a re-sync of changed bytes cannot overwrite a
+url a user already picked (the InstagramConnectionSeeder:82 hazard)."
+```
+
+---
+
+## Task 8: Instagram stream provisioning and mirror dispatch
+
+**Decision:** D8. Depends on Task 7.
+
+**Files:**
+- Modify: `app/Ingest/Projection/ProjectionWriter.php` (dispatch the mirror after media projection)
+- Create: `app/Jobs/Media/MirrorMediaAssetJob.php`
+- Test: `tests/Feature/Ingest/InstagramMediaMirrorTest.php`
+
+**Interfaces:**
+- Consumes: `MediaMirror::mirror()` from Task 7.
+- Produces: `MirrorMediaAssetJob::dispatch(string $userId, string $assetId, string $sourceUrl)`. `ShouldBeUnique` on `assetId`.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/Feature/Ingest/InstagramMediaMirrorTest.php`:
+
+```php
+<?php
+
+use App\Jobs\Media\MirrorMediaAssetJob;
+use Illuminate\Support\Facades\Bus;
+
+it('dispatches a mirror job for a newly minted instagram asset', function () {
+    Bus::fake();
+    $user = createUserWithSite();
+
+    projectInstagramMedia($user->id, shortcode: 'ABC123', images: [
+        'https://scontent.cdninstagram.com/v/one.jpg',
+    ]);
+
+    Bus::assertDispatched(MirrorMediaAssetJob::class);
+});
+
+it('does not dispatch a mirror for borrowed google media', function () {
+    // D1: Google photos are never stored. A mirror dispatch here would be a
+    // terms violation, not just wasted work.
+    Bus::fake();
+    $user = createUserWithSite();
+
+    projectMediaEntries($user->id, [[
+        'role' => 'gallery',
+        'ref' => 'places/ChIJtest/photos/AWCwydtoken',
+        'url' => 'https://lh3.googleusercontent.com/place-photos/AG9NLjtest',
+    ]]);
+
+    Bus::assertNotDispatched(MirrorMediaAssetJob::class);
+});
+
+it('does not dispatch for an asset that already has storage_path', function () {
+    Bus::fake();
+    $user = createUserWithSite();
+
+    projectInstagramMedia($user->id, shortcode: 'ABC123', images: ['https://scontent.cdninstagram.com/v/one.jpg']);
+    Bus::assertDispatchedTimes(MirrorMediaAssetJob::class, 1);
+
+    markAssetsMirrored($user->id);
+    projectInstagramMedia($user->id, shortcode: 'ABC123', images: ['https://scontent.cdninstagram.com/v/one.jpg']);
+
+    Bus::assertDispatchedTimes(MirrorMediaAssetJob::class, 1);
+});
+
+it('produces no duplicate assets across two consecutive syncs', function () {
+    // The parent spec's headline proof, and the property that justifies D1's
+    // split: instagram's ref is shortcode-stable, so a re-sync recognises the
+    // asset it already minted. Google cannot satisfy this.
+    $user = createUserWithSite();
+
+    projectInstagramMedia($user->id, shortcode: 'ABC123', images: ['https://scontent.cdninstagram.com/v/one.jpg?oh=sig1']);
+    $first = countAssets($user->id);
+
+    projectInstagramMedia($user->id, shortcode: 'ABC123', images: ['https://scontent.cdninstagram.com/v/one.jpg?oh=sig2']);
+
+    expect(countAssets($user->id))->toBe($first);
+});
+```
+
+The last test is the one that matters most. The differing `oh=` query parameter is deliberate: `SecretParams::minimiseUrl()` strips `_nc_sid` via the `sid` entry in `SECRET_SEGMENTS` but does **not** strip `oh` / `oe` / `_nc_ohc`, so an Instagram url genuinely re-signs between syncs. After 1a's fingerprint inversion that no longer touches identity — this test is what proves it.
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./vendor/bin/pest tests/Feature/Ingest/InstagramMediaMirrorTest.php`
+Expected: FAIL — `MirrorMediaAssetJob` not found.
+
+- [ ] **Step 3: Implement the job**
+
+Create `app/Jobs/Media/MirrorMediaAssetJob.php`:
+
+```php
+<?php
+
+namespace App\Jobs\Media;
+
+use App\Services\Media\MediaMirror;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+
+/**
+ * Slice 1b: fetch an owned-class media asset's bytes to R2 after projection.
+ *
+ * Deferred to a job rather than run inline because the projection run is on the
+ * ingest hot path and a mirror is a network fetch plus an image re-encode.
+ */
+class MirrorMediaAssetJob implements ShouldBeUnique, ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /** Fire only after the projection transaction commits — the asset row must exist. */
+    public bool $afterCommit = true;
+
+    public function __construct(
+        public readonly string $userId,
+        public readonly string $assetId,
+        public readonly string $sourceUrl,
+    ) {}
+
+    public function uniqueId(): string
+    {
+        return $this->assetId;
+    }
+
+    public function handle(MediaMirror $mirror): void
+    {
+        $mirror->mirror($this->userId, $this->assetId, $this->sourceUrl);
+    }
+}
+```
+
+**Two traps, both previously hit in this repo:**
+- `$afterCommit` must be a plain `public bool` property, never a typed promoted constructor property.
+- Dispatch with `MirrorMediaAssetJob::dispatch(...)`, never `Bus::dispatch(new MirrorMediaAssetJob(...))` — the latter silently drops `ShouldBeUnique`.
+
+- [ ] **Step 4: Dispatch from the projection lane**
+
+In `ProjectionWriter`, after `resolveMediaAssets()` returns, dispatch a mirror for each asset that is **owned-class** and not yet mirrored:
+
+```php
+        // Owned-class only (D1): a Google photo is borrowed and must never be
+        // stored. The discriminator is the ref namespace the projector minted —
+        // an instagram ref is 'instagram:{shortcode}:{i}', a Places ref is
+        // 'places/...'. site_media_id-backed uploads already own their bytes.
+```
+
+Gate on: `storage_path IS NULL`, `site_media_id IS NULL`, and a non-null `source_url`, plus an explicit owned-source check. Do not infer "owned" from the absence of Google — a future borrowed source would silently start mirroring. Add the source key to an explicit allowlist constant next to `BorrowedMedia::BORROWED_SOURCE_KEYS`.
+
+- [ ] **Step 5: Provision the Instagram stream on dev**
+
+The `instagram` `ingest.sources` row exists with `auto_sync=false` and has never run.
+
+```sql
+SELECT id, source_key, identifier, auto_sync, last_run_at, min_interval_secs
+FROM ingest.sources WHERE source_key='instagram';
+```
+
+Enable it in Task 11, not here — this step only confirms the row is present and records its id in the checkpoint.
+
+- [ ] **Step 6: Run the tests**
+
+```bash
+./vendor/bin/pest tests/Feature/Ingest/InstagramMediaMirrorTest.php
+./vendor/bin/pest tests/Feature/Ingest tests/Unit/Ingest
+```
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add app/Jobs/Media/MirrorMediaAssetJob.php app/Ingest/Projection/ProjectionWriter.php tests/Feature/Ingest/InstagramMediaMirrorTest.php
+git commit -m "feat(ingest): mirror owned-class media bytes after projection"
+```
+
+---
+
+## Task 9: `ContentSelectionMigrator`
+
+**Decision:** D10.
+
+**Files:**
+- Create: `app/Services/Migration/ContentSelectionMigrator.php`
+- Create: `app/Console/Commands/MigrateContentSelectionCommand.php`
+- Test: `tests/Feature/Migration/ContentSelectionMigratorTest.php`
+
+**Interfaces:**
+- Produces: `ContentSelectionMigrator::run(bool $dryRun = false, ?string $siteId = null): array` returning `['migrated' => int, 'dropped_google' => int, 'dropped_ig' => int, 'skipped_no_item' => int, 'failed' => int]`.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/Feature/Migration/ContentSelectionMigratorTest.php`:
+
+```php
+<?php
+
+use App\Services\Migration\ContentSelectionMigrator;
+use Illuminate\Support\Facades\DB;
+
+it('migrates an upload selection to a pool pin', function () {
+    [$user, $site] = createUserWithSite();
+    $item = createManualUploadMediaItem($user);
+    createContentSelection($site, entryType: 'upload', mediaId: $item->siteMediaId, position: 1);
+
+    $result = app(ContentSelectionMigrator::class)->run();
+
+    expect($result['migrated'])->toBe(1)
+        ->and(DB::table('site.section_items')->where('item_id', $item->id)->where('state', 'pinned')->exists())->toBeTrue();
+});
+
+it('counts google selections as dropped and pins nothing', function () {
+    // D10: auto-seeded by maybeSeedFromGoogle(), already resolving to nothing
+    // because refs rotate, and under D5 there is no destination anyway.
+    [$user, $site] = createUserWithSite();
+    createContentSelection($site, entryType: 'google-photo', externalRef: 'places/ChIJx/photos/AWCwydold', position: 1);
+
+    $result = app(ContentSelectionMigrator::class)->run();
+
+    expect($result['dropped_google'])->toBe(1)
+        ->and($result['migrated'])->toBe(0)
+        ->and(DB::table('site.section_items')->count())->toBe(0);
+});
+
+it('counts ig selections as dropped — they carry no identifier to migrate by', function () {
+    [$user, $site] = createUserWithSite();
+    createContentSelection($site, entryType: 'ig-post', position: 1);
+    createContentSelection($site, entryType: 'ig-reel', position: 2);
+
+    $result = app(ContentSelectionMigrator::class)->run();
+
+    expect($result['dropped_ig'])->toBe(2)
+        ->and(DB::table('site.section_items')->count())->toBe(0);
+});
+
+it('never deletes a content_selection row', function () {
+    // The migration is ADDITIVE. site.content_selection is dropped in slice 7,
+    // not here — so a bad run is recoverable.
+    [$user, $site] = createUserWithSite();
+    createContentSelection($site, entryType: 'google-photo', externalRef: 'places/ChIJx/photos/AWCwydold', position: 1);
+
+    app(ContentSelectionMigrator::class)->run();
+
+    expect(DB::table('site.content_selection')->count())->toBe(1);
+});
+
+it('is idempotent across two runs', function () {
+    [$user, $site] = createUserWithSite();
+    $item = createManualUploadMediaItem($user);
+    createContentSelection($site, entryType: 'upload', mediaId: $item->siteMediaId, position: 1);
+
+    app(ContentSelectionMigrator::class)->run();
+    app(ContentSelectionMigrator::class)->run();
+
+    expect(DB::table('site.section_items')->where('item_id', $item->id)->count())->toBe(1);
+});
+
+it('writes nothing on a dry run', function () {
+    [$user, $site] = createUserWithSite();
+    $item = createManualUploadMediaItem($user);
+    createContentSelection($site, entryType: 'upload', mediaId: $item->siteMediaId, position: 1);
+
+    $result = app(ContentSelectionMigrator::class)->run(dryRun: true);
+
+    expect($result['migrated'])->toBe(1)
+        ->and(DB::table('site.section_items')->count())->toBe(0);
+});
+
+it('bumps all three cache lanes for a touched site', function () {
+    // No CI check enforces this — BuildState's docblock claims one that does
+    // not exist. Assert it directly.
+    Bus::fake();
+    [$user, $site] = createUserWithSite();
+    $item = createManualUploadMediaItem($user);
+    createContentSelection($site, entryType: 'upload', mediaId: $item->siteMediaId, position: 1);
+    $before = DB::table('site.sites')->where('id', $site->id)->value('updated_at');
+
+    app(ContentSelectionMigrator::class)->run();
+
+    expect(DB::table('site.sites')->where('id', $site->id)->value('updated_at'))->not->toBe($before);
+    Bus::assertDispatched(App\Jobs\Cloudflare\CloudflareCachePurgeJob::class);
+});
+
+it('skips an upload selection whose item was never backfilled, and counts it', function () {
+    [$user, $site] = createUserWithSite();
+    createContentSelection($site, entryType: 'upload', mediaId: (string) Str::uuid(), position: 1);
+
+    $result = app(ContentSelectionMigrator::class)->run();
+
+    expect($result['skipped_no_item'])->toBe(1)
+        ->and($result['failed'])->toBe(0);
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./vendor/bin/pest tests/Feature/Migration/ContentSelectionMigratorTest.php`
+Expected: FAIL — class not found.
+
+- [ ] **Step 3: Implement**
+
+Create `app/Services/Migration/ContentSelectionMigrator.php`, modelled closely on `MediaUploadBackfiller` — same constructor-injection style, same `run(bool $dryRun, ?string $siteId): array` shape, same `invalidate(array $siteIds)` three-lane method copied verbatim.
+
+Behaviour:
+- `entry_type='upload'` → find the media item whose `content.source_items.coord` is `manual:{media_id}`, pin it via `site.section_items` with `state='pinned'` and a `sort_key` derived from the selection's `position`. Missing item → `skipped_no_item`, counted, not fatal.
+- `entry_type='google-photo'` → `dropped_google`, no write.
+- `entry_type` in `ig-post`/`ig-reel`/`ig-photo` → `dropped_ig`, no write.
+- Never deletes from `site.content_selection`.
+- Idempotent: an existing pinned `section_items` row for the same item is left alone.
+
+- [ ] **Step 4: Implement the command**
+
+Create `app/Console/Commands/MigrateContentSelectionCommand.php` with signature:
+
+```php
+    protected $signature = 'content:migrate-selection
+                            {--dry-run : Report what would change without writing}
+                            {--site= : Limit to one site id}';
+```
+
+It must print each count on its own line and, for dropped rows, print the affected `site_id` values — D10 requires the drop to be recorded with its site ids, and the command output is that record.
+
+- [ ] **Step 5: Run the tests**
+
+Run: `./vendor/bin/pest tests/Feature/Migration/ContentSelectionMigratorTest.php`
+Expected: PASS, 8 tests.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add app/Services/Migration/ContentSelectionMigrator.php app/Console/Commands/MigrateContentSelectionCommand.php tests/Feature/Migration/ContentSelectionMigratorTest.php
+git commit -m "feat(migration): carry the 3 upload selections, record the 86 that cannot be carried"
+```
+
+---
+
+## Task 10: The borrowed-asset prune
+
+**Decision:** D4.
+
+**Files:**
+- Create: `app/Services/Migration/BorrowedAssetPruner.php`
+- Create: `app/Console/Commands/PruneBorrowedAssetsCommand.php`
+- Modify: `routes/console.php` (schedule it)
+- Test: `tests/Feature/Migration/BorrowedAssetPrunerTest.php`
+
+**Interfaces:**
+- Produces: `BorrowedAssetPruner::run(bool $dryRun = false): array` returning `['pruned' => int, 'spared_owned' => int, 'spared_referenced' => int, 'spared_recent' => int]`.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/Feature/Migration/BorrowedAssetPrunerTest.php`:
+
+```php
+<?php
+
+use App\Services\Migration\BorrowedAssetPruner;
+use Illuminate\Support\Facades\DB;
+
+it('prunes an unreferenced borrowed asset older than 30 days', function () {
+    $user = createUserWithSite();
+    $assetId = createProjectedAsset($user->id, fingerprint: 'url-'.sha1('places/x/photos/old'), createdAt: now()->subDays(31));
+
+    $result = app(BorrowedAssetPruner::class)->run();
+
+    expect($result['pruned'])->toBe(1)
+        ->and(DB::table('content.media_assets')->where('id', $assetId)->exists())->toBeFalse();
+});
+
+it('spares an asset with storage_path — owned bytes are never pruned', function () {
+    $user = createUserWithSite();
+    $assetId = createProjectedAsset($user->id, fingerprint: 'url-'.sha1('instagram:ABC:0'), createdAt: now()->subDays(90), storagePath: 'content-media/x/abc.webp');
+
+    $result = app(BorrowedAssetPruner::class)->run();
+
+    expect($result['spared_owned'])->toBe(1)
+        ->and(DB::table('content.media_assets')->where('id', $assetId)->exists())->toBeTrue();
+});
+
+it('spares an asset still referenced by a live item_media row', function () {
+    $user = createUserWithSite();
+    $assetId = createProjectedAsset($user->id, fingerprint: 'url-'.sha1('places/x/photos/live'), createdAt: now()->subDays(90));
+    linkAssetToLiveItem($user, $assetId);
+
+    $result = app(BorrowedAssetPruner::class)->run();
+
+    expect($result['spared_referenced'])->toBe(1)
+        ->and(DB::table('content.media_assets')->where('id', $assetId)->exists())->toBeTrue();
+});
+
+it('spares an asset younger than 30 days', function () {
+    $user = createUserWithSite();
+    $assetId = createProjectedAsset($user->id, fingerprint: 'url-'.sha1('places/x/photos/new'), createdAt: now()->subDays(29));
+
+    $result = app(BorrowedAssetPruner::class)->run();
+
+    expect($result['spared_recent'])->toBe(1)
+        ->and(DB::table('content.media_assets')->where('id', $assetId)->exists())->toBeTrue();
+});
+
+it('writes nothing on a dry run', function () {
+    $user = createUserWithSite();
+    createProjectedAsset($user->id, fingerprint: 'url-'.sha1('places/x/photos/old'), createdAt: now()->subDays(31));
+
+    $result = app(BorrowedAssetPruner::class)->run(dryRun: true);
+
+    expect($result['pruned'])->toBe(1)
+        ->and(DB::table('content.media_assets')->count())->toBe(1);
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `./vendor/bin/pest tests/Feature/Migration/BorrowedAssetPrunerTest.php`
+Expected: FAIL — class not found.
+
+- [ ] **Step 3: Implement**
+
+Create `app/Services/Migration/BorrowedAssetPruner.php`. Delete `content.media_assets` rows where **all three** hold:
+
+1. `storage_path IS NULL` — never owned. An owned asset is ours and stays.
+2. No live `content.item_media` row references it. `item_media_asset_id_fkey` is `ON DELETE SET NULL`, so a delete nulls a stale link rather than cascading into items — that is what makes this safe.
+3. `created_at < now() - interval '30 days'` — past the url expiry, so the row is dead regardless.
+
+Chunk the delete. Report all four counts.
+
+- [ ] **Step 4: Schedule it**
+
+In `routes/console.php`, following the surrounding style and the existing `->onFailure($reportScheduledFailure(...))` pattern:
+
+```php
+Schedule::command('content:prune-borrowed-assets')
+    ->dailyAt('03:50')
+    ->onFailure($reportScheduledFailure('content:prune-borrowed-assets'));
+```
+
+`03:40` is taken by `builds:prune-expired`; `03:50` avoids it.
+
+- [ ] **Step 5: Run the tests**
+
+```bash
+./vendor/bin/pest tests/Feature/Migration/BorrowedAssetPrunerTest.php
+./vendor/bin/pest tests/Feature/Console
+```
+Expected: PASS. The second catches a schedule-registration regression.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add app/Services/Migration/BorrowedAssetPruner.php app/Console/Commands/PruneBorrowedAssetsCommand.php routes/console.php tests/Feature/Migration/BorrowedAssetPrunerTest.php
+git commit -m "feat(media): prune borrowed assets — we may not retain Google photo rows"
+```
+
+---
+
+## Task 11: The mergeInto regression, and the live dev assertions
+
+**Decision:** spec §6.1, §6.2. **No unit is done without a live dev assertion** (invariant #1).
+
+**Files:**
+- Create: `tests/Feature/Ingest/MediaMergeRegressionTest.php`
+- Create: `docs/wire-changes/2026-08-12-media-pool-slice-1b.md`
+
+- [ ] **Step 1: Write the regression test**
+
+Create `tests/Feature/Ingest/MediaMergeRegressionTest.php`:
+
+```php
+<?php
+
+it('leaves uploads and mirrored instagram alive after a google run', function () {
+    // mergeInto() hard-deletes a discarded item carrying neither a pin nor an
+    // override. preferOwnerAnchored() should make the owner row win — but 1a was
+    // the first media-kind exercise and this is the first with TWO connector
+    // sources present.
+    [$user, $site] = createUserWithSite();
+
+    $uploads = createManualUploadMediaItems($user, count: 3);
+    projectInstagramMedia($user->id, shortcode: 'ABC123', images: ['https://scontent.cdninstagram.com/v/one.jpg']);
+    $instagramCount = countMediaItems($user->id) - 3;
+
+    projectGoogleMedia($user->id, refs: ['places/ChIJx/photos/AWCwydone', 'places/ChIJx/photos/AWCwydtwo']);
+
+    foreach ($uploads as $item) {
+        expect(itemIsLive($item->id))->toBeTrue();
+    }
+    expect(countInstagramMediaItems($user->id))->toBe($instagramCount);
+});
+
+it('churns google media across two runs with rotated refs, and does not touch owned items', function () {
+    // Spec §2.1: refs rotate every fetch, so the second run presents entirely
+    // unrecognised coords. The google set is expected to be replaced. What must
+    // NOT happen is the owned items going with them.
+    [$user, $site] = createUserWithSite();
+    $uploads = createManualUploadMediaItems($user, count: 3);
+
+    projectGoogleMedia($user->id, refs: ['places/ChIJx/photos/AWCwydrun1a', 'places/ChIJx/photos/AWCwydrun1b']);
+    projectGoogleMedia($user->id, refs: ['places/ChIJx/photos/AWCwydrun2a', 'places/ChIJx/photos/AWCwydrun2b']);
+
+    foreach ($uploads as $item) {
+        expect(itemIsLive($item->id))->toBeTrue();
+    }
+    expect(countLiveGoogleMediaItems($user->id))->toBe(2);
+});
+```
+
+- [ ] **Step 2: Run it**
+
+Run: `./vendor/bin/pest tests/Feature/Ingest/MediaMergeRegressionTest.php`
+Expected: PASS. **If the first test fails, stop.** `preferOwnerAnchored()` does not hold for a two-connector media merge, and that is a data-loss bug that must be fixed before anything deploys.
+
+- [ ] **Step 3: Run the full suite and the static gates**
+
+```bash
+composer test
+./vendor/bin/pest tests/Feature/Architecture/OutboundHttpGuardTest.php
+./vendor/bin/phpstan analyse
+php artisan pint
+```
+
+**Do not use `composer test --filter`** — it is broken in this repo, as is `composer` + `artisan pint` in one invocation. Run each separately.
+
+- [ ] **Step 4: Deploy to dev and run the commands**
+
+```bash
+git push -u origin feat/media-pool-slice-1b
+# open PR into development, merge after review
+cloud command:run development "php artisan content:migrate-selection --dry-run"
+cloud command:run development "php artisan content:migrate-selection"
+cloud command:run development "php artisan content:prune-borrowed-assets --dry-run"
+```
+
+Enable the Instagram source and set the Google cadence:
+
+```sql
+UPDATE ingest.sources SET auto_sync = true WHERE source_key = 'instagram';
+UPDATE ingest.sources SET min_interval_secs = 604800 WHERE source_key = 'google_business';
+```
+
+- [ ] **Step 5: Paste the live dev assertions into the checkpoint**
+
+```sql
+-- Google media carries urls and (where Google supplied any) attribution
+SELECT count(*) FILTER (WHERE a.source_url IS NOT NULL) AS with_url,
+       count(*) FILTER (WHERE a.attribution IS NOT NULL) AS with_attr,
+       count(*) AS total
+FROM content.media_assets a
+JOIN content.item_media im ON im.asset_id = a.id
+JOIN content.items i ON i.id = im.item_id AND i.kind='media' AND i.removed_at IS NULL;
+
+-- Instagram landed on owned bytes, one path per asset
+SELECT count(*) FILTER (WHERE storage_path IS NOT NULL) AS mirrored,
+       count(DISTINCT storage_path) FILTER (WHERE storage_path IS NOT NULL) AS distinct_paths
+FROM content.media_assets;
+
+-- selections: 3 pins added, 89 rows still present (nothing deleted)
+SELECT (SELECT count(*) FROM site.section_items WHERE state='pinned') AS pins,
+       (SELECT count(*) FROM site.content_selection) AS legacy_rows;
+```
+
+- [ ] **Step 6: Run the Instagram no-duplicate proof live**
+
+Trigger the Instagram source twice and record the asset count either side. **This is a live assertion, not a unit test** — the parent spec asks for exactly this and a green Pest run does not satisfy it.
+
+```sql
+SELECT count(*) FROM content.media_assets WHERE fingerprint LIKE 'url-%';
+```
+Expected: identical before and after the second sync.
+
+- [ ] **Step 7: Observe the Google churn**
+
+Run the `google_business/media` stream twice and record the delta. Spec §2.1 predicts a fresh set each run with the previous tombstoned — deduced, never observed.
+
+**If it does NOT churn, §2.1 is wrong about the mechanism and D3/D4/D5 must be revisited before this merges to production.** Cost of the observation: one Details call plus ten photo calls, about $0.10.
+
+- [ ] **Step 8: Write the wire manifest**
+
+Create `docs/wire-changes/2026-08-12-media-pool-slice-1b.md`, appending to 1a's lineage rather than restarting it. Before and after shapes for `frames[]` (which gains an optional `attribution` object), and the consuming repos named: the Partna-App dashboard and the monorepo public render.
+
+State plainly that `gallery` and `designMedia` are unchanged and still live.
+
+- [ ] **Step 9: Post-deploy checks**
+
+```bash
+cloud env:logs partna development --minutes 10
+```
+Expected: clean.
+
+**Then check Nightwatch.** Slice 0's checkpoint recorded a log scan and skipped Nightwatch, and 1a's kickoff called that out. Do not make it three.
+
+- [ ] **Step 10: Commit the manifest**
+
+```bash
+git add docs/wire-changes/2026-08-12-media-pool-slice-1b.md tests/Feature/Ingest/MediaMergeRegressionTest.php
+git commit -m "docs(wire): slice 1b manifest — frames[] gains attribution"
+```
+
+---
+
+## Self-review
+
+**Spec coverage.** D1 → the Task 6 / Task 8 split. D2 → Task 5. D3 → Task 5 step 5 and Task 11 step 4. D4 → Task 10. D5 → Task 6. D6 → Tasks 1, 2, 3, 4. D7 → Task 3 step 1. D8 → Tasks 7, 8. D9 → Task 7. D10 → Task 9. Spec §6.1 → Task 11 steps 5–7. §6.2 → per-task tests. §6.3 → Global Constraints. §6.4 → Task 11 step 9. §8 (reported not fixed) → correctly has no task.
+
+**Known gaps, deliberate:**
+- Spec §5's three-lane rule is asserted in Task 9 only. Task 10's pruner deletes borrowed assets whose items are already tombstoned, so no live site payload changes and no invalidation is owed. Task 7's mirror changes a url a site *does* serve — **its invalidation is not covered by a test.** Add one during Task 7 if the implementer finds the mirror touches a live payload; the spec's §5 wording ("the mirror") says it does.
+- Task 5 step 5 branches on whether `StreamSpec` supports a per-stream interval. That is unresolved in this plan on purpose — resolving it needs the file open, and the fallback is specified.
+
+**Type consistency:** `MediaMirror::mirror(string, string, string): bool` used identically in Tasks 7 and 8. `BorrowedMedia::isBorrowed(Item): bool` in Task 6 only. Migration services all return `array` with named integer counts. `ContentSelectionMigrator::run(bool, ?string)` matches `MediaUploadBackfiller::run(bool, ?string)`.
+
+---
+
+## Execution handoff
+
+Plan complete. Two execution options:
+
+1. **Subagent-Driven (recommended)** — a fresh subagent per task, review between tasks, fast iteration.
+2. **Inline Execution** — tasks executed in this session with checkpoints for review.
+
+**Blocker gate:** Tasks 5 (billed effects), 9 and 10 (migrations, DB writes) and 11 (the public wire) each trip the repo's blocker rule — plan first, wait for sign-off, then implement. Task 5 is the one to watch: it is the only task that spends money.

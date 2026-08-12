@@ -493,7 +493,15 @@ rather than restarting it. Before/after shapes, consuming repos named
 ## 5. Cache invalidation — all three lanes
 
 Both migration commands and the mirror are raw-write seams. Per parent §9.2 and
-1a §4, copying `PoolController::poolChanged()`:
+1a §4, copying **`MediaUploadBackfiller::invalidate()`** — which is the verified
+three-lane implementation:
+
+> **Do not copy `PoolController::poolChanged()`.** It runs only two lanes
+> (`BuildState::bump` + `CloudflareCachePurgeJob`) and deliberately omits the
+> `sites.updated_at` touch, because an interactive pool edit self-heals when the
+> 60s payload TTL expires. A bulk migration has no such luxury — it must be correct
+> the moment it finishes. 1a's spec §4 named `poolChanged()` as the template; that
+> reference is corrected here.
 
 | Lane | Action | Why bumping alone is not enough |
 |---|---|---|
