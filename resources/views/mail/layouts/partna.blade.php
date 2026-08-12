@@ -62,7 +62,7 @@
 
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:{{ $brand->palette->bg }};">
         <tr>
-            <td align="center" style="padding: 32px 16px;">
+            <td align="center" style="padding: 44px 16px 32px 16px;">
 
                 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" class="container" style="width:600px; max-width:600px;">
 
