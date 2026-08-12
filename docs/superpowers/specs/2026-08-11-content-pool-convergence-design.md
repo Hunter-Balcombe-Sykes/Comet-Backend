@@ -442,42 +442,117 @@ violated #1 and #6 itself.
 
 ## 4. Programme decomposition
 
-Eight slices, each independently shippable and independently verifiable.
+Nine slices, each independently shippable and independently verifiable. Slice 1 was
+split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 
-| # | Slice | Size | Hard blocker | Sequencing preference |
+### 4.1 Status — 2026-08-12
+
+| # | Slice | Size | Status | Hard blocker |
 |---|---|---|---|---|
-| 0 | Billed-effect driver seam | M | — | — |
-| 0b | Manual-source write lane | M | — | before 1 |
-| 1 | Media pool live (Instagram + Google + uploads) | XL | 0, 0b | after 2 |
-| 2 | The events pool (`event` only — see §7) | M | — | first |
-| 3 | Services → `content.*` | L | 0b | after 2 |
-| 4 | Menus → `content.*` | XL | 0b | after 5 |
-| 5 | Shop → `content.*` | L | 0b | after 3 |
-| 6 | Reviews → `content.*` | M | 0 | — |
-| 7 | Legacy teardown | M | 1–6 | last |
+| 0 | Billed-effect driver seam | M | **Merged** — checkpoint §13, plus #MONEY-1/2 fixes | — |
+| 0b | Manual-source write lane | M | **Merged** — checkpoint §12 | — |
+| 2 | The events pool (`event` only) | M | **Merged** — checkpoint §14 | — |
+| 1a | Media asset spine + upload lane | L | **Finished, NOT merged** — `worktree-media-pool-slice-1a` | — |
+| 1b | Google pass-through, IG mirroring, the 91 selections | L | Kickoff written, spec not started | 1a **merged** |
+| 3 | Services → `content.*` | L | Not started | — |
+| 4 | Menus → `content.*` | XL | Not started | — |
+| 5 | Shop → `content.*` | L | Not started | — |
+| 6 | Reviews → `content.*` | M | Not started | — |
+| 7 | Legacy teardown | M | Not started | 1b, 3, 4, 5, 6 **+ frontend** |
 
-**Execution order: 2 → 0 → 0b → 1 → 3 → 5 → 4 → 6 → 7.**
+With 0, 0b and 2 merged, the blocker graph has almost emptied: **3, 4, 5 and 6 are
+unblocked now.** Only 1b (needs 1a merged) and 7 are gated.
 
-Sizes revised upward from revision 1 (slices 3 and 5 from M, 4 from L, 7 from S)
-because §1.7 removed the assumption that a manual write lane exists, and §7.3 added
-per-backfiller work that revision 1 did not account for. Slice 2 revised S → M on
-2026-08-12 for the reasons in §7 — the rule and payload changes, plus a data repair
-revision 2's row counts concealed.
+**Slice 7 gained a dependency revision 2 did not anticipate.** Slice 1a's scope
+boundary keeps the legacy `gallery` / `designMedia` wire keys, because the frontends
+still read them. Retiring those keys is therefore blocked on Partna-App's Media page
+and the monorepo gallery render — work outside this programme's backend-only mandate.
+
+### 4.2 Execution order
+
+**Merge 1a → { 1b · 3 · 5 } concurrent → 6 → 4 → 7.**
+
+Sizes were revised upward from revision 1 (3 and 5 from M, 4 from L, 7 from S)
+because §1.7 removed the assumption that a manual write lane exists, and §8.3 added
+per-backfiller work revision 1 did not account for. Slice 2 revised S → M on
+2026-08-12 for the reasons in §7.
 
 Deliberate ordering choices:
 
-- **Slice 2 first.** Its items already exist in `content.items`, so it needs no
-  connector, no driver and no migration — the cheapest proof that adopting a kind
-  into the pool lane works, and a template every later slice copies. **Cheapest is
-  not cheap** (revised 2026-08-12): the pool's auto-rule and item payload both turn
-  out to be shaped for undated content, and adopting a dated kind changes each. That
-  is a finding worth having first, since menus, services and shop all carry prices
+- **Merge 1a before anything else starts.** It creates `app/Services/Migration/` and
+  `MediaUrlResolver`, which every later slice builds on. Branching the wave before
+  1a lands means three worktrees each invent that scaffolding independently.
+- **Slice 2 was first, and cheapest was not cheap.** Its items already existed, so it
+  needed no connector, driver or migration — but the pool's auto-rule and item
+  payload both turned out to be shaped for undated content, and adopting a dated kind
+  changed each. Worth having first, since menus, services and shop all carry prices
   and several carry dates.
 - **Shop (5) before menus (4).** `shop_products` is a `data jsonb` blob with no
   relational structure to preserve. Menus carry multi-category membership,
   per-platform pricing and `is_manual` authorship.
+- **Reviews (6) after 1b, not concurrent with it** — see §4.3.
 
-Slices 1–7 each get their own spec → plan → implement cycle.
+Every slice gets its own spec → plan → implement → review → checkpoint cycle.
+
+### 4.3 Concurrency rules
+
+**A worktree isolates files. It does not isolate the dev database.** Every branch
+shares `glncumufgaqcmqhzwrxm`. That is the constraint concurrency planning must
+respect; the file-level collision surface is trivial by comparison (`PoolRegistry`'s
+const arrays, the PHPStan baseline, migration filenames — all mechanical).
+
+**Rule 1 — different kinds may run concurrently.** The §8.3 hard-delete hazard is
+kind-scoped:
+
+```php
+private function resolveItems(string $userId, string $kind): array
+{
+    $rows = DB::table('content.source_items as si')
+        ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+        ->where('cs.user_id', $userId)
+        ->where('si.kind', $kind)          // ← scoped
+```
+
+So a `media` run cannot destroy `service` or `product` rows. Slices working on
+distinct kinds are safe to develop, backfill and verify in parallel. **1b (`media`),
+3 (`service`) and 5 (`product`) are mutually safe.**
+
+**Rule 2 — 1b and 6 must NOT be concurrent.** `GoogleBusinessConnector` declares
+three streams — `profile`, `reviews`, `media` — and all three are served by a
+**single** billed call:
+
+```php
+$effect = $io->effect('api', 'places.details', ['place_id' => $placeId]);
+```
+
+1b enables the `media` stream and 6 enables `reviews`, so they would edit the same
+connector file, share the same ledger digest — claim-first means one gets `refused`
+while the other holds the claim — and compete for the same Places budget across the
+same 12 `google_business` sources. Not data corruption, but unreadable test results
+and a wasted billed call.
+
+**Rule 3 — the same kind serialises.** Two slices touching one kind must not run
+their backfill and verification windows simultaneously. That window is roughly the
+backfill command plus its §10 SQL assertions, not the whole slice.
+
+**Rule 4 — one merge at a time, rebase after each.** Merge order among concurrent
+slices is free; simultaneity is not. When one lands, the others rebase onto the new
+`development` before merging. Prefer rebase to merging `development` in — conflicts
+surface once and history stays linear.
+
+**Rule 5 — pre-assign migration filename prefixes** before a wave starts, one block
+per slice, so ordering never depends on who committed first.
+
+**Rule 6 — one worktree per session; never the main checkout.** This repo has
+already lost uncommitted work to a concurrent merge. Run `git worktree list` before
+starting: several are typically live.
+
+**Non-technical caution.** 1b is the most review-heavy slice remaining — it spends
+money, mirrors third-party bytes, and takes a data-loss decision on the 91
+`site.content_selection` rows. A three-wide wave means it competes for reviewer
+attention with two other slices. Running it two-wide with slice 3 is the safer
+trade, and still surfaces slice 3's unknown (§1.6 — `FreshaServiceProjector` has
+landed zero records) early.
 
 ---
 
@@ -863,6 +938,15 @@ Drop the ten tables in §1.4. Re-home the orphaned observers and policies (§9).
 
 **Gate:** the §8.4 coverage gate green on dev for every migrated type. Irreversible —
 Supabase is on the Free plan with no PITR and no managed backups.
+
+**Second gate, added 2026-08-12 — frontend.** Slice 1a deliberately keeps the legacy
+`gallery` and `designMedia` wire keys because Partna-App and partna-monorepo still
+read them. `site_media` pools `gallery` and `content` therefore cannot retire until
+both frontends consume `pools.media` instead. That work sits outside this
+programme's backend-only mandate and is not estimated here; slice 7 must confirm it
+has landed rather than assume it. The remaining nine tables in §1.4 are unaffected
+and may be dropped on the coverage gate alone — **slice 7 may be split** if the
+frontend lags, dropping the commerce tables first and the media lane later.
 
 ---
 
