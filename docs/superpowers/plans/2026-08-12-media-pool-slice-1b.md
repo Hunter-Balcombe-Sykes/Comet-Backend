@@ -1664,9 +1664,9 @@ git commit -m "feat(migration): carry the 3 upload selections, record the 86 tha
 **Interfaces:**
 - Produces: `BorrowedAssetPruner::run(bool $dryRun = false): array` returning `['pruned' => int, 'spared_owned' => int, 'spared_referenced' => int, 'spared_recent' => int]`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
-Create `tests/Feature/Migration/BorrowedAssetPrunerTest.php`:
+Create `tests/Feature/Content/BorrowedAssetPrunerTest.php` (same reason as Task 9 — a new `tests/Feature/` dir fails `AuditPipelineIntegrityTest`):
 
 ```php
 <?php
@@ -1726,22 +1726,36 @@ it('writes nothing on a dry run', function () {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
-Run: `./vendor/bin/pest tests/Feature/Migration/BorrowedAssetPrunerTest.php`
-Expected: FAIL — class not found.
+Observed: 8 failed, class not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-Create `app/Services/Migration/BorrowedAssetPruner.php`. Delete `content.media_assets` rows where **all three** hold:
+Create `app/Services/Migration/BorrowedAssetPruner.php`. Delete
+`content.media_assets` rows where **all FOUR** hold:
 
-1. `storage_path IS NULL` — never owned. An owned asset is ours and stays.
-2. No live `content.item_media` row references it. `item_media_asset_id_fkey` is `ON DELETE SET NULL`, so a delete nulls a stale link rather than cascading into items — that is what makes this safe.
-3. `created_at < now() - interval '30 days'` — past the url expiry, so the row is dead regardless.
+1. `storage_path IS NULL` — no mirrored bytes.
+2. **`site_media_id IS NULL`** — not an owner's upload.
+3. No live `content.item_media` row references it. `item_media_asset_id_fkey` is `ON DELETE SET NULL`, so a delete nulls a stale link rather than cascading into items — that is what makes this safe.
+4. `created_at < now() - interval '30 days'` — past the url expiry, so the row is dead regardless.
 
-Chunk the delete. Report all four counts.
+> **CONDITION 2 IS NEW, AND THE PLAN'S THREE-CONDITION VERSION DELETES OWNER
+> DATA.** An upload's bytes live in `site.media_variants`; its asset row is a
+> POINTER into that pipeline rather than a snapshot of it (1a §3.2), so it
+> legitimately carries **no `storage_path`**. Under the drafted conditions, any
+> upload whose item had been tombstoned — the exact state `mergeInto()`
+> produces — matches "storage_path IS NULL + unreferenced + old" and gets
+> deleted. `storage_path IS NULL` does not mean "not ours". Covered by
+> *"it spares an upload-backed asset even with no storage_path"*.
 
-- [ ] **Step 4: Schedule it**
+Chunk the delete. Report all four counts, computed separately rather than
+derived, so an operator can see WHY a row survived instead of inferring it from
+a shrinking total.
+
+- [x] **Step 4: Schedule it**
+
+Matched the surrounding entries rather than the drafted two-liner: `->onOneServer()`, `->withoutOverlapping(120)` and `->runInBackground()` alongside the `onFailure` hook, as `builds:prune-expired` does. A registration test pins it, so removing the schedule turns a silent no-op into a red test.
 
 In `routes/console.php`, following the surrounding style and the existing `->onFailure($reportScheduledFailure(...))` pattern:
 
@@ -1753,7 +1767,9 @@ Schedule::command('content:prune-borrowed-assets')
 
 `03:40` is taken by `builds:prune-expired`; `03:50` avoids it.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
+
+8 passed.
 
 ```bash
 ./vendor/bin/pest tests/Feature/Migration/BorrowedAssetPrunerTest.php
@@ -1761,10 +1777,10 @@ Schedule::command('content:prune-borrowed-assets')
 ```
 Expected: PASS. The second catches a schedule-registration regression.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
-git add app/Services/Migration/BorrowedAssetPruner.php app/Console/Commands/PruneBorrowedAssetsCommand.php routes/console.php tests/Feature/Migration/BorrowedAssetPrunerTest.php
+git add app/Services/Migration/BorrowedAssetPruner.php app/Console/Commands/PruneBorrowedAssetsCommand.php routes/console.php tests/Feature/Content/BorrowedAssetPrunerTest.php
 git commit -m "feat(media): prune borrowed assets — we may not retain Google photo rows"
 ```
 

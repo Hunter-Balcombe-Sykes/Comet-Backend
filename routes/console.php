@@ -293,6 +293,17 @@ Schedule::command('builds:prune-expired')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('prune-expired-pre-account-builds'));
 
+// Slice 1b D4: collect borrowed (Google Places) media assets past the ~30-day
+// photo-url expiry that no live item references. Not housekeeping — the Places
+// terms grant photos no caching exemption, so this is how borrowed content
+// stops being retained. 03:40 is builds:prune-expired; 03:50 avoids it.
+Schedule::command('content:prune-borrowed-assets')
+    ->dailyAt('03:50')
+    ->onOneServer()
+    ->withoutOverlapping(120)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('prune-borrowed-media-assets'));
+
 // LIFE-4: hourly watchdog for pre_account_builds stuck in pending/building past
 // the SLA (worker crash mid-scrape never calls failed()). Mirrors
 // media:cleanup-stuck-processing's design — mark the stuck state honest
