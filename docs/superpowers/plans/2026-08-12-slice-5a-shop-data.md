@@ -250,7 +250,7 @@ authorising on `user_id` for `Collection` and on `collection->user_id` for
 
 - [ ] **Step 7: Run the policy coverage test and commit**
 
-Run: `./vendor/bin/pest tests/Feature/Architecture/PolicyCoverageTest.php`
+Run: `./vendor/bin/pest tests/Feature/Security/PolicyCoverageTest.php`
 Expected: PASS
 
 ```bash
@@ -832,9 +832,19 @@ it('fires all three cache lanes for a touched site', function () {
 });
 ```
 
-Add `makeShopBrand()` / `makeShopProduct()` helpers to `tests/Pest.php` beside
-the existing factory helpers. Seed columns directly on the factory rather than
-relying on model mutators.
+**Test helpers — add these to `tests/Pest.php`** beside the existing factory
+helpers, with these exact return contracts, because Tasks 5, 6 and 8 destructure
+them:
+
+| Helper | Returns |
+|---|---|
+| `makeShopBrand(array $attrs = [], bool $withSite = false)` | `[User $user, ShopBrand $brand]`, or `[User, ShopBrand, Site]` when `$withSite` |
+| `makeShopProduct(ShopBrand $brand, array $data = [])` | `ShopProduct` — `$data` merges into the `data` jsonb |
+| `makeStoreCollection(int $withProducts = 0)` | `[User $user, string $collectionId, string $brandId]` — a store already in `content.*`, plus N products. **Returns the brand id third** because Task 8's endpoint URLs need it |
+| `exerciseAllShopWrites(TestCase $t, User $u, ShopBrand $b): void` | Calls each of the 9 write endpoints once with valid payloads. Used only by Task 8 step 5's inertness proof |
+
+Seed columns directly on the factory rather than relying on model mutators — a
+mutator-derived column is not what a raw backfill reads.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1456,11 +1466,6 @@ must need no change.
 
 - [ ] **Step 1: Capture the current responses as fixtures**
 
-```bash
-git stash list   # confirm nothing of yours is stashed; never bare `git stash`
-php artisan test --filter=Shop >/dev/null   # warm nothing; just a sanity run
-```
-
 Write `tests/Feature/Shop/ShopEndpointParityTest.php` that, for a seeded user
 with two stores and five products, asserts the exact JSON structure of all 14
 endpoints. Generate the expectations by running the endpoints on
@@ -1539,7 +1544,7 @@ new ones."
 
 ```php
 it('setProducts writes the selection to content.* in the given order', function () {
-    [$user, $collectionId] = makeStoreCollection();
+    [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 2);
     $this->actingAsUser($user)->putJson("/api/platforms/shop/brands/{$brandId}/selection", [
         'productIds' => ['p2', 'p1'],
     ])->assertOk();
@@ -1552,7 +1557,7 @@ it('setProducts writes the selection to content.* in the given order', function 
 
 it('setProducts stamps products_curated_at on the storefront', function () {
     // #SEM-1: this is the flag ShopFetch actually reads. Not selection_mode.
-    [$user, $collectionId] = makeStoreCollection();
+    [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 1);
     $this->actingAsUser($user)->putJson("/api/platforms/shop/brands/{$brandId}/selection",
         ['productIds' => ['p1']])->assertOk();
 
@@ -1561,7 +1566,7 @@ it('setProducts stamps products_curated_at on the storefront', function () {
 });
 
 it('removeBrand retires items rather than deleting them', function () {
-    [$user, $collectionId] = makeStoreCollection(withProducts: 2);
+    [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 2);
     $this->actingAsUser($user)->deleteJson("/api/platforms/shop/brands/{$brandId}")->assertOk();
 
     expect(DB::table('content.items')->where('kind', 'product')->count())->toBe(2)
@@ -1570,14 +1575,14 @@ it('removeBrand retires items rather than deleting them', function () {
 });
 
 it('removeProduct retires one item and leaves its siblings alone', function () {
-    [$user, $collectionId] = makeStoreCollection(withProducts: 3);
+    [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 3);
     $this->actingAsUser($user)->deleteJson('/api/platforms/shop/products/p2')->assertOk();
 
     expect(DB::table('content.items')->whereNull('removed_at')->count())->toBe(2);
 });
 
 it('forget removes every store for the user and retires their items', function () {
-    [$user] = makeStoreCollection(withProducts: 2);
+    [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 2);
     $this->actingAsUser($user)->deleteJson('/api/platforms/shop')->assertOk();
 
     expect(DB::table('content.collections')->count())->toBe(0)
