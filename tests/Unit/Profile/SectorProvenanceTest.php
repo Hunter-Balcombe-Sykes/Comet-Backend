@@ -5,6 +5,7 @@
 
 use App\Models\Core\User\User;
 use App\Services\Profile\SectorProvenance;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -82,4 +83,31 @@ it('identifies a food demotion only on a business account leaving a food sector'
     expect(SectorProvenance::isFoodDemotion(true, null, 'event-venue'))->toBeFalse();
     // Staying in food.
     expect(SectorProvenance::isFoodDemotion(true, 'restaurant', 'cafe'))->toBeFalse();
+});
+
+it('logs a transition with both sources and an outcome', function () {
+    $user = provenanceUser('cafe', 'google-business');
+    $user->id = '00000000-0000-4000-8000-000000000001';
+
+    Log::shouldReceive('info')->once()->withArgs(function (string $message, array $context) {
+        return $context['from'] === 'cafe'
+            && $context['from_source'] === 'google-business'
+            && $context['to'] === 'barber'
+            && $context['to_source'] === 'google-business'
+            && $context['outcome'] === 'applied'
+            && $context['user_id'] === '00000000-0000-4000-8000-000000000001';
+    });
+
+    SectorProvenance::logTransition($user, 'barber', SectorProvenance::GOOGLE, 'IdentitySync::applySector');
+});
+
+it('distinguishes a refusal from an applied write', function () {
+    $user = provenanceUser('restaurant', 'google-business');
+    $user->id = '00000000-0000-4000-8000-000000000002';
+
+    Log::shouldReceive('info')->once()->withArgs(
+        fn (string $message, array $context) => $context['outcome'] === 'refused_food_demotion'
+    );
+
+    SectorProvenance::logTransition($user, 'event-venue', SectorProvenance::GOOGLE, 'IdentitySync::applySector', 'refused_food_demotion');
 });

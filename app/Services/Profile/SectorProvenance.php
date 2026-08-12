@@ -3,6 +3,7 @@
 namespace App\Services\Profile;
 
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Who may overwrite core.users.sector.
@@ -77,5 +78,37 @@ final class SectorProvenance
         return $isBusiness
             && SectorTaxonomy::isFood($currentSector)
             && ! SectorTaxonomy::isFood($incomingSector);
+    }
+
+    /**
+     * Record a sector transition, applied or refused.
+     *
+     * Load-bearing rather than decorative: Instagram may never refresh its own
+     * value (see SELF_REFRESH), so when a guess turns out wrong this line is
+     * the only record of what wrote it and when. $outcome is required because a
+     * refusal logged as a null target is indistinguishable from a clear-to-null.
+     *
+     * Callers MUST pass the LOCKED row, before the assignment — a pre-lock
+     * instance logs stale provenance.
+     *
+     * LOG_LEVEL is debug on both envs and NIGHTWATCH_LOG_LEVEL is unset, so
+     * this reaches Nightwatch as an event, not just a log file.
+     */
+    public static function logTransition(
+        User $user,
+        ?string $to,
+        ?string $toSource,
+        string $caller,
+        string $outcome = 'applied',
+    ): void {
+        Log::info('sector.transition', [
+            'user_id' => (string) $user->id,
+            'from' => $user->sector,
+            'from_source' => $user->sector_source,
+            'to' => $to,
+            'to_source' => $toSource,
+            'caller' => $caller,
+            'outcome' => $outcome,
+        ]);
     }
 }
