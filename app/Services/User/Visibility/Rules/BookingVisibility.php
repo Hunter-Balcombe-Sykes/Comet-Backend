@@ -3,7 +3,6 @@
 namespace App\Services\User\Visibility\Rules;
 
 use App\Models\Core\Site\Block;
-use App\Models\Core\User\Service;
 use App\Services\User\Visibility\SectionVisibilityContract;
 use Illuminate\Support\Facades\DB;
 
@@ -23,14 +22,20 @@ class BookingVisibility implements SectionVisibilityContract
     {
         return [
             // Gating requirement: at least one active MANUAL service (Fresha
-            // projections don't change this gate — pre-projection behaviour kept).
-            'has_active_service' => Service::query()
+            // projections don't change this gate — pre-projection behaviour
+            // kept). Slice 3a §3.4: owner-authored services live in
+            // content.* now — a live service-kind item on the user's manual
+            // source is the new mechanism for the same "at least one active
+            // manual service" meaning.
+            'has_active_service' => DB::connection('pgsql')->table('content.items as i')
+                ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
+                ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
                 ->select(DB::raw('1'))
-                ->where('user_id', $userId)
-                ->whereNull('source')
-                ->where('is_active', true)
-                ->whereNull('deleted_at')
-                ->getQuery(),
+                ->where('i.user_id', $userId)
+                ->where('i.kind', 'service')
+                ->whereNull('i.removed_at')
+                ->whereNull('si.removed_at')
+                ->where('cs.kind', 'manual'),
 
             // Current "has a booking destination" path: a links-group block with
             // category='booking'. Phase 2: reads the promoted column (not settings JSONB).

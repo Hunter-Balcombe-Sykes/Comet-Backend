@@ -12,6 +12,10 @@ beforeEach(function () {
     setupServicesTable();
     setupUserIntegrationsTable();
     shimPgAdvisoryLockForSqlite();
+    // Slice 3a §3.4: ServicesVisibility/BookingVisibility's has_priced_service
+    // and has_active_service subqueries read content.* now.
+    setupIngestTables();
+    setupContentTables();
 });
 
 it('batchCheck issues exactly one SQL query regardless of section count', function () {

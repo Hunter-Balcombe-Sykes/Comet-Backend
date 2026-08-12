@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Migration\ServiceBackfiller;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\Cache;
@@ -23,6 +24,12 @@ beforeEach(function () {
     // designMedia now projects the resolved content SELECTION (not the raw
     // library), so the payload build reaches into site.content_selection.
     setupContentSelectionTable();
+    // Slice 3a §3.4: the services engine now reads content.* (owner-authored
+    // services live there post-backfill) — every test in this file exercises
+    // the resolver, so the content/ingest schema must exist even for tests
+    // that never touch a service.
+    setupIngestTables();
+    setupContentTables();
 
     // Architecture column shim — production has architecture_id with a CHECK
     // enum default 'staple', and the SitepageDataResolverService reads it via
@@ -1036,19 +1043,18 @@ it('services engine returns a flat ProfileService[] with camelCase keys', functi
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
-    DB::connection('pgsql')->table('site.services')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
+    // Slice 3a §3.4: the services engine reads content.* now — seed the
+    // legacy row and run the backfiller, the same way production's 21
+    // owner-authored services landed, rather than writing site.services and
+    // expecting the public read to see it directly (it no longer does).
+    ownerService($pro->id, [
         'title' => 'Haircut',
         'description' => 'A nice haircut',
         'price_cents' => 5500,
         'currency_code' => 'AUD',
         'duration_minutes' => 45,
-        'is_active' => 1,
-        'sort_order' => 0,
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
     ]);
+    app(ServiceBackfiller::class)->run();
 
     $services = $this->getJson('/api/public/profiles/svc-live')->assertOk()->json('data.profile.services');
 

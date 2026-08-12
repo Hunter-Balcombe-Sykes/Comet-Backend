@@ -8,7 +8,6 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
-use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
@@ -18,6 +17,7 @@ use App\Site\Pools\PoolResolver;
 use App\Support\UrlSafety;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -285,8 +285,17 @@ class SitepageDataResolverService
                 }
 
                 // Active MANUAL services → the Services page (Fresha projections
-                // never flip public page presence).
-                if ($this->safeQuery(fn () => Service::query()->where('user_id', $userId)->whereNull('source')->where('is_active', true)->whereNull('deleted_at')->exists(), false, 'active_services_exists', $site)) {
+                // never flip public page presence). Slice 3a §3.4: the
+                // manual-source filter replaces the old whereNull('source').
+                if ($this->safeQuery(fn () => DB::connection('pgsql')->table('content.items as i')
+                    ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
+                    ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+                    ->where('i.user_id', $userId)
+                    ->where('i.kind', 'service')
+                    ->whereNull('i.removed_at')
+                    ->whereNull('si.removed_at')
+                    ->where('cs.kind', 'manual')
+                    ->exists(), false, 'active_services_exists', $site)) {
                     $present['services'] = true;
                 }
 
@@ -922,30 +931,75 @@ class SitepageDataResolverService
         $bookingMode = strtolower((string) ($site?->booking_mode ?? $settings['booking_mode'] ?? 'manual'));
         $manualBookingUrl = trim((string) ($site?->manual_booking_url ?? $settings['manual_booking_url'] ?? ''));
 
-        $services = Service::query()
-            ->with('categories:id,title')
-            ->where('user_id', $proId)
-            // Manual services only — Fresha projections belong to the booking
-            // surface (the Fresha selection blob), never the services section.
-            ->whereNull('source')
-            ->where('is_active', true)
-            ->whereNull('deleted_at')
-            ->orderBy('sort_order')
-            ->orderBy('created_at')
-            ->get()
-            ->map(fn (Service $service): array => [
-                'id' => $service->id,
-                'title' => $service->title,
-                'description' => $service->description,
-                'price_cents' => $service->price_cents,
-                'currency_code' => $service->currency_code,
-                'duration_minutes' => $service->duration_minutes,
-                // Multi-category: the public card shows the FIRST membership's
-                // title (display parity with the old single category).
-                'category' => $service->categories->first()?->title ?? 'Services',
-            ])
-            ->values()
-            ->all();
+        // Slice 3a §3.4: owner-authored services live in content.* now. The
+        // manual-source filter replaces the old whereNull('source') — same
+        // split, different mechanism: Fresha projections belong to the booking
+        // surface, never the services section. sec.sort_key is carried into
+        // the select list (not just ORDER BY) because Postgres requires every
+        // SELECT DISTINCT's ORDER BY expression to also be a selected column.
+        $rows = DB::connection('pgsql')->table('content.items as i')
+            ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->leftJoin('site.section_items as sec', 'sec.item_id', '=', 'i.id')
+            ->where('i.user_id', $proId)
+            ->where('i.kind', 'service')
+            ->whereNull('i.removed_at')
+            ->whereNull('si.removed_at')
+            ->where('cs.kind', 'manual')
+            ->where(fn ($q) => $q->whereNull('sec.state')->orWhere('sec.state', '!=', 'excluded'))
+            ->orderByRaw('sec.sort_key ASC NULLS LAST')
+            ->orderBy('i.headline_cache')
+            ->distinct()
+            ->get(['i.id', 'i.headline_cache', 'cs.id as source_id', 'sec.sort_key']);
+
+        $services = [];
+        if ($rows->isNotEmpty()) {
+            $itemIds = $rows->pluck('id')->all();
+            // Every row's source_id is the SAME manual source (idx_content_sources_manual
+            // is unique per user) — any row's value identifies it for the facet lookups below.
+            $manualSourceId = $rows->first()->source_id;
+
+            $descriptions = DB::connection('pgsql')->table('content.f_text')
+                ->whereIn('item_id', $itemIds)
+                ->where('source_id', $manualSourceId)
+                ->pluck('body', 'item_id');
+
+            $durationSeconds = DB::connection('pgsql')->table('content.f_duration')
+                ->whereIn('item_id', $itemIds)
+                ->where('source_id', $manualSourceId)
+                ->pluck('seconds', 'item_id');
+
+            $offers = DB::connection('pgsql')->table('content.offers')
+                ->whereIn('item_id', $itemIds)
+                ->where('source_id', $manualSourceId)
+                ->get(['item_id', 'amount_minor', 'currency', 'qualifier'])
+                ->keyBy('item_id');
+
+            $services = $rows->map(function ($row) use ($descriptions, $durationSeconds, $offers): array {
+                $offer = $offers->get($row->id);
+                $isFree = $offer !== null && $offer->qualifier === 'free';
+                $seconds = $durationSeconds[$row->id] ?? null;
+
+                return [
+                    'id' => (string) $row->id,
+                    'title' => (string) ($row->headline_cache ?? ''),
+                    'description' => $descriptions[$row->id] ?? null,
+                    'price_cents' => $offer === null || $isFree ? 0 : (int) $offer->amount_minor,
+                    // §1.2: a free offer carries no currency (the zero-price
+                    // rule strips it). 'AUD' is the legacy column's own
+                    // default and the only sensible fallback for the free-
+                    // service case, which is currently unreached (0 owner
+                    // rows are priced at $0 today per the slice 3a spec).
+                    'currency_code' => $offer === null || $isFree ? 'AUD' : (string) $offer->currency,
+                    'duration_minutes' => $seconds === null ? null : (int) ($seconds / 60),
+                    // Every live category assignment belongs to Fresha (spec
+                    // §1.1/§2 — owner-authored services carry zero), so this
+                    // matches the pre-migration fallback unconditionally, not
+                    // as an approximation. Real category grouping is 3b's job.
+                    'category' => 'Services',
+                ];
+            })->values()->all();
+        }
 
         return [
             'booking_mode' => $bookingMode,
