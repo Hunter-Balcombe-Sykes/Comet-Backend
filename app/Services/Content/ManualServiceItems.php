@@ -164,6 +164,67 @@ class ManualServiceItems
     }
 
     /**
+     * The DSAR export shape (DataExportPayloadBuilder::streamServices()):
+     * every one of this user's manual/service content items, LIVE or
+     * REMOVED — removed_at rows are kept, not filtered, mirroring the
+     * pre-cutover site.services stream (a soft-deleted row still surfaces
+     * during its 30-day purge grace window; Article 15 covers data still
+     * held, not just live data).
+     *
+     * Field values are raw off the row/facets (dates as stored strings, not
+     * re-parsed through Carbon) rather than routed through toServiceModel() —
+     * every other section in the builder yields plain DB::table() rows, and
+     * going through the Eloquent model here would reformat the date columns
+     * to a different string shape than the rest of the export.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function exportRows(string $userId, ?Site $site): array
+    {
+        $sectionId = $this->sectionId($site);
+        $rows = $this->rows($userId, $sectionId, includeRemoved: true);
+
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $itemIds = $rows->pluck('id')->all();
+        $facets = $this->facets($itemIds, $rows->first()->source_id);
+
+        return $rows->map(function ($row) use ($userId, $facets) {
+            [$priceCents, $currencyCode] = $this->priceOf($row, $facets);
+            $seconds = $facets['durations'][$row->id] ?? null;
+
+            return [
+                'id' => (string) $row->id,
+                'user_id' => $userId,
+                'title' => (string) ($row->headline_cache ?? ''),
+                'description' => $facets['descriptions'][$row->id] ?? null,
+                'price_cents' => $priceCents,
+                'currency_code' => $currencyCode,
+                'duration_minutes' => $seconds === null ? null : (int) ($seconds / 60),
+                'is_active' => ($row->state ?? null) !== 'excluded',
+                // Honest disclosure of what's actually stored: an excluded
+                // item's sort_key is genuinely NULL (ManualServiceWriter::
+                // exclude()), unlike toServiceModel()'s PHP_INT_MAX stand-in
+                // (a UI list-ordering placeholder, not real held data).
+                'sort_order' => $row->sort_key !== null ? (int) round((float) $row->sort_key) : null,
+                // Owner-authored services carry no legacy provenance.
+                'source' => null,
+                'is_manual' => false,
+                'external_id' => null,
+                'deleted_origin' => null,
+                'created_at' => $row->created_at,
+                'updated_at' => $row->updated_at,
+                'deleted_at' => $row->removed_at,
+                // content.* has no membership concept yet (3b) — mirrors
+                // toServiceModel()'s identical empty-categories rule.
+                'category_ids' => [],
+            ];
+        })->values()->all();
+    }
+
+    /**
      * Hydrate the ADMIN (ServiceResource) shape: one unpersisted Service
      * model per row, content.* facets copied onto the legacy columns
      * ServiceResource maps to the wire. Shared by UserServiceController and

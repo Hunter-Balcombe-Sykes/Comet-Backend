@@ -1,6 +1,9 @@
 <?php
 
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualServiceWriter;
+use App\Services\Migration\ServiceBackfiller;
 use App\Services\User\DataExport\DataExportPayloadBuilder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -1740,4 +1743,152 @@ it('#PRIV-13 exports no evidence row belonging to another user', function () {
     expect($payload['moderation_evidence'])->toBe([]);
     expect(json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))
         ->not->toContain('OTHER-USER-SENTINEL');
+});
+
+// Slice 3a Task 6: owner-authored services moved to content.* (Task 4/5), but
+// the DSAR export kept streaming site.services — which ManualServiceWriter
+// never writes back to once a row is in the manual lane. From cutover
+// onward that made the export silently disclose PRE-EDIT values. These two
+// tests cover the two ways that showed up: a brand-new service (never had a
+// site.services row at all) and a post-cutover edit to an already-backfilled
+// one (site.services keeps the OLD values forever).
+//
+// ManualServiceWriter/ProjectionWriter issue raw DB::table() calls with no
+// explicit connection (unlike DataExportPayloadBuilder itself, which always
+// scopes to 'pgsql') — they resolve against config('database.default').
+// DataExportTestCase::boot() (this file's beforeEach) deliberately points
+// that at 'sqlite', a SEPARATE :memory: database from the 'pgsql' connection
+// every setup helper writes to. tests/TestCase.php normally forces
+// 'database.default' back to 'pgsql' for the rest of the suite; restoring
+// that locally here is what lets the production write path resolve to the
+// same in-memory database this test seeded.
+it('exports a service created purely through the new content.* write path (never touched site.services)', function () {
+    config(['database.default' => 'pgsql']);
+    $pro = seedProForPayload((string) Str::uuid());
+    $siteId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $pro->id,
+        'subdomain' => 'jane',
+        'created_at' => '2026-01-01T00:00:00Z',
+    ]);
+
+    // Mirrors UserServiceController::store()'s write — a fresh manual coord,
+    // written and pinned through ManualServiceWriter, with no corresponding
+    // site.services row ever created.
+    $writer = app(ManualServiceWriter::class);
+    $site = Site::query()->find($siteId);
+    $coord = 'manual:'.(string) Str::uuid();
+    $itemId = $writer->write($pro->id, $coord, $writer->projectionFor((object) [
+        'title' => 'Brand New Service',
+        'description' => 'Fresh from the new write path.',
+        'price_cents' => 4500,
+        'currency_code' => 'AUD',
+        'duration_minutes' => 30,
+    ]));
+    $writer->pin($site, $itemId, 1.0);
+
+    expect(DB::connection('pgsql')->table('site.services')->where('user_id', $pro->id)->count())->toBe(0);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    // Section keys unchanged — the 2026-08-05 precedent keeps legacy DSAR
+    // keys so a previously-stored export payload stays disclosable.
+    expect($payload)->toHaveKey('services');
+    expect($payload)->toHaveKey('service_categories');
+
+    $row = collect($payload['services'])->firstWhere('id', $itemId);
+    expect($row)->not->toBeNull();
+    expect($row['title'])->toBe('Brand New Service');
+    expect($row['description'])->toBe('Fresh from the new write path.');
+    expect($row['price_cents'])->toBe(4500);
+    expect($row['currency_code'])->toBe('AUD');
+    expect($row['duration_minutes'])->toBe(30);
+    expect($row['is_active'])->toBeTrue();
+    expect($row['source'])->toBeNull();
+    expect($row['is_manual'])->toBeFalse();
+    expect($row['category_ids'])->toBe([]);
+});
+
+it('reflects a post-cutover edit to an already-backfilled owner service, not the stale site.services values', function () {
+    config(['database.default' => 'pgsql']);
+    $pro = seedProForPayload((string) Str::uuid());
+    $siteId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $pro->id,
+        'subdomain' => 'jane',
+        'created_at' => '2026-01-01T00:00:00Z',
+    ]);
+
+    // Pre-cutover state: a legacy row, already migrated to content.* by the
+    // one-off backfill (tests/Pest.php's ownerService() + ServiceBackfiller —
+    // exactly how production got there, per the task brief).
+    $serviceId = ownerService($pro->id, [
+        'title' => 'Old Title',
+        'description' => 'Old description.',
+        'price_cents' => 5000,
+        'currency_code' => 'AUD',
+    ]);
+    app(ServiceBackfiller::class)->run();
+
+    // The cutover edit: UserServiceController::update() writes content.*
+    // ONLY for a manual item (never back to site.services) — reproduced here
+    // with the same coord the backfill used and the same production writer
+    // the controller calls.
+    $writer = app(ManualServiceWriter::class);
+    $itemId = $writer->write($pro->id, 'manual:'.$serviceId, $writer->projectionFor((object) [
+        'title' => 'New Title',
+        'description' => 'New description.',
+        'price_cents' => 9900,
+        'currency_code' => 'AUD',
+        'duration_minutes' => null,
+    ]));
+
+    // The legacy row is untouched — it is the stale value the pre-Task-6
+    // export would have disclosed.
+    expect(DB::connection('pgsql')->table('site.services')->where('id', $serviceId)->value('title'))->toBe('Old Title');
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload)->toHaveKey('services');
+
+    $row = collect($payload['services'])->firstWhere('id', $itemId);
+    expect($row)->not->toBeNull();
+    expect($row['title'])->toBe('New Title');
+    expect($row['description'])->toBe('New description.');
+    expect($row['price_cents'])->toBe(9900);
+
+    // The stale legacy value must not appear anywhere in the export.
+    $titles = collect($payload['services'])->pluck('title')->all();
+    expect($titles)->not->toContain('Old Title');
+    expect(json_encode($payload, JSON_THROW_ON_ERROR))->not->toContain('Old description.');
+});
+
+it('still exports Fresha-projected services straight off site.services (unchanged by slice 3a)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    DB::connection('pgsql')->table('site.services')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'title' => 'Fresha Cut',
+        'price_cents' => 6000,
+        'currency_code' => 'AUD',
+        'is_active' => 1,
+        'sort_order' => 0,
+        'source' => 'fresha',
+        'is_manual' => 0,
+        'external_id' => 'fresha-svc-1',
+        'created_at' => '2026-01-01T00:00:00Z',
+        'updated_at' => '2026-01-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    $row = collect($payload['services'])->firstWhere('title', 'Fresha Cut');
+    expect($row)->not->toBeNull();
+    expect($row['source'])->toBe('fresha');
+    expect($row['external_id'])->toBe('fresha-svc-1');
 });

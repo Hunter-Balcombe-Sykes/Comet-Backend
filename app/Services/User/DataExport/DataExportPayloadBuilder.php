@@ -2,8 +2,10 @@
 
 namespace App\Services\User\DataExport;
 
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
+use App\Services\Content\ManualServiceItems;
 use App\Services\Platforms\DsarPayloadFilter;
 use App\Services\User\Concerns\ResolvesDeletedEmail;
 use Generator;
@@ -252,7 +254,7 @@ class DataExportPayloadBuilder
                 'resolve' => fn () => $this->streamCustomers($userId),
                 'csv_columns' => ['id', 'email', 'phone', 'full_name', 'source', 'notes', 'created_at'],
             ],
-            ['name' => 'services', 'kind' => 'rows', 'resolve' => fn () => $this->streamServices($userId)],
+            ['name' => 'services', 'kind' => 'rows', 'resolve' => fn () => $this->streamServices($userId, $siteId)],
             ['name' => 'service_categories', 'kind' => 'rows', 'resolve' => fn () => $this->streamServiceCategories($userId)],
             [
                 'name' => 'enquiries',
@@ -727,15 +729,33 @@ class DataExportPayloadBuilder
     }
 
     /**
+     * Slice 3a cutover: owner-authored services (source IS NULL) moved to
+     * content.* (spec §3.1) — ManualServiceWriter never writes back to
+     * site.services once a row is in the manual lane
+     * (UserServiceController::update()), so reading site.services for them
+     * here would export PRE-EDIT values forever after the first dashboard
+     * edit post-cutover. ManualServiceItems is the ONE shared content.* read
+     * (also used by the public renderer and the dashboard controller) —
+     * reused via exportRows() rather than a fourth copy of its join.
+     *
+     * Fresha-projected rows (source = 'fresha') are UNCHANGED by this slice
+     * and still stream straight off site.services — 3b's problem, not this
+     * task's (see the task brief's "what is and isn't migrated").
+     *
      * PRIV-2: explicit allow-list, equal to the table's current full column set.
      */
-    private function streamServices(string $userId): Generator
+    private function streamServices(string $userId, ?string $siteId): Generator
     {
+        $manual = app(ManualServiceItems::class);
+        $site = $siteId !== null ? Site::query()->find($siteId) : null;
+
+        yield from $manual->exportRows($userId, $site);
+
         // Multi-category (20260721180000): the single category_id column (and
         // the legacy dead `category` text) are gone — memberships stream via
         // the category_ids aggregate below. source/is_manual/external_id are
         // the Fresha-projection provenance (20260721150000).
-        return $this->lazyRows(
+        yield from $this->lazyRows(
             DB::connection('pgsql')
                 ->table('site.services')
                 ->select([
@@ -744,7 +764,12 @@ class DataExportPayloadBuilder
                     'source', 'is_manual', 'external_id',
                     'deleted_origin', 'created_at', 'updated_at', 'deleted_at',
                 ])
-                ->where('user_id', $userId),
+                ->where('user_id', $userId)
+                // Owner-authored rows (source IS NULL) are now read above,
+                // through content.* — the site.services row for them is a
+                // stale, unread duplicate left behind by ServiceBackfiller
+                // (it never deletes the legacy row it backfills).
+                ->whereNotNull('source'),
             transform: function (object $row): array {
                 $out = (array) $row;
                 $out['category_ids'] = DB::connection('pgsql')
