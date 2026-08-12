@@ -3,11 +3,12 @@
 Backend-only execution; the frontends are told, not designed around
 (spec `2026-08-12-media-pool-slice-1a-design.md`, owner decision 2026-08-12).
 
-> **STATUS: code merged to `media-pool-slice-1a` branch only.** The backfill
-> command (`content:backfill-upload-media`) and section re-shape command
-> (`content:reshape-media-sections`) have not run anywhere yet. Dev execution
-> is Task 9; prod carries no media items at all. A frontend integrating against
-> dev/prod today must not assume `pools.media` is populated.
+> **STATUS (2026-08-12): LIVE on dev.** Merged to `development`, deployed, and
+> both commands have run against dev: 10 `pool:media` sections re-shaped, 25
+> uploads backfilled (verified: 45 media items, 25 upload-backed assets, all 25
+> resolving with non-null `frames[0].url` in both library and selection).
+> **Prod: NOT run** — prod carries no media items at all; the migration and
+> commands reach prod with the next prod deploy cycle.
 
 ## `GET /api/public/profiles/{handle}` and `GET /api/content/pools/{pool}`
 
@@ -51,11 +52,11 @@ is positional while `cover()` is role-priority and the two will diverge.
 Making `thumbnail` an object was rejected: it is live on watch/listen/events
 today and would break three surfaces to serve one.
 
-### Ready for population: `pools.media`
+### Now populated on dev: `pools.media`
 
-Once Task 9's backfill (`content:backfill-upload-media`) and section re-shape
-(`content:reshape-media-sections`) run on dev, the media pool will resolve
-upload-backed items (25 uploads exist in dev's `site.site_media` source data).
+The backfill (`content:backfill-upload-media`) and section re-shape
+(`content:reshape-media-sections`) have run on dev: the media pool resolves
+25 upload-backed items with servable URLs and dimensions.
 The legacy `gallery` / `designMedia` payload keys remain on the wire and
 should continue to work; new gallery work going forward should read
 `pools.media` + `frames` instead.
