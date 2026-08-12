@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Dev;
 
 use App\Http\Controllers\Controller;
+use App\Mail\Account\WeeklyDigestMail;
 use App\Mail\Account\WelcomeMail;
 use App\Mail\Auth\EmailChangeMail;
 use App\Mail\Auth\EmailConfirmMail;
@@ -153,6 +154,7 @@ class MailPreviewController extends Controller
             ],
             'Account' => [
                 'welcome' => ['label' => 'Welcome', 'make' => fn () => new WelcomeMail('sam@example.com', 'sams-cafe')],
+                'weekly-digest' => ['label' => 'Weekly digest', 'make' => fn () => new WeeklyDigestMail('sam@example.com', 'Sam', '4–10 Aug', 214, 161, 38, 'Instagram', 17, 'https://api.partna.au/preview-unsubscribe')],
                 'deletion-requested' => ['label' => 'Deletion requested', 'make' => fn () => new AccountDeletionRequestedMail('Sam', 'https://app.partna.au/account/deletion/confirm?token=preview')],
                 'deletion-scheduled' => ['label' => 'Deletion scheduled', 'make' => fn () => new AccountDeletionScheduledMail('Sam', now()->addDays(30)->toDayDateTimeString().' (UTC)', 'https://app.partna.au/account/deletion/cancel?token=preview')],
                 'deletion-cancelled' => ['label' => 'Deletion cancelled', 'make' => fn () => new AccountDeletionCancelledMail('Sam')],
