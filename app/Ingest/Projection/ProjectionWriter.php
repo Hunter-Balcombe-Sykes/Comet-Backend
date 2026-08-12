@@ -68,6 +68,15 @@ class ProjectionWriter
         'f_channel' => ['avatar_url'],
     ];
 
+    /**
+     * The owner's own channel outranks every connection. ValueResolver sorts
+     * source contributions by priority DESC for f_text.headline and
+     * f_link.url, so this constant is what makes "the user outranks the
+     * machine" (C8) a data fact rather than a branch in code — exactly as
+     * content.sources' own DDL comment claims. Connections sit at 100.
+     */
+    public const MANUAL_SOURCE_PRIORITY = 200;
+
     public function __construct(
         private readonly Resolver $resolver,
         private readonly ValueResolver $values,
@@ -232,6 +241,64 @@ class ProjectionWriter
         ]);
 
         return $id;
+    }
+
+    /**
+     * The owner's contribution channel — one per user, find-or-create.
+     *
+     * Deliberately NOT folded into ensureContentSource(): that method is
+     * keyed on connection_id, and a manual source has none. The uniqueness
+     * that matters here is idx_content_sources_manual, a PARTIAL unique index
+     * on (user_id) WHERE kind = 'manual'.
+     */
+    public function ensureManualSource(string $userId): string
+    {
+        $existing = DB::table('content.sources')
+            ->where('user_id', $userId)
+            ->where('kind', 'manual')
+            ->first(['id', 'priority']);
+
+        if ($existing !== null) {
+            // The writer this method replaces created manual sources at 100,
+            // the same as a connection. Find-or-create alone would carry that
+            // forward forever and the C8 guarantee would quietly not hold for
+            // anyone who had already hand-added.
+            if ((int) $existing->priority !== self::MANUAL_SOURCE_PRIORITY) {
+                DB::table('content.sources')->where('id', $existing->id)->update([
+                    'priority' => self::MANUAL_SOURCE_PRIORITY,
+                    'updated_at' => now(),
+                ]);
+            }
+
+            return (string) $existing->id;
+        }
+
+        DB::table('content.sources')->insertOrIgnore([
+            'id' => (string) Str::uuid(),
+            'user_id' => $userId,
+            'kind' => 'manual',
+            'connection_id' => null,
+            'label' => 'manual',
+            'priority' => self::MANUAL_SOURCE_PRIORITY,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Re-read rather than assume our row landed — same reasoning as
+        // resolveMediaAssets(): insertOrIgnore returns no id, and a concurrent
+        // caller may have won the partial-unique race.
+        $id = DB::table('content.sources')
+            ->where('user_id', $userId)
+            ->where('kind', 'manual')
+            ->value('id');
+
+        if ($id === null) {
+            // Loud rather than a (string) cast of null to '', which would go
+            // on to become the source_id on every facet row this call writes.
+            throw new \RuntimeException("Could not resolve a manual content source for user {$userId}.");
+        }
+
+        return (string) $id;
     }
 
     /**

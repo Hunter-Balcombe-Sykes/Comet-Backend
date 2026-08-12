@@ -2330,6 +2330,16 @@ function setupContentTables(): void
         updated_at TEXT NOT NULL
     )');
 
+    // Mirrors idx_content_sources_manual (20260727140000): one manual source
+    // per user. SQLite puts the schema qualifier on the INDEX name, not the
+    // table — same quirk as idx_platform_connections_canonical above.
+    try {
+        $pg->statement('CREATE UNIQUE INDEX IF NOT EXISTS content.idx_content_sources_manual
+            ON sources (user_id) WHERE kind = \'manual\'');
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
+
     $pg->statement('CREATE TABLE IF NOT EXISTS content.source_items (
         id TEXT PRIMARY KEY NOT NULL,
         source_id TEXT NOT NULL,
