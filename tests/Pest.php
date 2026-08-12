@@ -1776,6 +1776,27 @@ function setupServicesTable(): void
         }
     }
 
+    // services_user_sort_order_uq (supabase/migrations/20260726000000_baseline_pilot.sql:3307):
+    // UNIQUE (user_id, sort_order) WHERE deleted_at IS NULL — GLOBAL per
+    // user, NOT scoped by source. Slice 3a Task 5 review round 3: without
+    // this in the test schema, a Fresha-only sort_order renumber (the exact
+    // defect UserServiceController::renumberLegacySortOrder() exists to fix
+    // — see its docblock) has nothing to collide with, so no test can prove
+    // the fix does anything. SQLite quirk (verified empirically — a QUOTED
+    // "site.name" identifier resolves `ON services` against `main.services`
+    // and fails with "no such table", silently swallowed by a bare
+    // try/catch): the working form is UNQUOTED `site.name`, matching the
+    // pre-existing throwaway indexes in ServiceLayoutReorderTest.php et al.
+    try {
+        DB::connection('pgsql')->statement(
+            'CREATE UNIQUE INDEX IF NOT EXISTS site.services_user_sort_order_uq
+             ON services (user_id, sort_order)
+             WHERE deleted_at IS NULL'
+        );
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
+
     // Service ↔ category memberships (multi-category, 20260721180000).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.service_category_assignments (
         service_id TEXT NOT NULL,

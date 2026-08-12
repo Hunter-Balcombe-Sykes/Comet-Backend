@@ -225,7 +225,17 @@ class ManualServiceItems
         // Missing curation (a live item never pinned/excluded) defaults
         // visible, matching publicList()'s own "absent state = shown" rule.
         $service->is_active = ($row->state ?? null) !== 'excluded';
-        $service->sort_order = $row->sort_key !== null ? (int) round((float) $row->sort_key) : 0;
+        // §NEW-4 (review round 3): a null sort_key (ManualServiceWriter::
+        // exclude() nulls it by design for a hidden service) must sort LAST,
+        // not first — this transient sort_order is the shared scale
+        // UserServiceController's index()/UserCacheService::getDashboardServices()
+        // now sort the merged manual+Fresha list by (§NEW-I1), and 0 is the
+        // MINIMUM of that scale (reorder()/reorderLayout() number live items
+        // from 0), so mapping null to 0 put every hidden service at the
+        // HEAD of the list instead of somewhere sane. PHP_INT_MAX is safe
+        // here only because this model is never persisted (`exists = false`
+        // above) — it never reaches a real INTEGER column.
+        $service->sort_order = $row->sort_key !== null ? (int) round((float) $row->sort_key) : PHP_INT_MAX;
         // Owner-authored services carry no legacy provenance.
         $service->source = null;
         $service->is_manual = false;

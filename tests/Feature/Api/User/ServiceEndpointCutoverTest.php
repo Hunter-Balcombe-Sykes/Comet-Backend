@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
+use App\Http\Requests\Api\User\Services\ReorderServiceLayoutRequest;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
@@ -11,6 +13,7 @@ use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // Slice 3a Task 5: the 8 owner-authored routes on UserServiceController now
 // read and write content.* instead of site.services. The bug this guards
@@ -477,16 +480,29 @@ it('reorder mixing manual and Fresha ids does not 500 and round-trips through GE
 // was tried and reverted) silently shifts every Fresha id that comes AFTER
 // the unresolvable manual id, breaking the interleave the moment more than
 // one Fresha id follows it.
-it('round-trips even when a brand-new manual service (no legacy row) sits between two Fresha ids', function () {
+it('round-trips even when two brand-new manual services (no legacy row) sit ahead of two Fresha ids', function () {
+    // §NEW-C1 review round 3 (item 3): the ORIGINAL version of this test
+    // (one unresolvable manual id, one Fresha id after it) stayed green
+    // under a dense recompaction of $targets — the exact
+    // ReorderService::reorder()-delegation defect this test exists to
+    // guard against — because dropping ONE unresolvable id from the front
+    // shifts nothing (there's nothing after it to shift past). The break
+    // needs at least two Fresha ids following the unresolvable id(s) for a
+    // dense re-index to diverge from the gapped one. [m1_new, m2_new, f1,
+    // f2] is the minimal shape that actually exercises it — verified below
+    // by reproducing the ReorderService-delegation mutation and confirming
+    // THIS test (and no other) goes red under it.
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
 
     $freshaA = ownerService($userId, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
     $freshaB = ownerService($userId, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 1]);
-    $newManualId = actingAsUser($user)->postJson('/api/services', ['title' => 'Brand New', 'price_cents' => 1000])
+    $newManualId1 = actingAsUser($user)->postJson('/api/services', ['title' => 'Brand New 1', 'price_cents' => 1000])
+        ->assertCreated()->json('service.id');
+    $newManualId2 = actingAsUser($user)->postJson('/api/services', ['title' => 'Brand New 2', 'price_cents' => 2000])
         ->assertCreated()->json('service.id');
 
-    $submitted = [$freshaA, $newManualId, $freshaB];
+    $submitted = [$newManualId1, $newManualId2, $freshaA, $freshaB];
 
     actingAsUser($user)->postJson('/api/services/reorder', ['ids' => $submitted])
         ->assertOk()->assertJson(['ok' => true]);
@@ -495,6 +511,41 @@ it('round-trips even when a brand-new manual service (no legacy row) sits betwee
     $ids = collect($response->json('services'))->pluck('id')->all();
 
     expect($ids)->toBe($submitted);
+});
+
+// §NEW-4 (review round 3): ManualServiceItems::hydrate() used to map a null
+// sort_key (ManualServiceWriter::exclude()'s deliberate null for a hidden
+// service) to sort_order=0 — the MINIMUM of the shared scale NEW-I1's merge
+// sort depends on — so a hidden manual service sorted to the HEAD of the
+// merged list instead of somewhere sane. Round 1's manual-first
+// concatenation masked this; the round 2 fix (sort by sort_order) exposed
+// it. Covers both index()'s uncached merge and
+// UserCacheService::getDashboardServices()'s cached one.
+it('a hidden manual service sorts LAST, not first, in the merged list on both cache paths', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+
+    $freshaA = ownerService($userId, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
+    $freshaB = ownerService($userId, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 1]);
+    $manualId = actingAsUser($user)->postJson('/api/services', ['title' => 'Manual A', 'price_cents' => 1000])
+        ->assertCreated()->json('service.id');
+
+    actingAsUser($user)->postJson('/api/services/reorder', ['ids' => [$freshaA, $freshaB, $manualId]])
+        ->assertOk();
+
+    actingAsUser($user)->patchJson("/api/services/{$manualId}", ['is_active' => false])->assertOk();
+
+    $expected = [$freshaA, $freshaB, $manualId];
+
+    // Uncached path (index()'s ?include_archived branch — hidden items are
+    // always live, never removed, so they show regardless of this flag).
+    $uncached = actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk();
+    expect(collect($uncached->json('services'))->pluck('id')->all())->toBe($expected);
+
+    // Cached (hot) path — the PATCH above must have busted the key the
+    // reorder call also wrote through.
+    $cached = actingAsUser($user)->getJson('/api/services')->assertOk();
+    expect(collect($cached->json('services'))->pluck('id')->all())->toBe($expected);
 });
 
 it('reorder 422s an id that belongs to neither the manual nor Fresha store', function () {
@@ -506,17 +557,50 @@ it('reorder 422s an id that belongs to neither the manual nor Fresha store', fun
         ->assertStatus(422);
 });
 
+// A ReorderServiceLayoutRequest whose validated() returns $payload verbatim,
+// bypassing ReorderServiceLayoutRequest::rules()'s FormRequest-level
+// 'distinct' rule on categories.*.service_ids.* — confirmed empirically
+// (see the two tests below) to reject ANY repeated id anywhere in the
+// payload, same block or different, so a real HTTP request can never reach
+// UserServiceController::reorderLayout()'s own within-block-duplicate or
+// categorised-and-uncategorised guards. Constructs the controller-facing
+// shape directly so those two guards can be proven on their own terms.
+function reorderLayoutRequestBypassingDistinct(User $pro, array $payload): ReorderServiceLayoutRequest
+{
+    $request = new class extends ReorderServiceLayoutRequest
+    {
+        public array $canned = [];
+
+        public function validated($key = null, $default = null)
+        {
+            return $this->canned;
+        }
+    };
+    $request->attributes->set('professional', $pro);
+    $request->canned = $payload;
+
+    return $request;
+}
+
 it('reorderLayout rejects an invalid category id (422)', function () {
     [$userId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
     $cat = createServiceCategoryFor($user, ['sort_order' => 0]);
     $svc = createServiceFor($user, ['category_id' => $cat->id, 'sort_order' => 0, 'source' => 'fresha']);
 
-    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+    $response = actingAsUser($user)->postJson('/api/services/reorder-layout', [
         'categories' => [
             ['id' => (string) Str::uuid(), 'service_ids' => [$svc->id]],
         ],
-    ])->assertStatus(422);
+    ]);
+
+    // A bare assertStatus(422) is vacuous here: deleting the FIRST controller
+    // check this test names ("category IDs are invalid") does NOT turn the
+    // request green — it falls through to the LATER "must include all
+    // category IDs" check and still 422s, just with a different message.
+    // Asserting the exact message is what makes this test detect that its
+    // OWN guard, specifically, fired.
+    $response->assertStatus(422)->assertJsonPath('message', 'One or more category IDs are invalid.');
 });
 
 it('reorderLayout rejects a duplicate service id within one category block (422)', function () {
@@ -525,11 +609,19 @@ it('reorderLayout rejects a duplicate service id within one category block (422)
     $cat = createServiceCategoryFor($user, ['sort_order' => 0]);
     $svc = createServiceFor($user, ['category_id' => $cat->id, 'sort_order' => 0, 'source' => 'fresha']);
 
-    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+    $request = reorderLayoutRequestBypassingDistinct($user, [
         'categories' => [
             ['id' => $cat->id, 'service_ids' => [$svc->id, $svc->id]],
         ],
-    ])->assertStatus(422);
+    ]);
+
+    try {
+        app(UserServiceController::class)->reorderLayout($request);
+        expect(false)->toBeTrue('Expected an HttpException (422)');
+    } catch (HttpException $e) {
+        expect($e->getStatusCode())->toBe(422);
+        expect($e->getMessage())->toBe('Duplicate service IDs detected within a category block.');
+    }
 });
 
 it('reorderLayout rejects a service that is both categorised and uncategorised (422)', function () {
@@ -538,26 +630,44 @@ it('reorderLayout rejects a service that is both categorised and uncategorised (
     $cat = createServiceCategoryFor($user, ['sort_order' => 0]);
     $svc = createServiceFor($user, ['category_id' => $cat->id, 'sort_order' => 0, 'source' => 'fresha']);
 
-    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+    $request = reorderLayoutRequestBypassingDistinct($user, [
         'categories' => [
             ['id' => $cat->id, 'service_ids' => [$svc->id]],
             ['id' => null, 'service_ids' => [$svc->id]],
         ],
-    ])->assertStatus(422);
+    ]);
+
+    try {
+        app(UserServiceController::class)->reorderLayout($request);
+        expect(false)->toBeTrue('Expected an HttpException (422)');
+    } catch (HttpException $e) {
+        expect($e->getStatusCode())->toBe(422);
+        expect($e->getMessage())->toBe('A service cannot be both categorised and uncategorised.');
+    }
 });
 
 it('reorderLayout rejects a payload missing one of the owner\'s live category ids (422)', function () {
     [$userId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
     $catA = createServiceCategoryFor($user, ['sort_order' => 0]);
+    // catB carries NO services — if it did, omitting it from the payload
+    // would ALSO leave its service uncovered and trip the earlier
+    // "must include all service IDs" check first, making this test
+    // indistinguishable from that one (the original vacuous shape).
     $catB = createServiceCategoryFor($user, ['sort_order' => 1]);
     $svcA = createServiceFor($user, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
-    createServiceFor($user, ['category_id' => $catB->id, 'sort_order' => 1, 'source' => 'fresha']);
 
-    // $catB never appears in the payload at all.
-    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+    // $catB never appears in the payload at all, but every live SERVICE
+    // (svcA is the only one) is still covered — only the category-coverage
+    // check can fire.
+    $response = actingAsUser($user)->postJson('/api/services/reorder-layout', [
         'categories' => [
             ['id' => $catA->id, 'service_ids' => [$svcA->id]],
         ],
-    ])->assertStatus(422);
+    ]);
+
+    $response->assertStatus(422)->assertJsonPath(
+        'message',
+        'Layout payload must include all category IDs (use one block with id=null for uncategorised).'
+    );
 });
