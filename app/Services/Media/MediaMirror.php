@@ -38,6 +38,20 @@ final class MediaMirror
      */
     private const FALLBACK_EDGE = 2400;
 
+    /**
+     * Ref namespaces whose bytes we are entitled to hold. The counterpart of
+     * `App\Site\Pools\BorrowedMedia::BORROWED_SOURCE_KEYS` — keep the two in
+     * view of each other, since a source is either owned or borrowed.
+     *
+     * An ALLOWLIST, not "everything except Google". Inferring owned-ness from
+     * the absence of a known borrowed source means the next borrowed source
+     * starts mirroring the moment someone adds it and nobody remembers this
+     * file — and for a licensed feed that is a terms violation, not a bug.
+     * Silence here fails safe: an unlisted source simply keeps serving from
+     * its source_url.
+     */
+    private const OWNED_REF_PREFIXES = ['instagram:'];
+
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly WebpEncoder $encoder,
@@ -102,6 +116,27 @@ final class MediaMirror
             ]);
 
         return true;
+    }
+
+    /**
+     * May this projected media entry's bytes be mirrored?
+     *
+     * @param  array<string, mixed>  $entry
+     */
+    public static function isOwnedEntry(array $entry): bool
+    {
+        $ref = $entry['ref'] ?? null;
+        if (! is_string($ref) || $ref === '') {
+            return false;
+        }
+
+        foreach (self::OWNED_REF_PREFIXES as $prefix) {
+            if (str_starts_with($ref, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function maxEdge(): int

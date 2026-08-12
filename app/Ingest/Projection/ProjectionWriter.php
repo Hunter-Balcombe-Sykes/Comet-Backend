@@ -10,8 +10,10 @@ use App\Content\Identity\Resolver;
 use App\Content\Identity\SourceItem;
 use App\Content\Values\Contribution;
 use App\Content\Values\ValueResolver;
+use App\Jobs\Media\MirrorMediaAssetJob;
 use App\Routing\SecretParams;
 use App\Services\Content\ContentItemSlugAllocator;
+use App\Services\Media\MediaMirror;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -1248,7 +1250,61 @@ class ProjectionWriter
             DB::table('content.media_assets')->insertOrIgnore($rowChunk);
         }
 
-        return $byFingerprint + $this->lookupMediaAssets($userId, array_keys($missing), $chunk);
+        $resolved = $byFingerprint + $this->lookupMediaAssets($userId, array_keys($missing), $chunk);
+
+        $this->dispatchMirrors($userId, $entryByFingerprint, $resolved, $chunk);
+
+        return $resolved;
+    }
+
+    /**
+     * Slice 1b D1/D8 — queue a byte mirror for OWNED-class media only.
+     *
+     * Passes the entry's raw url rather than the minimised one stored in
+     * source_url: those serve different purposes. source_url is the record;
+     * the job needs a url the CDN will still honour, and minimiseUrl() strips
+     * query params on a denylist it was never asked to keep fetchable.
+     *
+     * The whole candidate set is re-checked against the DB rather than just the
+     * freshly minted rows, so a mirror that failed on a previous run is retried
+     * on the next sync. storage_path IS NULL is what makes that terminate, and
+     * the job's ShouldBeUnique keyed on asset id is what stops a retried run
+     * piling up duplicates in the queue.
+     *
+     * @param  array<string, array{0: array<string, mixed>, 1: string|null}>  $entryByFingerprint
+     * @param  array<string, string>  $assetIdByFingerprint
+     */
+    private function dispatchMirrors(string $userId, array $entryByFingerprint, array $assetIdByFingerprint, int $chunk): void
+    {
+        $candidates = [];
+        foreach ($entryByFingerprint as $fingerprint => [$entry, $_minimisedUrl]) {
+            $rawUrl = $entry['url'] ?? null;
+            if (! is_string($rawUrl) || $rawUrl === '' || ! MediaMirror::isOwnedEntry($entry)) {
+                continue;
+            }
+            $assetId = $assetIdByFingerprint[$fingerprint] ?? null;
+            if ($assetId !== null) {
+                $candidates[(string) $assetId] = $rawUrl;
+            }
+        }
+        if ($candidates === []) {
+            return;
+        }
+
+        foreach (array_chunk($candidates, $chunk, true) as $slice) {
+            $needing = DB::table('content.media_assets')
+                ->whereIn('id', array_keys($slice))
+                ->whereNull('storage_path')
+                ->whereNull('site_media_id')
+                ->whereNotNull('source_url')
+                ->pluck('id');
+
+            foreach ($needing as $assetId) {
+                // ::dispatch(), never Bus::dispatch(new ...) — the latter
+                // silently drops ShouldBeUnique.
+                MirrorMediaAssetJob::dispatch($userId, (string) $assetId, $slice[(string) $assetId]);
+            }
+        }
     }
 
     /**

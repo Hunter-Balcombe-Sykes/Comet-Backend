@@ -20,7 +20,7 @@ final class WebpEncoder
 {
     /**
      * @return array{bytes: string, width: int, height: int}|null null when the
-     *                                                           bytes do not decode, or GD cannot emit WebP
+     *                                                            bytes do not decode, or GD cannot emit WebP
      */
     public function encode(string $body, int $maxEdge, int $quality = 90): ?array
     {

@@ -1280,9 +1280,9 @@ url a user already picked (the InstagramConnectionSeeder:82 hazard)."
 - Consumes: `MediaMirror::mirror()` from Task 7.
 - Produces: `MirrorMediaAssetJob::dispatch(string $userId, string $assetId, string $sourceUrl)`. `ShouldBeUnique` on `assetId`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
-Create `tests/Feature/Ingest/InstagramMediaMirrorTest.php`:
+Create `tests/Feature/Ingest/InstagramMediaMirrorTest.php`. `Bus::fake()` belongs in `beforeEach`, not per test: `QUEUE_CONNECTION=sync` under `phpunit.xml`, so an unfaked dispatch runs `MediaMirror` INLINE and sends `SafeUrlFetcher` at a real CDN host — and `assertSafe()` does a genuine DNS lookup even under `Http::fake()`.:
 
 ```php
 <?php
@@ -1346,12 +1346,11 @@ it('produces no duplicate assets across two consecutive syncs', function () {
 
 The last test is the one that matters most. The differing `oh=` query parameter is deliberate: `SecretParams::minimiseUrl()` strips `_nc_sid` via the `sid` entry in `SECRET_SEGMENTS` but does **not** strip `oh` / `oe` / `_nc_ohc`, so an Instagram url genuinely re-signs between syncs. After 1a's fingerprint inversion that no longer touches identity — this test is what proves it.
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
-Run: `./vendor/bin/pest tests/Feature/Ingest/InstagramMediaMirrorTest.php`
-Expected: FAIL — `MirrorMediaAssetJob` not found.
+Observed: 4 failed, 3 passed. The no-duplicate-across-two-syncs case passed immediately — that is 1a's fingerprint inversion already holding, which is exactly what it exists to guarantee.
 
-- [ ] **Step 3: Implement the job**
+- [x] **Step 3: Implement the job**
 
 Create `app/Jobs/Media/MirrorMediaAssetJob.php`:
 
@@ -1400,10 +1399,33 @@ class MirrorMediaAssetJob implements ShouldBeUnique, ShouldQueue
 ```
 
 **Two traps, both previously hit in this repo:**
-- `$afterCommit` must be a plain `public bool` property, never a typed promoted constructor property.
 - Dispatch with `MirrorMediaAssetJob::dispatch(...)`, never `Bus::dispatch(new MirrorMediaAssetJob(...))` — the latter silently drops `ShouldBeUnique`.
 
-- [ ] **Step 4: Dispatch from the projection lane**
+> **THE DRAFTED `$afterCommit` ADVICE IS THE FATAL, NOT THE FIX — corrected.**
+> "a plain `public bool` property" is exactly the form that dies.
+> `Illuminate\Bus\Queueable` already declares `public $afterCommit;` **untyped**
+> (`vendor/laravel/framework/src/Illuminate/Bus/Queueable.php:57`), so any typed
+> redeclaration is an incompatible trait composition and PHP fatals at
+> CLASS-LOAD time.
+>
+> **It does not present as a red test.** The runner exits 2 with **zero bytes of
+> output** — Pest cannot render an error for a class that never composed — and
+> `--filter` narrows it only as far as "every test that touches the job". The
+> message is recoverable with:
+>
+> ```bash
+> php -d display_errors=stderr -d log_errors=1 -d error_log=/dev/stderr \
+>   vendor/pestphp/pest/bin/pest <file> --filter="<case>"
+> ```
+>
+> The repo's own working form is a constructor assignment, documented against
+> this same conflict at `SendAccountDeletionRequestMailJob:72`:
+>
+> ```php
+> $this->afterCommit = true;   // in __construct(), NOT a redeclared property
+> ```
+
+- [x] **Step 4: Dispatch from the projection lane**
 
 In `ProjectionWriter`, after `resolveMediaAssets()` returns, dispatch a mirror for each asset that is **owned-class** and not yet mirrored:
 
@@ -1416,7 +1438,7 @@ In `ProjectionWriter`, after `resolveMediaAssets()` returns, dispatch a mirror f
 
 Gate on: `storage_path IS NULL`, `site_media_id IS NULL`, and a non-null `source_url`, plus an explicit owned-source check. Do not infer "owned" from the absence of Google — a future borrowed source would silently start mirroring. Add the source key to an explicit allowlist constant next to `BorrowedMedia::BORROWED_SOURCE_KEYS`.
 
-- [ ] **Step 5: Provision the Instagram stream on dev**
+- [x] **Step 5: Provision the Instagram stream on dev**
 
 The `instagram` `ingest.sources` row exists with `auto_sync=false` and has never run.
 
@@ -1427,7 +1449,21 @@ FROM ingest.sources WHERE source_key='instagram';
 
 Enable it in Task 11, not here — this step only confirms the row is present and records its id in the checkpoint.
 
-- [ ] **Step 6: Run the tests**
+> **There are TWO instagram sources on dev, not one.** The spec's §1 figure
+> (`ingest.sources instagram : 1`) is stale. Verified 2026-08-13:
+>
+> | id | identifier | auto_sync | last_run_at | min_interval_secs |
+> |---|---|---|---|---|
+> | `f9b9fbc0-642d-4bcd-9352-89d75082a9e4` | `tobiasbalcombe` | false | null | 604800 |
+> | `fde32633-18a3-4933-9ae5-4cb2ce4501e9` | `basette_barberia_` | false | null | 604800 |
+>
+> Both already sit at the connector's 7-day interval, so Task 11 only has to
+> flip `auto_sync`. Task 11's no-duplicate proof should name WHICH handle it
+> ran, since enabling both doubles the Apify spend.
+
+- [x] **Step 6: Run the tests**
+
+7 passed. Regression: `tests/Feature/Ingest` + `tests/Unit/Ingest` + `tests/Feature/Content` + `tests/Feature/Media` → 672 passed.
 
 ```bash
 ./vendor/bin/pest tests/Feature/Ingest/InstagramMediaMirrorTest.php
@@ -1435,7 +1471,7 @@ Enable it in Task 11, not here — this step only confirms the row is present an
 ```
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/Jobs/Media/MirrorMediaAssetJob.php app/Ingest/Projection/ProjectionWriter.php tests/Feature/Ingest/InstagramMediaMirrorTest.php
