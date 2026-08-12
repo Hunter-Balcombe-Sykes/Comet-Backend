@@ -490,6 +490,23 @@ checkpoint and wire manifest committed.
   paths must survive a subsequent Fresha run.
 - `/services/resync`, `/services/{service}/resync`, `/service-categories/*`,
   `/services/{service}/category`.
+- **`StaffServiceManagementController` — the whole controller.** Found during 3a's
+  Task 5 review, not anticipated by this spec, and it is the same defect class 3a
+  exists to fix, on the staff surface. It carries a full parallel
+  `index/store/show/update/destroy/reorder/reorderLayout/restore/forceDestroy`
+  against `site.services` with **no `source` filtering at any of the nine**, so
+  after 3a a staff member both writes owner-authored edits into a lane nothing
+  public reads AND reads back stale pre-cutover values for those rows.
+
+  **Deferred to 3b deliberately, not overlooked.** Fixing it inside 3a means a
+  second full controller cutover and pushes an already-XL slice further; 3b
+  already owns nine user-facing endpoints across the same `content.*`-versus-legacy
+  split, so the staff controller is the same shape of work and belongs beside it.
+
+  Bounded while it stands: staff-only surface, production carries zero customer
+  accounts, and dev is internal. **But the divergence is silent** — a staff edit
+  returns 200 and changes nothing publicly — which is precisely why it is written
+  down here rather than left to be rediscovered. 3b must not close without it.
 - The booking surface: it renders from the connection's saved selection blob via
   `PlatformDescriptor::isComplete`, not from `site.services`, and switching it is
   gated on the connector having actually run on dev.
