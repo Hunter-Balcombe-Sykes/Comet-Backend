@@ -269,3 +269,82 @@ it('still merges two connector items on the oldest binding when no owner row is 
     // Oldest anchor still wins: the first-projected item is the survivor.
     expect(DB::table('content.source_items')->where('item_id', $firstItemId)->count())->toBe(2);
 });
+
+// ---------------------------------------------------------------------------
+// The one-coord-per-url constraint (spec §1.7, plan Task 4).
+//
+// NOT a bug to fix here — a deliberate Resolver property (poisonedKeys(): a
+// value one source contributes twice identifies nothing), colliding with
+// "exactly one manual source per user". Pinned so slices 3/4/5 read it as a
+// constraint on how a backfiller mints coords, and so nobody "fixes"
+// poisonedKeys() without seeing what it protects.
+//
+// THE RULE: AT MOST ONE MANUAL COORD PER CANONICAL URL PER USER.
+//
+// Both orderings are pinned because they do NOT cost the same, and the plan
+// that specified this task predicted the wrong number by testing only the
+// cheaper one. The pure Resolver does return three separate GROUPS in both
+// cases — that much the plan verified correctly — but a group is not an item.
+// content.item_anchors is sticky: a coord that already has an anchor rebinds
+// to it, so coords that converged BEFORE the poisoning stay converged. Only a
+// coord with no anchor yet mints a fresh item.
+// ---------------------------------------------------------------------------
+
+it('poisons a url on the second manual coord, which then cannot fold in', function () {
+    // ORDERING A — connector first, then two hand-adds. The already-converged
+    // pair is protected by its anchors, so the cost is bounded: the second
+    // manual coord simply strands as its own item instead of folding.
+    $userId = createTenant('manual-'.Str::lower(Str::random(6)))->id;
+    $album = 'https://artist.bandcamp.com/album/first';
+    $writer = app(ProjectionWriter::class);
+
+    [$source, $streamId] = manualLaneBandcamp($userId, 'album/first', 'First Album', $album);
+    $writer->projectStream($source, $streamId, 'releases');
+
+    // One manual coord on that url folds into the synced item — the good case.
+    $folded = $writer->writeManualItem($userId, 'manual:'.Str::uuid(), manualLaneRelease('Mine', $album));
+    expect(DB::table('content.items')->where('user_id', $userId)->count())->toBe(1)
+        ->and(DB::table('content.source_items')->where('item_id', $folded)->count())->toBe(2);
+
+    // A SECOND manual coord on the same url poisons it. The connector coord
+    // and the first manual coord keep their existing anchor and stay on one
+    // item; the new coord has no anchor and mints its own. Two items, not one
+    // — and had the url not been poisoned this would still be one.
+    $stranded = $writer->writeManualItem($userId, 'manual:'.Str::uuid(), manualLaneRelease('Mine again', $album));
+
+    expect(DB::table('content.items')->where('user_id', $userId)->count())->toBe(2)
+        ->and($stranded)->not->toBe($folded)
+        ->and(DB::table('content.source_items')->where('item_id', $stranded)->count())->toBe(1);
+
+    // The damage is scoped to identity, not to data: every coord still has an
+    // item and no row was destroyed. That is what makes the caller-side rule
+    // (one coord per url) a sufficient remedy.
+    expect(DB::table('content.source_items')->whereNull('item_id')->count())->toBe(0);
+});
+
+it('poisons a url before the connector arrives, so it never converges at all', function () {
+    // ORDERING B — the one a backfiller actually hits: legacy rows land first,
+    // the connector runs afterwards. No anchor exists to protect anything, so
+    // the url is already poisoned when the connector's coord shows up and it
+    // never folds. Three items for one real-world thing, permanently.
+    //
+    // This is the case that makes the rule load-bearing rather than tidy, and
+    // it is why slices 3, 4 and 5 must dedupe by canonical url BEFORE writing,
+    // not rely on a later run to reconcile.
+    $userId = createTenant('manual-'.Str::lower(Str::random(6)))->id;
+    $album = 'https://artist.bandcamp.com/album/first';
+    $writer = app(ProjectionWriter::class);
+
+    $writer->writeManualItem($userId, 'manual:'.Str::uuid(), manualLaneRelease('Legacy row A', $album));
+    $writer->writeManualItem($userId, 'manual:'.Str::uuid(), manualLaneRelease('Legacy row B', $album));
+
+    [$source, $streamId] = manualLaneBandcamp($userId, 'album/first', 'First Album', $album);
+    $writer->projectStream($source, $streamId, 'releases');
+
+    expect(DB::table('content.items')->where('user_id', $userId)->count())->toBe(3);
+
+    // Every coord is on its own item — the connector included. Nothing joined.
+    $perItem = DB::table('content.source_items')
+        ->selectRaw('item_id, count(*) as c')->groupBy('item_id')->pluck('c')->all();
+    expect($perItem)->toBe([1, 1, 1]);
+});

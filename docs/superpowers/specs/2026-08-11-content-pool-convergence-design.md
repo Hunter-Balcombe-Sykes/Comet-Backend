@@ -242,11 +242,24 @@ connection. Slice 0b sets it to 200 and corrects any row already written.
 marks a key value poisoned when a SINGLE source contributes it twice, and there
 is exactly one manual source per user. So two manual coords carrying the same
 canonical URL do not merge — they poison that URL for the whole resolution run,
-and any connector item carrying it stops unioning too. Verified by running the
-pure resolver directly (three cases, `tests/Feature/Ingest/ManualSourceLaneTest.php`).
+and any connector item carrying it stops unioning too.
 **A backfiller must therefore mint at most one manual coord per canonical URL
 per user.** The hand-add endpoint satisfies this by deriving its coord from the
 URL rather than minting a fresh UUID per request.
+
+**The cost depends on ordering, and the cheap case is misleading.** The pure
+resolver returns three separate groups either way, but a group is not an item:
+`content.item_anchors` is sticky, so a coord that already has an anchor rebinds
+to it. Measured, both pinned in `tests/Feature/Ingest/ManualSourceLaneTest.php`:
+
+| Ordering | Outcome |
+|---|---|
+| Connector runs, then two hand-adds | **2 items.** The connector coord and the first manual coord keep the anchor they converged on; only the second manual coord strands. Bounded damage |
+| Two backfilled rows, then the connector runs | **3 items.** No anchor exists to protect anything, the URL is already poisoned when the connector's coord appears, and it never folds. Permanent non-convergence |
+
+The second is the ordering a backfiller produces — legacy rows first, connector
+afterwards. Slices 3, 4 and 5 must therefore dedupe by canonical URL **before
+writing**, not rely on a later run to reconcile.
 
 **Dev baseline re-run 2026-08-12, immediately before implementing slice 0b.**
 `content.sources` is now **27** rows (not 25), still all `connection`, still
