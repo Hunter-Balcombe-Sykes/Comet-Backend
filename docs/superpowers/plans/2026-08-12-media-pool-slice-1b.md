@@ -32,7 +32,24 @@
 
 ## Task 0: Precondition — run 1a's commands against dev
 
-1a's code and schema landed (`d45e6bcbc`), but its two commands have **not been run**. Convergence invariant #6: registration is not execution. Task 8 migrates the three upload *selections* on the premise that 1a already gave those items a home, and Task 10's regression asserts 25 upload items survive — neither is true until this runs.
+> **SATISFIED 2026-08-12.** Verified against dev (`glncumufgaqcmqhzwrxm`) after the
+> commands were run. Evidence below; steps 1–5 ticked on that basis. **Step 6
+> (cut the branch) is still open.**
+>
+> ```
+> content.items kind='media'                 : 45   (was 20)   ✅
+> content.media_assets site_media_id NOT NULL: 25   (was 0)    ✅
+> pool:media carrying latest_per_auto_source : 0    (was 10)   ✅
+> manual-coord media source_items            : 25              ✅
+> content.media_assets total                 : 526  (was 501)  ✅ = 501 + 25, no duplicates minted
+> content.media_assets.attribution           : absent — Task 1's job, correctly not yet present
+> ```
+>
+> The total is the load-bearing number: 526 is exactly 501 + 25, so the backfill
+> minted one asset per upload and zero duplicates. That is what 1a's fingerprint
+> inversion existed to guarantee, now observed rather than assumed.
+
+1a's code and schema landed (`d45e6bcbc`), but its two commands had **not been run** when this plan was written. Convergence invariant #6: registration is not execution. Task 9 migrates the three upload *selections* on the premise that 1a already gave those items a home, and Task 11's regression asserts 25 upload items survive — neither was true until this ran.
 
 **Files:** none — operational task.
 
@@ -40,7 +57,7 @@
 - Consumes: `content:backfill-upload-media` and `content:reshape-media-sections`, both merged in 1a.
 - Produces: a dev database where `content.items kind='media'` = 45, `content.media_assets.site_media_id IS NOT NULL` = 25, and zero `pool:media` sections carry `latest_per_auto_source`.
 
-- [ ] **Step 1: Confirm the code gate on the branch you are about to build on**
+- [x] **Step 1: Confirm the code gate on the branch you are about to build on**
 
 Run:
 ```bash
@@ -51,7 +68,7 @@ Expected: one hit at approximately line 1166.
 
 **If this shows `$url ?? $ref`, STOP.** 1a has not landed and Task 5 will silently re-key the twenty existing Google assets, mint duplicates through `resolveMediaAssets()`'s `insertOrIgnore`, and leave `content.item_media.asset_id` pointing at the orphans. Report the gate failure and go no further.
 
-- [ ] **Step 2: Confirm the column exists on dev**
+- [x] **Step 2: Confirm the column exists on dev**
 
 Run against dev (`glncumufgaqcmqhzwrxm`):
 ```sql
@@ -60,7 +77,7 @@ WHERE table_schema='content' AND table_name='media_assets' AND column_name='site
 ```
 Expected: `1`.
 
-- [ ] **Step 3: Dry-run both 1a commands**
+- [x] **Step 3: Dry-run both 1a commands**
 
 ```bash
 cloud command:run development "php artisan content:backfill-upload-media --dry-run"
@@ -68,14 +85,14 @@ cloud command:run development "php artisan content:reshape-media-sections --dry-
 ```
 Expected: the backfiller reports 25 eligible (16 gallery + 9 content); the reshaper reports 10 sections to change. Paste both outputs into the checkpoint.
 
-- [ ] **Step 4: Run both for real**
+- [x] **Step 4: Run both for real**
 
 ```bash
 cloud command:run development "php artisan content:backfill-upload-media"
 cloud command:run development "php artisan content:reshape-media-sections"
 ```
 
-- [ ] **Step 5: Assert the post-state on dev**
+- [x] **Step 5: Assert the post-state on dev**
 
 ```sql
 SELECT (SELECT count(*) FROM content.items WHERE kind='media' AND removed_at IS NULL) AS media_items,
