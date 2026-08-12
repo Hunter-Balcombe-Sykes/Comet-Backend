@@ -10,7 +10,9 @@ use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
 use App\Models\Analytics\LeadSubmission;
+use App\Models\Content\Collection as ContentCollection;
 use App\Models\Content\Item as ContentItem;
+use App\Models\Content\Storefront as ContentStorefront;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\FeatureFlag;
@@ -46,6 +48,7 @@ use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Moderation\Decision;
 use App\Models\Moderation\ModerationCase;
 use App\Policies\CasePolicy;
+use App\Policies\ContentCollectionPolicy;
 use App\Policies\ContentItemPolicy;
 use App\Policies\ContentSelectionPolicy;
 use App\Policies\CustomerPolicy;
@@ -262,6 +265,10 @@ class AppServiceProvider extends ServiceProvider
         // Content spine (plan §5/§6): items and the duplicates queue carry
         // user_id directly; manual_overrides go via the parent item.
         Gate::policy(ContentItem::class, ContentItemPolicy::class);
+        // Collections + storefronts (Slice 5a §3.1): collections carry user_id
+        // directly, storefronts resolve ownership through their parent collection.
+        Gate::policy(ContentCollection::class, ContentCollectionPolicy::class);
+        Gate::policy(ContentStorefront::class, ContentCollectionPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.
