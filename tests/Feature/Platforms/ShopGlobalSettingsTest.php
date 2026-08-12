@@ -22,6 +22,12 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 6 fix round 2: ShopFetch's real (non-mocked) run and
+    // ShopContentWriter::isCurated() both query content.* — the content.*
+    // SQLite stand-in schema must be attached or those queries 500 with
+    // "no such table".
+    setupIngestTables();
+    setupContentTables();
 });
 
 function shopSettingsUser(string $h): User

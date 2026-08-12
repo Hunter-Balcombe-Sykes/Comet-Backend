@@ -4,7 +4,6 @@ namespace App\Services\Shop;
 
 use App\Ingest\Projection\ProjectionWriter;
 use App\Models\Core\Site\ShopBrand;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -131,32 +130,21 @@ class ShopContentWriter
      * (round 0) was written to dodge — this fallback is read-only, so it
      * can never race with anything. DROP this fallback once
      * site.shop_brands.products_curated_at is retired for good.
+     *
+     * Fix round 2: no table-existence guard here — every real environment
+     * is Postgres, where content.storefronts always exists (baseline
+     * schema). The two test files that used to lack the content.* SQLite
+     * stand-in schema now attach it in their own beforeEach instead.
      */
     public function isCurated(ShopBrand $brand): bool
     {
-        try {
-            $storefrontCuratedAt = DB::table('content.collections as c')
-                ->join('content.storefronts as s', 's.collection_id', '=', 'c.id')
-                ->where('c.user_id', (string) $brand->connection->user_id)
-                ->where('c.kind', 'storefront')
-                ->where('s.provider', (string) $brand->provider)
-                ->where('s.external_ref', (string) $brand->brand_id)
-                ->value('s.products_curated_at');
-        } catch (QueryException $e) {
-            // Test-environment-only escape hatch, not a production code
-            // path: two pre-existing Shop test files (ShopSyncFailureObservabilityTest,
-            // ShopGlobalSettingsTest) construct a ShopBrand directly with no
-            // content.* SQLite stand-in schema attached at all (no prior sync
-            // or backfill in play). Every real environment is Postgres, where
-            // content.storefronts always exists (part of the baseline
-            // schema) — so this branch narrowly matches SQLite's "no such
-            // table" and re-throws anything else, including a genuine
-            // missing-relation error under Postgres.
-            if (! str_contains($e->getMessage(), 'no such table')) {
-                throw $e;
-            }
-            $storefrontCuratedAt = null;
-        }
+        $storefrontCuratedAt = DB::table('content.collections as c')
+            ->join('content.storefronts as s', 's.collection_id', '=', 'c.id')
+            ->where('c.user_id', (string) $brand->connection->user_id)
+            ->where('c.kind', 'storefront')
+            ->where('s.provider', (string) $brand->provider)
+            ->where('s.external_ref', (string) $brand->brand_id)
+            ->value('s.products_curated_at');
 
         return $storefrontCuratedAt !== null || $brand->products_curated_at !== null;
     }

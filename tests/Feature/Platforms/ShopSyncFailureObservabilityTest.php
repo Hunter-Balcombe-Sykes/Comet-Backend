@@ -35,6 +35,13 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 6 fix round 2: ShopCatalog::syncLatest() and ShopContentWriter::
+    // isCurated() both query content.* for real here (ShopCatalog is only
+    // mocked away in the two shopCatalogWithShopify() tests below) — the
+    // content.* SQLite stand-in schema must be attached or those queries
+    // 500 with "no such table".
+    setupIngestTables();
+    setupContentTables();
 });
 
 function shopSyncUser(string $h): User
