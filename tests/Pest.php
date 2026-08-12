@@ -1882,7 +1882,12 @@ function createServiceFor(User $pro, array $overrides = []): Service
         'price_cents' => 5000,
         'currency_code' => 'AUD',
         'is_active' => 1,
-        'sort_order' => 0,
+        // services_user_sort_order_uq is UNIQUE(user_id, sort_order) WHERE
+        // deleted_at IS NULL — hardcoding 0 here mints an impossible state
+        // (two rows sharing sort_order=0) the moment a second call for the
+        // same $pro doesn't override it. Next free slot by default; an
+        // explicit ['sort_order' => N] override still wins via array_merge.
+        'sort_order' => nextServiceSortOrderFor($pro->id),
         'created_at' => $now,
         'updated_at' => $now,
     ], $overrides);
@@ -1927,7 +1932,10 @@ function ownerService(string $userId, array $overrides = []): string
         'currency_code' => 'AUD',
         'duration_minutes' => 45,
         'is_active' => 1,
-        'sort_order' => 0,
+        // See createServiceFor()'s identical comment — hardcoding 0 mints an
+        // impossible state under services_user_sort_order_uq as soon as a
+        // second row lands for the same user without an explicit override.
+        'sort_order' => nextServiceSortOrderFor($userId),
         'source' => null,
         'is_manual' => 0,
         'created_at' => $now,
@@ -1935,6 +1943,25 @@ function ownerService(string $userId, array $overrides = []): string
     ], $overrides));
 
     return $id;
+}
+
+/**
+ * The next free site.services.sort_order for $userId — max(sort_order)+1
+ * over their LIVE rows (services_user_sort_order_uq is scoped WHERE
+ * deleted_at IS NULL, so a trashed row's value is free to reuse), falling
+ * back to 0 when they have none. Shared by createServiceFor() and
+ * ownerService() so both fixture helpers default to a collision-free slot
+ * instead of hardcoding 0 — assumes setupServicesTable() has already run
+ * (both callers call it first).
+ */
+function nextServiceSortOrderFor(string $userId): int
+{
+    $max = DB::connection('pgsql')->table('site.services')
+        ->where('user_id', $userId)
+        ->whereNull('deleted_at')
+        ->max('sort_order');
+
+    return $max === null ? 0 : ((int) $max + 1);
 }
 
 /**
