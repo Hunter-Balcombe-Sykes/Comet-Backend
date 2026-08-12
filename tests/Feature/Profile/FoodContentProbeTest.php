@@ -116,6 +116,38 @@ it('ignores a soft-deleted menu', function () {
     expect(app(FoodContentProbe::class)->existsFor($user))->toBeFalse();
 });
 
+it('ignores a soft-deleted online-ordering connection', function () {
+    $user = probeUser();
+    probeSite($user);
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'surface_key' => 'partna.order_link',
+        'routing_class' => 'ordering',
+        'resource_id' => 'https://order.example.test',
+        'is_active' => 1,
+        'deleted_at' => now()->toDateTimeString(),
+    ]);
+
+    expect(app(FoodContentProbe::class)->existsFor($user))->toBeFalse();
+});
+
+it('ignores a deactivated online-ordering connection', function () {
+    // ReconcilePlatformTakedownJob flips is_active without deleting.
+    $user = probeUser();
+    probeSite($user);
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'surface_key' => 'partna.order_link',
+        'routing_class' => 'ordering',
+        'resource_id' => 'https://order.example.test',
+        'is_active' => 0,
+    ]);
+
+    expect(app(FoodContentProbe::class)->existsFor($user))->toBeFalse();
+});
+
 it('does not lazy-load the site relation', function () {
     // preventLazyLoading is on outside production; a relation access would throw.
     $user = probeUser();

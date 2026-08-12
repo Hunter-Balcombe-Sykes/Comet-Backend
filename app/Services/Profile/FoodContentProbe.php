@@ -41,7 +41,11 @@ class FoodContentProbe
         $hasOrderingConnection = DB::connection($connection)
             ->table('site.platform_connections')
             ->where('user_id', $userId)
-            ->where('platform', 'online-ordering');
+            ->where('platform', 'online-ordering')
+            // Raw builder, not IntegrationConnection::query() — it doesn't get
+            // the model's SoftDeletes global scope, so both filters are explicit.
+            ->where('is_active', true)
+            ->whereNull('deleted_at');
 
         // A Menu PAGE with no dishes is still live on the public site, and a
         // demotion would 403 the owner out of editing it — the symptom
