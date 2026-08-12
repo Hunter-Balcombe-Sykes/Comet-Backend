@@ -59,4 +59,23 @@ final class SectorProvenance
             ? self::SELF_REFRESH[$incoming]
             : $incomingRank > $existingRank;
     }
+
+    /**
+     * Is this write about to move a BUSINESS out of a food sector?
+     *
+     * Matters because isFood() gates can_use_menu / can_use_reservations /
+     * can_use_booking / can_use_online_ordering, and PageCapabilities enforces
+     * at WRITE time so pages are not dropped at render — meaning a demotion
+     * leaves a Menu page live on the public site while 403-ing the owner out
+     * of editing it. Callers pair this with FoodContentProbe (see §4.8).
+     *
+     * $isBusiness is passed in, never derived: account_type may only be read
+     * inside AccountCapabilities. Callers hold the capability boolean already.
+     */
+    public static function isFoodDemotion(bool $isBusiness, ?string $currentSector, string $incomingSector): bool
+    {
+        return $isBusiness
+            && SectorTaxonomy::isFood($currentSector)
+            && ! SectorTaxonomy::isFood($incomingSector);
+    }
 }

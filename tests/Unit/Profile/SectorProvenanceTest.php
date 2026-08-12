@@ -69,3 +69,17 @@ it('refuses an unrecognised incoming source even on a blank row', function () {
     expect(SectorProvenance::mayWrite(provenanceUser(null, null), 'facebook'))->toBeFalse();
     expect(SectorProvenance::mayWrite(provenanceUser('', null), 'facebook'))->toBeFalse();
 });
+
+it('identifies a food demotion only on a business account leaving a food sector', function () {
+    // The case that matters: business, currently food, moving to non-food.
+    expect(SectorProvenance::isFoodDemotion(true, 'restaurant', 'event-venue'))->toBeTrue();
+    expect(SectorProvenance::isFoodDemotion(true, 'cafe', 'barber'))->toBeTrue();
+
+    // Not a business — sector gates no capability, so nothing to protect.
+    expect(SectorProvenance::isFoodDemotion(false, 'restaurant', 'event-venue'))->toBeFalse();
+    // Not currently food.
+    expect(SectorProvenance::isFoodDemotion(true, 'barber', 'event-venue'))->toBeFalse();
+    expect(SectorProvenance::isFoodDemotion(true, null, 'event-venue'))->toBeFalse();
+    // Staying in food.
+    expect(SectorProvenance::isFoodDemotion(true, 'restaurant', 'cafe'))->toBeFalse();
+});
