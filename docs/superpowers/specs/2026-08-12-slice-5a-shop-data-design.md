@@ -229,6 +229,21 @@ inside `offers_qualifier_check` (`exact|from|upto|range|free|variable|on_request
 verified against the live constraint. `'from'` is deliberately not used: a
 Shopify list price is the price, not a floor.
 
+**Zero means free here, and that was checked rather than assumed.** Slice 3
+raised (2026-08-12) that the same rule is false for services: all 61 Fresha rows
+carry `price_cents = 0` and none is free, because
+`FreshaServiceProjector:374` coerces an unparsed value to `0`
+(`is_numeric($v) ? … : 0`). Shop has no such fallback —
+`ShopifyScraper:201` reads `$variant['price'] ?? null`, so an unknown price
+stays **null**. Dev agrees: 0 products priced at 0, min 25.00, max 589.00, and
+no variant priced at 0. The discriminator is the source, not the integer.
+
+**A null price yields no offer row, deliberately.** `minorUnits()` returns null
+for anything that does not match `^[0-9]+(\.[0-9]{1,2})?$`, and the mapper emits
+no offer for it — inventing `amount_minor = 0` would publish "Free" on a product
+whose price merely failed to parse, which is exactly slice 3's failure mode. The
+consequence for §5.1's "every product has an offer" query is stated there.
+
 `offers.availability` has **no precedent** — it is NULL on all 14 existing rows
 and carries no CHECK. This slice establishes `'in_stock'` / `'out_of_stock'`,
 schema.org's ItemAvailability shorthand. Recorded here because slices 3 and 4
@@ -244,6 +259,34 @@ gate is coord coverage, not a predicted count.
 
 `item_media.role` uses only `cover` and `gallery`, both inside
 `item_media_role_check` (`cover|gallery|poster|avatar|logo`), verified live.
+
+### 3.2a `ProjectionWriter` learns `variants` — a shared hot-path change
+
+**Found while planning, 2026-08-12.** `content.item_variants` holds 0 rows not
+because nothing has used it but because **nothing can write it**.
+`ProjectionWriter::writeFacets()` (`:1010-1112`) assembles exactly three
+collection tables from a projection — `item_media`, `offers`, `item_tags` — and
+`item_variants` appears nowhere in the file. The manual lane inherits that
+limitation, so §3.2's variant mapping is unimplementable as the code stands.
+
+This slice adds it, following the existing shape exactly: a `variantsByItem`
+accumulator beside the other three, a `$variantRows` builder, and an
+`'item_variants'` entry in the `$tables` map so it gets the same
+delete-by-`(item_id, source_id)`-then-insert treatment inside the same
+per-chunk transaction.
+
+**Two traps this must not spring:**
+
+- `eligible_cache` is composed from a presence scan over
+  `['item_media', 'offers', 'item_tags', 'f_action']` (`:1321`), and the
+  comment at `:1310-1313` states that **declaration order is part of the cached
+  value (I9)**. `item_variants` is therefore appended at the END of that list,
+  never inserted among the existing entries, or every item's cached value
+  changes shape.
+- This is the projection hot path for **every** connector, not just shop. The
+  change is additive — a projection with no `variants` key produces an empty
+  array and writes nothing — but it earns its own task, its own tests, and a
+  note in every remaining slice's prompt under §7.
 
 ### 3.3 The coord rule — URL-derived, not uuid-derived
 
@@ -387,7 +430,11 @@ WHERE NOT EXISTS (
     AND si.removed_at IS NULL);
 -- digest() needs pgcrypto; verified available on dev 2026-08-12.
 
--- money survived: every product has at least one offer
+-- money survived: every product has at least one offer.
+-- Expect 0 — but this is an INVESTIGATE signal, not a hard gate. A product
+-- whose price does not parse legitimately produces no offer (§3.2), and all
+-- 51 dev rows currently parse. A non-zero result means a price shape changed
+-- upstream, which is worth knowing; it does not mean the backfill is wrong.
 SELECT count(*) FROM content.items i WHERE i.kind='product'
   AND NOT EXISTS (SELECT 1 FROM content.offers o WHERE o.item_id = i.id);  -- 0
 
@@ -472,6 +519,7 @@ Recorded here because other slices are told to reuse them.
 | `SECTION_SHAPE` for priced, undated items | `rule: [kind_is]`, `order_by: 'recency'` | **slice 4 explicitly**, and 5b |
 | Owner-chosen ordering | pins in `site.section_items`, which carry position; the auto half has only `alphabetical` / `occurrence` / `recency` and cannot express it | slice 4, 5b |
 | `LATEST_TAG_POOLS` membership for commerce | **excluded** | slice 4, 5b |
+| `ProjectionWriter` writes `item_variants` (§3.2a) | new — a projection may now carry a `variants` key | **every remaining slice**, it is shared hot-path code |
 
 **Why shop is excluded from `LATEST_TAG_POOLS`**, since the kickoff asks for the
 argument either way: the selection is hand-ordered, so a Latest badge fights the
