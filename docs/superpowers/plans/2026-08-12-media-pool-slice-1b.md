@@ -208,7 +208,7 @@ column_name  | data_type | is_nullable | column_default
 attribution  | jsonb     | YES         | null
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/migrations/20260813000000_content_media_assets_attribution.sql tests/Schema/MediaAssetAttributionColumnTest.php
@@ -1794,7 +1794,7 @@ git commit -m "feat(media): prune borrowed assets — we may not retain Google p
 - Create: `tests/Feature/Ingest/MediaMergeRegressionTest.php`
 - Create: `docs/wire-changes/2026-08-12-media-pool-slice-1b.md`
 
-- [ ] **Step 1: Write the regression test**
+- [x] **Step 1: Write the regression test**
 
 Create `tests/Feature/Ingest/MediaMergeRegressionTest.php`:
 
@@ -1837,12 +1837,12 @@ it('churns google media across two runs with rotated refs, and does not touch ow
 });
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `./vendor/bin/pest tests/Feature/Ingest/MediaMergeRegressionTest.php`
 Expected: PASS. **If the first test fails, stop.** `preferOwnerAnchored()` does not hold for a two-connector media merge, and that is a data-loss bug that must be fixed before anything deploys.
 
-- [ ] **Step 3: Run the full suite and the static gates**
+- [x] **Step 3: Run the full suite and the static gates**
 
 ```bash
 composer test
@@ -1853,7 +1853,7 @@ php artisan pint
 
 **Do not use `composer test --filter`** — it is broken in this repo, as is `composer` + `artisan pint` in one invocation. Run each separately.
 
-- [ ] **Step 4: Deploy to dev and run the commands**
+- [x] **Step 4: Deploy to dev and run the commands**
 
 ```bash
 git push -u origin feat/media-pool-slice-1b
@@ -1870,7 +1870,7 @@ UPDATE ingest.sources SET auto_sync = true WHERE source_key = 'instagram';
 UPDATE ingest.sources SET min_interval_secs = 604800 WHERE source_key = 'google_business';
 ```
 
-- [ ] **Step 5: Paste the live dev assertions into the checkpoint**
+- [x] **Step 5: Paste the live dev assertions into the checkpoint**
 
 ```sql
 -- Google media carries urls and (where Google supplied any) attribution
@@ -1891,7 +1891,7 @@ SELECT (SELECT count(*) FROM site.section_items WHERE state='pinned') AS pins,
        (SELECT count(*) FROM site.content_selection) AS legacy_rows;
 ```
 
-- [ ] **Step 6: Run the Instagram no-duplicate proof live**
+- [x] **Step 6: Run the Instagram no-duplicate proof live**
 
 Trigger the Instagram source twice and record the asset count either side. **This is a live assertion, not a unit test** — the parent spec asks for exactly this and a green Pest run does not satisfy it.
 
@@ -1900,19 +1900,19 @@ SELECT count(*) FROM content.media_assets WHERE fingerprint LIKE 'url-%';
 ```
 Expected: identical before and after the second sync.
 
-- [ ] **Step 7: Observe the Google churn**
+- [x] **Step 7: Observe the Google churn**
 
 Run the `google_business/media` stream twice and record the delta. Spec §2.1 predicts a fresh set each run with the previous tombstoned — deduced, never observed.
 
 **If it does NOT churn, §2.1 is wrong about the mechanism and D3/D4/D5 must be revisited before this merges to production.** Cost of the observation: one Details call plus ten photo calls, about $0.10.
 
-- [ ] **Step 8: Write the wire manifest**
+- [x] **Step 8: Write the wire manifest**
 
 Create `docs/wire-changes/2026-08-12-media-pool-slice-1b.md`, appending to 1a's lineage rather than restarting it. Before and after shapes for `frames[]` (which gains an optional `attribution` object), and the consuming repos named: the Partna-App dashboard and the monorepo public render.
 
 State plainly that `gallery` and `designMedia` are unchanged and still live.
 
-- [ ] **Step 9: Post-deploy checks**
+- [x] **Step 9: Post-deploy checks**
 
 ```bash
 cloud env:logs partna development --minutes 10
@@ -1921,7 +1921,7 @@ Expected: clean.
 
 **Then check Nightwatch.** Slice 0's checkpoint recorded a log scan and skipped Nightwatch, and 1a's kickoff called that out. Do not make it three.
 
-- [ ] **Step 10: Commit the manifest**
+- [x] **Step 10: Commit the manifest**
 
 ```bash
 git add docs/wire-changes/2026-08-12-media-pool-slice-1b.md tests/Feature/Ingest/MediaMergeRegressionTest.php

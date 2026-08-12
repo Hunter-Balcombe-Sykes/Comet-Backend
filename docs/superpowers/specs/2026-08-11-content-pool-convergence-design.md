@@ -452,8 +452,8 @@ split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 | 0 | Billed-effect driver seam | M | **Merged** — checkpoint §13, plus #MONEY-1/2 fixes | — |
 | 0b | Manual-source write lane | M | **Merged** — checkpoint §12 | — |
 | 2 | The events pool (`event` only) | M | **Merged** — checkpoint §14 | — |
-| 1a | Media asset spine + upload lane | L | **Finished, NOT merged** — `worktree-media-pool-slice-1a` | — |
-| 1b | Google pass-through, IG mirroring, the 91 selections | L | Kickoff written, spec not started | 1a **merged** |
+| 1a | Media asset spine + upload lane | L | **Merged** — live on dev | — |
+| 1b | Google pass-through, IG mirroring, the 91 selections | L | **Merged** — checkpoint §15 | — |
 | 3 | Services → `content.*` | L | Not started | — |
 | 4 | Menus → `content.*` | XL | Not started | — |
 | 5 | Shop → `content.*` | L | Not started | — |
@@ -1692,3 +1692,167 @@ is likewise still untracked.
 §12 (slice 0b) was written before §13 and §14 because it was the first
 checkpoint any slice recorded. The numbers are labels, not an ordering — the
 programme order remains 0 → 0b → 2.
+
+---
+
+## 15. Slice 1b checkpoint — Google on display, Instagram in the pool
+
+Merged to `development` and deployed 2026-08-13. Spec:
+`2026-08-12-media-pool-slice-1b-design.md`. Wire manifest:
+`docs/wire-changes/2026-08-12-media-pool-slice-1b.md`.
+
+### 15.1 Entry gate — re-derived, not cited (invariant #5)
+
+1a's state was re-established from dev rather than read from its checkpoint:
+
+```
+ProjectionWriter.php:1166   $fingerprint = $ref ?? $url;      ✅ ref preferred
+content.media_assets.site_media_id exists                     ✅ 1
+content.items kind='media' (live)                             ✅ 45
+content.media_assets WHERE site_media_id IS NOT NULL          ✅ 25
+site.sections pool:media carrying latest_per_auto_source      ✅ 0
+content.media_assets total                                    ✅ 526 = 501 + 25
+```
+
+**The prod-side check could not be run, and is recorded as a deferral rather
+than a pass.** Prod Supabase MCP SQL fails `28P01` for both `postgres` and
+`supabase_read_only_user`, and `cloud tinker production` reports the environment
+stopped. Closed on the architecture instead: prod last deployed `265f9aa`
+(2026-07-26, pre-1a), has never had the content-pool migrations applied, and
+carries no users — so there is no `content.media_assets` row to be mis-keyed.
+**Fix the prod MCP credential before the next prod verification need.**
+
+### 15.2 Live dev assertions — run 2026-08-13, output pasted
+
+**Google photos resolve, with attribution (D2, D6).** A fresh Details fetch for
+a place that had never run (`ChIJ-x9YKE1D1moR8t2Hdfarbbc`):
+
+```sql
+SELECT count(*) AS new_google_assets,
+       count(*) FILTER (WHERE source_url IS NOT NULL) AS with_url,
+       count(*) FILTER (WHERE attribution IS NOT NULL) AS with_attr,
+       count(*) FILTER (WHERE source_url LIKE '%lh3.googleusercontent.com%') AS unkeyed_lh3,
+       count(*) FILTER (WHERE source_url ILIKE '%key=%') AS leaked_api_key
+FROM content.media_assets
+WHERE created_at > now() - interval '5 minutes'
+  AND site_media_id IS NULL AND storage_path IS NULL;
+
+ new_google_assets | with_url | with_attr | unkeyed_lh3 | leaked_api_key
+       10          |    10    |     10    |     10      |       0
+```
+
+Sample attribution — all three D6 keys present, which **closes the spec's one
+open unknown**: `photos[].googleMapsUri` and `flagContentUri` DO come back under
+the existing bare-`photos` field mask.
+
+```json
+{"authors":[{"uri":"https://maps.google.com/maps/contrib/101239599710321892718","name":"Carl Mutzelburg"}],
+ "flag_uri":"https://www.google.com/local/content/rap/report?postId=…",
+ "maps_uri":"https://www.google.com/maps/place//data=…"}
+```
+
+**Instagram landed on owned bytes (D8, D9).**
+
+```
+mirrored | distinct_paths | ig assets left unmirrored | total
+   33    |       33       |             0             |  585
+```
+
+**The parent's no-duplicate proof, for Instagram.** Two consecutive syncs of
+`basette_barberia_`:
+
+```
+                     assets | live media items
+before second sync     575  |       57
+after  second sync     575  |       57
+```
+
+Zero duplicates across a re-sign — the property D1's owned/borrowed split rests
+on, and the one Google cannot satisfy.
+
+**Selection migration (D10).** `content:migrate-selection`, then re-run:
+
+```
+Uploads: migrated 3
+Dropped (google-photo):   85
+Dropped (ig-post/ig-reel): 6
+Skipped (no backfilled item): 0
+Dropped rows belonged to 11 site(s)  [ids printed by the command]
+```
+
+Second run: identical counts, no second pin. Post-state: **3 `pool:media` pins**,
+**94 `site.content_selection` rows still present** — the migration is additive,
+as designed.
+
+> **The counts moved again.** The spec recorded 80/4/2/3 = 89; live it was
+> 85/6/3 = 94, across 11 sites rather than 8. Five more `google-photo` rows and
+> two more `ig-*` rows appeared between spec and execution. The *decision* is
+> unchanged; the figures in D10 are stale and these supersede them.
+
+**Prune (D4).** `content:prune-borrowed-assets --dry-run`:
+
+```
+Borrowed assets: would prune 0
+Spared (owned bytes or upload-backed): 25
+Spared (still referenced by a live item): 0
+Spared (inside the 30-day url window):   501
+```
+
+Correctly inert: nothing is past the window yet. It is scheduled daily 03:50.
+
+### 15.3 The §8.3 regression, extended to two connector sources
+
+`tests/Feature/Ingest/MediaMergeRegressionTest.php` — uploads + Instagram +
+Google on the `media` kind together, which had never been exercised:
+
+- uploads and Instagram items survive a Google projection run
+- Google media churns across two runs with rotated refs, and owned items are
+  untouched
+
+Both pass. **`preferOwnerAnchored()` holds for a two-connector media merge.**
+
+### 15.4 Post-deploy
+
+`cloud env:logs partna development --minutes 15`: clean. Every
+`MirrorMediaAssetJob` completed in 2–5s; no failures, no exceptions.
+**Nightwatch scanned** (the check slice 0 recorded as skipped): no new issues
+since the deploy — the most recent open issues all predate it.
+
+### 15.5 What this slice did NOT do, on the record
+
+- **The six Google-only sites still have an empty background picker.** Google
+  photos flow to the page automatically; they do not flow into the picker,
+  because borrowed media is not pinnable (D5). Filling it is uploads,
+  Instagram, or a product decision. Not papered over.
+- **Google `auto_sync` is left OFF**, as it was before the slice. D3's 7-day
+  cadence is set as `ingest.sources.min_interval_secs = 604800` on all 12
+  google_business rows — `StreamSpec` has no per-stream interval, so this is a
+  source-row setting, not a manifest guarantee.
+- **Only the public Instagram handle is enabled.** `tobiasbalcombe` is a
+  private account — the actor returned `"private": true` and zero posts, so
+  scheduling it weekly would bill an Apify slot that can never yield media.
+  `basette_barberia_` is enabled at 7 days.
+- **`gallery` / `designMedia` stay** — blocked on the frontends, per 1a.
+
+### 15.6 A correction to a shipped privacy control
+
+Spec D6 asserted the redaction manifest was not widened, having checked
+`GoogleBusinessConnector::manifest()`. It missed a second, structural registry:
+`ThirdPartyPii::NESTED_KEYS = ['photos' => ['authors']]`, applied at
+`PublicIntegrationConnectionResource:436` and `DsarPayloadFilter:192`, whose
+docblock names this connector explicitly and justifies stripping the credits
+with *"no attribution obligation attaches — photo refs are not yet resolved to
+images"*.
+
+**Task 5 is exactly what makes that false.** Resolved by surface, following the
+two obligations rather than forcing the lanes to agree — public render carries
+the credit (Places terms require it on display), DSAR export and the legacy
+integration payload keep stripping it (Article 15 is the subject's own data).
+No behaviour changed in the legacy lane; the docblock premise was corrected in
+place so the asymmetry is not later "tidied up".
+
+Verified that attribution reaches DSAR by no route today:
+`streamContentSourceItems()` selects an explicit column list with no doc column,
+and `content.media_assets` is absent from `COVERED_PII_TABLES`. **Whether the
+owner's own media catalogue should be exported at all is a pre-existing Article
+15 gap — flagged, not fixed.**

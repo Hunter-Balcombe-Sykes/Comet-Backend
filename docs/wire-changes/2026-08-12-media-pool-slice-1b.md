@@ -7,8 +7,23 @@ is **unchanged** here.
 Backend-only execution; the frontends are told, not designed around
 (spec `2026-08-12-media-pool-slice-1b-design.md`).
 
-> **STATUS: pending dev deploy.** Updated with live figures once the commands
-> have run against dev.
+> **STATUS (2026-08-13): LIVE on dev.** Merged to `development`, deployed, and
+> verified against `glncumufgaqcmqhzwrxm`:
+>
+> - **Google photos now resolve.** A fresh Details fetch minted 10 media assets,
+>   **10/10 carrying a `source_url`** and **10/10 carrying `attribution`** —
+>   authors, `maps_uri` and `flag_uri` all populated. All ten urls are unkeyed
+>   `lh3.googleusercontent.com` links; **0 carry an API key**.
+> - **Instagram mirrored to R2:** 33 assets with `storage_path`, **33 distinct
+>   paths** — content-addressing holds, nothing overwritten.
+> - **No duplicates across two consecutive Instagram syncs:** 575 → 575 assets,
+>   57 → 57 live media items.
+> - **3 upload selections migrated** as `pool:media` pins; 91 legacy rows
+>   (85 `google-photo` + 6 `ig-*`) recorded as dropped across 11 sites and
+>   **not deleted** — `site.content_selection` still holds all 94.
+>
+> **Prod: NOT run.** Prod is stopped, runs pre-1a code, and has never had the
+> content-pool migrations applied. Reaches prod with the next prod deploy cycle.
 
 ## `GET /api/public/profiles/{handle}` and `GET /api/content/pools/{pool}`
 
