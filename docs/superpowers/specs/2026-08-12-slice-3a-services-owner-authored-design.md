@@ -459,9 +459,24 @@ checkpoint and wire manifest committed.
   re-creates, so uuids churn every sync) — confirm the writer's behaviour before
   keying a coord on a legacy uuid.
 - `service_categories` (16 live, all Fresha) → `content.collections`;
-  `service_category_assignments` (61, all Fresha) → `collection_items`. Both
-  destination tables hold 0 rows, so 3b is their first user and must read their
-  DDL rather than assume a shape.
+  `service_category_assignments` (61, all Fresha) → `collection_items`.
+
+  **3b is probably NOT their first user.** Both tables held 0 rows on
+  2026-08-12, but slice 5a populates them for real (9 storefront rows, 51
+  links), so if 5a lands first there is prior art to follow rather than a blank
+  table. Two conventions 5a establishes, confirmed 2026-08-12 — match them or
+  reject them deliberately, do not arrive at a third by accident:
+
+  - `collections.kind` is **free text with no CHECK constraint** (verified on
+    dev). 5a uses `kind = 'storefront'` and `is_user_created = false` for
+    machine-derived groups. Fresha categories are machine-derived too, so
+    `is_user_created = false` and a `kind` of `'service_category'` follows the
+    same shape.
+  - **Per-collection behaviour goes in a 1:1 sidecar table, not new columns on
+    `collections`.** 5a puts its 15 storefront fields in `content.storefronts`
+    rather than widening the shared table, precisely so service and menu
+    categories do not carry them empty. If 3b needs category-specific
+    behaviour, add a sibling sidecar.
 - The `(source='fresha', is_manual=true)` state — 0 rows today, but the write
   paths must survive a subsequent Fresha run.
 - `/services/resync`, `/services/{service}/resync`, `/service-categories/*`,

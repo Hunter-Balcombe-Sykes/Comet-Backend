@@ -1149,6 +1149,32 @@ git commit -m "docs(checkpoint): slice 3a verified on dev"
 
 ---
 
+## Known merge conflict — read both hunks, do not "take theirs"
+
+`docs/superpowers/plans/2026-08-12-slice-4-menus-KICKOFF-PROMPT.md` is edited on
+**both** this branch and `feat/slice-5a-shop-data`, in the same region. Whoever
+rebases second gets a conflict.
+
+The content is **compatible, not contradictory** — the reconciled `SECTION_SHAPE`
+and the pinning rule are identical in both, and the remainder is additive on each
+side:
+
+| This branch adds | slice 5a adds |
+|---|---|
+| The reconciled shape + the pinning rule + why no `position` operator | The same shape and pinning rule |
+| That 3a populates **no** collections, so slice 4 must not expect prior art from it | An `offers.availability` vocabulary line |
+| | A coord-rule caveat (legacy uuids churn where the writer deletes and re-inserts) |
+
+**Resolve as a union.** A fast `--theirs` or `--ours` silently drops half the
+guidance from a prompt whose entire purpose is to stop slice 4 rediscovering
+this.
+
+Also inherited from that branch once it merges: `ProjectionWriter` gains a
+`variants` projection key (additive — a projection without the key writes
+nothing, so nothing in this plan changes). It is appended LAST to the `:1321`
+eligibility scan because declaration order is part of the cached
+`eligible_cache` value.
+
 ## Self-Review Notes
 
 Checked against the spec:
