@@ -5,8 +5,18 @@ Backend-only execution. Spec: `docs/superpowers/specs/2026-08-12-slice-5a-shop-d
 into `content.*`; every shop reader and writer repoints. The legacy tables
 survive but nothing writes them. Slice 7 drops them.
 
-> **STATUS: NOT YET DEPLOYED.** The four migrations are applied to **dev** only.
-> Prod has none of them and has never run the backfill.
+> **STATUS: DEPLOYED to development, 2026-08-13** (`9e5bf3a6a`). The four
+> migrations are applied to dev and the backfill has run — 9 stores, 51
+> products, verified idempotent by a second run with identical counts. Checkpoint
+> with the full live assertions: `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md`
+> §16. **Prod has none of the migrations and has never run the backfill** — every
+> endpoint and divergence below describes dev only.
+>
+> The first live backfill attempt failed (`SQLSTATE[42702]`, a Postgres-only
+> ambiguous-column defect SQLite's test lane could not catch) and left 9
+> orphaned `content.collections` rows before the fix landed; both are described
+> in checkpoint §16.3. Nothing below this banner was affected — the endpoint
+> shapes, divergences and deploy ordering all held.
 
 ## Read this first: the backfill is a BLOCKING, ORDERED prerequisite
 

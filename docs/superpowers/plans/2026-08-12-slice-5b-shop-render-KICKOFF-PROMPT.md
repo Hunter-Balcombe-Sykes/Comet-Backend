@@ -49,35 +49,66 @@ for its own claims.** Invariant #6: **registration is not execution.** 5a's
 checkpoint is not proof for you. Re-derive every figure from dev. Where dev and
 this prompt disagree, dev wins and you say so.
 
-### Entry gate — run these first, paste output into your spec's §1
+### Entry gate — run these first, paste your own output into your spec's §1
+
+5a is merged and deployed (`9e5bf3a6a`, 2026-08-13) and its backfill has run,
+verified idempotent by a second run with identical counts — checkpoint
+`2026-08-11-content-pool-convergence-design.md` §16, which per Rule Zero is not
+evidence for you. **Re-run every query below yourself.** The right-hand column
+is 5a's own measured output, given so you can tell a stale run from a real
+regression — it is not a substitute for measuring dev again.
 
 ```sql
 -- 5a's output, re-measured. If any of these is 0, 5a did not land and you stop.
-SELECT count(*) FROM content.items WHERE kind='product' AND removed_at IS NULL;
-SELECT count(*) FROM content.collections;
-SELECT count(*) FROM content.storefronts;
-SELECT count(*) FROM content.collection_items;
-SELECT count(*) FROM content.item_variants;
-SELECT count(*) FROM content.offers;
+SELECT count(*) FROM content.items WHERE kind='product' AND removed_at IS NULL;  -- 51
+SELECT count(*) FROM content.collections;                                        -- 9, kind='storefront'
+SELECT count(*) FROM content.storefronts;                                        -- 9
+SELECT count(*) FROM content.collection_items;                                   -- 51
+SELECT count(*) FROM content.item_variants;                                      -- 268
+SELECT count(*) FROM content.offers;                                             -- 324 (14 pre-existing + 310 shop)
 
 -- the legacy tables must be inert. If these move between two runs an hour
 -- apart, something still writes them and 5a is incomplete.
-SELECT max(updated_at) FROM site.shop_products;
-SELECT max(updated_at) FROM site.shop_brands;
+SELECT max(updated_at) FROM site.shop_products;    -- 2026-08-12 17:24:33+00, frozen since before deploy
+SELECT max(updated_at) FROM site.shop_brands;      -- 2026-08-12 10:54:51+00, frozen since before deploy
 
--- what you are provisioning into. No 'shop' row existed on 2026-08-12.
+-- what you are provisioning into. No 'shop' row existed as of 5a.
 SELECT key, count(*) FROM site.pages GROUP BY 1 ORDER BY 2 DESC;
 SELECT key, count(*) FROM site.sections WHERE key LIKE 'pool:%' GROUP BY 1;
 
 -- store behaviour that must reach the wire
 SELECT provider, count(*) FROM content.storefronts GROUP BY 1;
-SELECT count(*) FILTER (WHERE referral_query <> '') AS with_referral,
-       count(*) FILTER (WHERE coalesce(discount_code,'') <> '') AS with_discount
+SELECT count(*) FILTER (WHERE referral_query <> '') AS with_referral,     -- 0 of 9
+       count(*) FILTER (WHERE coalesce(discount_code,'') <> '') AS with_discount  -- 4 of 9
 FROM content.storefronts;
 
 -- the ONE live input to link mode (per-brand link_mode was dropped by 5a)
 SELECT shop_link_mode, count(*) FROM site.sites GROUP BY 1;
 ```
+
+**Schema 5a added that you will need and this prompt did not previously
+mention:**
+
+- `content.storefronts.external_ref` — the collection↔storefront identity key
+  (`= shop_brands.brand_id`, the provider's own store id). **Not**
+  `content.collections.label`, which is a mutable display name — a 5a fix
+  round found and closed a bug where keying on the label orphaned a store's
+  `referral_query`/`discount_code` on rename. If you write any store-matching
+  logic, key on `external_ref`, never on the label.
+- `content.f_catalog.handle` / `.vendor` / `.variant_ref` — three columns 5a
+  added because `items.facets_cache` turned out to be derived and unwritable.
+  `variant_ref` is the one Unit 4 needs: it is the Shopify checkout deep-link
+  id, and it is the only place that id survives for the 17-of-51 products
+  whose sole variant was a `"Default Title"` placeholder and so was never
+  written to `content.item_variants`.
+- `content.item_variants.image_url` — exists and round-trips correctly, but
+  **zero rows carry a value on dev** (`variant_blobs_with_image = 0` in the
+  source blobs). If Unit 5's store-card or product payload surfaces a
+  per-variant image, it is exercising a column real data has never hit — treat
+  it as unverified until it is.
+- `content.collections.kind = 'storefront'` now has exactly 9 live rows —
+  `collections` is the shared grouping table slices 3 and 4 will also write
+  to, so filter on `kind`, not on presence in the table.
 
 ## Scope
 

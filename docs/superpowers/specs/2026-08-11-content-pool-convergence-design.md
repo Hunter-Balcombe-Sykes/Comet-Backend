@@ -504,8 +504,8 @@ split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 | 1b | Google pass-through, IG mirroring, the 91 selections | L | **Merged** — checkpoint §15 | — |
 | 3 | Services → `content.*` | L | Not started | — |
 | 4 | Menus → `content.*` | XL | Not started | — |
-| 5a | Shop data move → `content.*` | L | Spec written 2026-08-12 — `2026-08-12-slice-5a-shop-data-design.md` | — |
-| 5b | Shop pool + public render | M | Kickoff written, spec not started | 5a **merged** + partna-monorepo |
+| 5a | Shop data move → `content.*` | L | **Merged** — checkpoint §16 | — |
+| 5b | Shop pool + public render | M | Kickoff written, spec not started | partna-monorepo |
 | 6 | Reviews → `content.*` | M | Not started | — |
 | 7 | Legacy teardown | M | Not started | 1b, 3, 4, 5, 6 **+ frontend + standalone events** |
 
@@ -1923,3 +1923,214 @@ Verified that attribution reaches DSAR by no route today:
 and `content.media_assets` is absent from `COVERED_PII_TABLES`. **Whether the
 owner's own media catalogue should be exported at all is a pre-existing Article
 15 gap — flagged, not fixed.**
+
+---
+
+## 16. Slice 5a checkpoint — the shop data move
+
+**Status: DONE.** Merged to `development` and deployed 2026-08-13 (`9e5bf3a6a`).
+Spec: `2026-08-12-slice-5a-shop-data-design.md`. Wire manifest:
+`docs/wire-changes/2026-08-12-slice-5a-shop-data.md`, flipped to deployed
+alongside this checkpoint.
+
+### 16.1 Pre-implementation baseline
+
+Established while writing the spec and re-confirmed immediately before the
+backfill ran (`glncumufgaqcmqhzwrxm`):
+
+```
+content.storefronts                      0
+content.items        kind='product'      0
+content.item_variants                    0
+content.collections / collection_items   0 / 0
+site.shop_brands                         9   (still authoritative)
+site.shop_products                      51   (still authoritative)
+```
+
+The four migrations (`20260813100000`–`20260813100003`: `content.storefronts`,
+`storefronts.external_ref`, `f_catalog.handle/vendor/variant_ref`,
+`item_variants.image_url`) were applied to dev ahead of the code deploy, per
+§9.1's rule that a raw-write seam cannot be deferred — `ProjectionWriter`
+writes all four unconditionally, for every connector, not just shop.
+
+### 16.2 What shipped
+
+| Change | Where |
+|---|---|
+| `content.storefronts` — 1:1 sidecar on `content.collections`, `provider`/`url`/`currency`/`discount_code`/`referral_query`/`is_individual`/`fetch_mode`/`connect_status`/`products_curated_at`/four logo columns | new migration + `Storefront` model |
+| `ProjectionWriter` writes `content.item_variants` | shared hot-path change, §3.2a — every remaining slice inherits it |
+| `content.f_catalog.handle` / `.vendor` / `.variant_ref` | new columns; `variant_ref` carries the Shopify checkout deep link id that the skipped `"Default Title"` placeholder variant would otherwise have dropped entirely |
+| `content.offers.availability` writer | previously unpopulated by any projector (§1.5) — this slice is its first writer |
+| `ShopBackfiller` + `content:backfill-shop` | `app/Services/Migration/`, `--dry-run`, idempotent by coord |
+| `ShopContentWriter` — reconcile-by-coord | replaces `syncLatest()`'s delete-then-insert; retires absent products, never hard-deletes, never touches `source_items.removed_at` |
+| `ShopContentReader` | reconstructs the legacy blob shape from `content.*` for the 14 dashboard endpoints |
+| `hybridBrandMap()` deleted | no legacy fallback survives — the backfill is a blocking deploy prerequisite from this point on |
+
+### 16.3 The incident — the first live backfill run failed, with second-order damage
+
+`content:backfill-shop --dry-run` previewed correctly (§16.4), but the first
+real run against dev **failed on all 9 stores, writing no complete store**:
+
+```
+SQLSTATE[42702]: Ambiguous column: column reference "products_curated_at" is ambiguous
+```
+
+**Cause.** Inside `upsertStore()`'s `ON CONFLICT DO UPDATE`, the bare column
+reference in `coalesce(products_curated_at, excluded.products_curated_at)` is
+ambiguous between the target row and `excluded` — Postgres rejects it outright.
+SQLite accepts the identical SQL, so the entire default test suite, including
+this slice's own coverage, passed green against code that could not run on
+production's database engine. **This is the second time in this slice that
+SQLite tolerated what Postgres rejects** — the first was Task 7's `createdAt`
+timestamp format (§16.6; `content.f_published.published_from` is `timestamptz`
+on Postgres, `TEXT` in the stand-in). Fixed in `fb8491bfc`, with a Postgres-lane
+regression test proven to fail against the pre-fix code.
+
+**Second-order damage.** `upsertStore()` wrote `content.collections` then
+`content.storefronts` **without a transaction**. The failed run's `collections`
+insert committed for all 9 stores before each store's `storefronts` insert hit
+the ambiguous-column error — so the command reported "9 FAILED, exit 1" while
+silently leaving 9 orphaned `collections` rows behind it. Worse: the identity
+check `upsertStore()` uses to find an existing store joins `collections` to
+`storefronts`, and an orphan defeats that join. The retry after the SQL fix
+therefore did not recognise the 9 orphans as existing stores — it minted 9 NEW
+collections, correctly paired with storefronts this time, leaving **18
+collections for 9 stores**.
+
+**Resolution.** The 9 orphaned collections were deleted by hand. `upsertStore()`
+and `retireStore()` are now wrapped in a single DB transaction (`6f3c52aa5`),
+so a mid-write failure can no longer leave a collection without its storefront
+sidecar (or vice versa), with a Postgres-lane rollback test pinning it. Both
+fixes and a pint pass (`9e5bf3a6a`) merged before the backfill was re-run.
+
+### 16.4 The commands, run against dev, output pasted
+
+```
+php artisan content:backfill-shop --dry-run
+  → Shop: would backfill 9 stores, 51 products.
+
+php artisan content:backfill-shop            (first real run, PRE-FIX)
+  → 9 FAILED, exit 1  — SQLSTATE[42702], see §16.3
+
+[fb8491bfc merged and deployed; 9 orphaned collections deleted by hand;
+ 6f3c52aa5 merged and deployed]
+
+php artisan content:backfill-shop            (post-fix)
+  → Shop: backfilled 9 stores, 51 products.        exit 0
+
+php artisan content:backfill-shop            (re-run — idempotency proof)
+  → Shop: backfilled 9 stores, 51 products.        exit 0
+```
+
+Both post-fix runs produced identical counts, satisfying the deploy runbook's
+"re-run once" idempotency check without a second incident.
+
+### 16.5 Live dev assertions — post-backfill state, identical after both runs
+
+```
+content.items kind='product' (removed_at IS NULL)  51
+content.item_variants                             268
+content.offers (total, incl. 14 pre-existing)     324
+content.collections                                 9   (kind='storefront')
+content.storefronts                                 9
+content.collection_items                           51
+content.item_media                                906
+content.f_catalog                                  84   (33 pre-existing Bandcamp + 51 products)
+```
+
+Assertions:
+
+```
+legacy rows with no live coord (coverage gate)      0   ← the gate, green
+products with no offer (investigate signal)         0
+storefronts carrying referral_query                 0   (all 9 legacy brands had it empty)
+storefronts carrying discount_code                  4   (matches the 4 legacy brands)
+storefronts with products_curated_at                1   (matches the 1 legacy brand)
+f_catalog rows carrying variant_ref                51
+offers availability: product-level 35 in_stock / 16 out_of_stock  = the blob's exact 35/16 split
+offers availability: variant-level 224 in_stock / 35 out_of_stock
+offers availability: 14 NULL — the pre-existing Bandcamp rows, untouched
+content.item_variants carrying image_url            0
+site.shop_products  max(updated_at)  2026-08-12 17:24:33+00   (deploy was 22:05 — inert)
+site.shop_brands    max(updated_at)  2026-08-12 10:54:51+00   (inert)
+```
+
+Every total reconciles: `324 = 14 pre-existing + 51 product-level offers (35+16)
++ 259 variant-level offers (224+35)`. The gap between `268` `item_variants` and
+`259` variant-level offers is 9 variants whose price did not parse — per §3.2,
+`minorUnits()` returns null rather than inventing `amount_minor = 0`, so those
+9 mint a variant row with no offer, by design, not by omission.
+
+**`image_url = 0` is stated honestly, not hidden.** Zero variants in real dev
+data carry an image (`variant_blobs_with_image = 0` in the source blobs), so
+the column and its round-trip are correct but **unexercised by real data**.
+The 5b kickoff prompt is updated to say so rather than assume the column works
+because it exists.
+
+### 16.6 Gates at merge
+
+SQLite `./vendor/bin/pest`: **7830 passed**. Postgres lane (`composer test:pg`):
+**198 passed / 0 failed**. Schema lane (`composer test:schema`): **195 passed**.
+PHPStan: **no errors** (needs a raised memory limit to run). Pint: clean.
+
+The Postgres lane briefly went red mid-branch — the hand-written stand-in DDL
+in `tests/Postgres/` drifted from the branch's own writer changes across two
+separate tasks (`content.item_variants` never `CREATE`d; `offers.availability`
+and `f_catalog.handle/vendor/variant_ref` missing) — fixed in `765334cb3`.
+Neither per-task review had caught it because neither ran the Postgres lane,
+only the SQLite `Ingest` suite. Recorded because it is the same failure mode as
+§16.3 in miniature: a green SQLite run proves nothing about a Postgres-only
+gap, and the fix belongs in the lane that actually exercises it.
+
+### 16.7 Cache invalidation (§9.2, all three lanes)
+
+| Lane | This slice |
+|---|---|
+| `site.site_documents` build state | `BuildState::bump($siteId)` on every write path — backfiller, `syncLatest()`, all four mutating endpoints |
+| 60s public-profile payload cache | `site.sites.updated_at` touched on every write path, per `PoolController::poolChanged()`'s shape |
+| Cloudflare edge | `CloudflareCachePurgeJob::dispatch($subdomain)` on every write path |
+
+No CI check enforces any of the three — §9.1/§9.2 already established none
+exists — so this slice asserts all three directly in Pest rather than trusting
+a docblock. Nothing in 5a changes the *public* rendered surface (§2 of the
+spec: "nothing public changes"), so a missed invalidation here would be latent
+until 5b's pool read goes live, not visible today.
+
+### 16.8 Conventions this slice established — for slices 3, 4 and 5b
+
+Carried forward from the slice spec's §7 so the parent programme record does
+not depend on a sub-spec surviving:
+
+| Convention | Value | Who needs it |
+|---|---|---|
+| Coord for a legacy table whose rows are *rewritten*, not updated | `manual:{sha1(canonical_url)}`, not `manual:{legacy_uuid}` — §8.1's uuid convention mints a fresh coord every sync when the legacy table has no stable id | slices 3, 4, 7 |
+| `offers.availability` vocabulary | `in_stock` / `out_of_stock` | slices 3, 4 |
+| Collection-scoped behaviour | a 1:1 sidecar table (`content.storefronts`), not columns on `content.collections` | slices 3, 4 |
+| `SECTION_SHAPE` for priced, undated items | `rule: [kind_is]`, `order_by: 'recency'` | slice 4 explicitly, and 5b |
+| Owner-chosen ordering | pins in `site.section_items`, which carry position; the auto half offers only `alphabetical` / `occurrence` / `recency` and cannot express "the order the owner chose" | slice 4, 5b |
+| `LATEST_TAG_POOLS` membership for commerce | **excluded** — hand-ordering fights a Latest badge, pool recency is a sync artefact not product newness, and unavailable stock can carry the badge | slice 4, 5b |
+| `ProjectionWriter` now writes `content.item_variants` (§3.2a) | a projection may carry a `variants` key; absent-key is inert | **every remaining slice** — shared hot-path code |
+
+### 16.9 What remains outstanding
+
+- **The re-added-product decision (§8 "Out of scope — carried to 5b") is still
+  open.** `content.items.removed_at` is never cleared by reappearance, and no
+  shop read in 5a filters on it — so the gap is latent, not live, until 5b's
+  pool read starts filtering. Carried into the 5b kickoff prompt as Unit 0,
+  unchanged by this checkpoint.
+- **`upsertStore()`'s SELECT-then-INSERT remains TOCTOU-racy** against a
+  concurrent scheduled `syncLatest()` run — pre-existing shape, not introduced
+  by this slice, parked for slice 7 (denormalise `user_id` onto `storefronts`
+  behind a real unique index).
+- **`style_analysis`** (non-null on 4 legacy brands) is dropped with no
+  migration path — no reader, no writer survives the code that produced it.
+  Named as a real loss in the wire manifest, not carried into `storefronts`.
+- **Post-deploy log scan and Nightwatch scan are not recorded here.** Unlike
+  §13–§15, this checkpoint does not carry a pasted `cloud env:logs` result or a
+  Nightwatch confirmation for the 2026-08-13 deploy — that verification step is
+  outstanding, not skipped-and-forgotten. Run it before treating slice 5a as
+  fully closed per §5.4's requirement.
+- `site.shop_brands` / `site.shop_products` are **not dropped** — inert, as
+  designed. Slice 7 drops them.
+- The public Shop page is **unchanged** — still legacy-sourced. That is 5b, in
+  full.
