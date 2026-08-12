@@ -249,6 +249,7 @@ configuration that produced the false finding.
 --scope tests/Feature/Moderation
 --scope tests/Feature/Notifications
 --scope tests/Feature/User
+--scope tests/Feature/Profile
 ```
 
 ### Group I — Catalog + Routing subsystem (new platform-catalog & link-router)
