@@ -558,7 +558,8 @@ final class SectorTaxonomy
         // restaurant whose page also lists "Digital Creator" would resolve to
         // content-creator, isFood() would go false, and can_use_menu /
         // can_use_reservations / can_use_online_ordering would silently switch
-        // off — permanently, since sector is sticky once Instagram stamps it.
+        // off — no longer permanent: Google or a manual pick outranks Instagram
+        // and can correct it, but the capabilities stay dark until one does.
         //
         // No trailing whole-string classify(): a single (comma-free) input is
         // itself one segment, and no KEYWORD_SECTORS key contains a comma, so
