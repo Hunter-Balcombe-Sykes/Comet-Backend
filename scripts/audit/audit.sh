@@ -317,6 +317,7 @@ platforms-controllers|app/Http/Controllers/Api/Platforms app/Http/Controllers/Ap
 controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
 routing-probes|app/Routing/Probes app/Services/Brand
 design|app/Services/Design
+ingest-billed-effects|app/Ingest/Runtime/Effects app/Ingest/Runtime/EffectLedger.php
 EOF
         ;;
         caching-coverage-gaps) cat <<'EOF'
