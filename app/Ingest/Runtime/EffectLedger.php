@@ -104,27 +104,12 @@ class EffectLedger
             return $this->verdictFor($row);
         }
 
+        // ONLY the vendor call sits in this try (#MONEY-1). While the settle
+        // write below was also inside it, the catch-all could not tell "the
+        // paid call failed" from "the paid call succeeded and the bookkeeping
+        // failed", and stamped 'failed' on the latter.
         try {
             $result = $effect();
-
-            // Persist the result WITH the settlement: a replay (same-run
-            // sibling stream, or a retry) must return the data that was paid
-            // for, or charge-once quietly turns "ok" into "no data".
-            $meta = ['summary' => $this->summarise($result)];
-            $encoded = json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            if ($encoded !== false && strlen($encoded) <= self::RESULT_INLINE_MAX_BYTES) {
-                $meta['result'] = $result;
-            } else {
-                $meta['result_omitted'] = true;
-            }
-
-            DB::table('ingest.effects')->where('digest', $digest)->update([
-                'status' => 'ok',
-                'settled_at' => now(),
-                'meta' => json_encode($meta),
-            ]);
-
-            return ['status' => 'ok', 'result' => $result, 'cached' => false];
         } catch (EffectNotAttempted $e) {
             // The ONE deletion in this class. Safe only because EffectNotAttempted's
             // contract is "no request left the process" (see that class): nothing
@@ -160,6 +145,12 @@ class EffectLedger
 
             return ['status' => 'failed', 'result' => null, 'cached' => false];
         } catch (\Throwable $e) {
+            // Reaching here now means THE VENDOR CALL ITSELF threw — the settle
+            // write is no longer inside this try (#MONEY-1). That distinction is
+            // the whole fix: the old catch-all also caught a failure of the
+            // bookkeeping below and stamped 'failed' on a call that had
+            // succeeded, discarding the result we had already paid for.
+            //
             // A failure IS settled: we know it happened and what it cost. It
             // is the UNKNOWN (process death) that must never auto-retry.
             DB::table('ingest.effects')->where('digest', $digest)->update([
@@ -169,6 +160,80 @@ class EffectLedger
             ]);
 
             throw $e;
+        }
+
+        // PAID AND ANSWERED. Past this line nothing may turn $result into a
+        // failure — settleOk() is bookkeeping, and bookkeeping that fails does
+        // not un-spend the money or un-answer the question.
+        $this->settleOk($digest, $result, $kind, $costTag);
+
+        return ['status' => 'ok', 'result' => $result, 'cached' => false];
+    }
+
+    /**
+     * Record a successful, already-paid effect. NEVER THROWS.
+     *
+     * Split out of once()'s try block for #MONEY-1: while the settle write sat
+     * inside the same try as $effect(), a DB hiccup here landed in the
+     * catch-all, which stamped the row 'failed' and discarded the result. The
+     * caller had paid Google, Google had answered, and the answer went in the
+     * bin — with the digest then serving that false 'failed' out of
+     * verdictFor() for the whole seven-day freshness window.
+     *
+     * ON FAILURE THE ROW IS LEFT CLAIMED AND UNSETTLED, deliberately. The three
+     * candidate states:
+     *
+     *   'ok'      — cannot: we just failed to write it, and writing it again is
+     *               the thing that failed.
+     *   'failed'  — a lie. The vendor call succeeded and we were charged.
+     *   claimed   — honest: "money left, the books do not know". It is also the
+     *               state markAbandoned() already owns — after the abandon
+     *               window it flips to 'abandoned' and files a CRITICAL
+     *               anomaly for spend reconciliation, which is exactly the
+     *               review this situation deserves.
+     *
+     * Accepted cost of that choice: the digest is refused (not replayed) until
+     * the abandon window passes, so a sibling stream in the same run re-reads
+     * it as unavailable rather than getting the cached answer. Strictly better
+     * than the alternative — the CURRENT run still receives the paid result.
+     *
+     * THE ALARM IS A LOG LINE, NOT AN ANOMALY ROW. We are here because a
+     * database write failed; filing ingest.anomalies is another database write
+     * and would very likely fail in the same breath. report() reaches
+     * Nightwatch out of band. (A dedicated anomaly kind would also need a new
+     * value in the closed anomalies_kind_check domain — a two-file NOT VALID +
+     * VALIDATE migration — for an alarm that cannot be trusted to land.)
+     */
+    private function settleOk(string $digest, mixed $result, string $kind, ?string $costTag): void
+    {
+        try {
+            // Persist the result WITH the settlement: a replay (same-run
+            // sibling stream, or a retry) must return the data that was paid
+            // for, or charge-once quietly turns "ok" into "no data".
+            $meta = ['summary' => $this->summarise($result)];
+            $encoded = json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($encoded !== false && strlen($encoded) <= self::RESULT_INLINE_MAX_BYTES) {
+                $meta['result'] = $result;
+            } else {
+                $meta['result_omitted'] = true;
+            }
+
+            DB::table('ingest.effects')->where('digest', $digest)->update([
+                'status' => 'ok',
+                'settled_at' => now(),
+                'meta' => json_encode($meta),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('ingest.effect.settle_unrecorded', [
+                'digest' => $digest,
+                'kind' => $kind,
+                'cost_tag' => $costTag,
+                'error' => class_basename($e),
+                'message' => mb_substr($e->getMessage(), 0, 500),
+            ]);
+
+            // Out-of-band, because the database is the thing that just failed.
+            report($e);
         }
     }
 
