@@ -153,6 +153,35 @@ so it ships publicly with no payload-builder change.
 - **Tests run SQLite, production is Postgres.** The `menus.dining_modes` shape CHECK and `offers_qualifier_check` must be verified against the DDL.
 - **The k6 harness hard-codes menu invariants** (`scripts/launch-check/k6/`). If this slice changes menu shape, re-check `seed.sql` and `jobs.js`.
 
+## If reality diverges, update the downstream prompts — do not just note it
+
+**A checkpoint is not a communication channel.** Parent invariant #5 forbids any
+slice citing another's checkpoint as evidence, so writing a discovery only into your
+own checkpoint guarantees the next session never acts on it. **Edit their prompt.**
+
+You run late, so most of what you find is a correction to what earlier slices left
+behind rather than news for a peer. Propagate it **before you merge**:
+
+| You discover / change | Update |
+|---|---|
+| A parent-spec fact is now wrong — and one already is: §1.4 records 370 `menu_items`, dev showed 318 on 2026-08-12 | The parent spec's §1.4 and its revision note, in place, with what caused the change |
+| An earlier slice's `SECTION_SHAPE` or collections convention did not survive contact with multi-category data | The parent spec, and `slice-7-teardown` if it changes what must be verified before dropping |
+| You changed `ProjectionWriter`, `PoolResolver`, `PoolRegistry`, or `ItemSlugAllocator` | `slice-7-teardown`, plus any of 3 / 5 / 6 still unmerged |
+| The slug lane needed behaviour re-homed off `MenuItemObserver` | **`slice-7-teardown` §9.4 explicitly** — it lists that observer as one to retire, and must not retire behaviour you moved rather than replaced |
+| You found that a coverage assertion an earlier slice wrote does not actually hold | Raise it. Do not silently re-run it — that is slice 7's gate |
+| You consumed migration filename prefixes outside your block | Whichever slice owns the block you took from |
+
+Two rules for the edit itself:
+
+- **Edit in place; do not append a "correction" section.** A prompt read top to
+  bottom must be true.
+- **Say the fact, not the story.**
+
+If you find something that invalidates slice 7's teardown gate — a table still read,
+a slug not migrated, an observer whose behaviour has no new home — that is a **stop
+and raise**, not an edit. Slice 7 is irreversible and must not inherit an
+optimistic gate.
+
 ## Process — stop at every gate
 
 1. **Confirm a commerce slice has landed.** If slice 5 has not merged, stop and say so.

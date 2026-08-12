@@ -124,6 +124,37 @@ change.
 - **Outbound fetches go through `SafeUrlFetcher`.** Product and brand URLs arrive in third-party payloads and are untrusted by definition. A host allowlist entry is not the fix.
 - **Money-adjacent:** `referral_query` is affiliate revenue. Treat losing it the way you would treat losing a price.
 
+## If reality diverges, update the downstream prompts — do not just note it
+
+**A checkpoint is not a communication channel.** Parent invariant #5 forbids any
+slice citing another's checkpoint as evidence, so writing a discovery only into your
+own checkpoint guarantees the next session never acts on it. **Edit their prompt.**
+
+When something turns out different from what was written — a figure that has moved, a
+premise that was wrong, a shared file you changed, a convention you established — you
+own propagating it **before you merge**:
+
+| You discover / change | Update |
+|---|---|
+| A parent-spec fact is now wrong (a count, a claim, a constraint) | The parent spec's §1 and its revision note, in place |
+| You changed `ProjectionWriter`, `PoolResolver`, `PoolRegistry` or the manual write lane | Every remaining prompt that builds on it — `slice-3-services`, `slice-4-menus`, `slice-6-reviews`, `slice-7-teardown`, `media-pool-slice-1b` |
+| You settled a `SECTION_SHAPE` for priced, undated items | **`slice-4-menus` explicitly** — it is told to reuse your convention rather than invent a third. Also tell `slice-3-services` if it has not merged |
+| You settled how `selection_mode` maps onto the pool auto-rule | `slice-3-services` and `slice-4-menus` — the same question arrives in both |
+| You added or reshaped anything under `app/Services/Migration/` | The other backfill prompts — 3, 4, 7 |
+| You consumed migration filename prefixes outside your block | Whichever slice owns the block you took from |
+| You found a new hazard in shared code | Every remaining prompt, under its non-negotiables |
+
+Two rules for the edit itself:
+
+- **Edit in place; do not append a "correction" section.** A prompt read top to
+  bottom must be true. A stale statement with a correction 80 lines later will be
+  acted on before the correction is reached.
+- **Say the fact, not the story.** "`content.item_variants` now uses `{shape}`;
+  follow it" beats "during unit 1 we discovered that…".
+
+If you find something that invalidates another slice's *approach* rather than a
+detail — stop and raise it rather than rewriting their scope unilaterally.
+
 ## Process — stop at every gate
 
 1. **Recon + entry gate.** Real jsonb keys, real brand behaviour. **STOP — sign-off** on the field map before designing.

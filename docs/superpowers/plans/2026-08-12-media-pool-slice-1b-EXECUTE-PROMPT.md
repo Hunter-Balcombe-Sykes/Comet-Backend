@@ -84,6 +84,35 @@ easy to violate under time pressure:
 - **`git stash` is forbidden in this worktree** — a peer session shares the checkout.
 - **Copy `MediaUploadBackfiller::invalidate()` for cache invalidation, not `PoolController::poolChanged()`** — the latter runs two lanes on purpose, and you need three.
 
+## If reality diverges, update the downstream prompts — do not just note it
+
+**A checkpoint is not a communication channel.** Parent invariant #5 forbids any
+slice citing another's checkpoint as evidence, so writing a discovery only into your
+own checkpoint guarantees the next session never acts on it. **Edit their prompt.**
+
+You are the first slice of the concurrent wave and you own `GoogleBusinessConnector`,
+so what you change lands on other people. Propagate it **before you merge**:
+
+| You discover / change | Update |
+|---|---|
+| A parent-spec fact is now wrong (a count, a claim, a constraint) | The parent spec's §1 and its revision note, in place |
+| You changed `GoogleBusinessConnector`, `PlacesDetailsDriver` or the billed-effect lane | **`slice-6-reviews` explicitly** — it inherits that connector and is sequenced after you precisely because of the shared `places.details` effect |
+| You changed `ProjectionWriter`, `PoolResolver`, `PoolRegistry` or `MediaUrlResolver` | `slice-3-services`, `slice-5-shop`, `slice-4-menus`, `slice-7-teardown` |
+| You reshaped `app/Services/Migration/` or its command conventions | The other backfill prompts — 3, 4, 5, 7 |
+| The plan itself was wrong and you corrected it | The plan, in place, with the correction noted — a plan is a plan, not a record |
+| The `gallery` / `designMedia` retirement boundary moved | `slice-7-teardown`'s gate 2, which depends on exactly that boundary |
+| You consumed migration filename prefixes outside your block | Whichever slice owns the block you took from |
+
+Two rules for the edit itself:
+
+- **Edit in place; do not append a "correction" section.** A prompt read top to
+  bottom must be true. A stale statement with a correction 80 lines later will be
+  acted on before the correction is reached.
+- **Say the fact, not the story.**
+
+If you find something that invalidates another slice's *approach* rather than a
+detail — stop and raise it rather than rewriting their scope unilaterally.
+
 ## Process — stop at every gate
 
 1. **Task 0 precondition.** Confirm 1a merged, code gate passes on dev *and* prod, 1a's commands run. **STOP — sign-off on the gate report.** If it fails, that report is the deliverable.

@@ -153,6 +153,36 @@ payload-builder change.
 - **`UserServiceController` is ~14 endpoints** (`/services` CRUD, `/reorder`, `/resync`, `/restore`, `/service-categories/*`, `/{id}/category`, `/reorder-layout`). Every one is a wire contract. Changes go in the manifest.
 - **DSAR:** `DataExportPayloadBuilder` streams `site.services` as a named export section and pins `services` / `service_categories` in its declared return shape. Do not break it; slice 7 drops the tables, so the export must read `content.*` by then.
 
+## If reality diverges, update the downstream prompts — do not just note it
+
+**A checkpoint is not a communication channel.** Parent invariant #5 forbids any
+slice citing another's checkpoint as evidence, so writing a discovery only into your
+own checkpoint guarantees the next session never acts on it. **Edit their prompt.**
+
+When something in this slice turns out different from what was written — a figure
+that has moved, a premise that was wrong, a shared file you changed, a convention you
+established — you own propagating it **before you merge**:
+
+| You discover / change | Update |
+|---|---|
+| A parent-spec fact is now wrong (a count, a claim, a constraint) | The parent spec's §1 and its revision note, in place |
+| You changed `ProjectionWriter`, `PoolResolver`, `PoolRegistry` or the manual write lane | Every remaining prompt that builds on it — `slice-4-menus`, `slice-5-shop`, `slice-6-reviews`, `slice-7-teardown`, `media-pool-slice-1b` |
+| You settled a `SECTION_SHAPE` for priced, undated items | **`slice-4-menus` and `slice-5-shop` explicitly** — slice 4 is told to reuse your convention rather than invent a third |
+| You added or reshaped anything under `app/Services/Migration/` | The other backfill prompts — 4, 5, 7 |
+| You consumed migration filename prefixes outside your block | Whichever slice owns the block you took from |
+| You found a new hazard in shared code | Every remaining prompt, under its non-negotiables |
+
+Two rules for the edit itself:
+
+- **Edit in place; do not append a "correction" section.** A prompt read top to
+  bottom must be true. A stale statement with a correction 80 lines later will be
+  acted on before the correction is reached.
+- **Say the fact, not the story.** "`content.collections` now uses `{shape}`; follow
+  it" beats "during unit 3 we discovered that…".
+
+If you find something that invalidates another slice's *approach* rather than a
+detail — stop and raise it rather than rewriting their scope unilaterally.
+
 ## Process — stop at every gate
 
 1. **Recon + entry gate.** Unit 1's diagnosis. **STOP — sign-off** on whether this is still an L.

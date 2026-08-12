@@ -148,6 +148,35 @@ change covers both.
 - **Tests run SQLite, production is Postgres.** Verify constraint-bound writes against the DDL.
 - **Post-deploy:** `cloud env:logs partna development --minutes 10` **and** a Nightwatch scan. Slice 0's checkpoint recorded a log scan and skipped Nightwatch; do not repeat that.
 
+## If reality diverges, update the downstream prompts — do not just note it
+
+**A checkpoint is not a communication channel.** Parent invariant #5 forbids any
+slice citing another's checkpoint as evidence, so writing a discovery only into your
+own checkpoint guarantees the next session never acts on it. **Edit their prompt.**
+
+You inherit `GoogleBusinessConnector` from 1b, which makes you the most likely slice
+to find that an upstream premise has moved. Propagate it **before you merge**:
+
+| You discover / change | Update |
+|---|---|
+| A parent-spec fact is now wrong (a count, a claim, a constraint) | The parent spec's §1 and its revision note, in place |
+| You changed `GoogleBusinessConnector`, `PlacesDetailsDriver`, or anything in the billed-effect lane | `slice-7-teardown`, and the parent spec §5 if the driver contract itself moved |
+| You changed `ProjectionWriter`, `PoolResolver` or `PoolRegistry` | `slice-4-menus`, `slice-7-teardown`, and any of 3 / 5 still unmerged |
+| A PII or redaction behaviour turned out different from `redactionScopes`' docblock | The parent spec §9, `slice-7-teardown` (DSAR), and `docs/legal/reviewer-data-disclosure.md` |
+| `PruneOrphanedReviewPiiCommand` needed changes to work on real rows | `slice-7-teardown` — it must not drop tables the command still depends on |
+| You consumed migration filename prefixes outside your block | Whichever slice owns the block you took from |
+
+Two rules for the edit itself:
+
+- **Edit in place; do not append a "correction" section.** A prompt read top to
+  bottom must be true. A stale statement with a correction 80 lines later will be
+  acted on before the correction is reached.
+- **Say the fact, not the story.**
+
+Anything with legal weight is different: **do not quietly propagate it.** If a
+redaction, retention or disclosure behaviour is not what the documents claim, stop
+and raise it. That is a decision, not an edit.
+
 ## Process — stop at every gate
 
 1. **Confirm 1b is merged.** If not, stop — that is the deliverable.

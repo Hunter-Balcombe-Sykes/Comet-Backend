@@ -136,6 +136,27 @@ may it be worked around by retiring keys the frontends still read.
 - **Post-deploy:** `cloud env:logs partna development --minutes 10` **and** a Nightwatch scan, on both environments.
 - **Prod push requires explicit human sign-off**, separately from the dev merge.
 
+## If reality diverges, the direction reverses — you raise, you do not edit
+
+Every other slice propagates discoveries **forward** to the next session. You are
+last: there is no downstream prompt to edit, and nothing you find can be handed on.
+
+So the rule inverts. **Anything that contradicts a gate is a stop, not a note.**
+
+| You discover | Do |
+|---|---|
+| A coverage assertion an earlier slice recorded does not actually hold | **STOP.** Report it. That slice reopens; you do not "fix it while you are here" |
+| Something still reads a table you are about to drop | **STOP.** The owning slice repoints it |
+| An observer's behaviour was moved but never re-registered — **event discovery is disabled in this codebase** | **STOP.** A listener that was never registered has been silently dead since the slice that "moved" it |
+| A parent-spec fact is wrong | Correct the parent spec in place. It outlives this programme and is what a future session will read |
+| The frontend gate has not been met | Propose the split (parent §7 permits it) rather than proceeding or waiting indefinitely |
+
+The one thing you **do** own propagating: this programme's closing state. Whatever
+the outcome, the parent spec's final checkpoint and
+`docs/2026-08-05-platforms-as-sources.md` must both end up saying what is actually
+true — including what was deliberately left behind. A document claiming completion is
+what started this whole programme.
+
 ## Process — stop at every gate
 
 1. **Verify both gates.** Re-run every coverage assertion; inspect the frontend repos for `pools.media` consumption. **STOP — sign-off on the gate report.** If gate 2 fails, the deliverable is a split proposal.
