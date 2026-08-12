@@ -26,6 +26,8 @@ use App\Mail\Notifications\IncidentMail;
 use App\Mail\Notifications\PolicyUpdateMail;
 use App\Mail\Notifications\ProfileTaskMail;
 use App\Mail\PreAccount\ClaimInviteMail;
+use App\Mail\Security\PasswordChangedMail;
+use App\Mail\Security\TwoFactorEnabledMail;
 use App\Mail\Security\TwoFactorRemovedMail;
 use App\Mail\SiteEnquiryNotification;
 use App\Mail\StaffBroadcastMail;
@@ -144,6 +146,8 @@ class MailPreviewController extends Controller
             ],
             'Security' => [
                 'two-factor-removed' => ['label' => 'Two-factor removed', 'make' => fn () => new TwoFactorRemovedMail('sam@example.com', 'Sam')],
+                'password-changed' => ['label' => 'Password changed', 'make' => fn () => new PasswordChangedMail('sam@example.com', 'Sam')],
+                'two-factor-enabled' => ['label' => 'Two-factor enabled', 'make' => fn () => new TwoFactorEnabledMail('sam@example.com', 'Sam')],
             ],
             'Account' => [
                 'deletion-requested' => ['label' => 'Deletion requested', 'make' => fn () => new AccountDeletionRequestedMail('Sam', 'https://app.partna.au/account/deletion/confirm?token=preview')],

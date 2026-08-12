@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\Site\SectionGroupController;
 use App\Http\Controllers\Api\Site\SectionItemController;
 use App\Http\Controllers\Api\Site\SectionTraceController;
 use App\Http\Controllers\Api\User\Account\MfaController;
+use App\Http\Controllers\Api\User\Account\SecurityEventController;
 use App\Http\Controllers\Api\User\Account\SessionController;
 use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
 use App\Http\Controllers\Api\User\Account\UserDataExportController;
@@ -446,6 +447,10 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // Notification email preferences
         Route::get('/me/notification-email-preferences', [NotificationEmailPreferenceController::class, 'index']);
         Route::patch('/me/notification-email-preferences', [NotificationEmailPreferenceController::class, 'update']);
+
+        // Security-event pings (password change / MFA enrolment happen
+        // client-side against Supabase; the dashboard tells us afterwards).
+        Route::post('/me/security-events', [SecurityEventController::class, 'store']);
 
         // Email subscribers (marketing list)
         Route::get('/email-subscribers', [UserEmailSubscriptionController::class, 'index']);
