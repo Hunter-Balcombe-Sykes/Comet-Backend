@@ -223,6 +223,20 @@ jobs:
           path: audits/dast/*/REPORT.md
           retention-days: 90
 
+      # Phase timings, and deliberately NOT part of the failure bundle below: the
+      # question this answers ("where does the run's time go?") only has an answer
+      # on a run that COMPLETED. bring-up-stdout.log carries the timestamped log
+      # lines plus `supabase stop`'s own elapsed seconds, and it is ~440 bytes —
+      # cheap enough to keep on every run, unlike serve.log next door at ~6 MB,
+      # which is why this is a separate step rather than if: always() on that one.
+      - name: Attach bring-up timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-active-timings
+          path: audits/dast/*/bring-up-stdout.log
+          retention-days: 30
+
       # The interesting artefact when this fails is not the report — it is the ZAP
       # run log and the bring-up/serve logs, which carry the control-vs-probe
       # status codes and the Supabase start failures. A CI failure with no way to
