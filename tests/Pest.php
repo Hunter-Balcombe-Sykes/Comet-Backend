@@ -1917,6 +1917,28 @@ function ownerService(string $userId, array $overrides = []): string
 }
 
 /**
+ * Seed a tenant (core.users + site.sites pair, via createTenant()) and
+ * return [userId, siteId] — the pair Task 3's pin/invalidation tests and
+ * Task 4's public-read tests both need. Kept global, not file-local: a
+ * file-local definition only resolves when Pest loads multiple test files
+ * together (e.g. `--filter`), not when a single file runs by explicit path
+ * — the same load-order hazard ownerService()'s docblock above already
+ * flags for cross-file helpers.
+ *
+ * Distinct from the file-local serviceOwner() in ServiceBackfillerTest.php,
+ * which returns only the user id (a string) — callers that don't need the
+ * site id keep using that one; this one exists because they do.
+ *
+ * @return array{0: string, 1: string} [userId, siteId]
+ */
+function seedUserWithSite(): array
+{
+    $tenant = createTenant('svc-'.Str::lower(Str::random(8)));
+
+    return [$tenant->id, $tenant->site->id];
+}
+
+/**
  * Insert a ServiceCategory row for $pro and return the Eloquent model.
  *
  * @param  array<string, mixed>  $overrides

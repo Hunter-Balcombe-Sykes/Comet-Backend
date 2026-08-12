@@ -24,19 +24,13 @@ beforeEach(function () {
 // PoolLaneTest.php for the same pattern). ownerService() lives in
 // tests/Pest.php, not this file: cross-file global function definitions
 // depend on Pest's load order, and later slice-3 tasks' test files need it
-// too.
+// too. Kept file-local (unlike ownerService()) because it returns only the
+// user id — this file's own tests never need the site id. Tests that DO
+// (Task 3's pin/invalidation tests here, and Task 4's public-read tests)
+// use seedUserWithSite() (tests/Pest.php) instead, which returns both.
 function serviceOwner(): string
 {
     return createTenant('svc-'.Str::lower(Str::random(8)))->id;
-}
-
-// Task 3's pin/invalidation tests need the site id alongside the owner id —
-// serviceOwner() only returns the id half createTenant() gives back.
-function seedUserWithSite(): array
-{
-    $tenant = createTenant('svc-'.Str::lower(Str::random(8)));
-
-    return [$tenant->id, $tenant->site->id];
 }
 
 it('lands an owner-authored service as a content item on the manual source', function () {
