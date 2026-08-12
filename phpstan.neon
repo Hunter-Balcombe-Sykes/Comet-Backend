@@ -192,5 +192,39 @@ parameters:
             count: 1
             path: app/Services/Platforms/EventsCatalog.php
 
+        # BaseTransactionalMail::buildView() derives the text/plain part (P3,
+        # 2026-08-12) only when the subclass didn't set one. Illuminate\Mail\
+        # Mailable declares `public $view;` / `public $textView;` — UNTYPED
+        # properties carrying a `@var string` docblock. Untyped properties
+        # default to null, so the docblock is a claim about the SET state, not
+        # the declared one; PHPStan reads it as non-nullable-and-always-
+        # initialised and therefore calls the isset() guards redundant and the
+        # whole condition dead. It is not: without them every mailable that
+        # already has a text view would have it overwritten, and any mailable
+        # using html()/markdown() instead of view() would render null.
+        #
+        # Laravel's own Mailable::buildView() guards the identical properties
+        # the identical way (`isset($this->view, $this->textView)`), so this is
+        # framework house style, not a local shortcut — it only surfaces here
+        # because `paths: app` analyses our override and not vendor. Rewriting
+        # to satisfy the analyser would mean trusting a docblock the runtime
+        # contradicts. A framework upgrade that gives these real `?string`
+        # types is what retires this block.
+        -
+            message: '#^Property Illuminate\\Mail\\Mailable\:\:\$(view|textView) \(string\) in isset\(\) is not nullable\.$#'
+            identifier: isset.property
+            count: 2
+            path: app/Mail/BaseTransactionalMail.php
+        -
+            message: '#^Result of && is always false\.$#'
+            identifier: booleanAnd.alwaysFalse
+            count: 1
+            path: app/Mail/BaseTransactionalMail.php
+        -
+            message: '#^Right side of && is always true\.$#'
+            identifier: booleanAnd.rightAlwaysTrue
+            count: 1
+            path: app/Mail/BaseTransactionalMail.php
+
     # Larastan boots the framework to resolve container bindings, config keys,
     # Eloquent magic, and facade roots. Nothing here queries the database.

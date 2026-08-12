@@ -14,6 +14,34 @@ use Illuminate\Support\Carbon;
 
 // V2: A visitor-submitted enquiry from a site's contact section block. read_at=null means unread.
 /**
+ * Column list mirrors site.enquiries in the 2026-07-26 baseline. name/email/
+ * subject/message are NOT NULL at the DB but are $hidden from serialization —
+ * that hides them from toArray(), not from property access, so they stay
+ * non-nullable here.
+ *
+ * @property string $id
+ * @property string $user_id
+ * @property string $site_id
+ * @property string|null $customer_id
+ * @property string|null $notification_id
+ * @property string $name
+ * @property string $email
+ * @property string|null $phone
+ * @property string $subject
+ * @property string $message
+ * @property string|null $ip_hash
+ * @property string|null $user_agent
+ * @property EnquiryStatus $status
+ * @property Carbon|null $read_at
+ * @property Carbon|null $email_sent_at
+ * @property Carbon|null $confirmation_sent_at
+ * @property Carbon|null $replied_at
+ * @property Carbon|null $archived_at
+ * @property Carbon|null $spam_at
+ * @property Carbon|null $redacted_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
  * @property Carbon|null $notifications_pending_since Set when PublicEnquiryController's
  *                                                    notification dispatch throws (Redis outage); cleared by
  *                                                    ReconcileEnquiryNotifications once re-dispatch succeeds. Nullable timestamptz,

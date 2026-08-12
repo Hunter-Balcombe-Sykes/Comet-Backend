@@ -6,6 +6,7 @@ use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\Platforms\RefreshConnectionJob;
+use App\Mail\Account\WelcomeMail;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
@@ -16,6 +17,8 @@ use App\Services\User\EmailReuseGuard;
 use App\Services\User\SignupSideEffects;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use RuntimeException;
 
 // First-come claim: binds a Supabase auth user (email OTP JWT) to a provisional
@@ -32,7 +35,7 @@ class ClaimSiteService
     ) {}
 
     /**
-     * @return array{professional: User, site: Site}
+     * @return array{professional: User, site: Site, is_new_claim?: bool}
      *
      * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_FAILED|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED|CLAIM_EMAIL_MISMATCH
      */
@@ -129,9 +132,9 @@ class ClaimSiteService
             // PRIV-101: subscription is opt-in only — $marketingOptIn comes straight
             // from the claim request and defaults to false (fail-closed) upstream.
             $this->sideEffects->ensureSidestUpdatesSubscription($professional->primary_email, $marketingOptIn, 'claim');
-            $this->sideEffects->createWelcomeNotification($professional);
+            $isNewClaim = $this->sideEffects->createWelcomeNotification($professional) > 0;
 
-            return ['professional' => $professional->fresh(), 'site' => $site->fresh()];
+            return ['professional' => $professional->fresh(), 'site' => $site->fresh(), 'is_new_claim' => $isNewClaim];
         });
 
         // Post-commit: bust caches and re-sync KV (status active → permanent
@@ -141,6 +144,21 @@ class ClaimSiteService
         $this->siteCache->invalidateSite($result['site']);
         SyncSubdomainToKvJob::dispatch((string) $result['professional']->id);
         $this->reEnrichClaimedGoogleBusinessConnection($result['professional']);
+
+        // Welcome email — genuinely post-commit (the transaction above has
+        // already committed by this point) and gated on is_new_claim so a
+        // double-tap / network retry through the idempotency-first branch
+        // (which never sets this flag) can never re-send it.
+        if (($result['is_new_claim'] ?? false) === true) {
+            $email = (string) ($result['professional']->primary_email ?? '');
+            if ($email !== '') {
+                try {
+                    Mail::to($email)->queue(new WelcomeMail($email, (string) $result['site']->subdomain));
+                } catch (\Throwable $e) {
+                    Log::warning('claim.welcome_mail_failed', ['user_id' => $result['professional']->id, 'error' => $e->getMessage()]);
+                }
+            }
+        }
 
         // EDGE-1: also purge the Cloudflare edge cache — invalidateSite() above
         // only busts Redis, so without this a claim's status flip never reaches

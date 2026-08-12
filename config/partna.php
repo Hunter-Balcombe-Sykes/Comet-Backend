@@ -1,6 +1,8 @@
 <?php
 
+use App\Mail\Notifications\AchievementMail;
 use App\Mail\Notifications\CriticalNotificationMail;
+use App\Mail\Notifications\EnquiryReminderMail;
 use App\Mail\Notifications\FeatureAnnouncementMail;
 use App\Mail\Notifications\IncidentMail;
 use App\Mail\Notifications\PolicyUpdateMail;
@@ -1996,6 +1998,7 @@ return [
         'content_scrape' => 14,    // transient; self-heals, don't linger
         'analytics_weekly' => 14,  // superseded by next week's summary
         'integration_connected' => 30, // connect confirmation — no reason to linger
+        'enquiry_reminder' => 14,  // superseded by the enquiry being handled either way
     ],
 
     'notifications' => [
@@ -2039,6 +2042,7 @@ return [
             'feature_announcement' => FeatureAnnouncementMail::class,
             'incident' => IncidentMail::class,
             'inbox' => null,  // in-app only — enquiry inbox; no mailable (email goes via SendEnquiryNotificationJob)
+            'enquiry_reminder' => EnquiryReminderMail::class, // unread-enquiry nudge (partna:notify-unanswered-enquiries)
             'policy_update' => PolicyUpdateMail::class,
             'profile_tasks' => ProfileTaskMail::class,
 
@@ -2047,7 +2051,7 @@ return [
             // The generic CriticalNotificationMail renders the notification through the
             // shared OTP layout family; SendTransactionalNotificationEmailJob also falls
             // back to it for any critical notification whose category is unmapped.
-            'achievement' => null,                                // in-app only (milestones / first-enquiry)
+            'achievement' => AchievementMail::class,              // milestones / first-enquiry — celebration mail
             'platform_connection' => CriticalNotificationMail::class, // critical: connection needs reconnecting → email
             'content_scrape' => null,                             // in-app only (transient scrape/menu warnings)
             'analytics_weekly' => null,                           // in-app only (weekly summary stub)

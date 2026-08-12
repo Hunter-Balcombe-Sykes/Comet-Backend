@@ -8,8 +8,32 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 // V2: In-app notification with typed severity, optional time window, and CTA actions. Can be global (user_id null) or targeted to one professional.
+/**
+ * Column list mirrors notifications.notifications in the 2026-07-26 baseline.
+ * user_id is nullable BY DESIGN — a null row is a global broadcast.
+ *
+ * @property string $id
+ * @property string|null $user_id
+ * @property string $type
+ * @property string|null $category
+ * @property string $title
+ * @property string $body
+ * @property string|null $cta_url
+ * @property string|null $primary_action_label
+ * @property string|null $secondary_action_label
+ * @property string|null $secondary_action_url
+ * @property string $severity
+ * @property string|null $dedupe_key
+ * @property bool $critical
+ * @property Carbon|null $starts_at
+ * @property Carbon|null $ends_at
+ * @property Carbon|null $email_sent_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ */
 class Notification extends BaseModel
 {
     use HasUuids;

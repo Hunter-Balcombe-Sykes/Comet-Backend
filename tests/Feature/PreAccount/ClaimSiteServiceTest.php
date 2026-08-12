@@ -3,6 +3,7 @@
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Platforms\RefreshConnectionJob;
+use App\Mail\Account\WelcomeMail;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
@@ -10,6 +11,7 @@ use App\Models\Core\User\User;
 use App\Services\PreAccount\ClaimSiteService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -23,6 +25,7 @@ beforeEach(function () {
 });
 
 it('claims: binds auth + email, activates, stamps claimed_at, runs side effects', function () {
+    Mail::fake();
     [$user, $site, $build] = makeReadyBuild();
 
     $result = app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
@@ -33,6 +36,8 @@ it('claims: binds auth + email, activates, stamps claimed_at, runs side effects'
         ->and($fresh->primary_email)->toBe('jane@example.com')
         ->and($fresh->status)->toBe('active')
         ->and($build->fresh()->claimed_at)->not->toBeNull();
+
+    Mail::assertQueued(WelcomeMail::class, fn ($m) => $m->recipientEmail === 'jane@example.com' && $m->handle === 'janedoe');
 });
 
 // EDGE-1: the claim's status flip ('unclaimed' -> 'active') never reaches
@@ -77,12 +82,17 @@ it('EDGE-1: omits a non-active custom domain from the claim-time edge purge', fu
 });
 
 it('is idempotent for the rightful claimer (double-tap returns success, not 409)', function () {
+    Mail::fake();
     makeReadyBuild();
     $svc = app(ClaimSiteService::class);
     $svc->claim('auth-uid-1', 'jane@example.com', 'janedoe');
 
     $again = $svc->claim('auth-uid-1', 'jane@example.com', 'janedoe');
     expect($again['professional']->auth_user_id)->toBe('auth-uid-1');
+
+    // A retry through the idempotency-first branch never sets is_new_claim,
+    // so the welcome email must fire exactly once across both calls.
+    Mail::assertQueuedCount(1);
 });
 
 it('first-come wins: a second claimer gets ALREADY_CLAIMED', function () {

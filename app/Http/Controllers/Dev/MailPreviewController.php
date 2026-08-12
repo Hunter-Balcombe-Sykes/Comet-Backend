@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Dev;
 
 use App\Http\Controllers\Controller;
+use App\Mail\Account\WeeklyDigestMail;
+use App\Mail\Account\WelcomeMail;
 use App\Mail\Auth\EmailChangeMail;
 use App\Mail\Auth\EmailConfirmMail;
 use App\Mail\Auth\InviteMail;
@@ -20,12 +22,17 @@ use App\Mail\HandleAliasExpiringMail;
 use App\Mail\Notifications\AccountDeletionCancelledMail;
 use App\Mail\Notifications\AccountDeletionRequestedMail;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
+use App\Mail\Notifications\AchievementMail;
 use App\Mail\Notifications\CriticalNotificationMail;
+use App\Mail\Notifications\EnquiryReminderMail;
 use App\Mail\Notifications\FeatureAnnouncementMail;
 use App\Mail\Notifications\IncidentMail;
 use App\Mail\Notifications\PolicyUpdateMail;
 use App\Mail\Notifications\ProfileTaskMail;
 use App\Mail\PreAccount\ClaimInviteMail;
+use App\Mail\Security\PasswordChangedMail;
+use App\Mail\Security\TwoFactorEnabledMail;
+use App\Mail\Security\TwoFactorRemovedMail;
 use App\Mail\SiteEnquiryNotification;
 use App\Mail\StaffBroadcastMail;
 use App\Mail\SubscriptionConfirmationMail;
@@ -37,7 +44,7 @@ use App\Notifications\Moderation\AccountBannedNotification;
 use App\Notifications\Moderation\AccountSuspendedNotification;
 use App\Notifications\Moderation\ContentHiddenNotification;
 use App\Notifications\Moderation\ReportOutcomeNotification;
-use Illuminate\Contracts\Mail\Mailable;
+use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Markdown;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification as LaravelNotification;
@@ -63,7 +70,7 @@ class MailPreviewController extends Controller
     public function show(string $key)
     {
         $entry = collect($this->groups())->flatMap(fn ($g) => $g)->get($key);
-        abort_unless($entry, 404);
+        abort_unless($entry !== null, 404);
 
         try {
             $html = $this->render($entry['make']());
@@ -89,8 +96,15 @@ class MailPreviewController extends Controller
             return $renderable->render();
         }
 
-        if ($renderable instanceof LaravelNotification) {
+        // toMail() is convention, not contract — the base Notification class
+        // does not declare it, so a fixture wired to a non-mail notification
+        // would fatal here rather than land in the catch in show().
+        if ($renderable instanceof LaravelNotification && method_exists($renderable, 'toMail')) {
             $message = $renderable->toMail($this->fakeNotifiable());
+
+            if (! $message instanceof MailMessage) {
+                throw new \RuntimeException('toMail() did not return a MailMessage: '.get_class($renderable));
+            }
 
             return $this->renderMailMessage($message);
         }
@@ -141,7 +155,14 @@ class MailPreviewController extends Controller
                 'invite' => ['label' => 'Invite', 'make' => fn () => new InviteMail('sam@example.com', null, 'https://app.partna.au/auth/callback?token=preview')],
                 'reauthentication' => ['label' => 'Reauthentication (OTP)', 'make' => fn () => new ReauthenticationMail('sam@example.com', 'Sam', '739204')],
             ],
+            'Security' => [
+                'two-factor-removed' => ['label' => 'Two-factor removed', 'make' => fn () => new TwoFactorRemovedMail('sam@example.com', 'Sam')],
+                'password-changed' => ['label' => 'Password changed', 'make' => fn () => new PasswordChangedMail('sam@example.com', 'Sam')],
+                'two-factor-enabled' => ['label' => 'Two-factor enabled', 'make' => fn () => new TwoFactorEnabledMail('sam@example.com', 'Sam')],
+            ],
             'Account' => [
+                'welcome' => ['label' => 'Welcome', 'make' => fn () => new WelcomeMail('sam@example.com', 'sams-cafe')],
+                'weekly-digest' => ['label' => 'Weekly digest', 'make' => fn () => new WeeklyDigestMail('sam@example.com', 'Sam', '4–10 Aug', 214, 161, 38, 'Instagram', 17, 'https://api.partna.au/preview-unsubscribe')],
                 'deletion-requested' => ['label' => 'Deletion requested', 'make' => fn () => new AccountDeletionRequestedMail('Sam', 'https://app.partna.au/account/deletion/confirm?token=preview')],
                 'deletion-scheduled' => ['label' => 'Deletion scheduled', 'make' => fn () => new AccountDeletionScheduledMail('Sam', now()->addDays(30)->toDayDateTimeString().' (UTC)', 'https://app.partna.au/account/deletion/cancel?token=preview')],
                 'deletion-cancelled' => ['label' => 'Deletion cancelled', 'make' => fn () => new AccountDeletionCancelledMail('Sam')],
@@ -163,6 +184,8 @@ class MailPreviewController extends Controller
                 'notif-policy' => ['label' => 'Policy update', 'make' => fn () => new PolicyUpdateMail($this->fakeNotification('policy_update', 'We have updated our privacy policy', 'We have clarified how analytics data is stored. The changes take effect on 1 September 2026.'))],
                 'notif-feature' => ['label' => 'Feature announcement', 'make' => fn () => new FeatureAnnouncementMail($this->fakeNotification('feature_announcement', 'New: smart ordering for your links', 'Your links can now arrange themselves by engagement. Turn it on from the Site page.'))],
                 'notif-profile-task' => ['label' => 'Profile task', 'make' => fn () => new ProfileTaskMail($this->fakeNotification('profile_tasks', 'Finish setting up your site', 'Add a logo and connect your first platform to make your site look its best.'))],
+                'notif-enquiry-reminder' => ['label' => 'Enquiry reminder', 'make' => fn () => new EnquiryReminderMail($this->fakeNotification('enquiry_reminder', "Riley O'Brien is still waiting to hear back", 'Their enquiry "Booking for Saturday" arrived on Aug 10, 2026 and hasn\'t been opened yet. A quick reply keeps the lead warm.'))],
+                'notif-achievement' => ['label' => 'Achievement', 'make' => fn () => new AchievementMail($this->fakeNotification('achievement', 'Your first enquiry just arrived', 'Someone reached out through your site. Reply while it\'s warm.'))],
             ],
             'Moderation' => [
                 'mod-suspended' => ['label' => 'Account suspended', 'make' => fn () => new AccountSuspendedNotification($this->fakeDecision())],

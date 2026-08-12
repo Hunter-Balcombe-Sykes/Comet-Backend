@@ -8,7 +8,25 @@ use Database\Factories\Moderation\DecisionFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+/**
+ * Column list mirrors moderation.decisions in the 2026-07-26 baseline. No
+ * created_at/updated_at on this table ($timestamps = false); decided_at is the
+ * business timestamp.
+ *
+ * @property string $id
+ * @property string $case_id
+ * @property string $decision_type
+ * @property string|null $reason
+ * @property string|null $decided_by_staff_id
+ * @property bool $decided_by_system
+ * @property bool $auto_actioned
+ * @property string|null $supersedes_decision_id
+ * @property string|null $second_staff_approval_id
+ * @property Carbon|null $second_staff_approved_at
+ * @property Carbon|null $decided_at
+ */
 class Decision extends BaseModel
 {
     use HasFactory;

@@ -1,6 +1,8 @@
 <?php
 
+use App\Mail\Security\TwoFactorRemovedMail;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -35,6 +37,7 @@ it('calls Supabase Admin API and records unenroll event when within 60s', functi
     Http::fake([
         'test.supabase.co/*' => Http::response(['ok' => true], 200),
     ]);
+    Mail::fake();
 
     $pro = createTenant('affiliate-a');
     $factorId = (string) Str::uuid();
@@ -55,6 +58,8 @@ it('calls Supabase Admin API and records unenroll event when within 60s', functi
         ->first();
     expect($event)->not->toBeNull();
     expect($event->factor_id)->toBe($factorId);
+
+    Mail::assertQueued(TwoFactorRemovedMail::class, fn ($m) => $m->recipientEmail === $pro->primary_email);
 });
 
 it('surfaces Supabase Admin API failure as 502', function () {

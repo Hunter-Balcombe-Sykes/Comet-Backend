@@ -73,6 +73,18 @@ Schedule::command('partna:notify-weekly-summary')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('notify-weekly-summary'));
 
+// Unread-enquiry nudges — hourly; the 48h window + per-enquiry dedupe make
+// cadence a non-issue (each enquiry can only ever produce one reminder).
+// hourlyAt(37) not bare hourly() per the RV-5 note above (the :00 slot is
+// crowded); 37 dodges every everyTwoMinutes/everyFiveMinutes/everyFifteenMinutes
+// entry in this file.
+Schedule::command('partna:notify-unanswered-enquiries')
+    ->hourlyAt(37)
+    ->onOneServer()
+    ->withoutOverlapping(50)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('notify-unanswered-enquiries'));
+
 Schedule::command('partna:analytics:purge-raw-events')
     ->dailyAt('03:00')
     ->onOneServer()

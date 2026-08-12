@@ -3,11 +3,10 @@
 namespace App\Mail\Notifications;
 
 use App\Mail\BaseTransactionalMail;
+use App\Mail\Support\CategoryUnsubscribe;
 use App\Models\Core\Notifications\Notification;
-use App\Services\Notifications\NotificationPublisher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\URL;
 
 /**
  * Shared build for every category-driven notification email (P3, 2026-08-12).
@@ -64,22 +63,11 @@ abstract class CategoryNotificationMail extends BaseTransactionalMail
      */
     protected function unsubscribeUrl(): ?string
     {
-        if (static::CATEGORY === '' || static::CATEGORY === 'critical') {
-            return null;
-        }
-
-        if (NotificationPublisher::isMandatory(static::CATEGORY)) {
-            return null;
-        }
-
         $userId = $this->notification->user_id;
-        if (! is_string($userId) || $userId === '') {
-            return null;
-        }
 
-        return URL::signedRoute('public.notification-unsubscribe', [
-            'userId' => $userId,
-            'category' => static::CATEGORY,
-        ]);
+        return CategoryUnsubscribe::urlFor(
+            is_string($userId) ? $userId : null,
+            static::CATEGORY,
+        );
     }
 }
