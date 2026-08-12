@@ -5,8 +5,11 @@ namespace App\Services\Platforms;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Profile\FoodContentProbe;
+use App\Services\Profile\SectorProvenance;
 use App\Services\Profile\SectorTaxonomy;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -38,11 +41,16 @@ class InstagramIdentitySync
         // on dev until the 2026-08-10 swap to the apify actor. Since
         // PARTNA_INSTAGRAM_ACTOR is a no-deploy rollback, reading only the first
         // two keys would silently switch sector detection back off on rollback.
-        $this->applySector($user, [
-            $payload['businessCategoryName'] ?? null,
-            $payload['business_category_name'] ?? null,
-            $payload['category_name'] ?? null,
-        ]);
+        $this->applySector(
+            $user,
+            [
+                $payload['businessCategoryName'] ?? null,
+                $payload['business_category_name'] ?? null,
+                $payload['category_name'] ?? null,
+            ],
+            $this->stringOrNull($payload['username'] ?? null),
+            $this->stringOrNull($payload['fullName'] ?? $payload['full_name'] ?? null),
+        );
         $this->applyDisplayName($user, $this->stringOrNull(
             $payload['fullName'] ?? $payload['full_name'] ?? null
         ));
@@ -51,34 +59,55 @@ class InstagramIdentitySync
     }
 
     /**
-     * First candidate that MAPS wins — not the first that is non-null.
-     * Instagram returns the literal string "None" as a category (observed on
-     * crucibletattooco, 2026-08-10), which a `??` chain would accept and then
-     * fail to map, discarding a usable sibling key.
+     * Fold a sector under the shared ladder (manual > google > instagram).
      *
-     * @param  list<mixed>  $candidates
+     * Locked like IdentitySync's fold (LIFE-107): this used to read and write
+     * the caller's instance, so a stale blank read could clobber a value Google
+     * had just committed — a live ordering, since GoogleBusinessAutoSync
+     * dispatches the Instagram connect after Google's own fold on an unclaimed
+     * business build.
+     *
+     * @param  list<mixed>  $categoryCandidates
      */
-    private function applySector(User $user, array $candidates): void
+    private function applySector(User $user, array $categoryCandidates, ?string $username, ?string $fullName): void
     {
-        $mapped = null;
-        foreach ($candidates as $candidate) {
-            $mapped = SectorTaxonomy::fromInstagramCategory($this->stringOrNull($candidate));
-            if ($mapped !== null) {
-                break;
-            }
-        }
+        $mapped = SectorTaxonomy::fromInstagramProfile($categoryCandidates, $username, $fullName);
         if ($mapped === null) {
             return;
         }
-        // A manual pick, or a value already stamped by any source, is
-        // permanent from Instagram's perspective — fill-if-empty only.
-        if ($user->sector_source === 'manual' && $user->sector !== null) {
-            return;
-        }
-        if ($this->isBlank($user->sector)) {
-            $user->sector = $mapped;
-            $user->sector_source = self::INSTAGRAM_SOURCE;
-            $user->save();
+
+        $isBusiness = AccountCapabilities::for($user)->google_business_full_sync;
+        $sectorBefore = $user->sector;
+
+        DB::connection($user->getConnectionName())->transaction(function () use ($user, $mapped, $isBusiness) {
+            $fresh = User::query()->whereKey($user->getKey())->lockForUpdate()->first();
+            if ($fresh === null) {
+                return; // Raced with a hard delete mid-sync.
+            }
+
+            if (! SectorProvenance::mayWrite($fresh, self::INSTAGRAM_SOURCE)) {
+                return;
+            }
+
+            if (SectorProvenance::isFoodDemotion($isBusiness, $fresh->sector, $mapped)
+                && $this->foodContent->existsFor($fresh)) {
+                SectorProvenance::logTransition($fresh, $mapped, self::INSTAGRAM_SOURCE, __METHOD__, 'refused_food_demotion');
+
+                return;
+            }
+
+            SectorProvenance::logTransition($fresh, $mapped, self::INSTAGRAM_SOURCE, __METHOD__);
+            $fresh->sector = $mapped;
+            $fresh->sector_source = self::INSTAGRAM_SOURCE;
+            $fresh->save();
+        });
+
+        // MUST refresh: InstagramConnectionSeeder:230 hands this same instance to
+        // autoSaveUnmatchedLinks -> LinkRouter::gateAllows, which reads ->sector.
+        $user->refresh();
+
+        if ($user->sector !== $sectorBefore) {
+            $user->site()->first()?->touch();
         }
     }
 

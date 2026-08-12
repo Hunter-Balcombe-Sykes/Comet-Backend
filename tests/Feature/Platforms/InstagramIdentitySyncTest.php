@@ -235,9 +235,12 @@ it('does nothing to workplace when neither contact field is present in the paylo
 });
 
 // A degraded figue actor run stringifies Python's None into
-// businessCategoryName — crucibletattooco, F4/F5 (2026-08-10). Sector must
-// stay null while the other identity fields still fold.
-it('leaves sector untouched when the actor returns a placeholder category', function () {
+// businessCategoryName — crucibletattooco, F4/F5 (2026-08-10). Sector used to
+// stay null here (category-only classification). Task 10's ladder now also
+// tries the display name (fromInstagramProfile tier 2) — "Crucible Tattoo
+// Co." is exactly the case that tier exists to catch, so this now resolves
+// instead of staying blank.
+it('resolves sector from the display name when the actor returns a placeholder category', function () {
     $user = User::factory()->create([
         'sector' => null,
         'sector_source' => null,
@@ -252,7 +255,71 @@ it('leaves sector untouched when the actor returns a placeholder category', func
     ]);
 
     $user->refresh();
-    expect($user->sector)->toBeNull()
-        ->and($user->sector_source)->toBeNull()
+    expect($user->sector)->toBe('tattoo-artist')
+        ->and($user->sector_source)->toBe('instagram')
         ->and($user->display_name)->toBe('Crucible Tattoo Co.');
+});
+
+it('classifies from the handle when the category is too vague', function () {
+    // jesshairstylist: a Prahran hairdresser whose Instagram category is "Artist".
+    $user = User::factory()->create([
+        'account_type' => 'partna', 'sector' => null, 'sector_source' => null,
+    ]);
+
+    app(InstagramIdentitySync::class)->applyIdentity($user, [
+        'businessCategoryName' => 'Artist',
+        'username' => 'jess.hair.stylist',
+        'fullName' => 'Jess',
+    ]);
+
+    $user->refresh();
+    expect($user->sector)->toBe('hair-salon')
+        ->and($user->sector_source)->toBe('instagram');
+});
+
+it('does not overwrite a google-business or manual sector', function (string $source) {
+    $user = User::factory()->create([
+        'account_type' => 'partna', 'sector' => 'cafe', 'sector_source' => $source,
+    ]);
+
+    app(InstagramIdentitySync::class)->applyIdentity($user, [
+        'businessCategoryName' => 'Hair Salon',
+        'username' => 'janes_salon',
+    ]);
+
+    $user->refresh();
+    expect($user->sector)->toBe('cafe')
+        ->and($user->sector_source)->toBe($source);
+})->with(['google-business', 'manual']);
+
+it('does not refresh its own earlier value', function () {
+    // PARTNA_INSTAGRAM_ACTOR is a no-deploy rollback whose actors return
+    // different keys — allowing self-refresh would let an env flip rewrite this.
+    $user = User::factory()->create([
+        'account_type' => 'partna', 'sector' => 'artist', 'sector_source' => 'instagram',
+    ]);
+
+    app(InstagramIdentitySync::class)->applyIdentity($user, [
+        'businessCategoryName' => 'Hair Salon',
+        'username' => 'janes_salon',
+    ]);
+
+    $user->refresh();
+    expect($user->sector)->toBe('artist');
+});
+
+it('refreshes the caller instance so downstream link routing sees the new sector', function () {
+    // InstagramConnectionSeeder:230 hands this same instance to
+    // autoSaveUnmatchedLinks -> LinkRouter::gateAllows, which reads ->sector.
+    $user = User::factory()->create([
+        'account_type' => 'partna', 'sector' => null, 'sector_source' => null,
+    ]);
+
+    app(InstagramIdentitySync::class)->applyIdentity($user, [
+        'businessCategoryName' => 'Hair Salon',
+        'username' => 'janes_salon',
+    ]);
+
+    // No refresh() here on purpose — the service must have done it.
+    expect($user->sector)->toBe('hair-salon');
 });
