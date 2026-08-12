@@ -391,6 +391,24 @@ final class SectorTaxonomy
     ];
 
     /**
+     * Categories too vague to classify on their own, mapped as a LAST RESORT —
+     * only after the category pass and the free-text pass have both missed.
+     *
+     * "Artist" is the case this exists for: tattooists, musicians, hairdressers
+     * and photographers all pick it. Under the old first-writer-wins rule
+     * stamping a guess here locked Google out permanently, so the map's policy
+     * was "vague => null". The rank ladder makes the guess correctable, so a
+     * last-resort guess is now better than nothing.
+     *
+     * Still deliberately absent: health/beauty, public figure, personal blog,
+     * entrepreneur, product/service, local business. No single slug is a
+     * defensible guess for any of them.
+     *
+     * @var array<string, string>
+     */
+    private const AMBIGUOUS_CATEGORY_SECTORS = ['artist' => 'artist'];
+
+    /**
      * Classify free text (an Instagram handle or display name) into a sector.
      *
      * Normalises to a-z only — dots, underscores, spaces, digits and emoji all
@@ -550,6 +568,59 @@ final class SectorTaxonomy
 
             if ($mapped !== null) {
                 return $mapped;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve a sector from a whole Instagram profile — the live classifier.
+     *
+     * Three tiers, in order:
+     *   1. fromInstagramCategory() per candidate, UNCHANGED. First that maps wins.
+     *   2. classifyText() over the handle, then the display name.
+     *   3. AMBIGUOUS_CATEGORY_SECTORS per segment.
+     *
+     * TIER 1 DELEGATES ON PURPOSE — do not inline it. fromInstagramCategory is
+     * segment-major (for each segment: exact ?? keyword), and Instagram
+     * comma-joins categories PRIMARY FIRST, so segment-major is what makes the
+     * primary category win. Resolving exact-matches across all segments before
+     * keyword-matches lets a secondary category outrank the primary one:
+     * "Restaurant, Digital Creator" becomes content-creator, isFood() goes
+     * false, and can_use_menu / can_use_reservations / can_use_online_ordering
+     * silently switch off. Three revisions of the design spec proposed exactly
+     * that reordering; delegating makes it unrepresentable.
+     *
+     * @param  list<mixed>  $categoryCandidates  raw per-actor category keys, in precedence order
+     */
+    public static function fromInstagramProfile(array $categoryCandidates, ?string $username, ?string $fullName): ?string
+    {
+        foreach ($categoryCandidates as $candidate) {
+            $mapped = self::fromInstagramCategory(is_string($candidate) ? $candidate : null);
+            if ($mapped !== null) {
+                return $mapped;
+            }
+        }
+
+        foreach ([$username, $fullName] as $text) {
+            $mapped = self::classifyText($text);
+            if ($mapped !== null) {
+                return $mapped;
+            }
+        }
+
+        // Per segment, not whole-string: Instagram emits its literal "None" as a
+        // real segment, so "None,Artist" would never match whole-string.
+        foreach ($categoryCandidates as $candidate) {
+            if (! is_string($candidate)) {
+                continue;
+            }
+            foreach (self::categorySegments($candidate) as $segment) {
+                $mapped = self::AMBIGUOUS_CATEGORY_SECTORS[strtolower(trim($segment))] ?? null;
+                if ($mapped !== null) {
+                    return $mapped;
+                }
             }
         }
 

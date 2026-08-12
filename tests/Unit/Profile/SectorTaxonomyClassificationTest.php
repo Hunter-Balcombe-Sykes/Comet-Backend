@@ -453,3 +453,81 @@ it('maps every free-text keyword to a real sector slug', function () {
             ->and(preg_match('/^[a-z]+$/', $keyword))->toBe(1, "'{$keyword}' must be lowercase a-z only (normalisation strips everything else)");
     }
 });
+
+// ── fromInstagramProfile: the live classifier (2026-08-12) ───────────────────
+
+// PRIMACY, migrated from fromInstagramCategory. After this change the live
+// path is fromInstagramProfile, so the primacy guarantee must be pinned HERE.
+// Tier 1 delegates to fromInstagramCategory precisely so these cannot regress:
+// resolving exact-matches across all segments before keyword-matches lets a
+// SECONDARY category outrank the primary one, and three of these become a
+// food -> non-food demotion that silently kills can_use_menu.
+it('keeps the primary category when a secondary one also matches', function (string $category, string $expected) {
+    expect(SectorTaxonomy::fromInstagramProfile([$category], null, null))->toBe($expected);
+})->with([
+    ['Restaurant, Digital Creator', 'restaurant'],
+    ['Barber Shop, Writer', 'barber'],
+    ['Hair Salon, Fitness Trainer', 'hair-salon'],
+    ['Cafe, Blogger', 'cafe'],
+    ['Tattoo & Piercing Shop, Digital Creator', 'tattoo-artist'],
+    ['Restaurant, Contractor', 'restaurant'],
+    ['None, Restaurant, Digital Creator', 'restaurant'],
+    ['Bakery, Content Creator', 'bakery'],
+    ['Digital Creator, Restaurant', 'content-creator'],
+]);
+
+it('prefers the category over the handle', function () {
+    // The category tier must beat free text. A restaurant whose handle mentions
+    // fitness is a restaurant.
+    expect(SectorTaxonomy::fromInstagramProfile(['Restaurant'], 'fitzroyfitnesskitchen', null))->toBe('restaurant');
+    expect(SectorTaxonomy::fromInstagramProfile(['Nail Salon'], 'sarahsbeautyandhair', null))->toBe('nail-technician');
+});
+
+it('falls back to the handle, then the display name, when no category maps', function () {
+    // The motivating case: a Prahran hairdresser whose Instagram category is "Artist".
+    expect(SectorTaxonomy::fromInstagramProfile(['Artist'], 'jess.hair.stylist', null))->toBe('hair-salon');
+    // Handle beats display name.
+    expect(SectorTaxonomy::fromInstagramProfile(['Artist'], 'crucibletattooco', 'Jane Photography'))->toBe('tattoo-artist');
+    // Display name used when the handle says nothing.
+    expect(SectorTaxonomy::fromInstagramProfile(['Artist'], 'jd_official', 'Jane Photography'))->toBe('photographer');
+});
+
+it('falls back to an ambiguous category only when nothing else matches', function () {
+    expect(SectorTaxonomy::fromInstagramProfile(['Artist'], 'jd_official', null))->toBe('artist');
+    // Per SEGMENT, not whole-string: Instagram emits its literal "None" as a
+    // real segment, so "None,Artist" must still reach the ambiguous map.
+    expect(SectorTaxonomy::fromInstagramProfile(['None,Artist'], null, null))->toBe('artist');
+});
+
+it('resolves the first candidate that maps, not the first that is non-null', function () {
+    // The figue actor nulls business_category_name and fills category_name.
+    expect(SectorTaxonomy::fromInstagramProfile(['None', null, 'Hair Stylist'], null, null))->toBe('hair-salon');
+});
+
+it('returns null when every tier misses', function () {
+    expect(SectorTaxonomy::fromInstagramProfile(['Public Figure'], 'jd_official', 'JD'))->toBeNull();
+    expect(SectorTaxonomy::fromInstagramProfile([], null, null))->toBeNull();
+});
+
+it('never resolves an instagram profile to a food slug from free text alone', function () {
+    $handles = [
+        'beth.airbnb', 'sarah.airconditioning', 'hairyhounds', 'sarahbarberphotography',
+        'realestatephotography', 'jessbakerphotography', 'coffeeandcode', 'Spartan Fitness',
+        'bakerstreetbarbers', 'facepainting.co', 'mrchairs.furniture', 'thebarberlin',
+    ];
+
+    foreach ($handles as $handle) {
+        $slug = SectorTaxonomy::fromInstagramProfile(['Artist'], $handle, null);
+        expect(SectorTaxonomy::isFood($slug))->toBeFalse("'{$handle}' resolved to food slug '{$slug}'");
+    }
+});
+
+it('maps every ambiguous category to a real, non-food sector slug', function () {
+    $map = (new ReflectionClass(SectorTaxonomy::class))->getConstant('AMBIGUOUS_CATEGORY_SECTORS');
+
+    foreach ($map as $category => $slug) {
+        expect(SectorTaxonomy::isValid($slug))->toBeTrue("'{$category}' maps to unknown slug '{$slug}'")
+            ->and(SectorTaxonomy::isFood($slug))->toBeFalse("'{$category}' maps to food slug '{$slug}'")
+            ->and($category)->toBe(strtolower(trim($category)));
+    }
+});
