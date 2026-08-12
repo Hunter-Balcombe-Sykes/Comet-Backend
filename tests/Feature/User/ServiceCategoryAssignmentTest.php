@@ -28,7 +28,8 @@ beforeEach(function () {
 it('assigns a service to one of the owner\'s categories', function () {
     $pro = createTenant('svc-cat-happy');
     $cat = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $service = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0]);
+    // Slice 3a: category assignment is Fresha-only until 3b (ServicePolicy::updateCategory).
+    $service = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0, 'source' => 'fresha']);
 
     $response = actingAsUser($pro)->patchJson("/api/services/{$service->id}/category", [
         'category_id' => $cat->id,
@@ -44,7 +45,7 @@ it('assigns a service to one of the owner\'s categories', function () {
 it('moves a service to Uncategorized when category_id is null', function () {
     $pro = createTenant('svc-cat-null');
     $cat = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $service = createServiceFor($pro, ['category_id' => $cat->id, 'sort_order' => 0]);
+    $service = createServiceFor($pro, ['category_id' => $cat->id, 'sort_order' => 0, 'source' => 'fresha']);
 
     $response = actingAsUser($pro)->patchJson("/api/services/{$service->id}/category", [
         'category_id' => null,
@@ -61,7 +62,10 @@ it('rejects assigning the owner\'s service to another owner\'s category (422)', 
     $owner = createTenant('svc-cat-foreign-owner');
     $other = createTenant('svc-cat-foreign-other');
     $foreignCat = createServiceCategoryFor($other, ['sort_order' => 0]);
-    $service = createServiceFor($owner, ['category_id' => null, 'sort_order' => 0]);
+    // source='fresha': this test exercises the category-ownership 422, not
+    // the Fresha-only authorization gate — see the 'no live category' test
+    // below for that one.
+    $service = createServiceFor($owner, ['category_id' => null, 'sort_order' => 0, 'source' => 'fresha']);
 
     $response = actingAsUser($owner)->patchJson("/api/services/{$service->id}/category", [
         'category_id' => $foreignCat->id,
@@ -91,12 +95,32 @@ it('rejects re-filing a service owned by another professional (404, no existence
     expect($service->categories()->count())->toBe(0);
 });
 
+it('rejects category assignment on an owner-authored (manual) service (404)', function () {
+    // Slice 3a §7: owner-authored categories have no destination in content.*
+    // until 3b lands content.collections — ServicePolicy::updateCategory()
+    // denies as not-found rather than accepting a write nothing serves.
+    // Cross-referenced with the 'category' => 'Services' constant in
+    // SitepageDataResolverService::buildServicesData().
+    $pro = createTenant('svc-cat-manual-blocked');
+    $cat = createServiceCategoryFor($pro, ['sort_order' => 0]);
+    $service = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0, 'source' => null]);
+
+    $response = actingAsUser($pro)->patchJson("/api/services/{$service->id}/category", [
+        'category_id' => $cat->id,
+    ]);
+
+    $response->assertNotFound();
+
+    $service->refresh();
+    expect($service->categories()->count())->toBe(0);
+});
+
 it('appends the moved service at global max(sort_order)+1', function () {
     $pro = createTenant('svc-cat-append');
     $cat = createServiceCategoryFor($pro, ['sort_order' => 0]);
 
     // Three live services occupying 0,1,2 globally; the one at 0 moves into $cat.
-    $mover = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0]);
+    $mover = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0, 'source' => 'fresha']);
     createServiceFor($pro, ['category_id' => null, 'sort_order' => 1]);
     createServiceFor($pro, ['category_id' => null, 'sort_order' => 2]);
 
@@ -122,7 +146,8 @@ it('coexists with reorder-layout under the shared advisory-lock key', function (
     $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
     // services_pro_sort_order_uq is GLOBAL per user — distinct starting sort_orders.
     $s1 = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0]);
-    $s2 = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1]);
+    // s2 is the one PATCHed below — Fresha-sourced so the category endpoint allows it.
+    $s2 = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1, 'source' => 'fresha']);
 
     // 1) PATCH moves $s2 from A to B, appending at global max+1 = 2.
     actingAsUser($pro)->patchJson("/api/services/{$s2->id}/category", [

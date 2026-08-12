@@ -1,7 +1,9 @@
 <?php
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Models\Core\Site\Site;
 use App\Services\Migration\ServiceBackfiller;
+use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -159,6 +161,25 @@ it('does not pin a soft-deleted service', function () {
     app(ServiceBackfiller::class)->run();
 
     expect(DB::table('site.section_items')->count())->toBe(0);
+});
+
+it('excludes a live-but-inactive service instead of pinning it', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $hidden = ownerService($userId, ['title' => 'Hidden', 'is_active' => false]);
+
+    app(ServiceBackfiller::class)->run();
+
+    $pin = DB::table('site.section_items as si')
+        ->join('content.source_items as csi', 'csi.item_id', '=', 'si.item_id')
+        ->where('csi.coord', 'manual:'.$hidden)
+        ->first(['si.state', 'si.sort_key']);
+
+    expect($pin->state)->toBe('excluded');
+    expect($pin->sort_key)->toBeNull();
+
+    $site = Site::query()->find($siteId);
+    $data = app(SitepageDataResolverService::class)->buildServicesData($site, $userId);
+    expect($data['services'])->toBe([]);
 });
 
 it('invalidates all three cache lanes for each touched site', function () {

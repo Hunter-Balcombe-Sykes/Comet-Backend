@@ -127,7 +127,8 @@ it('updateCategory() still appends at max(sort_order)+1 under the unified key', 
     $pro = createTenant('layout-unify-user-cat');
     $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
     $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    $mover = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0]);
+    // Fresha-sourced: category assignment is Fresha-only until 3b (Slice 3a).
+    $mover = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
     createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1]);
 
     actingAsUser($pro)->patchJson("/api/services/{$mover->id}/category", [

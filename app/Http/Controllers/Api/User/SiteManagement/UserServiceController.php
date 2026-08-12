@@ -301,7 +301,11 @@ class UserServiceController extends ApiController
     {
         $pro = $this->currentUser($request);
 
-        $this->authorizeForUser($pro, 'update', $service);
+        // Slice 3a: manual (owner-authored) services are excluded here —
+        // see ServicePolicy::updateCategory()'s docblock, cross-referenced
+        // with the 'category' => 'Services' constant in
+        // SitepageDataResolverService::buildServicesData().
+        $this->authorizeForUser($pro, 'updateCategory', $service);
 
         // Multi-category: category_ids REPLACES the membership set; the legacy
         // single category_id spelling maps to [id] (or [] for explicit null —

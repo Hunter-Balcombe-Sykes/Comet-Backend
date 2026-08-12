@@ -79,7 +79,15 @@ class ServiceBackfiller
 
                 $site = Site::query()->where('user_id', $owner)->first();
                 if ($site !== null) {
-                    $this->pin($site, $itemId, (int) ($service->sort_order ?? 0));
+                    // §3.1: is_active=false has no content.items equivalent —
+                    // it maps to a pool EXCLUDE, not a pin. A live-but-hidden
+                    // service must not surface in buildServicesData() (which
+                    // filters excluded state) or gate Services/Booking
+                    // visibility on.
+                    $isActive = (bool) ($service->is_active ?? true);
+                    $isActive
+                        ? $this->pin($site, $itemId, (int) ($service->sort_order ?? 0))
+                        : $this->exclude($site, $itemId);
                     $touchedSites[(string) $site->id] = true;
                 }
 
@@ -175,6 +183,32 @@ class ServiceBackfiller
         $row->item_id = $itemId;
         $row->state = SectionItem::STATE_PINNED;
         $row->sort_key = (float) $sortOrder;
+        if (! $row->exists) {
+            $row->created_at = now();
+        }
+        $row->save();
+    }
+
+    /**
+     * A live-but-inactive ("hidden") owner service. Same shape as
+     * EventExcludeSync::excludeByLegacyEventId() — no sort_key: leaving a
+     * stale one behind would resurface it in pin order the moment a later
+     * pin() write (a re-activation, once the write cutover lands) forgets to
+     * clear excluded state first.
+     */
+    private function exclude(Site $site, string $itemId): void
+    {
+        $section = $this->sections->ensure($site, 'services');
+
+        $row = SectionItem::query()
+            ->where('section_id', $section->id)
+            ->where('item_id', $itemId)
+            ->first() ?? new SectionItem;
+
+        $row->section_id = (string) $section->id;
+        $row->item_id = $itemId;
+        $row->state = SectionItem::STATE_EXCLUDED;
+        $row->sort_key = null;
         if (! $row->exists) {
             $row->created_at = now();
         }

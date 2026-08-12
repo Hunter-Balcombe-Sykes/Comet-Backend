@@ -51,4 +51,29 @@ class ServicePolicy extends BasePolicy
     {
         return $this->update($actor, $resource);
     }
+
+    /**
+     * Category assignment, restricted to Fresha-projected services.
+     * Slice 3a (§7 "Out of scope — carried to 3b"): owner-authored
+     * (source IS NULL) categories have no destination in content.* yet —
+     * 3b lands content.collections for them. Until then,
+     * SitepageDataResolverService::buildServicesData() hardcodes
+     * 'category' => 'Services' for every manual row; that constant is only
+     * honest while this restriction holds, so if one of the two moves the
+     * other must move with it. Denies as not-found (not a new 403 shape) —
+     * same posture the rest of this policy uses for "can't act on this yet".
+     */
+    public function updateCategory(User $actor, Model $resource): bool|Response
+    {
+        $updateResult = $this->update($actor, $resource);
+        if ($updateResult !== true) {
+            return $updateResult;
+        }
+
+        if ((string) ($resource->source ?? '') !== 'fresha') {
+            return $this->denyAsNotFound();
+        }
+
+        return true;
+    }
 }

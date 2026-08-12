@@ -13,6 +13,7 @@ use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Site\ContentSelectionService;
+use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
 use App\Support\UrlSafety;
 use Illuminate\Database\QueryException;
@@ -931,6 +932,18 @@ class SitepageDataResolverService
         $bookingMode = strtolower((string) ($site?->booking_mode ?? $settings['booking_mode'] ?? 'manual'));
         $manualBookingUrl = trim((string) ($site?->manual_booking_url ?? $settings['manual_booking_url'] ?? ''));
 
+        // The services pool's OWN section only — site.section_items is
+        // unique on (section_id, item_id), not on item_id alone, so scoping
+        // the join by item_id alone would fan out if this item were ever
+        // pinned into a second section (unreachable today: one pool owns
+        // 'service' and one site per user, but not worth propagating).
+        $sectionId = $site !== null
+            ? DB::connection('pgsql')->table('site.sections')
+                ->where('site_id', $site->id)
+                ->where('key', PoolRegistry::sectionKey('services'))
+                ->value('id')
+            : null;
+
         // Slice 3a §3.4: owner-authored services live in content.* now. The
         // manual-source filter replaces the old whereNull('source') — same
         // split, different mechanism: Fresha projections belong to the booking
@@ -940,7 +953,18 @@ class SitepageDataResolverService
         $rows = DB::connection('pgsql')->table('content.items as i')
             ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
             ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-            ->leftJoin('site.section_items as sec', 'sec.item_id', '=', 'i.id')
+            ->leftJoin('site.section_items as sec', function ($join) use ($sectionId) {
+                $join->on('sec.item_id', '=', 'i.id');
+                if ($sectionId !== null) {
+                    $join->where('sec.section_id', '=', $sectionId);
+                } else {
+                    // No 'services' section provisioned for this site yet —
+                    // nothing can be pinned or excluded, so make the join
+                    // match nothing rather than fall back to unscoped
+                    // item_id matching.
+                    $join->whereRaw('1 = 0');
+                }
+            })
             ->where('i.user_id', $proId)
             ->where('i.kind', 'service')
             ->whereNull('i.removed_at')
@@ -996,6 +1020,9 @@ class SitepageDataResolverService
                     // §1.1/§2 — owner-authored services carry zero), so this
                     // matches the pre-migration fallback unconditionally, not
                     // as an approximation. Real category grouping is 3b's job.
+                    // Only honest while ServicePolicy::updateCategory() keeps
+                    // blocking manual-service category assignment — the two
+                    // are cross-referenced, move them together.
                     'category' => 'Services',
                 ];
             })->values()->all();
