@@ -3,8 +3,10 @@
 namespace App\Services\Cache;
 
 use App\Http\Resources\ServiceResource;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualServiceItems;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -224,6 +226,11 @@ class UserCacheService
      * soft-deleted (those surface only when ?include_archived=true, which the
      * controller serves uncached). 30-minute TTL mirrors getActiveServices.
      *
+     * Slice 3a Task 5: owner-authored services live in content.* now — reads
+     * through ManualServiceItems, the same query UserServiceController's
+     * uncached (archived/grouped) branches use, so the cached and uncached
+     * dashboard paths can't drift apart.
+     *
      * @return array<int, array<string, mixed>>
      */
     public function getDashboardServices(string $userId): array
@@ -235,15 +242,15 @@ class UserCacheService
         return $this->cacheLock->rememberLocked(
             CacheKeyGenerator::professionalDashboardServices($userId),
             (int) config('partna.cache.ttls.auth_id_lookup'),
-            fn () => Service::query()
-                ->with('categories:id')
-                ->where('user_id', $userId)
-                ->whereNull('deleted_at')
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->get()
-                ->map(fn (Service $s) => (new ServiceResource($s))->resolve())
-                ->all()
+            function () use ($userId) {
+                $manual = app(ManualServiceItems::class);
+                $site = Site::query()->where('user_id', $userId)->first();
+                $rows = $manual->rows($userId, $manual->sectionId($site), includeRemoved: false);
+
+                return $manual->toServiceModels($userId, $rows)
+                    ->map(fn (Service $s) => (new ServiceResource($s))->resolve())
+                    ->all();
+            }
         );
     }
 

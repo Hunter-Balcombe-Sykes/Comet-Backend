@@ -2,12 +2,8 @@
 
 namespace App\Services\Migration;
 
-use App\Ingest\Projection\ProjectionWriter;
-use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
-use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
-use App\Site\Documents\BuildState;
-use App\Site\Pools\PoolSectionProvisioner;
+use App\Services\Content\ManualServiceWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -25,12 +21,15 @@ use Illuminate\Support\Facades\Log;
  * connector they land natively under the Fresha source with real prices, and
  * backfilling them here would stamp owner-authorship on scraped data —
  * destroying the discriminator the two public surfaces key on.
+ *
+ * The projection mapping, pin/exclude curation and three-lane invalidation
+ * live in ManualServiceWriter, shared with UserServiceController's write
+ * cutover (Task 5) — one mapping, not two independently-drifting copies.
  */
 class ServiceBackfiller
 {
     public function __construct(
-        private readonly ProjectionWriter $writer,
-        private readonly PoolSectionProvisioner $sections,
+        private readonly ManualServiceWriter $manual,
     ) {}
 
     /** @return array{backfilled: int, retired: int, skipped_no_user: int, failed: int} */
@@ -65,13 +64,13 @@ class ServiceBackfiller
                     continue;
                 }
 
-                $itemId = $this->writer->writeManualItem($owner, 'manual:'.$service->id, $this->projectionFor($service));
+                $itemId = $this->manual->write($owner, 'manual:'.$service->id, $this->manual->projectionFor($service));
 
                 if ($isDeleted) {
                     // items.removed_at ONLY. source_items.removed_at is cleared
                     // on reappearance, so a later run would resurrect a service
                     // its owner deleted.
-                    $this->retire($owner, 'manual:'.$service->id, $service->deleted_at);
+                    $this->manual->markRemoved($itemId, $service->deleted_at);
                     $result['retired']++;
 
                     continue;
@@ -86,8 +85,8 @@ class ServiceBackfiller
                     // visibility on.
                     $isActive = (bool) ($service->is_active ?? true);
                     $isActive
-                        ? $this->pin($site, $itemId, (int) ($service->sort_order ?? 0))
-                        : $this->exclude($site, $itemId);
+                        ? $this->manual->pin($site, $itemId, (float) ($service->sort_order ?? 0))
+                        : $this->manual->exclude($site, $itemId);
                     $touchedSites[(string) $site->id] = true;
                 }
 
@@ -102,137 +101,9 @@ class ServiceBackfiller
         }
 
         if (! $dryRun) {
-            $this->invalidate(array_keys($touchedSites));
+            $this->manual->invalidate(array_keys($touchedSites));
         }
 
         return $result;
-    }
-
-    /** @return array<string, mixed> */
-    private function projectionFor(object $service): array
-    {
-        $title = trim((string) ($service->title ?? ''));
-        $description = trim((string) ($service->description ?? ''));
-
-        $projection = [
-            'kind' => 'service',
-            'headline' => $title,
-            'facets' => ['f_text' => array_filter([
-                'headline' => $title !== '' ? $title : null,
-                'body' => $description !== '' ? $description : null,
-            ], static fn ($v) => $v !== null)],
-        ];
-
-        if ($service->duration_minutes !== null) {
-            $projection['facets']['f_duration'] = ['seconds' => ((int) $service->duration_minutes) * 60];
-        }
-
-        if ($service->price_cents !== null) {
-            $cents = (int) $service->price_cents;
-            $projection['offers'] = [[
-                // §1.2: a HAND-ENTERED zero means free. Scraped zeros are 3b's
-                // problem and must not be routed through this mapper.
-                'qualifier' => $cents === 0 ? 'free' : 'exact',
-                'amount_minor' => $cents === 0 ? null : $cents,
-                'currency' => $cents === 0 ? null : (string) $service->currency_code,
-            ]];
-        }
-
-        return $projection;
-    }
-
-    /** Retire the item behind a coord — items.removed_at only, never source_items. */
-    private function retire(string $userId, string $coord, mixed $deletedAt): void
-    {
-        $itemId = DB::connection('pgsql')->table('content.source_items as si')
-            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-            ->where('cs.user_id', $userId)
-            ->where('si.coord', $coord)
-            ->value('si.item_id');
-
-        if ($itemId === null) {
-            return;
-        }
-
-        DB::connection('pgsql')->table('content.items')
-            ->where('id', $itemId)
-            ->whereNull('removed_at')
-            ->update(['removed_at' => $deletedAt, 'updated_at' => now()]);
-    }
-
-    /**
-     * Owner ordering lives in the CURATION half. The auto half offers only
-     * recency/alphabetical/occurrence (SectionCandidates:105), none of which
-     * preserve a hand-chosen sort_order — and SectionCandidates:119 excludes
-     * pinned ids from the auto half, so there is no duplication.
-     *
-     * A pin also protects the row: mergeInto()'s hasCuration check reads
-     * site.section_items, so a pinned item cannot be hard-deleted by a merge
-     * (parent §8.3).
-     */
-    private function pin(Site $site, string $itemId, int $sortOrder): void
-    {
-        $section = $this->sections->ensure($site, 'services');
-
-        $row = SectionItem::query()
-            ->where('section_id', $section->id)
-            ->where('item_id', $itemId)
-            ->first() ?? new SectionItem;
-
-        $row->section_id = (string) $section->id;
-        $row->item_id = $itemId;
-        $row->state = SectionItem::STATE_PINNED;
-        $row->sort_key = (float) $sortOrder;
-        if (! $row->exists) {
-            $row->created_at = now();
-        }
-        $row->save();
-    }
-
-    /**
-     * A live-but-inactive ("hidden") owner service. Same shape as
-     * EventExcludeSync::excludeByLegacyEventId() — no sort_key: leaving a
-     * stale one behind would resurface it in pin order the moment a later
-     * pin() write (a re-activation, once the write cutover lands) forgets to
-     * clear excluded state first.
-     */
-    private function exclude(Site $site, string $itemId): void
-    {
-        $section = $this->sections->ensure($site, 'services');
-
-        $row = SectionItem::query()
-            ->where('section_id', $section->id)
-            ->where('item_id', $itemId)
-            ->first() ?? new SectionItem;
-
-        $row->section_id = (string) $section->id;
-        $row->item_id = $itemId;
-        $row->state = SectionItem::STATE_EXCLUDED;
-        $row->sort_key = null;
-        if (! $row->exists) {
-            $row->created_at = now();
-        }
-        $row->save();
-    }
-
-    /**
-     * Raw-write seam — all three lanes per touched site (spec §4).
-     * writeManualItem() bumped build state per item already; updated_at and
-     * the edge purge are the two lanes it deliberately does not own.
-     *
-     * @param  list<string>  $siteIds
-     */
-    private function invalidate(array $siteIds): void
-    {
-        foreach ($siteIds as $siteId) {
-            BuildState::bump($siteId);
-            DB::connection('pgsql')->table('site.sites')
-                ->where('id', $siteId)->update(['updated_at' => now()]);
-            $subdomain = (string) (DB::connection('pgsql')->table('site.sites')
-                ->where('id', $siteId)->value('subdomain') ?? '');
-            if ($subdomain !== '') {
-                CloudflareCachePurgeJob::dispatch($subdomain);
-            }
-        }
     }
 }
