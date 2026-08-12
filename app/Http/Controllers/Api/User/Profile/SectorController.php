@@ -11,6 +11,8 @@ use Illuminate\Http\JsonResponse;
 // Writes sector_source='manual', the top rank in SectorProvenance's ladder:
 // nothing automated overwrites a human's pick. Clearing the sector nulls the
 // source too, which returns the row to "any source may fill it".
+// Keep the sector/sector_source writes below coupled: askSector's gate reads
+// sector_source alone, so a stuck 'manual' row with no sector is never asked.
 class SectorController extends ApiController
 {
     use ResolveCurrentUser;
