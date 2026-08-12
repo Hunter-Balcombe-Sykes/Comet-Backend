@@ -1152,9 +1152,7 @@ class ProjectionWriter
         // Upload shape (slice 1a §3.4): the stable ref IS the site_media id.
         // Inside the url- namespace by construction — only this method mints
         // 'upload:' fingerprints, so no existing row can collide.
-        $siteMediaId = isset($entry['site_media_id']) && is_string($entry['site_media_id']) && $entry['site_media_id'] !== ''
-            ? $entry['site_media_id']
-            : null;
+        $siteMediaId = $this->uploadSiteMediaId($entry);
         if ($siteMediaId !== null) {
             return ['url-'.sha1('upload:'.$siteMediaId), null];
         }
@@ -1168,6 +1166,14 @@ class ProjectionWriter
         $fingerprint = $ref ?? $url;
 
         return [$fingerprint === null ? null : 'url-'.sha1($fingerprint), $url];
+    }
+
+    /** The upload shape: a non-empty site_media_id IS the discriminator (slice 1a §3.4). */
+    private function uploadSiteMediaId(array $entry): ?string
+    {
+        $id = $entry['site_media_id'] ?? null;
+
+        return is_string($id) && $id !== '' ? $id : null;
     }
 
     /**
@@ -1211,13 +1217,14 @@ class ProjectionWriter
 
         $rows = [];
         foreach ($missing as $fingerprint => [$entry, $url]) {
-            $isUpload = isset($entry['site_media_id']) && is_string($entry['site_media_id']) && $entry['site_media_id'] !== '';
+            $uploadSiteMediaId = $this->uploadSiteMediaId($entry);
+            $isUpload = $uploadSiteMediaId !== null;
             $rows[] = [
                 'id' => (string) Str::uuid(),
                 'user_id' => $userId,
                 'fingerprint' => $fingerprint,
                 'source_url' => $url,
-                'site_media_id' => $isUpload ? $entry['site_media_id'] : null,
+                'site_media_id' => $uploadSiteMediaId,
                 'mime_type' => $isUpload ? ($entry['mime_type'] ?? null) : null,
                 'width' => $entry['width'] ?? null,
                 'height' => $entry['height'] ?? null,

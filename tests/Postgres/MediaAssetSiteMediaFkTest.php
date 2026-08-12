@@ -14,7 +14,7 @@ use Tests\PostgresTestCase;
 
 uses(PostgresTestCase::class)->in(__FILE__);
 
-const MIGRATION_SQL_PATH = 'supabase/migrations/20260812090000_content_media_assets_site_media_id.sql';
+const MEDIA_FK_MIGRATION_SQL_PATH = 'supabase/migrations/20260812090000_content_media_assets_site_media_id.sql';
 
 beforeEach(function () {
     $pg = DB::connection('pgsql');
@@ -50,7 +50,7 @@ beforeEach(function () {
     )');
 
     // Apply the real migration SQL, read off disk — not retyped.
-    mediaFkApplyMigrationSql(MIGRATION_SQL_PATH);
+    mediaFkApplyMigrationSql(MEDIA_FK_MIGRATION_SQL_PATH);
 });
 
 afterAll(function () {

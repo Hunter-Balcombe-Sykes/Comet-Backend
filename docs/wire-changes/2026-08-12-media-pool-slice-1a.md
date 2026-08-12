@@ -35,6 +35,10 @@ No existing key changed or removed.
 - A frame that cannot resolve to a URL is OMITTED, never null — an item can
   legitimately carry `frames: []` (today: the ten ref-only Google photos,
   which 1b makes servable).
+- A media item may represent a video upload — its frame is the video's
+  still/poster rendition (`image/webp`), and nothing in the payload
+  currently distinguishes it from a photo item; a richer video shape is
+  1b+ work.
 
 ### Unchanged, deliberately: `thumbnail`
 

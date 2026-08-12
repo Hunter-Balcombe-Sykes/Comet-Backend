@@ -7,7 +7,10 @@ use Illuminate\Console\Command;
 
 /**
  * Artisan wrapper for the slice-1a upload backfill (spec §3.7). Idempotent,
- * re-runnable; the coord is the site_media uuid, so a second run updates.
+ * re-runnable; the coord is the site_media uuid, so a second run updates the
+ * item — the asset row is insert-once (a reprocessed variant's new dims
+ * never reach content.media_assets; the resolver serves the variant row's
+ * dims live, so no wire impact).
  */
 class BackfillUploadMediaCommand extends Command
 {
