@@ -37,6 +37,33 @@ it('writes item_variants from a projection, in array order', function () {
         ->and($rows[1]->sku)->toBe('TEE-L');
 });
 
+// Fix round 2, D1 (migration 20260813100003): image_url is written the same
+// additive way as sku — a projection that omits the key writes null, so no
+// existing projector changes behaviour. Shared hot-path code: every connector
+// runs through this builder, not just shop.
+it('writes a variant image_url when the projection carries one, and null when it does not', function () {
+    $userId = createTenant('variants-'.Str::lower(Str::random(6)))->id;
+
+    $itemId = app(ProjectionWriter::class)->writeManualItem($userId, 'manual:'.sha1('https://x.test/img'), [
+        'kind' => 'product',
+        'headline' => 'Tee',
+        'variants' => [
+            ['label' => 'Grey', 'sku' => 'TEE-GY', 'image_url' => 'https://cdn.test/grey.jpg'],
+            ['label' => 'Navy', 'sku' => 'TEE-NV', 'image_url' => null],
+            // No key at all — the shape every non-shop projector still emits.
+            ['label' => 'Plain', 'sku' => 'TEE-PL'],
+        ],
+    ]);
+
+    $rows = DB::table('content.item_variants')->where('item_id', $itemId)
+        ->orderBy('position')->get();
+
+    expect($rows)->toHaveCount(3)
+        ->and($rows[0]->image_url)->toBe('https://cdn.test/grey.jpg')
+        ->and($rows[1]->image_url)->toBeNull()
+        ->and($rows[2]->image_url)->toBeNull();
+});
+
 it('writes no variants when the projection carries none', function () {
     $userId = createTenant('variants-'.Str::lower(Str::random(6)))->id;
     $itemId = app(ProjectionWriter::class)->writeManualItem(

@@ -467,12 +467,15 @@ class ShopContentWriter
                         'id' => $variant->sku,
                         'price' => $variantOffer !== null ? self::formatMinorUnits((int) $variantOffer->amount_minor) : null,
                         'available' => $variantOffer === null || $variantOffer->availability !== 'out_of_stock',
-                        // content.item_variants has no image column — a
-                        // per-variant image was never captured on the write
-                        // side either (ShopProductProjection::fromBlob()
-                        // drops it), so this is always null, matching the
-                        // Task 7 brief's own field mapping literally.
-                        'image' => null,
+                        // Task 8 fix round 2, D1: this used to be
+                        // unconditionally null — content.item_variants had no
+                        // image column and fromBlob() dropped the key, so the
+                        // sitepage's per-variant photo swap (#84) lost its
+                        // input the moment the public wire moved to content.*.
+                        // Migration 20260813100003 added the column; null here
+                        // now means the source published no image, which is
+                        // common and not a loss.
+                        'image' => $variant->image_url,
                     ];
                 }
 

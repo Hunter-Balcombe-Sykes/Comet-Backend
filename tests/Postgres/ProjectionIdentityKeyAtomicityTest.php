@@ -331,13 +331,15 @@ beforeEach(function () {
     $pg->statement('CREATE INDEX idx_pika_offers_item ON content.offers (item_id)');
 
     // Shape tracks supabase/migrations/20260727140000_content_schema.sql:404 —
-    // ProjectionWriter writes and deletes this table (label is NOT NULL there).
+    // ProjectionWriter writes and deletes this table (label is NOT NULL there)
+    // — plus image_url from 20260813100003 (slice 5a Task 8 fix round 2, D1).
     $pg->statement('CREATE TABLE content.item_variants (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         item_id uuid NOT NULL REFERENCES content.items(id) ON DELETE CASCADE,
         source_id uuid NOT NULL REFERENCES content.sources(id) ON DELETE CASCADE,
         label text NOT NULL,
         sku text,
+        image_url text,
         position integer NOT NULL DEFAULT 0
     )');
     $pg->statement('CREATE INDEX idx_pika_item_variants_item ON content.item_variants (item_id)');

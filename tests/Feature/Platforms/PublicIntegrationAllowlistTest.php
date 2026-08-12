@@ -154,20 +154,17 @@ it('passes each product gallery + per-variant image + variantId through to the p
 
     // Full gallery reaches the wire.
     expect($product['images'])->toBe(['https://cdn.shopify.com/grey.jpg', 'https://cdn.shopify.com/navy.jpg']);
-    // Every variant still carries its id (for the checkout URL).
+    // Every variant carries its id (for the checkout URL) + its own image (for
+    // the swap). The image was briefly lost when the public wire moved to
+    // content.* (fix round 1, C2 -> D1): content.item_variants had no column
+    // for it. Migration 20260813100003 added image_url and fix round 2 wired
+    // it end to end, so this is back to the pre-slice contract — the
+    // divergence is CLOSED, not documented.
     expect($product['variants'])->toHaveCount(2);
     expect($product['variants'][0]['id'])->toBe('201');
+    expect($product['variants'][0]['image'])->toBe('https://cdn.shopify.com/grey.jpg');
     expect($product['variants'][1]['id'])->toBe('202');
-    // DIVERGENCE, NOT A FIXTURE DETAIL (fix round 1, C2 — raised in the Task 8
-    // report as an OPEN decision for the slice owner): the per-variant image is
-    // GONE from the public wire. content.item_variants has no image column and
-    // ShopProductProjection::fromBlob() drops the key, so the content.* round
-    // trip cannot carry it — #84's per-variant photo swap has nothing to swap
-    // to. Restoring it needs a schema change (a column on
-    // content.item_variants), which is out of this task's scope. Asserted as
-    // null so the loss is pinned and visible, NOT quietly dropped from the test.
-    expect($product['variants'][0]['image'])->toBeNull();
-    expect($product['variants'][1]['image'])->toBeNull();
+    expect($product['variants'][1]['image'])->toBe('https://cdn.shopify.com/navy.jpg');
     // Brand-level fields the pages side needs to assemble the checkout URL ride along.
     expect($product['url'])->toBe('https://shop.example/products/wool-runner');
 });
@@ -298,14 +295,14 @@ it('keeps every SHOP_PRODUCT_ALLOWLIST key on the public wire (#API-1)', functio
     // string — see the Task 8 report, fix round 1.
     expect($product['createdAt'])->toBe('2026-01-01T00:00:00+00:00');
     // The filter is TOP-LEVEL only: variant sub-objects pass through whole
-    // (same residual as eventbrite's next/upcoming event objects). `image` is
-    // present but always null — see the per-variant image divergence pinned in
-    // the gallery test above.
+    // (same residual as eventbrite's next/upcoming event objects).
     $variantKeys = array_keys($product['variants'][0]);
     sort($variantKeys);
     expect($variantKeys)->toBe(['available', 'id', 'image', 'price', 'title']);
+    expect($product['variants'][0]['image'])->toBe('https://cdn.shopify.com/grey.jpg');
     expect($product['variants'][1]['available'])->toBeFalse();
     expect($product['variants'][1]['price'])->toBe('99.00');
+    expect($product['variants'][1]['image'])->toBe('https://cdn.shopify.com/navy.jpg');
 });
 
 it('stamps every shop brand linkMode from the GLOBAL site setting', function () {

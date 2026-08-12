@@ -2776,12 +2776,17 @@ function setupContentTables(): void
         tag_type TEXT NULL
     )');
 
+    // image_url: slice 5a Task 8 fix round 2, D1
+    // (supabase/migrations/20260813100003_item_variants_image_url.sql — the
+    // coordinator applies that to dev; this stand-in mirrors it for the SQLite
+    // lane, which never runs real migrations).
     $pg->statement('CREATE TABLE IF NOT EXISTS content.item_variants (
         id TEXT PRIMARY KEY NOT NULL,
         item_id TEXT NOT NULL,
         source_id TEXT NOT NULL,
         label TEXT NOT NULL,
         sku TEXT NULL,
+        image_url TEXT NULL,
         position INTEGER NOT NULL DEFAULT 0
     )');
 

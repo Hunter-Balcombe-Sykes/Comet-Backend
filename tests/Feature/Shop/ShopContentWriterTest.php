@@ -322,6 +322,45 @@ it('round-trips a urlless product through currentCatalogue() with url: null on t
         ->and($catalogue[0]['url'])->toBeNull();
 });
 
+// ── Task 8 fix round 2, D1: the per-variant image round-trips ──────────────
+//
+// `variants[].image` used to come back unconditionally null: content
+// .item_variants had no column for it and ShopProductProjection dropped the
+// key, so the sitepage's per-variant photo swap (#84) lost its input the
+// moment the public wire moved to content.* (fix round 1, C2). Migration
+// 20260813100003 added image_url. This is the full write→read path the
+// dashboard and the public payload both consume.
+
+it('round-trips a variant image through syncStore() and back out of currentCatalogue()', function () {
+    [$user, $collectionId] = makeStoreCollection();
+    $blob = [
+        'productId' => 'wr-1', 'title' => 'Wool Runner', 'url' => 'https://s.test/wool-runner',
+        'price' => '95.00', 'currency' => 'AUD', 'available' => true,
+        'image' => null, 'images' => [],
+        'variants' => [
+            ['id' => '201', 'title' => 'Grey', 'price' => '95.00', 'available' => true, 'image' => 'https://cdn.test/grey.jpg'],
+            // A real variant whose source published no image — must come back
+            // null, not absent and not the sibling's URL.
+            ['id' => '202', 'title' => 'Navy', 'price' => '99.00', 'available' => false, 'image' => null],
+        ],
+    ];
+
+    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [$blob], 'AUD');
+    $variants = app(ShopContentWriter::class)->currentCatalogue($collectionId)[0]['variants'];
+
+    expect($variants)->toHaveCount(2)
+        ->and($variants[0]['title'])->toBe('Grey')
+        ->and($variants[0]['image'])->toBe('https://cdn.test/grey.jpg')
+        ->and($variants[1]['title'])->toBe('Navy')
+        ->and($variants[1]['image'])->toBeNull();
+
+    // And it survives a re-sync — the column is written on every projection,
+    // not only on first insert (replaceCollections() deletes and re-inserts).
+    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [$blob], 'AUD');
+    expect(app(ShopContentWriter::class)->currentCatalogue($collectionId)[0]['variants'][0]['image'])
+        ->toBe('https://cdn.test/grey.jpg');
+});
+
 // ── Fix round 4, Finding 1: the urlless coord fallback is namespaced by
 // COLLECTION ───────────────────────────────────────────────────────────────
 //

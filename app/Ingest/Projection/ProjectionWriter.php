@@ -1118,6 +1118,10 @@ class ProjectionWriter
                     'source_id' => $contentSourceId,
                     'label' => $label,
                     'sku' => $entry['sku'] ?? null,
+                    // Additive, exactly like sku: a projection that omits the
+                    // key writes null, so no existing projector changes
+                    // behaviour (migration 20260813100003).
+                    'image_url' => $entry['image_url'] ?? null,
                     'position' => $position,
                 ];
             }

@@ -64,7 +64,7 @@ final class ShopProductProjection
             ]),
             'offers' => self::offers($data, $variants, $currency, $url),
             'variants' => array_map(
-                fn (array $v) => ['label' => $v['label'], 'sku' => $v['sku']],
+                fn (array $v) => ['label' => $v['label'], 'sku' => $v['sku'], 'image_url' => $v['image_url']],
                 $variants,
             ),
             'media' => self::media($data),
@@ -120,7 +120,7 @@ final class ShopProductProjection
         return (int) $m[1] * 100 + (int) str_pad($m[2] ?? '0', 2, '0');
     }
 
-    /** @return list<array{label: string, sku: ?string, price: ?string, available: bool}> */
+    /** @return list<array{label: string, sku: ?string, image_url: ?string, price: ?string, available: bool}> */
     private static function variants(mixed $raw): array
     {
         $out = [];
@@ -133,6 +133,11 @@ final class ShopProductProjection
             $out[] = [
                 'label' => $label,
                 'sku' => self::str($variant['id'] ?? null),
+                // Fix round 2, D1: the picture this choice shows. Genuinely
+                // null on plenty of real rows (a source that publishes no
+                // per-variant image) — str() collapses '' to null, so an
+                // empty string never reaches the column as a fake URL.
+                'image_url' => self::str($variant['image'] ?? null),
                 'price' => self::str($variant['price'] ?? null),
                 'available' => ($variant['available'] ?? true) !== false,
             ];

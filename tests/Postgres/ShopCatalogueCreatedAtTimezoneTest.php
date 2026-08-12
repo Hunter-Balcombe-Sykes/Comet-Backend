@@ -96,7 +96,7 @@ beforeEach(function () {
         item_id uuid NOT NULL, asset_id uuid NOT NULL, role text NOT NULL, position int NOT NULL
     )');
     $pg->statement('CREATE TABLE content.item_variants (
-        item_id uuid NOT NULL, label text, sku text, position int NOT NULL
+        item_id uuid NOT NULL, label text, sku text, image_url text, position int NOT NULL
     )');
 });
 

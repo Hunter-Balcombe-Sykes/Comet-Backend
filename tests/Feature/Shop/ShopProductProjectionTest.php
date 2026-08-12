@@ -52,6 +52,40 @@ it('keeps a real single variant', function () use ($blob) {
         ->and($p['variants'][0]['sku'])->toBe('v1');
 });
 
+// ── Fix round 2, D1: the per-variant image ────────────────────────────────
+//
+// The blob's variant entries carry `image` — the picture the sitepage swaps
+// to when a shopper picks that choice (#84). It was dropped on the way in,
+// which only became visible once the public wire started being served from
+// content.* rather than the legacy blob. Migration 20260813100003 gave
+// content.item_variants a column for it; these two pin both directions,
+// because a source publishing no image is the common case, not an error.
+
+it('carries a variant image through to the projection', function () use ($blob) {
+    $p = ShopProductProjection::fromBlob($blob([
+        'variants' => [['id' => 'v1', 'title' => 'Grey', 'price' => '35.50', 'available' => true, 'image' => 'https://cdn.test/grey.jpg']],
+    ]), 'AUD');
+
+    expect($p['variants'][0]['image_url'])->toBe('https://cdn.test/grey.jpg');
+});
+
+it('projects a variant with no image as null, not as an absent key', function () use ($blob) {
+    // Three shapes that must all land as null: explicitly null (the sample
+    // data's own single-variant shape), absent entirely, and an empty string
+    // — the last must never reach the column as a fake URL.
+    $cases = [
+        ['id' => 'v1', 'title' => 'Grey', 'image' => null],
+        ['id' => 'v1', 'title' => 'Grey'],
+        ['id' => 'v1', 'title' => 'Grey', 'image' => ''],
+    ];
+
+    foreach ($cases as $variant) {
+        $p = ShopProductProjection::fromBlob($blob(['variants' => [$variant]]), 'AUD');
+        expect($p['variants'][0])->toHaveKey('image_url')
+            ->and($p['variants'][0]['image_url'])->toBeNull();
+    }
+});
+
 it('emits one offer per real variant, keyed by variant_label', function () use ($blob) {
     $p = ShopProductProjection::fromBlob($blob([
         'variants' => [
