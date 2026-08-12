@@ -974,9 +974,22 @@ class ShopController extends ApiController
             $this->content->syncStore((string) $user->id, $collectionId, $remaining->all(), $individual->currency);
             if ($remaining->isEmpty()) {
                 $this->content->retireStore((string) $user->id, $collectionId);
-            }
-
-            if (ShopProduct::where('brand_id', $individual->id)->doesntExist()) {
+                // Fix round 1, C1: the anchor row goes ONLY when the bucket is
+                // genuinely empty, and content.* is the only place that fact
+                // now lives. The old guard asked site.shop_products —
+                // addProduct() stopped writing that table in this very
+                // commit, so for any bucket built after this deploy it was
+                // unconditionally true: the FIRST removal deleted the anchor
+                // while content.* still held the remaining products, which
+                // stranded them (every later DELETE 404s on the missing
+                // anchor) while the dashboard kept listing them.
+                //
+                // Explicit legacy child delete, like removeBrand(): a bucket
+                // that predates this deploy can still hold site.shop_products
+                // rows this endpoint's single-row delete above didn't cover,
+                // and SQLite (tests) doesn't enforce the ON DELETE CASCADE
+                // Postgres would rely on.
+                ShopProduct::where('brand_id', $individual->id)->delete();
                 $individual->delete();
             }
             $connection = $this->writeConnection($user, self::MARKER);

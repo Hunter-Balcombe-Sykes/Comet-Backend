@@ -604,6 +604,62 @@ it('removeProduct retires one item and leaves its siblings alone', function () {
     expect(DB::table('content.items')->whereNull('removed_at')->count())->toBe(2);
 });
 
+// Fix round 1, C1 regression. The anchor row's lifetime is the whole bug:
+// removeProduct() used to ask site.shop_products "is this bucket empty now?",
+// a table addProduct() had stopped writing, so the FIRST removal always
+// deleted the anchor and stranded the surviving content.* products — the
+// dashboard still listed them and every later DELETE 404'd on the missing
+// anchor. Both halves are asserted here: the anchor SURVIVES a partial
+// removal (with the siblings still listed and still removable), and is still
+// cleaned up exactly as before once the last product goes.
+it('removeProduct keeps the individual anchor row until the last product is gone', function () {
+    [$user] = makeShopBrand();
+
+    mockShopService(GenericShopScraper::class, function ($m) {
+        $m->shouldReceive('readProductPage')->andReturn(
+            ['outcome' => GenericShopScraper::OUTCOME_PRODUCT, 'product' => ['productId' => 'p1', 'title' => 'One', 'url' => 'https://s.test/p1', 'price' => '10.00'], 'storeUrl' => null],
+            ['outcome' => GenericShopScraper::OUTCOME_PRODUCT, 'product' => ['productId' => 'p2', 'title' => 'Two', 'url' => 'https://s.test/p2', 'price' => '10.00'], 'storeUrl' => null],
+            ['outcome' => GenericShopScraper::OUTCOME_PRODUCT, 'product' => ['productId' => 'p3', 'title' => 'Three', 'url' => 'https://s.test/p3', 'price' => '10.00'], 'storeUrl' => null],
+        );
+    });
+
+    foreach (['p1', 'p2', 'p3'] as $pid) {
+        actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => "https://s.test/{$pid}"])->assertSuccessful();
+    }
+
+    $anchorExists = fn (): bool => ShopBrand::where('brand_id', 'individual')->exists();
+    expect($anchorExists())->toBeTrue();
+
+    // One of three removed: the bucket is NOT empty, so the anchor must stay.
+    actingAsUser($user)->deleteJson('/api/platforms/shop/products/p2')->assertOk();
+    expect($anchorExists())->toBeTrue()
+        ->and(orderedProductIdsFor('individual'))->toBe(['p3', 'p1']);
+
+    // The siblings are still listed by the dashboard AND still removable —
+    // the two symptoms the stranded bucket produced.
+    actingAsUser($user)->getJson('/api/platforms/shop/brands')
+        ->assertOk()
+        ->assertJsonPath('brands.0.id', 'individual')
+        ->assertJsonPath('brands.0.products.0.productId', 'p3')
+        ->assertJsonPath('brands.0.products.1.productId', 'p1');
+
+    actingAsUser($user)->deleteJson('/api/platforms/shop/products/p3')->assertOk();
+    expect($anchorExists())->toBeTrue()
+        ->and(orderedProductIdsFor('individual'))->toBe(['p1']);
+
+    // Last one out: the anchor and the content.* store are both cleaned up,
+    // exactly as before this fix.
+    actingAsUser($user)->deleteJson('/api/platforms/shop/products/p1')
+        ->assertOk()
+        ->assertJsonPath('brands', []);
+    expect($anchorExists())->toBeFalse()
+        ->and(DB::table('content.storefronts')->where('external_ref', 'individual')->count())->toBe(0)
+        ->and(DB::table('content.collections')->where('kind', 'storefront')->count())->toBe(0)
+        // Retired, never hard-deleted.
+        ->and(DB::table('content.items')->whereNull('removed_at')->count())->toBe(0)
+        ->and(DB::table('content.items')->count())->toBe(3);
+});
+
 it('forget removes every store for the user and retires their items', function () {
     [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 2);
 
