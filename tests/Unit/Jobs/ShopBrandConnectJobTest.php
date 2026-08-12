@@ -423,6 +423,61 @@ it('fires all three cache lanes on the success write — the observer never watc
     // lanes IntegrationConnectionCacheRefresher does not own.
     expect(DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->value('updated_at'))
         ->not->toBe($before);
+    // Final review F5: the name promised three lanes and only two were
+    // asserted — nothing in this file touched site.site_build_state, so
+    // deleting bumpSiteCache()'s BuildState::bump() left the suite green.
+    // Unlike ShopBackfillerTest, this path writes no items, so
+    // writeManualItem() never runs and this assertion is the ONLY thing
+    // holding lane 1 up.
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->value('id');
+    expect(DB::connection('pgsql')->table('site.site_build_state')->where('site_id', $siteId)
+        ->value('content_revision'))->toBeGreaterThan(0);
+});
+
+// Final review F4: markTerminal() fired lanes 1+2 but not the edge purge, on a
+// transition that DOES change the public payload — filterPayload() rejects
+// only 'pending', so pending→failed publishes the brand.
+it('fires the edge purge on a real pending→failed transition', function () {
+    Exceptions::fake();
+    Bus::fake();
+    $user = sbcjUserWithSite('terminalpurge');
+    $connection = sbcjConnection($user);
+    $brand = sbcjBrand($connection, ['brand_id' => 'terminal-brand', 'connect_status' => 'pending']);
+
+    // Creating the connection row purges via IntegrationConnectionObserver
+    // (wasRecentlyCreated). Discard that and release the ShouldBeUnique lock it
+    // took, or the assertion below would pass on the FIXTURE's dispatch —
+    // exactly the failure mode this whole fix wave is closing.
+    Cache::getStore()->locks = [];
+    Bus::fake();
+
+    $job = new ShopBrandConnectJob($brand->id);
+    $job->failed(new RuntimeException('boom'));
+
+    expect($brand->fresh()->connect_status)->toBe('failed');
+    Bus::assertDispatched(CloudflareCachePurgeJob::class);
+});
+
+// The compare-and-set half: a brand already settled is a genuine no-op and
+// owes no purge. Pins that the fix above did not start purging on every
+// late/stale retry attempt.
+it('does not purge when the compare-and-set finds the brand already settled', function () {
+    Exceptions::fake();
+    Bus::fake();
+    $user = sbcjUserWithSite('terminalnoop');
+    $connection = sbcjConnection($user);
+    $brand = sbcjBrand($connection, ['brand_id' => 'settled-brand', 'connect_status' => 'connected']);
+
+    // See the note in the test above — the fixture's own connect purge must not
+    // be mistaken for markTerminal()'s.
+    Cache::getStore()->locks = [];
+    Bus::fake();
+
+    $job = new ShopBrandConnectJob($brand->id);
+    $job->failed(new RuntimeException('boom'));
+
+    expect($brand->fresh()->connect_status)->toBe('connected');
+    Bus::assertNotDispatched(CloudflareCachePurgeJob::class);
 });
 
 // NEW BLOCKER 4 regression guard — the entire point of this job's signature.

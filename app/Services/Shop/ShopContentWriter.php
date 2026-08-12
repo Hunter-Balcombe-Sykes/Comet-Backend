@@ -230,6 +230,24 @@ class ShopContentWriter
      * ShopCatalog::syncLatest(). ShopBackfiller::run() mirrors this exact
      * branch (fix round 4, Finding 2); the two must not drift.
      *
+     * COST — this loop is O(N²) in database round-trips, and its callers hold
+     * a 10s lock (CacheKeyGenerator::platformConnectionLock) while it runs.
+     * Every writeManualItem() call re-runs resolveItems() over ALL of the
+     * user's product source items and refreshItemCaches() over all the
+     * resulting item ids, so per-product cost grows with the user's whole
+     * product set, not with this store's. Roughly ~25 round-trips per product
+     * at that scale. Real bounds: the individual bucket caps at 20, dev's
+     * largest store holds 8, and syncLatest() takes at most the user's
+     * existing selection size — all comfortably inside the lock. The
+     * pathological case is a hand-built setProducts() payload at the 250
+     * request cap: ~6,000 round-trips over Supavisor against a 10s lock TTL,
+     * where the pre-branch path was one DELETE and one bulk INSERT.
+     * Restructuring to a bulk write (resolve once, refresh once, at the end
+     * of the loop) is DELIBERATELY DEFERRED — it means reaching into
+     * ProjectionWriter's per-item contract, which every connector shares, and
+     * no observed workload is near the ceiling. Revisit if a real store
+     * exceeds ~50 products or the lock starts timing out.
+     *
      * @param  list<array<string,mixed>>  $products  raw scraper blobs, catalogue order
      */
     public function syncStore(string $userId, string $collectionId, array $products, ?string $currency): int

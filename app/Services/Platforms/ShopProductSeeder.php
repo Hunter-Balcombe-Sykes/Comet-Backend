@@ -9,14 +9,22 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 // Job-context seeding of ONE individually-added product from a scanned product
 // page (signup-v2 C2). Mirrors ShopController::addProduct()'s locked body —
 // the reserved 'individual' bucket, MAX_INDIVIDUAL_PRODUCTS cap, dedup by
-// productId, newest-first transactional rebuild — without its HTTP/policy
-// wrapper (same convention as EventsSeeder/ShopBrandSeeder; see their
-// docblocks for the server-derived-user + caller-gating contract).
+// productId, newest-first ordering — without its HTTP/policy wrapper (same
+// convention as EventsSeeder/ShopBrandSeeder; see their docblocks for the
+// server-derived-user + caller-gating contract).
+//
+// Slice 5a: the products live in content.* now, so this is no longer a
+// "transactional rebuild" of site.shop_products. The existing half is read
+// back through ShopContentWriter::currentCatalogue() and the merged set is
+// reconciled by syncStore(), which upserts by coord and retires (never
+// deletes) what the merge dropped. site.shop_brands is still written as the
+// bucket anchor until slice 7 retires it.
 class ShopProductSeeder
 {
     /** Mirrors ShopController::INDIVIDUAL_BRAND_ID — keep in lockstep. */
@@ -99,6 +107,18 @@ class ShopProductSeeder
                     ->values();
 
                 $this->content->syncStore((string) $user->id, $collectionId, $ordered->all(), $individual->currency);
+
+                // Final review F4: lane 2. writeManualItem() covers the build
+                // state and refresh() covers the edge, but nothing moved
+                // site.sites.updated_at — the column
+                // IndividualProfilePayloadBuilder composes its 60s cache key
+                // from — so a freshly seeded product stayed invisible to the
+                // public payload for the full TTL. Raw DB::table() and
+                // site-nullable for the same reasons as
+                // ShopController::bumpSiteCache().
+                DB::connection('pgsql')->table('site.sites')
+                    ->where('user_id', $user->id)
+                    ->update(['updated_at' => now()]);
 
                 $this->refresher->refresh($connection);
 

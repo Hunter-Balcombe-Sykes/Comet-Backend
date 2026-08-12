@@ -200,6 +200,7 @@ Bounds — do NOT absorb opportunistically:
 - Plan mode for non-trivial tasks (3+ steps). Bug → pull Cloud logs FIRST, check Nightwatch.
 - Subagents for research. `composer test` before done; Nightwatch after fixes.
 - **Tests run SQLite, prod is Postgres** — CHECK/NOT NULL drift. Verify constraint-bound writes against `supabase/migrations/` DDL, not just passing suite.
+- **Touching `app/Ingest/Projection/ProjectionWriter.php` means running `tests/Postgres/` (`composer test:pg`), not just `tests/Feature/Ingest/`.** That lane's stand-in DDL is hand-written and drifts silently from writer changes — slice 5a turned it red for 7 tests and two reviews missed it on a green SQLite run.
 - After corrections, update memory.
 
 ## Individual sitepages

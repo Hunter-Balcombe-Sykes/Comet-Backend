@@ -432,6 +432,43 @@ it('purges the edge cache on a SECOND shop mutation, not just the first connect'
     Bus::assertDispatched(CloudflareCachePurgeJob::class);
 });
 
+// Final review F6: spec §5.2 lists "every write path bumps build state, moves
+// sites.updated_at, and dispatches a purge" as a deliverable, and NO test
+// covered it for any ShopController endpoint — bumpSiteCache()'s body could be
+// deleted with a green suite. The test above only proves lane 3, which the
+// shared refresher owns; the two lanes the controller owns itself were unpinned.
+it('a write endpoint fires all three cache lanes', function () {
+    Bus::fake();
+    $user = shopStorageUserWithSite('lanes3');
+    modesBrandFor($user);
+
+    // Laravel binds timestamps at SECOND precision (same hazard documented in
+    // ShopBackfillerTest) — backdate so the touch below cannot pass or fail on
+    // wall-clock luck. Done AFTER the connect write, which touches it too.
+    DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)
+        ->update(['updated_at' => now()->subMinute()]);
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->value('id');
+    $before = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('updated_at');
+    $revisionBefore = (int) DB::connection('pgsql')->table('site.site_build_state')
+        ->where('site_id', $siteId)->value('content_revision');
+
+    // Re-fake so the assertion sees only THIS write's dispatches, and release
+    // the ShouldBeUnique lock the connect write took (see the note above).
+    Cache::getStore()->locks = [];
+    Bus::fake();
+
+    // updateBrand with no selection change: writes nothing through
+    // writeManualItem(), so bumpSiteCache() is the sole source of lanes 1 and 2.
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['discountCode' => 'LANES3'])
+        ->assertOk();
+
+    Bus::assertDispatched(CloudflareCachePurgeJob::class);
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('updated_at'))
+        ->not->toBe($before);
+    expect((int) DB::connection('pgsql')->table('site.site_build_state')
+        ->where('site_id', $siteId)->value('content_revision'))->toBeGreaterThan($revisionBefore);
+});
+
 // ── Store modes (selection_mode / link_mode / referral_query) ──────────────
 
 function modesBrandFor(User $user): void

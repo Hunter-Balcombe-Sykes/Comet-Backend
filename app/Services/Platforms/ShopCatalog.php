@@ -137,12 +137,35 @@ class ShopCatalog
         // but a mid-loop failure now leaves partially-reconciled content.*
         // state rather than a torn legacy table — an accepted trade already
         // made by Task 5's syncStore() implementation, not new here.
-        return $this->content()->syncStore(
+        $written = $this->content()->syncStore(
             (string) $brand->connection->user_id,
             $collectionId,
             $latest->all(),
             $brand->currency,
         );
+
+        // Final review F4: lane 2. writeManualItem() bumps the build state for
+        // free, and ShopFetch/updateBrand purge the edge — but nothing here
+        // moved site.sites.updated_at, and IndividualProfilePayloadBuilder
+        // composes its 60s cache key from exactly that column. A scheduled
+        // resync therefore served the pre-sync payload for the full TTL.
+        $this->touchSite((string) $brand->connection->user_id);
+
+        return $written;
+    }
+
+    /**
+     * Lane 2 of the three-lane invalidation discipline (spec §4). Raw
+     * DB::table() because syncStore()'s own writes bypass Eloquent entirely,
+     * so no observer fires for them. Site-nullable — a user mid-signup has no
+     * site row; skip rather than guess an id (mirrors ShopController and
+     * ShopBrandConnectJob's identical helpers).
+     */
+    private function touchSite(string $userId): void
+    {
+        DB::connection('pgsql')->table('site.sites')
+            ->where('user_id', $userId)
+            ->update(['updated_at' => now()]);
     }
 
     /**

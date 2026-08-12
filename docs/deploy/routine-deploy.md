@@ -70,6 +70,9 @@ Work down this list. Any "no" is a stop.
       between — give it its own session, not a drive-by at the end of another task. For the **current
       pending set** it also requires a manual `pg_dump` of prod first (see the pre-flight under Rollback);
       20 of those migrations have no usable reverse path.
+- [ ] **Does it need a data backfill before the code lands?** Most deploys do not. **Slice 5a (shop)
+      does, and it is currently pending** — see "Backfill-gated deploys" below. A backfill-gated deploy
+      is code-then-data in the wrong order by default; getting it right is manual.
 - [ ] **Is `production` 0 ahead?** The invariant above.
 - [ ] **Is now a sane time?** Prod carries no customer data yet, so blast radius is small — but this will
       stop being true. Once it does, avoid deploying with nobody watching.
@@ -188,6 +191,85 @@ chance of committing onto a local `production` branch.
 >   | python3 -c 'import json,sys; d=json.load(sys.stdin)[0]; print(d["commitHash"][:8], d["status"])'
 > git rev-parse --short development    # must equal the hash above
 > ```
+
+---
+
+## Backfill-gated deploys
+
+A normal deploy is two rails: migrations first, then code. A **backfill-gated** deploy is three, and the
+middle one is a data migration that must complete while the OLD code is still serving. Get the order
+wrong and the code ships against empty tables.
+
+There is exactly one pending today.
+
+### Slice 5a — the shop data move
+
+Shipped on `development` 2026-08-13. Moves 9 stores and 51 products from `site.shop_brands` /
+`site.shop_products` into `content.*` and repoints every shop reader and writer. Wire manifest:
+`docs/wire-changes/2026-08-12-slice-5a-shop-data.md`. Spec:
+`docs/superpowers/specs/2026-08-12-slice-5a-shop-data-design.md`.
+
+**Why it is gated: there is no legacy fallback left.** The transitional `hybridBrandMap()` was deleted
+before merge. An un-backfilled brand is absent from the dashboard shop list, the shop card **and** the
+public Shop page at the same time — and the page is *removed*, not emptied, because
+`PlatformRegistryServiceProvider`'s presence gate reads `content.*` too. Three surfaces, one cause.
+
+Run in this order, against the ref being deployed:
+
+```bash
+# 1. MIGRATIONS FIRST — 20260813100000 … 20260813100003.
+#    Not optional and not deferrable: ProjectionWriter writes
+#    item_variants.image_url, offers.availability and
+#    f_catalog.handle/vendor/variant_ref UNCONDITIONALLY, for EVERY connector,
+#    not just shop. Deploy the code before these land and the next ingest run
+#    of any kind errors.
+#    Already applied to DEV (by hand via MCP, recorded in
+#    supabase_migrations.schema_migrations). PROD HAS NONE OF THEM.
+supabase link --project-ref edplucmvkcnokyygxqsb
+supabase db push --dry-run     # read every line
+supabase db push
+scripts/launch-check/launch-check.sh --only schema     # standing step 2a
+
+# 2. BACKFILL, WHILE THE OLD CODE IS STILL SERVING. Dry run first.
+~/.composer/vendor/bin/cloud command:run <env> 'php artisan content:backfill-shop --dry-run'
+~/.composer/vendor/bin/cloud command:run <env> 'php artisan content:backfill-shop'
+#    Dev expects 9 stores / 51 products. PROD IS A NO-OP TODAY — prod carries no
+#    customer data — but say so from evidence, not assumption: run it anyway and
+#    read the counts. It stops being a no-op the moment the first pilot user
+#    connects a store.
+
+# 3. THEN the code (the normal step 3 above).
+git push origin development:production
+
+# 4. Verify — spec §5.1's SQL, output pasted into the checkpoint.
+#    content.storefronts = 9, content.collections = 9, content.collection_items = 51,
+#    the coverage gate = 0, and max(updated_at) on BOTH legacy tables frozen from
+#    the deploy forward (nothing writes them any more; if they move, something does).
+
+# 5. Re-run the backfill once. Identical counts and unchanged item ids is the
+#    idempotency proof, and the cheapest rollback insurance available.
+~/.composer/vendor/bin/cloud command:run <env> 'php artisan content:backfill-shop'
+
+# 6. Post-deploy: logs AND Nightwatch. Slice 0's checkpoint did the log half and
+#    skipped Nightwatch; spec §5.4 says not to repeat that.
+~/.composer/vendor/bin/cloud env:logs partna <env> --minutes 10
+```
+
+**Do not run the backfill while the scheduled shop refresh is in flight.** `ShopFetch` runs on a 6h
+interval (`refresh.intervals.shop`) and reaches `ShopContentWriter::upsertStore()`, whose
+SELECT-then-INSERT has no DB-level uniqueness behind it. Two writers hitting one brand mint a duplicate
+collection + storefront pair and **orphan the loser's `referral_query`** — that is affiliate revenue,
+frozen in a row nothing reads. Known, pre-existing, and deliberately not fixed in 5a (the real fix is a
+schema change belonging with slice 7). Either pick a window clear of the refresh, or immediately after
+the backfill confirm `SELECT count(*) FROM content.storefronts` equals the store count and no duplicates
+exist for a `(user_id, provider, external_ref)` triple.
+
+**Slice 7, not this one, is the point of no return.** `site.shop_brands` and `site.shop_products` are
+not dropped here — they survive, inert. So if 5a goes wrong, reverting the **backend alone** restores
+the legacy read path with the legacy data still sitting in it. That stays true only until slice 7 drops
+those tables. Note the asymmetry the rest of this document already establishes: the code revert is
+cheap, the migrations are not revertible, and the backfill is forward-only (re-running it is safe;
+un-running it is not a thing).
 
 ---
 

@@ -51,10 +51,17 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 // generic storefront with Product JSON-LD — the user never chooses. Each brand carries its provider,
 // profile (name/favicon/logo), discount code, and chosen products.
 //
-// FOUND-25: brands + their chosen products live in site.shop_brands /
-// site.shop_products (one row per brand / product), not in the connection's
-// JSONB payload — the single 'shop' IntegrationConnection row is now just the
-// lifecycle/authorization anchor, its payload a static MARKER. Every mutating
+// FOUND-25 + slice 5a: brands + their chosen products live in content.* —
+// a content.collections row (kind='storefront') with a content.storefronts
+// sidecar per brand, and one content.items row per product, written through
+// ShopContentWriter and read back through ShopContentReader. NOT in the
+// connection's JSONB payload. site.shop_brands survives as the per-brand
+// identity/lifecycle anchor this controller still writes (and which the
+// not-yet-repointed public read path still reads); site.shop_products is
+// no longer written at all — the deletes below only clear pre-deploy rows.
+// Slice 7 drops both. The single 'shop'
+// IntegrationConnection row is just the lifecycle/authorization anchor, its
+// payload a static MARKER. Every mutating
 // method still writes that marker via writeConnection() so the create/update
 // ability keeps firing off the same chokepoint. Because the marker never
 // changes, IntegrationConnectionObserver's payload-dirty gate only fires on

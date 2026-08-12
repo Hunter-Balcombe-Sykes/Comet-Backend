@@ -81,6 +81,53 @@ SELECT shop_link_mode, count(*) FROM site.sites GROUP BY 1;
 
 ## Scope
 
+### Unit 0 — BLOCKING PREREQUISITE: decide what a re-added product does
+
+**Settle this before Unit 1. It is a decision, not a bug fix, and the pool read
+you are about to write is what makes it visible.**
+
+Nothing anywhere clears `content.items.removed_at`.
+`ProjectionWriter::upsertSourceItem()` clears only `source_items.removed_at`,
+and `resolveItems()` binds by coord without consulting `items.removed_at` — so
+a retired item that is re-added resolves to the same, still-retired row.
+
+5a retires items in two places (`ShopContentWriter::retireAbsent()` on every
+sync, `retireStore()` on `removeBrand`/`forget`/`removeProduct`-when-empty) and
+this is invisible there, because **no shop read in 5a filters `removed_at`** —
+deliberately, for lockstep with the legacy path. **Your pool read does filter
+it.** So the moment 5b lands:
+
+- a product the owner removes and re-adds is permanently absent from the Shop
+  page while showing normally in the dashboard;
+- it is trivially reachable, not theoretical — the individual bucket's 20-item
+  cap retires the oldest product on **every** add, and `ShopProductSeeder`
+  re-adds by URL;
+- and the cause sits three layers away from the symptom.
+
+**The conflict is real and you must resolve it explicitly.** One-way retirement
+is a parent-programme rule an earlier slice established — *an item whose every
+source item is retired is itself retired, and `removed_at` is never cleared by
+reappearance*. Shop wants the opposite: a store's catalogue is a set the owner
+edits, and re-adding is a normal act, not a resurrection. Both positions are
+defensible. Decide which one holds for `kind='product'`, say why, and write it
+into the parent spec — do not just clear the flag in `syncStore()` and move on,
+and do not silently inherit the current behaviour either.
+
+Paired with it, and biting the same way in 5b: **`retireAbsent()`'s `$absent`
+join can row-wise match a stale coord even when a live-coord row exists for the
+same item** (`whereNotIn` runs before `->unique()`). An item carrying both a
+`pid:`-derived and a URL-derived coord — a product that gains a URL upstream —
+has a stale `source_items` row that matches, so the item is treated as absent,
+its `collection_items` link is dropped, and if no other store carries it, it is
+retired while still in the catalogue. Parked in 5a as pre-existing and
+low-probability. Combined with never-cleared `removed_at` it is a one-way
+disappearance, so fix or accept it as part of the same decision.
+
+Whatever you decide, note that `retireAbsent()`'s **delete-links-FIRST-then-
+requery** ordering is load-bearing: reversed, the synced store's own stale link
+satisfies the "still linked to a storefront of this user" test and cross-store
+retirement becomes a no-op.
+
 ### Unit 1 — Register the pool
 `PoolRegistry`: `POOLS['shop'] = ['product']`, `PAGE_KEYS['shop'] = 'shop'`,
 `PAGE_LABELS['shop'] = 'Shop'`, and the `SECTION_SHAPE` 5a decided:

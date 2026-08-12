@@ -276,6 +276,13 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         if ($updated && $brand->connection !== null) {
             $content->upsertStore($brand->fresh(), (string) $brand->connection->user_id);
             self::bumpSiteCache((string) $brand->connection->user_id);
+            // Final review F4: lane 3. A pending→failed transition FLIPS the
+            // brand onto the public wire — PublicIntegrationConnectionResource
+            // ::filterPayload() rejects only 'pending' — so the CDN is holding
+            // a payload that no longer matches the origin. Container-resolved
+            // rather than a fourth parameter: failed() reaches this method with
+            // no injectable params at all (same reasoning as $content there).
+            app(IntegrationConnectionCacheRefresher::class)->refresh($brand->connection);
         }
     }
 

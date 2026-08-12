@@ -510,6 +510,53 @@ not against a green suite:
 slice 0's checkpoint records a log scan performed and a Nightwatch scan skipped;
 do not repeat that gap.
 
+### 5.5 Deploy ordering — the backfill is a BLOCKING prerequisite
+
+Written down here because a spec that omits this is the one document a deployer
+would trust. The operational copy lives in `docs/deploy/routine-deploy.md`
+("Backfill-gated deploys") and the consumer-facing copy in
+`docs/wire-changes/2026-08-12-slice-5a-shop-data.md`; all three must agree.
+
+**Why it blocks.** The transitional `hybridBrandMap()` fallback is deleted, so
+no shop read path consults the legacy tables any more. An un-backfilled brand is
+missing from the dashboard shop list, the shop card **and** the public Shop page
+simultaneously — and the page is removed rather than emptied, because
+`PlatformRegistryServiceProvider`'s presence gate reads `content.*` too.
+Pinned by `ShopPagePresenceTest`, which asserts the un-backfilled failure state
+honestly rather than hiding it.
+
+Ordered, against the ref being deployed:
+
+1. **The four migrations** (`20260813100000`–`20260813100003`) — first, and not
+   deferrable. `ProjectionWriter` writes `item_variants.image_url`,
+   `offers.availability` and `f_catalog.handle/vendor/variant_ref`
+   unconditionally, for **every** connector, so the code errors on any ingest
+   run until they land. Applied to dev; **prod has none of them.**
+2. **`php artisan content:backfill-shop --dry-run`, then for real** — while the
+   OLD code is still serving. Dev expects 9 stores / 51 products. Prod is a
+   no-op today because prod carries no customer data; run it and read the
+   counts rather than assuming, because that stops being true with the first
+   pilot store.
+3. **Then the code deploy.**
+4. **Verify with §5.1's SQL**, output pasted into the checkpoint.
+5. **Re-run the backfill once** — identical counts and unchanged item ids is
+   the idempotency proof.
+6. **§5.4's post-deploy scans**, both halves.
+
+Two cautions:
+
+- **Do not run the backfill concurrently with the scheduled shop refresh**
+  (`refresh.intervals.shop`, 6h). `upsertStore()`'s SELECT-then-INSERT has no
+  DB-level uniqueness behind it; two writers on one brand mint a duplicate
+  collection + storefront pair and orphan the loser's `referral_query`, which
+  is affiliate revenue. Pre-existing shape, deliberately not fixed here — the
+  real fix denormalises `user_id` onto `storefronts` behind a unique index and
+  belongs with slice 7.
+- **Slice 7, not this slice, is the point of no return.** `site.shop_brands`
+  and `site.shop_products` survive here, inert, so reverting the backend alone
+  restores the legacy read path with its data intact. That ceases to be true
+  when slice 7 drops them.
+
 ---
 
 ## 6. Definition of done
@@ -569,6 +616,21 @@ pins; 5a writes no sections.**
   leaving `/integrations`, with the collections map the sitepage needs to rebuild
   its store cards
 - The wire-change manifest and the partna-monorepo coordination it requires
+- **Whether a re-added product should come back.** Nothing anywhere clears
+  `content.items.removed_at` — `upsertSourceItem()` clears only
+  `source_items.removed_at`, and `resolveItems()` binds by coord without
+  consulting `items.removed_at` — so re-adding a retired product resolves to
+  the same, still-retired item. Invisible in 5a because no shop read filters
+  `removed_at`. **5b's pool read does filter it**, and the individual bucket's
+  20-item cap retires products routinely, so in 5b a removed-and-re-added
+  product would be permanently absent from the Shop page while showing
+  normally in the dashboard. Not fixed here on purpose: one-way retirement is
+  a parent-programme rule set by an earlier slice ("an item whose every source
+  item is retired is itself retired; `removed_at` is never cleared by
+  reappearance"), and shop wanting the opposite is a real decision 5b must
+  take with that rule in view — not something to invert at the end of an
+  unrelated slice. Carried into the 5b kickoff prompt as a blocking
+  prerequisite.
 
 ## 9. Out of scope — carried to slice 7
 
