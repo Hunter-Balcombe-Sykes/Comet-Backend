@@ -97,7 +97,25 @@ it('no longer keys the three sort_order-renumbering sites on service-layout', fu
     // reorderLayout() in StaffServiceManagementController — three call sites,
     // three AdvisoryLock::acquire("services:...") occurrences beyond the
     // pre-existing store()/reorder() ones already on that key.
-    expect(substr_count($userSource, 'AdvisoryLock::acquire("services:'))->toBe(2);
+    //
+    // Slice 3a Task 5 (owner-authored services → content.*) added TWO MORE
+    // literal occurrences beyond Fix C's original three (updateCategory,
+    // reorderLayout) + the two that used to live one level down
+    // (InsertWithSortOrder inside store(), ReorderService inside reorder()):
+    // store() and update() now write section_items directly through
+    // ManualServiceWriter and lock "services:{user}" themselves rather than
+    // delegating to InsertWithSortOrder, and reorder()'s manual (content.*)
+    // half does the same instead of delegating entirely to ReorderService
+    // (the Fresha half still does, so that one stays a call OUT rather than
+    // a literal occurrence in this file). Five total: store, update,
+    // updateCategory, reorder (manual half), reorderLayout — restore() needs
+    // no lock at all (section_items.sort_key carries no uniqueness
+    // constraint, unlike the legacy sort_order column restore() used to
+    // renumber under). The invariant this test still proves — no code path
+    // touching ordering references the old service-layout key — is
+    // unaffected by which of these methods hold the lock directly vs. via a
+    // helper.
+    expect(substr_count($userSource, 'AdvisoryLock::acquire("services:'))->toBe(5);
     expect(substr_count($staffSource, 'AdvisoryLock::acquire("services:'))->toBe(1);
 
     // Each migrated site catches the timeout and returns the same 423 every

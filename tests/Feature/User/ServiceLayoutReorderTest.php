@@ -2,6 +2,7 @@
 
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 
 // POST /api/services/reorder-layout (UserServiceController::reorderLayout) — full
@@ -14,10 +15,26 @@ use Illuminate\Support\Facades\DB;
 // sort_order=0 collided. service_categories carries no equivalent unique index
 // (only a plain sort index + a unique-title index), so its sort_order write
 // needed no equivalent fix.
+//
+// Slice 3a Task 5 (§C3 review fix): reorderLayout()'s category-block +
+// sort_order/service_category_assignments machinery is now Fresha-only —
+// owner-authored (source IS NULL) services moved to content.* and are
+// reordered via section_items.sort_key instead, and carry no category
+// concept at all. Every fixture below is explicitly 'source' => 'fresha' so
+// it keeps exercising the SAME legacy code path this regression guard was
+// written against (byte-for-byte restored post-cutover, per the review) —
+// a source-less fixture would 422 here now (not a manual or Fresha id).
 beforeEach(function () {
     tenantHelpersEnsureTables();
     setupServicesTable();
     setupServiceCategoriesTable();
+    // reorderLayout() also touches content.*/site.sections regardless of
+    // whether the professional has any owner-authored services — the
+    // ManualServiceItems read that determines "how many manual ids must this
+    // payload cover" (zero, here) still queries those tables.
+    setupIngestTables();
+    setupContentTables();
+    setupBlocksTable();
     // reorderLayout() takes pg_advisory_xact_lock(hashtext(...)) — both Postgres-only;
     // shim them as SQLite UDFs so the real production code path runs under test.
     shimPgAdvisoryLockForSqlite();
@@ -36,8 +53,8 @@ it('reorders a layout across two categories that each hold a service without a 5
 
     $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
     $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    $serviceA = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0]);
-    $serviceB = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 1]);
+    $serviceA = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
+    $serviceB = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 1, 'source' => 'fresha']);
 
     $response = actingAsUser($pro)->postJson('/api/services/reorder-layout', [
         'categories' => [
@@ -62,9 +79,9 @@ it('moves a service to a different category and persists the new category_id', f
     $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
     // services_pro_sort_order_uq is GLOBAL per professional, not per category —
     // every fixture service below needs its own distinct starting sort_order.
-    $stays = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0]);
-    $moves = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1]);
-    $resident = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 2]);
+    $stays = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
+    $moves = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1, 'source' => 'fresha']);
+    $resident = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 2, 'source' => 'fresha']);
 
     // $moves leaves category A for category B, landing after $resident.
     $response = actingAsUser($pro)->postJson('/api/services/reorder-layout', [
@@ -90,9 +107,9 @@ it('swaps the order of two services within a category and keeps sort_order globa
     $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
     $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
     // services_pro_sort_order_uq is GLOBAL per professional — distinct starting values.
-    $first = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0]);
-    $second = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1]);
-    $other = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 2]);
+    $first = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
+    $second = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1, 'source' => 'fresha']);
+    $other = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 2, 'source' => 'fresha']);
 
     // Swap $first/$second's relative order within category A; category B unchanged.
     $response = actingAsUser($pro)->postJson('/api/services/reorder-layout', [
@@ -121,4 +138,30 @@ it('swaps the order of two services within a category and keeps sort_order globa
     // unique index, so it never needed the two-pass treatment.
     expect(ServiceCategory::withoutGlobalScopes()->whereKey($catA->id)->value('sort_order'))->toBe(0);
     expect(ServiceCategory::withoutGlobalScopes()->whereKey($catB->id)->value('sort_order'))->toBe(1);
+});
+
+// New coverage (Task 5 fix round): a manual (content.*) service in the SAME
+// payload gets section_items.sort_key, never touches
+// service_category_assignments, and is exempt from the "categorised or
+// uncategorised, never both" check that governs the Fresha half.
+it('reorders a manual service by sort_key alongside a Fresha layout in one request', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $pro = User::query()->with('site')->findOrFail($userId);
+
+    $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
+    $freshaService = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
+    $manualId = actingAsUser($pro)->postJson('/api/services', ['title' => 'Manual', 'price_cents' => 1000])
+        ->assertCreated()->json('service.id');
+
+    $response = actingAsUser($pro)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => $catA->id, 'service_ids' => [$freshaService->id]],
+            ['id' => null, 'service_ids' => [$manualId]],
+        ],
+    ]);
+
+    $response->assertOk();
+
+    expect(DB::table('site.section_items')->where('item_id', $manualId)->value('sort_key'))->not->toBeNull();
+    expect(DB::table('site.service_category_assignments')->where('service_id', $manualId)->exists())->toBeFalse();
 });

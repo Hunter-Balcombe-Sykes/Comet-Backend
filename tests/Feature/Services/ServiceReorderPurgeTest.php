@@ -41,6 +41,12 @@ beforeEach(function () {
     setupSitesTable();
     setupSubdomainAliasesTable(); // invalidateSite() queries site.site_subdomain_aliases
     setupServicesTable(); // also creates site.service_categories
+    // Slice 3a Task 5: reorder()/reorderLayout() now also read/write content.*
+    // (the owner-authored half) regardless of whether this fixture's rows
+    // are Fresha-sourced or not.
+    setupIngestTables();
+    setupContentTables();
+    setupBlocksTable();
     shimPgAdvisoryLockForSqlite();
 });
 
@@ -87,6 +93,12 @@ function seedServiceReorderFixture(): array
     // One service per category — reorderLayout's `service_ids` validation rule
     // is `required`, which Laravel treats an empty array as failing, so every
     // active category referenced in a layout payload needs >=1 service.
+    //
+    // Slice 3a Task 5: 'source' => 'fresha' — owner-authored (source IS NULL)
+    // services moved to content.* and carry no category concept; reorder()/
+    // reorderLayout()'s category+sort_order machinery this file exercises is
+    // Fresha-only post-cutover, so an un-migrated source-less fixture would
+    // 422 as an unrecognised id in either half.
     $svcIds = [];
     foreach ([0, 1] as $sort) {
         $id = (string) Str::uuid();
@@ -96,6 +108,8 @@ function seedServiceReorderFixture(): array
             'title' => "Service {$sort}",
             'price_cents' => 1000,
             'sort_order' => $sort,
+            'source' => 'fresha',
+            'external_id' => "purge-svc-{$sort}",
             'created_at' => now()->toDateTimeString(),
             'updated_at' => now()->toDateTimeString(),
         ]);

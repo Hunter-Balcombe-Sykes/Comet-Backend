@@ -3,13 +3,16 @@
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
 use App\Http\Requests\Api\User\Services\ReorderServiceLayoutRequest;
 use App\Http\Requests\Api\User\Services\ReorderServiceRequest;
-use App\Models\Core\User\Service;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     tenantHelpersEnsureTables();
+    setupIngestTables();
+    setupContentTables();
+    setupBlocksTable();
+    shimPgAdvisoryLockForSqlite();
 
     // The shared mirror (services + categories + the multi-category pivot) —
     // ServiceResource reads memberships now, so the hand-rolled minimal table
@@ -17,49 +20,49 @@ beforeEach(function () {
     setupServicesTable();
 });
 
-it('service destroy refuses a service belonging to another professional', function () {
+// Slice 3a Task 5: destroy() and show()/update()/restore() no longer bind an
+// implicit Service model (they resolve a raw string id against content.*
+// first, then fall back to site.services WHERE source IS NOT NULL) — a
+// direct controller call can no longer hand them a pre-resolved, wrong-tenant
+// Eloquent model the way this test used to (Model::__toString() would
+// silently coerce it to JSON instead of TypeErroring). Rewritten onto the
+// HTTP layer, which is the only path that exercises the real string-id
+// lookup these methods now do. Covers BOTH halves — content.* (owner-
+// authored) and the untouched Fresha fallback — since both are reachable
+// through the same endpoint post-cutover (§C2).
+it('destroy refuses a manual (content.*) service belonging to another professional', function () {
     [$a, $b] = createTwoTenants();
-    $now = now()->toDateTimeString();
 
-    $serviceId = (string) Str::uuid();
-    DB::table('site.services')->insert([
-        'id' => $serviceId,
-        'user_id' => $a->id,
-        'title' => 'Secret Cut',
-        'price_cents' => 50_00,
-        'created_at' => $now,
-        'updated_at' => $now,
-    ]);
+    $id = actingAsUser($a)->postJson('/api/services', ['title' => 'Secret Cut', 'price_cents' => 5000])
+        ->assertCreated()->json('service.id');
 
-    $req = tenantRequestAs($b, [], 'DELETE');
-    $service = Service::query()->findOrFail($serviceId);
+    actingAsUser($b)->deleteJson("/api/services/{$id}")->assertNotFound();
 
-    // Policy denies access with AuthorizationException (404 status via denyAsNotFound).
-    expect(fn () => app(UserServiceController::class)->destroy($req, $service))
-        ->toThrow(AuthorizationException::class);
-
-    // Service must still exist.
-    expect(DB::table('site.services')->where('id', $serviceId)->exists())->toBeTrue();
+    expect(DB::table('content.items')->where('id', $id)->value('removed_at'))->toBeNull();
 });
 
-it('service index only returns services belonging to the authenticated professional', function () {
+it('destroy refuses a Fresha-sourced service belonging to another professional', function () {
     [$a, $b] = createTwoTenants();
-    $now = now()->toDateTimeString();
+    $id = ownerService($a->id, ['title' => 'Secret Cut', 'source' => 'fresha', 'external_id' => 's:1']);
 
-    DB::table('site.services')->insert([
-        ['id' => (string) Str::uuid(), 'user_id' => $a->id, 'title' => 'A Service', 'price_cents' => 100_00, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'user_id' => $b->id, 'title' => 'B Service', 'price_cents' => 200_00, 'created_at' => $now, 'updated_at' => $now],
-    ]);
+    actingAsUser($b)->deleteJson("/api/services/{$id}")->assertNotFound();
 
-    // flat=1 returns {services:[...]} and skips the ServiceCategory grouping query.
-    $req = tenantRequestAs($b);
-    $req->query->set('flat', '1');
-    $response = app(UserServiceController::class)->index($req);
-    $payload = $response->getData(true);
+    expect(DB::table('site.services')->where('id', $id)->whereNull('deleted_at')->exists())->toBeTrue();
+});
 
-    $titles = collect($payload['services'] ?? [])->pluck('title')->all();
-    expect($titles)->toContain('B Service');
-    expect($titles)->not->toContain('A Service');
+it('index only returns services belonging to the authenticated professional, across both halves', function () {
+    [$a, $b] = createTwoTenants();
+
+    actingAsUser($a)->postJson('/api/services', ['title' => 'A Manual', 'price_cents' => 1000])->assertCreated();
+    actingAsUser($b)->postJson('/api/services', ['title' => 'B Manual', 'price_cents' => 2000])->assertCreated();
+    ownerService($a->id, ['title' => 'A Fresha', 'source' => 'fresha', 'external_id' => 's:1']);
+    ownerService($b->id, ['title' => 'B Fresha', 'source' => 'fresha', 'external_id' => 's:2']);
+
+    $response = actingAsUser($b)->getJson('/api/services?include_archived=1')->assertOk();
+
+    $titles = collect($response->json('services'))->pluck('title')->all();
+    expect($titles)->toContain('B Manual', 'B Fresha');
+    expect($titles)->not->toContain('A Manual', 'A Fresha');
 });
 
 // SEC-6: reorder()/reorderLayout() previously never called authorizeForUser,

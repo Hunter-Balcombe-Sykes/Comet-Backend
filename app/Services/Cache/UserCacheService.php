@@ -229,7 +229,11 @@ class UserCacheService
      * Slice 3a Task 5: owner-authored services live in content.* now — reads
      * through ManualServiceItems, the same query UserServiceController's
      * uncached (archived/grouped) branches use, so the cached and uncached
-     * dashboard paths can't drift apart.
+     * dashboard paths can't drift apart. This list is a MERGE of both halves:
+     * content.* (owner-authored) plus site.services WHERE source IS NOT NULL
+     * (Fresha — untouched, 3b's rows). site.services also still physically
+     * carries the pre-cutover manual rows, but those are superseded by their
+     * content.* projection and are never read from here again.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -246,8 +250,17 @@ class UserCacheService
                 $manual = app(ManualServiceItems::class);
                 $site = Site::query()->where('user_id', $userId)->first();
                 $rows = $manual->rows($userId, $manual->sectionId($site), includeRemoved: false);
+                $manualServices = $manual->toServiceModels($userId, $rows);
 
-                return $manual->toServiceModels($userId, $rows)
+                $freshaServices = Service::query()
+                    ->where('user_id', $userId)
+                    ->whereNotNull('source')
+                    ->with('categories:id')
+                    ->orderBy('sort_order')
+                    ->orderBy('created_at')
+                    ->get();
+
+                return $manualServices->concat($freshaServices)
                     ->map(fn (Service $s) => (new ServiceResource($s))->resolve())
                     ->all();
             }

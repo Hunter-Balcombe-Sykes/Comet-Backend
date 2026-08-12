@@ -11,6 +11,12 @@ beforeEach(function () {
     tenantHelpersEnsureTables();
     setupServicesTable();
     setupServiceCategoriesTable();
+    // The "coexists with reorder-layout" test below also drives
+    // reorderLayout(), which reads content.*/site.sections regardless of
+    // whether the professional has any owner-authored services.
+    setupIngestTables();
+    setupContentTables();
+    setupBlocksTable();
 
     // updateCategory() takes pg_advisory_xact_lock(hashtext(...)) — Postgres-only;
     // shim it (and hashtext) as SQLite UDFs so the real production code path runs.
@@ -145,8 +151,10 @@ it('coexists with reorder-layout under the shared advisory-lock key', function (
     $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
     $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
     // services_pro_sort_order_uq is GLOBAL per user — distinct starting sort_orders.
-    $s1 = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0]);
-    // s2 is the one PATCHed below — Fresha-sourced so the category endpoint allows it.
+    // Both Fresha-sourced: $s2 so the category endpoint allows it, $s1 because
+    // the reorder-layout payload below references it too, and owner-authored
+    // (source IS NULL) services carry no category concept post-cutover.
+    $s1 = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
     $s2 = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1, 'source' => 'fresha']);
 
     // 1) PATCH moves $s2 from A to B, appending at global max+1 = 2.

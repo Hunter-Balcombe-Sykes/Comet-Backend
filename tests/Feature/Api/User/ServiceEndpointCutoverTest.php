@@ -4,10 +4,13 @@ use App\Ingest\Projection\ProjectionWriter;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualServiceWriter;
 use App\Services\Migration\ServiceBackfiller;
 use App\Services\PublicSite\SitepageDataResolverService;
+use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 // Slice 3a Task 5: the 8 owner-authored routes on UserServiceController now
 // read and write content.* instead of site.services. The bug this guards
@@ -229,14 +232,83 @@ it('a partial update does not blank out fields it did not send', function () {
     expect($response->json('service.duration_minutes'))->toBe(45);
 });
 
-it('never lets an owner reach a Fresha-sourced service through the cutover endpoints', function () {
+it('falls back to the untouched Fresha row when the id is not a manual content item', function () {
+    // §C2 (review correction): "cut over fully rather than dual-writing"
+    // meant owner-authored writes go ONLY to content.*, not that a Fresha id
+    // stops being addressable — site.services holds 61 untouched Fresha rows
+    // until 3b, and these endpoints must still reach them.
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
-    $freshaId = ownerService($userId, ['source' => 'fresha', 'external_id' => 's:1']);
+    $freshaId = ownerService($userId, ['title' => 'Cut', 'source' => 'fresha', 'external_id' => 's:1']);
 
-    // Still physically in site.services (untouched — 3b's row), but the
-    // cutover endpoints only ever look in content.*, so it 404s here.
-    actingAsUser($user)->getJson("/api/services/{$freshaId}")->assertNotFound();
+    $response = actingAsUser($user)->getJson("/api/services/{$freshaId}")->assertOk();
+    expect($response->json('service.id'))->toBe($freshaId);
+    expect($response->json('service.source'))->toBe('fresha');
+});
+
+it('editing a Fresha service through PATCH detaches it from the live sync (is_manual)', function () {
+    // Without this legacy branch resync/resyncBulk become dead code — nothing
+    // else can ever set is_manual=true again.
+    [$userId, $siteId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+    $freshaId = ownerService($userId, ['title' => 'Cut', 'source' => 'fresha', 'external_id' => 's:1', 'is_manual' => 0]);
+
+    $response = actingAsUser($user)->patchJson("/api/services/{$freshaId}", ['title' => 'Owner-edited price'])->assertOk();
+
+    expect($response->json('service.is_manual'))->toBeTrue();
+    expect(DB::table('site.services')->where('id', $freshaId)->value('is_manual'))->toBeTruthy();
+});
+
+it('deleting a Fresha service records deleted_origin=user so a sync never resurrects it', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+    $freshaId = ownerService($userId, ['title' => 'Cut', 'source' => 'fresha', 'external_id' => 's:1']);
+
+    actingAsUser($user)->deleteJson("/api/services/{$freshaId}")->assertOk()->assertJson(['deleted' => true]);
+
+    expect(DB::table('site.services')->where('id', $freshaId)->value('deleted_origin'))->toBe('user');
+    expect(DB::table('site.services')->where('id', $freshaId)->value('deleted_at'))->not->toBeNull();
+});
+
+it('restoring a Fresha service clears deleted_origin and recomputes sort_order', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+    $freshaId = ownerService($userId, [
+        'title' => 'Cut', 'source' => 'fresha', 'external_id' => 's:1',
+        'deleted_at' => now(), 'deleted_origin' => 'user',
+    ]);
+
+    $response = actingAsUser($user)->postJson("/api/services/{$freshaId}/restore")->assertOk();
+
+    expect($response->json('restored'))->toBeTrue();
+    expect(DB::table('site.services')->where('id', $freshaId)->value('deleted_at'))->toBeNull();
+    expect(DB::table('site.services')->where('id', $freshaId)->value('deleted_origin'))->toBeNull();
+});
+
+it('reorder routes a Fresha id to sort_order and a manual id to sort_key in one request', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+
+    $manualId = actingAsUser($user)->postJson('/api/services', ['title' => 'Manual One', 'price_cents' => 1000])
+        ->assertCreated()->json('service.id');
+    $freshaId = ownerService($userId, ['title' => 'Fresha One', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 0]);
+    $freshaId2 = ownerService($userId, ['title' => 'Fresha Two', 'source' => 'fresha', 'external_id' => 's:3', 'sort_order' => 1]);
+
+    actingAsUser($user)->postJson('/api/services/reorder', ['ids' => [$freshaId2, $freshaId, $manualId]])
+        ->assertOk()->assertJson(['ok' => true]);
+
+    expect(DB::table('site.services')->where('id', $freshaId2)->value('sort_order'))->toBe(0);
+    expect(DB::table('site.services')->where('id', $freshaId)->value('sort_order'))->toBe(1);
+    $manualSortKey = DB::table('site.section_items')->where('item_id', $manualId)->value('sort_key');
+    expect($manualSortKey)->not->toBeNull();
+});
+
+it('reorder authorizes via ServicePolicy and 423s a pending-deletion account (C1 regression)', function () {
+    [$userId] = seedUserWithSite();
+    DB::table('core.users')->where('id', $userId)->update(['status' => 'pending_deletion']);
+    $user = User::query()->with('site')->findOrFail($userId);
+
+    actingAsUser($user)->postJson('/api/services/reorder', ['ids' => []])->assertStatus(423);
 });
 
 it('rejects a cross-tenant service id as not found', function () {
@@ -259,27 +331,107 @@ it('fires all three invalidation lanes on a raw content write', function () {
 
     DB::table('site.sites')->where('id', $siteId)->update(['updated_at' => now()->subMinute()]);
     $before = DB::table('site.sites')->where('id', $siteId)->value('updated_at');
+    $beforeRevision = BuildState::read($siteId)['content_revision'];
 
     actingAsUser($user)->postJson('/api/services', ['title' => 'Lanes', 'price_cents' => 1000])->assertCreated();
 
+    // writeManualItem() bumps once on its own (ProjectionWriter::bumpSite());
+    // ManualServiceWriter::invalidate() must bump AGAIN on top of that —
+    // mirrors ServiceBackfillerTest's identical assertion for the same
+    // reason: a merely ">0" check would still pass with invalidate()'s own
+    // bump call deleted, since writeManualItem()'s bump alone clears that bar.
+    expect(DB::table('site.site_build_state')->where('site_id', $siteId)->value('content_revision'))
+        ->toBe($beforeRevision + 2);
     expect(DB::table('site.sites')->where('id', $siteId)->value('updated_at'))->not->toBe($before);
     Queue::assertPushed(CloudflareCachePurgeJob::class);
 });
 
-it('a connector projection run after the cutover backfill destroys nothing (§8.3 regression)', function () {
+it('a connector-shaped merge after the cutover backfill keeps the owner item alive (§8.3 regression)', function () {
+    // I2 fix: the previous version of this test never ran the resolver — it
+    // only re-read an untouched `coord` column, so it stayed green with
+    // ProjectionWriter::preferOwnerAnchored()/mergeInto()'s hasCuration
+    // protection entirely removed. This version actually forces a merge.
     [$userId, $siteId] = seedUserWithSite();
-    $legacyId = ownerService($userId, ['title' => 'Legacy Owner Service']);
+    $legacyId = ownerService($userId, ['title' => 'Legacy Owner Service', 'price_cents' => 6500, 'duration_minutes' => 45]);
     app(ServiceBackfiller::class)->run();
 
+    $manualSourceItemId = DB::table('content.source_items')->where('coord', 'manual:'.$legacyId)->value('id');
+    $manualItemId = DB::table('content.source_items')->where('coord', 'manual:'.$legacyId)->value('item_id');
+    expect($manualSourceItemId)->not->toBeNull();
+
+    // Simulate a connector landing a DIFFERENT-sourced record the identity
+    // resolver considers the SAME service (a shared canonical URL — the
+    // 'link' kind gate in Resolver::mayUnion() means either side may carry
+    // it, and CanonicalUrl is a JOINING key so it unions without needing to
+    // be cross-source). Bound BEFORE the manual item — so a naive
+    // oldest-binding-wins rule (bindGroup()'s fallback) would pick this row,
+    // not the owner's, if preferOwnerAnchored() didn't override it.
+    $connectionSourceId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $connectionSourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $connectorItemId = (string) Str::uuid();
+    DB::table('content.items')->insert([
+        'id' => $connectorItemId, 'user_id' => $userId, 'kind' => 'service',
+        'headline_cache' => 'CONNECTOR PLACEHOLDER — must not survive the merge',
+        'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'first_seen_at' => now()->subDay(), 'last_seen_at' => now()->subDay(),
+        'created_at' => now()->subDay(), 'updated_at' => now()->subDay(),
+    ]);
+    $connectorSourceItemId = (string) Str::uuid();
+    DB::table('content.source_items')->insert([
+        'id' => $connectorSourceItemId, 'source_id' => $connectionSourceId,
+        'coord' => 'fresha:acct:s:merge-test', 'item_id' => $connectorItemId, 'kind' => 'service',
+        'projector_version' => 1, 'first_seen_at' => now()->subDay(), 'last_seen_at' => now()->subDay(),
+    ]);
+    DB::table('content.item_anchors')->insert([
+        'coord' => 'fresha:acct:s:merge-test', 'user_id' => $userId, 'item_id' => $connectorItemId,
+        'bound_at' => now()->subDay(),
+    ]);
+    // Only the CONNECTOR side's key is pre-seeded here — the manual side's
+    // matching key is supplied via the write() call below, in the SAME
+    // projection's f_link.url. writeManualItem()'s writeIdentityKeys()
+    // DELETEs and re-derives every key for the coord it's given on every
+    // call, so a key inserted here directly for the manual source_item
+    // would be wiped before resolveItems() ever runs — it must arrive
+    // through the projection instead.
+    DB::table('content.identity_keys')->insert([
+        'source_item_id' => $connectorSourceItemId, 'key_class' => 'canonical_url',
+        'key_value' => 'https://example.test/shared-service', 'tier' => 'joining', 'created_at' => now(),
+    ]);
+
+    // Trigger the resolver over BOTH source items — re-writing the same
+    // manual coord is exactly what update() does on every content edit, and
+    // resolveItems() scans every live source_item for (user, kind)
+    // regardless of which write triggered it. f_link.url is NOT part of
+    // ManualServiceWriter::projectionFor()'s real mapping (services carry no
+    // URL) — added here only to give the manual source_item the SAME
+    // canonical-url identity key as the synthetic connector row, forcing the
+    // union this test exists to exercise.
+    $writer = app(ManualServiceWriter::class);
+    $writer->write($userId, 'manual:'.$legacyId, [
+        'kind' => 'service',
+        'headline' => 'Legacy Owner Service',
+        'facets' => [
+            'f_text' => ['headline' => 'Legacy Owner Service'],
+            'f_link' => ['url' => 'https://example.test/shared-service'],
+        ],
+    ]);
+
+    // The merge DID happen (content.item_merges has a row) — the interesting
+    // question is which side survived as the LIVE, publicly-readable item.
+    // mergeInto() spares a discarded item that carries curation from hard
+    // delete either way (it's never deleted here), but ValueResolver's
+    // source-priority headline recompute means the DISPLAYED title is
+    // "Legacy Owner Service" regardless of which item id won — priority
+    // alone would mask a preferOwnerAnchored() regression, so the assertion
+    // that actually detects one is WHICH ITEM ID the public read resolves
+    // to, not what title it carries.
+    expect(DB::table('content.item_merges')->where('user_id', $userId)->exists())->toBeTrue();
+
     $site = Site::query()->find($siteId);
-    $before = app(SitepageDataResolverService::class)->buildServicesData($site, $userId)['services'];
-    expect($before)->toHaveCount(1);
-
-    // A later connector-style projection over a DIFFERENT kind must not
-    // disturb the manual service item.
-    $coord = DB::table('content.source_items')->where('coord', 'manual:'.$legacyId)->value('coord');
-    expect($coord)->toBe('manual:'.$legacyId);
-
-    $after = app(SitepageDataResolverService::class)->buildServicesData($site, $userId)['services'];
-    expect($after)->toBe($before);
+    $data = app(SitepageDataResolverService::class)->buildServicesData($site, $userId);
+    expect(array_column($data['services'], 'id'))->toBe([$manualItemId]);
+    expect(array_column($data['services'], 'title'))->toBe(['Legacy Owner Service']);
 });
