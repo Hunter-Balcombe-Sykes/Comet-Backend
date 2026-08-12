@@ -1136,7 +1136,10 @@ class ProjectionWriter
      * is the UNIQUE (user_id, fingerprint) dedupe key, and a fingerprint
      * computed from the raw URL while a minimised URL is stored would let a
      * re-run mint a second row for the same image. The vendor's stable ref is
-     * the fallback for images with no fetchable URL (GBP photo resource names).
+     * PREFERRED over the URL (slice 1a §3.1): Instagram URLs re-sign on every
+     * sync (`oh`/`oe` params survive minimisation), so a URL-keyed asset
+     * re-mints per sync the moment a projector emits url beside ref. The URL
+     * is the fallback for entries with no ref.
      *
      * ONE implementation, called from both the bulk resolve and the row build
      * — the two must never disagree about what an entry's fingerprint is.
@@ -1152,7 +1155,7 @@ class ProjectionWriter
         $url = ($url === '' ? null : $url); // minimiseUrl fails closed to ''
         $ref = isset($entry['ref']) && is_string($entry['ref']) && $entry['ref'] !== '' ? $entry['ref'] : null;
 
-        $fingerprint = $url ?? $ref;
+        $fingerprint = $ref ?? $url;
 
         return [$fingerprint === null ? null : 'url-'.sha1($fingerprint), $url];
     }

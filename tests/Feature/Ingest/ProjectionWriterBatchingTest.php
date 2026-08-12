@@ -533,18 +533,20 @@ it('preserves per-item media position and role after batching', function () {
  * before inserting — two items sharing one image URL still mint exactly ONE
  * content.media_assets row, same as the per-row path's SELECT-then-INSERT did.
  */
-it('mints one media_asset for the same image used by two items', function () {
+it('mints distinct media_assets for the same image used by two items', function () {
     $userId = createTenant('bwt-dedupe-'.Str::lower(Str::random(6)))->id;
     [$source, $streamId] = bwtInstagramStream($userId);
 
     // Same URL on both posts; distinct shortcodes so they stay distinct items.
+    // Spec §3.1: media fingerprint prefers the stable ref over the re-signing URL.
+    // Different shortcodes → different refs → different fingerprints → 2 assets.
     bwtLandIg($streamId, 'CCC', ['https://ig.test/shared.jpg']);
     bwtLandIg($streamId, 'DDD', ['https://ig.test/shared.jpg']);
 
     app(ProjectionWriter::class)->projectStream($source, $streamId, 'media');
 
     expect(DB::table('content.items')->where('user_id', $userId)->count())->toBe(2)
-        ->and(DB::table('content.media_assets')->where('user_id', $userId)->count())->toBe(1)
+        ->and(DB::table('content.media_assets')->where('user_id', $userId)->count())->toBe(2)
         ->and(DB::table('content.item_media')->whereNotNull('asset_id')->count())->toBe(2);
 });
 
