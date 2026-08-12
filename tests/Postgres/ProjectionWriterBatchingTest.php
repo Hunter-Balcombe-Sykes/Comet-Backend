@@ -240,7 +240,8 @@ beforeEach(function () {
         'f_embed' => 'provider text NOT NULL, embed_key text NOT NULL, variant text',
         'f_playable' => 'stream_url text, preview_url text, is_explicit boolean',
         'f_authored' => 'creator text, creator_url text, collaborators jsonb',
-        'f_catalog' => 'release_type text, track_number integer, disc_number integer, isrc text, gtin text, sku text',
+        // handle/vendor/variant_ref: supabase/migrations/20260813100002_f_catalog_product_fields.sql.
+        'f_catalog' => 'release_type text, track_number integer, disc_number integer, isrc text, gtin text, sku text, handle text, vendor text, variant_ref text',
         'f_place' => 'venue_name text, address text, locality text, region text, country_code text, latitude double precision, longitude double precision',
         'f_rated' => 'rating double precision, rating_max double precision, ratings_count integer',
         'f_review' => 'author_name text, author_photo_url text, rating double precision, text text, reviewed_at timestamptz',
@@ -303,9 +304,22 @@ beforeEach(function () {
         qualifier text NOT NULL DEFAULT \'exact\',
         amount_max_minor bigint,
         url text,
+        availability text,
         updated_at timestamptz NOT NULL DEFAULT now()
     )');
     $pg->statement('CREATE INDEX idx_pwbt_offers_item ON content.offers (item_id)');
+
+    // Shape tracks supabase/migrations/20260727140000_content_schema.sql:404 —
+    // ProjectionWriter writes and deletes this table (label is NOT NULL there).
+    $pg->statement('CREATE TABLE content.item_variants (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        item_id uuid NOT NULL REFERENCES content.items(id) ON DELETE CASCADE,
+        source_id uuid NOT NULL REFERENCES content.sources(id) ON DELETE CASCADE,
+        label text NOT NULL,
+        sku text,
+        position integer NOT NULL DEFAULT 0
+    )');
+    $pg->statement('CREATE INDEX idx_pwbt_item_variants_item ON content.item_variants (item_id)');
 
     $pg->statement('CREATE TABLE content.item_tags (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -331,7 +345,8 @@ beforeEach(function () {
 afterAll(function () {
     $pg = DB::connection('pgsql');
     foreach ([
-        'content.f_action', 'content.item_tags', 'content.offers', 'content.item_media', 'content.media_assets',
+        'content.f_action', 'content.item_tags', 'content.item_variants', 'content.offers', 'content.item_media',
+        'content.media_assets',
         'content.manual_overrides', 'content.identity_candidates', 'content.item_merges', 'content.item_anchors',
         'content.identity_decisions', 'content.identity_keys', 'content.source_items', 'content.f_file',
         'content.f_channel', 'content.f_review', 'content.f_rated', 'content.f_place', 'content.f_catalog',
