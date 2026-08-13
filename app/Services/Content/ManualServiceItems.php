@@ -5,6 +5,7 @@ namespace App\Services\Content;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\Service;
+use App\Models\Core\User\ServiceCategory;
 use App\Site\Pools\PoolRegistry;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
@@ -22,6 +23,8 @@ use Illuminate\Support\Facades\DB;
  */
 class ManualServiceItems
 {
+    public function __construct(private readonly ServiceCollections $collections) {}
+
     /** Read-only resolve of the site's own 'services' section id — never provisions. */
     public function sectionId(?Site $site): ?string
     {
@@ -190,6 +193,57 @@ class ManualServiceItems
     }
 
     /**
+     * Slice 3b Task 10: each item's OWNER-AUTHORED service-category
+     * memberships, in position order.
+     *
+     * Scoped to `content.collection_items.source_id IS NULL` — the lane
+     * ServiceCollections::assign() writes for owner-authored content (its
+     * rule 4: memberships are replaced per source, null being "the owner").
+     * A connector's own memberships live under its source id and belong to
+     * the booking surface (FreshaServiceItems), never here: that is the same
+     * two-surface split this whole class sits on.
+     *
+     * The kind/removed_at predicate is NOT re-expressed here. The live
+     * `kind='service_category'` set comes from ServiceCollections::list(),
+     * which already owns it — a fourth hand-rolled copy of a content.*
+     * predicate is what three of slice 3a's final-review blockers were. The
+     * consequence worth knowing: a collection the owner deleted
+     * (`removed_at`) is absent from that list, so an item whose only
+     * membership points at it falls back to the unassigned rendering rather
+     * than resurrecting a deleted category's name onto the page.
+     *
+     * @param  list<string>  $itemIds
+     * @return array<string, list<\stdClass>> item_id => collections (id, label, …)
+     */
+    private function collectionsFor(string $userId, array $itemIds): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $live = $this->collections->list($userId)->keyBy(fn ($row) => (string) $row->id);
+        if ($live->isEmpty()) {
+            return [];
+        }
+
+        $memberships = DB::connection('pgsql')->table('content.collection_items')
+            ->whereIn('item_id', $itemIds)
+            ->whereNull('source_id')
+            ->orderBy('position')
+            ->get(['item_id', 'collection_id']);
+
+        $byItem = [];
+        foreach ($memberships as $membership) {
+            $collection = $live->get((string) $membership->collection_id);
+            if ($collection !== null) {
+                $byItem[(string) $membership->item_id][] = $collection;
+            }
+        }
+
+        return $byItem;
+    }
+
+    /**
      * The public payload shape (SitepageDataResolverService::buildServicesData()):
      * live, non-excluded items only, mapped to the seven legacy keys.
      *
@@ -210,8 +264,9 @@ class ManualServiceItems
         // Every row's source_id is the SAME manual source (idx_content_sources_manual
         // is unique per user) — any row's value identifies it for the facet lookups.
         $facets = $this->facets($itemIds, $rows->first()->source_id);
+        $collections = $this->collectionsFor($userId, $itemIds);
 
-        return $rows->map(function ($row) use ($facets) {
+        return $rows->map(function ($row) use ($facets, $collections) {
             [$priceCents, $currencyCode] = $this->priceOf($row, $facets);
             $seconds = $facets['durations'][$row->id] ?? null;
 
@@ -222,12 +277,16 @@ class ManualServiceItems
                 'price_cents' => $priceCents,
                 'currency_code' => $currencyCode,
                 'duration_minutes' => $seconds === null ? null : (int) ($seconds / 60),
-                // Every live category assignment belongs to Fresha (spec
-                // §1.1/§2 — owner-authored carries zero), so this reproduces
-                // the pre-migration fallback unconditionally. Only honest
-                // while ServicePolicy::updateCategory() keeps blocking
-                // manual-service category assignment.
-                'category' => 'Services',
+                // Slice 3b Task 10: the item's REAL category label. This was
+                // a hardcoded 'Services' constant, honest only while
+                // ServicePolicy::updateCategory() blocked owner-authored
+                // assignment — 3b removed that gate, so the two moved
+                // together (see that policy method's docblock; neither may
+                // move alone). The constant survives as the fallback for an
+                // item with no live membership, which is every item that
+                // existed before this change, so today's output is preserved
+                // exactly for the unassigned case.
+                'category' => (string) ($collections[$row->id][0]->label ?? 'Services'),
             ];
         })->values()->all();
     }
@@ -270,8 +329,9 @@ class ManualServiceItems
         $itemIds = $rows->pluck('id')->all();
         $facets = $this->facets($itemIds, $rows->first()->source_id);
         $legacyIds = $this->legacyIdsFor($itemIds, $userId, $rows->first()->source_id);
+        $collections = $this->collectionsFor($userId, $itemIds);
 
-        return $rows->map(function ($row) use ($userId, $facets, $legacyIds) {
+        return $rows->map(function ($row) use ($userId, $facets, $legacyIds, $collections) {
             [$priceCents, $currencyCode] = $this->priceOf($row, $facets);
             $seconds = $facets['durations'][$row->id] ?? null;
 
@@ -297,9 +357,14 @@ class ManualServiceItems
                 'created_at' => $row->created_at,
                 'updated_at' => $row->updated_at,
                 'deleted_at' => $row->removed_at,
-                // content.* has no membership concept yet (3b) — mirrors
-                // toServiceModel()'s identical empty-categories rule.
-                'category_ids' => [],
+                // Slice 3b Task 10: real memberships, now that content.* has
+                // them. A DSAR covers data actually held, and an owner's
+                // category choice is held data — this stopped being an
+                // honest empty list the moment assignment started persisting.
+                'category_ids' => array_map(
+                    fn ($collection) => (string) $collection->id,
+                    $collections[$row->id] ?? [],
+                ),
             ];
         })->values()->all();
     }
@@ -396,13 +461,19 @@ class ManualServiceItems
 
         $itemIds = $rows->pluck('id')->all();
         $facets = $this->facets($itemIds, $rows->first()->source_id);
+        $collections = $this->collectionsFor($userId, $itemIds);
 
-        return $rows->map(fn ($row) => $this->hydrate($userId, $row, $facets))->values();
+        return $rows->map(fn ($row) => $this->hydrate($userId, $row, $facets, $collections[$row->id] ?? []))->values();
     }
 
     public function toServiceModel(string $userId, object $row): Service
     {
-        return $this->hydrate($userId, $row, $this->facets([$row->id], $row->source_id));
+        return $this->hydrate(
+            $userId,
+            $row,
+            $this->facets([$row->id], $row->source_id),
+            $this->collectionsFor($userId, [(string) $row->id])[$row->id] ?? [],
+        );
     }
 
     /** @return array{0: int, 1: string} [price_cents, currency_code] */
@@ -419,7 +490,8 @@ class ManualServiceItems
         ];
     }
 
-    private function hydrate(string $userId, object $row, array $facets): Service
+    /** @param  list<\stdClass>  $collections  this item's live owner-authored memberships (collectionsFor()) */
+    private function hydrate(string $userId, object $row, array $facets, array $collections = []): Service
     {
         [$priceCents, $currencyCode] = $this->priceOf($row, $facets);
         $seconds = $facets['durations'][$row->id] ?? null;
@@ -462,12 +534,23 @@ class ManualServiceItems
         $service->created_at = $row->created_at !== null ? Carbon::parse($row->created_at) : null;
         $service->updated_at = $row->updated_at !== null ? Carbon::parse($row->updated_at) : null;
         $service->deleted_at = $row->removed_at !== null ? Carbon::parse($row->removed_at) : null;
-        // Owner-authored services carry zero live category memberships
-        // (spec §1.1/§2) and content.* has no membership concept yet (3b) —
-        // pre-set so index()'s grouped branch, which touches ->categories
-        // directly, never queries a content-item id against
-        // site.service_category_assignments.
-        $service->setRelation('categories', collect());
+        // Slice 3b Task 10: the item's real content.collections memberships,
+        // as UNPERSISTED ServiceCategory models — ServiceResource and
+        // UserServiceController::index()'s grouped branch both read
+        // `->categories` and only ever touch id/title, so this feeds them
+        // the truth without either learning about content.*. Still pre-set
+        // (never lazily loaded) for the original reason: a content-item id
+        // must never be queried against site.service_category_assignments.
+        // Empty stays empty for an unassigned service, which is every
+        // service that existed before assignment was possible.
+        $service->setRelation('categories', collect($collections)->map(function ($collection) {
+            $category = new ServiceCategory;
+            $category->exists = false;
+            $category->id = (string) $collection->id;
+            $category->title = (string) $collection->label;
+
+            return $category;
+        })->values());
 
         return $service;
     }

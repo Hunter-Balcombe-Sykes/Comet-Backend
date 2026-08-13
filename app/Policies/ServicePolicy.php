@@ -53,27 +53,37 @@ class ServicePolicy extends BasePolicy
     }
 
     /**
-     * Category assignment, restricted to Fresha-projected services.
-     * Slice 3a (§7 "Out of scope — carried to 3b"): owner-authored
-     * (source IS NULL) categories have no destination in content.* yet —
-     * 3b lands content.collections for them. Until then,
-     * SitepageDataResolverService::buildServicesData() hardcodes
-     * 'category' => 'Services' for every manual row; that constant is only
-     * honest while this restriction holds, so if one of the two moves the
-     * other must move with it. Denies as not-found (not a new 403 shape) —
-     * same posture the rest of this policy uses for "can't act on this yet".
+     * Category assignment — open to every service the actor owns.
+     *
+     * Slice 3a restricted this to `source = 'fresha'` because owner-authored
+     * services had no membership destination in content.* at all, and
+     * accepting a write nothing serves is worse than refusing it. **Slice 3b
+     * landed that destination** (`content.collections` /
+     * `content.collection_items`, written through
+     * `App\Services\Content\ServiceCollections::assign()`), so the gate is
+     * gone — that was its documented exit condition, not a regression.
+     *
+     * The coupling 3a recorded here moved WITH it, in the same commit:
+     * `ManualServiceItems::publicList()` (the read behind
+     * SitepageDataResolverService::buildServicesData()) no longer hardcodes
+     * `'category' => 'Services'` — it renders the item's real collection
+     * label and falls back to that constant only when the item has no live
+     * membership. Neither half may move alone: re-adding a restriction here
+     * without changing that read ships a dashboard that assigns categories
+     * the page then labels "Services", and dropping the read's fallback
+     * without a gate here relabels every uncategorised service.
+     *
+     * Ownership/pending-deletion still come from update() (404, never 403 —
+     * the enumeration rule the rest of this policy follows). Which STORE a
+     * given id lives in is the controller's resolution problem, not an
+     * authorization one: `UserServiceController::updateCategory()` resolves
+     * against `site.services WHERE source IS NOT NULL` and against
+     * `content.items`, so a superseded legacy owner-authored row (source IS
+     * NULL, matched by neither) still 404s — by being unaddressable, not by
+     * being denied.
      */
     public function updateCategory(User $actor, Model $resource): bool|Response
     {
-        $updateResult = $this->update($actor, $resource);
-        if ($updateResult !== true) {
-            return $updateResult;
-        }
-
-        if ((string) ($resource->source ?? '') !== 'fresha') {
-            return $this->denyAsNotFound();
-        }
-
-        return true;
+        return $this->update($actor, $resource);
     }
 }
