@@ -1884,11 +1884,12 @@ return [
         'detector' => '43031574af12a099',
     ],
     255 => [
-        'url' => 'https://ubereats.com/',
+        'url' => 'https://ubereats.com/store/aaa/aaa',
         'expect' => [
             'surface' => 'uber_eats.order',
+            'identifier' => 'aaa',
         ],
-        'detector' => 'ab92a9e032b7375a',
+        'detector' => '354622fd7070cb07',
     ],
     256 => [
         'url' => 'https://vagaro.com/',
