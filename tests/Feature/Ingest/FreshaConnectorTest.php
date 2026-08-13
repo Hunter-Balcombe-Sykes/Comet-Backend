@@ -297,3 +297,59 @@ it('still fetches profile when nothing has been chosen', function () {
 
     expect($io->posts)->toHaveCount(1);
 });
+
+it('lands a package row whose catalog id is only on the secondary action', function () {
+    // primaryAction carries bookableId and NO catalogId; secondaryAction has
+    // "catalogId":"p:360081". Two defects lost this row: the regex was pinned
+    // to `s:`, and `primaryAction.id ?? secondaryAction.id` is a NULL-coalesce
+    // on a non-null string, so it never fell through.
+    $item = [
+        'name' => "'Father & Son' Haircuts (Standard)",
+        'caption' => '25 mins - 30 mins  •  2 services',
+        'price' => ['formatted' => 'from $87'],
+        'primaryAction' => ['id' => '[{"type":"onScreenServicesModalPackageOpen","bookableId":"p:360081"}]'],
+        'secondaryAction' => ['id' => '[{"type":"onScreenServicesPackageAdd","catalogId":"p:360081"}]'],
+    ];
+    $io = freshaIo(freshaResponseWith([['id' => '2590968', 'name' => 'Kids', 'items' => [$item]]]));
+    $pull = freshaPull('services', 'edward', config: ['selection_ref' => 'storewide']);
+
+    $records = array_values(array_filter(
+        iterator_to_array((new FreshaConnector)->pull($pull, $io)),
+        fn ($m) => $m instanceof Record,
+    ));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->key)->toBe('p:360081')
+        ->and($records[0]->doc['price'])->toBe('from $87');
+});
+
+it('carries the vendor category id alongside its name', function () {
+    $io = freshaIo(freshaResponseWith([[
+        'id' => '3282965', 'name' => 'Haircuts', 'items' => [normalItem('s:12107058')],
+    ]]));
+    $pull = freshaPull('services', 'edward', config: ['selection_ref' => 'storewide']);
+
+    $records = array_values(array_filter(
+        iterator_to_array((new FreshaConnector)->pull($pull, $io)),
+        fn ($m) => $m instanceof Record,
+    ));
+
+    expect($records[0]->doc['categoryId'])->toBe('3282965')
+        ->and($records[0]->doc['category'])->toBe('Haircuts');
+});
+
+it('counts rows it could not map instead of dropping them silently', function () {
+    $unmappable = ['name' => 'Mystery', 'primaryAction' => ['id' => '[{"type":"whatever"}]']];
+    $io = freshaIo(freshaResponseWith([[
+        'id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1'), $unmappable],
+    ]]));
+    $pull = freshaPull('services', 'edward', config: ['selection_ref' => 'storewide']);
+
+    $notes = array_values(array_filter(
+        iterator_to_array((new FreshaConnector)->pull($pull, $io)),
+        fn ($m) => $m instanceof Note,
+    ));
+
+    expect($notes)->toHaveCount(1)
+        ->and($notes[0]->code)->toBe('unmapped_rows');
+});

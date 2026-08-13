@@ -145,22 +145,29 @@ class FreshaConnector implements Connector
             // the same failure mode as a rejected hash, just discovered one
             // layer deeper.
             yield new Unavailable(
-                'Fresha booking-flow response had no screenServices.categories — '.
-                'the classic pinned-hash rotation symptom on an otherwise-200 '.
-                'response; re-pin FRESHA_BOOKING_INIT_HASH / FRESHA_CLIENT_VERSION.',
+                'Fresha booking-flow response carried no screenServices.categories. '.
+                'Most likely the request asked for a screen that has no menu on it — '.
+                'check that shouldShowAllEmployees is false and that selection_ref '.
+                'names a real employee (verified live 2026-08-13: allEmployees=true '.
+                'returns the picker screen with screenServices {}). A rotated '.
+                'persisted-query hash produces the same symptom and is the second '.
+                'thing to check — re-pin FRESHA_BOOKING_INIT_HASH / '.
+                'FRESHA_CLIENT_VERSION only after ruling the first out.',
             );
 
             return;
         }
 
         $items = [];
+        $unmapped = 0;
         foreach ($categories as $category) {
             $categoryName = is_string($category['name'] ?? null) ? $category['name'] : null;
+            $categoryId = isset($category['id']) && is_scalar($category['id'])
+                ? (string) $category['id']
+                : null;
             foreach ((array) ($category['items'] ?? []) as $item) {
-                $mapped = $this->mapServiceItem($item, $categoryName);
-                if ($mapped !== null) {
-                    $items[] = $mapped;
-                }
+                $mapped = $this->mapServiceItem($item, $categoryName, $categoryId);
+                $mapped === null ? $unmapped++ : $items[] = $mapped;
             }
         }
 
@@ -177,6 +184,12 @@ class FreshaConnector implements Connector
         // A parsed menu is the whole menu — Fresha does not paginate this
         // call, so what came back is everything there is.
         yield new Covered('services', Coverage::exhaustive());
+
+        if ($unmapped > 0) {
+            // A mapper gap used to be invisible: three of one salon's rows --
+            // 12% of its menu -- vanished with no record and no signal.
+            yield new Note('unmapped_rows', $unmapped.' Fresha row(s) carried no recognisable catalog id and were not landed');
+        }
     }
 
     /** @return iterable<Message> */
@@ -208,7 +221,7 @@ class FreshaConnector implements Connector
     }
 
     /** @return array<string, mixed>|null */
-    private function mapServiceItem(mixed $item, ?string $categoryName): ?array
+    private function mapServiceItem(mixed $item, ?string $categoryName, ?string $categoryId): ?array
     {
         if (! is_array($item)) {
             return null;
@@ -218,21 +231,31 @@ class FreshaConnector implements Connector
             return null;
         }
 
-        // Mirrors FreshaScraper::fetchEmployeeServices exactly: the real
-        // serviceId only ever surfaces embedded as a JSON string inside the
-        // action id, e.g. primaryAction.id === '{"catalogId":"s:123"}'.
-        $actionId = (string) (data_get($item, 'primaryAction.id') ?? data_get($item, 'secondaryAction.id') ?? '');
-        if (! preg_match('/"catalogId":"(s:\d+)"/', $actionId, $m)) {
+        // The real id only ever surfaces embedded as a JSON string inside an
+        // action id. A single service is `s:123`; a multi-service PACKAGE is
+        // `p:360081` and carries it on secondaryAction only -- primaryAction
+        // has bookableId instead. This must be a MATCH-based fallback, not
+        // `?? `: primaryAction.id is a non-null string on a package, so a
+        // null-coalesce never reaches the id that would have matched.
+        $serviceId = null;
+        foreach ([data_get($item, 'primaryAction.id'), data_get($item, 'secondaryAction.id')] as $actionId) {
+            if (is_string($actionId) && preg_match('/"catalogId":"((?:s|p):\d+)"/', $actionId, $m)) {
+                $serviceId = $m[1];
+                break;
+            }
+        }
+        if ($serviceId === null) {
             return null;
         }
 
         return array_filter([
-            'serviceId' => $m[1],
+            'serviceId' => $serviceId,
             'name' => $name,
             'duration' => is_string($item['caption'] ?? null) ? $item['caption'] : null,
             'description' => is_string($item['description'] ?? null) ? $item['description'] : null,
             'price' => is_string(data_get($item, 'price.formatted')) ? data_get($item, 'price.formatted') : null,
             'category' => $categoryName,
+            'categoryId' => $categoryId,
         ], static fn ($v) => $v !== null);
     }
 
