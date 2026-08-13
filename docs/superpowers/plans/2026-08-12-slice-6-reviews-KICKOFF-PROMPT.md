@@ -91,12 +91,18 @@ dev wins and you say so in the spec.
 
 ### Entry gate — run these first, paste output into the spec's §1
 
+**Measured on dev 2026-08-13; five of this prompt's premises were wrong and are corrected
+in place below.** Re-derive rather than trusting these numbers, but do not start from the
+assumption that reviews have never landed — they have.
+
 ```sql
 -- 1b must be done: expect media items present and google effects settled
 SELECT kind, count(*) FROM content.items WHERE removed_at IS NULL GROUP BY 1;
 SELECT kind, cost_tag, status, count(*) FROM ingest.effects GROUP BY 1,2,3;
 
--- Your target. Expect 0 on both.
+-- Your target. MEASURED 2026-08-13: 15 and 15, not 0 — the connector's profile /
+-- reviews / media streams share ONE places.details effect, so slice 1b's media
+-- runs landed reviews with them. GoogleBusinessReviewProjector HAS executed.
 SELECT count(*) FROM content.f_review;
 SELECT count(*) FROM content.source_items WHERE kind = 'review';
 
@@ -115,8 +121,9 @@ SELECT status, count(*) FROM core.users GROUP BY 1;
 
 ## The PII contract — get this right before anything else
 
-`content.f_review` holds `author_name`, `author_photo_url`, `rating`, `text`,
-`reviewed_at`, PK `(item_id, source_id)`. Three existing mechanisms already govern
+`content.f_review` holds `author_name`, `author_photo_url`, `author_uri` (added
+2026-08-13 for wire parity), `rating`, `text`, `reviewed_at`, PK `(item_id, source_id)`.
+Three existing mechanisms already govern
 that data and **none of them may be weakened**:
 
 ### 1. `when_unclaimed` redaction
@@ -137,9 +144,11 @@ grace window (`partna.ingest.review_pii_orphan_grace_days`). Its docblock explai
 why it is orphan-based rather than a TTL: `ingest:dispatch` re-projects every 15
 minutes, so an age rule over live rows never terminates.
 
-**This command is written against a table that has always been empty.** Slice 6 is
-the first time it will have real rows to act on. Verify it works, do not assume it —
-invariant #6 applies to console commands too.
+**This command has never run against a non-empty table.** `content.f_review` holds 15
+rows as of 2026-08-13 and the command has never acted on one. Verify it works, do not
+assume it — invariant #6 applies to console commands too. Its stated guarantee was also
+incomplete: the reviewer's name additionally sat in `content.items.headline_cache` and
+`content.f_text.headline`, which it does not reach.
 
 ### 3. The public-wire decision
 `docs/superpowers/plans/closed/2026-07-30-privacy-p3-docs-EXECUTE-PROMPT.md` records
@@ -150,8 +159,11 @@ a refactor — surface it.
 
 ## Scope
 
-### Unit 1 — Provision the `reviews` stream and land records
-`GoogleBusinessReviewProjector` is registered but has never executed. Reviews are a
+### Unit 1 — Verify the ingest lane (reviews already land)
+`GoogleBusinessReviewProjector` **has executed** — 15 records on dev as of 2026-08-13.
+This unit proves the contract rather than building it: redaction in both directions and
+across a claim transition, and `PruneOrphanedReviewPiiCommand` exercised against real
+rows for the first time. Reviews are a
 `SourceProfile::Sample` stream: vendor-curated, `orderField` null, **never dominates
 and never deletes** (`mayDelete()` is false), and no `Covered` message is ever
 emitted. The display set is simply whatever the latest ok run returned. Do not
@@ -160,8 +172,13 @@ emitted. The display set is simply whatever the latest ok run returned. Do not
 ### Unit 2 — Where reviews render — DECIDED, reviews get a pool
 Owner decision 2026-08-12: **all four remaining types get pools**, reviews included.
 Add a `PoolRegistry` entry (`POOLS`, `PAGE_KEYS`, `PAGE_LABELS`, plus a
-`SECTION_SHAPE` block) and provision sections for existing users. `buildPools()`
-loops all `POOLS`, so it ships publicly with no payload-builder change.
+`SECTION_SHAPE` block). `buildPools()` loops all `POOLS` and `PoolResolver::resolve()`
+provisions the section on first read, so no backfill command is needed.
+
+**It does NOT ship with no payload-builder change.** `PoolResolver::itemPayloads()` joins
+nine facet tables and `f_review` is not among them; no public lane reads `f_review` at
+all. A registry-only change ships a review card with no rating and no text — the pool
+needs a `review` block on the item payload, and `ITEM_KEYS` updated with it.
 
 Two constraints that follow from what a review *is*:
 
@@ -178,9 +195,11 @@ think it is not, say so in the spec rather than quietly omitting the capability.
 
 ### Unit 3 — Retire the legacy read
 Once `content.*` serves reviews, the `platform_connections`-payload read retires and
-the wire manifest records the change. `reviewSummary` (aggregate rating/count) may
-have a different source than the individual reviews — check before assuming one
-change covers both.
+the wire manifest records the change. **`reviewSummary` is not the only companion:
+FOUR keys sit behind one owner toggle** (`DisplaySettingsFilter:33`) — `reviews`,
+`reviewSummary`, `rating` and `reviewCount` — and only the first has a `content.*` home.
+Retiring the read means finding a home for the other three, or the retirement drops
+three published fields on the floor.
 
 ## What slice 3b changed under you (verified on dev 2026-08-13)
 

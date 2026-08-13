@@ -43,8 +43,15 @@ rebased onto `52c81ba43`. Work there and nowhere else.
 ```bash
 cd "/Users/joshuahunter/Herd/Side Street/backend/.worktrees/slice-6-reviews"
 git log --oneline -3   # expect fec9337c4 docs(plan): slice 6 implementation plan
-composer dump-autoload # worktrees need this before the suite will run
+cp "/Users/joshuahunter/Herd/Side Street/backend/.env" .env   # not tracked; artisan cannot boot without it
+composer install                                              # NOT dump-autoload
 ```
+
+**`composer dump-autoload` is not enough and this cost real time.** A fresh worktree here
+had a STUB `vendor/` — `autoload.php` plus `composer/` and nothing else — and no `.env`,
+so `artisan` could not boot at all and `dump-autoload` had no installed packages to map.
+Copy the parent checkout's `.env` first, then run a full `composer install`. Verify with
+`php artisan --version` before running a single test.
 
 If that worktree is missing, recreate it from `origin/development` — do NOT
 work in the main checkout. Other sessions share it and a peer can switch its
@@ -106,7 +113,7 @@ Each agent gets, verbatim:
 > You own ONLY the files listed for your lane. If your task appears to require
 > editing a file owned by another lane, STOP and report rather than editing it.
 > Commit after each task. Never run `git stash`. Run
-> `composer test -- --filter=<Name>` after each task, not the full suite.
+> `vendor/bin/pest --filter=<Name>` after each task, not the full suite.
 
 ## Overlap with other slices in flight — check before you start, and again before you merge
 
@@ -214,8 +221,11 @@ that added the other half.
 - Tests run SQLite, production is Postgres. SQLite treats an unknown
   double-quoted identifier as a string literal, so a typo'd column in an
   assertion passes silently. Check names against the migration.
-- `composer test -- --filter=X` and `php artisan pint` are broken in
-  combination — run them separately.
+- **`composer test -- --filter=X` does not filter — use `vendor/bin/pest --filter=X`.**
+  The flag reaches `config:clear`, not Pest, so `composer test -- --filter=Foo` either
+  errors on the unknown option or runs the WHOLE suite while you believe it ran one file.
+  Every task in the plan is written with the broken form; substitute the working one.
+  `php artisan pint <changed files>` is a separate command, never combined with a test run.
 - CI runs nine jobs at ~17 minutes; red costs the same as green. Filter
   locally rather than pushing to find out.
 

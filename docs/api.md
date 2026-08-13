@@ -841,6 +841,43 @@ For frontends that cannot use subdomain DNS routing, the following endpoints acc
 
 **Common status codes:** 201, 404, 403, 422, 429
 
+### Content pools on `GET /api/public/profiles/{handle}`
+
+`profile.pools` carries one entry per content pool (`watch`, `listen`, `media`, `events`,
+`services`, `shop`, `reviews`), each `{items, latestItemId}`. A pool with an empty
+selection is **absent**, not empty. Per-slice detail lives in `docs/wire-changes/`; only
+the cross-cutting item keys are listed here.
+
+**Every pool item carries every key regardless of kind** — the wire shape does not change
+with kind, so a facet that does not apply is `null` (or `[]`), never missing. The exact
+key set is `PoolResolver::ITEM_KEYS`, pinned by `tests/Feature/Content/PoolWireShapeTest.php`.
+
+- **`review`** (2026-08-13) — `{rating, text, authorName, authorPhotoUrl, authorUri,
+  reviewedAt}` on items of kind `review`, `null` on every other kind. `rating` is always
+  present on a review; the three author fields are `null` for an unclaimed (pre-claim)
+  site, because reviewer identity is stripped when the record is stored. Read from
+  `content.f_review`, which is the only copy of reviewer identity the redaction scope,
+  `content:prune-orphaned-review-pii` and the DSAR omission all govern.
+- **`headline` is `null` on review items** by contract, and so is `description`. Render the
+  card from the `review` block; there is deliberately no title to fall back to.
+
+**`pools.reviews.stats`** — `{ratingAvg, ratingCount, summaryText}`, the connected Google
+place's own aggregates, read from `content.source_stats`. Absent when null (the same
+contract `pools.shop.collections` keeps), and present on `reviews` only.
+
+**Retired from `GET /api/public/profiles/{handle}/integrations` (2026-08-13):** the
+`google-business` platform payload no longer publishes `reviews`, `reviewSummary`,
+`rating` or `reviewCount`. They are served by `pools.reviews` and `pools.reviews.stats`
+above. Every other `google-business` key on that lane is unchanged, and the authenticated
+dashboard resource still reads all four.
+
+**Curation is exclusion-only on `reviews`.** Pinning, reordering and hand-authoring a
+`review` item are refused with **422** on every write path
+(`POST /api/content/pools/reviews/selection/{item}`,
+`PUT /api/content/pools/reviews/order`, `PUT /api/site/sections/{id}/items/{item}` with
+`state: pinned`, `POST /api/content/pools/reviews/items`). Excluding and deselecting
+return 200. Every other pool is unaffected.
+
 ---
 
 ## 8) User Dashboard API

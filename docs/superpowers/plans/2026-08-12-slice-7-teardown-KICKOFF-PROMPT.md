@@ -88,6 +88,12 @@ tables breaks the export outright. Re-source from `content.*` and decide the sec
 keys — noting the 2026-08-05 precedent that DSAR allowlists deliberately **retain**
 legacy keys so previously-stored payloads stay disclosable.
 
+**Added by slice 6:** the export now also streams `content.source_stats`, with
+`summary_text` omitted from the select — Google's prose summary is third-party derived and
+is withheld, while `rating_avg` / `rating_count` are business facts about the account
+holder and are included. `DsarPayloadFilter::WITHHELD_DISCLOSURE` names both halves. If you
+move or drop either table, the disclosure string and the omission must move with it.
+
 ### Unit 4 — Analytics continuity (§9.7) — DECIDED, accept as lost
 Owner decision 2026-08-12: historical `analytics.item_views` and
 `content_popularity_scores` rows referencing merged-away or deleted item ids are
@@ -259,6 +265,54 @@ php -d memory_limit=1G ./vendor/bin/phpstan analyse <path> --no-progress --debug
 ```
 
 `--debug` disables parallelism. Under that invocation the real errors print normally.
+## What slice 6 leaves you (reviews, 2026-08-13 — dev only, not yet live-verified)
+
+Verify each yourself — rule zero still applies.
+
+- **`content.source_stats` is new, and the public wire depends on it.** PK `source_id`,
+  FK → `content.sources` CASCADE. It carries the Google place's `rating_avg`,
+  `rating_count` and `summary_text`, and `pools.reviews.stats` is now the **only** place
+  those publish: slice 6 removed `reviews`, `reviewSummary`, `rating` and `reviewCount`
+  from `PublicIntegrationConnectionResource`'s `google-business` allowlist. It is also the
+  first **source-level** fact in `content.*` — `ProjectionWriter` gained a source-scoped
+  write path that upserts one row per source, with no `item_id`. Any teardown reasoning
+  about what a projection writes must account for it.
+- **The `google_business` `profile` stream is redundant, and "unused" is the wrong word.**
+  It has 3 `record_versions` and 0 `source_items`. Its intended consumer was the
+  field-bindings lane, created by `20260728150000` and deliberately dropped by
+  `20260805110000`; the identity fold it existed for runs via `IdentitySync` off
+  `IntegrationConnectionObserver::saved`. **Retire it or justify keeping it — do not drop
+  it silently**, and do not "tidy up" by moving `source_stats` onto it. Slice 6 put the
+  aggregates on the `reviews` stream specifically to avoid a public-wire dependency on
+  this stream.
+- **`PruneOrphanedReviewPiiCommand` still depends on `content.f_review`**, and is now the
+  only retention mechanism for reviewer identity. Slice 6 removed the two ungoverned
+  copies (`content.items.headline_cache`, `content.f_text.headline`) and the projector no
+  longer writes them. A teardown that changes how review items are written or retired must
+  keep that command's guarantee true — its docblock now says so explicitly.
+- **`BackfillClaimedGoogleBusinessReviewsCommand` is vestigial** (slice 6 spec §5.4). The
+  lane it backfills is retired. Slice 6 did not delete it; deciding its fate is yours.
+
+### Two findings slice 6 found and deliberately did NOT fix
+
+Both are real. Neither is a leftover to tidy — read the reasoning before acting.
+
+- **A fourth pin path exists on exclusion-only pools, and it is currently inert.** The
+  `EXCLUDE_ONLY_POOLS` guard fires only when `PoolRegistry::poolForSectionKey()` resolves,
+  i.e. only for `pool:`-prefixed section keys. A **custom `collection` section** whose rule
+  is `[{op:'kind_is', values:['review']}]` can therefore have review items pinned into it —
+  reachable via `POST /api/site/sections` then `PUT /api/site/sections/{id}/items/{item}`,
+  and by `PATCH`-renaming a section's key off `pool:reviews`. It was left ungated **because
+  no public controller reads `site.documents`**, so nothing renders it. If your teardown
+  makes a custom-section lane publicly readable, the guard has to move from the section key
+  to the item's kind, and that is a code change with a legal edge (§4.3 of slice 6's spec:
+  owner curation of third-party reviews is the thing the privacy clause leans on).
+- **Doc-hash churn on the reviews stream is accepted, not a bug.** The place aggregates
+  ride in every review record's doc while the reviews stream declares `volatile: []`, so
+  `place_rating_count` ticking up re-lands every review record. **Do not "fix" this by
+  declaring those paths volatile.** `RecordView`'s docblock records why: a path both
+  declared volatile AND read by a projector is a silent correctness hole — change
+  detection would ignore the aggregates and `content.source_stats` would freeze forever.
 
 ## Non-negotiables
 

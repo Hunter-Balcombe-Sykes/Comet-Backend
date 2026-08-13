@@ -1431,15 +1431,15 @@ that allowlists retain legacy keys so stored payloads stay disclosable."
 - Modify: `docs/superpowers/plans/2026-08-12-slice-6-reviews-KICKOFF-PROMPT.md`
 - Modify: the slice 5b, slice 4 and slice 7 kickoff prompts
 
-- [ ] **Step 1: Provision `pool:reviews` sections for existing users**
+- [x] **Step 1: Provision `pool:reviews` sections for existing users**
 
 Read `app/Site/Pools/PoolSectionProvisioner.php`. If it already loops `PoolRegistry::POOLS`, no code change is needed — confirm with a test that a site with a `google_business` source gets a `pool:reviews` section. If it does not, add the loop rather than a `reviews` special case.
 
-- [ ] **Step 2: Write the wire manifest**
+- [x] **Step 2: Write the wire manifest**
 
 Create `docs/wire-changes/2026-08-12-slice-6-reviews.md` covering: `pools.reviews` added with its item shape including the `review` block; `review` null on all other kinds; `integrations[].reviews` / `reviewSummary` / `rating` / `reviewCount` removed from the public integration payload; `headline` now null on review items. Follow the structure of `docs/wire-changes/2026-08-12-slice-1b-*.md`. Mark STATUS as pending until Task 10 verifies on dev.
 
-- [ ] **Step 3: Update the legal disclosure**
+- [x] **Step 3: Update the legal disclosure**
 
 In `docs/legal/reviewer-data-disclosure.md`:
 - §1: reviewer data now reaches the public wire via the pool lane (`PoolResolver`'s `review` block reading `content.f_review`), not `GoogleBusinessService.php:304-311`. The field list is unchanged — `author_uri` was preserved deliberately so the retirement did not silently drop it.
@@ -1448,7 +1448,7 @@ In `docs/legal/reviewer-data-disclosure.md`:
 
 **Do not soften or remove any existing §4 point.** LEGAL-2 is not discharged by this slice.
 
-- [ ] **Step 4: Propagate — edit in place, say the fact not the story**
+- [x] **Step 4: Propagate — edit in place, say the fact not the story**
 
 | Target | Fact to record |
 |---|---|
@@ -1458,7 +1458,7 @@ In `docs/legal/reviewer-data-disclosure.md`:
 | `slice-5b`, `slice-4-menus` | `PoolRegistry` gains `reviews` + `EXCLUDE_ONLY_POOLS` + `MANUAL_ADD_FORBIDDEN_POOLS`; `PoolResolver::itemPayloads()` gains a `review` block and a display-toggle gate |
 | This slice's own kickoff prompt | Replace the "expect 0 on both" entry gate with the measured state |
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/ app/Site/Pools/PoolSectionProvisioner.php tests/
