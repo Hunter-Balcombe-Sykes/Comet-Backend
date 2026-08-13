@@ -465,8 +465,16 @@ exactly one place.
 **Deliberately off the wire, and this is a privacy improvement:** `referralQuery`
 and `linkMode` leave the public payload entirely — the affiliate suffix stops
 being publicly readable now that composition is backend-side. `sourceUrl`
-(re-scrape input) and `connectStatus` (dashboard-only; still used to *filter*
-pending stores out) stay private, as today.
+(re-scrape input) and `connectStatus` stay private — but `connectStatus`
+**no longer filters anything.**
+
+**Corrected 2026-08-13 (owner ruled against implementing the parenthetical
+above as written).** The legacy `/integrations` presence gate filtered
+`connect_status = 'pending'` out, in lockstep with a payload that also
+rejected pending brands. That payload is retired in this slice and the pool
+read has no notion of connect status at all — so the filter's only reason to
+exist (keeping two now-nonexistent things in agreement) is gone with it.
+Pending stores are no longer filtered from presence or render; see §3.8.
 
 The `collections` map carries only collections referenced by a **selected** item.
 No dev store is empty (§1.6), so this has no live effect today; it is stated so

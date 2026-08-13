@@ -209,6 +209,33 @@ slice builds on. Verify each claim yourself; this is a pointer, not evidence.
 
 ## Non-negotiables
 
+- **The pool item payload already grew for this.** Slice 5b (merged before this
+  slice may start, per the top of this document) added four additive, nullable
+  keys to every pool item regardless of kind — `description` (`f_text.body`),
+  `vendor` (`f_catalog.vendor`), `variants` (list), `collectionIds` (list) — plus
+  an additive `collections` map on the pool envelope, keyed by collection
+  **uuid** (not a legacy id), each entry carrying `externalRef`, `provider`,
+  `url`, `name`, `currency`, `favicon`, `logo`, `discountCode`, `position`. Menu
+  categories are the same problem `collections` solves for shop stores —
+  **reuse the map, do not invent a second grouping mechanism.** `name` is
+  nullable in that map; null it out the same way 5b does, rather than
+  publishing a raw fallback id.
+- **The payload enforcement point is now `PoolResolver::ITEM_KEYS` /
+  `STORE_KEYS` / `VARIANT_KEYS`, pinned by `tests/Feature/Content/PoolWireShapeTest.php`.**
+  It replaces the retired `SHOP_PRODUCT_ALLOWLIST` mechanism and is strictly
+  stronger — it fails the test on key **additions** as well as removals, since
+  every payload is built key-by-key rather than filtered from a blob. Any new
+  key you add to a pool item, a store/collection entry, or a variant object
+  must be added to the matching const or the test fails; do not spread a row.
+- **Owner ordering is carried by pins seeded once, and nothing writes pins
+  afterwards.** 5b's `content:provision-shop-pins` (`--dry-run`) is the live
+  precedent for Unit 7 below: it walks existing owners, flattens their
+  catalogue's two-level position into a dense 1-based `sort_key` written
+  exactly as `PoolController::reorder()` writes a drag, and is idempotent (an
+  existing pin is left alone, never rewritten). It has **no per-site
+  try/catch** — one failing site aborts the whole run for every site after it
+  in iteration order — copy that constraint deliberately or explain why yours
+  differs.
 - **The 301s are public URLs.** Breaking them is a customer-visible regression and an SEO one. Treat slug migration as blocker-gate work.
 - **Cache invalidation is three lanes** — `BuildState::bump($siteId)`, touch `site.sites.updated_at`, dispatch `CloudflareCachePurgeJob`. No CI check enforces this despite the docblock claiming one.
 - **`mergeInto()` hard-deletes uncurated merged-away items** (parent §8.3). With cross-source unioning this is *expected* behaviour here — but owner-authored dishes must survive. Assert with a real menu scrape after backfill.

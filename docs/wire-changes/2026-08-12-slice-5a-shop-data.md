@@ -70,8 +70,8 @@ these is on the public/CDN path.
 | Surface | Consuming repo | Status |
 |---|---|---|
 | `GET /api/public/profiles/{handle}` | partna-monorepo (`@partnaau/design-system`) | **unchanged.** No `pools.shop`; that is 5b. |
-| `GET /api/public/profiles/{handle}/integrations` | partna-monorepo | **unchanged.** The shop branch of `PublicIntegrationConnectionResource` still renders, and its `SHOP_BRAND_ALLOWLIST` / `SHOP_PRODUCT_ALLOWLIST` are untouched. Its backing rows moved to `content.*`, so the payload is now *derived* from the same data the dashboard reads. |
-| `content.f_link.url` | — | Stores the **bare** product URL. No referral query, no checkout deep link. Composition stays in the monorepo's `productHref()` for the whole of 5a; 5b moves it to the backend and retires that function. |
+| `GET /api/public/profiles/{handle}/integrations` | partna-monorepo | **unchanged as of 5a.** ~~The shop branch of `PublicIntegrationConnectionResource` still renders, and its `SHOP_BRAND_ALLOWLIST` / `SHOP_PRODUCT_ALLOWLIST` are untouched.~~ **Corrected 2026-08-13, by 5b:** both allowlists are deleted and this endpoint's shop `payload` is now `{}` for every brand. See `docs/wire-changes/2026-08-12-slice-5b-shop-render.md` — the correction there is the frontend's only other written warning about this. |
+| `content.f_link.url` | — | Stores the **bare** product URL. No referral query, no checkout deep link. Composition stays in the monorepo's `productHref()` for the whole of 5a; **5b moves it to the backend and retires that function** — done, see the 5b wire manifest. |
 
 ## Known divergences — values, not shapes
 

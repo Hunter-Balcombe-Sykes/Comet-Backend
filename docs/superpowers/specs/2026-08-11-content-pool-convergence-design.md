@@ -618,6 +618,10 @@ surface once and history stays linear.
 **Rule 5 — pre-assign migration filename prefixes** before a wave starts, one block
 per slice, so ordering never depends on who committed first.
 
+Block `20260813110000`–`20260813119999` was pre-assigned to slice 5b. 5b shipped
+no DDL — every write lands in an existing table — so the block went unused and
+returns to the pool for whichever slice needs it next.
+
 **Rule 6 — one worktree per session; never the main checkout.** This repo has
 already lost uncommitted work to a concurrent merge. Run `git worktree list` before
 starting: several are typically live.
@@ -1221,6 +1225,12 @@ or accepted as lost.
 `content.items` holds 106 episodes while only 90 live `source_items` remain — items
 are not retired when their source items are. The backfill and the coverage gate will
 meet this asymmetry and must decide it deliberately rather than discover it.
+
+**Narrowed 2026-08-13 (slice 5b §3.3).** An **owner-authored** write may clear
+`content.items.removed_at`; a **connector** re-observing an item never may. The
+one-way rule was written against scrape flapping, which must not undo a
+deliberate removal — an owner re-adding a product through `addProduct` /
+`setProducts` is not that. Slices 3, 4 and 6 inherit the narrowed form.
 
 ---
 
@@ -2140,8 +2150,15 @@ not depend on a sub-spec surviving:
 - **`style_analysis`** (non-null on 4 legacy brands) is dropped with no
   migration path — no reader, no writer survives the code that produced it.
   Named as a real loss in the wire manifest, not carried into `storefronts`.
-- `site.shop_brands` / `site.shop_products` are **not dropped** — inert, as
-  designed. Slice 7 drops them.
+- `site.shop_products` is **inert** — nothing writes it; the remaining
+  `ShopProduct::delete()` calls only clear pre-deploy rows.
+  **`site.shop_brands` is NOT inert** (corrected 2026-08-13 by slice 5b's entry
+  gate). `ShopController` still writes it — `updateOrCreate` at `:317`,
+  `firstOrCreate` at `:929`, `delete` at `:869` — and
+  `ShopContentWriter::upsertStore()` takes the `ShopBrand` model as its identity
+  anchor. Its `max(updated_at)` is frozen only because no brand has been added
+  on dev since 2026-08-12 10:54. Slice 7 must re-home the writer, not merely
+  drop the table.
 - **Correction to an earlier draft of this section.** It read "the public Shop
   page is unchanged — still legacy-sourced". That is **false**. Task 8's review
   found the public regression had three heads, and all three were repointed at
@@ -2279,3 +2296,150 @@ where it fires.
 
 **Migration prefix block `20260813090000`–`20260813099999` was NOT consumed** —
 3a needed no schema change. It is free for 3b.
+
+---
+
+## 18. Slice 5b checkpoint — the shop pool and the public render
+
+**Status: code complete on `feat/slice-5b-shop-render` (8 tasks, HEAD
+`7f2acd8dc`). Not merged to `development`. Not deployed to any environment.**
+Spec: `2026-08-12-slice-5b-shop-render-design.md`. Wire manifest:
+`docs/wire-changes/2026-08-12-slice-5b-shop-render.md`.
+
+This checkpoint is written by Task 9 (documentation only — no code, no test
+run) immediately after the 8 implementation tasks landed on the branch and
+before Task 10 (merge, deploy, live verification) has run. Per invariant #5,
+a checkpoint is not evidence until it is re-derived; the subsections below
+that require a live database or a real request are marked `PENDING — Task 10`
+rather than populated with numbers this session did not measure.
+
+### 18.1 Pre-implementation baseline
+
+This is the state 5b's own spec re-derived from dev on 2026-08-13, before any
+of 5b's 8 tasks had shipped a line of code — i.e. dev as 5a left it. Full
+detail and the code citations behind each row are in the 5b design spec §1;
+reproduced here so this checkpoint does not depend on that spec surviving.
+
+```
+content.items kind='product', removed_at IS NULL     51    (5a: 51)
+content.collections (all / kind='storefront')       9 / 9  (5a: 9)
+content.storefronts                                  9     (5a: 9)
+content.collection_items                            51     (5a: 51)
+content.item_variants                              268     (5a: 268)
+content.offers                                     324     (5a: 324)
+max(updated_at) site.shop_products    2026-08-12 17:24:33+00  (5a: identical)
+max(updated_at) site.shop_brands      2026-08-12 10:54:51+00  (5a: identical)
+
+site.pages       gallery 12, watch 10, listen 10, events 4, library 1
+                 — NO `shop` page exists
+site.sections    pool:media 12, pool:listen 10, pool:watch 10, pool:events 4
+                 — NO `pool:shop` section exists
+
+content.items kind='product' with removed_at IS NOT NULL      0
+```
+
+Two findings from that baseline pass are corrections to prior record, not new
+5b state, and are applied above at §9.8 and §16.9: `content.items.removed_at`
+clearing was narrowed from "never" to "owner-authored writes may, connectors
+never may" (§9.8), and `site.shop_brands` was found still written by
+`ShopController`, contradicting §16.9's prior claim of full inertness.
+
+### 18.2 What shipped — 8 tasks, `feat/slice-5b-shop-render`
+
+| Change | Where |
+|---|---|
+| `shop` pool registered — `POOLS`, `PAGE_KEYS`, `PAGE_LABELS`, `SECTION_SHAPE` (`kind_is` / `recency`); deliberately excluded from `LATEST_TAG_POOLS` | `app/Site/Pools/PoolRegistry.php` |
+| `content:provision-shop-pins` (`--dry-run`) — flattens catalogue position into dense pins | `app/Console/Commands/ProvisionShopPinsCommand.php` |
+| `retireAbsent()`'s stale-coord row-wise match fixed to a `whereNotExists` | `ShopContentWriter::retireAbsent()` |
+| Owner-authored re-add clears `content.items.removed_at`; connector re-observation never does | `ShopContentWriter::syncStore()`, fourth step |
+| Outbound URL composition moved to the backend — mode from `site.sites.shop_link_mode`, Shopify cart deep-link / WooCommerce `?add-to-cart=`, discount + referral appended | `PoolResolver::itemPayloads()` |
+| Pool item payload gains `description`, `vendor`, `variants`, `collectionIds` (every kind, nullable off-kind); `frames` extended to `kind='product'`; `popularityRank` populated for products from `content_popularity_scores` | `PoolResolver` |
+| `collections` map added to the `shop` pool envelope, keyed by collection uuid, `name` nulled when it is the `external_ref` sentinel | `PoolResolver::collectionsFor()` |
+| `ITEM_KEYS` (30) / `STORE_KEYS` (9) / `VARIANT_KEYS` (5) pinned by `PoolWireShapeTest`, explicit key-by-key construction, no row spread | `PoolResolver`, `tests/Feature/Content/PoolWireShapeTest.php` |
+| Legacy `/integrations` shop keys retired — `SHOP_BRAND_ALLOWLIST` / `SHOP_PRODUCT_ALLOWLIST` deleted, `filterPayload()`'s shop branch returns `[]`, envelope preserved | `PublicIntegrationConnectionResource` |
+| Shop-page presence made pool-derived via `PoolResolver::hasSelection()` | `PlatformRegistryServiceProvider` |
+
+No DDL. No migration filename prefix consumed (§4.3 rule 5).
+
+### 18.3 Live dev assertions
+
+**PENDING — Task 10.**
+
+### 18.4 The provisioning command, run against dev
+
+**PENDING — Task 10.**
+
+### 18.5 A real `PoolResolver::resolve()` call
+
+**PENDING — Task 10.**
+
+### 18.6 Cache invalidation (§9.2, all three lanes)
+
+This table states what the code does — verified by reading the write paths,
+not by a live request — matching the form §16.7 used before its own live
+assertions were available.
+
+| Lane | This slice |
+|---|---|
+| `site.site_documents` build state | `BuildState::bump($siteId)` on `content:provision-shop-pins` (only on sites it actually wrote pins for) and on the §3.3 un-retire path inside `ShopContentWriter::syncStore()` |
+| 60s public-profile payload cache | `site.sites.updated_at` touched on the same two paths — `IndividualProfilePayloadBuilder::cacheKey()` composes its key from `updated_at`, so `bump()` alone (a different table) does not invalidate it |
+| Cloudflare edge | `CloudflareCachePurgeJob::dispatch($subdomain)` on the same two paths |
+
+Whether these actually fire on live dev writes is part of §18.3 — PENDING.
+
+### 18.7 Gates at merge
+
+**PENDING — Task 10.** Task 9 is documentation-only and was explicitly
+instructed not to run `composer test` or `./vendor/bin/pest`. No SQLite,
+Postgres-lane, schema-lane, PHPStan or Pint figures exist for this branch in
+this checkpoint; inventing them, or copying §16.6's 5a figures in as if they
+were 5b's, would misrepresent an unrun suite as a passing one.
+
+### 18.8 Conventions this slice established — for slices 3, 4 and 6
+
+Carried forward from the slice spec's §7 so the parent programme record does
+not depend on the sub-spec surviving:
+
+| Convention | Value | Who needs it |
+|---|---|---|
+| Clearing `removed_at` | an **owner-authored** write may; a **connector** re-observing never may | slices 3, 4, 6 |
+| A pool payload carrying groups | additive `collections` map on the pool envelope, keyed by collection **uuid**, each carrying `externalRef`; items carry plural `collectionIds` | **slice 4 explicitly** — menu categories are the same problem |
+| Pool payload enforcement point | explicit key-by-key construction + a wire-shape test pinning key sets, failing on additions too | every remaining slice |
+| Owner-chosen ordering | pins seeded once by a provisioning command; nothing writes pins afterwards | slice 4 |
+| Kind-specific item fields | additive and nullable on **every** item, never a kind-shaped sub-object | slices 4, 6 |
+
+### 18.9 What remains outstanding
+
+- **§18.3–§18.5 and §18.7 are unfilled.** Task 10 owns merging the branch,
+  running the deploy, pasting live SQL output, a real `PoolResolver::resolve()`
+  call, and the full gate suite into this checkpoint.
+- **`site.shop_brands` re-homing off the `ShopBrand` model is still slice 7's,
+  not this slice's** — 5b only corrected the record that it was needed (§16.9);
+  it did not do the re-homing.
+- **`CloudflarePurgeService::purgeHandle()`'s un-deduped, 4x-amplified error
+  reporting is unfixed**, deliberately — named in the 5b design spec §8 as
+  out of scope, owned by whichever slice next touches that file (4 and 7).
+- **`upsertStore()`'s SELECT-then-INSERT TOCTOU race is unfixed**, carried to
+  slice 7 per 5a's checkpoint (§16.9) and 5b's own scope boundary (§2).
+- **Partna-monorepo has not landed its side, as far as this session can
+  tell.** That repository is not checked out on this machine and is not
+  visible to `gh` from here, so its state cannot be verified from this
+  session. If it has not read `profile.pools.shop` and stopped indexing
+  `platforms.shop[*].payload` by the time this branch deploys, **every Shop
+  page on dev renders empty** — named plainly, not softened, per the wire
+  manifest's "required consumer action."
+
+### 18.10 Definition of done — against the 5b spec's §6
+
+Item-by-item against the design spec's criteria, honestly, not optimistically:
+
+| Criterion | Status |
+|---|---|
+| Shop page renders from `profile.pools.shop` in owner order, grouped by the `collections` map | Code complete; **not verified live** — PENDING Task 10 |
+| Outbound URL composed by the backend | Code complete; matrix proven **by test** per spec §5.3 (unrun by this checkpoint), not by dev data (dev carries no `referral_query` or `checkout`+`?`-URL combination to exercise it live) |
+| Pool payload has an `SHOP_PRODUCT_ALLOWLIST`-equivalent enforcement point | Shipped — `ITEM_KEYS` / `STORE_KEYS` / `VARIANT_KEYS` + `PoolWireShapeTest` |
+| Every `pool:shop` section carries the corrected rule | Code complete; **not verified live** — PENDING Task 10 |
+| A re-added product returns | Code complete; **not verified live** — PENDING Task 10 |
+| Coverage gate returns 0 | **Not run** — PENDING Task 10 |
+| Checkpoint and wire manifest committed | This document and `docs/wire-changes/2026-08-12-slice-5b-shop-render.md` |
+| **Legacy `/integrations` shop keys retired** | Shipped in code. **The retirement criterion is NOT ticked here** — the spec's own §6 says to mark it unmet if unshippable at merge, and this session cannot confirm partna-monorepo is ready to consume the replacement. Ticking it would assert a fact about a repository this session cannot see. |
