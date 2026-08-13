@@ -52,13 +52,19 @@ final readonly class ShopFetch implements FetchStrategy
         // ShopContentWriter::isCurated() replaces the whereNull() column
         // filter as of Task 6 (still reads the same live ShopBrand column —
         // see that method's docblock for why it isn't the content.storefronts
-        // mirror). 'connection' is eager-loaded, not 'products': syncLatest()
-        // no longer reads $brand->products (that relation is the
-        // no-longer-written legacy table) but does need $brand->connection.
+        // mirror).
+        //
+        // #428: 'products' is eager-loaded again. 5a dropped it claiming
+        // "syncLatest() no longer reads $brand->products" — it does, through
+        // ShopBrand::toBrandArray(), and the resulting
+        // LazyLoadingViolationException failed this job on every multi-brand
+        // connection. syncLatest() now guarantees the relation itself, so this
+        // is purely to keep that guarantee to ONE query for the batch instead
+        // of one per brand.
         $content = $this->content ?? app(ShopContentWriter::class);
         $latestBrands = $connection->shopBrands()
             ->where('is_individual', false)
-            ->with('connection')
+            ->with(['connection', 'products'])
             ->get()
             ->reject(fn ($b) => $content->isCurated($b));
 
