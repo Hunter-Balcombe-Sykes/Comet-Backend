@@ -25,7 +25,10 @@ use Tests\Support\SchemaDrift\SelectStatementParser;
  */
 const CONTENT_PII_COLUMNS = [
     'content.f_place' => ['venue_name', 'address', 'locality', 'region'],
-    'content.f_review' => ['author_name', 'author_photo_url', 'text'],
+    // author_uri: slice 6 (migration 20260813110000). This map is CURATED, not
+    // discovered — a new PII column is invisible to this guard until it is
+    // listed here, so listing it is part of adding it, not a follow-up.
+    'content.f_review' => ['author_name', 'author_photo_url', 'author_uri', 'text'],
     'content.f_authored' => ['creator', 'creator_url'],
     'content.f_channel' => ['handle', 'avatar_url'],
     'content.f_text' => ['headline', 'body', 'summary'],
@@ -43,6 +46,7 @@ const WITHHELD_THIRD_PARTY = [
     'content.f_review' => [
         'author_name' => 'Third-party reviewer identity — #PRIV-2, same rule as Google Business reviews in the integrations section.',
         'author_photo_url' => 'Third-party reviewer identity.',
+        'author_uri' => 'Third-party reviewer identity — a permanent link to their Google contributor profile, so it identifies them at least as directly as author_name. Slice 6 design spec §2.4.',
         'text' => 'Third-party reviewer\'s verbatim words.',
     ],
 ];

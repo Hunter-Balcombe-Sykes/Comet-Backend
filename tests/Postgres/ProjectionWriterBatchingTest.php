@@ -49,6 +49,7 @@ beforeEach(function () {
         'content.f_action', 'content.item_tags', 'content.item_variants', 'content.offers', 'content.item_media',
         'content.media_assets', 'content.manual_overrides', 'content.identity_candidates', 'content.item_merges',
         'content.item_anchors', 'content.identity_decisions', 'content.identity_keys', 'content.source_items',
+        'content.source_stats',
         'content.f_file', 'content.f_channel', 'content.f_review', 'content.f_rated', 'content.f_place',
         'content.f_catalog', 'content.f_authored', 'content.f_playable', 'content.f_embed', 'content.f_occurrence',
         'content.f_published', 'content.f_duration', 'content.f_link', 'content.f_text', 'content.items',
@@ -252,7 +253,8 @@ beforeEach(function () {
         'f_catalog' => 'release_type text, track_number integer, disc_number integer, isrc text, gtin text, sku text, handle text, vendor text, variant_ref text',
         'f_place' => 'venue_name text, address text, locality text, region text, country_code text, latitude double precision, longitude double precision',
         'f_rated' => 'rating double precision, rating_max double precision, ratings_count integer',
-        'f_review' => 'author_name text, author_photo_url text, rating double precision, text text, reviewed_at timestamptz',
+        // author_uri: supabase/migrations/20260813110000_f_review_author_uri.sql.
+        'f_review' => 'author_name text, author_photo_url text, author_uri text, rating double precision, text text, reviewed_at timestamptz',
         'f_channel' => 'handle text, followers integer, avatar_url text, is_live boolean, verified boolean',
         'f_file' => 'file_url text, mime_type text, size_bytes bigint, page_count integer',
     ];
@@ -265,6 +267,17 @@ beforeEach(function () {
             PRIMARY KEY (item_id, source_id)
         )");
     }
+
+    // Slice 6 (supabase/migrations/20260813110001_create_content_source_stats.sql):
+    // source-level aggregates, keyed by source_id alone with no item_id, so it is
+    // not a singleton facet and does not fit the loop above.
+    $pg->statement('CREATE TABLE content.source_stats (
+        source_id uuid PRIMARY KEY REFERENCES content.sources(id) ON DELETE CASCADE,
+        rating_avg double precision,
+        rating_count integer,
+        summary_text text,
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )');
 
     // Shape tracks supabase/migrations/20260727140000_content_schema.sql:353 plus
     // 20260812090000's site_media_id. site_media_id carries no FK here on purpose —
@@ -391,7 +404,8 @@ afterAll(function () {
         'content.f_action', 'content.item_tags', 'content.item_variants', 'content.offers', 'content.item_media',
         'content.media_assets',
         'content.manual_overrides', 'content.identity_candidates', 'content.item_merges', 'content.item_anchors',
-        'content.identity_decisions', 'content.identity_keys', 'content.source_items', 'content.f_file',
+        'content.identity_decisions', 'content.identity_keys', 'content.source_items', 'content.source_stats',
+        'content.f_file',
         'content.f_channel', 'content.f_review', 'content.f_rated', 'content.f_place', 'content.f_catalog',
         'content.f_authored', 'content.f_playable', 'content.f_embed', 'content.f_occurrence', 'content.f_published',
         'content.f_duration', 'content.f_link', 'content.f_text', 'content.items', 'content.sources',

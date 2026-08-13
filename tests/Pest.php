@@ -2846,7 +2846,11 @@ function setupContentTables(): void
         'f_catalog' => 'release_type TEXT NULL, track_number INTEGER NULL, disc_number INTEGER NULL, isrc TEXT NULL, gtin TEXT NULL, sku TEXT NULL, handle TEXT NULL, vendor TEXT NULL, variant_ref TEXT NULL',
         'f_place' => 'venue_name TEXT NULL, address TEXT NULL, locality TEXT NULL, region TEXT NULL, country_code TEXT NULL, latitude REAL NULL, longitude REAL NULL',
         'f_rated' => 'rating REAL NULL, rating_max REAL NULL, ratings_count INTEGER NULL',
-        'f_review' => 'author_name TEXT NULL, author_photo_url TEXT NULL, rating REAL NULL, text TEXT NULL, reviewed_at TEXT NULL',
+        // author_uri: slice 6 Task 1 (supabase/migrations/
+        // 20260813110000_f_review_author_uri.sql). Third-party PII, redacted
+        // when_unclaimed by the connector manifest exactly as author_name and
+        // author_photo_url already are.
+        'f_review' => 'author_name TEXT NULL, author_photo_url TEXT NULL, author_uri TEXT NULL, rating REAL NULL, text TEXT NULL, reviewed_at TEXT NULL',
         'f_channel' => 'handle TEXT NULL, followers INTEGER NULL, avatar_url TEXT NULL, is_live INTEGER NULL, verified INTEGER NULL',
         'f_file' => 'file_url TEXT NULL, mime_type TEXT NULL, size_bytes INTEGER NULL, page_count INTEGER NULL',
     ];
@@ -2859,6 +2863,16 @@ function setupContentTables(): void
             PRIMARY KEY (item_id, source_id)
         )");
     }
+
+    // Slice 6: source-level aggregates. Not in $singletons — keyed by
+    // source_id alone, with no item_id, so it does not fit that loop's shape.
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.source_stats (
+        source_id TEXT NOT NULL PRIMARY KEY,
+        rating_avg REAL NULL,
+        rating_count INTEGER NULL,
+        summary_text TEXT NULL,
+        updated_at TEXT NOT NULL
+    )');
 
     $pg->statement('CREATE TABLE IF NOT EXISTS content.media_assets (
         id TEXT PRIMARY KEY NOT NULL,

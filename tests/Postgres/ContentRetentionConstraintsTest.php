@@ -48,6 +48,11 @@ beforeEach(function () {
         source_id uuid NOT NULL,
         author_name text,
         author_photo_url text,
+        -- author_uri (20260813110000) is reached by neither index nor the orphan
+        -- predicate, but it IS reviewer PII deleted by the same row delete this
+        -- file is the sentinel for — a retention sentinel blind to a PII column
+        -- on its own table is the drift it exists to catch.
+        author_uri text,
         rating double precision,
         text text,
         reviewed_at timestamptz,
