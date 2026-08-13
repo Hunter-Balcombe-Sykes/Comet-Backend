@@ -183,16 +183,26 @@ class PoolController extends ApiController
     }
 
     /**
-     * Every pool mutation ends here: the document build-state bump AND the
-     * sitepage edge purge. Option B serves pools LIVE, but the CDN in front
-     * still holds the rendered page — without the purge, "the site follows
-     * instantly" was true of the payload and false of what a visitor saw
-     * (found verifying P2: the deploy's edge cache outlived a pool edit).
-     * ShouldBeUnique per handle, so bursts coalesce.
+     * Every pool mutation ends here, across all THREE cache lanes: the document
+     * build-state bump, the public payload key, and the sitepage edge purge.
+     * Option B serves pools LIVE, but the CDN in front still holds the rendered
+     * page — without the purge, "the site follows instantly" was true of the
+     * payload and false of what a visitor saw (found verifying P2: the deploy's
+     * edge cache outlived a pool edit). ShouldBeUnique per handle, so bursts
+     * coalesce.
+     *
+     * The sites.updated_at write is lane 2 and was MISSING until 2026-08-14:
+     * the public payload cache key is derived from that column, so a reorder
+     * bumped the build state and purged the CDN while the origin happily
+     * re-served the stale order from its own cache for the remainder of the
+     * TTL. Mirrors ShopController::bumpSiteCache(). A raw update rather than
+     * touch() on purpose — touch() fires SiteObserver's full invalidation and
+     * KV-sync chain, which the two explicit lanes here already cover.
      */
     private function poolChanged(Site $site): void
     {
         BuildState::bump((string) $site->id);
+        DB::connection('pgsql')->table('site.sites')->where('id', $site->id)->update(['updated_at' => now()]);
         if ($site->subdomain !== '') {
             CloudflareCachePurgeJob::dispatch($site->subdomain);
         }
