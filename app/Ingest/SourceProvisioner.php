@@ -5,6 +5,7 @@ namespace App\Ingest;
 use App\Ingest\Manifest\CostClass;
 use App\Ingest\Manifest\Manifest;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\Payloads\FreshaSelection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -233,24 +234,39 @@ class SourceProvisioner
         };
     }
 
-    /** 'employee' -> the employee id; 'storewide' -> the reserved token; else null. */
+    /**
+     * 'employee' -> the employee id; 'storewide' -> the reserved token; else
+     * null. Mode must say 'employee' explicitly -- mirrors FreshaFetch's own
+     * gate (App\Services\Platforms\Strategies\Fetch\FreshaFetch::fetch(),
+     * `$isEmployeeMode = ($selection['mode'] ?? null) === 'employee' && ...`)
+     * so a stale employee object with no/other mode can never make this class
+     * believe someone is selected when the scheduled re-fetch would not.
+     */
     private function freshaSelectionRef(mixed $selection): ?string
     {
         if (! is_array($selection)) {
             return null;
         }
 
-        $mode = $selection['mode'] ?? null;
-        if ($mode === 'storewide') {
+        $dto = FreshaSelection::fromArray($selection);
+        if ($dto->mode() === 'storewide') {
             return 'storewide';
         }
+        if ($dto->mode() !== 'employee') {
+            return null;
+        }
 
-        // Employee ids are numeric, so they can never collide with the token.
-        $employeeId = $selection['employee']['employeeId'] ?? null;
+        $employeeId = $dto->employee()['employeeId'] ?? null;
+        if (! is_scalar($employeeId)) {
+            return null;
+        }
 
-        return is_scalar($employeeId) && trim((string) $employeeId) !== ''
-            ? trim((string) $employeeId)
-            : null;
+        $employeeId = trim((string) $employeeId);
+
+        // A malformed/adversarial scrape could hand back an id equal to the
+        // reserved token; without this guard that id would make the connector
+        // fetch the WHOLE STORE'S menu for one individual's page.
+        return $employeeId === '' || $employeeId === 'storewide' ? null : $employeeId;
     }
 
     private function cleanString(mixed $value): ?string

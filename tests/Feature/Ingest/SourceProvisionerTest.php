@@ -523,6 +523,36 @@ it('refetches soon when the selection changes', function () {
         ->and(strtotime((string) $row->next_attempt_at))->toBeLessThanOrEqual(time() + 60);
 });
 
+it('ignores a stray employee id when mode does not explicitly say employee, matching the scheduled fetch path', function () {
+    // FreshaFetch::fetch() only treats a connection as employee-mode when
+    // `mode === 'employee'` literally -- an employee object surviving with no
+    // mode, or a mode the picker never writes, must land no selection here
+    // either, or the two paths would disagree about who the owner is.
+    $modeAbsent = freshaConnection(['selection' => ['employee' => ['employeeId' => '999']]]);
+    $modeOther = freshaConnection(['selection' => ['mode' => 'pending', 'employee' => ['employeeId' => '999']]]);
+
+    app(SourceProvisioner::class)->sync($modeAbsent);
+    app(SourceProvisioner::class)->sync($modeOther);
+
+    expect(DB::table('ingest.sources')->where('connection_id', $modeAbsent->id)->value('selection_ref'))
+        ->toBeNull()
+        ->and(DB::table('ingest.sources')->where('connection_id', $modeOther->id)->value('selection_ref'))
+        ->toBeNull();
+});
+
+it('never treats an employee id equal to the reserved storewide token as one', function () {
+    // If a scraped employee id ever collided with the literal 'storewide',
+    // returning it unguarded would make the connector fetch the WHOLE
+    // STORE'S menu onto one individual's page -- exactly what selection_ref
+    // exists to prevent.
+    $connection = freshaConnection(['selection' => ['mode' => 'employee', 'employee' => ['employeeId' => 'storewide']]]);
+
+    app(SourceProvisioner::class)->sync($connection);
+
+    expect(DB::table('ingest.sources')->where('connection_id', $connection->id)->value('selection_ref'))
+        ->toBeNull();
+});
+
 // ── Backfill command ────────────────────────────────────────────────────────
 
 it('backfills sources for existing connections and reports skips', function () {
