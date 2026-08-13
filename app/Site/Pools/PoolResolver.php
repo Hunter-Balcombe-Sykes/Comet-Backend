@@ -8,6 +8,7 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Services\Media\MediaUrlResolver;
+use App\Services\Platforms\DisplaySettingsFilter;
 use App\Site\Sections\SectionCandidates;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -429,13 +430,18 @@ class PoolResolver
         // source_id), so an item carried by two sources has TWO rows and keyBy
         // keeps the LAST. Unordered that is arbitrary scan order, which flips
         // the published attribution between reads. Freshest wins.
+        $reviewIds = $items->filter(fn (object $i): bool => $i->kind === 'review')->keys()->all();
+
         $reviews = collect();
-        if ($items->contains(fn (object $i): bool => $i->kind === 'review')) {
+        $suppressedReviews = [];
+        if ($reviewIds !== []) {
             $reviews = DB::connection('pgsql')->table('content.f_review')
-                ->whereIn('item_id', $ids)
+                ->whereIn('item_id', $reviewIds)
                 ->orderBy('updated_at')
                 ->get(['item_id', 'author_name', 'author_photo_url', 'author_uri', 'rating', 'text', 'reviewed_at'])
                 ->keyBy('item_id');
+
+            $suppressedReviews = $this->reviewsSuppressedByOwner($reviewIds);
         }
 
         // Public URL slugs. The legacy events lane served these off
@@ -490,6 +496,14 @@ class PoolResolver
 
         $out = [];
         foreach ($items as $itemId => $item) {
+            // Slice 6 §4.4: the owner switched this platform's reviews off.
+            // Dropped before the payload is built, so the item leaves the
+            // selection AND the library — WS-B2 widened the toggles' meaning
+            // from "hide on the sitepage" to "don't serve".
+            if (isset($suppressedReviews[$itemId])) {
+                continue;
+            }
+
             $links = $this->linkSet(
                 $sourceLinks->get($itemId, collect()),
                 $manualLinks->get($itemId, collect()),
@@ -594,6 +608,64 @@ class PoolResolver
         }
 
         return [$out, $stores];
+    }
+
+    /**
+     * Review items every one of whose sources has reviews switched off, keyed
+     * by item id.
+     *
+     * The toggle lives on the platform connection and DisplaySettingsFilter
+     * applies it to the LEGACY payload lane only — buildPools() never passes
+     * through it, so without this an owner who switched reviews off has them
+     * republished by the pool. Keyed per SOURCE rather than per pool so a
+     * second review platform does not go dark with the first: an item still
+     * carried by an unsuppressed source stays.
+     *
+     * ONE query for the page (public hot path), and only when the resolved set
+     * contains a review at all. Removed source items are deliberately NOT
+     * filtered out — a source the owner silenced should keep counting as
+     * silenced while its rows linger.
+     *
+     * @param  list<string>  $reviewIds
+     * @return array<string, true>
+     */
+    private function reviewsSuppressedByOwner(array $reviewIds): array
+    {
+        $rows = DB::connection('pgsql')->table('content.source_items as si')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->leftJoin('site.platform_connections as pc', 'pc.id', '=', 'cs.connection_id')
+            ->whereIn('si.item_id', $reviewIds)
+            ->get(['si.item_id', 'pc.platform', 'pc.display_settings']);
+
+        $suppressed = [];
+        foreach ($rows->groupBy('item_id') as $itemId => $sourceRows) {
+            if ($sourceRows->every(fn (object $row): bool => $this->connectionHidesReviews($row))) {
+                $suppressed[(string) $itemId] = true;
+            }
+        }
+
+        return $suppressed;
+    }
+
+    /** Whether one connection's display settings switch reviews off. */
+    private function connectionHidesReviews(object $connection): bool
+    {
+        $settings = json_decode((string) ($connection->display_settings ?? '{}'), true);
+        $settings = is_array($settings) ? $settings : [];
+
+        // DisplaySettingsFilter is the single source of truth for what a
+        // toggle suppresses, and `reviews` is one of the payload keys the
+        // google-business `reviews` toggle removes.
+        $disabled = DisplaySettingsFilter::disabledKeys(
+            (string) ($connection->platform ?? ''),
+            $settings,
+        );
+
+        // The second half fails CLOSED for a review platform not yet in that
+        // map: a toggle literally named `reviews`, switched off, means the
+        // owner switched reviews off whatever the map knows about it.
+        return in_array('reviews', $disabled, true)
+            || ($settings['reviews'] ?? true) === false;
     }
 
     /**

@@ -12,6 +12,7 @@ use App\Models\Core\Site\Section;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Site\Documents\BuildState;
+use App\Site\Pools\PoolRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -67,6 +68,17 @@ class SectionItemController extends ApiController
         $this->authorizeForUser($user, 'view', $item);
 
         $data = $request->validated();
+
+        // Slice 6 §4.3: reviews may be hidden but not promoted — owner
+        // decision 2026-08-13. Refused here rather than in the request rule
+        // because the rule has no pool context; PoolRegistry::allowsPin is the
+        // one source of truth and the pool lane reads the same const. A
+        // capability rule about the pool, not authorization on a resource,
+        // so 422 rather than a policy.
+        $pool = PoolRegistry::poolForSectionKey((string) $section->key);
+        if ($data['state'] === SectionItem::STATE_PINNED && $pool !== null && ! PoolRegistry::allowsPin($pool)) {
+            abort(422, 'Reviews can be hidden, but not pinned.');
+        }
 
         $row = SectionItem::query()
             ->where('section_id', $section->id)

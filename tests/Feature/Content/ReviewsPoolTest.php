@@ -3,6 +3,7 @@
 use App\Models\Core\Site\Site;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
+use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -152,4 +153,89 @@ it('ships a null review block on non-review kinds', function () {
 
     expect($item)->toHaveKey('review')
         ->and($item['review'])->toBeNull();
+});
+
+// ── The owner's toggle, and the two write refusals (§4.4, §4.3) ─────────────
+
+// DisplaySettingsFilter gates the LEGACY payload lane only; buildPools() never
+// passes through it. Without this gate, an owner who switched reviews off has
+// them republished by the pool — a regression against their express setting.
+it('drops review items whose connection suppresses reviews', function () {
+    [, $siteId, $itemId] = reviewPoolFixture(['rating' => 5.0], ['reviews' => false]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect(collect($resolved['selection'])->firstWhere('id', $itemId))->toBeNull()
+        ->and(collect($resolved['library'])->firstWhere('id', $itemId))->toBeNull();
+});
+
+// The toggle is keyed to the SOURCE, not the pool: a suppressed google-business
+// connection must not take a second platform's reviews down with it.
+it('keeps a review carried by a second, unsuppressed source', function () {
+    [$pro, $siteId, $itemId] = reviewPoolFixture(['rating' => 5.0], ['reviews' => false]);
+
+    $otherSource = poolSource($pro->id, poolConnection($pro->id, 'yelp.listing'));
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $otherSource,
+        'coord' => 'review:'.Str::random(8), 'item_id' => $itemId, 'kind' => 'review',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect(collect($resolved['selection'])->firstWhere('id', $itemId))->not->toBeNull();
+});
+
+// A toggle switched off on the reviews connection must not take that same
+// connection's PHOTOS down with it — the gate is scoped to review items.
+it('leaves non-review items from a reviews-suppressed connection alone', function () {
+    [$pro, $siteId] = poolTenant();
+    $connectionId = poolConnection($pro->id, 'google_business.listing', ['reviews' => false]);
+    $itemId = poolItem($pro->id, poolSource($pro->id, $connectionId), 'media', 'A photo', now()->toDateTimeString());
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'media');
+
+    expect(collect($resolved['selection'])->firstWhere('id', $itemId))->not->toBeNull();
+});
+
+it('refuses a manual add to the reviews pool', function () {
+    [$pro] = poolTenant();
+
+    actingAsUser($pro)
+        ->postJson('/api/content/pools/reviews/items', ['url' => 'https://example.com/x'])
+        ->assertStatus(422);
+
+    expect(DB::table('content.items')->where('user_id', $pro->id)->count())->toBe(0);
+});
+
+it('refuses a pin on the reviews pool but allows an exclusion', function () {
+    [$pro, $siteId, $itemId] = reviewPoolFixture(['rating' => 5.0]);
+
+    $sectionId = (string) app(PoolSectionProvisioner::class)
+        ->ensure(Site::query()->findOrFail($siteId), 'reviews')->id;
+
+    actingAsUser($pro)
+        ->putJson("/api/site/sections/{$sectionId}/items/{$itemId}", ['state' => 'pinned'])
+        ->assertStatus(422);
+
+    actingAsUser($pro)
+        ->putJson("/api/site/sections/{$sectionId}/items/{$itemId}", ['state' => 'excluded'])
+        ->assertOk();
+
+    expect(DB::table('site.section_items')->where('item_id', $itemId)->value('state'))
+        ->toBe('excluded');
+});
+
+// The refusal is about the POOL, not about pinning — every other pool's
+// curation must keep working.
+it('still allows a pin on another pool', function () {
+    [$pro, $siteId] = poolTenant();
+    $itemId = poolItem($pro->id, poolSource($pro->id, poolConnection($pro->id)), 'video', 'A video', now()->toDateTimeString());
+
+    $sectionId = (string) app(PoolSectionProvisioner::class)
+        ->ensure(Site::query()->findOrFail($siteId), 'watch')->id;
+
+    actingAsUser($pro)
+        ->putJson("/api/site/sections/{$sectionId}/items/{$itemId}", ['state' => 'pinned'])
+        ->assertOk();
 });

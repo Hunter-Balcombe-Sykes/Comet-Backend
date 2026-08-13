@@ -49,6 +49,15 @@ class PoolItemCreateController extends ApiController
             abort(404, 'Unknown pool.');
         }
 
+        // Slice 6 §4.4: hand-authoring an item of kind `review` is fabricating
+        // a testimonial attributed to a customer. Declared once in PoolRegistry
+        // so this endpoint and the curation write path read one source of
+        // truth. A capability rule about the pool, not authorization on a
+        // resource — hence 422, not a policy.
+        if (! PoolRegistry::allowsManualAdd($pool)) {
+            abort(422, 'Reviews come from your connected platforms and cannot be added by hand.');
+        }
+
         $kinds = PoolRegistry::kinds($pool);
         $data = $request->validate([
             'url' => ['required', 'string', 'max:2048', 'url:https'],
