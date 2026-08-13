@@ -377,8 +377,9 @@ store-scoped (5a §3.3), so one product URL listed by two of a user's stores is 
 `ShopContentReader::brandMap()` already uses, so the dashboard and the wire agree.
 
 **Batched, never per row.** This sits behind the 60s payload cache on the public
-hot path. Three set-wide queries are added to `PoolResolver::itemPayloads()` —
-collections+storefronts by item, `f_catalog` by item, `item_variants` by item —
+hot path. Four set-wide reads are added to `PoolResolver::itemPayloads()` —
+collections+storefronts by item, `f_catalog` by item, `item_variants` by item, and
+the single-flight-cached popularity ranks (§3.6) —
 and the existing `offers` query changes from `keyBy('item_id')` to
 `groupBy('item_id')` so **one** fetch serves both the cheapest-per-item price and
 the per-`variant_label` variant prices. All of it is gated on the resolved item
@@ -439,6 +440,21 @@ Each variant object: `label`, `sku`, `price` (same `{amountMinor, amountMaxMinor
 currency, qualifier}` shape the item carries), `availability`, `imageUrl`.
 **`imageUrl` is unverified against real data** — `item_variants.image_url` is
 populated on 0 of 268 dev rows, so it round-trips in tests only.
+
+**`popularityRank` is populated for products — found while planning, 2026-08-13.**
+`PoolResolver` hardcodes `'popularityRank' => null` for every item, but the legacy
+shop wire populated it from `analytics.content_popularity_scores`
+(`content_type='shop_product'`, keyed by product **handle**, per
+`ShopBrand::toBrandArray():135`). Dev holds **34 scored `shop_product` rows**, so
+retiring the legacy keys without carrying this drops live computed data to null.
+
+It is carried rather than named as a loss: `f_catalog.handle` is populated on 51
+of 51 products, so the join is exact, and a wire change that silently discards
+computed data is expensive to notice and to restore. `PoolResolver` reads the
+ranks through the same single-flight cache `PublicIntegrationController` uses
+(`CacheKeyGenerator::sitePopularityRanks`, CCG-102 — that read used to hit
+Postgres on every request), gated on the item set containing a product so no other
+pool pays for it. Every other kind keeps `null`, unchanged.
 
 **`url` carries the composed outbound href for products.** That is what makes
 `productHref()` retire literally: the sitepage clicks `item.url` and needs no shop
