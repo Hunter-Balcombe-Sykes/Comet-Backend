@@ -93,8 +93,12 @@ SQLite; the Postgres lane (`composer test:pg`) is mandatory in this slice.
 
 **Files:**
 - Create: `supabase/migrations/20260813090000_slice3b_collections_keys_and_selection_ref.sql`
-- Modify: the Postgres-lane stand-in DDL (find it: `grep -rn "content.collections" tests/ | grep -i "create table"`)
-- Test: `tests/Postgres/CollectionsUpsertConflictTest.php`
+- Modify: every `content.collections` stand-in — `tests/Pest.php:2976`
+  (`setupContentTables()`, the SQLite lane), plus
+  `tests/Postgres/ShopStorefrontUpsertConflictTest.php:67` and
+  `tests/Postgres/ShopUpsertStoreAtomicityTest.php:70` (each self-provisions
+  its own copy; see Step 2)
+- Test: `tests/Postgres/CollectionsUpsertConflictTest.php` (create)
 
 **Interfaces:**
 - Produces: `content.collections.external_ref TEXT NULL`,
@@ -131,32 +135,110 @@ COMMENT ON COLUMN ingest.sources.selection_ref IS
     'Connector-specific sub-account selector, passed through Pull.config. NULL = nothing chosen.';
 ```
 
-- [ ] **Step 2: Add the columns to the Postgres-lane stand-in DDL**
+- [ ] **Step 2: Add the columns everywhere `content.collections` is stood in**
 
-Locate it first — it is hand-written and drifts:
+There is **no single central Postgres-lane DDL file** — confirmed by reading
+every hit of `grep -rn "content.collections" tests/ | grep -i "create table"`.
+There are four, two different lanes:
 
-```bash
-grep -rn "content.collections" tests/ | grep -i "create table"
-```
+- `tests/Pest.php:2976`, inside `setupContentTables()` — the **SQLite**
+  stand-in used by every `tests/Feature/*` test (`composer test`), including
+  `ProjectionWriterTest.php` (Task 5). Add `external_ref TEXT`,
+  `removed_at TEXT` here or Task 5's SQLite-side tests fail with "no such
+  column".
+- `tests/Postgres/ShopStorefrontUpsertConflictTest.php:67` and
+  `tests/Postgres/ShopUpsertStoreAtomicityTest.php:70` — each self-provisions
+  `content.collections` inside its own `beginTransaction()`/`rollBack()` in
+  `beforeEach`, per this lane's own documented convention (that file's own
+  "LANE HYGIENE" comment: `content.*` tables are shared fixtures across the
+  Postgres lane and whichever file runs first decides the shape for the rest
+  of the run). Neither currently declares `external_ref`/`removed_at`; add
+  both, matching the real migration's types (`text`, `timestamptz`), so an
+  ordering fluke never leaves a narrower table behind for
+  `CollectionsUpsertConflictTest.php` to inherit.
+- `tests/Feature/PublicSite/PresenceProbeEscalationTest.php:287` — also the
+  SQLite lane (`DB::connection('pgsql')` there is the SQLite-backed
+  `pgsql`-named connection tests use, per
+  `reference_pgsql_driver_sqlite_in_tests.md`), unrelated to collections'
+  natural key; leave it unless it fails.
 
-Add `external_ref TEXT`, `removed_at TIMESTAMPTZ` to the `content.collections`
-stand-in, `selection_ref TEXT` to `ingest.sources`, and create the unique index.
-**If the lane's DDL lacks the index, the upsert in Task 5 will silently insert
-duplicates there and pass.**
+The **new** `tests/Postgres/CollectionsUpsertConflictTest.php` (Step 3) does
+not "add to" any of these — it self-provisions its own `content.collections`
++ `core.users`, exactly like `ShopStorefrontUpsertConflictTest.php` does, with
+the two new columns and the unique index from day one.
+
+**If any Postgres-lane file's stand-in lacks the index, the upsert in Task 5's
+Postgres test will silently insert duplicates there and pass.**
 
 - [ ] **Step 3: Write the failing Postgres test**
+
+`createPostgresUser()` does not exist anywhere in the tree (confirmed:
+`grep -rn "createPostgresUser" tests/ app/` is empty). Follow
+`ShopStorefrontUpsertConflictTest.php`'s real, self-contained pattern exactly:
+extend `Tests\PostgresTestCase`, `beginTransaction()`/`rollBack()` around a
+per-file `content.collections` (+ `core.users`) provision, and a
+file-local user-insert helper named for this file, e.g.
+`collectionsUpsertConflictTestUser()`. `DB::table(...)` alone is fine —
+`phpunit.pg.xml` inherits `DB_CONNECTION=pgsql` — but this lane's siblings
+write `DB::connection('pgsql')->table(...)` explicitly; match that style.
 
 ```php
 <?php
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\PostgresTestCase;
+
+uses(PostgresTestCase::class)->in(__FILE__);
 
 // The 42702 shape slice 5a shipped: a bare column in ON CONFLICT DO UPDATE is
 // ambiguous on Postgres and fine on SQLite. This test only means anything on
 // the real driver.
+
+beforeEach(function () {
+    $pg = DB::connection('pgsql');
+    $pg->beginTransaction();
+
+    $pg->statement('CREATE SCHEMA IF NOT EXISTS core');
+    $pg->statement('CREATE SCHEMA IF NOT EXISTS content');
+    $pg->statement('DROP TABLE IF EXISTS content.collections CASCADE');
+    $pg->statement('DROP TABLE IF EXISTS core.users CASCADE');
+
+    $pg->statement('CREATE TABLE core.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid())');
+
+    // Faithful to supabase/migrations/20260727140000_content_schema.sql's
+    // content.collections plus this slice's external_ref/removed_at.
+    $pg->statement('CREATE TABLE content.collections (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
+        parent_id uuid REFERENCES content.collections(id) ON DELETE CASCADE,
+        label text NOT NULL,
+        kind text,
+        external_ref text,
+        removed_at timestamptz,
+        position integer NOT NULL DEFAULT 0,
+        is_user_created boolean NOT NULL DEFAULT false,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )');
+    $pg->statement('CREATE UNIQUE INDEX collections_user_kind_external_ref_uq
+        ON content.collections (user_id, kind, external_ref)');
+});
+
+afterEach(function () {
+    DB::connection('pgsql')->rollBack();
+});
+
+function collectionsUpsertConflictTestUser(): string
+{
+    $userId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert(['id' => $userId]);
+
+    return $userId;
+}
+
 it('upserts a collection twice on its natural key without duplicating', function () {
-    $userId = createPostgresUser();          // helper used by the sibling PG tests
+    $userId = collectionsUpsertConflictTestUser();
     $row = fn (string $label) => [
         'id' => (string) Str::uuid(),
         'user_id' => $userId,
@@ -170,18 +252,18 @@ it('upserts a collection twice on its natural key without duplicating', function
         'updated_at' => now(),
     ];
 
-    DB::table('content.collections')->upsert(
+    DB::connection('pgsql')->table('content.collections')->upsert(
         [$row('Haircuts')],
         ['user_id', 'kind', 'external_ref'],
         ['label', 'position', 'updated_at'],
     );
-    DB::table('content.collections')->upsert(
+    DB::connection('pgsql')->table('content.collections')->upsert(
         [$row('Haircuts & Styling')],
         ['user_id', 'kind', 'external_ref'],
         ['label', 'position', 'updated_at'],
     );
 
-    $rows = DB::table('content.collections')
+    $rows = DB::connection('pgsql')->table('content.collections')
         ->where('user_id', $userId)->where('kind', 'service_category')->get();
 
     expect($rows)->toHaveCount(1)
@@ -189,9 +271,9 @@ it('upserts a collection twice on its natural key without duplicating', function
 });
 
 it('allows many user-created collections with a null external_ref', function () {
-    $userId = createPostgresUser();
+    $userId = collectionsUpsertConflictTestUser();
     foreach (['Cuts', 'Colour'] as $i => $label) {
-        DB::table('content.collections')->insert([
+        DB::connection('pgsql')->table('content.collections')->insert([
             'id' => (string) Str::uuid(), 'user_id' => $userId, 'parent_id' => null,
             'label' => $label, 'kind' => 'service_category', 'external_ref' => null,
             'position' => $i, 'is_user_created' => true,
@@ -199,13 +281,9 @@ it('allows many user-created collections with a null external_ref', function () 
         ]);
     }
 
-    expect(DB::table('content.collections')->where('user_id', $userId)->count())->toBe(2);
+    expect(DB::connection('pgsql')->table('content.collections')->where('user_id', $userId)->count())->toBe(2);
 });
 ```
-
-Match the surrounding `tests/Postgres/` files' bootstrapping — read
-`tests/Postgres/ShopStorefrontUpsertConflictTest.php` first and copy its user
-and connection setup rather than inventing `createPostgresUser()`.
 
 - [ ] **Step 4: Run it and watch it fail**
 
@@ -307,11 +385,27 @@ it('refetches soon when the selection changes', function () {
 });
 ```
 
-Write `freshaConnection(array $payloadExtras)` as a local helper in the test
-file, building an `IntegrationConnection` with
-`surface_key = 'fresha.booking'` and
-`payload = ['url' => 'https://www.fresha.com/a/some-salon-abc123'] + $payloadExtras`.
-Read the existing test file's factory usage and copy it.
+`SourceProvisionerTest.php` already defines everything this needs:
+`provisionerUser(): string` (a fresh tenant id via `createTenant()`),
+`makeConnection(string $userId, array $attributes): IntegrationConnection`
+(wraps `IntegrationConnection::create()`), and
+`ingestSourceFor(IntegrationConnection $connection): ?object` (reads the
+resulting `ingest.sources` row). Write `freshaConnection(array $payloadExtras)`
+as a thin wrapper over `makeConnection()`. Use `'platform' => 'fresha'`, not
+`surface_key` directly — the model's `setPlatformAttribute` mutator resolves
+the legacy `platform` write through `App\Catalog\LegacyPlatformMap`, and that
+map sends `'fresha'` to `surface_key` `fresha.book`, **not** `fresha.booking`
+(verified: `app/Catalog/LegacyPlatformMap.php:38`).
+
+```php
+function freshaConnection(array $payloadExtras): IntegrationConnection
+{
+    return makeConnection(provisionerUser(), [
+        'platform' => 'fresha',
+        'payload' => ['url' => 'https://www.fresha.com/a/some-salon-abc123'] + $payloadExtras,
+    ]);
+}
+```
 
 - [ ] **Step 2: Run and watch them fail**
 
@@ -443,8 +537,8 @@ git commit -m "feat(ingest): carry the sub-account selection through Pull.config
 
 ```php
 it('lands nothing and makes no HTTP call when nothing has been chosen', function () {
-    $io = fakeIo();   // records every post() call
-    $pull = new Pull('some-salon-abc123', servicesSpec(), config: ['selection_ref' => null]);
+    $io = freshaIo(freshaResponseWith([]));   // recorded posts must stay empty
+    $pull = freshaPull('services', 'some-salon-abc123', config: ['selection_ref' => null]);
 
     $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io));
 
@@ -455,8 +549,8 @@ it('lands nothing and makes no HTTP call when nothing has been chosen', function
 });
 
 it('asks for one employee menu when an employee is chosen', function () {
-    $io = fakeIo(response: freshaServicesFixture());
-    $pull = new Pull('some-salon-abc123', servicesSpec(), config: ['selection_ref' => '4891132']);
+    $io = freshaIo(freshaResponseWith([['id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1')]]]));
+    $pull = freshaPull('services', 'some-salon-abc123', config: ['selection_ref' => '4891132']);
 
     iterator_to_array((new FreshaConnector)->pull($pull, $io));
 
@@ -466,8 +560,8 @@ it('asks for one employee menu when an employee is chosen', function () {
 });
 
 it('asks for the store menu when storewide is chosen', function () {
-    $io = fakeIo(response: freshaServicesFixture());
-    $pull = new Pull('some-salon-abc123', servicesSpec(), config: ['selection_ref' => 'storewide']);
+    $io = freshaIo(freshaResponseWith([['id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1')]]]));
+    $pull = freshaPull('services', 'some-salon-abc123', config: ['selection_ref' => 'storewide']);
 
     iterator_to_array((new FreshaConnector)->pull($pull, $io));
 
@@ -478,8 +572,8 @@ it('asks for the store menu when storewide is chosen', function () {
 
 // The profile stream does not depend on whose menu it is.
 it('still fetches profile when nothing has been chosen', function () {
-    $io = fakeIo(response: freshaServicesFixture());
-    $pull = new Pull('some-salon-abc123', profileSpec(), config: ['selection_ref' => null]);
+    $io = freshaIo(freshaResponseWith([['id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1')]]]));
+    $pull = freshaPull('profile', 'some-salon-abc123', config: ['selection_ref' => null]);
 
     iterator_to_array((new FreshaConnector)->pull($pull, $io));
 
@@ -487,12 +581,56 @@ it('still fetches profile when nothing has been chosen', function () {
 });
 ```
 
-Read the existing connector test for the real `Io` fake and the `StreamSpec`
-builders; reuse them rather than writing `fakeIo()`/`servicesSpec()` from
-scratch. `freshaServicesFixture()` should be a captured
-`screenServices.categories` payload — take one from
-`tests/Feature/Platforms/RefreshFetchBudgetTest.php`, which already holds a real
-capture.
+None of `fakeIo()`, `servicesSpec()`, `profileSpec()`, `freshaServicesFixture()`,
+`freshaResponseWith()`, `normalItem()` exist anywhere in the tree. The real
+equivalents, already in `FreshaConnectorTest.php`:
+
+- **Pull builder**: `freshaPull(string $streamName, string $slug = 'invented-salon'): Pull`
+  — builds `new Pull(identifier: $slug, stream: FreshaConnector::manifest()->stream($streamName))`.
+  It does **not** take a `config` argument today. Widen it to
+  `freshaPull(string $streamName, string $slug = 'invented-salon', array $config = []): Pull`
+  and pass `config: $config` through — this is additive, every existing call
+  keeps working.
+- **Io fake**: `freshaIo(array $response): Io` — an anonymous class whose
+  `post()` checks the host against `FreshaConnector::manifest()->mayContact()`
+  and returns the fixed `$response` array (`['status' => …, 'body' => …,
+  'headers' => …]`). **It does not record calls.** There is no `->posts`
+  anywhere in the current file — Tasks 3 and 4 need
+  `$io->posts[0]['body']['variables']['input']['options']`, which is
+  unsupported today. Widen the anonymous class: add
+  `public array $posts = [];` and, as the first line of `post()`, append
+  `$this->posts[] = ['url' => $url, 'body' => $body, 'headers' => $headers];`
+  before the manifest check. Purely additive — no existing assertion reads
+  `->posts`.
+- **Response body builder**: `freshaBookingFlowBody(array $categories, ?array $location = null): string`
+  — already returns the encoded `data.bookingFlowInitialize.screenServices.categories`
+  JSON string. Build the two new local helpers on top of it rather than
+  inventing a parallel envelope:
+  ```php
+  /** @param list<array<string,mixed>> $categories */
+  function freshaResponseWith(array $categories): array
+  {
+      return ['status' => 200, 'body' => freshaBookingFlowBody($categories), 'headers' => []];
+  }
+
+  function normalItem(string $catalogId): array
+  {
+      return [
+          'name' => 'Standard Haircut',
+          'caption' => '30min',
+          'price' => ['formatted' => 'from $48'],
+          'primaryAction' => ['id' => '[{"catalogId":"'.$catalogId.'"}]'],
+      ];
+  }
+  ```
+  Task 3's storewide/employee cases (below) call `freshaResponseWith([['id' => '1',
+  'name' => 'Cuts', 'items' => [normalItem('s:1')]]])` directly at each call
+  site rather than through a named `freshaServicesFixture()` — there is no real
+  captured fixture to reuse (see the `RefreshFetchBudgetTest.php` finding
+  below; it holds none, only synthetic minimal bodies of its own).
+- Every `fakeIo(response: X)` in the test bodies below is `freshaIo(X)`, and
+  every `servicesSpec()`/`profileSpec()` is `freshaPull('services', …)`/
+  `freshaPull('profile', …)` — already applied in Step 1's code above.
 
 - [ ] **Step 2: Run and watch them fail**
 
@@ -672,8 +810,8 @@ it('lands a package row whose catalog id is only on the secondary action', funct
         'primaryAction' => ['id' => '[{"type":"onScreenServicesModalPackageOpen","bookableId":"p:360081"}]'],
         'secondaryAction' => ['id' => '[{"type":"onScreenServicesPackageAdd","catalogId":"p:360081"}]'],
     ];
-    $io = fakeIo(response: freshaResponseWith([['id' => '2590968', 'name' => 'Kids', 'items' => [$item]]]));
-    $pull = new Pull('edward', servicesSpec(), config: ['selection_ref' => 'storewide']);
+    $io = freshaIo(freshaResponseWith([['id' => '2590968', 'name' => 'Kids', 'items' => [$item]]]));
+    $pull = freshaPull('services', 'edward', config: ['selection_ref' => 'storewide']);
 
     $records = array_values(array_filter(
         iterator_to_array((new FreshaConnector)->pull($pull, $io)),
@@ -686,10 +824,10 @@ it('lands a package row whose catalog id is only on the secondary action', funct
 });
 
 it('carries the vendor category id alongside its name', function () {
-    $io = fakeIo(response: freshaResponseWith([[
+    $io = freshaIo(freshaResponseWith([[
         'id' => '3282965', 'name' => 'Haircuts', 'items' => [normalItem('s:12107058')],
     ]]));
-    $pull = new Pull('edward', servicesSpec(), config: ['selection_ref' => 'storewide']);
+    $pull = freshaPull('services', 'edward', config: ['selection_ref' => 'storewide']);
 
     $records = array_values(array_filter(
         iterator_to_array((new FreshaConnector)->pull($pull, $io)),
@@ -702,10 +840,10 @@ it('carries the vendor category id alongside its name', function () {
 
 it('counts rows it could not map instead of dropping them silently', function () {
     $unmappable = ['name' => 'Mystery', 'primaryAction' => ['id' => '[{"type":"whatever"}]']];
-    $io = fakeIo(response: freshaResponseWith([[
+    $io = freshaIo(freshaResponseWith([[
         'id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1'), $unmappable],
     ]]));
-    $pull = new Pull('edward', servicesSpec(), config: ['selection_ref' => 'storewide']);
+    $pull = freshaPull('services', 'edward', config: ['selection_ref' => 'storewide']);
 
     $notes = array_values(array_filter(
         iterator_to_array((new FreshaConnector)->pull($pull, $io)),
@@ -717,9 +855,8 @@ it('counts rows it could not map instead of dropping them silently', function ()
 });
 ```
 
-Add `freshaResponseWith(array $categories)` and `normalItem(string $catalogId)`
-as local helpers building the `data.bookingFlowInitialize.screenServices.categories`
-envelope.
+`freshaResponseWith(array $categories)` and `normalItem(string $catalogId)`
+are the same two local helpers Task 3 adds — defined once, reused here.
 
 - [ ] **Step 2: Run and watch them fail**
 
@@ -856,7 +993,7 @@ git commit -m "fix(fresha): land package rows, carry category ids, stop blaming 
 
 ```php
 it('creates a collection and links the item to it', function () {
-    [$sourceId, $userId] = manualSourceFor();     // reuse the file's existing helper
+    [$sourceId, $userId] = manualSourceFor();
 
     projectOne($sourceId, $userId, coord: 'fresha:x:s:1', projection: [
         'kind' => 'service', 'headline' => 'Standard Haircut',
@@ -907,7 +1044,13 @@ it('replaces memberships for its own source only', function () {
         'kind' => 'service', 'headline' => 'Cut',
         'collections' => [['external_ref' => 'A', 'label' => 'A', 'kind' => 'service_category', 'position' => 0]],
     ]);
-    $foreign = DB::table('content.collections')->insertGetId([...]);   // a collection owned by $otherSourceId
+    $foreign = (string) Str::uuid();
+    DB::table('content.collections')->insert([
+        'id' => $foreign, 'user_id' => $userId, 'parent_id' => null,
+        'label' => 'Foreign', 'kind' => 'service_category', 'external_ref' => 'F',
+        'position' => 0, 'is_user_created' => false,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
     DB::table('content.collection_items')->insert([
         'collection_id' => $foreign, 'item_id' => $itemId, 'source_id' => $otherSourceId, 'position' => 0,
     ]);
@@ -944,10 +1087,66 @@ it('is inert for a projection that carries no collections key', function () {
 });
 ```
 
-Read the existing `ProjectionWriterTest` and reuse its source/projection
-helpers; the names above (`manualSourceFor()`, `projectOne()`, `otherSourceFor()`)
-are placeholders for whatever that file already calls them, and the fourth test's
-`insertGetId([...])` must be filled in with the same column set the writer uses.
+**None of `manualSourceFor()`, `projectOne()`, `otherSourceFor()` exist.**
+`ProjectionWriterTest.php`'s only helpers are `projectableBandcamp()` /
+`projectableEventbrite()` / `landCurrentRecord()` — they land raw docs into
+`ingest.record_versions` and drive everything through the public
+`projectStream(array $source, string $streamId, string $streamName)`, which
+re-derives each projection itself via
+`ProjectorRegistry::for($sourceKey, $streamName)`. That path only produces a
+`collections` key once `FreshaServiceProjector` emits one — Task 6, not yet
+landed at this point in the plan — so it is the wrong entry point for these
+tests.
+
+The right one already exists and needs no other task's work first:
+`ProjectionWriter::writeManualItem(string $userId, string $coord, array $projection): string`
+(public, `app/Ingest/Projection/ProjectionWriter.php:343`) takes a projection
+array **directly** — no projector involved — and internally calls
+`ensureManualSource($userId)` (public, line 260) for its content source, then
+`writeFacets()`, which calls `replaceCollections($contentSourceId, $userId, $byItem)`
+(the exact method Steps 3–5 below edit) before touching any singleton facet.
+This is already how `ManualServiceWriter`/`ServiceEndpointCutoverTest.php`
+exercise `ProjectionWriter` today — same seam, no dependency on the Fresha
+connector or projector existing yet. Add these three helpers to
+`ProjectionWriterTest.php`:
+
+```php
+/** A fresh user plus its (idempotent) manual content source id. */
+function manualSourceFor(): array
+{
+    $userId = createTenant('proj-'.Str::lower(Str::random(6)))->id;
+    $sourceId = app(ProjectionWriter::class)->ensureManualSource($userId);
+
+    return [$sourceId, $userId];
+}
+
+/** Writes one projection through the real writeManualItem() seam; returns the item id. */
+function projectOne(string $sourceId, string $userId, string $coord, array $projection): string
+{
+    return app(ProjectionWriter::class)->writeManualItem($userId, $coord, $projection);
+}
+
+/** A second, distinct content.sources row (kind='connection') to prove per-source scoping — same insert shape ServiceEndpointCutoverTest.php's merge test uses. */
+function otherSourceFor(string $userId): string
+{
+    $id = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $id, 'user_id' => $userId, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return $id;
+}
+```
+
+`$sourceId` in `projectOne()` is accepted for call-site readability but not
+otherwise needed — `writeManualItem()` re-derives the same id via
+`ensureManualSource()`, which is idempotent per user.
+
+The fourth test's foreign-collection insert (below) builds its own uuid and
+`insert()`s rather than `insertGetId()` — SQLite in this suite has no serial
+key to hand back — using the same column set `upsertCollections()` (Step 4)
+writes.
 
 - [ ] **Step 2: Run and watch them fail**
 
@@ -1488,6 +1687,15 @@ Route the new path through `ContentCollectionPolicy`, which already exists for
 `content.collections`. Do **not** add inline `abort_unless` checks — CI fails the
 build on inline 403 aborts.
 
+**`ServiceCategoryResource` must be adapted, not merely re-fed.** It computes
+`'source'` as `$this->resource instanceof ServiceCategory ? $this->resource->source : null`.
+Handed a `content.collections` row it returns **null for every category**,
+including Fresha-derived ones -- a silent wire regression on the one field whose
+own comment says the dashboard needs it to tell a synced category from an
+editable one. Map it: `is_user_created === false` -> `'fresha'`,
+`true` -> `null`. Same shape, same treatment: `title` <- `label`,
+`sort_order` <- `position`, `deleted_at` <- `removed_at`.
+
 - [ ] **Step 4: Run green**
 
 Run: `COMPOSER_PROCESS_TIMEOUT=0 ./vendor/bin/pest --filter=ServiceCategoryEndpointCutover`
@@ -1661,6 +1869,10 @@ Check the real staff route paths in `routes/api/staff.php` before writing the
 URLs — **staff routes live in three separate groups** with different middleware;
 put nothing in the wrong one.
 
+**Do not assert on `ManualServiceItems::publicList()`'s `category` field in this
+task's tests.** Task 10 is editing that exact method in the same wave. Assert
+the staff list on `title` presence instead.
+
 - [ ] **Step 2: Run and watch them fail**
 
 Expected: FAIL — the created service is absent from the staff list entirely.
@@ -1731,9 +1943,18 @@ it('round-trips every price qualifier back to its display string', function (str
     ['exact', 3150, '$31.50'],
 ]);
 
-it('omits services the owner hid', function () {
-    // hiddenServiceIds keeps its current meaning; a hidden service must not
-    // appear in services[].
+// RULING (controller, 2026-08-13): services[] does NOT filter hidden rows.
+// FreshaSelectionResource passes `services` through verbatim and carries
+// `hiddenServiceIds` as a separate sibling key; filtering here would be the
+// wire change spec 3.7 forbids, and would break the dashboard's un-hide
+// affordance, which needs the hidden rows present in order to render them.
+it('keeps a hidden service in services[] and leaves the hiding to hiddenServiceIds', function () {
+    [$user] = freshaConnectionWithLandedItems();   // one of whose items is hidden
+
+    $payload = /* the FreshaSelectionResource payload for $user */;
+
+    expect(collect($payload['services'])->pluck('serviceId'))->toContain($hiddenId)
+        ->and($payload['hiddenServiceIds'])->toContain($hiddenId);
 });
 ```
 
