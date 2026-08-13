@@ -132,6 +132,7 @@ class PoolResolver
      *   library: list<array<string, mixed>>,
      *   latestItemId: string|null,
      *   collections: array<string, array<string, mixed>>,
+     *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null,
      * }
      */
     public function resolve(Site $site, string $pool): array
@@ -211,6 +212,50 @@ class PoolResolver
                 ? $this->latestItemId($selection)
                 : null,
             'collections' => $this->collectionsFor($selection, $stores),
+            'stats' => $this->statsFor($pool, $selection),
+        ];
+    }
+
+    /**
+     * Slice 6 §5.4: the connected place's own aggregates, for the pool that
+     * renders them. These describe the SOURCE, not any one item, which is why
+     * they sit beside the items rather than on one.
+     *
+     * Derived from the SELECTION's sources rather than from the user's, so the
+     * owner's display toggle and any exclusion itemPayloads() already applied
+     * govern the badge exactly as they govern the cards — an owner who
+     * switched reviews off has an empty selection here and therefore no
+     * rating. Serving a 4.8 for someone who hid their reviews would republish
+     * the thing they hid, in summary form.
+     *
+     * @param  list<array<string, mixed>>  $selection
+     * @return array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null
+     */
+    private function statsFor(string $pool, array $selection): ?array
+    {
+        if (! PoolRegistry::carriesSourceStats($pool) || $selection === []) {
+            return null;
+        }
+
+        $row = DB::connection('pgsql')->table('content.source_stats as ss')
+            ->join('content.source_items as si', 'si.source_id', '=', 'ss.source_id')
+            ->whereIn('si.item_id', array_column($selection, 'id'))
+            // Two connected places would be unusual, but the busiest listing is
+            // the defensible one to show and ordering makes that a decision
+            // rather than whatever row Postgres returned first.
+            ->orderByDesc('ss.rating_count')
+            ->first(['ss.rating_avg', 'ss.rating_count', 'ss.summary_text']);
+
+        if ($row === null) {
+            return null;
+        }
+
+        // Null-preserving: f_review.rating's bare-cast trap applies here too —
+        // (float) null is 0.0, which would publish a zero-star business.
+        return [
+            'ratingAvg' => $row->rating_avg === null ? null : (float) $row->rating_avg,
+            'ratingCount' => $row->rating_count === null ? null : (int) $row->rating_count,
+            'summaryText' => $row->summary_text,
         ];
     }
 
