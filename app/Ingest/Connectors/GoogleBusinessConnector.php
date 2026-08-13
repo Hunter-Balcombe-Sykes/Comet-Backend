@@ -165,11 +165,28 @@ class GoogleBusinessConnector implements Connector
     {
         $reviews = is_array($place['reviews'] ?? null) ? $place['reviews'] : [];
 
+        // Slice 6 §5.2: the place's own aggregates ride on every review record.
+        // They describe the PLACE, not the review, but the `profile` stream that
+        // would naturally own them projects to nothing (its field-bindings
+        // consumer was dropped by 20260805110000), and hanging a public-wire
+        // fact off a stream slice 7 could legitimately delete is a defect
+        // waiting for someone to act correctly. Identical across the run, so
+        // the writer's last-one-wins upsert is the intended behaviour.
+        // A place returning zero reviews emits no records and so no stats —
+        // accepted: with no reviews there is no pool to render a rating against.
+        $stats = array_filter([
+            'place_rating' => is_numeric($place['rating'] ?? null) ? (float) $place['rating'] : null,
+            'place_rating_count' => is_numeric($place['userRatingCount'] ?? null) ? (int) $place['userRatingCount'] : null,
+            'place_review_summary' => is_string(data_get($place, 'reviewSummary.text.text'))
+                ? data_get($place, 'reviewSummary.text.text')
+                : (is_string(data_get($place, 'reviewSummary.text')) ? data_get($place, 'reviewSummary.text') : null),
+        ], static fn ($v) => $v !== null);
+
         $items = [];
         foreach ($reviews as $review) {
             $item = $this->mapReview($review);
             if ($item !== null) {
-                $items[] = $item;
+                $items[] = $item + $stats;
             }
         }
 

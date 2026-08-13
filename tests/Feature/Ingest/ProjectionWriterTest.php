@@ -694,3 +694,105 @@ it('is inert for a projection that carries no collections key', function () {
 
     expect(DB::table('content.collections')->count())->toBe(0);
 });
+
+// Slice 6 §5.2: the place's aggregates have no content.items row to hang a
+// facet on, so they land source-scoped on content.source_stats. The projector
+// test proves the shape; this proves the WRITE — the seam that a green SQLite
+// projector run says nothing about.
+function projectableGoogleReviews(array $docs): array
+{
+    $userId = createTenant('gbstats-'.Str::lower(Str::random(6)))->id;
+
+    $connection = IntegrationConnection::create([
+        'user_id' => $userId,
+        'platform' => 'google-business',
+        'resource_id' => 'places/'.Str::random(12),
+        'payload' => ['placeId' => 'places/'.Str::random(12)],
+        'is_active' => true,
+    ]);
+
+    $source = (array) DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
+    $streamId = (string) Str::uuid();
+    DB::table('ingest.streams')->insert([
+        'id' => $streamId, 'source_id' => $source['id'], 'stream_name' => 'reviews',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    foreach ($docs as $key => $doc) {
+        landCurrentRecord($streamId, (string) $key, $doc);
+    }
+
+    return [$userId, $connection, $source, $streamId];
+}
+
+it('lands the place aggregates on content.source_stats', function () {
+    [, $connection, $source, $streamId] = projectableGoogleReviews([
+        'places/p/reviews/a' => [
+            'review_id' => 'places/p/reviews/a', 'rating' => 5, 'text' => 'Great.',
+            'place_rating' => 4.7, 'place_rating_count' => 312,
+            'place_review_summary' => 'Customers praise the friendly staff.',
+        ],
+        'places/p/reviews/b' => [
+            'review_id' => 'places/p/reviews/b', 'rating' => 4, 'text' => 'Good.',
+            'place_rating' => 4.7, 'place_rating_count' => 312,
+            'place_review_summary' => 'Customers praise the friendly staff.',
+        ],
+    ]);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'reviews');
+
+    $contentSourceId = DB::table('content.sources')->where('connection_id', $connection->id)->value('id');
+
+    // One row per SOURCE, not per record — the aggregates are identical across
+    // the run and the last one wins.
+    expect(DB::table('content.source_stats')->count())->toBe(1);
+
+    $stats = DB::table('content.source_stats')->where('source_id', $contentSourceId)->first();
+    expect((float) $stats->rating_avg)->toBe(4.7)
+        ->and((int) $stats->rating_count)->toBe(312)
+        ->and($stats->summary_text)->toBe('Customers praise the friendly staff.');
+});
+
+// The reviewer's name must reach content.f_review and NOTHING else — slice 6
+// §2.2's three-table disclosure defect, asserted at the DB grain.
+it('writes the reviewer name to f_review only, never f_text or headline_cache', function () {
+    [$userId, , $source, $streamId] = projectableGoogleReviews([
+        'places/p/reviews/a' => [
+            'review_id' => 'places/p/reviews/a', 'rating' => 5, 'text' => 'Great.',
+            'author' => 'A Real Person', 'author_uri' => 'https://maps.google.com/contrib/1',
+            'author_photo' => 'https://lh3.googleusercontent.com/a/abc',
+        ],
+    ]);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'reviews');
+
+    $item = DB::table('content.items')->where('user_id', $userId)->where('kind', 'review')->first();
+
+    expect($item->headline_cache)->toBeNull()
+        ->and(DB::table('content.f_text')->where('item_id', $item->id)->count())->toBe(0)
+        ->and(DB::table('content.f_review')->where('item_id', $item->id)->value('author_name'))->toBe('A Real Person')
+        ->and(DB::table('content.f_review')->where('item_id', $item->id)->value('author_uri'))
+        ->toBe('https://maps.google.com/contrib/1');
+});
+
+// A run with no aggregates must not blank a previously-landed set.
+it('leaves existing source_stats alone when a later run carries none', function () {
+    [, $connection, $source, $streamId] = projectableGoogleReviews([
+        'places/p/reviews/a' => [
+            'review_id' => 'places/p/reviews/a', 'rating' => 5,
+            'place_rating' => 4.7, 'place_rating_count' => 312,
+        ],
+    ]);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'reviews');
+
+    $contentSourceId = DB::table('content.sources')->where('connection_id', $connection->id)->value('id');
+    DB::table('ingest.record_versions')->where('stream_id', $streamId)->update([
+        'doc' => json_encode(['review_id' => 'places/p/reviews/a', 'rating' => 5]),
+    ]);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'reviews');
+
+    expect((float) DB::table('content.source_stats')->where('source_id', $contentSourceId)->value('rating_avg'))
+        ->toBe(4.7);
+});
