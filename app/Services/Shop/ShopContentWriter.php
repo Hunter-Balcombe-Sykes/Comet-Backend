@@ -361,16 +361,22 @@ class ShopContentWriter
             $written++;
         }
 
-        // Spec §3.3 — an OWNER-AUTHORED write may clear items.removed_at; a
-        // connector re-observing an item never may. The parent programme's
-        // one-way rule was written against scrape flapping, which must not undo
-        // a deliberate removal; a re-add through addProduct/setProducts is an
-        // explicit owner act. Scoped to the items this call just linked, so it
-        // can never reach outside this catalogue.
+        // Spec §3.3: clears items.removed_at for exactly the items this call
+        // just linked (never wider — this can't reach outside $linked). This
+        // method itself is NOT owner-exclusive — ShopFetch's scheduled
+        // 6-hourly sync reaches it too. The owner-vs-connector boundary lives
+        // in ShopFetch's CALLERS instead: it skips hand-curated brands
+        // (ShopContentWriter::isCurated() → products_curated_at) and the
+        // individual bucket (->where('is_individual', false)), so the
+        // scheduled path can only ever un-retire what its OWN top-N windowing
+        // retired, never a brand an owner curated by hand. Both exclusions are
+        // pinned by ShopRetirementTest's "ShopFetch never calls syncLatest
+        // for …" pair — delete either filter and one of those fails.
         //
-        // Without this, the individual bucket's 20-item cap (which retires the
-        // oldest product on EVERY add) makes a re-added product permanently
-        // absent from the Shop page while it shows normally in the dashboard.
+        // The 20-item individual-bucket cap (which retires the oldest product
+        // on EVERY add) is why this exists at all: without it, a re-added
+        // product stays permanently absent from the Shop page while showing
+        // normally in the dashboard.
         if ($linked !== []) {
             DB::table('content.items')
                 ->whereIn('id', $linked)
