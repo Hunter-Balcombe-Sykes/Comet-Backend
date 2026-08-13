@@ -65,9 +65,17 @@ final class ShopOutboundUrl
         return $url;
     }
 
-    /** Join a query fragment with ? or &, whichever the URL still needs. */
+    /**
+     * Join a query fragment with ? or &, whichever the URL still needs — inserted
+     * before any #fragment, since a query appended after one is invisible to the
+     * server and would silently drop the discount/referral attribution.
+     */
     private static function append(string $url, string $fragment): string
     {
-        return $url.(str_contains($url, '?') ? '&' : '?').$fragment;
+        [$base, $hash] = str_contains($url, '#') ? explode('#', $url, 2) : [$url, null];
+
+        $base .= (str_contains($base, '?') ? '&' : '?').$fragment;
+
+        return $hash === null ? $base : "{$base}#{$hash}";
     }
 }
