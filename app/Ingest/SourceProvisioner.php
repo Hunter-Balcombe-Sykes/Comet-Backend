@@ -486,7 +486,22 @@ class SourceProvisioner
         // may still hold a `/en-au/a/…` path from before FreshaScraper::
         // stripLocale existed, and a bare anchor would silently stop
         // provisioning those.
-        if ($value !== null && preg_match('~^https?://(?:www\.)?fresha\.com/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?a/([a-z0-9][a-z0-9-]*)~i', $value, $m)) {
+        //
+        // `book-now` is the share URL Fresha's own app hands out
+        // (`/book-now/<slug>/all-offer?share=true&pId=…`). Both write paths
+        // canonicalise it to `/a/<slug>` (FreshaScraper::canonicalUrl, called
+        // by resolveWrite and resolveBookingWrite), but rows written before
+        // that existed still hold the raw form and provisioned NO source at
+        // all. Kept as an alternative inside this same pattern rather than a
+        // second preg_match so the host anchor and locale group cannot drift
+        // apart between the two shapes.
+        //
+        // pId is deliberately discarded. It is almost certainly the Fresha
+        // professional id — same numeric space as the employeeIds we scrape —
+        // but selection belongs to selectionRefFor(), which reads the stored
+        // selection blob, and inferring it from a URL would silently change
+        // which menu a live connection publishes.
+        if ($value !== null && preg_match('~^https?://(?:www\.)?fresha\.com/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?(?:a|book-now)/([a-z0-9][a-z0-9-]*)~i', $value, $m)) {
             return $m[1];
         }
 

@@ -106,6 +106,54 @@ it('derives the fresha slug only from a real fresha host, locale segment and all
         ->and(ingestSourceFor($spoofedQuery))->toBeNull();
 });
 
+it('derives a stable identifier from every fresha url shape live on dev', function () {
+    // identifierFor() feeds every seeded Fresha row, and sync() treats a changed
+    // identifier as "a different remote thing" and resets next_attempt_at. So the
+    // four shapes that already resolve are pinned to their CURRENT dev values
+    // byte-for-byte: this case exists to fail if the book-now alternative ever
+    // perturbs one of them, not merely to show book-now working.
+    //
+    // Shapes are the five live dev connections (2026-08-14) plus the legacy
+    // locale form, which no live row carries but the regex must keep accepting.
+    $userId = provisionerUser();
+
+    $shapes = [
+        // www + /a/ — the common case
+        'https://www.fresha.com/a/edward-scissorhands-balaclava-st-kilda-barber-melbourne-190-carlisle-street-g3vzbzld' => 'edward-scissorhands-balaclava-st-kilda-barber-melbourne-190-carlisle-street-g3vzbzld',
+        'https://www.fresha.com/a/vision-hair-studio-melbourne-520-522-city-road-tzo6gxk0' => 'vision-hair-studio-melbourne-520-522-city-road-tzo6gxk0',
+        // bare host, no www
+        'https://fresha.com/a/brotherwolf-south-melbourne-melbourne-295-clarendon-street-s82k3a7o' => 'brotherwolf-south-melbourne-melbourne-295-clarendon-street-s82k3a7o',
+        'https://www.fresha.com/a/some-salon-abc123' => 'some-salon-abc123',
+        // The share URL Fresha's own app hands out. Trailing path and query are
+        // discarded — including pId, which is NOT wired into selection.
+        'https://www.fresha.com/book-now/anseo-studio-v0v92jna/all-offer?share=true&pId=2835260' => 'anseo-studio-v0v92jna',
+        // Legacy, pre-stripLocale
+        'https://www.fresha.com/en-au/a/brotherwolf-s82k3a7o' => 'brotherwolf-s82k3a7o',
+    ];
+
+    foreach ($shapes as $url => $expected) {
+        $connection = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => $url]]);
+
+        expect(ingestSourceFor($connection)?->identifier)->toBe($expected, "url: {$url}");
+    }
+});
+
+it('keeps the book-now alternative anchored to a real fresha host', function () {
+    // The book-now branch is a second alternative inside the SAME anchored
+    // pattern, so it inherits the §17 host anchor. Pinned separately because an
+    // unanchored book-now branch is the exact regression the anchor exists to
+    // stop, and it would not show up in the shape table above.
+    $userId = provisionerUser();
+
+    $wrongHost = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://notfresha.com/book-now/rival-salon/all-offer']]);
+    $spoofedQuery = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://evil.example/?next=https://www.fresha.com/book-now/rival-salon/all-offer']]);
+    $spoofedPath = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://evil.example/book-now/rival-salon/all-offer']]);
+
+    expect(ingestSourceFor($wrongHost))->toBeNull()
+        ->and(ingestSourceFor($spoofedQuery))->toBeNull()
+        ->and(ingestSourceFor($spoofedPath))->toBeNull();
+});
+
 it('accepts a real identifier stored in resource_id (seeded showcase rows)', function () {
     $userId = provisionerUser();
 
