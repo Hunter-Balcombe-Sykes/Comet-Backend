@@ -219,6 +219,7 @@
 # without naming any category — least of all one of identity B's.
 - route: "PATCH api/services/{service}/category"
   body: { category_ids: [] }
+  fixture: { service: "App\\Models\\Core\\User\\Service" }
 
 # ShopController (routes/api/platforms.php). The `/shopify` alias spelling was
 # removed as dead-with-zero-callers in 1917be75b, so only `/shop` remains.
@@ -244,8 +245,8 @@
 # show/update/destroy/restore now take `string $service`, not `Service $service`:
 # they resolve the id against content.* first and fall back to site.services for
 # the Fresha half, so implicit model binding no longer applies and reflection has
-# nothing to read. resync/updateCategory still take `Service $service` (deferred
-# to 3b) and still resolve by reflection, which is why they need no entry here.
+# nothing to read. Slice 3b (Task 10) did the same to resync/updateCategory, the
+# last two that still resolved by reflection — hence their entries below.
 #
 # STRONG form deliberately — site.services still holds every Fresha row and every
 # backfilled owner row, so identity B has a real row to substitute and this stays
@@ -254,3 +255,25 @@
   fixture: { service: "App\\Models\\Core\\User\\Service" }
 - route: "api/services/{service}/restore"
   fixture: { service: "App\\Models\\Core\\User\\Service" }
+- route: "api/services/{service}/resync"
+  fixture: { service: "App\\Models\\Core\\User\\Service" }
+
+# ── Service categories — the 3b content.* cutover changed these signatures ───
+# show/update/destroy/restore now take `string $category`, not
+# `ServiceCategory $category`: the row lives in content.collections
+# (kind='service_category') and is resolved through ServiceCollections, so
+# implicit model binding no longer applies and reflection has nothing to read.
+# If one of those signatures moves again, this file is downstream of it — the
+# lane fails HERE, not there.
+#
+# STRONG form deliberately: {category} substitutes a real identity-B
+# content.collections row, so these stay genuine cross-tenant probes rather
+# than an `unknown` opt-out, which would quietly delete cross-tenant coverage
+# from four routes as a way of making CI green.
+- route: "PATCH api/service-categories/{category}"
+  body: { title: "authz" }                       # UpdateServiceCategoryRequest: title sometimes|required|string|max:80
+  fixture: { category: "App\\Models\\Content\\Collection" }
+- route: "api/service-categories/{category}"
+  fixture: { category: "App\\Models\\Content\\Collection" }
+- route: "api/service-categories/{category}/restore"
+  fixture: { category: "App\\Models\\Content\\Collection" }

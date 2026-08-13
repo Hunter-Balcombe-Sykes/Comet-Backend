@@ -2,6 +2,7 @@
 
 namespace Tests\Authz;
 
+use App\Models\Content\Collection;
 use App\Models\Core\Feedback;
 use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Site\Block;
@@ -264,6 +265,33 @@ final class Fixtures
         }
 
         self::remember(Service::class, $service->id);
+
+        // Slice 3b: service categories moved to content.collections, so the
+        // ServiceCategory row above no longer backs the
+        // /service-categories/{category} routes — their ids come from here.
+        // `kind` is load-bearing: ServiceCollections filters on
+        // kind='service_category', and a row without it is invisible to the
+        // controller under test, which would 404 for the wrong reason and
+        // pass the matrix while proving nothing about ownership.
+        // Collection has no user() relation, so user_id is assigned directly
+        // — the same direct-assignment convention this file's docblock states
+        // for every tenancy FK.
+        $collection = Collection::query()
+            ->where('user_id', $user->id)
+            ->where('kind', 'service_category')
+            ->first();
+
+        if (! $collection) {
+            $collection = new Collection;
+            $collection->user_id = $user->id;
+            $collection->label = 'Authz Collection';
+            $collection->kind = 'service_category';
+            $collection->position = 0;
+            $collection->is_user_created = true;
+            $collection->save();
+        }
+
+        self::remember(Collection::class, $collection->id);
 
         $block = Block::query()->where('user_id', $user->id)->first();
 
