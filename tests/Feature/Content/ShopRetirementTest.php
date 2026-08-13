@@ -131,3 +131,71 @@ it('ShopFetch never calls syncLatest for an individual-bucket brand', function (
     expect(fn () => (new ShopFetch($catalog, $refresher, app(ShopContentWriter::class)))->fetch($conn->fresh()))
         ->toThrow(FetchNotModifiedException::class);
 });
+
+it('keeps an item that carries a stale coord alongside a live one', function () {
+    $pro = createTenant('shop-stale');
+    $collectionId = shopCollection($pro->id);
+    $writer = app(ShopContentWriter::class);
+    $url = 'https://store.example.com/products/hat';
+
+    $writer->syncStore($pro->id, $collectionId, [shopBlob($url)], 'AUD');
+    $itemId = DB::table('content.collection_items')
+        ->where('collection_id', $collectionId)->value('item_id');
+
+    // A product that gained a URL upstream carries a second, now-stale coord
+    // on the same item — the pid:-derived one it was first written under.
+    // Also anchored (content.item_anchors), matching how it would really have
+    // landed: bound to $itemId by a PRIOR resolveItems() pass back when this
+    // coord was the only one the product had, then left dangling once the
+    // product started resolving under the url-derived coord instead. Without
+    // the anchor, resolveItems()'s union-find (no shared identity key, no
+    // prior binding) mints a BRAND NEW item for this coord on the very next
+    // syncStore() call and repoints this row's item_id there before
+    // retireAbsent() ever runs — which would silently defeat this test's
+    // premise rather than exercise the bug.
+    $sourceId = DB::table('content.source_items')->where('item_id', $itemId)->value('source_id');
+    $staleCoord = 'manual:stale-'.Str::random(8);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => $staleCoord, 'item_id' => $itemId,
+        'kind' => 'product', 'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    DB::table('content.item_anchors')->insert([
+        'coord' => $staleCoord, 'user_id' => $pro->id, 'item_id' => $itemId, 'bound_at' => now(),
+    ]);
+
+    // Re-sync the SAME live catalogue. Nothing left it, so nothing may retire.
+    $writer->syncStore($pro->id, $collectionId, [shopBlob($url)], 'AUD');
+
+    expect(DB::table('content.items')->where('id', $itemId)->value('removed_at'))->toBeNull()
+        ->and(DB::table('content.collection_items')
+            ->where('collection_id', $collectionId)->where('item_id', $itemId)->exists())->toBeTrue();
+});
+
+// The delete-links-FIRST-then-requery ordering in retireAbsent() is
+// load-bearing: reversed, the synced store's own stale link satisfies the
+// "still linked to a storefront of this user" test and cross-store retirement
+// silently becomes a no-op. This asserts the cross-store case, not merely the
+// single-store one, so that inversion fails here.
+it('still retires an item dropped from its only store while sparing one held elsewhere', function () {
+    $pro = createTenant('shop-cross');
+    $a = shopCollection($pro->id);
+    $b = shopCollection($pro->id);
+    $writer = app(ShopContentWriter::class);
+    $shared = 'https://store.example.com/products/shared';
+    $only = 'https://store.example.com/products/only';
+
+    $writer->syncStore($pro->id, $a, [shopBlob($shared), shopBlob($only, 'Only')], 'AUD');
+    $writer->syncStore($pro->id, $b, [shopBlob($shared)], 'AUD');
+
+    $sharedId = DB::table('content.collection_items')->where('collection_id', $b)->value('item_id');
+    $onlyId = DB::table('content.collection_items')
+        ->where('collection_id', $a)->where('item_id', '!=', $sharedId)->value('item_id');
+
+    // Store A drops both. The shared one survives (B still lists it); the
+    // other retires.
+    $writer->syncStore($pro->id, $a, [], 'AUD');
+
+    expect(DB::table('content.items')->where('id', $sharedId)->value('removed_at'))->toBeNull()
+        ->and(DB::table('content.items')->where('id', $onlyId)->value('removed_at'))->not->toBeNull();
+});
