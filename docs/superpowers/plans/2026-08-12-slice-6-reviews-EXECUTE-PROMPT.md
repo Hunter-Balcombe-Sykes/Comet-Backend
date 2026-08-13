@@ -123,19 +123,37 @@ to negotiate. Two things it left you:
   shop keys the same way you are retiring the review keys. Read it before
   writing Task 8.
 
-**Slice 3b (Fresha) is the live overlap.** At the time of writing it is 25
-commits behind `development` and touches four files you also touch:
+**Slice 3b (Fresha) overlaps in exactly TWO files — measure intent, not
+distance.** 3b is 25 commits behind `development`, so a plain
+`git diff origin/development..feat/slice-3b-fresha` reports it touching five of
+your files, including `PoolRegistry` (12+/21-) and `PoolResolver` (13+/296-).
+**Those are artefacts of being behind slice 5b, not edits 3b intends.** Diff
+from the merge-base instead and the picture is much smaller:
 
-```
-app/Ingest/Projection/ProjectionWriter.php                    146+/0-
-app/Site/Pools/PoolRegistry.php                                12+/21-
-app/Site/Pools/PoolResolver.php                                13+/296-
-app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php  170+/19-
-tests/Pest.php                                                  21+/0-
+```bash
+MB=$(git merge-base feat/slice-3b-fresha origin/development)
+git diff --numstat $MB..feat/slice-3b-fresha -- <file>
 ```
 
-Its large negative counts are an artefact of being behind 5b, **not** deletions
-it intends. Do not read them as 3b removing 5b's work, and do not "fix" 3b.
+Measured that way (merge-base `e12759d92`):
+
+| File | 3b's real intent | Collides with |
+|---|---|---|
+| `app/Site/Pools/PoolRegistry.php` | **nothing** | — |
+| `app/Site/Pools/PoolResolver.php` | **nothing** | — |
+| `app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php` | **nothing** | — |
+| `app/Ingest/Projection/ProjectionWriter.php` | adds collections handling inside `projectStream()`'s record loop | **Task 4**, which adds the `source_stats` write in the same method |
+| `tests/Pest.php` | adds `external_ref`/`removed_at` + an index to the collections stand-in | Task 1, different lines — trivial |
+
+So **Lane B (pools) has no 3b exposure at all** and can run without reference
+to it. Only Task 4 needs care, and the two changes are semantically
+independent — a textual conflict in one method, not a design clash. Whoever
+rebases second resolves it by keeping both.
+
+Do not "fix" 3b, and never edit files inside its worktree.
+
+Re-run the merge-base check before Task 11 — branches move under you. 5b merged
+mid-plan-drafting and invalidated a whole section of this plan.
 
 Rules:
 - **Never edit files inside `.worktrees/slice-3b-fresha`.** Check
@@ -147,12 +165,13 @@ Rules:
 ```bash
 cd "/Users/joshuahunter/Herd/Side Street/backend" && git fetch origin --quiet
 for b in feat/slice-3b-fresha feat/slice-4-menus; do
+  MB=$(git merge-base $b origin/development)   # intent, not distance
   git rev-parse --verify --quiet $b >/dev/null || continue
   echo "=== $b ($(git rev-parse --short $b)) ==="
   for f in app/Ingest/Projection/ProjectionWriter.php app/Site/Pools/PoolRegistry.php \
            app/Site/Pools/PoolResolver.php tests/Pest.php \
            app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php; do
-    n=$(git diff --numstat origin/development..$b -- "$f" | awk '{print $1"+/"$2"-"}')
+    n=$(git diff --numstat $MB..$b -- "$f" | awk '{print $1"+/"$2"-"}')
     echo "  ${n:-clean}  $f"
   done
 done
