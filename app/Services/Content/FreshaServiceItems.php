@@ -16,12 +16,21 @@ use Illuminate\Support\Facades\DB;
  * `kind = 'service'` item through a connection source except Fresha, so no
  * further platform filter is needed to keep this booking-only.
  *
+ * `descriptions`/`durations`/`offers` are read via `ManualServiceItems::facets()`
+ * (already public) rather than a second copy of that join -- the Global
+ * Constraints forbid a fourth copy of a 3a collaborator's predicates, and
+ * three of that slice's final-review blockers were exactly this pattern.
+ * `categories` has no equivalent in `ManualServiceItems` (owner-authored
+ * services carry no live category yet) and is this class's own lookup.
+ *
  * `FreshaSelectionResource::services()` is the sole consumer: the stored
  * selection blob's `services[]` shape, reproduced from the pool instead of
  * the legacy `site.services` projection.
  */
 class FreshaServiceItems
 {
+    public function __construct(private readonly ManualServiceItems $manualServiceItems) {}
+
     /**
      * The stored selection blob's services[] shape, reproduced from the
      * pool: name, price, category, currency, duration, serviceId,
@@ -42,7 +51,9 @@ class FreshaServiceItems
         // row, and a user has at most one live Fresha connection) -- any
         // row's value identifies it for the facet lookups, same pattern
         // ManualServiceItems::publicList() uses for its manual source.
-        $facets = $this->facets($itemIds, (string) $rows->first()->source_id);
+        $sourceId = (string) $rows->first()->source_id;
+        $facets = $this->manualServiceItems->facets($itemIds, $sourceId);
+        $facets['categories'] = $this->categories($itemIds, $sourceId);
 
         return $rows->map(fn ($row) => $this->toWireShape($row, $facets))->values()->all();
     }
@@ -58,41 +69,46 @@ class FreshaServiceItems
             ->whereNull('i.removed_at')
             ->whereNull('si.removed_at')
             ->where('cs.kind', 'connection')
+            // I1 hazard (ProjectionWriter.php:118-125's own comment): a
+            // single ingest batch writes ONE timestamp across every row it
+            // lands, so a first_seen_at tie is the normal case here, not an
+            // edge case -- ordering on it alone would let the customer-
+            // facing booking menu shuffle order between requests. Same
+            // tiebreak ProjectionWriter::resolveItems() uses at :569-570.
+            // No ->distinct(): unlike ManualServiceItems::baseQuery(), this
+            // query has no LEFT JOIN capable of fanning one item out into
+            // several rows (site.section_items has no equivalent here), so
+            // there is nothing for a whole-row DISTINCT to collapse -- and
+            // Postgres requires every ORDER BY column to appear in a
+            // DISTINCT select list, which would make si.id (always unique)
+            // defeat the DISTINCT entirely if it were added just to satisfy
+            // that rule.
             ->orderBy('i.first_seen_at')
-            ->distinct()
+            ->orderBy('si.id')
             ->get(['i.id', 'i.headline_cache', 'si.record_key', 'cs.id as source_id']);
     }
 
-    /** @return array{descriptions: Collection, durations: Collection, offers: Collection, categories: Collection} */
-    private function facets(array $itemIds, string $sourceId): array
+    /** @return Collection<string, string> item_id => category label */
+    private function categories(array $itemIds, string $sourceId): Collection
     {
         if ($itemIds === []) {
-            return ['descriptions' => collect(), 'durations' => collect(), 'offers' => collect(), 'categories' => collect()];
+            return collect();
         }
 
-        $descriptions = DB::connection('pgsql')->table('content.f_text')
-            ->whereIn('item_id', $itemIds)
-            ->where('source_id', $sourceId)
-            ->pluck('body', 'item_id');
-
-        $durations = DB::connection('pgsql')->table('content.f_duration')
-            ->whereIn('item_id', $itemIds)
-            ->where('source_id', $sourceId)
-            ->pluck('seconds', 'item_id');
-
-        $offers = DB::connection('pgsql')->table('content.offers')
-            ->whereIn('item_id', $itemIds)
-            ->where('source_id', $sourceId)
-            ->get(['item_id', 'amount_minor', 'currency', 'qualifier'])
-            ->keyBy('item_id');
-
-        // Machine-derived collections only (content.collections kind =
-        // 'service_category' per Task 5/6/8) -- a removed one (owner
-        // deleted the category, ServiceCollections::remove()) contributes
-        // nothing rather than resurrecting on the booking surface. Position
-        // ascending + first-wins: a service belongs to exactly one category
-        // on Fresha's own menu; ties fall to insertion order.
-        $categories = DB::connection('pgsql')->table('content.collection_items as ci')
+        // content.collection_items joined to content.collections, scoped to
+        // $sourceId (this connection's own content source) and excluding a
+        // removed collection (owner deleted the category,
+        // ServiceCollections::remove()) -- contributes nothing rather than
+        // resurrecting on the booking surface. Deliberately does NOT filter
+        // col.kind = 'service_category' or is_user_created = false: every
+        // collection reachable through THIS source_id is, in practice,
+        // Fresha-derived (Task 5/6/8's writer never attaches a manual/owner
+        // collection to a connection source), so the extra filter would be
+        // redundant here -- but that is a real absence, not a guard this
+        // comment used to (wrongly) claim. Position ascending + first-wins:
+        // a service belongs to exactly one category on Fresha's own menu;
+        // ties fall to insertion order.
+        return DB::connection('pgsql')->table('content.collection_items as ci')
             ->join('content.collections as col', 'col.id', '=', 'ci.collection_id')
             ->whereIn('ci.item_id', $itemIds)
             ->where('ci.source_id', $sourceId)
@@ -101,8 +117,6 @@ class FreshaServiceItems
             ->get(['ci.item_id', 'col.label'])
             ->groupBy('item_id')
             ->map(fn (Collection $rows) => $rows->first()->label);
-
-        return compact('descriptions', 'durations', 'offers', 'categories');
     }
 
     /** @return array<string, mixed> */

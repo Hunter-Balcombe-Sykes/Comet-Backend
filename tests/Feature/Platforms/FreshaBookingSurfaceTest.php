@@ -181,6 +181,46 @@ it('reproduces the stored blob\'s service shape exactly', function () {
     ]);
 });
 
+it('orders services deterministically when several rows share one first_seen_at', function () {
+    $user = createTenant('fresha-order-'.Str::lower(Str::random(6)));
+    $sourceId = freshaContentSourceFor($user->id);
+    $now = now();
+
+    // Fix round 4, Finding 6: a single ingest batch writes ONE timestamp
+    // across every row it lands (I1 hazard, ProjectionWriter.php:118-125),
+    // so first_seen_at ties are the normal case here, not an edge case.
+    // Landed deliberately OUT of si.id order, sharing one first_seen_at:
+    // a test using distinct timestamps, or already-in-id-order rows, would
+    // pass whether or not a tiebreak exists and would prove nothing.
+    $plan = [
+        ['si' => '00000000-0000-0000-0000-000000000003', 'serviceId' => 's:3', 'name' => 'Third'],
+        ['si' => '00000000-0000-0000-0000-000000000001', 'serviceId' => 's:1', 'name' => 'First'],
+        ['si' => '00000000-0000-0000-0000-000000000002', 'serviceId' => 's:2', 'name' => 'Second'],
+    ];
+
+    foreach ($plan as $entry) {
+        $itemId = (string) Str::uuid();
+        DB::table('content.items')->insert([
+            'id' => $itemId, 'user_id' => $user->id, 'kind' => 'service',
+            'headline_cache' => $entry['name'], 'facets_cache' => '[]', 'eligible_cache' => '[]',
+            'first_seen_at' => $now, 'last_seen_at' => $now,
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+        DB::table('content.source_items')->insert([
+            'id' => $entry['si'], 'source_id' => $sourceId,
+            'coord' => "fresha:store:{$entry['serviceId']}", 'record_key' => $entry['serviceId'],
+            'item_id' => $itemId, 'kind' => 'service', 'projector_version' => 1,
+            'first_seen_at' => $now, 'last_seen_at' => $now,
+        ]);
+    }
+
+    $first = array_column(app(FreshaServiceItems::class)->selectionServices($user->id), 'serviceId');
+    $second = array_column(app(FreshaServiceItems::class)->selectionServices($user->id), 'serviceId');
+
+    expect($first)->toBe(['s:1', 's:2', 's:3'])
+        ->and($second)->toBe($first);
+});
+
 it('round-trips every price qualifier back to its display string', function (string $qualifier, ?int $minor, string $display) {
     $user = userWithFreshaOffer($qualifier, $minor);
 
