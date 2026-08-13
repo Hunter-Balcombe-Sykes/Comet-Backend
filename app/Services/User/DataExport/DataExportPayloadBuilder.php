@@ -747,7 +747,10 @@ class DataExportPayloadBuilder
     private function streamServices(string $userId, ?string $siteId): Generator
     {
         $manual = app(ManualServiceItems::class);
-        $site = $siteId !== null ? Site::query()->find($siteId) : null;
+        // sectionId() only ever reads $site->id — forceFill() sets that
+        // without a round trip, since $siteId is already resolved by the
+        // caller (stream()). Skips a redundant Site::find() per export.
+        $site = $siteId !== null ? (new Site)->forceFill(['id' => $siteId]) : null;
 
         yield from $manual->exportRows($userId, $site);
 

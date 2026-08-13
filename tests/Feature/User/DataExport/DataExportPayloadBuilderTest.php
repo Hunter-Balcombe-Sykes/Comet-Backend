@@ -1748,10 +1748,13 @@ it('#PRIV-13 exports no evidence row belonging to another user', function () {
 // Slice 3a Task 6: owner-authored services moved to content.* (Task 4/5), but
 // the DSAR export kept streaming site.services — which ManualServiceWriter
 // never writes back to once a row is in the manual lane. From cutover
-// onward that made the export silently disclose PRE-EDIT values. These two
-// tests cover the two ways that showed up: a brand-new service (never had a
-// site.services row at all) and a post-cutover edit to an already-backfilled
-// one (site.services keeps the OLD values forever).
+// onward that made the export silently disclose PRE-EDIT values. These
+// tests cover: a brand-new service (never had a site.services row at all),
+// a post-cutover edit to an already-backfilled one (site.services keeps the
+// OLD values forever), legacy-id continuity for a backfilled-but-unedited
+// row, and the dedup trap in recovering that legacy id (content.source_items
+// is unique on (source_id, coord), not item_id — a merged item can carry two
+// manual coords, and a naive coord lookup would export it twice).
 //
 // ManualServiceWriter/ProjectionWriter issue raw DB::table() calls with no
 // explicit connection (unlike DataExportPayloadBuilder itself, which always
@@ -1839,7 +1842,7 @@ it('reflects a post-cutover edit to an already-backfilled owner service, not the
     // with the same coord the backfill used and the same production writer
     // the controller calls.
     $writer = app(ManualServiceWriter::class);
-    $itemId = $writer->write($pro->id, 'manual:'.$serviceId, $writer->projectionFor((object) [
+    $writer->write($pro->id, 'manual:'.$serviceId, $writer->projectionFor((object) [
         'title' => 'New Title',
         'description' => 'New description.',
         'price_cents' => 9900,
@@ -1855,7 +1858,10 @@ it('reflects a post-cutover edit to an already-backfilled owner service, not the
 
     expect($payload)->toHaveKey('services');
 
-    $row = collect($payload['services'])->firstWhere('id', $itemId);
+    // The exported id is the ORIGINAL site.services.id, not the content.*
+    // item id — legacy-id continuity across the cutover (see
+    // ManualServiceItems::exportRows()'s docblock).
+    $row = collect($payload['services'])->firstWhere('id', $serviceId);
     expect($row)->not->toBeNull();
     expect($row['title'])->toBe('New Title');
     expect($row['description'])->toBe('New description.');
@@ -1891,4 +1897,103 @@ it('still exports Fresha-projected services straight off site.services (unchange
     expect($row)->not->toBeNull();
     expect($row['source'])->toBe('fresha');
     expect($row['external_id'])->toBe('fresha-svc-1');
+});
+
+it('exports the ORIGINAL site.services.id for a backfilled-but-unedited owner service', function () {
+    config(['database.default' => 'pgsql']);
+    $pro = seedProForPayload((string) Str::uuid());
+    $siteId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $pro->id,
+        'subdomain' => 'jane',
+        'created_at' => '2026-01-01T00:00:00Z',
+    ]);
+
+    $serviceId = ownerService($pro->id, ['title' => 'Consultation']);
+    app(ServiceBackfiller::class)->run();
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    // Untouched since the backfill — same id a pre-cutover export would have
+    // disclosed, proving the id doesn't drift just from content.* existing.
+    $row = collect($payload['services'])->firstWhere('title', 'Consultation');
+    expect($row)->not->toBeNull();
+    expect($row['id'])->toBe($serviceId);
+});
+
+it('an item carrying two manual coords (a merge shape) exports exactly once, using the earliest coord', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+    $siteId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $pro->id,
+        'subdomain' => 'jane',
+        'created_at' => '2026-01-01T00:00:00Z',
+    ]);
+
+    $now = now();
+    $sourceId = (string) Str::uuid();
+    $itemId = (string) Str::uuid();
+    $olderServiceId = (string) Str::uuid();
+    $newerServiceId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'manual',
+        'priority' => 100, 'created_at' => $now->toDateTimeString(), 'updated_at' => $now->toDateTimeString(),
+    ]);
+
+    DB::connection('pgsql')->table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
+        'headline_cache' => 'Merged Service', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'first_seen_at' => $now->toDateTimeString(), 'last_seen_at' => $now->toDateTimeString(),
+        'created_at' => $now->toDateTimeString(), 'updated_at' => $now->toDateTimeString(),
+    ]);
+
+    // A candidate coord uuid is only trusted as a legacy id if a
+    // site.services row for it actually exists (ManualServiceItems::
+    // legacyIdsFor()'s cross-check — store()'s own coord minting has the
+    // identical manual:<uuid> shape with no backing row, so shape alone
+    // can't tell them apart). Two real legacy rows is also the realistic
+    // shape of a merge: two previously-separate backfilled services folded
+    // into one item.
+    DB::connection('pgsql')->table('site.services')->insert([
+        [
+            'id' => $olderServiceId, 'user_id' => $pro->id, 'title' => 'Merged Service (older)',
+            'price_cents' => 1000, 'currency_code' => 'AUD', 'is_active' => 1, 'sort_order' => 0,
+            'created_at' => $now->copy()->subDay()->toDateTimeString(), 'updated_at' => $now->toDateTimeString(),
+        ],
+        [
+            'id' => $newerServiceId, 'user_id' => $pro->id, 'title' => 'Merged Service (newer)',
+            'price_cents' => 1000, 'currency_code' => 'AUD', 'is_active' => 1, 'sort_order' => 1,
+            'created_at' => $now->toDateTimeString(), 'updated_at' => $now->toDateTimeString(),
+        ],
+    ]);
+
+    // content.source_items is unique on (source_id, coord), NOT item_id — an
+    // identity merge can land two manual coords on the same item. This is
+    // that shape, written directly since slice 3a has no merge trigger for
+    // the manual lane yet.
+    DB::connection('pgsql')->table('content.source_items')->insert([
+        [
+            'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+            'coord' => 'manual:'.$olderServiceId, 'item_id' => $itemId, 'kind' => 'service',
+            'first_seen_at' => $now->copy()->subDay()->toDateTimeString(), 'last_seen_at' => $now->toDateTimeString(),
+        ],
+        [
+            'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+            'coord' => 'manual:'.$newerServiceId, 'item_id' => $itemId, 'kind' => 'service',
+            'first_seen_at' => $now->toDateTimeString(), 'last_seen_at' => $now->toDateTimeString(),
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    $rows = collect($payload['services'])->where('title', 'Merged Service')->values();
+    expect($rows)->toHaveCount(1);
+    // Earliest first_seen_at wins — deterministic, not the second coord's id.
+    expect($rows->first()['id'])->toBe($olderServiceId);
+    expect($rows->first()['id'])->not->toBe($newerServiceId);
 });
