@@ -44,13 +44,22 @@ use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupServicesTable();
     setupPartnaStaffTable();
+    // Slice 3b Task 11: the staff reorder/reorderLayout routes now read
+    // content.collections + the services pool section in site.sections, and
+    // re-evaluate the booking/services Block gates.
+    setupIngestTables();
+    setupContentTables();
+    setupBlocksTable();
     shimPgAdvisoryLockForSqlite();
+    // Every staff service write now fires the edge-purge lane.
+    Queue::fake();
 
     // staff.audit middleware writes here on every staff write request.
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
@@ -122,15 +131,36 @@ it('no longer keys the three sort_order-renumbering sites on service-layout', fu
     // touching ordering references the old service-layout key — is
     // unaffected by which of these methods hold the lock directly vs. via a
     // helper.
+    // Slice 3b Task 11 raised the STAFF count from 1 to 4 for exactly the
+    // reason slice 3a raised the user count from 3 to 5: store(), update() and
+    // reorder()'s manual half now write site.section_items directly through
+    // ManualServiceWriter and take "services:{user}" themselves, instead of
+    // delegating to InsertWithSortOrder / ReorderService which took it one
+    // level down. Four literal occurrences: store, update, reorder,
+    // reorderLayout. restore() needs no lock at all — section_items.sort_key
+    // carries no uniqueness constraint, unlike the legacy sort_order column.
+    //
+    // WHAT THESE TWO NUMBERS ARE, AND ARE NOT. The property this case exists
+    // to protect is the one asserted just above: no code path that renumbers
+    // ordering still references the old service-layout key. The counts are a
+    // structural proxy for "and both controllers still take the unified one" —
+    // they are deliberately EXACT rather than `>= 1`, because a bare "at least
+    // one" would stay green if a refactor quietly dropped the lock from three
+    // of the four methods. The cost is that they also move on a change that
+    // breaks no property at all (splitting or inlining a method). If you are
+    // reading this because the number moved: confirm every ordering write in
+    // the file still holds the key, then update the number and this comment —
+    // do NOT relax the assertion to an inequality, which is what would make it
+    // stop catching the case it is here for.
     expect(substr_count($userSource, 'AdvisoryLock::acquire("services:'))->toBe(5);
-    expect(substr_count($staffSource, 'AdvisoryLock::acquire("services:'))->toBe(1);
+    expect(substr_count($staffSource, 'AdvisoryLock::acquire("services:'))->toBe(4);
 
     // Each migrated site catches the timeout and returns the same 423 every
     // other services:{user} writer does.
     expect(substr_count($userSource, 'catch (AdvisoryLockTimeoutException)'))
         ->toBeGreaterThanOrEqual(4); // store, reorder, updateCategory, reorderLayout
     expect(substr_count($staffSource, 'catch (AdvisoryLockTimeoutException)'))
-        ->toBeGreaterThanOrEqual(3); // store, reorder, reorderLayout
+        ->toBeGreaterThanOrEqual(4); // store, update, reorder, reorderLayout
 });
 
 it('leaves the category-assignment-only service-layout site untouched, and keeps the migrated one off services:', function () {
@@ -183,8 +213,15 @@ it('staff reorderLayout() still renumbers services + categories under the unifie
     $pro = createTenant('layout-unify-staff');
     $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
     $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    $serviceA = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0]);
-    $serviceB = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 1]);
+    // Slice 3b Task 11: `source => 'fresha'`, not the default `source IS NULL`.
+    // A legacy owner-authored row is the shadow of a content.* item post-3a and
+    // is deliberately unaddressable through the staff routes, so it would 422
+    // here — and a legacy site.service_categories BLOCK is the Fresha id space
+    // anyway. This keeps the case on exactly its own subject: that the staff
+    // layout endpoint still renumbers site.services.sort_order and
+    // site.service_categories.sort_order under the unified services:{user} key.
+    $serviceA = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha', 'external_id' => 's:a']);
+    $serviceB = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 1, 'source' => 'fresha', 'external_id' => 's:b']);
 
     $response = actingAsStaff(serviceLayoutUnificationAdminStaff())
         ->postJson("/api/staff/professionals/{$pro->id}/services/reorder-layout", [

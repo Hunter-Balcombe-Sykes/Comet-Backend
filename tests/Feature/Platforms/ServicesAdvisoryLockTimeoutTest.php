@@ -43,7 +43,6 @@
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\Content\ManualServiceWriter;
 use App\Services\Site\AdvisoryLockTimeoutException;
-use App\Services\Site\ReorderService;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
@@ -88,15 +87,30 @@ function servicesLockTimeoutTest_adminStaff(): PartnaStaff
 
 it('staff reorder returns 423 when the services advisory lock times out', function () {
     $pro = createTenant('svclock-staff');
-    // StaffServiceManagementController::reorder() is untouched by the
-    // content.* cutover — source IS NULL is still a valid fixture for it.
-    $service = createServiceFor($pro);
 
-    $this->mock(ReorderService::class, fn ($m) => $m->shouldReceive('reorder')->once()
-        ->andThrow(new AdvisoryLockTimeoutException("services:{$pro->id}")));
+    // Slice 3b Task 11: StaffServiceManagementController::reorder() is no
+    // longer "untouched by the content.* cutover" — it stopped calling
+    // ReorderService for exactly the reason the user side did (that class's
+    // internal recompaction silently breaks the shared manual+Fresha rank; see
+    // this file's header), and a `source IS NULL` fixture is no longer
+    // addressable through any staff service route. So this case now mirrors
+    // the user one exactly: a real manual service, and the mock on
+    // ManualServiceWriter::pin() — the container-resolved dependency the staff
+    // reorder calls INSIDE its own locked transaction.
+    $serviceId = (string) actingAsStaff(servicesLockTimeoutTest_adminStaff())
+        ->postJson("/api/staff/professionals/{$pro->id}/services", ['title' => 'Manual', 'price_cents' => 1000])
+        ->assertStatus(201)
+        ->json('service.id');
+
+    $this->mock(ManualServiceWriter::class, function ($m) {
+        // Mocked AFTER the create above, so store()'s own real
+        // projectionFor()/write()/pin() calls are untouched — only the pin()
+        // inside reorder()'s locked transaction throws.
+        $m->shouldReceive('pin')->once()->andThrow(new AdvisoryLockTimeoutException('services:pending'));
+    });
 
     actingAsStaff(servicesLockTimeoutTest_adminStaff())
-        ->postJson("/api/staff/professionals/{$pro->id}/services/reorder", ['ids' => [$service->id]])
+        ->postJson("/api/staff/professionals/{$pro->id}/services/reorder", ['ids' => [$serviceId]])
         ->assertStatus(423)
         ->assertJsonPath('message', 'Another change is still saving — please retry in a moment.');
 });

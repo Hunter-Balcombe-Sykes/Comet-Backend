@@ -11,7 +11,6 @@
 
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
-use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use Illuminate\Support\Facades\DB;
 
@@ -102,16 +101,24 @@ it('persists user_id on a service category created via POST /api/service-categor
 });
 
 it('persists user_id on a service created by staff via POST /api/staff/professionals/{professional}/services', function () {
+    // Slice 3b Task 11: the STAFF create moved to content.* too, for the same
+    // reason and in the same shape as its /api/services sibling above — so
+    // this asserts the id the create response actually returned resolves to
+    // the right owner in the new backing store. The old
+    // `Service::where('user_id', $pro->id)->firstOrFail()` was doubly wrong
+    // now: it looks in the table staff no longer writes, AND it resolved the
+    // row BY the owner it was about to assert, so it could never have caught a
+    // create that landed under someone else's id.
     $pro = createTenant('mass-svc-staff');
 
-    actingAsStaff(massAssignTest_adminStaff())
+    $response = actingAsStaff(massAssignTest_adminStaff())
         ->postJson("/api/staff/professionals/{$pro->id}/services", [
             'title' => 'Massage',
             'price_cents' => 8000,
         ])->assertStatus(201);
 
-    $service = Service::query()->where('user_id', $pro->id)->firstOrFail();
-    expect($service->fresh()->user_id)->toBe($pro->id);
+    $itemId = $response->json('service.id');
+    expect(DB::table('content.items')->where('id', $itemId)->value('user_id'))->toBe($pro->id);
 });
 
 it('persists user_id on a service category created by staff via POST /api/staff/professionals/{professional}/service-categories', function () {

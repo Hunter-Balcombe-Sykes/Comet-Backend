@@ -10,6 +10,8 @@
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceManagementController;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualServiceWriter;
+use App\Services\Content\ServiceCollections;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -28,28 +30,45 @@ function staffServiceIndexTest_request(string $uri): Request
 
 beforeEach(function () {
     setupUsersTable();
+    setupSitesTable();
     setupServicesTable(); // also sets up site.service_categories
+    // Slice 3b Task 11: index() merges the owner-authored half out of
+    // content.* (scoped to the site's services pool section) with the Fresha
+    // half still in site.services, and its grouped branch lists categories
+    // from BOTH content.collections and site.service_categories.
+    setupIngestTables();
+    setupContentTables();
 });
 
+/**
+ * Slice 3b Task 11: this now goes through createTenant() rather than a
+ * hand-rolled core.users insert, because the professional needs a SITE — the
+ * owner-authored half of the merged list is scoped to that site's services
+ * pool section, and a pin (which is how a manual service gets an order at all)
+ * is written against it.
+ */
 function makeStaffServicePro(): User
 {
-    $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $id,
-        'handle' => 'svc-'.substr($id, 0, 8),
-        'handle_lc' => 'svc-'.substr($id, 0, 8),
-        'display_name' => 'Service Pro',
-        'first_name' => 'Service',
-        'primary_email' => 'svc-'.substr($id, 0, 8).'@example.com',
-        'account_type' => 'partna',
-        'status' => 'active',
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    return User::query()->findOrFail($id);
+    return createTenant('svcidx-'.Str::lower(Str::random(8)));
 }
 
+/**
+ * Bulk-seed $count services the merged staff list can actually see.
+ *
+ * Slice 3b Task 11: `source` is now `'fresha'`, not NULL. index() merges the
+ * owner-authored half out of content.* with the Fresha half out of
+ * `site.services WHERE source IS NOT NULL`; a `source IS NULL` row is the
+ * legacy shadow of a content.* item, superseded by its projection and
+ * deliberately never read from there again (UserServiceController made the
+ * same call in slice 3a). Seeding 510 of those would have left the list EMPTY
+ * and the cap trivially satisfied — the exact shape of test that reads green
+ * while proving nothing.
+ *
+ * The Fresha half is bulk-inserted because it is a plain table write; the
+ * content.* half is seeded separately (seedManualService()) because it must go
+ * through the real projection writer. The cap is asserted over the MERGE of
+ * the two, which is what it now actually bounds.
+ */
 function bulkSeedServices(string $userId, int $count): void
 {
     $now = now()->toDateTimeString();
@@ -63,6 +82,8 @@ function bulkSeedServices(string $userId, int $count): void
             'currency_code' => 'AUD',
             'is_active' => 1,
             'sort_order' => $i,
+            'source' => 'fresha',
+            'external_id' => "s:{$i}",
             'created_at' => $now,
             'updated_at' => $now,
         ];
@@ -71,6 +92,35 @@ function bulkSeedServices(string $userId, int $count): void
     foreach (array_chunk($rows, 50) as $chunk) {
         DB::connection('pgsql')->table('site.services')->insert($chunk);
     }
+}
+
+/**
+ * One owner-authored service through the real content.* writer, so the cap is
+ * exercised against a genuinely MERGED collection rather than one half of it.
+ *
+ * PINNED AT -1.0, deliberately. An unpinned manual item hydrates with
+ * sort_order = PHP_INT_MAX (ManualServiceItems::hydrate()'s sort-last
+ * sentinel), so the merged sort puts it dead last and `take(500)` drops it —
+ * the case would then still pass with the manual half not merged at all, which
+ * is the vacuous version of this test. A pin ahead of every Fresha row
+ * (sort_order 0..N) puts it inside the returned window, so the caller can
+ * assert it is actually there.
+ */
+function seedManualService(User $pro, string $title): string
+{
+    $writer = app(ManualServiceWriter::class);
+
+    $itemId = $writer->write($pro->id, 'manual:'.(string) Str::uuid(), $writer->projectionFor((object) [
+        'title' => $title,
+        'description' => null,
+        'price_cents' => 1000,
+        'currency_code' => 'AUD',
+        'duration_minutes' => null,
+    ]));
+
+    $writer->pin($pro->site, $itemId, -1.0);
+
+    return $itemId;
 }
 
 function bulkSeedServiceCategories(string $userId, int $count): void
@@ -95,20 +145,25 @@ function bulkSeedServiceCategories(string $userId, int $count): void
 it('caps the flat services list at 500 even when more than 500 exist', function () {
     $pro = makeStaffServicePro();
     bulkSeedServices($pro->id, 510);
+    $manualId = seedManualService($pro, 'Owner authored');
 
     $controller = new StaffServiceManagementController;
     $response = $controller->index(staffServiceIndexTest_request('/'), $pro);
     $body = $response->getData(true);
 
     expect($response->getStatusCode())->toBe(200);
-    // The cap is 500 — 510 seeded, 500 should be returned.
+    // The cap is 500 — 511 seeded across BOTH halves, 500 should be returned.
     // success() wraps directly: body = ['services' => [...], 'filters' => [...]].
     expect($body['services'])->toHaveCount(500);
+    // ...and the window is over the MERGED list, not the Fresha half alone:
+    // without this the case passes with the content.* half dropped entirely.
+    expect(collect($body['services'])->pluck('id'))->toContain($manualId);
 });
 
 it('caps the grouped services list at 500 even when more than 500 exist', function () {
     $pro = makeStaffServicePro();
     bulkSeedServices($pro->id, 510);
+    seedManualService($pro, 'Owner authored');
 
     $controller = new StaffServiceManagementController;
     // Pass grouped as a query parameter so $request->boolean('grouped') resolves to true.
@@ -130,6 +185,15 @@ it('caps the grouped services list at 500 even when more than 500 exist', functi
 it('caps the grouped categories list at 200 even when more than 200 exist', function () {
     $pro = makeStaffServicePro();
     bulkSeedServiceCategories($pro->id, 210);
+    // Slice 3b Task 11: the grouped branch lists BOTH id spaces —
+    // content.collections (where the owner's categories now live) AND the
+    // legacy site.service_categories the Fresha half still points at. The cap
+    // bounds the concatenation, so seed a few of the other kind too or the
+    // case only ever proves the legacy half is bounded.
+    $collections = app(ServiceCollections::class);
+    for ($i = 0; $i < 5; $i++) {
+        $collections->create($pro->id, "Collection {$i}");
+    }
 
     $controller = new StaffServiceManagementController;
     $request = Request::create('/', 'GET', ['grouped' => '1']);
