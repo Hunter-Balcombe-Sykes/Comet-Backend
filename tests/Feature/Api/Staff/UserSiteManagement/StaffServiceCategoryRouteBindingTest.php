@@ -16,9 +16,18 @@
 use App\Models\Core\Staff\PartnaStaff;
 use Illuminate\Support\Facades\DB;
 
+// Slice 3b Task 11b: the controller now resolves {serviceCategory} through
+// ServiceCollections (content.collections) BEFORE falling back to the legacy
+// site.service_categories row this file exercises, so the content stand-in has
+// to exist or every case below dies on "no such table: content.collections".
+// Fixture only — not one assertion here moved; the legacy branch this file
+// pins still returns exactly what it always did.
+
 beforeEach(function () {
     setupPartnaStaffTable();
     setupServiceCategoriesTable();
+    setupIngestTables();
+    setupContentTables();
 
     // staff.audit middleware (RecordStaffAuditEntry) writes here in terminate()
     // on every write request — mirrors StaffOwnedRecordActorGateTest's setup.

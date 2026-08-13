@@ -11,7 +11,6 @@
 
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
-use App\Models\Core\User\ServiceCategory;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
@@ -122,13 +121,21 @@ it('persists user_id on a service created by staff via POST /api/staff/professio
 });
 
 it('persists user_id on a service category created by staff via POST /api/staff/professionals/{professional}/service-categories', function () {
+    // Slice 3b Task 11b: the STAFF category create moved to content.collections
+    // too, for the same reason and in the same shape as its /api/services
+    // sibling above — so this asserts the id the create response actually
+    // returned resolves to the right owner in the new backing store. The old
+    // `ServiceCategory::where('user_id', $pro->id)->firstOrFail()` was doubly
+    // wrong now: it looks in the table staff no longer writes, AND it resolved
+    // the row BY the owner it was about to assert, so it could never have
+    // caught a create that landed under someone else's id.
     $pro = createTenant('mass-cat-staff');
 
-    actingAsStaff(massAssignTest_adminStaff())
+    $response = actingAsStaff(massAssignTest_adminStaff())
         ->postJson("/api/staff/professionals/{$pro->id}/service-categories", [
             'title' => 'Wellness',
         ])->assertStatus(201);
 
-    $category = ServiceCategory::query()->where('user_id', $pro->id)->firstOrFail();
-    expect($category->fresh()->user_id)->toBe($pro->id);
+    $collectionId = $response->json('category.id');
+    expect(DB::table('content.collections')->where('id', $collectionId)->value('user_id'))->toBe($pro->id);
 });
