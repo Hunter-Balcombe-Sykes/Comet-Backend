@@ -227,6 +227,44 @@ and `notConnectable()` is display metadata only — never read by routing.
 Priority is **correctness and cleanliness of the end state**, explicitly not
 speed of any individual piece landing. (Owner, 2026-08-14.)
 
+### 3.0 Boundary — BACKEND ONLY (owner, 2026-08-14)
+
+This programme covers the backend only: `Comet-Backend` schema, ingest,
+pools, registries and the retirement of legacy stores. It explicitly does
+**NOT** include:
+
+- `partna-monorepo/apps/dashboard` — the dashboard's pool pages, connect
+  sheet, or queries
+- `partna-monorepo/apps/pages` — the Astro sitepage renderer
+
+Those follow as separate work once this lands. W8's documentation pass is
+what makes that possible: the wire contracts and architecture map must be
+accurate enough that the frontend work can be planned without re-deriving
+any of this.
+
+### 3.0.1 End-state pools (confirmed, owner 2026-08-14)
+
+Nine content pools:
+
+| Pool | Kind(s) | Status |
+|---|---|---|
+| watch | `video` | working |
+| listen | `track`, `release`, `episode` | working; W2 adds real track sourcing |
+| media | `media` | working |
+| events | `event` | working |
+| services | `service` | working |
+| sell | `product` | working |
+| **menu** | `menu_item` | **W4 — new** |
+| **links** | `link` | **W5 — new** |
+| **reviews** | `review` | slice 6, in flight |
+
+Plus `platforms` in the dashboard — the connection-manager surface, not a
+content pool.
+
+Kinds retired by this programme: `channel` (W3), `article` (W3, with
+Substack), `document` (W10). Identity data (`profile_fields`) is not a pool
+and stays in `site.workplaces` (W9).
+
 ### W1 — Identity keys
 Emit the remaining `KeyClass` values, minimum: `Isrc`, `TitleDuration`,
 `TitleRelease` (listen), `OfferingName*` (menu/services), `Gtin14`
@@ -274,18 +312,34 @@ Flip reads off legacy for shop/services/media/events; drop the parallel
 path (§1.9) — `ContentController` still writes it and
 `IndividualProfilePayloadBuilder` still reads it.
 
-### W9 — Identity / profile-field bindings
-`profile_fields` is declared by three connectors and has **no
-implementation** (§1.8). Either build the field-binding layer plan §14
-describes, or fold `IdentitySync` into the ingest pipeline as the
-implementation of that seam. Must preserve what legacy already does
-correctly: account-type precedence
-(`AccountCapabilities::google_business_full_sync`) and per-field provenance
+### W9 — Delete the `profile_fields` seam (owner decision, 2026-08-14)
+
+`profile_fields` are **user-owned fields, not items**: a business's opening
+hours, address, phone and website auto-syncing from their connected Google
+Business, so they never retype them. `site.workplaces` is the identity store
+for exactly this and is **not** a parallel implementation of a pool — there
+is only one of it.
+
+`IdentitySync` already implements this correctly, with semantics the
+`profile_fields` seam never specified: account-type precedence
+(`AccountCapabilities::google_business_full_sync` — Google authoritative for
+business accounts, gap-fill only for `partna`) and per-field provenance
 (`workplaces.field_sources`, which drives the "Synced from Google" badge).
 
-Until this lands, `site.workplaces` cannot be retired and Google Business /
-Instagram / Fresha identity sync stays on the legacy path — so this is a
-**hard prerequisite for "no legacy in use"**, not an optional extra.
+**Decision: option (b).** Do NOT build field bindings. Declare `IdentitySync`
+the identity implementation, remove `profile_fields` as a projection target,
+and drop the three `profile` streams — their output is already discarded
+(`IdentitySync` reads the connection payload, not the ingest stream), so this
+loses nothing at runtime and deletes an unbuilt abstraction.
+
+Consequence: `site.workplaces` is **not** legacy and is not retired. W9
+leaves the critical path — it becomes a deletion, not a build.
+
+### W10 — Delete the unused `document` kind (owner decision, 2026-08-14)
+`document` is declared in `KindRegistry` (`Mirror`, `f_file`) with **0 items
+and no producer**. Unrelated to `site.site_documents`, which is the built
+sitepage JSON cache, not user files. Delete under the same
+no-unbuilt-seams principle as W9.
 
 ### W8 — Documentation truth pass
 Rewrite root + backend `CLAUDE.md`, correct the convergence spec's stale
