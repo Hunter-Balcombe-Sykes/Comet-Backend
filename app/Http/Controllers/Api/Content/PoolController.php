@@ -52,6 +52,19 @@ class PoolController extends ApiController
     public function select(Request $request, string $pool, string $itemId): JsonResponse
     {
         $this->assertPool($pool);
+
+        // Slice 6 §4.3: reviews may be hidden but not promoted. This is the
+        // SECOND pin path — SectionItemController::upsert() is the other, and
+        // gating only that one left EXCLUDE_ONLY_POOLS bypassable through here,
+        // which is the route the dashboard actually uses. Checked before the
+        // item lookup because it is a rule about the pool, not about the item.
+        // A capability rule, not authorization on a resource, so 422 rather
+        // than a policy. deselect() is deliberately NOT gated: exclusion is the
+        // half of curation reviews DO get.
+        if (! PoolRegistry::allowsPin($pool)) {
+            abort(422, 'Reviews can be hidden, but not pinned.');
+        }
+
         $user = $this->currentUser($request);
         $site = $this->currentSite($user);
         $item = $this->findPoolItem((string) $user->id, $pool, $itemId);
@@ -130,6 +143,17 @@ class PoolController extends ApiController
     public function reorder(Request $request, string $pool): JsonResponse
     {
         $this->assertPool($pool);
+
+        // Slice 6 §4.3: the THIRD pin path. This method's own contract is that
+        // dragging an item into an order pins it, so for an exclusion-only pool
+        // there is no "reorder without pinning" to preserve — the order comes
+        // from SECTION_SHAPE's order_by: recency, not from the owner. Refusing
+        // the whole verb is the honest answer; silently downgrading the writes
+        // to non-pins would report success for an order the pool will not keep.
+        if (! PoolRegistry::allowsPin($pool)) {
+            abort(422, 'Reviews can be hidden, but not reordered.');
+        }
+
         $user = $this->currentUser($request);
         $site = $this->currentSite($user);
 
