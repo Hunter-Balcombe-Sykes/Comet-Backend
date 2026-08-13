@@ -235,7 +235,15 @@ it('removeProduct drops the individual bucket once it has no products left', fun
     expect(ShopProduct::where('brand_id', $individual->id)->count())->toBe(0);
 });
 
-it('public platforms endpoint shop payload is value-identical to the pre-relational contract', function () {
+// RE-BASED by slice 5b Task 8 (2026-08-13). This case used to freeze the whole
+// brand+product object the public endpoint emitted, value for value, against
+// the pre-relational contract. That contract is retired: `shop` publishes an
+// EMPTY payload and the sitepage reads `profile.pools.shop` instead
+// (ShopPoolPayloadTest freezes THAT shape). What is worth keeping here is the
+// end-to-end path — a real connect + a real selection through the HTTP
+// endpoints — proving the retirement holds for a genuinely populated store and
+// not just a hand-built fixture.
+it('publishes an empty shop payload even after a real connect + selection through the endpoints', function () {
     $user = shopStorageUser('pubshop');
 
     $this->mock(ShopifyScraper::class, function ($m) {
@@ -265,54 +273,24 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
     $res = $this->getJson('/api/public/profiles/pubshop/platforms');
     $res->assertOk();
 
-    // Fix round 1 (C2): the selected product is BACK. This assertion was
-    // briefly `'products' => []` while PublicIntegrationConnectionResource
-    // still read the (no-longer-written) site.shop_products table; it now
-    // reads content.* through ShopContentReader::brandMap(), so the wire
-    // carries the live selection again. toEqual (not toBe): key ORDER inside
-    // the brand object shifts slightly but the value set is the contract.
-    //
-    // Two DOCUMENTED DIVERGENCES from the pre-slice wire are asserted here
-    // rather than hidden (full accounting in the Task 8 report, fix round 1):
-    //  1. the product object carries every key content.* can reconstruct, so
-    //     keys the raw scraper blob simply OMITTED (handle/variantId/image/
-    //     images/variants) are now present and explicitly null/empty;
-    //  2. `linkMode` is 'checkout', not 'product' — this fixture's user has
-    //     NO site row, so the controller resolves no global override and the
-    //     content reader falls back to Site::DEFAULT_SHOP_LINK_MODE. Not
-    //     reachable in production: site.sites.shop_link_mode is NOT NULL
-    //     DEFAULT 'checkout', so a real profile always threads an override
-    //     and the value is unchanged. Same Task-7-sanctioned divergence the
-    //     dashboard fixtures carry.
-    expect($res->json('data.platforms.shop.0.payload'))->toEqual([
-        'pub-brand' => [
-            'id' => 'pub-brand',
-            'provider' => 'shopify',
-            'url' => 'https://pub.example.com',
-            'name' => 'Pub Store',
-            'currency' => 'AUD',
-            'favicon' => 'https://pub.example.com/favicon.ico',
-            'logo' => 'https://pub.example.com/logo.png',
-            'discountCode' => 'SAVE10',
-            'linkMode' => 'checkout',
-            'referralQuery' => '',
-            'products' => [[
-                'productId' => 'p1',
-                'title' => 'Mug',
-                'handle' => null,
-                'url' => 'https://pub.example.com/p1',
-                'price' => '10.00',
-                'currency' => 'AUD',
-                'variantId' => null,
-                'available' => true,
-                'image' => null,
-                'images' => [],
-                'createdAt' => '2026-01-05T00:00:00+00:00',
-                'variants' => [],
-                'popularityRank' => null,
-            ]],
-        ],
-    ]);
+    // The envelope survives; the contents are gone.
+    $row = $res->json('data.platforms.shop.0');
+    expect($row)->toHaveKeys(['resourceId', 'payload', 'lastRefreshedAt'])
+        ->and($row['payload'])->toBe([]);
+
+    // The connect + selection really landed in content.* — the empty payload
+    // is the retirement, not a store that was never written.
+    expect(DB::table('content.storefronts')->count())->toBe(1);
+    expect(DB::table('content.f_catalog')->where('sku', 'p1')->exists())->toBeTrue();
+
+    // Nothing the old contract carried rides anywhere in the body.
+    $body = $res->getContent();
+    expect($body)->not->toContain('pub-brand');
+    expect($body)->not->toContain('Pub Store');
+    expect($body)->not->toContain('SAVE10');
+    expect($body)->not->toContain('Mug');
+    expect($body)->not->toContain('linkMode');
+    expect($body)->not->toContain('popularityRank');
 });
 
 it('keys public popularityRank by product HANDLE, matching the scoring pipeline', function () {
@@ -336,9 +314,20 @@ it('keys public popularityRank by product HANDLE, matching the scoring pipeline'
     expect($productIdKeyed['products'][0]['popularityRank'])->toBeNull();
 });
 
-// ── CCG-102: shop-product popularity ranks are single-flight cached ────────
-
-it('serves the second public platforms request from cache — one DB read, identical shop payload', function () {
+// ── CCG-102 on this endpoint, RE-BASED by slice 5b Task 8 ─────────────────
+//
+// CCG-102 wrapped PublicIntegrationController's shop-product popularity read
+// in rememberLocked, because ranks recompute on a 15-minute cadence and edge
+// purging does nothing to bound their cost. Slice 5b deleted the read outright,
+// which is the strictly better version of that fix: ZERO reads per request
+// rather than one per cache window. PoolResolver carries its own copy of the
+// same single-flight cache for the profile payload that serves the ranks now
+// (same key, same TTL) — that lane's coverage lives with the pool tests.
+//
+// Kept, inverted, rather than deleted: it is the only guard that this endpoint
+// makes no per-request popularity read, which is exactly what CCG-102 was
+// about and exactly what a re-added shop block would silently undo.
+it('makes ZERO popularity reads on the public platforms endpoint and publishes no shop payload', function () {
     setupContentPopularityScoresTable();
     $user = shopStorageUserWithSite('pubshopcache');
     $site = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->first();
@@ -348,8 +337,8 @@ it('serves the second public platforms request from cache — one DB read, ident
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'cache-brand', 'provider' => 'shopify', 'url' => 'https://cache.example.com', 'position' => 0]);
-    // Fix round 1 (C2): the public wire reads content.* now, so the fixture
-    // lands through the same writer addBrand()/setProducts() use.
+    // The fixture lands through the same writer addBrand()/setProducts() use,
+    // so a re-added shop block would have real data to publish and re-rank.
     $collectionId = app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
     app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [[
         'productId' => 'p1', 'handle' => 'mug', 'title' => 'Mug', 'url' => 'https://cache.example.com/p1',
@@ -369,14 +358,20 @@ it('serves the second public platforms request from cache — one DB read, ident
     $log = DB::connection('pgsql')->getQueryLog();
     DB::connection('pgsql')->disableQueryLog();
 
-    // Both requests see the same rank — the cache didn't change the answer.
-    expect($first->json('data.platforms.shop.0.payload.cache-brand.products.0.popularityRank'))->toBe(1);
+    // Both requests are identical, and neither carries a rank — or a product.
+    expect($first->json('data.platforms.shop.0.payload'))->toBe([]);
     expect($second->json())->toEqual($first->json());
+    expect($first->getContent())->not->toContain('popularityRank');
 
-    // The actual "not re-read per request" proof: only ONE query touches
-    // content_popularity_scores across both HTTP calls.
+    // The rank row is real and would have been found: content.* holds the
+    // product it is keyed to, by handle.
+    expect(DB::table('content.f_catalog')->where('handle', 'mug')->exists())->toBeTrue();
+
+    // The proof: content_popularity_scores is not read AT ALL by this endpoint
+    // any more — zero queries across both HTTP calls, where CCG-102's cached
+    // version made one.
     $rankQueries = array_filter($log, fn ($q) => str_contains($q['query'], 'content_popularity_scores'));
-    expect(count($rankQueries))->toBe(1);
+    expect(count($rankQueries))->toBe(0);
 });
 
 // ── FOUND-25 regression: edge-cache purge must survive past the first write ──

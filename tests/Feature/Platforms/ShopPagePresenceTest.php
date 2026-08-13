@@ -22,12 +22,14 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable(); // also creates shop_brands / shop_products / platform_connections
-    // Slice 5a Task 8, fix round 1 (C2): the shop presence gate reads
-    // content.* now — the same rows PublicIntegrationConnectionResource
-    // publishes — so these fixtures land there too, through the production
-    // writer rather than by hand.
+    // Slice 5a Task 8 moved the shop presence gate onto content.*; slice 5b
+    // Task 8 moved it one step further, onto PoolResolver::hasSelection() —
+    // the same question `profile.pools.shop` answers. Fixtures still land in
+    // content.* through the production writer rather than by hand.
     setupIngestTables();
     setupContentTables();
+    // hasSelection() provisions the pool's page/section on first ask.
+    setupSectionsTables();
 });
 
 function spConnection(User $user, string $platform, array $payload = []): string
@@ -122,19 +124,24 @@ it('keeps the shop page present once the connected brand has a chosen product', 
     expect($pages)->toContain('shop');
 });
 
-// ── W9 P2 review fix — pending/failed brands must agree with
-// PublicIntegrationConnectionResource::filterPayload()'s own reject/keep ──
+// ── W9 P2 review fix, RE-BASED by slice 5b (2026-08-13) ───────────────────
 //
 // GET /brands/{id}/products and PUT …/selection both work during the pending
 // window BY DESIGN (plan §3e), so a brand can already have a saved product
-// selection while still connect_status='pending'. Before this fix,
-// shop_active_product_exists had no connect_status filter at all, so
-// page-presence said "shop" was present while the public payload
-// (filterPayload()) rejected the very same pending brand — an empty Shop
-// page, CDN-cached, indefinitely (the stale-pending backstop never WRITES the
-// row, so a stranded pending brand never un-pends on its own).
+// selection while still connect_status='pending'. W9 therefore made
+// page-presence reject a pending brand, because
+// PublicIntegrationConnectionResource::filterPayload() rejected it too:
+// without the exclusion, presence said "shop" was present while the payload
+// shipped empty — an empty Shop page, CDN-cached, indefinitely.
+//
+// Slice 5b retired that payload. Presence is the pool's answer now, and the
+// pool has no notion of connect_status, so a pending store's products both
+// COUNT and RENDER. The two sides still agree — which was always the actual
+// requirement — but they now agree on "present" rather than "absent". A
+// stranded pending brand shows its products instead of an empty page, which
+// is the better failure mode of the two.
 
-it('drops the shop page from presence when the only brand is pending, even though it already has a saved product', function () {
+it('keeps the shop page present for a pending brand with a saved product — the pool renders it', function () {
     $pro = createTenant('shop-pending-with-product');
     $connId = spConnection($pro, 'shop', ['storage' => 'relational']);
     $collectionId = spBrand($pro, $connId, 'pending');
@@ -143,7 +150,7 @@ it('drops the shop page from presence when the only brand is pending, even thoug
     $pages = app(SitepageDataResolverService::class)
         ->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
 
-    expect($pages)->not->toContain('shop');
+    expect($pages)->toContain('shop');
 });
 
 it('keeps the shop page present for a failed brand with a chosen product — failed is deliberately public (plan §3g)', function () {

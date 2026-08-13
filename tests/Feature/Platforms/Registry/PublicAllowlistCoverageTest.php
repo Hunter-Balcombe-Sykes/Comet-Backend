@@ -1,19 +1,19 @@
 <?php
 
 // TEST-3: every REGISTERED platform must have a PublicIntegrationConnectionResource
-// allowlist entry (or be provably exempt, like `shop`'s short-circuit before the
-// lookup). Missing one means filterPayload()'s fail-closed branch fires — the
-// connection saves and shows on the dashboard, but renders EMPTY on the public
+// allowlist entry. Missing one means filterPayload()'s fail-closed branch fires —
+// the connection saves and shows on the dashboard, but renders EMPTY on the public
 // sitepage, and reports MissingPublicAllowlistException to Nightwatch on every
 // public request for that profile.
 //
 // Deliberately NOT a hardcoded exemption list (that's exactly how the original
 // gap — 5 platforms shipped in e1879529 with no entry — went unnoticed): this
 // runs the REAL resource over every live registry key and lets its own
-// behaviour decide. `shop` passes because its short-circuit never reaches the
-// allowlist lookup; `booking`/`reservations` pass via their explicit empty
-// entries; if the shop short-circuit is ever removed, this starts correctly
-// demanding a `shop` entry instead of silently staying green.
+// behaviour decide. `booking`/`reservations` pass via their explicit empty
+// entries, and so do the retired events platforms and — since slice 5b Task 8
+// removed the short-circuit this comment used to describe — `shop`. That
+// removal is precisely the case this guard was written to catch, and it caught
+// it: an empty `'shop' => []` entry is what keeps it green.
 
 use App\Exceptions\Platforms\MissingPublicAllowlistException;
 use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
