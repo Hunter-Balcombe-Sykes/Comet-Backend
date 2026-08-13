@@ -232,6 +232,60 @@ it('renumbers collections omitted from a partial reposition after the ones suppl
         ->and((int) $positions[$c])->toBe(2);
 });
 
+// The test above omits ONE id, which cannot tell "kept its relative order"
+// apart from "appended in whatever order the driver felt like" — with a single
+// element every ordering is the same ordering. This one omits THREE, seeded so
+// that their position order (Zeta, Alpha, Mid) is the ONLY order the three
+// obvious wrong implementations don't produce:
+//   - sort by label   -> Alpha, Mid, Zeta
+//   - sort by id      -> Zeta, Mid, Alpha   (uuids 1111…, 2222…, 3333…)
+//   - sort by created -> Alpha, Mid, Zeta   (inserted in that order)
+// so a reposition() that dropped its `orderBy('position')` on the omitted set
+// lands a different sequence no matter which fallback the driver picks.
+it('preserves the relative order of three collections omitted from a partial reposition', function () {
+    $userId = userWithCollections();
+
+    // Direct inserts, not create(): position, id and created_at all have to be
+    // pinned independently, and create() derives position from the max.
+    $seed = function (string $id, string $label, int $position, string $createdAt) use ($userId) {
+        DB::connection('pgsql')->table('content.collections')->insert([
+            'id' => $id,
+            'user_id' => $userId,
+            'parent_id' => null,
+            'label' => $label,
+            'kind' => 'service_category',
+            'external_ref' => $label,
+            'removed_at' => null,
+            'position' => $position,
+            'is_user_created' => false,
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        return $id;
+    };
+
+    $first = $seed('44444444-4444-4444-4444-444444444444', 'Supplied First', 0, '2026-01-01 00:00:00');
+    $second = $seed('55555555-5555-5555-5555-555555555555', 'Supplied Second', 1, '2026-01-02 00:00:00');
+    // Omitted trio: id order, label order and created_at order each disagree
+    // with the position order the contract promises to preserve.
+    $seed('33333333-3333-3333-3333-333333333333', 'Alpha', 8, '2026-01-03 00:00:00');
+    $seed('22222222-2222-2222-2222-222222222222', 'Mid', 9, '2026-01-04 00:00:00');
+    $seed('11111111-1111-1111-1111-111111111111', 'Zeta', 7, '2026-01-05 00:00:00');
+
+    app(ServiceCollections::class)->reposition($userId, [$second, $first]);
+
+    $ordered = DB::table('content.collections')
+        ->where('user_id', $userId)
+        ->orderBy('position')
+        ->get(['label', 'position']);
+
+    expect($ordered->pluck('label')->all())
+        ->toBe(['Supplied Second', 'Supplied First', 'Zeta', 'Alpha', 'Mid'])
+        ->and($ordered->pluck('position')->map(fn ($p) => (int) $p)->all())
+        ->toBe([0, 1, 2, 3, 4]);
+});
+
 it('reposition ignores an id that does not belong to the caller', function () {
     $mine = userWithCollections();
     $theirs = userWithCollections();
