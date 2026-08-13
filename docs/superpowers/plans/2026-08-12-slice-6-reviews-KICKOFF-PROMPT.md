@@ -200,13 +200,21 @@ change covers both.
   it fails on key **additions** as well as removals, because every payload is
   built key-by-key rather than filtered from a blob. If a review needs a new
   wire key, add it to `ITEM_KEYS` or the test fails; do not spread a row.
-- **`content.items.removed_at` clearing is narrowed, not absolute.** Parent
+- **`content.items.removed_at` clearing is narrowed, not absolute — and 5b
+  enforces the narrowing caller-side, not inside the write function.** Parent
   §9.8 (narrowed 2026-08-13 by slice 5b §3.3): an **owner-authored** write may
   clear it; a **connector** re-observing an item never may. A Google review
   that disappears and later reappears in the same scrape is a connector
-  re-observation, not an owner act — it must not clear `removed_at`. If your
-  review sync path needs different behaviour, that is a deliberate divergence
-  to argue in your spec, not an accident to discover later.
+  re-observation, not an owner act — it must not clear `removed_at`. **Do not
+  assume a write function like `ShopContentWriter::syncStore()` guards this
+  itself — it does not; its un-retire step is unconditional for every item it
+  links.** The boundary is enforced by its callers: `ShopFetch` skips
+  hand-curated brands and the individual bucket before ever reaching
+  `syncStore()`, so only connector-driven items it retired can be
+  un-retired by the connector path. If you copy this pattern for reviews, put
+  the owner/connector gate in your caller, and check it explicitly — do not
+  assume it, and do not put it inside the shared writer without checking who
+  else calls that writer.
 - **Never weaken a PII control.** Adding a review path that bypasses `redactionScopes`, or leaves `f_review` rows unreachable by `PruneOrphanedReviewPiiCommand`, is a launch blocker.
 - **DSAR:** an export must disclose what is held. If reviewer data moves tables, `DataExportPayloadBuilder` follows. The 2026-08-05 precedent is that DSAR allowlists deliberately retain legacy keys so previously-stored payloads stay disclosable.
 - **Do not re-bill.** Reviews share `places.details` with `profile` and `media`. If your design triggers extra billed calls, show the digest and freshness reasoning (`partna.ingest.effect_freshness_seconds`, 7 days).

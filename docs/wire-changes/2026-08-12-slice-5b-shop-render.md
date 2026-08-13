@@ -118,11 +118,17 @@ composition logic at all.**
 `links[]` is unchanged and continues to carry the bare per-platform links, so
 the referral suffix appears in exactly one place on the wire (`url`), not two.
 
-### Removed from `platforms.shop[*]`: `payload` is now `{}`
+### Removed from `platforms.shop[*]`: `payload` is now `[]`
 
     "platforms": {
-      "shop": [ { "resourceId": "brand-abc", "payload": {}, "lastRefreshedAt": "…" } ]
+      "shop": [ { "resourceId": "brand-abc", "payload": [], "lastRefreshedAt": "…" } ]
     }
+
+**It is `[]`, not `{}`.** `filterPayload()` returns
+`array_intersect_key($payload, array_flip([]))`, which is an empty PHP array —
+and PHP's empty array always JSON-encodes as `[]`, never `{}`, because PHP has
+no distinct empty-map literal. A consumer doing `Array.isArray(payload)` or
+keying off `Object.keys(payload).length` will see an array, not an object.
 
 **The envelope survives** — `resourceId`, `payload`, `lastRefreshedAt` — so a
 consumer *iterating* `platforms` sees no shape change, only an empty payload.
