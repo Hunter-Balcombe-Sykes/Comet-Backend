@@ -259,6 +259,58 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
     // faults inside presentPageIds() on every request below, without the pool
     // probes tripping too.
     setupSectionsTables();
+    // A THIRD unrelated resilience path, newly relevant since slice 5a's C2
+    // fix (ddea76982) repointed CloudflarePurgeService's product-handle
+    // lookup at content.* instead of site.shop_products: every site save
+    // below fires SiteObserver -> CloudflareCachePurgeJob(afterCommit), and
+    // that job's handle() ALSO self-dispatches 3 delayed follow-up purges
+    // (schedule config('partna.cache.purge_followup_schedule')) which the
+    // sync queue driver runs immediately, not after their delay — so ONE
+    // site save drives purgeHandle() 4 times. Each call's product-handle
+    // subquery joins content.collection_items/collections/f_catalog, and
+    // CloudflarePurgeService catches that failure with a RAW report($e)
+    // (OBS-101, cdf6f9eaf — already shipped, predates this branch), with NO
+    // EscalatesRepeatedFaults dedup. Left unprovisioned, that path alone
+    // contributes 4 un-deduped reports per iteration — 20 across the 5-request
+    // loop below, on top of the 1 legitimate escalated report from the
+    // services probe this test is actually about. Provisioning just these
+    // three tables (kept EMPTY — never content.sources/content.source_items)
+    // lets that lookup resolve to "no products" instead of throwing, so
+    // Exceptions::fake() below captures ONLY the services-probe fault.
+    //
+    // Hand-written DDL, not setupContentTables() — deliberately: this is a
+    // MINIMAL subset that exists ONLY so CloudflarePurgeService's lookup
+    // resolves instead of throwing, not a general-purpose content.* stand-in.
+    // If content.collections, content.collection_items, or content.f_catalog
+    // gain/lose columns in supabase/migrations/, this block needs updating in
+    // step — it does not inherit fixes the way setupContentTables() would.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS content.collections (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        parent_id TEXT NULL,
+        label TEXT NOT NULL,
+        kind TEXT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        is_user_created INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )');
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS content.collection_items (
+        collection_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        source_id TEXT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (collection_id, item_id)
+    )');
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS content.f_catalog (
+        item_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        release_type TEXT NULL, track_number INTEGER NULL, disc_number INTEGER NULL,
+        isrc TEXT NULL, gtin TEXT NULL, sku TEXT NULL, handle TEXT NULL, vendor TEXT NULL,
+        variant_ref TEXT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (item_id, source_id)
+    )');
 
     Exceptions::fake();
     $threshold = SitepageDataResolverService::FAULT_THRESHOLD;

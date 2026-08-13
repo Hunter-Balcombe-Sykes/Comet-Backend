@@ -22,12 +22,12 @@ class SectionVisibilityTestCase
 
         $conn = DB::connection('pgsql');
 
-        foreach (['core', 'site'] as $schema) {
-            try {
-                $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
-            } catch (\Throwable) {
-            }
-        }
+        // BookingVisibility/ServicesVisibility (slice 3a) now read
+        // content.items/source_items/sources(/offers) for the "has an
+        // owner-authored service" check — reuse tests/Pest.php's shared
+        // content.* stand-in (attaches core/site along the way) instead of
+        // hand-writing a fourth copy of that DDL.
+        setupContentTables();
 
         $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
             id TEXT PRIMARY KEY,

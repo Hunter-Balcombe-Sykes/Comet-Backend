@@ -38,14 +38,48 @@ function seedProAndSite(): array
     return [$proId, $siteId];
 }
 
+// Slice 3a §3.4: BookingVisibility's has_active_service subquery reads
+// content.* now (a live service-kind item on the user's manual source), not
+// site.services — seed the manual-source content triad directly rather than
+// site.services, mirroring ServicesPublicReadTest's freshaServiceItem() but
+// with kind='manual' so it satisfies the `cs.kind = 'manual'` filter.
 function seedActiveService(string $proId): void
 {
-    DB::connection('pgsql')->table('site.services')->insert([
-        'id' => (string) Str::uuid(),
+    $sourceId = (string) Str::uuid();
+    $itemId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('content.sources')->insert([
+        'id' => $sourceId,
         'user_id' => $proId,
-        'title' => 'Test Service',
-        'price_cents' => 5000,
-        'is_active' => 1,
+        'kind' => 'manual',
+        'priority' => 100,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('content.items')->insert([
+        'id' => $itemId,
+        'user_id' => $proId,
+        'kind' => 'service',
+        'headline_cache' => 'Test Service',
+        'facets_cache' => '[]',
+        'eligible_cache' => '[]',
+        'first_seen_at' => $now,
+        'last_seen_at' => $now,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('content.source_items')->insert([
+        'id' => (string) Str::uuid(),
+        'source_id' => $sourceId,
+        'coord' => 'manual:'.$itemId,
+        'item_id' => $itemId,
+        'kind' => 'service',
+        'projector_version' => 1,
+        'first_seen_at' => $now,
+        'last_seen_at' => $now,
     ]);
 }
 
