@@ -87,14 +87,97 @@ it('is idempotent and never rewrites an existing pin', function () {
         ->and(DB::table('site.section_items')->where('section_id', $sectionId)->count())->toBe(2);
 });
 
-it('reports counts under --dry-run and writes nothing', function () {
+it('reports counts under --dry-run and provisions nothing at all', function () {
     [$pro, $siteId] = poolTenant();
     $store = storefront($pro->id, 0, 'Store');
     productIn($pro->id, $store, 0, 'Only');
 
-    $this->artisan('content:provision-shop-pins', ['--dry-run' => true])->assertSuccessful();
+    // A fresh tenant has never opened its Shop page — no page/section yet.
+    // That is the common case a dry run targets, so --dry-run must not
+    // create either while still reporting the pin it WOULD make.
+    $this->artisan('content:provision-shop-pins', ['--dry-run' => true])
+        ->expectsOutputToContain('would pin 1, left alone 0, across 0 site(s).')
+        ->assertSuccessful();
 
-    expect(DB::table('site.section_items')->count())->toBe(0);
+    expect(DB::table('site.pages')->where('site_id', $siteId)->count())->toBe(0)
+        ->and(DB::table('site.sections')->where('site_id', $siteId)->count())->toBe(0)
+        ->and(DB::table('site.section_items')->count())->toBe(0);
+});
+
+it('dry-run against an already-provisioned section reports left-alone without writing', function () {
+    [$pro, $siteId] = poolTenant();
+    $store = storefront($pro->id, 0, 'Store');
+    productIn($pro->id, $store, 0, 'First');
+
+    // Real run provisions the section and pins the one existing product.
+    $this->artisan('content:provision-shop-pins')->assertSuccessful();
+
+    $sectionId = DB::table('site.sections')
+        ->where('site_id', $siteId)->where('key', 'pool:shop')->value('id');
+    $pinsBefore = DB::table('site.section_items')->where('section_id', $sectionId)->count();
+
+    // A second product arrives after the section already exists.
+    productIn($pro->id, $store, 1, 'Second');
+
+    // A later dry run against a site that already has the section must still
+    // look it up (not re-provision) and must not insert the still-missing pin.
+    $this->artisan('content:provision-shop-pins', ['--dry-run' => true])
+        ->expectsOutputToContain('would pin 1, left alone 1, across 0 site(s).')
+        ->assertSuccessful();
+
+    expect(DB::table('site.sections')->where('site_id', $siteId)->count())->toBe(1)
+        ->and(DB::table('site.section_items')->where('section_id', $sectionId)->count())->toBe($pinsBefore);
+});
+
+it('breaks a tied collection and item position by item id, deterministically', function () {
+    [$pro, $siteId] = poolTenant();
+    // Same collection position on both stores — c.position alone can't order them.
+    $storeA = storefront($pro->id, 0, 'Store A');
+    $storeB = storefront($pro->id, 0, 'Store B');
+
+    // Same collection_item position within each store too — ci.position can't
+    // either. i.id (content.items uuid) is the only thing left to totally order them.
+    $itemA = productIn($pro->id, $storeA, 0, 'A item');
+    $itemB = productIn($pro->id, $storeB, 0, 'B item');
+
+    $this->artisan('content:provision-shop-pins')->assertSuccessful();
+
+    $sectionId = DB::table('site.sections')
+        ->where('site_id', $siteId)->where('key', 'pool:shop')->value('id');
+
+    $pins = DB::table('site.section_items')->where('section_id', $sectionId)
+        ->where('state', 'pinned')->orderBy('sort_key')->pluck('item_id')->all();
+
+    expect($pins)->toBe(collect([$itemA, $itemB])->sort()->values()->all());
+});
+
+it('pins an item shared across two of the owner\'s stores exactly once, at its earliest position', function () {
+    [$pro, $siteId] = poolTenant();
+    $storeA = storefront($pro->id, 0, 'Store A');
+    $storeB = storefront($pro->id, 1, 'Store B');
+
+    $shared = productIn($pro->id, $storeA, 0, 'Shared item');
+    $onlyB = productIn($pro->id, $storeB, 0, 'Store B only');
+
+    // The same item, cross-listed by the second (later) store.
+    DB::table('content.collection_items')->insert([
+        'collection_id' => $storeB, 'item_id' => $shared, 'source_id' => null, 'position' => 1,
+    ]);
+
+    $this->artisan('content:provision-shop-pins')->assertSuccessful();
+
+    $sectionId = DB::table('site.sections')
+        ->where('site_id', $siteId)->where('key', 'pool:shop')->value('id');
+
+    // Exactly one section_items row for the cross-listed item — never two.
+    expect(DB::table('site.section_items')->where('section_id', $sectionId)
+        ->where('item_id', $shared)->count())->toBe(1);
+
+    $pins = DB::table('site.section_items')->where('section_id', $sectionId)
+        ->where('state', 'pinned')->orderBy('sort_key')->pluck('item_id')->all();
+
+    // Pinned at its EARLIEST listing — store A (position 0), ahead of store B's own item.
+    expect($pins)->toBe([$shared, $onlyB]);
 });
 
 it('fires all three cache-invalidation lanes per site', function () {
