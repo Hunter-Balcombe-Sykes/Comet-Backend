@@ -99,16 +99,25 @@ connection but nothing upcoming. See "Removed" below.
 An **account row** is an organiser feed — `{url, organiser, next,
 upcoming[]}`, with `slug`/`aliases` stamped onto every nested event.
 
-After: **`payload` is `{}`** for account rows.
+After: **`payload` is `[]`** for account rows.
 
     "platforms": {
-      "eventbrite": [ { "resourceId": "acct-abc", "payload": {}, "lastRefreshedAt": null } ]
+      "eventbrite": [ { "resourceId": "acct-abc", "payload": [], "lastRefreshedAt": null } ]
     }
 
+**An array, not `{}`** — corrected 2026-08-14; this section said `{}` from
+2026-08-11 to 2026-08-14 and the wire never matched it. All three events
+platforms carry an empty `ALLOWLIST` entry, so `filterPayload()` returns
+`array_intersect_key($payload, array_flip([]))`, which is an empty PHP array,
+and PHP has no distinct empty-map literal to encode it as. A consumer doing
+`Object.keys(payload)` on the strength of the old wording should be doing
+`Array.isArray(payload)` — same correction as the shop lane in
+`docs/wire-changes/2026-08-12-slice-5b-shop-render.md`.
+
 The connection **row and its envelope remain** (`resourceId`, `payload`,
-`lastRefreshedAt`), so a consumer iterating `platforms` sees no shape change —
-only an empty payload. The platforms stay registered because the dashboard
-connect/refresh lane still uses them.
+`lastRefreshedAt`), so a consumer iterating `platforms` still finds every key
+where it was — only the payload is empty. The platforms stay registered because
+the dashboard connect/refresh lane still uses them.
 
 ### STANDALONE event rows are UNCHANGED — read this before migrating
 
