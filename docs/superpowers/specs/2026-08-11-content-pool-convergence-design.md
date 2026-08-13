@@ -2607,11 +2607,24 @@ Item-by-item against the design spec's criteria, honestly, not optimistically:
 
 | Criterion | Status |
 |---|---|
-| Shop page renders from `profile.pools.shop` in owner order, grouped by the `collections` map | Code complete; **not verified live** — PENDING Task 10 |
-| Outbound URL composed by the backend | Code complete; matrix proven **by test** per spec §5.3 (unrun by this checkpoint), not by dev data (dev carries no `referral_query` or `checkout`+`?`-URL combination to exercise it live) |
-| Pool payload has an `SHOP_PRODUCT_ALLOWLIST`-equivalent enforcement point | Shipped — `ITEM_KEYS` / `STORE_KEYS` / `VARIANT_KEYS` + `PoolWireShapeTest` |
-| Every `pool:shop` section carries the corrected rule | Code complete; **not verified live** — PENDING Task 10 |
-| A re-added product returns | Code complete; **not verified live** — PENDING Task 10 |
-| Coverage gate returns 0 | **Not run** — PENDING Task 10 |
-| Checkpoint and wire manifest committed | This document and `docs/wire-changes/2026-08-12-slice-5b-shop-render.md` |
-| **Legacy `/integrations` shop keys retired** | Shipped in code. **The retirement criterion is NOT ticked here** — the spec's own §6 says to mark it unmet if unshippable at merge, and this session cannot confirm partna-monorepo is ready to consume the replacement. Ticking it would assert a fact about a repository this session cannot see. |
+**Reconciled 2026-08-13, after Task 10 ran.** Task 9 wrote this table before the
+merge, marking the live-verification rows `PENDING Task 10`; Task 10 then filled
+§18.3–§18.5 and §18.7 with pasted output but did not come back and update these
+rows, so for a while the summary claimed less than the evidence three
+subsections above it. Corrected below — each row now states what was actually
+run, and the two that are genuinely not met stay not met.
+
+| Criterion | Status |
+|---|---|
+| Shop page renders from `profile.pools.shop` in owner order, grouped by the `collections` map | **Backend half MET, verified live** (§18.5): 33 items and a 5-entry `collections` map for a 5-store account, over 51 pins written in catalogue order (§18.3–§18.4). The **render** half cannot be verified from this repo at all — it is partna-monorepo's, and it has not landed. |
+| Outbound URL composed by the backend | **MET, and proven live rather than only by test** (§18.5): `https://natalieanne.com/cart/47811307995314:1?discount=ALEX10`, a real Shopify cart deep link with the store's discount appended. The `referral_query` axis remains test-only, exactly as spec §5.3 anticipated — dev carries no store with one. |
+| Pool payload has an `SHOP_PRODUCT_ALLOWLIST`-equivalent enforcement point | **MET** — `ITEM_KEYS` / `STORE_KEYS` / `VARIANT_KEYS` + `PoolWireShapeTest`, which fails on key ADDITIONS as well as removals. |
+| Every `pool:shop` section carries the corrected rule | **MET, verified live** (§18.3): all five sections, one distinct shape — `{"all":[{"op":"kind_is","values":["product"]}]}` / `recency`. |
+| A re-added product returns | **NOT verified live.** Covered by test (`ShopRetirementTest`) and by the §9.8 narrowing, but no retire-then-re-add was exercised against dev. The honest status is test-proven, not live-proven. |
+| Coverage gate returns 0 | **MET, verified live** (§18.3): 0 uncovered legacy rows. |
+| Checkpoint and wire manifest committed | **MET** — this document and `docs/wire-changes/2026-08-12-slice-5b-shop-render.md`. |
+| **Legacy `/integrations` shop keys retired** | Shipped in code, **criterion still NOT ticked.** Spec §6 says to mark it unmet if unshippable at merge, and no session on this machine can confirm partna-monorepo consumes the replacement — that repository is neither checked out here nor visible to `gh`. Ticking it would assert a fact about a repo this session cannot see. Unchanged by Task 10; only the consumer can settle it. |
+
+**So: six of eight met, one test-proven-not-live, one blocked on a repository
+outside this machine.** Production stays undeployed until that last row can be
+ticked by someone who can see the frontend.
