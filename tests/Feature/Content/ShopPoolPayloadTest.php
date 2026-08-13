@@ -225,11 +225,41 @@ it('returns an empty collections map for a pool with no products', function () {
 it('takes the freshest source row when two sources describe one product', function () {
     [$pro, $siteId] = poolTenant();
     $store = shopStore($pro->id);
-    $itemId = shopProduct($pro->id, $store, 'Hat');
-    $staleSource = poolSource($pro->id, poolConnection($pro->id));
 
-    // Written AFTER the fresh row but stamped a year older: in insertion order
-    // this row lands last, which is exactly what keyBy would have kept.
+    // The source ids are CHOSEN, not generated, and that is the whole point of
+    // this test. Strip the ORDER BY and the fetch falls back to the
+    // (item_id, source_id) PK-index scan — which random uuids decide, so the
+    // broken state was only caught ~2 runs in 3 and the year-wide updated_at
+    // gap could not help (reverted code never reads that column). Pinning
+    // stale > fresh puts the STALE row LAST, exactly where keyBy keeps it, so
+    // a revert fails EVERY run and the fix passes every run.
+    $freshSource = '00000000-0000-4000-8000-0000000f8e54';   // sorts FIRST
+    $staleSource = 'ffffffff-ffff-4fff-bfff-ffffff57a1e0';   // sorts LAST
+
+    // The manual source shopProduct() would otherwise mint for itself, with a
+    // chosen id — it reuses the user's existing manual source when there is one.
+    DB::table('content.sources')->insert([
+        'id' => $freshSource, 'user_id' => $pro->id, 'kind' => 'manual',
+        'connection_id' => null, 'priority' => 100,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $itemId = shopProduct($pro->id, $store, 'Hat');
+
+    // A second, otherwise realistic source genuinely describing the same item:
+    // a real connection, its own source_items grain, its own facet rows.
+    DB::table('content.sources')->insert([
+        'id' => $staleSource, 'user_id' => $pro->id, 'kind' => 'connection',
+        'connection_id' => poolConnection($pro->id), 'priority' => 100,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $staleSource,
+        'coord' => 'x:stale-hat', 'item_id' => $itemId, 'kind' => 'product',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+
+    // Written AFTER the fresh rows and stamped a year older.
     DB::table('content.f_catalog')->insert([
         'item_id' => $itemId, 'source_id' => $staleSource,
         'handle' => 'hat-stale', 'vendor' => 'Stale Vendor',
