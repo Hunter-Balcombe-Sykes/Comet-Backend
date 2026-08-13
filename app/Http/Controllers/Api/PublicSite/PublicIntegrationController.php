@@ -5,13 +5,7 @@ namespace App\Http\Controllers\Api\PublicSite;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
-use App\Services\Analytics\ContentPopularityReader;
-use App\Services\Cache\CacheKeyGenerator;
-use App\Services\Cache\CacheLockService;
-use App\Services\Platforms\Registry\Platform;
-use App\Services\Shop\ShopContentReader;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -32,23 +26,14 @@ use Illuminate\Http\JsonResponse;
  * staleness we just fixed. The query is a single indexed lookup
  * (idx_platform_connections_user_platform_sort).
  *
- * CCG-102 is the one exception: the popularity-rank sub-read IS wrapped in
- * rememberLocked, because it recomputes on a 15-minute cadence rather than
- * changing on write, so edge purging does nothing to bound its cost.
+ * Slice 5b Task 8 (2026-08-13): there are NO sub-reads left. The shop block —
+ * a site lookup, a rememberLocked popularity read (CCG-102) and a
+ * ShopContentReader::brandMap() — went with the retired shop keys. Ranks and
+ * store cards are PoolResolver's job now, on the profile payload, and it
+ * carries its own copy of the same single-flight cache.
  */
 class PublicIntegrationController extends ApiController
 {
-    // CCG-102: matches the analytics:compute-popularity schedule cadence
-    // (routes/console.php, everyFifteenMinutes) — ranks only change on that
-    // cadence, so staleness beyond it buys nothing and this just bounds it.
-    private const POPULARITY_CACHE_TTL_SECONDS = 900;
-
-    public function __construct(
-        private readonly ContentPopularityReader $popularity,
-        private readonly CacheLockService $cache,
-        private readonly ShopContentReader $shopContent,
-    ) {}
-
     public function show(string $handle): JsonResponse
     {
         $handleLc = strtolower(trim($handle));
@@ -56,8 +41,6 @@ class PublicIntegrationController extends ApiController
             return $this->error('Not found.', 404);
         }
 
-        // The MODEL, not just the id: ShopContentReader::brandMap() takes a
-        // User. Same single indexed lookup either way.
         $user = User::query()->where('handle_lc', $handleLc)->first(['id']);
         if (! $user) {
             return $this->error('Not found.', 404);
@@ -84,11 +67,10 @@ class PublicIntegrationController extends ApiController
             ->orderBy('platform')
             ->orderBy('sort_order')
             ->orderBy('created_at')
-            // The `shopBrands.products` eager load is GONE (slice 5a Task 8,
-            // fix round 1): shop brands are read from content.* below and
-            // threaded into the Resource, so loading the two legacy child
-            // tables here would cost two queries per public profile read and
-            // feed nothing.
+            // The `shopBrands.products` eager load is GONE (slice 5a Task 8),
+            // and so is everything that replaced it (slice 5b Task 8) — a shop
+            // row publishes an empty payload, so any brand/product read here
+            // would cost queries per public profile read and feed nothing.
             // display_settings rides along so the Resource can suppress
             // toggled-off sections (reviews/hours/photos/…) from the payload.
             // resource_kind is still selected: the events-slug annotation that
@@ -104,39 +86,16 @@ class PublicIntegrationController extends ApiController
         // override. The old sites.content_instagram_auto_enabled column and
         // its translation block are gone.
 
-        // GLOBAL shop link mode (2026-07-08): one site-level choice applied to
-        // every connected store. Resolved once (single indexed lookup) and
-        // stamped onto each brand's public linkMode by the Resource, so the
-        // sitepage keeps reading brand.linkMode per the existing contract.
-        // Only fetched when there's actually a shop connection to stamp. The same
-        // lookup yields the site id used to read shop-product popularity ranks.
-        $shopLinkMode = null;
-        $productRanks = [];
-        $shopBrands = [];
-        if ($connections->has('shop')) {
-            $site = Site::query()->where('user_id', $userId)->first(['id', 'shop_link_mode']);
-            $shopLinkMode = $site?->shop_link_mode;
-            // shop-product ranks annotate each product with a nullable
-            // popularityRank on the public wire (inert until ONE consumes it).
-            // CCG-102: single-flight cached (mirrors IndividualProfileController) —
-            // this read used to hit Postgres on every request with no cache wrapper.
-            $siteId = $site?->id;
-            $ranks = $siteId !== null
-                ? $this->cache->rememberLocked(
-                    CacheKeyGenerator::sitePopularityRanks($siteId),
-                    self::POPULARITY_CACHE_TTL_SECONDS,
-                    fn () => $this->popularity->forSite($siteId),
-                )
-                : [];
-            $productRanks = $ranks['shop_product'] ?? [];
-            // ONE brandMap() per profile, threaded into every shop resource
-            // below — it takes a User and issues a fixed handful of queries,
-            // so resolving it inside the Resource would multiply them by the
-            // number of shop connection rows on an uncached public route.
-            // Ranks go in here (keyed by product handle) rather than through a
-            // separate setter, so the annotation happens once, at the source.
-            $shopBrands = $this->shopContent->brandMap($user, $productRanks);
-        }
+        // The shop block that used to live here is GONE (slice 5b, Task 8,
+        // 2026-08-13). It resolved the site's global shop_link_mode, read
+        // shop-product popularity ranks through a rememberLocked wrapper and
+        // built a whole ShopContentReader::brandMap() to thread into the
+        // Resource. `shop` now carries an EMPTY public allowlist, so every one
+        // of those reads would be discarded by the Resource while still costing
+        // a site lookup, a cache round-trip and brandMap()'s handful of
+        // Postgres queries on each public profile read. Products reach the wire
+        // through `profile.pools.shop`, and PoolResolver serves their variants,
+        // store cards, popularity rank and outbound URL.
 
         // The event-slug annotation block that used to live here is GONE
         // (slice 2, Task 9, 2026-08-12). It read site.item_slugs and stamped
@@ -148,16 +107,7 @@ class PublicIntegrationController extends ApiController
         // slug/aliases from content.item_slugs.
 
         $platforms = $connections
-            ->map(fn ($rows, $platform) => $platform === 'shop'
-                // Thread the globals into each shop connection resource — collection()
-                // can't forward the overrides, so map the rows explicitly.
-                ? $rows->values()
-                    ->map(fn ($row) => (new PublicIntegrationConnectionResource($row))
-                        ->withShopLinkMode($shopLinkMode)
-                        ->withShopBrands($shopBrands)
-                        ->resolve())
-                    ->all()
-                : PublicIntegrationConnectionResource::collection($rows->values())->resolve())
+            ->map(fn ($rows) => PublicIntegrationConnectionResource::collection($rows->values())->resolve())
             ->toArray();
 
         return $this->success(['data' => ['platforms' => $platforms]]);

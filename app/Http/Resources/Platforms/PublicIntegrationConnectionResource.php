@@ -25,61 +25,6 @@ use Illuminate\Support\Facades\Log;
 class PublicIntegrationConnectionResource extends ApiResource
 {
     /**
-     * The owner's GLOBAL shop link mode (site.sites.shop_link_mode). When set,
-     * every shop brand's public `linkMode` is stamped from this single value
-     * (2026-07-08 — the per-brand control became one global choice). The
-     * controller resolves it once per profile and threads it in via
-     * withShopLinkMode(); null falls back to the design-kit default so the
-     * sitepage contract (pages read brand.linkMode) is unchanged.
-     */
-    private ?string $shopLinkModeOverride = null;
-
-    /**
-     * Slice 5a Task 8, fix round 1 (C2): the owner's shop brands, brand_id =>
-     * ShopBrand::toBrandArray()-shaped array, rebuilt from content.* by
-     * ShopContentReader::brandMap(). Threaded in by PublicIntegrationController
-     * — built ONCE per profile there, never per resource: brandMap() takes a
-     * User (not a connection) and resolving it here would put N queries on an
-     * uncached public route.
-     *
-     * Replaces the `$this->shopBrands` eager-loaded relation this class used to
-     * read. site.shop_products stopped being written in 30d47f44f, so that
-     * relation now serves a frozen pre-deploy snapshot: an owner's curation
-     * would never reach a visitor again. Products (with their popularityRank
-     * annotation) come from the map — there is no separate ranks setter any
-     * more, the controller passes the ranks into brandMap().
-     *
-     * @var array<string, array<string, mixed>>
-     */
-    private array $shopBrandMap = [];
-
-    /**
-     * Fluent setter used by PublicIntegrationController to inject the owner's
-     * global shop link mode into a shop connection resource before resolve().
-     * Returns $this so it composes with the existing single-resource path.
-     */
-    public function withShopLinkMode(?string $mode): self
-    {
-        $this->shopLinkModeOverride = $mode;
-
-        return $this;
-    }
-
-    /**
-     * Fluent setter — inject the content.*-sourced brand map (see the property
-     * above). A shop resource resolved without it publishes no brands at all,
-     * which is the fail-closed direction: an empty card, never a stale one.
-     *
-     * @param  array<string, array<string, mixed>>  $brands  brand_id => brand array
-     */
-    public function withShopBrands(array $brands): self
-    {
-        $this->shopBrandMap = $brands;
-
-        return $this;
-    }
-
-    /**
      * Per-platform allowlist of payload keys exposed publicly. Faithful to the
      * current public contract — i.e. exactly what each platform stores today,
      * minus internal keys (e.g. Instagram's `_folder`, added by CONS-21).
@@ -250,64 +195,27 @@ class PublicIntegrationConnectionResource extends ApiResource
         'square-ordering' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'hungrypanda' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'easi' => ['url', 'name', 'favicon', 'logo', 'provider'],
-        // shop: brands live in content.collections/content.storefronts now
-        // (slice 5a) — built from the threaded brand map below, not from this
-        // allowlist map.
+        // RETIRED 2026-08-13 (slice 5b). Shop is DASHBOARD-ONLY on this wire
+        // now: products reach the public payload through `profile.pools.shop`,
+        // which serves them from content.items with variants, store cards and a
+        // backend-composed outbound URL the legacy brand shape could not carry.
+        //
+        // `=> []` rather than deletion, deliberately — same reason the event
+        // platforms keep an entry. The platform is still REGISTERED (the
+        // dashboard connect/refresh lane uses it) and
+        // PublicAllowlistCoverageTest requires every registered platform to
+        // carry one; deleting it would report a MissingPublicAllowlistException
+        // to Nightwatch on every public request.
+        'shop' => [],
     ];
 
-    /**
-     * Public fields of a single shop brand object (slice 5a: sourced from
-     * ShopContentReader::brandMap(), which rebuilds ShopBrand::toBrandArray()'s
-     * shape out of content.*, not from the connection's payload). `provider`
-     * (shopify / woocommerce / generic) drives sitepage URL + discount
-     * handling. `products` is the one nested collection this list lets
-     * through — each product is then filtered per-key by
-     * SHOP_PRODUCT_ALLOWLIST below (#API-1); a product's `variants[]`
-     * sub-objects still pass through whole, since like every allowlist here
-     * this one filters TOP-LEVEL keys only (same residual as eventbrite's
-     * `next`/`upcoming` event objects).
-     * `linkMode` + `referralQuery` ride along so productHref() can build
-     * checkout deep links and append the user's referral suffix.
-     * `sourceUrl` stays private (re-scrape input); `selectionMode` stays
-     * dashboard-only (selection policy, not render data).
-     */
-    private const SHOP_BRAND_ALLOWLIST = ['id', 'provider', 'url', 'name', 'currency', 'favicon', 'logo', 'discountCode', 'linkMode', 'referralQuery', 'products'];
-
-    /**
-     * #API-1: public fields of a single shop PRODUCT. `ShopProduct.data` is raw
-     * scraper output, so before this existed whatever a fetcher chose to store
-     * reached unauthenticated visitors — the only structure in this class with
-     * no enforcement point. This is the enforcement point: unlike the brand and
-     * platform lists it is NOT a subtraction from a fixed column set, it is what
-     * keeps a future fetcher shape change off a CDN-cached public wire.
-     *
-     * Derived as the UNION of every emitter of that shape: ShopifyScraper
-     * (widest — `createdAt` and `variants` originate there), WooCommerceScraper
-     * (incl. productsFromClient, which mutates values not keys),
-     * SquarespaceScraper, BigCartelScraper, and GenericShopScraper's two paths
-     * (JSON-LD + the OpenGraph fallback that ShopProductSeeder / addProduct
-     * store for an individually-added product). No user-supplied product object
-     * exists — SetShopProductsRequest takes ids, AddShopProductRequest a url.
-     *
-     * `popularityRank` is NOT stored: ShopBrand::toBrandArray() appends it on
-     * the public path, and this filter runs after, so it must be listed.
-     *
-     * `createdAt` is retained deliberately. It is ShopCatalog::syncLatest()'s
-     * latest-mode sort input AND ordinary public storefront data; no doc in this
-     * repo describes the public product contract, so we cannot prove the
-     * sitepage doesn't read it. Installing the enforcement point and narrowing
-     * the contract are two separate changes — only the first is in scope.
-     *
-     * Residual: `variants[]` sub-objects ({id, title, price, available, image})
-     * pass through whole — top-level filtering only, matching the rest of this
-     * class. Widening the variant shape puts new keys on the public wire with no
-     * further gate.
-     */
-    private const SHOP_PRODUCT_ALLOWLIST = [
-        'productId', 'title', 'handle', 'vendor', 'description',
-        'image', 'images', 'price', 'currency', 'variantId',
-        'available', 'url', 'createdAt', 'variants', 'popularityRank',
-    ];
+    // SHOP_BRAND_ALLOWLIST + SHOP_PRODUCT_ALLOWLIST were deleted with the shop
+    // branch of filterPayload() (slice 5b Task 8). #API-1's enforcement point did not go
+    // away with them — it MOVED: PoolResolver::ITEM_KEYS / STORE_KEYS /
+    // VARIANT_KEYS are what now bound the product shape on the public wire,
+    // pinned by tests/Feature/Content/PoolWireShapeTest.php. That filter is
+    // strictly stronger than the one deleted here, because it reaches inside
+    // variant objects, which this class's top-level array_intersect_key never did.
 
     /**
      * @return array{resourceId: ?string, payload: mixed, lastRefreshedAt: ?string}
@@ -335,65 +243,6 @@ class PublicIntegrationConnectionResource extends ApiResource
     /** Restrict a stored payload to its platform's public allowlist. */
     private function filterPayload(string $platform, mixed $payload): mixed
     {
-        if ($platform === 'shop') {
-            // Slice 5a Task 8 (fix round 1, C2): brands come from content.*
-            // now — ShopContentReader::brandMap(), threaded in by the
-            // controller — not from the site.shop_brands/site.shop_products
-            // relation. Same brand-array shape, so both allowlists below
-            // filter it unchanged.
-            //
-            // 2026-07-08: the per-brand link mode became ONE global choice
-            // (site.sites.shop_link_mode). Stamp EVERY brand's public linkMode
-            // from that global override so the sitepage contract is unchanged
-            // (pages still read brand.linkMode) — its value now comes from the
-            // single site setting, not the per-brand column. Null override (the
-            // controller couldn't resolve a site) leaves toBrandArray()'s own
-            // per-brand value, itself defaulted to 'product', so the wire is
-            // never missing the key.
-            $linkMode = $this->shopLinkModeOverride;
-
-            // W9: a brand mid deferred-connect has no display profile yet — a
-            // nameless, logo-less, empty-products card must never ship on the
-            // CDN-cached public wire (it can't cause the Shop page to appear
-            // by itself, since presentPageIds() additionally requires a chosen
-            // product, but it WOULD ride along once another brand qualifies
-            // the page). 'failed' is deliberately NOT filtered — a failed
-            // brand's content is identical to what today's synchronous path
-            // already produces when a homepage fetch fails, so it stays public.
-            // Hoisted: flip once, not once per product.
-            $productKeys = array_flip(self::SHOP_PRODUCT_ALLOWLIST);
-
-            // The pending reject reads the ARRAY now, not an Eloquent model:
-            // brandMap() emits `connectStatus` only when the storefront row
-            // has one (upsertStore() mirrors the column, and
-            // ShopBrandConnectJob mirrors both the settle and the terminal
-            // transition), so an absent key means settled — the same fact
-            // `connect_status === null` carried on the model.
-            return collect($this->shopBrandMap)
-                ->reject(fn (array $b) => ($b['connectStatus'] ?? null) === 'pending')
-                ->mapWithKeys(function (array $b) use ($linkMode, $productKeys) {
-                    $brand = array_intersect_key($b, array_flip(self::SHOP_BRAND_ALLOWLIST));
-                    // #API-1: `products` is the ONE nested collection the brand
-                    // allowlist lets through whole. Filter each product to its own
-                    // allowlist so a future fetcher shape change can't put an
-                    // unvetted key on this public, CDN-cached wire without a
-                    // developer adding it above. array_map (not collect()->map())
-                    // preserves keys, so the JSON stays exactly what it is today.
-                    if (is_array($brand['products'] ?? null)) {
-                        $brand['products'] = array_map(
-                            fn ($p) => is_array($p) ? array_intersect_key($p, $productKeys) : [],
-                            $brand['products'],
-                        );
-                    }
-                    if ($linkMode !== null) {
-                        $brand['linkMode'] = $linkMode;
-                    }
-
-                    return [(string) ($b['id'] ?? '') => $brand];
-                })
-                ->all();
-        }
-
         // Fail CLOSED (SEC-3): a non-array payload must never reach this public,
         // CDN-cached wire unfiltered. `payload` is NOT NULL in prod Postgres
         // (jsonb, default '{}') — null here is only the nullable SQLite test mirror.
