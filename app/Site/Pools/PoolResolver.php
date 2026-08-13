@@ -59,7 +59,7 @@ class PoolResolver
         'thumbnail', 'frames', 'startsAt', 'startsAtLocal', 'endsAtLocal',
         'timezone', 'venue', 'locality', 'price', 'availability', 'links',
         'popularityRank', 'description', 'vendor', 'variants', 'collectionIds',
-        'selected', 'origin',
+        'review', 'selected', 'origin',
     ];
 
     /** Public fields of one store card in a pool's `collections` map. */
@@ -421,6 +421,23 @@ class PoolResolver
             ->get(['item_id', 'body'])
             ->keyBy('item_id');
 
+        // Slice 6 §4.2: the review itself. Gated on the resolved set actually
+        // containing one, so watch / listen / media / events / shop add no
+        // query — this sits behind the 60s payload cache on the public path.
+        //
+        // Ordered for the same reason $places is: f_review is PK (item_id,
+        // source_id), so an item carried by two sources has TWO rows and keyBy
+        // keeps the LAST. Unordered that is arbitrary scan order, which flips
+        // the published attribution between reads. Freshest wins.
+        $reviews = collect();
+        if ($items->contains(fn (object $i): bool => $i->kind === 'review')) {
+            $reviews = DB::connection('pgsql')->table('content.f_review')
+                ->whereIn('item_id', $ids)
+                ->orderBy('updated_at')
+                ->get(['item_id', 'author_name', 'author_photo_url', 'author_uri', 'rating', 'text', 'reviewed_at'])
+                ->keyBy('item_id');
+        }
+
         // Public URL slugs. The legacy events lane served these off
         // site.item_slugs onto the integrations wire; retiring it moves the
         // duty here, so a slug-less item must degrade exactly as that lane did
@@ -558,6 +575,21 @@ class PoolResolver
                 // user's stores is ONE item in TWO collections.
                 'collectionIds' => $itemStores->pluck('collection_id')
                     ->unique()->map(fn ($id) => (string) $id)->values()->all(),
+                // Slice 6: present on every pool item and null off every kind
+                // but `review`, the same contract startsAt / venue / price
+                // keep. Attribution is read from f_review — the ONE copy that
+                // Manifest::$redactionScopes, content:prune-orphaned-review-pii
+                // and the DSAR omission all reach. Do NOT source it from
+                // headline: that copy was the §2.2 defect, and the projector
+                // now nulls it by contract.
+                'review' => isset($reviews[$itemId]) ? [
+                    'rating' => $reviews[$itemId]->rating === null ? null : (float) $reviews[$itemId]->rating,
+                    'text' => $reviews[$itemId]->text,
+                    'authorName' => $reviews[$itemId]->author_name,
+                    'authorPhotoUrl' => $reviews[$itemId]->author_photo_url,
+                    'authorUri' => $reviews[$itemId]->author_uri,
+                    'reviewedAt' => $reviews[$itemId]->reviewed_at,
+                ] : null,
             ];
         }
 
