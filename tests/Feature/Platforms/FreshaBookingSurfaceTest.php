@@ -54,9 +54,9 @@ function freshaContentSourceFor(string $userId): string
  * ingest Record's key (:191), which is exactly what FreshaConnector emits.
  *
  * @param  array<string, mixed>  $overrides  serviceId, name, qualifier,
- *                                            amountMinor, currency,
- *                                            description, durationSeconds,
- *                                            category
+ *                                           amountMinor, currency,
+ *                                           description, durationSeconds,
+ *                                           category
  * @return array{itemId: string, serviceId: string}
  */
 function landFreshaService(string $userId, string $sourceId, array $overrides = []): array

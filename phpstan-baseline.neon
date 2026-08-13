@@ -1063,48 +1063,6 @@ parameters:
 			path: app/Http/Resources/SectionBlockResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceCategoryResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceCategoryResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceCategoryResource\:\:\$deleted_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceCategoryResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceCategoryResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceCategoryResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceCategoryResource\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceCategoryResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceCategoryResource\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceCategoryResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceCategoryResource\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceCategoryResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceCategoryResource\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceCategoryResource.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$artifact_type\.$#'
 			identifier: property.notFound
 			count: 1
