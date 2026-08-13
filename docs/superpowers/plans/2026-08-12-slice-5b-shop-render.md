@@ -106,7 +106,7 @@ Expected: PASS. `PoolRegistryTest` pins that a kind belongs to at most one pool 
 - [ ] **Step 5: Commit**
 
 ```bash
-php artisan pint --dirty
+php artisan pint app/Site/Pools/PoolRegistry.php tests/Feature/Content/ShopPoolTest.php
 git add app/Site/Pools/PoolRegistry.php tests/Feature/Content/ShopPoolTest.php
 git commit -m "feat(shop): register the shop pool over the product kind"
 ```
@@ -242,7 +242,7 @@ Expected: PASS, both tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-php artisan pint --dirty
+php artisan pint app/Services/Shop/ShopContentWriter.php tests/Feature/Content/ShopRetirementTest.php
 git add app/Services/Shop/ShopContentWriter.php tests/Feature/Content/ShopRetirementTest.php
 git commit -m "fix(shop): an owner-authored re-add clears items.removed_at"
 ```
@@ -359,7 +359,7 @@ Expected: PASS, all four tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-php artisan pint --dirty
+php artisan pint app/Services/Shop/ShopContentWriter.php tests/Feature/Content/ShopRetirementTest.php
 git add app/Services/Shop/ShopContentWriter.php tests/Feature/Content/ShopRetirementTest.php
 git commit -m "fix(shop): retireAbsent matched a stale coord row-wise and retired live products"
 ```
@@ -663,7 +663,7 @@ Expected: PASS, all four tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-php artisan pint --dirty
+php artisan pint app/Console/Commands/ProvisionShopPinsCommand.php tests/Feature/Content/ShopPinProvisioningTest.php
 git add app/Console/Commands/ProvisionShopPinsCommand.php tests/Feature/Content/ShopPinProvisioningTest.php
 git commit -m "feat(shop): content:provision-shop-pins seeds owner ordering as pins"
 ```
@@ -876,7 +876,7 @@ Expected: PASS, all 14 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-php artisan pint --dirty
+php artisan pint app/Site/Pools/ShopOutboundUrl.php tests/Unit/Site/Pools/ShopOutboundUrlTest.php
 git add app/Site/Pools/ShopOutboundUrl.php tests/Unit/Site/Pools/ShopOutboundUrlTest.php
 git commit -m "feat(shop): compose the outbound product URL backend-side"
 ```
@@ -1339,7 +1339,7 @@ Expected: PASS. The three existing pool suites are the regression guard — the 
 - [ ] **Step 5: Commit**
 
 ```bash
-php artisan pint --dirty
+php artisan pint app/Site/Pools/PoolResolver.php app/Services/PublicSite/IndividualProfilePayloadBuilder.php tests/Feature/Content/ShopPoolPayloadTest.php
 git add app/Site/Pools/PoolResolver.php app/Services/PublicSite/IndividualProfilePayloadBuilder.php tests/Feature/Content/ShopPoolPayloadTest.php
 git commit -m "feat(shop): pool items carry description, vendor, variants, frames and the collections map"
 ```
@@ -1490,7 +1490,7 @@ Expected: PASS. If the item test fails on a key mismatch, reconcile the const wi
 - [ ] **Step 5: Commit**
 
 ```bash
-php artisan pint --dirty
+php artisan pint app/Site/Pools/PoolResolver.php tests/Feature/Content/PoolWireShapeTest.php
 git add app/Site/Pools/PoolResolver.php tests/Feature/Content/PoolWireShapeTest.php
 git commit -m "feat(shop): pin the pool wire key sets as the #API-1 equivalent"
 ```
@@ -1641,8 +1641,18 @@ Expected: PASS. Several existing tests assert the old brand-keyed payload — **
 - [ ] **Step 5: Commit**
 
 ```bash
-php artisan pint --dirty
-git add -A app/ tests/
+php artisan pint app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php \
+    app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php \
+    app/Providers/PlatformRegistryServiceProvider.php \
+    tests/Feature/Content/ShopWireRetirementTest.php
+# Explicit paths, plus whichever existing tests you updated — list them.
+# Never `git add -A`: concurrent subagents share THIS worktree's index, so a
+# blanket add stages a peer task's half-written file into your commit. (The
+# slice-3 worktree has its own index and is not the hazard here.)
+git add app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php \
+    app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php \
+    app/Providers/PlatformRegistryServiceProvider.php \
+    tests/Feature/Content/ShopWireRetirementTest.php
 git commit -m "feat(shop)!: retire the legacy /integrations shop keys, presence is pool-derived"
 ```
 
