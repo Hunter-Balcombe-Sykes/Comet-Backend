@@ -14,6 +14,15 @@ use Illuminate\Support\Facades\Log;
  * pair, i.e. the reviewer deleted it upstream or the platform stopped
  * surfacing it, on a connection that is STILL connected.
  *
+ * Scope note (slice 6): this deletes content.f_review ONLY. Until slice 6 the
+ * reviewer's display name was ALSO held in content.f_text.headline and
+ * content.items.headline_cache, which this command does not reach — so its
+ * guarantee was incomplete in exactly the way its own description implies it
+ * is not. GoogleBusinessReviewProjector no longer writes those copies and
+ * content:purge-review-headline-pii removed the existing ones. If a future
+ * projector reintroduces a headline for the `review` kind, this command's
+ * guarantee silently breaks again.
+ *
  * Deliberately NOT a TTL over live data. ingest:dispatch re-projects every
  * 15 minutes from ingest.record_versions and would simply re-insert an
  * unchanged live review on its next run — an age-based rule over live rows
