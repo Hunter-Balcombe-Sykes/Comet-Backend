@@ -112,6 +112,40 @@ class PoolResolver
         $pinned = $curation->where('state', 'pinned')
             ->sortBy('sort_key')->pluck('item_id')->values()->all();
 
+        // The early return on a pin is LOAD-BEARING, not an optimisation: this
+        // method is a presence probe (SitepageDataResolverService), and
+        // answering from site.section_items alone is what lets a probe succeed
+        // in an environment where content.* is absent. Collecting candidates
+        // unconditionally instead makes every pool probe fault wherever the
+        // services probe already does — 4 reported exceptions instead of 1,
+        // which is what PresenceProbeEscalationTest and PresenceProbeLoggingTest
+        // pin via pinPoolPresence(). Do not "simplify" the two branches into
+        // one collect-then-filter pass.
+        if (! in_array('review', PoolRegistry::kinds($pool), true)) {
+            foreach ($pinned as $itemId) {
+                if (! isset($excluded[$itemId])) {
+                    return true;
+                }
+            }
+            foreach ($this->candidates->ruleCandidates($section, $pinned) as $itemId) {
+                if (! isset($excluded[$itemId])) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Slice 6 §4.4: itemPayloads() drops review items whose connection has
+        // reviews switched off, so this has to as well — this method decides
+        // whether the page is ADVERTISED in nav and resolve() decides what is
+        // behind it. Disagreeing means an owner who hid their reviews gets the
+        // page linked with an empty pool behind it, the B2.2 pathology.
+        //
+        // A review pool cannot answer from pins alone: suppression is keyed to
+        // the item's SOURCE, so the whole candidate set is needed before the
+        // question can be answered at all. Reviews is deliberately absent from
+        // the presence-probe loop above, so this branch never runs inside one.
         $candidates = [];
         foreach ([...$pinned, ...$this->candidates->ruleCandidates($section, $pinned)] as $itemId) {
             if (! isset($excluded[$itemId])) {
@@ -123,28 +157,15 @@ class PoolResolver
             return false;
         }
 
-        // Slice 6 §4.4: itemPayloads() drops review items whose connection has
-        // reviews switched off, so this has to as well — this method decides
-        // whether the page is ADVERTISED in nav and resolve() decides what is
-        // behind it. Disagreeing means an owner who hid their reviews gets the
-        // page linked with an empty pool behind it, the B2.2 pathology.
-        //
-        // Collecting before returning costs the ruleCandidates lookup even
-        // when a pin already answered it. That is one indexed query behind the
-        // 60s public cache, and correctness over the short-circuit.
-        if (in_array('review', PoolRegistry::kinds($pool), true)) {
-            $suppressed = $this->reviewsSuppressedByOwner($candidates);
+        $suppressed = $this->reviewsSuppressedByOwner($candidates);
 
-            foreach ($candidates as $itemId) {
-                if (! isset($suppressed[$itemId])) {
-                    return true;
-                }
+        foreach ($candidates as $itemId) {
+            if (! isset($suppressed[$itemId])) {
+                return true;
             }
-
-            return false;
         }
 
-        return true;
+        return false;
     }
 
     /**
