@@ -775,6 +775,43 @@ it('writes the reviewer name to f_review only, never f_text or headline_cache', 
         ->toBe('https://maps.google.com/contrib/1');
 });
 
+// The other half of the pair below. A run that carries SOME aggregates
+// describes the place as of that run, so a key Google has stopped sending must
+// be cleared — nothing else ever clears this table (the prune command touches
+// f_review only, and the row goes only when content.sources cascades), so a
+// withdrawn summary would otherwise be republished forever. summary_text is
+// Google's prose about the business, so this is a retention question, not a
+// cosmetic one.
+it('clears an aggregate the later run stopped carrying', function () {
+    [, $connection, $source, $streamId] = projectableGoogleReviews([
+        'places/p/reviews/a' => [
+            'review_id' => 'places/p/reviews/a', 'rating' => 5,
+            'place_rating' => 4.7, 'place_rating_count' => 312,
+            'place_review_summary' => 'Customers praise the friendly staff.',
+        ],
+    ]);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'reviews');
+
+    $contentSourceId = DB::table('content.sources')->where('connection_id', $connection->id)->value('id');
+
+    // Google still returns the rating, but has withdrawn the summary.
+    DB::table('ingest.record_versions')->where('stream_id', $streamId)->update([
+        'doc' => json_encode([
+            'review_id' => 'places/p/reviews/a', 'rating' => 5,
+            'place_rating' => 4.9, 'place_rating_count' => 318,
+        ]),
+    ]);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'reviews');
+
+    $stats = DB::table('content.source_stats')->where('source_id', $contentSourceId)->first();
+
+    expect($stats->summary_text)->toBeNull()
+        ->and((float) $stats->rating_avg)->toBe(4.9)
+        ->and((int) $stats->rating_count)->toBe(318);
+});
+
 // A run with no aggregates must not blank a previously-landed set.
 it('leaves existing source_stats alone when a later run carries none', function () {
     [, $connection, $source, $streamId] = projectableGoogleReviews([

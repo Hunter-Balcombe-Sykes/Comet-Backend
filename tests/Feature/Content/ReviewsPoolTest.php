@@ -339,6 +339,29 @@ it('omits the stats key entirely when there are no aggregates', function () {
     expect($payload['profile']['pools']->reviews)->not->toHaveKey('stats');
 });
 
+// hasSelection() decides whether a page is advertised in nav; resolve() decides
+// what is behind it. They are documented as the same arithmetic, but only
+// resolve() applied the owner's reviews toggle — so an owner who switched
+// reviews off would get the page linked and an empty pool behind it, the exact
+// pathology the surrounding comments warn about. Latent (reviews is not in
+// SitepageDataResolverService's probe loop yet), pinned so it stays that way.
+it('reports no selection when the owner suppresses reviews', function () {
+    [$pro, $siteId] = reviewPoolFixture(['rating' => 5.0], ['reviews' => false]);
+
+    $site = Site::query()->findOrFail($siteId);
+
+    expect(app(PoolResolver::class)->hasSelection($site, 'reviews'))->toBeFalse()
+        // The two must agree — that is the whole contract.
+        ->and(app(PoolResolver::class)->resolve($site, 'reviews')['selection'])->toBe([]);
+});
+
+it('still reports a selection when reviews are not suppressed', function () {
+    [$pro, $siteId] = reviewPoolFixture(['rating' => 5.0]);
+
+    expect(app(PoolResolver::class)->hasSelection(Site::query()->findOrFail($siteId), 'reviews'))
+        ->toBeTrue();
+});
+
 // The section-curation endpoint above is not the only way to pin. PoolController
 // ::select() writes STATE_PINNED directly and is the route the dashboard uses,
 // so gating only the other one left EXCLUDE_ONLY_POOLS bypassable. Deleting the

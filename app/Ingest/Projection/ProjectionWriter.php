@@ -214,11 +214,24 @@ class ProjectionWriter
         // Slice 6 §5.2: source-level aggregates. Last record wins — they are
         // identical across a run, mirroring upsertSingletonFacet's
         // last-processed-record-wins column semantics.
+        //
+        // EVERY column is written, including ones this run did not carry:
+        // building the update list from the present keys alone would leave an
+        // aggregate Google has stopped sending in place forever, because
+        // nothing else clears this table (content:prune-orphaned-review-pii
+        // touches f_review only, and the row goes only when content.sources
+        // cascades). summary_text is Google's prose about the business, so
+        // that is a retention question rather than a cosmetic one.
+        //
+        // A run carrying NO aggregates at all leaves $sourceStats null and
+        // skips this entirely — the §5.2 zero-reviews gap, not a clear.
         if ($sourceStats !== null) {
+            $columns = ['rating_avg' => null, 'rating_count' => null, 'summary_text' => null];
+
             DB::table('content.source_stats')->upsert(
-                [$sourceStats + ['source_id' => $contentSourceId, 'updated_at' => now()]],
+                [$sourceStats + $columns + ['source_id' => $contentSourceId, 'updated_at' => now()]],
                 ['source_id'],
-                array_merge(array_keys($sourceStats), ['updated_at']),
+                [...array_keys($columns), 'updated_at'],
             );
         }
 
