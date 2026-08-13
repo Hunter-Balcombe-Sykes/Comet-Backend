@@ -31,8 +31,26 @@ class FreshaServiceProjector implements Projector
         }
 
         $category = $view->string('category');
+        $categoryId = $view->string('categoryId');
         $duration = $this->durationSeconds($view->string('duration'));
         $offer = $this->offer($view->string('price'));
+
+        // Keyed on the vendor's stable numeric category id, never the label:
+        // the legacy lane (App\Services\Platforms\FreshaServiceProjector's
+        // resolveCategoryIds()) matched on title and so minted a duplicate
+        // whenever an owner renamed a category. A category with no id cannot
+        // be reconciled across runs — a null external_ref would insert a
+        // fresh row on every run — so it stays a tag only.
+        //
+        // position is a SEED, not a synced value: ProjectionWriter writes it
+        // on insert and never updates it, because the owner can reorder
+        // categories and a scheduled run must not snap that back.
+        $collections = $category === null || $categoryId === null ? [] : [[
+            'external_ref' => $categoryId,
+            'label' => $category,
+            'kind' => 'service_category',
+            'position' => 0,
+        ]];
 
         return [
             'kind' => self::kind(),
@@ -41,8 +59,11 @@ class FreshaServiceProjector implements Projector
                 'f_text' => $view->string('description') === null ? null : ['body' => $view->string('description')],
                 'f_duration' => $duration === null ? null : ['seconds' => $duration],
             ]),
+            // Kept alongside 'collections': the tag is what SectionCandidates
+            // reads today, and nothing in this slice retires it.
             'tags' => $category === null ? [] : [['tag' => $category, 'tag_type' => 'category']],
             'offers' => $offer === null ? [] : [$offer],
+            'collections' => $collections,
         ];
     }
 
