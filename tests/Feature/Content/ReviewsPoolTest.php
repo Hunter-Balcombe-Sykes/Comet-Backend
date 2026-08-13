@@ -226,6 +226,42 @@ it('refuses a pin on the reviews pool but allows an exclusion', function () {
         ->toBe('excluded');
 });
 
+// The section-curation endpoint above is not the only way to pin. PoolController
+// ::select() writes STATE_PINNED directly and is the route the dashboard uses,
+// so gating only the other one left EXCLUDE_ONLY_POOLS bypassable. Deleting the
+// guard in select() must turn this red on its own.
+it('refuses a pin through the pool selection endpoint too', function () {
+    [$pro, $siteId, $itemId] = reviewPoolFixture(['rating' => 5.0]);
+
+    actingAsUser($pro)
+        ->postJson("/api/content/pools/reviews/selection/{$itemId}")
+        ->assertStatus(422);
+
+    expect(DB::table('site.section_items')->where('item_id', $itemId)->count())->toBe(0);
+});
+
+// The third pin path. reorder()'s own contract is that dragging an item into
+// an order pins it, so an exclusion-only pool has to refuse the whole verb.
+it('refuses a reorder of the reviews pool', function () {
+    [$pro, $siteId, $itemId] = reviewPoolFixture(['rating' => 5.0]);
+
+    actingAsUser($pro)
+        ->putJson('/api/content/pools/reviews/order', ['itemIds' => [$itemId]])
+        ->assertStatus(422);
+
+    expect(DB::table('site.section_items')->where('item_id', $itemId)->count())->toBe(0);
+});
+
+// Exclusion is the half of curation reviews DO get, and deselect() is how the
+// dashboard reaches it — gating the whole controller would have removed it.
+it('still allows deselection through the pool selection endpoint', function () {
+    [$pro, $siteId, $itemId] = reviewPoolFixture(['rating' => 5.0]);
+
+    actingAsUser($pro)
+        ->deleteJson("/api/content/pools/reviews/selection/{$itemId}")
+        ->assertOk();
+});
+
 // The refusal is about the POOL, not about pinning — every other pool's
 // curation must keep working.
 it('still allows a pin on another pool', function () {
