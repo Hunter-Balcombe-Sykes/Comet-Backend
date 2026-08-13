@@ -22,8 +22,10 @@ use App\Ingest\Runtime\Pull;
  * the exact persisted-query shape `FreshaScraper::fetchEmployeeServices()`
  * already fires against the real vendor (same URL, same operation name, same
  * `extensions.persistedQuery{version,sha256Hash}` envelope), generalised from
- * one employee's filtered menu to the storewide menu (`employeeId: null`,
- * `shouldShowAllEmployees: true`).
+ * one employee's filtered menu to whichever menu the owner
+ * chose -- `Pull.config['selection_ref']` carries an employee id or the
+ * literal 'storewide'. `shouldShowAllEmployees: true` returns the employee
+ * PICKER screen with an empty `screenServices` and must never be sent here.
  *
  * `services` parses `data.bookingFlowInitialize.screenServices.categories`
  * exactly like the scraper does — including its `primaryAction`/
@@ -92,7 +94,22 @@ class FreshaConnector implements Connector
     public function pull(Pull $pull, Io $io): iterable
     {
         $slug = trim($pull->identifier, '/');
-        $decoded = $this->fetchBookingFlow($slug, $io);
+        $selectionRef = $pull->config['selection_ref'] ?? null;
+        $selectionRef = is_string($selectionRef) && trim($selectionRef) !== '' ? trim($selectionRef) : null;
+
+        if ($pull->stream->name === 'services' && $selectionRef === null) {
+            // Nobody has chosen whose menu this is. Fetching the STORE menu
+            // here would publish a whole salon's catalogue, at "from
+            // <cheapest staff member>" prices, on one individual's page --
+            // measured on dev, 22 of 23 prices understated. Landing nothing
+            // is what happens today; the Note is so that "nobody chose yet"
+            // stops looking identical to "the connector is broken".
+            yield new Note('no_selection', 'No Fresha team member or storewide menu has been chosen for this connection');
+
+            return;
+        }
+
+        $decoded = $this->fetchBookingFlow($slug, $io, $selectionRef);
 
         if ($decoded === null) {
             yield new Unavailable(
@@ -220,10 +237,16 @@ class FreshaConnector implements Connector
     }
 
     /** @return array<string, mixed>|null null when the pinned query is rejected */
-    private function fetchBookingFlow(string $slug, Io $io): ?array
+    private function fetchBookingFlow(string $slug, Io $io, ?string $selectionRef): ?array
     {
         $clientVersion = (string) config('services.fresha.client_version');
         $hash = (string) config('services.fresha.booking_init_hash');
+
+        // 'storewide' is the reserved token for "the location's own menu";
+        // anything else is an employee id. shouldShowAllEmployees:true returns
+        // the employee-PICKER screen, whose screenServices is {} -- which is
+        // why this stream landed zero records from 2026-07-28 (spec §1.3).
+        $employeeId = ($selectionRef === null || $selectionRef === 'storewide') ? null : $selectionRef;
 
         $body = [
             'operationName' => 'BookingFlow_Initialize_Mutation',
@@ -234,8 +257,8 @@ class FreshaConnector implements Connector
                     'locationSlug' => $slug,
                     'referer' => '',
                     'options' => [
-                        'employeeId' => null,
-                        'shouldShowAllEmployees' => true,
+                        'employeeId' => $employeeId,
+                        'shouldShowAllEmployees' => false,
                         'isGroupBooking' => false,
                         'isRebook' => false,
                         'isFromLinkBuilder' => false,

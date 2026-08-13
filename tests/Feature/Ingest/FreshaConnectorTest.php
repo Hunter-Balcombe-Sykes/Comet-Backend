@@ -18,6 +18,8 @@ function freshaIo(array $response): Io
 {
     return new class($response) implements Io
     {
+        public array $posts = [];
+
         public function __construct(private array $response) {}
 
         public function get(string $url, array $headers = []): array
@@ -27,6 +29,8 @@ function freshaIo(array $response): Io
 
         public function post(string $url, array $body = [], array $headers = []): array
         {
+            $this->posts[] = ['url' => $url, 'body' => $body, 'headers' => $headers];
+
             $host = strtolower((string) parse_url($url, PHP_URL_HOST));
             if (! FreshaConnector::manifest()->mayContact($host)) {
                 throw new EffectRefused("off-manifest host {$host}");
@@ -47,11 +51,12 @@ function freshaIo(array $response): Io
     };
 }
 
-function freshaPull(string $streamName, string $slug = 'invented-salon'): Pull
+function freshaPull(string $streamName, string $slug = 'invented-salon', array $config = []): Pull
 {
     return new Pull(
         identifier: $slug,
         stream: FreshaConnector::manifest()->stream($streamName),
+        config: $config,
     );
 }
 
@@ -64,6 +69,22 @@ function freshaBookingFlowBody(array $categories, ?array $location = null): stri
     }
 
     return json_encode(['data' => ['bookingFlowInitialize' => $inner]]);
+}
+
+/** @param  list<array<string,mixed>>  $categories */
+function freshaResponseWith(array $categories): array
+{
+    return ['status' => 200, 'body' => freshaBookingFlowBody($categories), 'headers' => []];
+}
+
+function normalItem(string $catalogId): array
+{
+    return [
+        'name' => 'Standard Haircut',
+        'caption' => '30min',
+        'price' => ['formatted' => 'from $48'],
+        'primaryAction' => ['id' => '[{"catalogId":"'.$catalogId.'"}]'],
+    ];
 }
 
 it('declares only the hosts it actually needs', function () {
@@ -95,7 +116,8 @@ it('yields a record per service plus an exhaustive coverage claim, since the who
         'headers' => [],
     ]);
 
-    $messages = iterator_to_array((new FreshaConnector)->pull(freshaPull('services'), $io));
+    $pull = freshaPull('services', config: ['selection_ref' => 'storewide']);
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io));
 
     $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
     $covered = array_values(array_filter($messages, fn ($m) => $m instanceof Covered));
@@ -136,7 +158,8 @@ it('yields one profile record from the same booking-flow response, also exhausti
 it('reports a non-200 booking-flow response as unavailable', function () {
     $io = freshaIo(['status' => 500, 'body' => '', 'headers' => []]);
 
-    $messages = iterator_to_array((new FreshaConnector)->pull(freshaPull('services'), $io));
+    $pull = freshaPull('services', config: ['selection_ref' => 'storewide']);
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io));
 
     expect($messages)->toHaveCount(1)
         ->and($messages[0])->toBeInstanceOf(Unavailable::class);
@@ -149,7 +172,8 @@ it('treats a GraphQL errors key on a 200 as the pinned query being rejected, not
         'headers' => [],
     ]);
 
-    $messages = iterator_to_array((new FreshaConnector)->pull(freshaPull('services'), $io));
+    $pull = freshaPull('services', config: ['selection_ref' => 'storewide']);
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io));
 
     expect($messages)->toHaveCount(1)
         ->and($messages[0])->toBeInstanceOf(Unavailable::class)
@@ -166,7 +190,8 @@ it('treats missing categories as the pinned-hash rotation symptom, not an empty 
         'headers' => [],
     ]);
 
-    $messages = iterator_to_array((new FreshaConnector)->pull(freshaPull('services'), $io));
+    $pull = freshaPull('services', config: ['selection_ref' => 'storewide']);
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io));
 
     expect($messages)->toHaveCount(1)
         ->and($messages[0])->toBeInstanceOf(Unavailable::class);
@@ -183,10 +208,12 @@ it('emits no coverage when categories parse but nothing maps to a real service',
         'headers' => [],
     ]);
 
-    $messages = iterator_to_array((new FreshaConnector)->pull(freshaPull('services'), $io));
+    $pull = freshaPull('services', config: ['selection_ref' => 'storewide']);
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io));
 
     expect($messages)->toHaveCount(1)
         ->and($messages[0])->toBeInstanceOf(Note::class)
+        ->and($messages[0]->code)->toBe('empty_menu')
         ->and(array_filter($messages, fn ($m) => $m instanceof Covered))->toBeEmpty();
 });
 
@@ -225,4 +252,48 @@ it('marks profile an Identity stream with no order field, so it can never delete
     expect($spec->profile)->toBe(SourceProfile::Identity)
         ->and($spec->orderField)->toBeNull()
         ->and($spec->mayDelete())->toBeFalse();
+});
+
+it('lands nothing and makes no HTTP call when nothing has been chosen', function () {
+    $io = freshaIo(freshaResponseWith([]));   // recorded posts must stay empty
+    $pull = freshaPull('services', 'some-salon-abc123', config: ['selection_ref' => null]);
+
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io));
+
+    expect($io->posts)->toBeEmpty()
+        ->and($messages)->toHaveCount(1)
+        ->and($messages[0])->toBeInstanceOf(Note::class)
+        ->and($messages[0]->code)->toBe('no_selection');
+});
+
+it('asks for one employee menu when an employee is chosen', function () {
+    $io = freshaIo(freshaResponseWith([['id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1')]]]));
+    $pull = freshaPull('services', 'some-salon-abc123', config: ['selection_ref' => '4891132']);
+
+    iterator_to_array((new FreshaConnector)->pull($pull, $io));
+
+    $options = $io->posts[0]['body']['variables']['input']['options'];
+    expect($options['employeeId'])->toBe('4891132')
+        ->and($options['shouldShowAllEmployees'])->toBeFalse();
+});
+
+it('asks for the store menu when storewide is chosen', function () {
+    $io = freshaIo(freshaResponseWith([['id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1')]]]));
+    $pull = freshaPull('services', 'some-salon-abc123', config: ['selection_ref' => 'storewide']);
+
+    iterator_to_array((new FreshaConnector)->pull($pull, $io));
+
+    $options = $io->posts[0]['body']['variables']['input']['options'];
+    expect($options['employeeId'])->toBeNull()
+        ->and($options['shouldShowAllEmployees'])->toBeFalse();
+});
+
+// The profile stream does not depend on whose menu it is.
+it('still fetches profile when nothing has been chosen', function () {
+    $io = freshaIo(freshaResponseWith([['id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1')]]]));
+    $pull = freshaPull('profile', 'some-salon-abc123', config: ['selection_ref' => null]);
+
+    iterator_to_array((new FreshaConnector)->pull($pull, $io));
+
+    expect($io->posts)->toHaveCount(1);
 });
