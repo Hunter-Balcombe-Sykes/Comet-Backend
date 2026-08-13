@@ -103,17 +103,18 @@ So `document` is the **third instance of the same pattern** as `link` and
 `menu_item`: a declared `KindRegistry` kind whose data currently lives in a
 legacy store, awaiting a pool. It is not dead weight.
 
-**Plan changed:** Phase 1 no longer deletes the `document` kind. Two options
-for the owner:
-- (a) leave the kind declared, `site.site_media` pool='documents' stays legacy
-  — cheap, but breaks the "no legacy in use" goal for this one feature
-- (b) add a **documents pool** to Phase 3 alongside menu and links — 2 rows to
-  migrate, likely the smallest pool of the three, and consistent with the goal
+Documents have **no platform source at all** — verified: no connector among
+the 26 streams targets `document`; `UserDocumentController` is upload-only. The
+2 dev rows are hand-uploaded test files (a uni tutorial PDF, and — notably — a
+PNG sitting in the documents pool, so the upload path does not constrain mime
+type).
 
-Default taken while unattended: **do not delete**, defer the choice. Deleting a
-kind with a legitimate future use is harder to undo than leaving it declared.
+**OWNER DECISION (2026-08-14): no documents pool.** `site.site_media`
+pool='documents' stays as it is. The `document` kind is **not deleted** either
+(deleting a kind with a live feature behind it is the harder thing to undo);
+it simply stays declared and unpooled.
 
-Owner decisions #4 and #10 (`document` kind → delete) are superseded by this.
+Owner decisions #4 and #10 (`document` kind → delete) are superseded.
 
 ### F9 — Kind deletion: narrow the registry, NOT the DB CHECK domain
 
@@ -144,6 +145,91 @@ Rationale: removing an unused value from a CHECK domain buys almost nothing,
 while the migration + guard-rewrite it forces is disproportionate churn and
 risks leaving a guard that reads as authoritative but no longer is. A
 permissive backstop with a narrow application registry is the safer asymmetry.
+
+### F10 — Phase 2 is narrower than planned: two joining keys have NO data
+
+`content.f_catalog` (84 rows) — the facet that would carry them:
+
+```
+isrc: 0    gtin: 0    sku: 51    handle: 51    vendor: 49
+```
+
+The columns exist; **no connector populates `isrc` or `gtin`**. Confirmed by
+grep — the only mention in `app/Ingest/` is the facet's own column list.
+`ApplePodcastsConnector` likewise carries **no guid/enclosure**, so `FeedGuid`
+and `EnclosureUrl` are unemittable too.
+
+So of the Joining tier, only `ContentDigest` is emittable — and it is
+worthwhile: `content.media_assets` holds 914 assets, all fingerprinted, **716
+distinct**, so ~198 are cross-source duplicates it would unify.
+
+Emittable today, by data actually present:
+
+| Key | Tier | Viable? |
+|---|---|---|
+| `ContentDigest` | Joining | ✅ 914 fingerprints |
+| `TitleRelease` | Corroborating | ✅ release: 223 items, all with `f_published` |
+| `TitleOnly` | Corroborating | ✅ all kinds have `f_text` |
+| `OfferingName*` | Corroborating | ✅ service 80; menu_item after Phase 3 |
+| `EventOccurrence` | Corroborating | ✅ 16 events, 16 `f_occurrence` |
+| `TitleDuration` | Corroborating | ⚠️ track-scoped; **0 track items exist**; release/episode have 0 duration |
+| `Isrc`, `Gtin14` | Joining | ❌ no data |
+| `FeedGuid`, `EnclosureUrl` | Joining | ❌ no data |
+
+**Consequence for Phase 4.** ISRC is the natural joining key for music. Without
+it, Spotify↔SoundCloud↔YouTube-Music dedup falls back to `TitleRelease` /
+`TitleOnly` — corroborating tier, so cross-source only, which is correct but
+weaker. **When selecting Apify actors in Phase 4, prefer one that returns
+ISRC**; that single field is the difference between reliable joining-tier
+identity and title-matching.
+
+Owner decision needed: extract ISRC/GTIN in this run (connector work, expands
+Phase 2/4), or accept title-based dedup for now.
+
+### F11 — Phase 3 slug migration is collision-free (and reveals a dual-write)
+
+`site.item_slugs` UNIQUE `(user_id, slug)`; `content.item_slugs` UNIQUE
+`(user_id, slug)` — **scopes match**, so the old kickoff's feared
+silent-row-drop does not apply.
+
+Checked for real collisions before migrating: **9 collide, and every one is
+`item_type='event'`. No `menu_item` collides.** The 318-slug menu migration is
+clean.
+
+The collisions expose something else: **events dual-write slugs.** Slice 2
+copied event slugs into `content.item_slugs` (16 rows) without removing the
+legacy rows (11 remain). Phase 7 should delete the legacy event slugs.
+
+### F12 — Phase 3 pool addition needs no migration
+
+`PoolSectionProvisioner::ensure()` creates a pool's page + section lazily on
+first read, idempotent under the `(site, key)` unique indexes. And there is
+**no CHECK constraint on `site.pages.key` or `site.sections.key`** — verified
+against `pg_constraint`. Adding `menu` and `links` is therefore
+`PoolRegistry` config only (`POOLS`, `PAGE_KEYS`, `PAGE_LABELS`,
+`SECTION_SHAPE`); the schema needs nothing.
+
+The weight in Phase 3 is the **data** migration (318 slugs, menu_item rows),
+not the pool wiring.
+
+### F13 — Phase 7 read surface, enumerated
+
+Files reading the legacy stores that Phase 7 retires:
+
+- `site.menus` — `MenuController`, `MenuContentController`,
+  `PublicMenuController`, `MenuScanApplier`, `MenuPayloadComposer`,
+  `SitepageDataResolverService`
+- `site.shop_products` — `ShopController` only
+- `site.services` — `FreshaController`, `UserServiceController`,
+  `StaffServiceManagementController`, `FreshaServiceProjector`,
+  `UserCacheService`, `LegacyServiceSortOrder`
+- `site.content_selection` — `ContentController`,
+  `ReplaceContentSelectionRequest`, `GoogleBusinessService`,
+  `IndividualProfilePayloadBuilder`, `ContentSelectionService`
+
+Note `SitepageDataResolverService` and `IndividualProfilePayloadBuilder` are
+**public-payload** readers — the cutover changes what sitepages serve, so they
+are the two to verify hardest.
 
 ### F7 — Pre-existing dev noise, not caused by this run
 `#371` cache-SLO violations, `#429`/`#430` Redis timeouts. Recurring on dev
