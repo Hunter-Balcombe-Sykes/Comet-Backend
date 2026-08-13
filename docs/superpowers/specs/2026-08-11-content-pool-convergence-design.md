@@ -2620,11 +2620,37 @@ run, and the two that are genuinely not met stay not met.
 | Outbound URL composed by the backend | **MET, and proven live rather than only by test** (§18.5): `https://natalieanne.com/cart/47811307995314:1?discount=ALEX10`, a real Shopify cart deep link with the store's discount appended. The `referral_query` axis remains test-only, exactly as spec §5.3 anticipated — dev carries no store with one. |
 | Pool payload has an `SHOP_PRODUCT_ALLOWLIST`-equivalent enforcement point | **MET** — `ITEM_KEYS` / `STORE_KEYS` / `VARIANT_KEYS` + `PoolWireShapeTest`, which fails on key ADDITIONS as well as removals. |
 | Every `pool:shop` section carries the corrected rule | **MET, verified live** (§18.3): all five sections, one distinct shape — `{"all":[{"op":"kind_is","values":["product"]}]}` / `recency`. |
-| A re-added product returns | **NOT verified live.** Covered by test (`ShopRetirementTest`) and by the §9.8 narrowing, but no retire-then-re-add was exercised against dev. The honest status is test-proven, not live-proven. |
+| A re-added product returns | **MET, verified live 2026-08-13** (§18.11). Retire-then-re-add exercised against dev through the real `ShopContentWriter::syncStore()`: `removed_at` set on removal, back to `null` on re-add, and `sameItemRow: true` — it returned on the SAME `content.items` row rather than a new one, which is the half that matters (a new row would orphan `analytics.item_views` and every pin). |
 | Coverage gate returns 0 | **MET, verified live** (§18.3): 0 uncovered legacy rows. |
 | Checkpoint and wire manifest committed | **MET** — this document and `docs/wire-changes/2026-08-12-slice-5b-shop-render.md`. |
 | **Legacy `/integrations` shop keys retired** | Shipped in code, **criterion still NOT ticked.** Spec §6 says to mark it unmet if unshippable at merge, and no session on this machine can confirm partna-monorepo consumes the replacement — that repository is neither checked out here nor visible to `gh`. Ticking it would assert a fact about a repo this session cannot see. Unchanged by Task 10; only the consumer can settle it. |
 
-**So: six of eight met, one test-proven-not-live, one blocked on a repository
-outside this machine.** Production stays undeployed until that last row can be
-ticked by someone who can see the frontend.
+**So: seven of eight met. One row — the legacy-key retirement — is blocked on a
+repository outside this machine** and can only be ticked by someone who can see
+partna-monorepo. Production stays undeployed until then.
+
+### 18.11 The re-add, verified live — RUN 2026-08-13, output pasted
+
+The last criterion this repo could settle on its own. Exercised through the real
+`ShopContentWriter::syncStore()` against dev, on a **throwaway collection** so no
+existing catalogue was touched:
+
+```json
+{
+  "collection":  "4415bd4d-dc52-41d7-9d97-17c2b588d9c3",
+  "item":        "2deda708-e3ed-439a-ab2f-86ba6171e5c9",
+  "retiredAt":   "2026-08-13 11:18:39+00",   // syncStore() with an empty catalogue
+  "afterReadd":  null,                        // syncStore() with the product back
+  "sameItemRow": true                         // the point of the whole rule
+}
+```
+
+`sameItemRow` is what the §3.3 narrowing exists for: a re-add must clear
+`removed_at` on the EXISTING row, not mint a new one, because a new row orphans
+`analytics.item_views` and every `site.section_items` pin pointing at the old id.
+
+**Probe rows removed afterwards, verified zero residue.** `content.source_items`
+was deleted first — it is the one child of `content.items` whose FK is `SET NULL`
+rather than `CASCADE`, so deleting the item first would have left an orphan row
+with a null `item_id`. Post-cleanup dev is back to exactly **51 live products, 0
+retired** — the pre-probe state.
