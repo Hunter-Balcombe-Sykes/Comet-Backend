@@ -648,9 +648,16 @@ it('T12: a settled brands GET /brands body carries no connectStatus/connectError
     expect($body)->not->toHaveKey('connectError');
 });
 
-// ── T13 — public payload omits pending, includes failed, never leaks connectStatus ──
+// ── T13 — the public /integrations payload carries no brand at all ─────────
+//
+// RE-BASED by slice 5b Task 8 (2026-08-13). T13 used to pin the pending/failed
+// split on this wire: a pending brand was rejected, a failed one shipped with
+// its products, and neither exposed connectStatus/connectError. The wire is
+// retired — `shop` publishes an EMPTY payload and products reach the sitepage
+// through `profile.pools.shop`. What survives unchanged, and is what T13 was
+// really protecting, is that connect-state bookkeeping never becomes public.
 
-it('T13: the public payload omits a pending brand, includes a failed one, and never exposes connectStatus', function () {
+it('T13: the public payload carries no brand at all and never exposes connectStatus', function () {
     $user = shopAsyncUserWithSite('t13pub');
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
@@ -668,11 +675,9 @@ it('T13: the public payload omits a pending brand, includes a failed one, and ne
         'position' => 1, 'connect_status' => 'failed',
         'connect_error' => 'We could not load that account. Please try again.',
     ]);
-    // Fix round 1 (C2): the public payload is built from content.* now, and
-    // its pending reject reads the reconstructed array's `connectStatus`
-    // rather than the Eloquent model's column — so both brands land through
-    // the writer addBrand()/ShopBrandConnectJob use, exactly as production
-    // would have them.
+    // Both brands land through the writer addBrand()/ShopBrandConnectJob use,
+    // exactly as production would have them — so the empty payload asserted
+    // below is a retirement rather than an unwritten fixture.
     $writer = app(ShopContentWriter::class);
     $writer->upsertStore($pending, (string) $user->id);
     $failedCollectionId = $writer->upsertStore($failed, (string) $user->id);
@@ -681,16 +686,22 @@ it('T13: the public payload omits a pending brand, includes a failed one, and ne
         'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
     ]], null);
 
-    $payload = $this->getJson('/api/public/profiles/t13pub/platforms')
-        ->assertOk()
-        ->json('data.platforms.shop.0.payload');
+    $response = $this->getJson('/api/public/profiles/t13pub/platforms')->assertOk();
 
-    expect($payload)->not->toHaveKey('pend-brand');
-    expect($payload)->toHaveKey('fail-brand');
-    expect($payload['fail-brand'])->not->toHaveKey('connectStatus');
-    expect($payload['fail-brand'])->not->toHaveKey('connectError');
-    // A failed brand stays fully usable (plan §3g) — its product still ships.
-    expect($payload['fail-brand']['products'][0]['productId'])->toBe('p1');
+    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
+
+    // Neither brand ships, and — the durable half of T13 — no connect-state
+    // bookkeeping rides anywhere in the body.
+    $body = $response->getContent();
+    expect($body)->not->toContain('pend-brand');
+    expect($body)->not->toContain('fail-brand');
+    expect($body)->not->toContain('connectStatus');
+    expect($body)->not->toContain('connectError');
+    expect($body)->not->toContain('We could not load that account');
+    // Both storefronts really exist in content.*; a failed brand stays fully
+    // usable (plan §3g) and its product still renders — through the pool now.
+    expect(DB::table('content.storefronts')->count())->toBe(2);
+    expect(DB::table('content.f_catalog')->where('sku', 'p1')->exists())->toBeTrue();
 });
 
 // ── T14 — presentPageIds() regression guard on the deferred path ────────────

@@ -26,6 +26,7 @@ use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\AppleSearch;
@@ -101,8 +102,8 @@ use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
 use App\Services\Shop\ShopContentWriter;
+use App\Site\Pools\PoolResolver;
 use Illuminate\Cache\RateLimiting\Limit;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -472,30 +473,28 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // FOUND-25 + W9: a shop connection's payload is a static lifecycle
             // marker — brands/products live relationally and are decoupled from
             // connect (addBrand stores a brand with zero products). An active
-            // connection alone isn't real content.
+            // connection alone isn't real content, so shop keeps a completeness
+            // predicate; only the QUESTION it asks changed.
             //
-            // MUST stay in lockstep with PublicIntegrationConnectionResource::
-            // filterPayload(), which rejects a connect_status='pending' brand:
-            // without the exclusion, page-presence says shop is present while the
-            // payload ships empty. `!= 'pending'` alone is WRONG — NULL !=
-            // 'pending' is NULL (falsy) in SQL, which would exclude every settled
-            // (NULL) brand too; the whereNull()->orWhere() is required.
+            // Slice 5b: page presence is POOL-derived, exactly as events became
+            // in slice 2. The previous closure counted content.collection_items
+            // and deliberately did NOT filter items.removed_at, to stay in
+            // lockstep with a payload that did not filter it either. The pool
+            // read DOES filter it, so asking the pool the question directly is
+            // what keeps presence and payload from disagreeing — lockstep by
+            // construction rather than by two queries agreeing to be wrong in
+            // the same way.
             //
-            // Slice 5a Task 8 (fix round 1, C2): reads content.* — the same
-            // rows filterPayload() now publishes. It used to count
-            // site.shop_products, which no shop endpoint writes any more, so a
-            // store connected and curated after that deploy would have had NO
-            // Shop page at all (not merely an empty card). Deliberately does
-            // NOT filter items.removed_at: cataloguesFor() doesn't either, so
-            // a link is exactly what the payload emits — lockstep is the
-            // requirement, not correctness-by-a-different-rule.
-            $r->get('shop')->complete(fn (IntegrationConnection $c): bool => DB::table('content.collection_items as ci')
-                ->join('content.collections as col', 'col.id', '=', 'ci.collection_id')
-                ->join('content.storefronts as sf', 'sf.collection_id', '=', 'col.id')
-                ->where('col.user_id', (string) $c->user_id)
-                ->where('col.kind', 'storefront')
-                ->where(fn ($q) => $q->whereNull('sf.connect_status')->orWhere('sf.connect_status', '<>', 'pending'))
-                ->exists());
+            // The connect_status='pending' exclusion went with it: the pool has
+            // no notion of connect_status, so a pending store's products both
+            // render AND count. That is a real semantics change, and the right
+            // one — W9's exclusion existed to stop presence advertising a page
+            // whose payload was empty, and the payload is no longer empty.
+            $r->get('shop')->complete(function (IntegrationConnection $c): bool {
+                $site = Site::query()->where('user_id', (string) $c->user_id)->first();
+
+                return $site !== null && app(PoolResolver::class)->hasSelection($site, 'shop');
+            });
             $r->register(PD::make('custom')->label('Custom Link')->category(Cat::Content)->resource(LinkConnectionResource::class)->payload(CardPayload::class));
             $r->register(PD::make('booking')->label('Booking')->category(Cat::Booking)->payload(CardPayload::class));
             $r->register(PD::make('reservations')->label('Reservations')->category(Cat::Reservations)->payload(CardPayload::class));

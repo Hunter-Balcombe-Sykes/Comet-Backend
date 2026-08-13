@@ -618,6 +618,10 @@ surface once and history stays linear.
 **Rule 5 — pre-assign migration filename prefixes** before a wave starts, one block
 per slice, so ordering never depends on who committed first.
 
+Block `20260813110000`–`20260813119999` was pre-assigned to slice 5b. 5b shipped
+no DDL — every write lands in an existing table — so the block went unused and
+returns to the pool for whichever slice needs it next.
+
 **Rule 6 — one worktree per session; never the main checkout.** This repo has
 already lost uncommitted work to a concurrent merge. Run `git worktree list` before
 starting: several are typically live.
@@ -1221,6 +1225,26 @@ or accepted as lost.
 `content.items` holds 106 episodes while only 90 live `source_items` remain — items
 are not retired when their source items are. The backfill and the coverage gate will
 meet this asymmetry and must decide it deliberately rather than discover it.
+
+**Narrowed 2026-08-13 (slice 5b §3.3).** An **owner-authored** write may clear
+`content.items.removed_at`; a **connector** re-observing an item never may. The
+one-way rule was written against scrape flapping, which must not undo a
+deliberate removal — an owner re-adding a product through `addProduct` /
+`setProducts` is not that. Slices 3, 4 and 6 inherit the narrowed form.
+
+**The rule is enforced caller-side, not inside the writer — a slice adopting
+this pattern must check its own call sites rather than assume the write
+function guards itself.** In 5b, `ShopContentWriter::syncStore()`'s un-retire
+step is unconditional for every item it links — it has no owner-vs-connector
+branch and its own docblock says so explicitly. It is reached from both owner
+paths (`ShopController`, `ShopProductSeeder`) and the scheduled connector path
+(`ShopFetch::fetch()` → `ShopCatalog::syncLatest()` → `syncStore()`, a
+6-hourly refresh, `auto_sync_latest` absent meaning ON). The rule holds only
+because `ShopFetch` itself skips hand-curated brands and the individual
+bucket before ever reaching `syncStore()` — so the scheduled path can only
+un-retire items its own top-N windowing retired, never one an owner curated by
+hand. Gating `syncStore()` itself with a flag was considered and rejected by
+the owner 2026-08-13.
 
 ---
 
@@ -2140,8 +2164,15 @@ not depend on a sub-spec surviving:
 - **`style_analysis`** (non-null on 4 legacy brands) is dropped with no
   migration path — no reader, no writer survives the code that produced it.
   Named as a real loss in the wire manifest, not carried into `storefronts`.
-- `site.shop_brands` / `site.shop_products` are **not dropped** — inert, as
-  designed. Slice 7 drops them.
+- `site.shop_products` is **inert** — nothing writes it; the remaining
+  `ShopProduct::delete()` calls only clear pre-deploy rows.
+  **`site.shop_brands` is NOT inert** (corrected 2026-08-13 by slice 5b's entry
+  gate). `ShopController` still writes it — `updateOrCreate` at `:317`,
+  `firstOrCreate` at `:929`, `delete` at `:869` — and
+  `ShopContentWriter::upsertStore()` takes the `ShopBrand` model as its identity
+  anchor. Its `max(updated_at)` is frozen only because no brand has been added
+  on dev since 2026-08-12 10:54. Slice 7 must re-home the writer, not merely
+  drop the table.
 - **Correction to an earlier draft of this section.** It read "the public Shop
   page is unchanged — still legacy-sourced". That is **false**. Task 8's review
   found the public regression had three heads, and all three were repointed at
@@ -2279,3 +2310,272 @@ where it fires.
 
 **Migration prefix block `20260813090000`–`20260813099999` was NOT consumed** —
 3a needed no schema change. It is free for 3b.
+
+---
+
+## 18. Slice 5b checkpoint — the shop pool and the public render
+
+**Status: MERGED to `development` 2026-08-13 (PR #280, rebase, 23 commits on
+`4ab37744a` → `737133069`), deployed to dev (deploy `2222`, 08:33:42 UTC),
+provisioning run, live assertions taken. NOT deployed to production — that
+deploy stays gated on partna-monorepo landing its side of the wire
+retirement.**
+Spec: `2026-08-12-slice-5b-shop-render-design.md`. Wire manifest:
+`docs/wire-changes/2026-08-12-slice-5b-shop-render.md`.
+
+§18.1–§18.2, §18.6 and §18.8–§18.10 were written by Task 9 before any of this
+was true, with the live-verification subsections deliberately left as
+`PENDING — Task 10` rather than populated with unmeasured numbers. Task 10
+then filled §18.3–§18.5 and §18.7 with pasted output, and confirmed lane 3 of
+§18.6 from the live log scan. Per invariant #1, nothing here is claimed that
+was not run.
+
+### 18.1 Pre-implementation baseline
+
+This is the state 5b's own spec re-derived from dev on 2026-08-13, before any
+of 5b's 8 tasks had shipped a line of code — i.e. dev as 5a left it. Full
+detail and the code citations behind each row are in the 5b design spec §1;
+reproduced here so this checkpoint does not depend on that spec surviving.
+
+```
+content.items kind='product', removed_at IS NULL     51    (5a: 51)
+content.collections (all / kind='storefront')       9 / 9  (5a: 9)
+content.storefronts                                  9     (5a: 9)
+content.collection_items                            51     (5a: 51)
+content.item_variants                              268     (5a: 268)
+content.offers                                     324     (5a: 324)
+max(updated_at) site.shop_products    2026-08-12 17:24:33+00  (5a: identical)
+max(updated_at) site.shop_brands      2026-08-12 10:54:51+00  (5a: identical)
+
+site.pages       gallery 12, watch 10, listen 10, events 4, library 1
+                 — NO `shop` page exists
+site.sections    pool:media 12, pool:listen 10, pool:watch 10, pool:events 4
+                 — NO `pool:shop` section exists
+
+content.items kind='product' with removed_at IS NOT NULL      0
+```
+
+Two findings from that baseline pass are corrections to prior record, not new
+5b state, and are applied above at §9.8 and §16.9: `content.items.removed_at`
+clearing was narrowed from "never" to "owner-authored writes may, connectors
+never may" (§9.8), and `site.shop_brands` was found still written by
+`ShopController`, contradicting §16.9's prior claim of full inertness.
+
+### 18.2 What shipped — 8 tasks, `feat/slice-5b-shop-render`
+
+| Change | Where |
+|---|---|
+| `shop` pool registered — `POOLS`, `PAGE_KEYS`, `PAGE_LABELS`, `SECTION_SHAPE` (`kind_is` / `recency`); deliberately excluded from `LATEST_TAG_POOLS` | `app/Site/Pools/PoolRegistry.php` |
+| `content:provision-shop-pins` (`--dry-run`) — flattens catalogue position into dense pins | `app/Console/Commands/ProvisionShopPinsCommand.php` |
+| `retireAbsent()`'s stale-coord row-wise match fixed to a `whereNotExists` | `ShopContentWriter::retireAbsent()` |
+| Re-add clears `content.items.removed_at` for every item just linked (unconditional in the writer); the owner-vs-connector boundary is enforced by `ShopFetch`'s callers, not inside `syncStore()` itself | `ShopContentWriter::syncStore()`, fourth step |
+| Outbound URL composition moved to the backend — mode from `site.sites.shop_link_mode`, Shopify cart deep-link / WooCommerce `?add-to-cart=`, discount + referral appended | `PoolResolver::itemPayloads()` |
+| Pool item payload gains `description`, `vendor`, `variants`, `collectionIds` (every kind, nullable off-kind); `frames` extended to `kind='product'`; `popularityRank` populated for products from `content_popularity_scores` | `PoolResolver` |
+| `collections` map added to the `shop` pool envelope, keyed by collection uuid, `name` nulled when it is the `external_ref` sentinel | `PoolResolver::collectionsFor()` |
+| `ITEM_KEYS` (30) / `STORE_KEYS` (9) / `VARIANT_KEYS` (5) pinned by `PoolWireShapeTest`, explicit key-by-key construction, no row spread | `PoolResolver`, `tests/Feature/Content/PoolWireShapeTest.php` |
+| Legacy `/integrations` shop keys retired — `SHOP_BRAND_ALLOWLIST` / `SHOP_PRODUCT_ALLOWLIST` deleted, `filterPayload()`'s shop branch returns `[]`, envelope preserved | `PublicIntegrationConnectionResource` |
+| Shop-page presence made pool-derived via `PoolResolver::hasSelection()` | `PlatformRegistryServiceProvider` |
+
+No DDL. No migration filename prefix consumed (§4.3 rule 5).
+
+### 18.3 Live dev assertions — RUN 2026-08-13, output pasted
+
+Merged to `development` at `737133069` (PR #280, rebase, 23 commits linear on
+`4ab37744a`). Deploy `2222` succeeded 08:33:42 UTC. All SQL below run against
+`glncumufgaqcmqhzwrxm` after the provisioning command.
+
+```
+shop_pages                 5
+shop_sections              5
+pinned_items              51        -- spec §5.1 expected 51
+retired_products           0
+shop_products_max_updated  2026-08-12 17:24:33+00   -- unchanged; still inert
+```
+
+Every `pool:shop` section carries the corrected rule — one distinct shape
+across all five:
+
+```
+rule      {"all": [{"op": "kind_is", "values": ["product"]}]}
+order_by  recency
+sections  5
+```
+
+§8.4 coverage gate — coord coverage, not row-count equality:
+
+```
+uncovered_legacy_rows  0
+```
+
+### 18.4 The provisioning command, run against dev
+
+```
+$ php artisan content:provision-shop-pins --dry-run
+pool:shop pins: would pin 51, left alone 0, across 0 site(s).
+
+$ php artisan content:provision-shop-pins
+pool:shop pins: pinned 51, left alone 0, across 5 site(s).
+```
+
+The dry run reports `across 0 site(s)` by construction: the site counter only
+increments on a real write, and the dry run performs none — it does not even
+provision the page/section, which was a fix round finding (`ensure()` INSERTs,
+so it must not be reached under `--dry-run`).
+
+51 pins across 5 sites, matching the 51 products and 5 product-holding users
+the entry gate measured.
+
+### 18.5 A real `PoolResolver::resolve()` call — SQL cannot prove this
+
+The composition happens in PHP. Invoked on dev against `ollies` (33 products
+across 5 stores — the multi-store case, so the lowest-`position` tie-break is
+actually exercised):
+
+```
+items in selection   33
+collections          5
+first item url       https://natalieanne.com/cart/47811307995314:1?discount=ALEX10
+
+first collections entry:
+{"3b3c23ea-b222-4656-8658-ac504c48f797": {
+  "externalRef": "11461296187",
+  "provider": "shopify",
+  "url": "https://natalieanne.com",
+  "name": "Natalie Anne Haircare",
+  "currency": "AUD",
+  "favicon": "https://natalieanne.com/cdn/shop/files/NA-Favicon.png?...",
+  "logo": "https://natalieanne.com/cdn/shop/files/Natalie_Anne_LOGO.png?...",
+  "discountCode": "ALEX10",
+  "position": 1
+}}
+```
+
+That `url` is the whole point of the slice: a Shopify cart deep link
+(`/cart/{variant_ref}:1`) with the store's discount code appended, composed
+backend-side from `f_link.url` + `f_catalog.variant_ref` + the storefront row.
+`productHref()` in partna-monorepo has nothing left to do. The store card
+carries exactly the nine `STORE_KEYS`, keyed by collection uuid, with a real
+`name` rather than the raw `external_ref`.
+
+### 18.6 Cache invalidation (§9.2, all three lanes)
+
+This table states what the code does — verified by reading the write paths,
+not by a live request — matching the form §16.7 used before its own live
+assertions were available.
+
+| Lane | This slice |
+|---|---|
+| `site.site_documents` build state | `BuildState::bump($siteId)` on `content:provision-shop-pins` (only on sites it actually wrote pins for) and on the §3.3 un-retire path inside `ShopContentWriter::syncStore()` |
+| 60s public-profile payload cache | `site.sites.updated_at` touched on the same two paths — `IndividualProfilePayloadBuilder::cacheKey()` composes its key from `updated_at`, so `bump()` alone (a different table) does not invalidate it |
+| Cloudflare edge | `CloudflareCachePurgeJob::dispatch($subdomain)` on the same two paths |
+
+**Lane 3 confirmed firing on the live dev write.** The `cloud env:logs` scan
+taken right after the provisioning run shows `CloudflareCachePurgeJob` running
+five times between 08:37:15 and 08:37:21 — the command wrote at 08:37:08-10,
+one purge per site written — plus the delayed follow-ups at 08:38. Lanes 1 and
+2 are asserted by test (`ShopPinProvisioningTest`) rather than observed here;
+each assertion was verified to fail if its lane is removed.
+
+### 18.7 Gates at merge — RUN 2026-08-13, all after the rebase
+
+| Gate | Result |
+|---|---|
+| `composer test` (SQLite) | **7951 passed**, 1 skipped, 1 warning, 0 failures (492s) |
+| `composer test:pg` | **198 passed** (934 assertions), 0 failures |
+| `./vendor/bin/phpstan analyse --memory-limit=1G` | **No errors** |
+| `./vendor/bin/pint --test` | passed |
+| Post-resolution registry run | **42 passed** — `PoolRegistryTest` + `ShopPoolTest` + **`ServicesPoolTest`** + `ShopPinProvisioningTest` + `PoolLaneTest` |
+| CI on PR #280 | all **9** required checks green (`test`, `postgres-tests`, `schema-tests`, `schema-drift`, `outbound-http-guard`, `supply-chain`, `checkpoint-suppressions`, `worker-tests`, `worker-static`) |
+
+7951 is up from 7886 on the branch alone; the delta is 3a's tests, all green
+under the merge. Running 3a's own `ServicesPoolTest` **after** resolving is
+what proves the union kept both halves — 5b's tests pass fine against a
+`POOLS` array that dropped `services` entirely, so they cannot detect that
+failure mode.
+
+**Two rebase conflicts a mechanical resolution would have gotten wrong**, both
+resolved by reading each side:
+
+1. Wave A's own fix commit restored the docblock clause "Services is poolless"
+   — true when written, **false** once 3a landed. Taking `--theirs` would have
+   re-asserted it. Related: `poolForKind()`'s example listed `service` as a
+   poolless kind; it now reads `(channel, article, …)`.
+2. **Both slices claimed §17.** 3a's checkpoint merged first, so 5b's became
+   §18 — heading, all ten subsections, every internal cross-reference and the
+   wire manifest's pointer. A union merge leaves two §17s and every `§17.x`
+   reference ambiguous, which no test anywhere would catch.
+
+**Running the Postgres lane locally needs setup that is not in place.**
+`phpunit.pg.xml` deliberately inherits `DB_*` from the shell, and the local
+`.env` points `DB_HOST` at a Supabase ref that no longer resolves, so a bare
+`composer test:pg` fails 9 / skips 189 on connection. It was run against a
+throwaway `postgres:16` container mirroring CI's service block — *not* the
+local `supabase_db_Partna-Development`, which the lane would pollute since it
+provisions its own tables.
+
+### 18.8 Conventions this slice established — for slices 3, 4 and 6
+
+Carried forward from the slice spec's §7 so the parent programme record does
+not depend on the sub-spec surviving:
+
+| Convention | Value | Who needs it |
+|---|---|---|
+| Clearing `removed_at` | the rule is owner-may/connector-never, but 5b enforces it **caller-side**: the writer's un-retire step is unconditional, and the boundary lives in what calls it | slices 3, 4, 6 — check your own call sites, do not assume the writer guards itself |
+| A pool payload carrying groups | additive `collections` map on the pool envelope, keyed by collection **uuid**, each carrying `externalRef`; items carry plural `collectionIds` | **slice 4 explicitly** — menu categories are the same problem |
+| Pool payload enforcement point | explicit key-by-key construction + a wire-shape test pinning key sets, failing on additions too | every remaining slice |
+| Owner-chosen ordering | pins seeded once by a provisioning command; nothing writes pins afterwards | slice 4 |
+| Kind-specific item fields | additive and nullable on **every** item, never a kind-shaped sub-object | slices 4, 6 |
+
+### 18.9 What remains outstanding
+
+- **#428 — the scheduled shop refresh is FAILING on dev, and it is not 5b's.**
+  Found by this slice's post-deploy Nightwatch scan, which is the entire reason
+  §5.5 requires one. `LazyLoadingViolationException: Attempted to lazy load
+  [products] on model [ShopBrand]` — `ShopBrand::toBrandArray()` (`:129`) reads
+  `$this->products`, the legacy `site.shop_products` relation, while `ShopFetch`
+  eager-loads only `connection`. Lazy loading is disabled, so it throws;
+  `ShopFetch`'s `catch (HttpException)` does not catch it, so it propagates and
+  **fails `RefreshConnectionJob`** — incrementing `consecutive_failures`,
+  writing `last_refresh_status`, and landing the job in `failed_jobs`.
+  **36 occurrences in 24 hours.** First seen `2026-08-13T00:23:04Z`, last seen
+  `08:25:51Z` — both BEFORE 5b's deploy at `08:33:42Z`, so this is a **5a
+  regression**, not 5b's: 5a stopped writing `site.shop_products` and changed
+  what `ShopFetch` eager-loads, but `toBrandArray()` still reads the relation.
+  Consequence worth recording for the record 5b itself set: the connector path
+  `ShopFetch → syncLatest() → syncStore()` currently throws at `syncLatest()`
+  **before ever reaching `syncStore()`**, so the owner-vs-connector un-retire
+  boundary documented in §9.8 is presently unexercised in practice. The
+  reasoning stands; the path is dead until this is fixed. Not fixed here — 5b
+  does not open `ShopCatalog` or `ShopBrand`, and a live scheduled-refresh
+  failure deserves its own branch and review rather than being folded into a
+  slice that also retires a public wire.
+- **`site.shop_brands` re-homing off the `ShopBrand` model is still slice 7's,
+  not this slice's** — 5b only corrected the record that it was needed (§16.9);
+  it did not do the re-homing.
+- **`CloudflarePurgeService::purgeHandle()`'s un-deduped, 4x-amplified error
+  reporting is unfixed**, deliberately — named in the 5b design spec §8 as
+  out of scope, owned by whichever slice next touches that file (4 and 7).
+- **`upsertStore()`'s SELECT-then-INSERT TOCTOU race is unfixed**, carried to
+  slice 7 per 5a's checkpoint (§16.9) and 5b's own scope boundary (§2).
+- **Partna-monorepo has not landed its side, as far as this session can
+  tell.** That repository is not checked out on this machine and is not
+  visible to `gh` from here, so its state cannot be verified from this
+  session. If it has not read `profile.pools.shop` and stopped indexing
+  `platforms.shop[*].payload` by the time this branch deploys, **every Shop
+  page on dev renders empty** — named plainly, not softened, per the wire
+  manifest's "required consumer action."
+
+### 18.10 Definition of done — against the 5b spec's §6
+
+Item-by-item against the design spec's criteria, honestly, not optimistically:
+
+| Criterion | Status |
+|---|---|
+| Shop page renders from `profile.pools.shop` in owner order, grouped by the `collections` map | Code complete; **not verified live** — PENDING Task 10 |
+| Outbound URL composed by the backend | Code complete; matrix proven **by test** per spec §5.3 (unrun by this checkpoint), not by dev data (dev carries no `referral_query` or `checkout`+`?`-URL combination to exercise it live) |
+| Pool payload has an `SHOP_PRODUCT_ALLOWLIST`-equivalent enforcement point | Shipped — `ITEM_KEYS` / `STORE_KEYS` / `VARIANT_KEYS` + `PoolWireShapeTest` |
+| Every `pool:shop` section carries the corrected rule | Code complete; **not verified live** — PENDING Task 10 |
+| A re-added product returns | Code complete; **not verified live** — PENDING Task 10 |
+| Coverage gate returns 0 | **Not run** — PENDING Task 10 |
+| Checkpoint and wire manifest committed | This document and `docs/wire-changes/2026-08-12-slice-5b-shop-render.md` |
+| **Legacy `/integrations` shop keys retired** | Shipped in code. **The retirement criterion is NOT ticked here** — the spec's own §6 says to mark it unmet if unshippable at merge, and this session cannot confirm partna-monorepo is ready to consume the replacement. Ticking it would assert a fact about a repository this session cannot see. |

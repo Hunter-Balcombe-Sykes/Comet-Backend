@@ -8,11 +8,12 @@ namespace App\Site\Pools;
  * its curation hangs off. Closed on purpose — a pool key arrives from the
  * URL, and this map is what stops it naming an arbitrary kind set.
  *
- * Sell / Menu are NOT here: they keep their existing live lanes (shop
- * selections), which already implement sources→selection in their own
- * machinery. Services JOINED 2026-08-12 (slice 3a) for the owner-authored
- * half; the Fresha half and its hiddenServiceIds lane follow in 3b, so both
- * run side by side until then. Watch + listen were the launch
+ * Menu is NOT here: it keeps its existing live lane, which already implements
+ * sources→selection in its own machinery. Services JOINED 2026-08-12 (slice
+ * 3a) for the owner-authored half; the Fresha half and its hiddenServiceIds
+ * lane follow in 3b, so both run side by side until then. Sell JOINED
+ * 2026-08-13 (slice 5b): products render from the pool and the legacy
+ * /integrations shop keys are retired. Watch + listen were the launch
  * set; media joined with the gallery lane; events joined 2026-08-11 (slice
  * 2) and runs ALONGSIDE the legacy hiddenEventIds lane until that lane is
  * retired. `channel` and `article` are deliberately poolless — see
@@ -33,6 +34,7 @@ class PoolRegistry
         'media' => ['media'],
         'events' => ['event'],
         'services' => ['service'],
+        'shop' => ['product'],
     ];
 
     /**
@@ -49,6 +51,7 @@ class PoolRegistry
         'media' => 'gallery',
         'events' => 'events',
         'services' => 'services',
+        'shop' => 'shop',
     ];
 
     public const PAGE_LABELS = [
@@ -57,6 +60,7 @@ class PoolRegistry
         'media' => 'Gallery',
         'events' => 'Events',
         'services' => 'Services',
+        'shop' => 'Shop',
     ];
 
     /**
@@ -89,13 +93,18 @@ class PoolRegistry
             'rule' => [['op' => 'kind_is']],
             'order_by' => 'recency',
         ],
-        // Priced, undated. Same shape slice 5a uses for products, reconciled
-        // 2026-08-12 so slice 4 inherits one convention. order_by governs only
-        // UNPINNED items; owner ordering is carried by pins (§3.3), which is
-        // why no `position` operator exists and none should be added — the
-        // rule DSL spans four registries and missing one is a 500, not a red
-        // test.
+        // Priced, undated. Services (3a) and shop (5b) reconciled on ONE shape
+        // 2026-08-12 so slice 4 inherits a single convention — these two
+        // entries are deliberately identical and should stay that way.
+        // order_by governs only UNPINNED items; owner ordering is carried by
+        // pins, which is why no `position` operator exists and none should be
+        // added — the rule DSL spans four registries and missing one is a 500,
+        // not a red test.
         'services' => [
+            'rule' => [['op' => 'kind_is']],
+            'order_by' => 'recency',
+        ],
+        'shop' => [
             'rule' => [['op' => 'kind_is']],
             'order_by' => 'recency',
         ],
@@ -151,7 +160,7 @@ class PoolRegistry
         ];
     }
 
-    /** The pool a kind belongs to, or null (service, product, channel, …). */
+    /** The pool a kind belongs to, or null (channel, article, …). */
     public static function poolForKind(string $kind): ?string
     {
         foreach (self::POOLS as $pool => $kinds) {

@@ -317,6 +317,7 @@ class ShopContentWriter
     public function syncStore(string $userId, string $collectionId, array $products, ?string $currency): int
     {
         $seen = [];
+        $linked = [];
         $written = 0;
 
         foreach ($products as $position => $blob) {
@@ -356,7 +357,31 @@ class ShopContentWriter
                 'position' => $position,
             ]], ['collection_id', 'item_id'], ['position']);
 
+            $linked[] = $itemId;
             $written++;
+        }
+
+        // Spec §3.3: clears items.removed_at for exactly the items this call
+        // just linked (never wider — this can't reach outside $linked). This
+        // method itself is NOT owner-exclusive — ShopFetch's scheduled
+        // 6-hourly sync reaches it too. The owner-vs-connector boundary lives
+        // in ShopFetch's CALLERS instead: it skips hand-curated brands
+        // (ShopContentWriter::isCurated() → products_curated_at) and the
+        // individual bucket (->where('is_individual', false)), so the
+        // scheduled path can only ever un-retire what its OWN top-N windowing
+        // retired, never a brand an owner curated by hand. Both exclusions are
+        // pinned by ShopRetirementTest's "ShopFetch never calls syncLatest
+        // for …" pair — delete either filter and one of those fails.
+        //
+        // The 20-item individual-bucket cap (which retires the oldest product
+        // on EVERY add) is why this exists at all: without it, a re-added
+        // product stays permanently absent from the Shop page while showing
+        // normally in the dashboard.
+        if ($linked !== []) {
+            DB::table('content.items')
+                ->whereIn('id', $linked)
+                ->whereNotNull('removed_at')
+                ->update(['removed_at' => null, 'updated_at' => now()]);
         }
 
         $this->retireAbsent($userId, $collectionId, array_keys($seen));
@@ -702,10 +727,22 @@ class ShopContentWriter
      */
     private function retireAbsent(string $userId, string $collectionId, array $liveCoords): void
     {
+        // Fix 2026-08-13: the question is "does this item have NO live-coord
+        // source item?", not "does it have ANY non-live-coord source item?".
+        // The old form ran whereNotIn in SQL and ->unique() in PHP afterwards,
+        // so an item carrying both a stale and a live coord — a product that
+        // gained a URL upstream — matched row-wise on the stale row and was
+        // retired while still in the catalogue. One-way, since removed_at is
+        // cleared only by an owner-authored re-add (§3.3). `si2` (not `si`):
+        // this is a correlated NOT EXISTS against the outer `ci`, so the
+        // subquery needs its own alias distinct from `ci`.
         $absent = DB::table('content.collection_items as ci')
-            ->join('content.source_items as si', 'si.item_id', '=', 'ci.item_id')
             ->where('ci.collection_id', $collectionId)
-            ->when($liveCoords !== [], fn ($q) => $q->whereNotIn('si.coord', $liveCoords))
+            ->when($liveCoords !== [], fn ($q) => $q->whereNotExists(
+                fn ($e) => $e->from('content.source_items as si2')
+                    ->whereColumn('si2.item_id', 'ci.item_id')
+                    ->whereIn('si2.coord', $liveCoords)
+            ))
             ->pluck('ci.item_id')
             ->unique()
             ->all();

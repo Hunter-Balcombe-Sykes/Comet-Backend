@@ -71,13 +71,22 @@ it('strips the internal _folder key from the public Instagram payload', function
     expect($payload)->not->toHaveKey('_folder');
 });
 
-it('applies the per-brand allowlist to the Shopify brand map and strips unknown keys', function () {
+// ── Slice 5b Task 8 (2026-08-13): the shop keys are RETIRED ───────────────
+//
+// The five shop cases below used to pin the brand/product allowlists. Those
+// allowlists are gone: `shop` is dashboard-only on this wire now, and products
+// reach the sitepage through `profile.pools.shop` (ShopPoolPayloadTest for the
+// payload, PoolWireShapeTest for the #API-1 enforcement point that replaced
+// SHOP_PRODUCT_ALLOWLIST). Each case KEEPS its original fixture — so it can
+// never pass by publishing nothing at all — and asserts the retirement instead
+// of the old shape. Deleting them would have deleted the guard.
+
+it('publishes an empty payload for a shop connection — no brand fields at all', function () {
     $user = allowlistUser('allow2');
 
-    // FOUND-25: brands are relational site.shop_brands rows — fixed columns
-    // mean there's no stray key to leak at the storage layer, but the public
-    // resource must still only expose SHOP_BRAND_ALLOWLIST fields (source_url,
-    // fetch_mode, is_individual, position never reach the public wire).
+    // FOUND-25: brands are relational site.shop_brands rows. The fields below
+    // used to be split into public (name/discountCode/provider) and private
+    // (source_url/fetch_mode/is_individual/position). None reach the wire now.
     $conn = IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'shop',
@@ -99,31 +108,31 @@ it('applies the per-brand allowlist to the Shopify brand map and strips unknown 
         'discount_code' => 'SAVE10',
     ]), (string) $user->id);
 
-    $brand = $this->getJson('/api/public/profiles/allow2/integrations')
-        ->assertOk()
-        ->json('data.platforms.shop.0.payload.brand-123');
+    $response = $this->getJson('/api/public/profiles/allow2/integrations')->assertOk();
 
-    expect($brand['name'])->toBe('Example Shop');
-    expect($brand)->toHaveKey('discountCode'); // kept — current public contract is a pass-through
-    expect($brand)->toHaveKey('products');
-    expect($brand['provider'])->toBe('shopify');
-    expect($brand)->not->toHaveKey('sourceUrl');
-    // DOCUMENTED DIVERGENCE (fix round 1, C2): no site row for allow2 → the
-    // controller resolves no global override, and the content reader's own
-    // fallback is Site::DEFAULT_SHOP_LINK_MODE ('checkout') where
-    // toBrandArray()'s was the per-brand column default ('product'). Not
-    // reachable in production — site.sites.shop_link_mode is NOT NULL DEFAULT
-    // 'checkout', so a real profile always threads an override.
-    expect($brand['linkMode'])->toBe('checkout');
+    // The envelope survives (a consumer iterating `platforms` sees no shape
+    // change) — only the payload emptied.
+    $row = $response->json('data.platforms.shop.0');
+    expect($row)->toHaveKeys(['resourceId', 'payload', 'lastRefreshedAt'])
+        ->and($row['payload'])->toBe([]);
+
+    // The brand really did land in content.* — so the empty payload above is a
+    // retirement, not an empty fixture. And nothing about it rides anywhere
+    // else in the body, public field or private.
+    expect(DB::table('content.storefronts')->count())->toBe(1);
+    expect($response->getContent())->not->toContain('Example Shop');
+    expect($response->getContent())->not->toContain('internal-rescrape-input');
+    expect($response->getContent())->not->toContain('SAVE10');
+    expect($response->getContent())->not->toContain('linkMode');
 });
 
-it('passes each product gallery + per-variant image + variantId through to the public payload', function () {
+it('keeps each product gallery, per-variant image and variantId OFF the /integrations wire', function () {
     // #84: the pages side builds /cart/<variantId>:1 checkout links + swaps the
-    // photo per variant. Prove the backend exposes the raw material — full
-    // `images` gallery, and each variant's `id` + `image` — inside the
-    // allowlisted `products` array. Every key asserted below is on
-    // SHOP_PRODUCT_ALLOWLIST (#API-1 added that per-product filter), and each
-    // variant's sub-keys survive because the filter is top-level only.
+    // photo per variant. It still gets that raw material — from
+    // `profile.pools.shop` now, where PoolResolver serves variants (label, sku,
+    // imageUrl, availability, price) and a backend-composed outbound URL. See
+    // ShopPoolPayloadTest. What this case pins is the other half: none of it
+    // reaches the legacy wire any more.
     $user = allowlistUser('allowvimg');
 
     $conn = IntegrationConnection::create([
@@ -148,35 +157,30 @@ it('passes each product gallery + per-variant image + variantId through to the p
         ],
     ]]);
 
-    $product = $this->getJson('/api/public/profiles/allowvimg/integrations')
-        ->assertOk()
-        ->json('data.platforms.shop.0.payload.brand-x.products.0');
+    $response = $this->getJson('/api/public/profiles/allowvimg/integrations')->assertOk();
 
-    // Full gallery reaches the wire.
-    expect($product['images'])->toBe(['https://cdn.shopify.com/grey.jpg', 'https://cdn.shopify.com/navy.jpg']);
-    // Every variant carries its id (for the checkout URL) + its own image (for
-    // the swap). The image was briefly lost when the public wire moved to
-    // content.* (fix round 1, C2 -> D1): content.item_variants had no column
-    // for it. Migration 20260813100003 added image_url and fix round 2 wired
-    // it end to end, so this is back to the pre-slice contract — the
-    // divergence is CLOSED, not documented.
-    expect($product['variants'])->toHaveCount(2);
-    expect($product['variants'][0]['id'])->toBe('201');
-    expect($product['variants'][0]['image'])->toBe('https://cdn.shopify.com/grey.jpg');
-    expect($product['variants'][1]['id'])->toBe('202');
-    expect($product['variants'][1]['image'])->toBe('https://cdn.shopify.com/navy.jpg');
-    // Brand-level fields the pages side needs to assemble the checkout URL ride along.
-    expect($product['url'])->toBe('https://shop.example/products/wool-runner');
+    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
+
+    // The product landed in content.* (so this can't pass on an empty
+    // fixture), and none of the render material rides the legacy wire.
+    expect(DB::table('content.f_catalog')->where('sku', '111')->exists())->toBeTrue();
+    expect($response->getContent())->not->toContain('Wool Runner');
+    expect($response->getContent())->not->toContain('cdn.shopify.com');
+    expect($response->getContent())->not->toContain('variants');
+    expect($response->getContent())->not->toContain('variantId');
 });
 
-// ── #API-1: the per-product allowlist on the public shop wire ─────────────
+// ── #API-1 on this wire, after the retirement ─────────────────────────────
 //
-// ShopProduct.data is raw scraper output. Before SHOP_PRODUCT_ALLOWLIST the
-// brand allowlist let `products` through WHOLE, so any key a fetcher chose to
-// store reached unauthenticated visitors — and this response is CDN-cached for
-// 15 minutes, so a leak is served to every visitor of that sitepage.
+// ShopProduct.data is raw scraper output. SHOP_PRODUCT_ALLOWLIST existed
+// because the brand allowlist let `products` through WHOLE, and this response
+// is CDN-cached for 15 minutes, so a leak is served to every visitor of that
+// sitepage. Slice 5b did not weaken that: the enforcement point MOVED to
+// PoolResolver::ITEM_KEYS / STORE_KEYS / VARIANT_KEYS (PoolWireShapeTest),
+// which is strictly stronger — it reaches inside variant objects, which the
+// deleted top-level array_intersect_key never did. Here, nothing ships at all.
 
-it('strips unlisted keys from each shop product on the public wire (#API-1)', function () {
+it('publishes no shop product at all on the public wire, unvetted keys included (#API-1)', function () {
     $user = allowlistUser('allowprodfilter');
 
     $conn = IntegrationConnection::create([
@@ -206,40 +210,34 @@ it('strips unlisted keys from each shop product on the public wire (#API-1)', fu
     ]]);
 
     $response = $this->getJson('/api/public/profiles/allowprodfilter/integrations')->assertOk();
-    $product = $response->json('data.platforms.shop.0.payload.brand-filter.products.0');
 
-    // The unvetted keys are gone.
-    expect($product)->not->toHaveKey('internalCostPrice');
-    expect($product)->not->toHaveKey('supplierId');
-    expect($product)->not->toHaveKey('__debug');
-    // ...and the real product still shipped, so this can't pass by returning [].
-    expect($product['productId'])->toBe('111');
-    expect($product['variantId'])->toBe('201');
-    expect($product['url'])->toBe('https://shop.example/products/wool-runner');
-    expect($product['images'])->toBe(['https://cdn.shopify.com/grey.jpg']);
-    expect($product['variants'])->toHaveCount(1);
+    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
 
-    // Belt-and-suspenders (the fresha teamMenu idiom): prove the stripped data
-    // doesn't ride anywhere ELSE in the body, not merely inside this one key.
+    // Belt-and-suspenders (the fresha teamMenu idiom): prove the sensitive data
+    // doesn't ride anywhere ELSE in the body, not merely inside one key.
     expect($response->getContent())->not->toContain('internalCostPrice');
     expect($response->getContent())->not->toContain('supplierId');
     expect($response->getContent())->not->toContain('SUP-9');
     expect($response->getContent())->not->toContain('12.50');
     expect($response->getContent())->not->toContain('__debug');
-    // Belt-and-braces on the new source of truth too: the product really did
-    // land in content.* (so the assertions above can't pass by publishing
-    // nothing), and the unvetted keys never reached it — ShopProductProjection
-    // reads only the keys it knows, which makes this filter defence in depth
-    // rather than the only gate.
+    // ...and the legitimate product too, which is what changed in slice 5b.
+    expect($response->getContent())->not->toContain('Wool Runner');
+    // Belt-and-braces on the new source of truth: the product really did land
+    // in content.* (so the assertions above can't pass by publishing nothing),
+    // and the unvetted keys never reached it either — ShopProductProjection
+    // reads only the keys it knows, which makes the wire filter defence in
+    // depth rather than the only gate.
     expect(DB::table('content.f_catalog')->where('sku', '111')->exists())->toBeTrue();
+    expect(DB::table('content.f_catalog')->where('sku', '111')->value('vendor'))->toBe('Allbirds');
 });
 
-it('keeps every SHOP_PRODUCT_ALLOWLIST key on the public wire (#API-1)', function () {
-    // The other half of the filter: a typo or an accidental deletion in the
-    // constant silently removes a field the sitepage renders. Store all 14
-    // scraper-emitted keys with distinct non-null values and pin the exact key
-    // list. `popularityRank` is 15th because toBrandArray() appends it AFTER the
-    // stored data, and array_intersect_key preserves the stored order.
+it('publishes not one former SHOP_PRODUCT_ALLOWLIST key on this wire (#API-1)', function () {
+    // The other half of the old filter pinned that every allowlisted key still
+    // SHIPPED, so a typo in the constant couldn't silently blank a field the
+    // sitepage renders. That guard moved with the contract: ShopPoolPayloadTest
+    // + PoolWireShapeTest now pin what the sitepage receives. Its inverse is
+    // what belongs here — store all 14 scraper-emitted keys with distinct
+    // non-null values and prove NONE of them reaches /integrations.
     $user = allowlistUser('allowprodkeys');
 
     $conn = IntegrationConnection::create([
@@ -270,46 +268,41 @@ it('keeps every SHOP_PRODUCT_ALLOWLIST key on the public wire (#API-1)', functio
         ],
     ]]);
 
-    $product = $this->getJson('/api/public/profiles/allowprodkeys/integrations')
-        ->assertOk()
-        ->json('data.platforms.shop.0.payload.brand-keys.products.0');
+    $response = $this->getJson('/api/public/profiles/allowprodkeys/integrations')->assertOk();
 
-    // Every allowlisted key still ships. Fix round 1 (C2): the ORDER is the
-    // content.* reconstruction's, not the scraper blob's — vendor/description
-    // are appended last because ShopContentWriter::cataloguesFor() emits them
-    // conditionally (a null column is indistinguishable from an absent key).
-    // Both sides sorted: this test guards the key SET, and key order inside a
-    // JSON object is not part of the wire contract.
-    $keys = array_keys($product);
-    sort($keys);
-    expect($keys)->toBe([
-        'available', 'createdAt', 'currency', 'description', 'handle',
-        'image', 'images', 'popularityRank', 'price', 'productId',
-        'title', 'url', 'variantId', 'variants', 'vendor',
-    ]);
-    // Values survive intact, not just the keys.
-    expect($product['vendor'])->toBe('Allbirds');
-    // DOCUMENTED DIVERGENCE: same instant, reformatted. published_from is a
-    // real timestamptz, so the value is re-emitted through Carbon (ISO-8601
-    // with an explicit +00:00) rather than echoing the scraper's literal 'Z'
-    // string — see the Task 8 report, fix round 1.
-    expect($product['createdAt'])->toBe('2026-01-01T00:00:00+00:00');
-    // The filter is TOP-LEVEL only: variant sub-objects pass through whole
-    // (same residual as eventbrite's next/upcoming event objects).
-    $variantKeys = array_keys($product['variants'][0]);
-    sort($variantKeys);
-    expect($variantKeys)->toBe(['available', 'id', 'image', 'price', 'title']);
-    expect($product['variants'][0]['image'])->toBe('https://cdn.shopify.com/grey.jpg');
-    expect($product['variants'][1]['available'])->toBeFalse();
-    expect($product['variants'][1]['price'])->toBe('99.00');
-    expect($product['variants'][1]['image'])->toBe('https://cdn.shopify.com/navy.jpg');
+    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
+
+    // Every one of the 15 keys the old allowlist named is absent from the whole
+    // body — asserted against the body text, not one JSON path, so a key
+    // re-appearing under a differently-shaped payload would still fail.
+    $body = $response->getContent();
+    foreach ([
+        'productId', 'title', 'handle', 'vendor', 'description',
+        'images', 'currency', 'variantId', 'available',
+        'createdAt', 'variants', 'popularityRank',
+    ] as $retired) {
+        expect($body)->not->toContain($retired);
+    }
+    // `price`, `image` and `url` are deliberately NOT in that loop: they are
+    // ordinary key names on OTHER platforms' public payloads (google-business
+    // priceLevel, the link platforms' url), so a substring check on them would
+    // be a guard that fires for the wrong reason. Their VALUES cover them here.
+    expect($body)->not->toContain('Wool Runner');
+    expect($body)->not->toContain('Allbirds');
+    expect($body)->not->toContain('95.00');
+    expect($body)->not->toContain('shop.example');
+    // The fixture is real: content.* holds the full product, so the assertions
+    // above are proving a retirement rather than an empty database.
+    expect(DB::table('content.f_catalog')->where('sku', '111')->value('vendor'))->toBe('Allbirds');
 });
 
-it('stamps every shop brand linkMode from the GLOBAL site setting', function () {
+it('keeps the GLOBAL shop link mode off this wire — the pool composes the URL instead', function () {
     $user = allowlistUser('allowshop');
-    // The global lives on site.sites.shop_link_mode (2026-07-08). Set it to
-    // 'checkout' and prove EVERY brand's public linkMode is stamped from it,
-    // regardless of the per-brand link_mode column (dormant under the global).
+    // The global lives on site.sites.shop_link_mode (2026-07-08). It used to be
+    // stamped onto every brand's public `linkMode` for the sitepage to build a
+    // checkout deep link from. Slice 5b moved that job backend-side:
+    // ShopOutboundUrl::compose() reads the same column and emits a finished
+    // `url` on the pool item, so no link mode reaches any public consumer.
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $user->id,
@@ -333,12 +326,14 @@ it('stamps every shop brand linkMode from the GLOBAL site setting', function () 
         'url' => 'https://b2.example', 'link_mode' => 'product', 'position' => 1,
     ]), (string) $user->id);
 
-    $shop = $this->getJson('/api/public/profiles/allowshop/integrations')
-        ->assertOk()
-        ->json('data.platforms.shop.0.payload');
+    $response = $this->getJson('/api/public/profiles/allowshop/integrations')->assertOk();
 
-    expect($shop['b1']['linkMode'])->toBe('checkout');
-    expect($shop['b2']['linkMode'])->toBe('checkout');
+    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
+    expect($response->getContent())->not->toContain('linkMode');
+    expect($response->getContent())->not->toContain('checkout');
+    // Both stores really exist — the empty payload is the retirement, not an
+    // unwritten fixture.
+    expect(DB::table('content.storefronts')->count())->toBe(2);
 });
 
 it('allowlists the new v2 platforms on the public endpoint', function () {
