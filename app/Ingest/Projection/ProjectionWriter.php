@@ -141,6 +141,7 @@ class ProjectionWriter
 
         $projections = [];
         $projectsToNothing = [];
+        $sourceStats = null;
 
         foreach ($records as $record) {
             $doc = is_string($record->doc) ? (array) json_decode($record->doc, true) : (array) $record->doc;
@@ -150,6 +151,10 @@ class ProjectionWriter
                 $projectsToNothing[] = (string) $record->key;
 
                 continue;
+            }
+
+            if (isset($projection['source_stats']) && is_array($projection['source_stats'])) {
+                $sourceStats = $projection['source_stats'];
             }
 
             $coord = "{$sourceKey}:{$accountRef}:{$record->key}";
@@ -204,6 +209,17 @@ class ProjectionWriter
             });
 
             $projections[$coord] = $projection;
+        }
+
+        // Slice 6 §5.2: source-level aggregates. Last record wins — they are
+        // identical across a run, mirroring upsertSingletonFacet's
+        // last-processed-record-wins column semantics.
+        if ($sourceStats !== null) {
+            DB::table('content.source_stats')->upsert(
+                [$sourceStats + ['source_id' => $contentSourceId, 'updated_at' => now()]],
+                ['source_id'],
+                array_merge(array_keys($sourceStats), ['updated_at']),
+            );
         }
 
         $removed = $this->retireAbsentSourceItems($contentSourceId, $streamId, $projectsToNothing);

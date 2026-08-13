@@ -53,3 +53,28 @@ it('projects nothing when the record has no rating', function () {
     expect((new GoogleBusinessReviewProjector)->project(new RecordView(['review_id' => 'r3'], 'r3')))
         ->toBeNull();
 });
+
+// Slice 6 §5.2: the place's aggregates ride on every review record because
+// they describe the PLACE and have no item to hang a facet on. The writer
+// takes the last non-null one per run.
+it('carries the place aggregates as source_stats', function () {
+    $projection = (new GoogleBusinessReviewProjector)->project(new RecordView([
+        'review_id' => 'r1', 'rating' => 5.0,
+        'place_rating' => 4.7, 'place_rating_count' => 312,
+        'place_review_summary' => 'Customers praise the friendly staff.',
+    ], 'r1'));
+
+    expect($projection['source_stats'])->toBe([
+        'rating_avg' => 4.7,
+        'rating_count' => 312,
+        'summary_text' => 'Customers praise the friendly staff.',
+    ]);
+});
+
+it('omits source_stats when the place carried no aggregates', function () {
+    $projection = (new GoogleBusinessReviewProjector)->project(new RecordView([
+        'review_id' => 'r1', 'rating' => 5.0,
+    ], 'r1'));
+
+    expect($projection)->not->toHaveKey('source_stats');
+});

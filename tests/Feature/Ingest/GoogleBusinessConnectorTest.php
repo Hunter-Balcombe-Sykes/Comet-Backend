@@ -138,6 +138,54 @@ it('yields a record per review but NEVER a coverage claim, since a sample can ne
         ->and(array_filter($messages, fn ($m) => $m instanceof Covered))->toBeEmpty();
 });
 
+// Slice 6 §5.2: the place's own aggregates ride on EVERY review record, which
+// is what lets ProjectionWriter land them on content.source_stats without a
+// second billed call or a dedicated record. The key names are the contract
+// between this method and GoogleBusinessReviewProjector — drift here would
+// leave every other slice-6 test green and source_stats permanently empty.
+it('rides the place aggregates in on every review record', function () {
+    $io = gbIo(['status' => 'ok', 'cached' => false, 'data' => [
+        'rating' => 4.7,
+        'userRatingCount' => 312,
+        'reviewSummary' => ['text' => ['text' => 'Customers praise the friendly staff.']],
+        'reviews' => [
+            ['name' => 'places/P/reviews/a', 'rating' => 5],
+            ['name' => 'places/P/reviews/b', 'rating' => 4],
+        ],
+    ]]);
+
+    $records = array_values(array_filter(
+        iterator_to_array((new GoogleBusinessConnector)->pull(gbPull('reviews'), $io)),
+        fn ($m) => $m instanceof Record
+    ));
+
+    expect($records)->toHaveCount(2);
+
+    foreach ($records as $record) {
+        expect($record->doc['place_rating'])->toBe(4.7)
+            ->and($record->doc['place_rating_count'])->toBe(312)
+            ->and($record->doc['place_review_summary'])->toBe('Customers praise the friendly staff.');
+    }
+});
+
+// No aggregates in the payload must mean no keys at all, not nulls — the
+// projector's array_filter is what decides "omit", and a null-valued key here
+// would already have been filtered by mapReview's own array_filter.
+it('omits the aggregate keys entirely when the place carried none', function () {
+    $io = gbIo(['status' => 'ok', 'cached' => false, 'data' => [
+        'reviews' => [['name' => 'places/P/reviews/a', 'rating' => 5]],
+    ]]);
+
+    $records = array_values(array_filter(
+        iterator_to_array((new GoogleBusinessConnector)->pull(gbPull('reviews'), $io)),
+        fn ($m) => $m instanceof Record
+    ));
+
+    expect($records[0]->doc)->not->toHaveKey('place_rating')
+        ->and($records[0]->doc)->not->toHaveKey('place_rating_count')
+        ->and($records[0]->doc)->not->toHaveKey('place_review_summary');
+});
+
 it('yields a record per photo with an unknown coverage claim, never exhaustive or a prefix', function () {
     $io = gbIo(['status' => 'ok', 'cached' => false, 'data' => [
         'photos' => [

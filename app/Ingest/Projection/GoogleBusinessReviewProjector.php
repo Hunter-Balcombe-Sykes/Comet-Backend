@@ -40,7 +40,17 @@ class GoogleBusinessReviewProjector implements Projector
             return null;
         }
 
-        return [
+        // Slice 6 §5.2: source-level aggregates about the PLACE, ridden in on
+        // every review record because they have no item of their own. The
+        // writer upserts the last non-null set per run onto
+        // content.source_stats — they are identical across a run.
+        $stats = array_filter([
+            'rating_avg' => $view->float('place_rating'),
+            'rating_count' => $view->int('place_rating_count'),
+            'summary_text' => $view->string('place_review_summary'),
+        ], static fn ($v) => $v !== null);
+
+        $projection = [
             'kind' => self::kind(),
             'headline' => null,
             'facets' => array_filter([
@@ -61,5 +71,11 @@ class GoogleBusinessReviewProjector implements Projector
                 ],
             ]),
         ];
+
+        if ($stats !== []) {
+            $projection['source_stats'] = $stats;
+        }
+
+        return $projection;
     }
 }
