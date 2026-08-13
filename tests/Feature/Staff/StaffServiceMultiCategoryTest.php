@@ -27,18 +27,22 @@
  * foreign id sits SECOND in each rejection payload precisely so a
  * check-only-the-first implementation cannot pass.
  *
- * ⚠️ ONE ASSERTION GENUINELY CHANGED, and it is not a weakening — it is a
- * behaviour change inherited from Task 8. `ServiceCollections::assign()` is
- * single-collection PER SOURCE by design (its rule 4 replaces the item's
- * memberships for that source with at most one row), so a multi-id
- * `category_ids` payload is accepted and fully validated but persists only its
- * FIRST entry. The owner's own `PATCH /services/{id}/category` already
- * collapses the same way — it is a known open carry-forward from Task 10, not
- * a staff-side quirk. The two "multiple category_ids" cases below therefore
- * pin the collapse EXPLICITLY (exactly one membership, and it is the first id)
- * rather than quietly asserting less: written this way, the day
- * content.collection_items becomes genuinely multi-valued, these two cases go
- * red and force the decision instead of silently starting to over-deliver.
+ * ── The multi-id question, decided ────────────────────────────────────────
+ *
+ * `ServiceCollections::assign()` is single-collection PER SOURCE by design (its
+ * rule 4 replaces the item's memberships for that source with at most one row),
+ * so a two-id `category_ids` payload used to be accepted, fully validated, and
+ * persisted as its FIRST entry alone — HTTP 200, no warning, the second id
+ * dropped. Slice 3b pinned that collapse rather than changing it, and recorded
+ * the 422 as an open product decision (§19.8, wire manifest item 5).
+ *
+ * The owner decided it on 2026-08-14: REJECT. A write carrying more than one
+ * category_id returns 422 rather than discarding data the caller sent. The two
+ * cases below therefore assert the refusal, not the collapse — the premise they
+ * pinned has been retired, which is different from an assertion being weakened.
+ * `max:1` in the request classes still admits [] (move to Uncategorized), and a
+ * positive control below pins that the single-id path still works, so a
+ * request class that 422'd everything could not pass this file.
  */
 
 use App\Models\Core\Staff\PartnaStaff;
@@ -124,29 +128,29 @@ function svcMultiCatTest_service(User $pro, array $payload = []): string
         ->json('service.id');
 }
 
-it('staff can create a service with multiple category_ids', function () {
+it('staff creating a service with two category_ids gets a 422, not a silent collapse', function () {
+    // PREMISE RETIRED, owner decision 2026-08-14. This case used to pin the
+    // collapse — 201, with only $catA stored. That is no longer the contract:
+    // discarding an id the caller sent, silently, is the defect. The assertion
+    // is not weakened, it is inverted, and the write must not happen at all.
     $pro = createTenant('svcmc-store');
     $catA = svcMultiCatTest_category($pro);
     $catB = svcMultiCatTest_category($pro);
 
-    $response = actingAsStaff(svcMultiCatTest_adminStaff())
+    actingAsStaff(svcMultiCatTest_adminStaff())
         ->postJson("/api/staff/professionals/{$pro->id}/services", [
             'title' => 'Multi-cat service',
             'price_cents' => 5000,
             'category_ids' => [$catA, $catB],
         ])
-        ->assertStatus(201);
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('category_ids');
 
-    $serviceId = (string) $response->json('service.id');
-
-    // Both ids were accepted and validated; ServiceCollections::assign() is
-    // single-collection per source, so the FIRST is what persists. Pinned
-    // exactly — see this file's header for why this is stated rather than
-    // hidden behind a laxer assertion.
-    expect(svcMultiCatTest_categoryIds($pro, $serviceId))->toBe([$catA]);
+    // Nothing was created — a validation refusal, not a partial write.
+    expect(DB::table('content.items')->count())->toBe(0);
 });
 
-it('staff can update a service to multiple category_ids', function () {
+it('staff updating a service to two category_ids gets a 422 and keeps its existing membership', function () {
     $pro = createTenant('svcmc-update');
     $catA = svcMultiCatTest_category($pro);
     $catB = svcMultiCatTest_category($pro);
@@ -157,11 +161,38 @@ it('staff can update a service to multiple category_ids', function () {
         ->patchJson("/api/staff/professionals/{$pro->id}/services/{$serviceId}", [
             'category_ids' => [$catB, $catC],
         ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('category_ids');
+
+    // The refusal leaves the prior membership intact — REPLACE semantics never
+    // started, so $catA is still the one.
+    expect(svcMultiCatTest_categoryIds($pro, $serviceId))->toBe([$catA]);
+});
+
+it('staff can still create and update with exactly one category_id', function () {
+    // Positive control on the pair above: a 422-on-everything request class
+    // would satisfy both, so pin that the single-id path is untouched.
+    $pro = createTenant('svcmc-single');
+    $catA = svcMultiCatTest_category($pro);
+    $catB = svcMultiCatTest_category($pro);
+
+    $serviceId = (string) actingAsStaff(svcMultiCatTest_adminStaff())
+        ->postJson("/api/staff/professionals/{$pro->id}/services", [
+            'title' => 'Single-cat service',
+            'price_cents' => 5000,
+            'category_ids' => [$catA],
+        ])
+        ->assertStatus(201)
+        ->json('service.id');
+
+    expect(svcMultiCatTest_categoryIds($pro, $serviceId))->toBe([$catA]);
+
+    actingAsStaff(svcMultiCatTest_adminStaff())
+        ->patchJson("/api/staff/professionals/{$pro->id}/services/{$serviceId}", [
+            'category_ids' => [$catB],
+        ])
         ->assertStatus(200);
 
-    // REPLACE semantics hold: the previous membership ($catA) is gone, not
-    // merged with. The collapse to the first of the new set is the same
-    // single-collection rule as create().
     expect(svcMultiCatTest_categoryIds($pro, $serviceId))->toBe([$catB]);
 });
 

@@ -16,9 +16,26 @@ class UpdateServiceCategoryAssignmentRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            'category_ids' => ['sometimes', 'nullable', 'array', 'max:50'],
+            'category_ids' => ['sometimes', 'nullable', 'array', 'max:1'],
             'category_ids.*' => ['uuid', 'distinct'],
             'category_id' => ['sometimes', 'nullable', 'uuid'],
+        ];
+    }
+
+    /**
+     * Owner decision, 2026-08-14: more than one category_id is a 422, not a
+     * silent collapse. ServiceCollections::assign() is single-collection per
+     * source, so a two-id payload previously stored the FIRST and returned 200
+     * — discarding data the caller sent, with nothing surfaced to either side.
+     * `max:1` still admits [] (the "move to Uncategorized" spelling).
+     *
+     * The owner and staff service request families are deliberately identical
+     * here; change all four together or they drift.
+     */
+    public function messages(): array
+    {
+        return [
+            'category_ids.max' => 'A service belongs to one category. Send a single category_id.',
         ];
     }
 

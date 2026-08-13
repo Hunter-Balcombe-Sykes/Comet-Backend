@@ -16,7 +16,8 @@ Most of this slice is a store move behind unchanged shapes. Five things are not.
 2. **A connection with a populated selection blob but no `content.*` rows renders an EMPTY booking menu.**
 3. **The public services payload's `category` is no longer the constant `'Services'`.**
 4. **`ServiceCategoryResource.source` derives from `is_user_created`, not a model column.**
-5. **Two `category_ids` on one write get one stored, with no error.**
+5. **Two `category_ids` on one write now 422** (decided 2026-08-14; this one is
+   breaking — it previously returned 200).
 
 Each is set out below.
 
@@ -132,17 +133,43 @@ stores, one wire shape.
 `null` on every category during the cutover — the same silent regression class
 as `source`, caught and fixed before merge.
 
-## 5. Two `category_ids` collapse to one, silently
+## 5. Two `category_ids` now 422 — **breaking, both surfaces**
 
-**Known behaviour, pinned by test, on both surfaces.**
-`ServiceCollections::assign()` is single-collection per source by design. A
-dashboard sending two `category_ids` on `PATCH /api/services/{service}/category`
-or on the staff equivalent gets **one stored and HTTP 200** — no error, no
-warning.
+**Consuming repos: Partna-App** (owner and staff service routes) **and
+partna-monorepo** (anything writing service memberships).
 
-**Whether that should 422 instead is an open product decision.** This slice did
-not decide it; it pinned the collapse explicitly so the behaviour is visible
-and so the pin goes red the day memberships become multi-valued.
+**Decided 2026-08-14, after this slice shipped.** Slice 3b left this open and
+pinned the existing behaviour; the decision has since been made to reject.
+
+**Before.** `ServiceCollections::assign()` is single-collection per source by
+design, so a payload carrying two `category_ids` stored the **first** and
+returned **HTTP 200** — the second id discarded, with no error and no warning.
+
+**After.** A write carrying more than one `category_id` returns **422** with a
+`category_ids` validation error: *"A service belongs to one category. Send a
+single category_id."* Nothing is written — it is a refusal, not a partial apply.
+
+**A client sending two ids gets a 422 where it previously got a 200.** If any
+dashboard path sends the full membership array back on save, it must send at
+most one entry.
+
+Unchanged: the legacy singular `category_id` spelling; an explicit `null`
+(move to Uncategorized); and an **empty** `category_ids: []`, which is the array
+spelling of the same thing. `max:1` admits zero and one.
+
+Applies to all four service request classes, which are deliberately identical
+and must be changed together:
+
+| Surface | Request | Endpoint |
+|---|---|---|
+| Owner | `UpdateServiceCategoryAssignmentRequest` | `PATCH /api/services/{service}/category` |
+| Owner | `StoreServiceRequest` | `POST /api/services` |
+| Staff | `StaffStoreServiceRequest` | `POST /api/staff/professionals/{pro}/services` |
+| Staff | `StaffUpdateServiceRequest` | `PATCH /api/staff/professionals/{pro}/services/{service}` |
+
+**Menu items are NOT affected.** `Platforms\CreateMenuItemRequest` /
+`UpdateMenuItemRequest` keep `max:50` — menu multi-category is real and
+persisted, unlike service memberships.
 
 ---
 

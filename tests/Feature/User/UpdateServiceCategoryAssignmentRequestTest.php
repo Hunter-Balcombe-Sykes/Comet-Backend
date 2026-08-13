@@ -11,11 +11,19 @@ it('validates category_id as present, nullable, and a uuid', function () {
     // key is enforced by the request's after() hook (null must still pass —
     // it's the "move to Uncategorized" spelling, which no built-in rule can
     // express across two fields).
+    // max:1, not max:50 — owner decision 2026-08-14. assign() is
+    // single-collection per source, so anything above one was stored as its
+    // first entry and returned 200; it 422s now.
     expect($rules)->toBe([
-        'category_ids' => ['sometimes', 'nullable', 'array', 'max:50'],
+        'category_ids' => ['sometimes', 'nullable', 'array', 'max:1'],
         'category_ids.*' => ['uuid', 'distinct'],
         'category_id' => ['sometimes', 'nullable', 'uuid'],
     ]);
+
+    // One passes, two do not — the boundary itself, not just the rule string.
+    expect(validator(['category_ids' => [(string) Str::uuid()]], $rules)->passes())->toBeTrue()
+        ->and(validator(['category_ids' => [(string) Str::uuid(), (string) Str::uuid()]], $rules)->fails())->toBeTrue()
+        ->and(validator(['category_ids' => []], $rules)->passes())->toBeTrue();
 
     // Presence enforcement lives in after(), not the bare rules — an empty
     // payload passes the rules but the request hook rejects it (covered by

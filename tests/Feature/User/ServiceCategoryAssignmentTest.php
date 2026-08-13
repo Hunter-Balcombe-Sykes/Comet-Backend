@@ -48,6 +48,49 @@ it('assigns a service to one of the owner\'s categories', function () {
     expect($service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $cat->id]);
 });
 
+it('422s two category_ids rather than silently storing one', function () {
+    // Owner decision, 2026-08-14. ServiceCollections::assign() is
+    // single-collection per source, so a two-id payload used to store the FIRST
+    // and return 200 — dropping an id the caller sent, with nothing surfaced.
+    // The staff surface is pinned identically in
+    // tests/Feature/Staff/StaffServiceMultiCategoryTest.php; the owner surface
+    // had no case for this at all, which is why the collapse was only ever
+    // recorded as a staff-side observation.
+    $pro = createTenant('svc-cat-multi');
+    $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
+    $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
+    $service = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0, 'source' => 'fresha']);
+
+    actingAsUser($pro)
+        ->patchJson("/api/services/{$service->id}/category", [
+            'category_ids' => [(string) $catA->id, (string) $catB->id],
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('category_ids');
+
+    // Refused, not partially applied.
+    $service->refresh();
+    expect($service->categories()->pluck('site.service_categories.id')->all())->toBe([]);
+});
+
+it('still accepts a single-element category_ids', function () {
+    // Positive control: max:1 must admit one, not reject the array spelling
+    // outright. Without this the case above passes on a rule of 'max:0'.
+    $pro = createTenant('svc-cat-single');
+    $cat = createServiceCategoryFor($pro, ['sort_order' => 0]);
+    $service = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0, 'source' => 'fresha']);
+
+    actingAsUser($pro)
+        ->patchJson("/api/services/{$service->id}/category", [
+            'category_ids' => [(string) $cat->id],
+        ])
+        ->assertOk();
+
+    $service->refresh();
+    expect($service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())
+        ->toBe([(string) $cat->id]);
+});
+
 it('moves a service to Uncategorized when category_id is null', function () {
     $pro = createTenant('svc-cat-null');
     $cat = createServiceCategoryFor($pro, ['sort_order' => 0]);
