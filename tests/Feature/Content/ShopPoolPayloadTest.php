@@ -18,6 +18,7 @@ beforeEach(function () {
     setupContentTables();
     setupSectionsTables();
     setupMediaTables();
+    setupContentPopularityScoresTable();
     Storage::fake('media');
     Queue::fake();
 });
@@ -44,7 +45,12 @@ function shopStore(string $userId, array $overrides = []): string
 
 function shopProduct(string $userId, string $collectionId, string $title, int $position = 0): string
 {
-    $sourceId = poolSource($userId, null);
+    // Reuse the user's manual source if one exists: idx_content_sources_manual
+    // (20260727140000) allows exactly ONE manual source per user, so a second
+    // poolSource($userId, null) is a unique violation, not a second store.
+    $sourceId = DB::table('content.sources')
+        ->where('user_id', $userId)->where('kind', 'manual')->value('id')
+        ?? poolSource($userId, null);
     $itemId = poolItem($userId, $sourceId, 'product', $title, '2026-08-01T00:00:00Z');
     DB::table('content.collection_items')->insert([
         'collection_id' => $collectionId, 'item_id' => $itemId,
@@ -161,9 +167,21 @@ it('keeps referralQuery, linkMode, sourceUrl and connectStatus off the wire', fu
     expect($out['collections'])->not->toBe([])
         ->and($out['selection'][0]['url'])->toContain('ref=abc');
 
-    // assertStringNotContainsString, not ->not->toContain: the Pest negated
-    // matcher is the known false-pass trap.
-    foreach (['referralQuery', 'linkMode', 'sourceUrl', 'connectStatus', 'scrape.example.com'] as $forbidden) {
+    // str_contains + toBeFalse, not ->not->toContain: the Pest negated matcher
+    // is the known false-pass trap.
+    //
+    // BOTH cases matter. The camelCase names catch a hand-written key; the
+    // snake_case ones catch the actual leak vector — a row spread would emit
+    // the DB column names, and a camelCase-only list would wave
+    // referral_query and connect_status straight through.
+    $forbiddenNeedles = [
+        'referralQuery', 'referral_query',
+        'linkMode', 'link_mode', 'shop_link_mode',
+        'sourceUrl', 'source_url',
+        'connectStatus', 'connect_status', 'connect_error',
+        'scrape.example.com',
+    ];
+    foreach ($forbiddenNeedles as $forbidden) {
         expect(str_contains($json, $forbidden))->toBeFalse("{$forbidden} must not reach the public wire");
     }
 });
@@ -197,6 +215,84 @@ it('returns an empty collections map for a pool with no products', function () {
     $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'watch');
 
     expect($out['collections'])->toBe([]);
+});
+
+// f_catalog and f_text are both PK (item_id, source_id), so a product carried
+// by two sources has TWO rows and keyBy keeps the LAST. Unordered that is
+// arbitrary scan order: vendor and description flip between reads, and
+// variant_ref can be taken from store B while $primaryStore is store A —
+// composing a dead cart URL onto a CDN-cached page.
+it('takes the freshest source row when two sources describe one product', function () {
+    [$pro, $siteId] = poolTenant();
+    $store = shopStore($pro->id);
+    $itemId = shopProduct($pro->id, $store, 'Hat');
+    $staleSource = poolSource($pro->id, poolConnection($pro->id));
+
+    // Written AFTER the fresh row but stamped a year older: in insertion order
+    // this row lands last, which is exactly what keyBy would have kept.
+    DB::table('content.f_catalog')->insert([
+        'item_id' => $itemId, 'source_id' => $staleSource,
+        'handle' => 'hat-stale', 'vendor' => 'Stale Vendor',
+        'variant_ref' => '999', 'updated_at' => now()->subYear(),
+    ]);
+    DB::table('content.f_text')->insert([
+        'item_id' => $itemId, 'source_id' => $staleSource,
+        'headline' => 'Hat', 'body' => 'A stale description.', 'updated_at' => now()->subYear(),
+    ]);
+
+    $item = collect(app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop')['library'])
+        ->firstWhere('id', $itemId);
+
+    expect($item['vendor'])->toBe('A Vendor')
+        ->and($item['description'])->toBe('A description.')
+        // The sharp edge: the composed checkout link must carry the FRESH
+        // variant_ref, or the page ships a cart URL that 404s at the store.
+        ->and($item['url'])->toBe('https://store.example.com/cart/44073715368070:1');
+});
+
+// popularityRank is the one field here whose loss is completely silent: the
+// next task deletes the legacy wire that carries it, 34 live dev ranks drop to
+// null, and nothing errors. So it is pinned positively, not just on its null
+// path — the join is analytics.content_popularity_scores.content_key ==
+// f_catalog.handle, NOT the item id.
+it('serves the live shop_product rank for a product, keyed by its catalog handle', function () {
+    [$pro, $siteId] = poolTenant();
+    $store = shopStore($pro->id);
+    $ranked = shopProduct($pro->id, $store, 'Bulwark Jacket');   // handle bulwark-jacket
+    $unranked = shopProduct($pro->id, $store, 'Plain Cap');      // handle plain-cap
+
+    DB::table('analytics.content_popularity_scores')->insert([
+        ['id' => (string) Str::uuid(), 'site_id' => $siteId, 'content_type' => 'shop_product',
+            'content_key' => 'bulwark-jacket', 'score' => 12.5, 'rank' => 3, 'computed_at' => now()],
+        // Same handle as the unranked product but a DIFFERENT bucket: only the
+        // shop_product bucket may reach a product, or a video's rank would
+        // leak onto a tee that shares its slug.
+        ['id' => (string) Str::uuid(), 'site_id' => $siteId, 'content_type' => 'watch_item',
+            'content_key' => 'plain-cap', 'score' => 99.0, 'rank' => 1, 'computed_at' => now()],
+    ]);
+
+    $items = collect(app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop')['library'])
+        ->keyBy('id');
+
+    expect($items[$ranked]['popularityRank'])->toBe(3)
+        ->and($items[$unranked]['popularityRank'])->toBeNull();
+});
+
+it('leaves popularityRank null when the score belongs to another site', function () {
+    [$pro, $siteId] = poolTenant();
+    $store = shopStore($pro->id);
+    $itemId = shopProduct($pro->id, $store, 'Bulwark Jacket');
+
+    [, $otherSiteId] = poolTenant();
+    DB::table('analytics.content_popularity_scores')->insert([
+        'id' => (string) Str::uuid(), 'site_id' => $otherSiteId, 'content_type' => 'shop_product',
+        'content_key' => 'bulwark-jacket', 'score' => 12.5, 'rank' => 3, 'computed_at' => now(),
+    ]);
+
+    $item = collect(app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop')['library'])
+        ->firstWhere('id', $itemId);
+
+    expect($item['popularityRank'])->toBeNull();
 });
 
 // Constraint: the shop reads are set-wide AND gated on the resolved set

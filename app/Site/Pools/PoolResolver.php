@@ -28,8 +28,11 @@ use Illuminate\Support\Facades\DB;
  * located / priced facets (null off events), the public URL slug + its 301
  * aliases, and the full per-platform link set (synced source links +
  * hand-saved item_links).
- * popularityRank is null until watch_item/listen_item beacons compute —
- * the wire carries the field so the shape doesn't change under the FE.
+ * popularityRank carries a real rank for products (analytics.content_popularity_scores,
+ * content_type='shop_product', keyed by f_catalog.handle — slice 5b, inherited
+ * from the retiring /integrations wire); on every other kind it is null until
+ * watch_item/listen_item beacons compute. The wire carries the field either
+ * way so the shape doesn't change under the FE.
  */
 class PoolResolver
 {
@@ -254,8 +257,16 @@ class PoolResolver
             $storesByItem = $links->groupBy('item_id');
             $stores = $links->unique('collection_id')->keyBy('collection_id');
 
+            // Ordered for the same reason $places is: f_catalog is PK
+            // (item_id, source_id), so an item carried by two sources has TWO
+            // rows and keyBy keeps the LAST one. Unordered that is arbitrary
+            // scan order, which flips vendor between reads AND — the sharp
+            // edge — can pair store B's variant_ref with store A as
+            // $primaryStore, composing storeA.com/cart/<storeB-variant>:1: a
+            // dead checkout link on a CDN-cached page. Freshest wins.
             $catalog = DB::connection('pgsql')->table('content.f_catalog')
                 ->whereIn('item_id', $ids)
+                ->orderBy('updated_at')
                 ->get(['item_id', 'vendor', 'handle', 'variant_ref'])
                 ->keyBy('item_id');
 
@@ -361,9 +372,15 @@ class PoolResolver
         // UNCONDITIONAL: a video or an event with a body must carry its
         // description too, and gating it on $hasProduct would null it out.
         // The one query non-shop pools pay for in this change.
+        //
+        // Ordered for the same reason $places is: f_text is PK (item_id,
+        // source_id), so an item carried by two sources has TWO rows and keyBy
+        // keeps the LAST. Unordered, the published description flips between
+        // reads. Freshest wins.
         $texts = DB::connection('pgsql')->table('content.f_text')
             ->whereIn('item_id', $ids)
             ->whereNotNull('body')
+            ->orderBy('updated_at')
             ->get(['item_id', 'body'])
             ->keyBy('item_id');
 
