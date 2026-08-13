@@ -2545,10 +2545,46 @@ not depend on the sub-spec surviving:
   `ShopFetch → syncLatest() → syncStore()` currently throws at `syncLatest()`
   **before ever reaching `syncStore()`**, so the owner-vs-connector un-retire
   boundary documented in §9.8 is presently unexercised in practice. The
-  reasoning stands; the path is dead until this is fixed. Not fixed here — 5b
+  reasoning stands; the path is dead until this is fixed. Not fixed in 5b — 5b
   does not open `ShopCatalog` or `ShopBrand`, and a live scheduled-refresh
   failure deserves its own branch and review rather than being folded into a
   slice that also retires a public wire.
+
+  **FIXED 2026-08-13 on its own branch — PR #282, `6fc1a8d31`.** Three findings
+  worth keeping, because the first is the one that made this invisible:
+
+  1. **Eloquent strict mode only arms per INSTANCE, and `Builder::hydrate()`
+     sets that flag `if (count($items) > 1)`.** A query returning ONE row
+     lazy-loads freely no matter what `Model::preventLazyLoading()` says. So
+     this could only ever fire on a connection holding **two or more** brands
+     — dev's failing account holds five, every other shop connection holds
+     one, and the production data matched exactly: only the 5-brand connection
+     carried the lazy-load error. It also explains the green suite: every
+     existing fixture had one brand per connection, so no test could reproduce
+     it regardless of intent. Any test asserting strict-mode behaviour in this
+     repo must hydrate more than one row.
+  2. **Every existing `ShopFetch` test mocks `ShopCatalog`**, so `syncLatest()`
+     — and therefore `toBrandArray()` — never ran under test at all. The
+     regression tests use a real `ShopCatalog` with a mocked scraper.
+  3. **The code fix alone would not have restored the account.**
+     `consecutive_failures` had reached exactly `10`, the
+     `partna.refresh.max_consecutive_failures` cap, so `dueForRefresh()`
+     excluded the connection permanently — the circuit breaker had latched.
+     The counter was cleared for that one connection (matched on the
+     lazy-load error text, so the three genuinely-unreachable stores stuck at
+     10 since 2026-07-27 were left alone), then `integrations:refresh` was run:
+     `RefreshConnectionJob … 16s DONE`, `last_refresh_status` back to `ok`,
+     `consecutive_failures` 0, error null. **A latched breaker is part of the
+     blast radius of any job-killing exception — fixing the throw does not
+     un-latch it.**
+
+  The fix itself: `syncLatest()` now calls `loadMissing('products')` rather
+  than trusting its caller, and `ShopFetch` eager-loads the relation again so
+  that guarantee costs one query per batch instead of one per brand. With the
+  un-retire path reachable again, the §9.8 boundary is live rather than moot.
+  Still deliberately unfixed: `providerProducts()`'s client-mode fallback reads
+  the frozen legacy relation, so post-5a it degrades to stale rows or `[]`.
+  Zero client-mode brands exist on dev; re-homing it belongs with slice 7.
 - **`site.shop_brands` re-homing off the `ShopBrand` model is still slice 7's,
   not this slice's** — 5b only corrected the record that it was needed (§16.9);
   it did not do the re-homing.
