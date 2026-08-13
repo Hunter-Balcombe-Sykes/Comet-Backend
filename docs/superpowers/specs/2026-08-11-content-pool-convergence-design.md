@@ -2173,3 +2173,109 @@ First and last seen are the same instant — the single failed backfill run of
 §16.7. It has **not recurred** across the two successful backfill runs that
 followed the fix (22:19 and 22:21). Every other open issue predates the deploy;
 the newest is 7 hours older than it.
+
+---
+
+## 17. Slice 3a checkpoint — owner-authored services
+
+**Status: DONE 2026-08-13.** Merged to `development` at `2d54c0438` (23 commits,
+fast-forward from `5bd607377`), deployed, backfill run on dev, live assertions
+below. §3 invariant 1 discharged.
+
+Slice 3 split into 3a/3b on a seam the database dictated: every one of the 61
+`service_category_assignments` and 16 of the 18 `service_categories` belong to
+Fresha, and the two owner-authored categories were already soft-deleted. So the
+owner half carries no collections work at all. 3b's kickoff:
+`docs/superpowers/plans/2026-08-13-slice-3b-services-fresha-KICKOFF-PROMPT.md`.
+
+### 17.1 Live dev assertion — RUN 2026-08-13, output pasted
+
+```
+php artisan content:backfill-owner-services --dry-run
+  → [dry-run] would backfill 18, retired 3, skipped (no user) 0, failed 0
+php artisan content:backfill-owner-services
+  → backfilled 18, retired 3, skipped (no user) 0, failed 0
+```
+
+```
+live_service_items            18     (spec §5.1 predicted 18)
+retired_service_items          3
+manual coords (manual:…)      21
+offers                        21     all qualifier='exact'
+f_duration rows               17     = 21 minus the 4 null durations
+pool:services pins            18     live only
+source_items.removed_at   →    0     GATE — the load-bearing invariant
+orphan items              →    0     GATE — unchanged from the 0b baseline
+```
+
+**Idempotency proven on live data**, not only in tests: a second identical run
+reported the same counts and left `content.items` 21, `source_items` 21, `offers`
+21 and `section_items` 18 unchanged, with both gates still 0.
+
+`cloud env:logs partna development --minutes 12` across the backfill window:
+**0 error/critical**, no `42703`, no `23505`, no `SQLSTATE`.
+
+### 17.2 Cache invalidation (§9.2, all three lanes)
+
+| Lane | This slice |
+|---|---|
+| `site.site_build_state` | **Bumped** — `ManualServiceWriter::invalidate()` on every write path, plus `writeManualItem()`'s own per-item bump |
+| 60s public-profile payload cache | **Busted** — `invalidate()` touches `site.sites.updated_at`, which the cache key composes from |
+| Cloudflare edge | **Purged** — `CloudflareCachePurgeJob` dispatched per touched site |
+
+The three-lane test initially passed with the `BuildState` lane **deleted**,
+because `writeManualItem()` bumps internally; it now asserts an exact revision
+delta. That trap is worth carrying forward: `content_revision > 0` proves nothing
+about the caller.
+
+### 17.3 What the final whole-branch review caught that per-task reviews could not
+
+Three blockers survived six per-task reviews and four fix rounds, all of them the
+same shape — a state the user sets that the reads never honour, which is the
+defect class this slice exists to remove:
+
+- **`GET /api/me` still served the legacy table.** `UserCacheService::getActiveServices()`
+  carries **no `source` filter at all**, so it never appeared in this spec's §1.1
+  inventory — that inventory was built by grepping `whereNull('source')`. A
+  service created through the API was absent from the dashboard bootstrap, an
+  edited one served pre-cutover values, a deleted one still showed live.
+- **Hiding a service did not close its page.** Three hand-written copies of the
+  manual-source predicate in the visibility gates dropped `->where('is_active', true)`
+  with no replacement. The write side of that invariant was caught and fixed in an
+  earlier task; the read side was not.
+- **Clearing `description` or `duration_minutes` was a silent no-op** — 200 with
+  the old value, rendered forever, because `upsertSingletonFacet()` only writes
+  columns present in the projection.
+
+**Method lesson: an inventory built from one predicate does not find every
+reader.** Two owner-services readers carry no `source` filter and were invisible
+to the grep — `getActiveServices()` and `ContentFreshness:89-98`. The latter is
+still un-migrated and is recorded in 3b's prompt.
+
+### 17.4 Assurance improvements that outlive this slice
+
+- **`setupServicesTable()` now carries `services_user_sort_order_uq`.** It did
+  not, so the production constraint `UNIQUE (user_id, sort_order) WHERE deleted_at IS NULL`
+  did not exist under SQLite — and a Critical that returned HTTP 500 on two live
+  endpoints could not fail a test. Under a faithful restore of that bug, all 24
+  tests in the relevant file stayed green. This raises the floor for every
+  `sort_order` writer in the repo.
+- **`createServiceFor()` / `ownerService()` no longer mint an impossible state.**
+  Both hardcoded `sort_order = 0`, so any test seeding two services for one user
+  created a row pair Postgres would reject.
+- **`composer test` now needs `COMPOSER_PROCESS_TIMEOUT=0`** — the suite exceeds
+  composer's 300s default, and the timeout presents as a hang.
+
+### 17.5 Carried to 3b, recorded in its prompt
+
+`StaffServiceManagementController` (nine methods, no `source` filtering —
+post-cutover staff cannot see owner-authored services **at all**, not merely
+stale); `ContentFreshness:89-98`; the 3 retired owner services carrying no pin;
+`ProjectionWriter`'s bare unscoped `DB::table()` calls; and
+`CloudflarePurgeService`'s three raw un-deduped `report($e)` calls, which with
+the purge job's three self-dispatched follow-ups can reach **12 reports per site
+save** — handed to slice 5b, and recorded in the slice-7 and slice-4 prompts
+where it fires.
+
+**Migration prefix block `20260813090000`–`20260813099999` was NOT consumed** —
+3a needed no schema change. It is free for 3b.
