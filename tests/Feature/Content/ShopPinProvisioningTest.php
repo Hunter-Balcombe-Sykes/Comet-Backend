@@ -129,16 +129,63 @@ it('dry-run against an already-provisioned section reports left-alone without wr
         ->and(DB::table('site.section_items')->where('section_id', $sectionId)->count())->toBe($pinsBefore);
 });
 
+/**
+ * Local to this file only — poolItem() cannot take a caller-supplied id (a
+ * peer depends on its signature; not touching it). Mirrors what poolItem()
+ * writes to content.items/content.source_items/content.f_published, but with
+ * an explicit id, so the tie-break test below can force item-id order and
+ * physical insertion order to DISAGREE. Str::uuid() is random v4 — leaving
+ * ids to chance would make the tie-break assertion pass on a coin flip
+ * whether or not the command's orderBy('i.id') actually runs.
+ */
+function productWithExplicitId(string $userId, string $collectionId, int $position, string $itemId): void
+{
+    static $manualSources = [];
+    $sourceId = $manualSources[$userId] ??= poolSource($userId, null);
+
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $userId, 'kind' => 'product',
+        'headline_cache' => 'Tie item', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'first_seen_at' => now()->subDays(30), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => 'x:'.Str::random(8), 'item_id' => $itemId, 'kind' => 'product',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    DB::table('content.f_published')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId,
+        'published_from' => '2026-08-01T00:00:00Z', 'updated_at' => now(),
+    ]);
+    DB::table('content.collection_items')->insert([
+        'collection_id' => $collectionId, 'item_id' => $itemId,
+        'source_id' => null, 'position' => $position,
+    ]);
+}
+
 it('breaks a tied collection and item position by item id, deterministically', function () {
     [$pro, $siteId] = poolTenant();
     // Same collection position on both stores — c.position alone can't order them.
     $storeA = storefront($pro->id, 0, 'Store A');
     $storeB = storefront($pro->id, 0, 'Store B');
 
-    // Same collection_item position within each store too — ci.position can't
-    // either. i.id (content.items uuid) is the only thing left to totally order them.
-    $itemA = productIn($pro->id, $storeA, 0, 'A item');
-    $itemB = productIn($pro->id, $storeB, 0, 'B item');
+    // Two explicit ids, sorted up front so their lexical order is known
+    // before either row exists.
+    $idOne = (string) Str::uuid();
+    $idTwo = (string) Str::uuid();
+    [$lower, $higher] = strcmp($idOne, $idTwo) <= 0 ? [$idOne, $idTwo] : [$idTwo, $idOne];
+
+    // Same collection_item position within each store too — c.position AND
+    // ci.position are both genuinely tied, so i.id is the only remaining
+    // order key. Insert the HIGHER id first and the LOWER id second: physical
+    // insertion order is then the exact reverse of ascending item-id order.
+    // If the command's orderBy('i.id') were ever dropped, the tied rows would
+    // fall back to something close to insertion order — [higher, lower] —
+    // which disagrees with the asserted [lower, higher] on every run, not by
+    // chance.
+    productWithExplicitId($pro->id, $storeA, 0, $higher);
+    productWithExplicitId($pro->id, $storeB, 0, $lower);
 
     $this->artisan('content:provision-shop-pins')->assertSuccessful();
 
@@ -148,7 +195,7 @@ it('breaks a tied collection and item position by item id, deterministically', f
     $pins = DB::table('site.section_items')->where('section_id', $sectionId)
         ->where('state', 'pinned')->orderBy('sort_key')->pluck('item_id')->all();
 
-    expect($pins)->toBe(collect([$itemA, $itemB])->sort()->values()->all());
+    expect($pins)->toBe([$lower, $higher]);
 });
 
 it('pins an item shared across two of the owner\'s stores exactly once, at its earliest position', function () {
