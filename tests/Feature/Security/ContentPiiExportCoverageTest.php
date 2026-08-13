@@ -33,6 +33,11 @@ const CONTENT_PII_COLUMNS = [
     'content.f_channel' => ['handle', 'avatar_url'],
     'content.f_text' => ['headline', 'body', 'summary'],
     'content.items' => ['headline_cache'],
+    // summary_text: slice 6 (migration 20260813110001). Google-authored prose
+    // derived from reviews — same curation caveat as author_uri above, and the
+    // reason it is listed in the same commit that adds the table's DSAR
+    // section rather than after it.
+    'content.source_stats' => ['summary_text'],
 ];
 
 /**
@@ -48,6 +53,9 @@ const WITHHELD_THIRD_PARTY = [
         'author_photo_url' => 'Third-party reviewer identity.',
         'author_uri' => 'Third-party reviewer identity — a permanent link to their Google contributor profile, so it identifies them at least as directly as author_name. Slice 6 design spec §2.4.',
         'text' => 'Third-party reviewer\'s verbatim words.',
+    ],
+    'content.source_stats' => [
+        'summary_text' => 'Google-authored prose about the business, derived from third-party reviews — withheld exactly as the legacy `reviewSummary` payload key is (DsarPayloadFilter::THIRD_PARTY_KEYS). rating_avg/rating_count sit beside it and ARE exported: they are business facts about the subject\'s own listing. Slice 6 design spec §5.3/§5.5.',
     ],
 ];
 

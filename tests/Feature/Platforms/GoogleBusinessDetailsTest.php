@@ -571,14 +571,19 @@ it('exposes enrichment on the public endpoint but strips internal keys', functio
         ->assertOk()
         ->json('data.platforms.google-business.0.payload');
 
-    expect($payload['rating'])->toBe(4.8);
-    expect($payload['reviewCount'])->toBe(127);
-    expect($payload['reviews'])->toHaveCount(1);
     expect($payload['links'])->toHaveKey('writeReview');
     expect($payload['hours']['weekdays'])->toHaveCount(1);
     expect($payload['amenities']['goodForChildren'])->toBeTrue();
     expect($payload['photos'])->toHaveCount(1);   // public: home-background source
     foreach (['placeId', 'phoneIntl', 'priceLevel', 'priceRange', 'detailsFetchedAt'] as $private) {
         expect($payload)->not->toHaveKey($private);
+    }
+    // rating / reviewCount / reviews / reviewSummary were RETIRED from this
+    // lane by slice 6 (2026-08-13) — the fixture above still stores all four,
+    // so this flip proves a retirement rather than an absent fixture. Reviews
+    // reach the sitepage through profile.pools.reviews and the aggregates
+    // through content.source_stats; the dashboard resource still reads them.
+    foreach (['rating', 'reviewCount', 'reviews', 'reviewSummary'] as $retired) {
+        expect($payload)->not->toHaveKey($retired);
     }
 });

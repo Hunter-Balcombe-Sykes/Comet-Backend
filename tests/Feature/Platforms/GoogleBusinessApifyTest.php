@@ -589,7 +589,12 @@ it('keeps apify enrichment off the public endpoint', function () {
         ->assertOk()
         ->json('data.platforms.google-business.0.payload');
 
-    expect($payload['rating'])->toBe(4.8);
+    // `name` is the still-public control: it proves the connection publishes at
+    // all, so the private-key assertions below can't pass on an empty payload.
+    // It replaces `rating`, which slice 6 retired from this lane (2026-08-13)
+    // — asserted here so the swap is a recorded consequence, not a silent one.
+    expect($payload['name'])->toBe('Fade Lab');
+    expect($payload)->not->toHaveKey('rating');
     foreach (['menu', 'reservation', 'order', 'booking', 'socials', 'apifyStatus', 'apifyFetchedAt'] as $private) {
         expect($payload)->not->toHaveKey($private);
     }

@@ -105,6 +105,10 @@ class DataExportPayloadBuilder
         'content.sources', 'content.items', 'content.source_items',
         'content.f_text', 'content.f_place', 'content.f_review',
         'content.f_authored', 'content.f_channel',
+        // Slice 6: the first SOURCE-level fact in content.* — it hangs off
+        // content.sources, not content.items, so it is scoped by the source's
+        // user_id rather than an item join.
+        'content.source_stats',
     ];
 
     private const SCHEMA_VERSION = 1;
@@ -239,8 +243,15 @@ class DataExportPayloadBuilder
             // never the reviewer's identity or verbatim words — those are
             // withheld the same way DsarPayloadFilter withholds them from the
             // integrations section (see WITHHELD_DISCLOSURE). author_name,
-            // author_photo_url, and text are deliberately omitted below.
+            // author_photo_url, author_uri and text are deliberately omitted
+            // below.
             ['name' => 'content.f_review', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentFReview($userId)],
+            // Slice 6: source-level aggregates. summary_text is Google-authored
+            // prose derived from reviews and is withheld the same way
+            // DsarPayloadFilter withholds the legacy reviewSummary key — see
+            // WITHHELD_DISCLOSURE. rating_avg/rating_count are business facts
+            // about the subject's own listing and ARE disclosed.
+            ['name' => 'content.source_stats', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentSourceStats($userId)],
             ['name' => 'content.f_authored', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentFAuthored($userId)],
             ['name' => 'content.f_channel', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentFChannel($userId)],
             ['name' => 'analytics.site_visits', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsSiteVisits($userId)],
@@ -544,10 +555,15 @@ class DataExportPayloadBuilder
      * DINT-2 / #PRIV-2 applied at the schema layer: discloses THAT a
      * third-party-authored review exists (rating, timestamp) but never the
      * reviewer's identity or verbatim words — author_name, author_photo_url,
-     * and text are deliberately OMITTED from the select list. Without this,
-     * the integrations section's DsarPayloadFilter withholding would be
-     * undone by handing the same reviewer PII straight back through this
-     * facet section.
+     * author_uri and text are deliberately OMITTED from the select list.
+     * Without this, the integrations section's DsarPayloadFilter withholding
+     * would be undone by handing the same reviewer PII straight back through
+     * this facet section.
+     *
+     * author_uri (slice 6, migration 20260813110000) joined that omission list
+     * on the day the column landed: it is a permanent link to the reviewer's
+     * Google contributor profile, so it identifies them at least as directly
+     * as author_name.
      */
     private function streamContentFReview(string $userId): Generator
     {
@@ -557,6 +573,33 @@ class DataExportPayloadBuilder
                 ->join('content.items', 'content.f_review.item_id', '=', 'content.items.id')
                 ->where('content.items.user_id', $userId)
                 ->select(['content.f_review.item_id', 'content.f_review.source_id', 'content.f_review.rating', 'content.f_review.reviewed_at', 'content.f_review.updated_at'])
+        );
+    }
+
+    /**
+     * Slice 6 §5.5: source-level aggregates for a connected place. Carries no
+     * user_id of its own — scoped through content.sources.user_id, the same
+     * shape streamContentSourceItems() uses.
+     *
+     * summary_text is deliberately OMITTED from the select list. It is
+     * Google-authored prose derived from third-party reviews, withheld exactly
+     * as DsarPayloadFilter withholds the legacy `reviewSummary` payload key
+     * (see WITHHELD_DISCLOSURE). rating_avg/rating_count are business facts
+     * about the subject's own listing and are disclosed in full — the same
+     * asymmetry GoogleBusinessPayload::stripThirdPartyPii already carries, and
+     * mirrored here rather than resolved.
+     */
+    private function streamContentSourceStats(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('content.source_stats')
+                ->join('content.sources', 'content.source_stats.source_id', '=', 'content.sources.id')
+                ->where('content.sources.user_id', $userId)
+                ->select([
+                    'content.source_stats.source_id', 'content.source_stats.rating_avg',
+                    'content.source_stats.rating_count', 'content.source_stats.updated_at',
+                ])
         );
     }
 

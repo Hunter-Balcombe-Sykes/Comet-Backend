@@ -1545,6 +1545,10 @@ it('DINT-2: exports content.* sections user-scoped, with reviewer identity withh
         'source_id' => $sourceId,
         'author_name' => 'A Reviewer',
         'author_photo_url' => 'https://example.com/photo.jpg',
+        // Slice 6 (migration 20260813110000): a permanent link to the
+        // reviewer's Google contributor profile, so it identifies them at
+        // least as directly as author_name and is omitted with it.
+        'author_uri' => 'https://maps.google.com/contrib/1234567890',
         'rating' => 5,
         'text' => 'Great service!',
         'updated_at' => $now,
@@ -1580,11 +1584,64 @@ it('DINT-2: exports content.* sections user-scoped, with reviewer identity withh
     expect($reviewRow)->not->toHaveKey('author_name');
     expect($reviewRow)->not->toHaveKey('author_photo_url');
     expect($reviewRow)->not->toHaveKey('text');
+    expect($reviewRow)->not->toHaveKey('author_uri');
     expect((float) $reviewRow['rating'])->toBe(5.0);
 
     // Cross-tenant leak check across the whole payload, not just this section.
     expect(json_encode($payload))->not->toContain('Someone Else Reviewer');
     expect(json_encode($payload))->not->toContain("Not Jane's Venue");
+    expect(json_encode($payload))->not->toContain('contrib/1234567890');
+});
+
+// Slice 6 §5.5: content.source_stats joins the export. rating_avg/rating_count
+// are business facts about the subject's OWN listing and are disclosed;
+// summary_text is Google-authored prose derived from reviews and is withheld
+// exactly as DsarPayloadFilter withholds the legacy reviewSummary key.
+it('exports content.source_stats without the review summary, scoped to the subject', function () {
+    setupContentTables();
+
+    $pro = seedProForPayload((string) Str::uuid());
+    $otherId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    $sourceId = (string) Str::uuid();
+    $otherSourceId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('content.sources')->insert([
+        ['id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'connection', 'priority' => 100, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => $otherSourceId, 'user_id' => $otherId, 'kind' => 'connection', 'priority' => 100, 'created_at' => $now, 'updated_at' => $now],
+    ]);
+
+    DB::connection('pgsql')->table('content.source_stats')->insert([
+        [
+            'source_id' => $sourceId,
+            'rating_avg' => 4.7,
+            'rating_count' => 312,
+            'summary_text' => 'Customers praise the friendly staff.',
+            'updated_at' => $now,
+        ],
+        [
+            // Another user's aggregates — must never leak into Jane's export.
+            'source_id' => $otherSourceId,
+            'rating_avg' => 2.1,
+            'rating_count' => 9,
+            'summary_text' => 'Not Janes summary.',
+            'updated_at' => $now,
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['content']['source_stats'])->toHaveCount(1);
+    $statsRow = $payload['content']['source_stats'][0];
+    expect($statsRow['source_id'])->toBe($sourceId)
+        ->and((float) $statsRow['rating_avg'])->toBe(4.7)
+        ->and((int) $statsRow['rating_count'])->toBe(312)
+        ->and($statsRow)->not->toHaveKey('summary_text');
+
+    // Body-wide, so a future section that re-exports the same row still fails.
+    expect(json_encode($payload))->not->toContain('Customers praise the friendly staff.');
+    expect(json_encode($payload))->not->toContain('Not Janes summary.');
 });
 
 it('every section stream() yields resolves to a real key in build() — FOUND-1 regression guard', function () {
