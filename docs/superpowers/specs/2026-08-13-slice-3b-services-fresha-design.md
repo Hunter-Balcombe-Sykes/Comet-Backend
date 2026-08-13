@@ -354,10 +354,18 @@ Migration (prefix block `20260813090000`–`20260813099999`, unconsumed by 3a; n
 ALTER TABLE content.collections ADD COLUMN external_ref TEXT;
 ALTER TABLE content.collections ADD COLUMN removed_at   TIMESTAMPTZ;
 CREATE UNIQUE INDEX collections_user_kind_external_ref_uq
-    ON content.collections (user_id, kind, external_ref)
-    WHERE external_ref IS NOT NULL;
+    ON content.collections (user_id, kind, external_ref);
 ALTER TABLE ingest.sources ADD COLUMN selection_ref TEXT;
 ```
+
+**The index is deliberately NOT partial.** `WHERE external_ref IS NOT NULL`
+would read better, but Postgres requires a partial index's own predicate in the
+`ON CONFLICT` target, and Laravel's `upsert()` emits only the column list — the
+write would fail with *"no unique or exclusion constraint matching the ON
+CONFLICT specification"*. A plain index is upsert-compatible and just as correct
+here: Postgres treats NULLs as distinct by default, so the user-created rows
+(`external_ref IS NULL`, including slice 5a's 9 storefronts) are unconstrained,
+exactly as the partial form intended. §5.3 pins this on the real driver.
 
 `removed_at` exists because `/service-categories/{id}` has both `destroy` and
 `restore` (§3.5) and `collections` has no soft-delete at all. It carries exactly
