@@ -20,6 +20,11 @@ beforeEach(function () {
     setupSitesTable();
     // Fresha connect (storewide) projects services into site.services now.
     setupServicesTable();
+    // Slice 3b Task 12 fix round 2: FreshaSelectionResource's services[] now
+    // reads content.* for real inside an authenticated request (the
+    // storewide POST /connect success path below constructs it with a real
+    // user id) — without this the query 500s on "no such table: content.items".
+    setupContentTables();
     shimPgAdvisoryLockForSqlite();
 });
 

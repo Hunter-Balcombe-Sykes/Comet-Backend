@@ -9,6 +9,7 @@ use App\Services\Platforms\EventsPayload;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\SkoolScraper;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -50,8 +51,67 @@ beforeEach(function () {
     // Fresha's storewide connect projects the scraped menu into site.services
     // and takes the booking-XOR advisory lock on the way through.
     setupServicesTable();
+    // Slice 3b Task 12 fix round 2: FreshaSelectionResource's services[] now
+    // reads content.* for real (FreshaServiceItems) instead of the stored
+    // blob — the storewide flag-off case below needs the schema present AND
+    // (see that test) a matching landed row, or its exact-body assertion
+    // would legitimately go red on the new architecture rather than prove
+    // dark-merge safety.
+    setupContentTables();
     shimPgAdvisoryLockForSqlite();
 });
+
+/**
+ * Lands one Fresha-shaped content.* service row (connection source + item +
+ * source_item + offer + duration + category) — Task 12 fix round 2:
+ * FreshaSelectionResource's services[] reads content.* now (FreshaServiceItems),
+ * so this file's exact-body dark-merge proof needs a real matching row, not a
+ * stale stored-blob passthrough. File-local (not shared with
+ * FreshaBookingSurfaceTest.php's identically-purposed helper) because `pest`
+ * invoked against a single file path does not parse sibling test files —
+ * reusing the shared one here failed with "Call to undefined function".
+ * qualifier is fixed at 'exact' since every caller in this file prices a
+ * plain (non-'from') service.
+ */
+function darkMergeLandFreshaService(string $userId, string $serviceId, string $name, int $amountMinor, string $currency, int $durationSeconds, string $category): void
+{
+    $now = now();
+    $sourceId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'connection_id' => null, 'label' => 'Fresha', 'priority' => 100,
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $itemId = addItem($userId, 'service', $name);
+
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => "fresha:store:{$serviceId}", 'record_key' => $serviceId,
+        'item_id' => $itemId, 'kind' => 'service', 'projector_version' => 1,
+        'first_seen_at' => $now, 'last_seen_at' => $now,
+    ]);
+
+    DB::table('content.offers')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'channel' => 'fresha', 'qualifier' => 'exact', 'amount_minor' => $amountMinor,
+        'currency' => $currency, 'updated_at' => $now,
+    ]);
+
+    DB::table('content.f_duration')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId, 'seconds' => $durationSeconds, 'updated_at' => $now,
+    ]);
+
+    $collectionId = (string) Str::uuid();
+    DB::table('content.collections')->insert([
+        'id' => $collectionId, 'user_id' => $userId, 'parent_id' => null,
+        'label' => $category, 'kind' => 'service_category', 'external_ref' => $serviceId.'-cat',
+        'position' => 0, 'is_user_created' => 0, 'created_at' => $now, 'updated_at' => $now,
+    ]);
+    DB::table('content.collection_items')->insert([
+        'collection_id' => $collectionId, 'item_id' => $itemId, 'source_id' => $sourceId, 'position' => 0,
+    ]);
+}
 
 function darkMergeUser(string $h, string $accountType = 'partna', ?string $sector = null): User
 {
@@ -336,6 +396,15 @@ it('DELIBERATELY VACUOUS — flag off: fresha STOREWIDE-mode connect is a 200 wi
     $user = darkMergeUser('dmfreshastore', 'business', 'barber'); // non-food business => can_book_storewide
 
     $service = ['serviceId' => 's:1', 'name' => 'Cut', 'duration' => '30min', 'description' => null, 'price' => '$50', 'priceValue' => 50, 'currency' => 'AUD', 'category' => 'Cuts', 'hasVariants' => false];
+
+    // Slice 3b Task 12 fix round 2: services[] on the response now comes
+    // from content.* (FreshaServiceItems), not the legacy synchronous
+    // FreshaServiceProjector::sync() the mocked fetchMenu() below still
+    // feeds — landing this row is what makes $service (asserted below)
+    // real instead of stale. Field-for-field match with $service: 5000
+    // minor + 'AUD' -> displayPrice() renders '$50'; 1800 seconds ->
+    // displayDuration() renders '30min'; no description -> null.
+    darkMergeLandFreshaService($user->id, 's:1', 'Cut', 5000, 'AUD', 1800, 'Cuts');
 
     $this->mock(FreshaScraper::class, function ($m) use ($service) {
         $m->shouldReceive('stripLocale')->once()->andReturnUsing(fn ($u) => $u);

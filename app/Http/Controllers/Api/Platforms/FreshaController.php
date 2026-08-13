@@ -162,7 +162,7 @@ class FreshaController extends ApiController
                     return $this->success([
                         'url' => $url,
                         'mode' => 'storewide',
-                        'selection' => (new FreshaSelectionResource($selection))->resolve(),
+                        'selection' => (new FreshaSelectionResource($selection, (string) $user->id))->resolve(),
                     ]);
                 }
 
@@ -319,7 +319,7 @@ class FreshaController extends ApiController
         // in practice, since FreshaFetch 304s any row with no `selection`
         // (team mode never sets one) and a completed connect is never polled
         // again anyway.
-        return $this->bespokeConnectStatus($user, null, function (array $payload): array {
+        return $this->bespokeConnectStatus($user, null, function (array $payload) use ($user): array {
             $isTeam = ($payload['connectMode'] ?? null) === 'team' || is_array($payload['teamMenu'] ?? null);
 
             return $isTeam
@@ -327,7 +327,7 @@ class FreshaController extends ApiController
                 : [
                     'url' => $payload['url'] ?? null,
                     'mode' => 'storewide',
-                    'selection' => (new FreshaSelectionResource($payload['selection'] ?? []))->resolve(),
+                    'selection' => (new FreshaSelectionResource($payload['selection'] ?? [], (string) $user->id))->resolve(),
                 ];
         });
     }
@@ -531,7 +531,7 @@ class FreshaController extends ApiController
                     'raw' => ['services' => $projected['raw']],
                 ]);
 
-                return $this->success((new FreshaSelectionResource($selection))->resolve());
+                return $this->success((new FreshaSelectionResource($selection, (string) $user->id))->resolve());
             }, 30);
         }, 30);
     }
@@ -563,11 +563,12 @@ class FreshaController extends ApiController
     // reads this; the dashboard reads it to restore its "saved" state on load).
     public function selection(Request $request): JsonResponse
     {
-        $payload = SelectionPayload::fromArray($this->readConnection($this->currentUser($request)) ?? []);
+        $user = $this->currentUser($request);
+        $payload = SelectionPayload::fromArray($this->readConnection($user) ?? []);
 
         return $this->success([
             'selection' => $payload->selection !== null
-                ? (new FreshaSelectionResource($payload->selection->toArray()))->resolve()
+                ? (new FreshaSelectionResource($payload->selection->toArray(), (string) $user->id))->resolve()
                 : null,
             // Pending (Google-seeded) connections have a url but no selection — the
             // dashboard uses it to show "Finish setup" and open the picker.
@@ -639,7 +640,7 @@ class FreshaController extends ApiController
                     'raw' => ['services' => $rawServices],
                 ]);
 
-                return $this->success((new FreshaSelectionResource($inner))->resolve());
+                return $this->success((new FreshaSelectionResource($inner, (string) $user->id))->resolve());
             }
 
             // Write back the inner blob VERBATIM with only hiddenServiceIds replaced —
@@ -648,7 +649,7 @@ class FreshaController extends ApiController
             $inner = [...$selection->toArray(), 'hiddenServiceIds' => $hidden];
             $this->writeConnection($user, ['url' => $payload->url, 'selection' => $inner]);
 
-            return $this->success((new FreshaSelectionResource($inner))->resolve());
+            return $this->success((new FreshaSelectionResource($inner, (string) $user->id))->resolve());
         });
     }
 

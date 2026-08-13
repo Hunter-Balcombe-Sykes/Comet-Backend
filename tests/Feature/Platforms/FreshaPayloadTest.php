@@ -7,6 +7,11 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Fix round 1, Finding 3: FreshaSelectionResource's services[] now reads
+    // content.* for real inside an authenticated request (POST
+    // /service-visibility below constructs it with a real user id) — without
+    // this the query 500s on "no such table: content.items".
+    setupContentTables();
 });
 
 function freshaPayloadUser(string $h): User

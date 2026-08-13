@@ -51,6 +51,12 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupServicesTable();
+    // Fix round 1, Finding 3: FreshaSelectionResource's services[] now reads
+    // content.* for real inside an authenticated request (the storewide
+    // POST /connect and GET /connect/status success paths below construct
+    // it with a real user id) — without this the query 500s on "no such
+    // table: content.items".
+    setupContentTables();
     shimPgAdvisoryLockForSqlite();
 });
 
@@ -74,11 +80,67 @@ function freshaStorewideService(string $id = 's:1', string $name = 'Cut'): array
     return ['serviceId' => $id, 'name' => $name, 'duration' => '30min', 'description' => null, 'price' => '$50', 'priceValue' => 50, 'currency' => 'AUD', 'category' => 'Cuts', 'hasVariants' => false];
 }
 
+/**
+ * Lands one Fresha-shaped content.* service row matching freshaStorewideService()'s
+ * default field values exactly — Task 12 fix round 2: FreshaSelectionResource's
+ * services[] reads content.* now (FreshaServiceItems), so an exact-json
+ * assertion against freshaStorewideService() needs a real landed row, not a
+ * stale stored-blob passthrough. 5000 minor + 'AUD' -> displayPrice() renders
+ * '$50'; 1800 seconds -> displayDuration() renders '30min'; no description ->
+ * null. File-local (not shared with FreshaBookingSurfaceTest.php's
+ * identically-purposed helper) because `pest` invoked against a single file
+ * path does not parse sibling test files.
+ */
+function landFreshaStorewideContentService(string $userId, string $serviceId = 's:1', string $name = 'Cut'): void
+{
+    $now = now();
+    $sourceId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'connection_id' => null, 'label' => 'Fresha', 'priority' => 100,
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $itemId = addItem($userId, 'service', $name);
+
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => "fresha:store:{$serviceId}", 'record_key' => $serviceId,
+        'item_id' => $itemId, 'kind' => 'service', 'projector_version' => 1,
+        'first_seen_at' => $now, 'last_seen_at' => $now,
+    ]);
+
+    DB::table('content.offers')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'channel' => 'fresha', 'qualifier' => 'exact', 'amount_minor' => 5000,
+        'currency' => 'AUD', 'updated_at' => $now,
+    ]);
+
+    DB::table('content.f_duration')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId, 'seconds' => 1800, 'updated_at' => $now,
+    ]);
+
+    $collectionId = (string) Str::uuid();
+    DB::table('content.collections')->insert([
+        'id' => $collectionId, 'user_id' => $userId, 'parent_id' => null,
+        'label' => 'Cuts', 'kind' => 'service_category', 'external_ref' => $serviceId.'-cat',
+        'position' => 0, 'is_user_created' => 0, 'created_at' => $now, 'updated_at' => $now,
+    ]);
+    DB::table('content.collection_items')->insert([
+        'collection_id' => $collectionId, 'item_id' => $itemId, 'source_id' => $sourceId, 'position' => 0,
+    ]);
+}
+
 // ── Flag OFF = byte-identical synchronous response (dark-merge proof) ───────
 
 it('DELIBERATELY VACUOUS — flag off leaves a storewide fresha connect byte-identical (rollout safety guard)', function () {
     config(['partna.connect.deferred' => []]);
     $user = freshaStorewideUser('swoff1');
+    // Fix round 2: services[] on the response now comes from content.*, not
+    // the legacy synchronous FreshaServiceProjector::sync() the mocked
+    // fetchMenu() below still feeds — this is what makes freshaStorewideService()
+    // (asserted below) real instead of stale.
+    landFreshaStorewideContentService($user->id);
 
     $this->mock(FreshaScraper::class, function ($m) {
         $m->shouldReceive('stripLocale')->once()->andReturnUsing(fn ($u) => $u);
@@ -733,6 +795,10 @@ it('poll: a pending storewide row reports exactly {status:"pending"}', function 
 
 it("poll: a ready storewide row returns the synchronous 200's connection shape and no id key", function () {
     $user = freshaStorewideUser('swpoll2');
+    // Fix round 2: services[] on the response now comes from content.*, not
+    // the hand-seeded payload.selection.services below — this is what makes
+    // freshaStorewideService() (asserted below) real instead of stale.
+    landFreshaStorewideContentService($user->id);
     $selection = [
         'url' => 'https://www.fresha.com/a/ollies-salon', 'storeName' => 'Ollies', 'mode' => 'storewide',
         'employee' => null, 'services' => [freshaStorewideService()], 'hiddenServiceIds' => [],

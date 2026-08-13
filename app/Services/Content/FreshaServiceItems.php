@@ -1,0 +1,176 @@
+<?php
+
+namespace App\Services\Content;
+
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Slice 3b Task 12: the ONE read of Fresha-sourced service-kind content
+ * items -- content.items x content.source_items x content.sources, scoped
+ * to `content.sources.kind = 'connection'`. Mirrors `ManualServiceItems`'
+ * structure (slice 3a) but sits on the OTHER side of the two-surface rule:
+ * that class scopes to `kind = 'manual'`, this one to `kind = 'connection'`
+ * -- the split is structural (two disjoint source kinds), not a runtime
+ * filter either read path could accidentally drop. Nothing today lands a
+ * `kind = 'service'` item through a connection source except Fresha, so no
+ * further platform filter is needed to keep this booking-only.
+ *
+ * `FreshaSelectionResource::services()` is the sole consumer: the stored
+ * selection blob's `services[]` shape, reproduced from the pool instead of
+ * the legacy `site.services` projection.
+ */
+class FreshaServiceItems
+{
+    /**
+     * The stored selection blob's services[] shape, reproduced from the
+     * pool: name, price, category, currency, duration, serviceId,
+     * priceValue, description, hasVariants.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function selectionServices(string $userId): array
+    {
+        $rows = $this->rows($userId);
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $itemIds = $rows->pluck('id')->all();
+        // Every row's source_id is the SAME connection source
+        // (idx_content_sources_connection is unique per platform_connections
+        // row, and a user has at most one live Fresha connection) -- any
+        // row's value identifies it for the facet lookups, same pattern
+        // ManualServiceItems::publicList() uses for its manual source.
+        $facets = $this->facets($itemIds, (string) $rows->first()->source_id);
+
+        return $rows->map(fn ($row) => $this->toWireShape($row, $facets))->values()->all();
+    }
+
+    /** @return Collection<int, \stdClass> id, headline_cache, record_key, source_id */
+    private function rows(string $userId): Collection
+    {
+        return DB::connection('pgsql')->table('content.items as i')
+            ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->where('i.user_id', $userId)
+            ->where('i.kind', 'service')
+            ->whereNull('i.removed_at')
+            ->whereNull('si.removed_at')
+            ->where('cs.kind', 'connection')
+            ->orderBy('i.first_seen_at')
+            ->distinct()
+            ->get(['i.id', 'i.headline_cache', 'si.record_key', 'cs.id as source_id']);
+    }
+
+    /** @return array{descriptions: Collection, durations: Collection, offers: Collection, categories: Collection} */
+    private function facets(array $itemIds, string $sourceId): array
+    {
+        if ($itemIds === []) {
+            return ['descriptions' => collect(), 'durations' => collect(), 'offers' => collect(), 'categories' => collect()];
+        }
+
+        $descriptions = DB::connection('pgsql')->table('content.f_text')
+            ->whereIn('item_id', $itemIds)
+            ->where('source_id', $sourceId)
+            ->pluck('body', 'item_id');
+
+        $durations = DB::connection('pgsql')->table('content.f_duration')
+            ->whereIn('item_id', $itemIds)
+            ->where('source_id', $sourceId)
+            ->pluck('seconds', 'item_id');
+
+        $offers = DB::connection('pgsql')->table('content.offers')
+            ->whereIn('item_id', $itemIds)
+            ->where('source_id', $sourceId)
+            ->get(['item_id', 'amount_minor', 'currency', 'qualifier'])
+            ->keyBy('item_id');
+
+        // Machine-derived collections only (content.collections kind =
+        // 'service_category' per Task 5/6/8) -- a removed one (owner
+        // deleted the category, ServiceCollections::remove()) contributes
+        // nothing rather than resurrecting on the booking surface. Position
+        // ascending + first-wins: a service belongs to exactly one category
+        // on Fresha's own menu; ties fall to insertion order.
+        $categories = DB::connection('pgsql')->table('content.collection_items as ci')
+            ->join('content.collections as col', 'col.id', '=', 'ci.collection_id')
+            ->whereIn('ci.item_id', $itemIds)
+            ->where('ci.source_id', $sourceId)
+            ->whereNull('col.removed_at')
+            ->orderBy('ci.position')
+            ->get(['ci.item_id', 'col.label'])
+            ->groupBy('item_id')
+            ->map(fn (Collection $rows) => $rows->first()->label);
+
+        return compact('descriptions', 'durations', 'offers', 'categories');
+    }
+
+    /** @return array<string, mixed> */
+    private function toWireShape(object $row, array $facets): array
+    {
+        $offer = $facets['offers']->get($row->id);
+        $amountMinor = $offer !== null && $offer->amount_minor !== null ? (int) $offer->amount_minor : null;
+        $qualifier = $offer->qualifier ?? null;
+        $seconds = $facets['durations'][$row->id] ?? null;
+
+        return [
+            'name' => (string) ($row->headline_cache ?? ''),
+            'price' => $this->displayPrice($qualifier, $amountMinor),
+            'category' => $facets['categories'][$row->id] ?? null,
+            'currency' => $offer->currency ?? null,
+            'duration' => $this->displayDuration($seconds === null ? null : (int) $seconds),
+            'serviceId' => (string) $row->record_key,
+            'priceValue' => $amountMinor === null ? null : round($amountMinor / 100, 2),
+            'description' => $facets['descriptions'][$row->id] ?? null,
+            // The ingest connector/projector do not capture a variant count
+            // today -- only price/duration/description/category are
+            // projected (App\Ingest\Projection\FreshaServiceProjector).
+            // Honestly false rather than guessed, matching the
+            // never-fabricate rule its own offer()/durationSeconds() parsers
+            // already follow: an unmodelled fact renders as its safe
+            // default, never an invented true.
+            'hasVariants' => false,
+        ];
+    }
+
+    /**
+     * qualifier + amount_minor -> the vendor's own display string. The wire
+     * has always carried a bare '$' (Fresha emits it and `currency` is null in
+     * the stored blob), so this does not invent 'A$' or 'AUD'. Cents render
+     * only when non-zero: '$120.00' would be a wire change, '$49.50' would be
+     * a data loss if truncated.
+     */
+    private function displayPrice(?string $qualifier, ?int $amountMinor): ?string
+    {
+        if ($qualifier === 'free') {
+            return 'free';
+        }
+        if ($amountMinor === null) {
+            return null;
+        }
+
+        $amount = $amountMinor % 100 === 0
+            ? (string) intdiv($amountMinor, 100)
+            : number_format($amountMinor / 100, 2, '.', '');
+
+        return ($qualifier === 'from' ? 'from $' : '$').$amount;
+    }
+
+    /** seconds -> "1h 30min" / "45min" / "2h"; null passthrough for an unparsed/missing duration. */
+    private function displayDuration(?int $seconds): ?string
+    {
+        if ($seconds === null || $seconds <= 0) {
+            return null;
+        }
+
+        $minutes = intdiv($seconds, 60);
+        $hours = intdiv($minutes, 60);
+        $remainder = $minutes % 60;
+
+        if ($hours > 0 && $remainder > 0) {
+            return "{$hours}h {$remainder}min";
+        }
+
+        return $hours > 0 ? "{$hours}h" : "{$remainder}min";
+    }
+}

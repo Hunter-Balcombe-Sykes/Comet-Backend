@@ -9,6 +9,7 @@ use App\Services\Platforms\EventsPayload;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
 use App\Services\Shop\ShopContentWriter;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -44,6 +45,60 @@ function seedPlatformConnection(User $user, string $platform, array $payload, ?s
         'payload' => $payload,
         'is_active' => true,
         'last_refresh_status' => 'ok',
+    ]);
+}
+
+/**
+ * Lands one Fresha-shaped content.* service row — Task 12, slice 3b:
+ * services[] moved from a verbatim stored-blob pass-through to a fixed
+ * nine-key projection reproduced from content.* (FreshaServiceItems). The
+ * fresha selection contract test below used to assert a 2-key pass-through
+ * entry; that shape is now categorically unreachable (the reader always
+ * emits all nine keys), so its `services` expectation was updated to match
+ * — this landed row is what makes the new expectation real rather than
+ * hand-typed. 5000 minor + 'AUD' -> displayPrice() renders '$50'; 1800
+ * seconds -> displayDuration() renders '30min'; no description -> null.
+ * File-local (not shared with other Fresha test files' identically-purposed
+ * helpers) because `pest` invoked against a single file path does not parse
+ * sibling test files.
+ */
+function landFreshaContractService(string $userId, string $serviceId = 's:1', string $name = 'Cut'): void
+{
+    $now = now();
+    $sourceId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'connection_id' => null, 'label' => 'Fresha', 'priority' => 100,
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $itemId = addItem($userId, 'service', $name);
+
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => "fresha:store:{$serviceId}", 'record_key' => $serviceId,
+        'item_id' => $itemId, 'kind' => 'service', 'projector_version' => 1,
+        'first_seen_at' => $now, 'last_seen_at' => $now,
+    ]);
+
+    DB::table('content.offers')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'channel' => 'fresha', 'qualifier' => 'exact', 'amount_minor' => 5000,
+        'currency' => 'AUD', 'updated_at' => $now,
+    ]);
+
+    DB::table('content.f_duration')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId, 'seconds' => 1800, 'updated_at' => $now,
+    ]);
+
+    $collectionId = (string) Str::uuid();
+    DB::table('content.collections')->insert([
+        'id' => $collectionId, 'user_id' => $userId, 'parent_id' => null,
+        'label' => 'Cuts', 'kind' => 'service_category', 'external_ref' => $serviceId.'-cat',
+        'position' => 0, 'is_user_created' => 0, 'created_at' => $now, 'updated_at' => $now,
+    ]);
+    DB::table('content.collection_items')->insert([
+        'collection_id' => $collectionId, 'item_id' => $itemId, 'source_id' => $sourceId, 'position' => 0,
     ]);
 }
 
@@ -418,6 +473,16 @@ it('shopify brands list strips unknown per-brand keys', function () {
 
 it('fresha selection wraps the nested selection blob and strips unknown keys', function () {
     $user = platformContractUser('fr1');
+    // Slice 3b Task 12 (fix round 3, controller ruling): services[] moved
+    // from a verbatim stored-blob pass-through to a fixed nine-key
+    // projection reproduced from content.* — the stored blob's own
+    // `services` entry below is deliberately left in its OLD two-key
+    // pass-through shape (what a pre-3b connection would still have on
+    // disk) to prove the point: it is now IGNORED. What the response
+    // actually returns comes from landFreshaContractService() below, not
+    // from this array. This test's real subject — stripping the unknown
+    // `_internal` key from the selection wrapper — is unchanged and still
+    // enforced by the assertion below.
     seedPlatformConnection($user, 'fresha', [
         'url' => 'https://www.fresha.com/a/acme',
         'selection' => [
@@ -429,6 +494,7 @@ it('fresha selection wraps the nested selection blob and strips unknown keys', f
             '_internal' => 'leak',
         ],
     ]);
+    landFreshaContractService($user->id);
 
     actingAsUser($user)->getJson('/api/platforms/fresha/selection')
         ->assertOk()
@@ -438,7 +504,21 @@ it('fresha selection wraps the nested selection blob and strips unknown keys', f
                 'storeName' => 'Acme',
                 'mode' => 'employee',
                 'employee' => ['employeeId' => 'e1', 'displayName' => 'Jo', 'jobTitle' => null, 'avatarUrl' => null, 'rating' => null],
-                'services' => [['serviceId' => 's:1', 'name' => 'Cut']],
+                // The nine-key shape genuinely reproduced from content.* via
+                // landFreshaContractService() above — NOT the stored blob's
+                // two-key entry seeded above, which this response no longer
+                // reads at all.
+                'services' => [[
+                    'name' => 'Cut',
+                    'price' => '$50',
+                    'category' => 'Cuts',
+                    'currency' => 'AUD',
+                    'duration' => '30min',
+                    'serviceId' => 's:1',
+                    'priceValue' => 50,
+                    'description' => null,
+                    'hasVariants' => false,
+                ]],
                 'hiddenServiceIds' => [],
             ],
             // Also returns the stored url (for pending / Google-seeded connections
