@@ -2315,17 +2315,20 @@ where it fires.
 
 ## 18. Slice 5b checkpoint — the shop pool and the public render
 
-**Status: code complete on `feat/slice-5b-shop-render` (8 tasks, HEAD
-`7f2acd8dc`). Not merged to `development`. Not deployed to any environment.**
+**Status: MERGED to `development` 2026-08-13 (PR #280, rebase, 23 commits on
+`4ab37744a` → `737133069`), deployed to dev (deploy `2222`, 08:33:42 UTC),
+provisioning run, live assertions taken. NOT deployed to production — that
+deploy stays gated on partna-monorepo landing its side of the wire
+retirement.**
 Spec: `2026-08-12-slice-5b-shop-render-design.md`. Wire manifest:
 `docs/wire-changes/2026-08-12-slice-5b-shop-render.md`.
 
-This checkpoint is written by Task 9 (documentation only — no code, no test
-run) immediately after the 8 implementation tasks landed on the branch and
-before Task 10 (merge, deploy, live verification) has run. Per invariant #5,
-a checkpoint is not evidence until it is re-derived; the subsections below
-that require a live database or a real request are marked `PENDING — Task 10`
-rather than populated with numbers this session did not measure.
+§18.1–§18.2, §18.6 and §18.8–§18.10 were written by Task 9 before any of this
+was true, with the live-verification subsections deliberately left as
+`PENDING — Task 10` rather than populated with unmeasured numbers. Task 10
+then filled §18.3–§18.5 and §18.7 with pasted output, and confirmed lane 3 of
+§18.6 from the live log scan. Per invariant #1, nothing here is claimed that
+was not run.
 
 ### 18.1 Pre-implementation baseline
 
@@ -2375,17 +2378,84 @@ never may" (§9.8), and `site.shop_brands` was found still written by
 
 No DDL. No migration filename prefix consumed (§4.3 rule 5).
 
-### 18.3 Live dev assertions
+### 18.3 Live dev assertions — RUN 2026-08-13, output pasted
 
-**PENDING — Task 10.**
+Merged to `development` at `737133069` (PR #280, rebase, 23 commits linear on
+`4ab37744a`). Deploy `2222` succeeded 08:33:42 UTC. All SQL below run against
+`glncumufgaqcmqhzwrxm` after the provisioning command.
+
+```
+shop_pages                 5
+shop_sections              5
+pinned_items              51        -- spec §5.1 expected 51
+retired_products           0
+shop_products_max_updated  2026-08-12 17:24:33+00   -- unchanged; still inert
+```
+
+Every `pool:shop` section carries the corrected rule — one distinct shape
+across all five:
+
+```
+rule      {"all": [{"op": "kind_is", "values": ["product"]}]}
+order_by  recency
+sections  5
+```
+
+§8.4 coverage gate — coord coverage, not row-count equality:
+
+```
+uncovered_legacy_rows  0
+```
 
 ### 18.4 The provisioning command, run against dev
 
-**PENDING — Task 10.**
+```
+$ php artisan content:provision-shop-pins --dry-run
+pool:shop pins: would pin 51, left alone 0, across 0 site(s).
 
-### 18.5 A real `PoolResolver::resolve()` call
+$ php artisan content:provision-shop-pins
+pool:shop pins: pinned 51, left alone 0, across 5 site(s).
+```
 
-**PENDING — Task 10.**
+The dry run reports `across 0 site(s)` by construction: the site counter only
+increments on a real write, and the dry run performs none — it does not even
+provision the page/section, which was a fix round finding (`ensure()` INSERTs,
+so it must not be reached under `--dry-run`).
+
+51 pins across 5 sites, matching the 51 products and 5 product-holding users
+the entry gate measured.
+
+### 18.5 A real `PoolResolver::resolve()` call — SQL cannot prove this
+
+The composition happens in PHP. Invoked on dev against `ollies` (33 products
+across 5 stores — the multi-store case, so the lowest-`position` tie-break is
+actually exercised):
+
+```
+items in selection   33
+collections          5
+first item url       https://natalieanne.com/cart/47811307995314:1?discount=ALEX10
+
+first collections entry:
+{"3b3c23ea-b222-4656-8658-ac504c48f797": {
+  "externalRef": "11461296187",
+  "provider": "shopify",
+  "url": "https://natalieanne.com",
+  "name": "Natalie Anne Haircare",
+  "currency": "AUD",
+  "favicon": "https://natalieanne.com/cdn/shop/files/NA-Favicon.png?...",
+  "logo": "https://natalieanne.com/cdn/shop/files/Natalie_Anne_LOGO.png?...",
+  "discountCode": "ALEX10",
+  "position": 1
+}}
+```
+
+That `url` is the whole point of the slice: a Shopify cart deep link
+(`/cart/{variant_ref}:1`) with the store's discount code appended, composed
+backend-side from `f_link.url` + `f_catalog.variant_ref` + the storefront row.
+`productHref()` in partna-monorepo has nothing left to do. The store card
+carries exactly the nine `STORE_KEYS`, keyed by collection uuid, with a real
+`name` rather than the raw `external_ref`.
 
 ### 18.6 Cache invalidation (§9.2, all three lanes)
 
@@ -2399,15 +2469,49 @@ assertions were available.
 | 60s public-profile payload cache | `site.sites.updated_at` touched on the same two paths — `IndividualProfilePayloadBuilder::cacheKey()` composes its key from `updated_at`, so `bump()` alone (a different table) does not invalidate it |
 | Cloudflare edge | `CloudflareCachePurgeJob::dispatch($subdomain)` on the same two paths |
 
-Whether these actually fire on live dev writes is part of §18.3 — PENDING.
+**Lane 3 confirmed firing on the live dev write.** The `cloud env:logs` scan
+taken right after the provisioning run shows `CloudflareCachePurgeJob` running
+five times between 08:37:15 and 08:37:21 — the command wrote at 08:37:08-10,
+one purge per site written — plus the delayed follow-ups at 08:38. Lanes 1 and
+2 are asserted by test (`ShopPinProvisioningTest`) rather than observed here;
+each assertion was verified to fail if its lane is removed.
 
-### 18.7 Gates at merge
+### 18.7 Gates at merge — RUN 2026-08-13, all after the rebase
 
-**PENDING — Task 10.** Task 9 is documentation-only and was explicitly
-instructed not to run `composer test` or `./vendor/bin/pest`. No SQLite,
-Postgres-lane, schema-lane, PHPStan or Pint figures exist for this branch in
-this checkpoint; inventing them, or copying §16.6's 5a figures in as if they
-were 5b's, would misrepresent an unrun suite as a passing one.
+| Gate | Result |
+|---|---|
+| `composer test` (SQLite) | **7951 passed**, 1 skipped, 1 warning, 0 failures (492s) |
+| `composer test:pg` | **198 passed** (934 assertions), 0 failures |
+| `./vendor/bin/phpstan analyse --memory-limit=1G` | **No errors** |
+| `./vendor/bin/pint --test` | passed |
+| Post-resolution registry run | **42 passed** — `PoolRegistryTest` + `ShopPoolTest` + **`ServicesPoolTest`** + `ShopPinProvisioningTest` + `PoolLaneTest` |
+| CI on PR #280 | all **9** required checks green (`test`, `postgres-tests`, `schema-tests`, `schema-drift`, `outbound-http-guard`, `supply-chain`, `checkpoint-suppressions`, `worker-tests`, `worker-static`) |
+
+7951 is up from 7886 on the branch alone; the delta is 3a's tests, all green
+under the merge. Running 3a's own `ServicesPoolTest` **after** resolving is
+what proves the union kept both halves — 5b's tests pass fine against a
+`POOLS` array that dropped `services` entirely, so they cannot detect that
+failure mode.
+
+**Two rebase conflicts a mechanical resolution would have gotten wrong**, both
+resolved by reading each side:
+
+1. Wave A's own fix commit restored the docblock clause "Services is poolless"
+   — true when written, **false** once 3a landed. Taking `--theirs` would have
+   re-asserted it. Related: `poolForKind()`'s example listed `service` as a
+   poolless kind; it now reads `(channel, article, …)`.
+2. **Both slices claimed §17.** 3a's checkpoint merged first, so 5b's became
+   §18 — heading, all ten subsections, every internal cross-reference and the
+   wire manifest's pointer. A union merge leaves two §17s and every `§17.x`
+   reference ambiguous, which no test anywhere would catch.
+
+**Running the Postgres lane locally needs setup that is not in place.**
+`phpunit.pg.xml` deliberately inherits `DB_*` from the shell, and the local
+`.env` points `DB_HOST` at a Supabase ref that no longer resolves, so a bare
+`composer test:pg` fails 9 / skips 189 on connection. It was run against a
+throwaway `postgres:16` container mirroring CI's service block — *not* the
+local `supabase_db_Partna-Development`, which the lane would pollute since it
+provisions its own tables.
 
 ### 18.8 Conventions this slice established — for slices 3, 4 and 6
 
@@ -2424,9 +2528,27 @@ not depend on the sub-spec surviving:
 
 ### 18.9 What remains outstanding
 
-- **§18.3–§18.5 and §18.7 are unfilled.** Task 10 owns merging the branch,
-  running the deploy, pasting live SQL output, a real `PoolResolver::resolve()`
-  call, and the full gate suite into this checkpoint.
+- **#428 — the scheduled shop refresh is FAILING on dev, and it is not 5b's.**
+  Found by this slice's post-deploy Nightwatch scan, which is the entire reason
+  §5.5 requires one. `LazyLoadingViolationException: Attempted to lazy load
+  [products] on model [ShopBrand]` — `ShopBrand::toBrandArray()` (`:129`) reads
+  `$this->products`, the legacy `site.shop_products` relation, while `ShopFetch`
+  eager-loads only `connection`. Lazy loading is disabled, so it throws;
+  `ShopFetch`'s `catch (HttpException)` does not catch it, so it propagates and
+  **fails `RefreshConnectionJob`** — incrementing `consecutive_failures`,
+  writing `last_refresh_status`, and landing the job in `failed_jobs`.
+  **36 occurrences in 24 hours.** First seen `2026-08-13T00:23:04Z`, last seen
+  `08:25:51Z` — both BEFORE 5b's deploy at `08:33:42Z`, so this is a **5a
+  regression**, not 5b's: 5a stopped writing `site.shop_products` and changed
+  what `ShopFetch` eager-loads, but `toBrandArray()` still reads the relation.
+  Consequence worth recording for the record 5b itself set: the connector path
+  `ShopFetch → syncLatest() → syncStore()` currently throws at `syncLatest()`
+  **before ever reaching `syncStore()`**, so the owner-vs-connector un-retire
+  boundary documented in §9.8 is presently unexercised in practice. The
+  reasoning stands; the path is dead until this is fixed. Not fixed here — 5b
+  does not open `ShopCatalog` or `ShopBrand`, and a live scheduled-refresh
+  failure deserves its own branch and review rather than being folded into a
+  slice that also retires a public wire.
 - **`site.shop_brands` re-homing off the `ShopBrand` model is still slice 7's,
   not this slice's** — 5b only corrected the record that it was needed (§16.9);
   it did not do the re-homing.
