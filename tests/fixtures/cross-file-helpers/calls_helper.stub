@@ -1,0 +1,8 @@
+<?php
+
+// Fixture for CrossFileTestHelperGuardTest. The real hazard: a bare call to a
+// helper declared in a DIFFERENT file. This is what must be flagged.
+
+it('uses a helper it does not declare', function () {
+    expect(fixtureHelper('x'))->toBe('helper:x');
+});

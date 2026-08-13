@@ -1,0 +1,24 @@
+<?php
+
+// Fixture for CrossFileTestHelperGuardTest. Not executed — .stub so PHPUnit
+// never collects it. Declares the global helper the sibling fixtures reference.
+
+function fixtureHelper(string $name): string
+{
+    return 'helper:'.$name;
+}
+
+// A METHOD of the same name must not register as a global declaration —
+// otherwise every class in tests/ would poison the declared set.
+class FixtureHolder
+{
+    public function fixtureHelper(): string
+    {
+        return 'method';
+    }
+
+    public function alsoNotGlobal(): string
+    {
+        return self::class;
+    }
+}

@@ -1,0 +1,33 @@
+<?php
+
+// Fixture for CrossFileTestHelperGuardTest. Every construct here NAMES
+// fixtureHelper but none of them is a bare call to the global function, so the
+// scanner must not flag this file. These are exactly the shapes a grep-based
+// scan cannot tell apart from a real call — the regex version of this scan
+// reported 52 hazards against a true count of 3, and cases like these are why.
+
+// fixtureHelper('in a line comment')
+
+/**
+ * fixtureHelper('in a docblock')
+ */
+
+it('names the helper without calling it', function () {
+    $literal = 'fixtureHelper(';
+    $heredoc = <<<'TXT'
+    fixtureHelper('inside a nowdoc')
+    TXT;
+
+    $holder = new FixtureHolder;
+
+    // Method call — belongs to the object, not the global function.
+    $holder->fixtureHelper();
+
+    // Nullsafe method call.
+    $holder?->fixtureHelper();
+
+    // Static call.
+    FixtureHolder::fixtureHelper();
+
+    expect($literal)->toBeString()->and($heredoc)->toBeString();
+});
