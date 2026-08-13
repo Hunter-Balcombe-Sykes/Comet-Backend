@@ -16,7 +16,9 @@ namespace App\Site\Pools;
  * /integrations shop keys are retired. Watch + listen were the launch
  * set; media joined with the gallery lane; events joined 2026-08-11 (slice
  * 2) and runs ALONGSIDE the legacy hiddenEventIds lane until that lane is
- * retired. `channel` and `article` are deliberately poolless — see
+ * retired. Reviews JOINED 2026-08-13 (slice 6) and is the first pool that is
+ * not the owner's own content: exclusion only, no pins, no hand-adds — see
+ * EXCLUDE_ONLY_POOLS. `channel` and `article` are deliberately poolless — see
  * PoolRegistryTest for the reasons.
  */
 class PoolRegistry
@@ -35,6 +37,7 @@ class PoolRegistry
         'events' => ['event'],
         'services' => ['service'],
         'shop' => ['product'],
+        'reviews' => ['review'],
     ];
 
     /**
@@ -52,6 +55,7 @@ class PoolRegistry
         'events' => 'events',
         'services' => 'services',
         'shop' => 'shop',
+        'reviews' => 'reviews',
     ];
 
     public const PAGE_LABELS = [
@@ -61,6 +65,7 @@ class PoolRegistry
         'events' => 'Events',
         'services' => 'Services',
         'shop' => 'Shop',
+        'reviews' => 'Reviews',
     ];
 
     /**
@@ -108,7 +113,37 @@ class PoolRegistry
             'rule' => [['op' => 'kind_is']],
             'order_by' => 'recency',
         ],
+        // Vendor-curated Sample: orderField null, never dominates, never
+        // deletes. The default's latest_per_auto_source would show one review
+        // and hide the rest. order_by recency orders the display; it does not
+        // claim the set is complete, which is why reviews is absent from
+        // LATEST_TAG_POOLS.
+        'reviews' => [
+            'rule' => [['op' => 'kind_is']],
+            'order_by' => 'recency',
+        ],
     ];
+
+    /**
+     * Pools where the owner may hide an item but not promote one.
+     *
+     * Reviews only. The privacy disclosure justifies republishing a stranger's
+     * name and words on the grounds that visitors see "genuine, attributable
+     * feedback"; letting the owner arrange a testimonial reel weakens that
+     * exactly where it matters, and it is the reviewer — who never consented
+     * and holds no account — who carries the cost. Owner decision 2026-08-13.
+     *
+     * @var list<string>
+     */
+    public const EXCLUDE_ONLY_POOLS = ['reviews'];
+
+    /**
+     * Pools that refuse hand-authored items. Creating an item of kind `review`
+     * is fabricating a testimonial attributed to a customer.
+     *
+     * @var list<string>
+     */
+    public const MANUAL_ADD_FORBIDDEN_POOLS = ['reviews'];
 
     public static function isPool(string $key): bool
     {
@@ -130,6 +165,18 @@ class PoolRegistry
     public static function carriesLatestTag(string $pool): bool
     {
         return in_array($pool, self::LATEST_TAG_POOLS, true);
+    }
+
+    /** Whether this pool's curation may write a `pinned` row at all. */
+    public static function allowsPin(string $pool): bool
+    {
+        return ! in_array($pool, self::EXCLUDE_ONLY_POOLS, true);
+    }
+
+    /** Whether an owner may hand-author an item into this pool. */
+    public static function allowsManualAdd(string $pool): bool
+    {
+        return ! in_array($pool, self::MANUAL_ADD_FORBIDDEN_POOLS, true);
     }
 
     /**
