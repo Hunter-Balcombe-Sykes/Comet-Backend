@@ -284,12 +284,24 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
     // If content.collections, content.collection_items, or content.f_catalog
     // gain/lose columns in supabase/migrations/, this block needs updating in
     // step — it does not inherit fixes the way setupContentTables() would.
+    // external_ref/removed_at kept in step with setupContentTables()'s copy
+    // (slice 3b Task 1) — DuplicateStandInDdlGuardTest compares this table's
+    // body against tests/Pest.php's byte-for-byte; letting the two diverge
+    // makes the shared helper's (earlier-running) body win silently, so this
+    // test would believe it runs under its own schema and not.
+    // external_ref/removed_at kept in step with setupContentTables()'s copy
+    // (slice 3b Task 1) — DuplicateStandInDdlGuardTest compares this table's
+    // body against tests/Pest.php's byte-for-byte; letting the two diverge
+    // makes the shared helper's (earlier-running) body win silently, so this
+    // test would believe it runs under its own schema and not.
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS content.collections (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
         parent_id TEXT NULL,
         label TEXT NOT NULL,
         kind TEXT NULL,
+        external_ref TEXT NULL,
+        removed_at TEXT NULL,
         position INTEGER NOT NULL DEFAULT 0,
         is_user_created INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
