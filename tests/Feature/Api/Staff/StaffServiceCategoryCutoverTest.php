@@ -5,6 +5,8 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\PublicSite\SitepageDataResolverService;
+use App\Services\Site\AdvisoryLockTimeoutException;
+use App\Services\Site\ReorderService;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -339,6 +341,90 @@ it('reorders categories and the OWNER reads back the submitted order', function 
         ->assertJson(['ok' => true]);
 
     expect(collect(staffCatOwnerRows($pro))->pluck('id')->all())->toBe([$c, $a, $b]);
+});
+
+// ── §19.8: both stores, ONE lock scope ──────────────────────────────────────
+
+it('acquires the category lock exactly once for a reorder spanning both stores', function () {
+    // reorder() writes content.collections AND site.service_categories. It used
+    // to do so under two independent scopes — reposition() in its own
+    // transaction, then ReorderService::reorder() opening a second one and
+    // re-taking the same key — leaving a gap a competing writer could take the
+    // key in, applying its whole reorder between this request's two halves.
+    //
+    // Counting the real `select pg_advisory_xact_lock(hashtext(?))` statements
+    // is what distinguishes one scope from two. Asserting the resulting ORDER
+    // cannot: the submitted order comes out right either way whenever nothing
+    // happens to interleave, and comes out right with the lock deleted
+    // altogether, because each store's own two-pass renumber is already
+    // collision-safe. Two acquisitions here is the defect; one is the fix.
+    [$pro] = staffCatTenant();
+    $staff = staffCatAdmin();
+
+    $collectionA = staffCatCreate($staff, $pro, 'Collection A');
+    $collectionB = staffCatCreate($staff, $pro, 'Collection B');
+    $legacyA = (string) createServiceCategoryFor($pro, ['title' => 'Legacy A', 'source' => 'fresha', 'sort_order' => 0])->id;
+    $legacyB = (string) createServiceCategoryFor($pro, ['title' => 'Legacy B', 'source' => 'fresha', 'sort_order' => 1])->id;
+
+    $acquisitions = [];
+    DB::listen(function ($query) use (&$acquisitions) {
+        if (str_contains($query->sql, 'pg_advisory_xact_lock')) {
+            $acquisitions[] = (string) ($query->bindings[0] ?? '');
+        }
+    });
+
+    actingAsStaff($staff)
+        ->postJson("/api/staff/professionals/{$pro->id}/service-categories/reorder", [
+            'ids' => [$collectionB, $collectionA, $legacyB, $legacyA],
+        ])
+        ->assertOk();
+
+    expect($acquisitions)->toBe(["service-categories:{$pro->id}"]);
+
+    // Positive control: the reorder really did write BOTH stores, so the count
+    // above is one-scope-covering-two-writes, not one-write-happening.
+    expect(DB::table('content.collections')->where('id', $collectionB)->value('position'))
+        ->toBe(0)
+        ->and(DB::table('site.service_categories')->where('id', $legacyB)->value('sort_order'))->toBe(0)
+        ->and(DB::table('site.service_categories')->where('id', $legacyA)->value('sort_order'))->toBe(1);
+});
+
+it('rolls the collections half back when the legacy half fails', function () {
+    // The other half of "one scope": one transaction. Under two scopes the
+    // collections write had already committed by the time the legacy half ran,
+    // so a failure there left the layout half-applied.
+    [$pro] = staffCatTenant();
+    $staff = staffCatAdmin();
+
+    $collectionA = staffCatCreate($staff, $pro, 'Collection A');
+    $collectionB = staffCatCreate($staff, $pro, 'Collection B');
+    $legacy = (string) createServiceCategoryFor($pro, ['title' => 'Legacy', 'source' => 'fresha', 'sort_order' => 0])->id;
+
+    $beforeA = DB::table('content.collections')->where('id', $collectionA)->value('position');
+    $beforeB = DB::table('content.collections')->where('id', $collectionB)->value('position');
+
+    // Throw from the legacy half only — the collections half has already run.
+    //
+    // BOTH entry points are stubbed on purpose. If only renumberLocked() were,
+    // re-splitting the controller into two scopes would fail this case with an
+    // unexpected-call 500 — red, but for the wrong reason, proving only that
+    // the method name changed. Stubbing reorder() identically means a re-split
+    // still returns 423, and the case then fails on the assertion that actually
+    // matters: the collections half committed instead of rolling back.
+    $this->mock(ReorderService::class, function ($m) {
+        $m->shouldReceive('renumberLocked')->andThrow(new AdvisoryLockTimeoutException('service-categories:pending'));
+        $m->shouldReceive('reorder')->andThrow(new AdvisoryLockTimeoutException('service-categories:pending'));
+    });
+
+    actingAsStaff($staff)
+        ->postJson("/api/staff/professionals/{$pro->id}/service-categories/reorder", [
+            'ids' => [$collectionB, $collectionA, $legacy],
+        ])
+        ->assertStatus(423)
+        ->assertJsonPath('message', 'Another change is still saving — please retry in a moment.');
+
+    expect(DB::table('content.collections')->where('id', $collectionA)->value('position'))->toBe($beforeA)
+        ->and(DB::table('content.collections')->where('id', $collectionB)->value('position'))->toBe($beforeB);
 });
 
 it('honours an explicit sort_order on create, as the owner reads it', function () {

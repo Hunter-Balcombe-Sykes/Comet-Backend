@@ -272,25 +272,37 @@ class StaffServiceCategoryManagementController extends ApiController
             }
         }
 
-        try {
-            if ($orderedCollectionIds !== []) {
-                DB::connection('pgsql')->transaction(function () use ($professional, $collections, $orderedCollectionIds): void {
-                    AdvisoryLock::acquire("service-categories:{$professional->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
+        $lockKey = "service-categories:{$professional->id}";
 
+        try {
+            // ONE transaction, ONE lock acquisition, both stores. These used to
+            // be two independent scopes — the collections write in its own
+            // transaction, then ReorderService::reorder() opening a second one
+            // and re-taking the same key. They never collided (each store's own
+            // renumber is internally collision-safe), but a competing writer
+            // could take the key in the gap and apply its WHOLE reorder, so this
+            // request committed one store's order against the other's: a
+            // half-applied layout, from two individually-correct requests.
+            DB::connection('pgsql')->transaction(function () use ($professional, $collections, $orderedCollectionIds, $orderedLegacyIds, $lockKey): void {
+                AdvisoryLock::acquire($lockKey, AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
+
+                if ($orderedCollectionIds !== []) {
                     // reposition() appends every id it wasn't given after the
                     // ones it was, keeping their relative order, so a partial
                     // list never leaves two rows sharing a position.
                     $collections->reposition($professional->id, $orderedCollectionIds);
-                });
-            }
+                }
 
-            if ($orderedLegacyIds !== []) {
-                app(ReorderService::class)->reorder(
-                    $orderedLegacyIds,
-                    ServiceCategory::query()->where('user_id', $professional->id),
-                    "service-categories:{$professional->id}",
-                );
-            }
+                if ($orderedLegacyIds !== []) {
+                    // renumberLocked(), not reorder(): we already hold the key
+                    // and the transaction, and reorder() would open its own.
+                    app(ReorderService::class)->renumberLocked(
+                        $orderedLegacyIds,
+                        ServiceCategory::query()->where('user_id', $professional->id),
+                        $lockKey,
+                    );
+                }
+            });
         } catch (AdvisoryLockTimeoutException) {
             return $this->error('Another change is still saving — please retry in a moment.', 423);
         }
