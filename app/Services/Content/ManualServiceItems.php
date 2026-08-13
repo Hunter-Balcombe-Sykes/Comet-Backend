@@ -166,8 +166,16 @@ class ManualServiceItems
         return ['i.id', 'i.headline_cache', 'i.removed_at', 'i.created_at', 'i.updated_at', 'cs.id as source_id', 'sec.sort_key', 'sec.state'];
     }
 
-    /** @return array{descriptions: Collection, durations: Collection, offers: Collection} */
-    public function facets(array $itemIds, string $manualSourceId): array
+    /**
+     * Facet lookup for ANY content source, whatever its kind — the source id
+     * is the only scope, so slice 3b's `FreshaServiceItems` passes a
+     * `kind = 'connection'` source here rather than carrying a second copy of
+     * these three joins.
+     *
+     * @param  string  $sourceId  any content.sources id, manual or connection
+     * @return array{descriptions: Collection, durations: Collection, offers: Collection}
+     */
+    public function facets(array $itemIds, string $sourceId): array
     {
         if ($itemIds === []) {
             return ['descriptions' => collect(), 'durations' => collect(), 'offers' => collect()];
@@ -175,17 +183,17 @@ class ManualServiceItems
 
         $descriptions = DB::connection('pgsql')->table('content.f_text')
             ->whereIn('item_id', $itemIds)
-            ->where('source_id', $manualSourceId)
+            ->where('source_id', $sourceId)
             ->pluck('body', 'item_id');
 
         $durations = DB::connection('pgsql')->table('content.f_duration')
             ->whereIn('item_id', $itemIds)
-            ->where('source_id', $manualSourceId)
+            ->where('source_id', $sourceId)
             ->pluck('seconds', 'item_id');
 
         $offers = DB::connection('pgsql')->table('content.offers')
             ->whereIn('item_id', $itemIds)
-            ->where('source_id', $manualSourceId)
+            ->where('source_id', $sourceId)
             ->get(['item_id', 'amount_minor', 'currency', 'qualifier'])
             ->keyBy('item_id');
 
