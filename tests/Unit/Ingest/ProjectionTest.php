@@ -216,7 +216,13 @@ it('projects a google review honestly when redaction removed the author', functi
     ]));
 
     expect($projected['kind'])->toBe('review')
-        ->and($projected['headline'])->toBe('Google review')
+        // Slice 6 §2.3: headline is NULL BY CONTRACT, was `$author ?? 'Google
+        // review'`. ProjectionWriter folds any non-empty headline into f_text
+        // and resolves it into items.headline_cache — copies of reviewer PII
+        // that redaction, content:prune-orphaned-review-pii and the DSAR
+        // omission all fail to reach. The literal fallback was harmless on its
+        // own, but keeping it would keep that fold alive for the kind.
+        ->and($projected['headline'])->toBeNull()
         ->and($projected['facets']['f_review']['rating'])->toBe(5.0)
         ->and($projected['facets']['f_rated']['rating_max'])->toBe(5.0)
         // The vendor's relative wording is provenance, never public copy.
