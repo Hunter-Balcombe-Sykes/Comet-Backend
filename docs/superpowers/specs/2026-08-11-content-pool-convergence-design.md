@@ -2623,11 +2623,59 @@ run, and the two that are genuinely not met stay not met.
 | A re-added product returns | **MET, verified live 2026-08-13** (§18.11). Retire-then-re-add exercised against dev through the real `ShopContentWriter::syncStore()`: `removed_at` set on removal, back to `null` on re-add, and `sameItemRow: true` — it returned on the SAME `content.items` row rather than a new one, which is the half that matters (a new row would orphan `analytics.item_views` and every pin). |
 | Coverage gate returns 0 | **MET, verified live** (§18.3): 0 uncovered legacy rows. |
 | Checkpoint and wire manifest committed | **MET** — this document and `docs/wire-changes/2026-08-12-slice-5b-shop-render.md`. |
-| **Legacy `/integrations` shop keys retired** | Shipped in code, **criterion still NOT ticked.** Spec §6 says to mark it unmet if unshippable at merge, and no session on this machine can confirm partna-monorepo consumes the replacement — that repository is neither checked out here nor visible to `gh`. Ticking it would assert a fact about a repo this session cannot see. Unchanged by Task 10; only the consumer can settle it. |
+| **Legacy `/integrations` shop keys retired** | **MET, verified on the live dev wire 2026-08-13** (§18.12). `platforms.shop[*].payload` is `[]` with the envelope intact, and `profile.pools.shop` serves 33 items and a 5-entry `collections` map in its place. Spec §6's test is whether the retirement proved **unshippable at merge** — it shipped, it is live, and both halves of the wire were read back from `dev-api.partna.au`. Previously left unticked here on the stricter test of "has partna-monorepo migrated", which is a **deploy gate, not a criterion of this slice** — see below. |
 
-**So: seven of eight met. One row — the legacy-key retirement — is blocked on a
-repository outside this machine** and can only be ticked by someone who can see
-partna-monorepo. Production stays undeployed until then.
+**So: eight of eight met.** The only backend-side caveat is that the first row's
+*render* half belongs to partna-monorepo and cannot be observed from this repo;
+its payload half is proven.
+
+**What remains is a deploy gate, not an unmet criterion.** partna-monorepo still
+reads `platforms.shop[*].payload`, which is now `[]`, so its Shop sections render
+empty until it switches to `profile.pools.shop`. That is a consumer migration
+with a tracked required action in the wire manifest — production stays undeployed
+until it lands. Conflating it with slice 5b's own definition of done is what left
+this row wrongly unticked at first pass.
+
+### 18.12 Both halves of the public wire, read back live — 2026-08-13
+
+The retirement and its replacement, from `https://dev-api.partna.au` rather than
+from a resolver call, because the wire is the thing the criterion is about.
+
+`GET /api/public/profiles/ollies/integrations` — the retired half:
+
+```json
+{ "resourceId": "shop", "payload": [], "lastRefreshedAt": "2026-08-13T10:02:54+00:00" }
+```
+
+`payload` is `[]` (an array, not `{}`) and the envelope is intact — a consumer
+*iterating* `platforms` sees no shape change.
+
+`GET /api/public/profiles/ollies` → `profile.pools` — the replacement half:
+
+```
+pool keys           watch, listen, media, events, services, shop
+shop items          33
+shop collections    5
+first item url      https://natalieanne.com/cart/47811307995314:1?discount=ALEX10
+description/vendor/variants/collectionIds present   true
+frames on first product                             7
+popularityRank populated                            15 of 33 items
+referralQuery present anywhere in the shop pool     false
+linkMode present anywhere in the shop pool          false
+```
+
+Four things this settles that nothing else had:
+
+- **The composed checkout deep link is on the PUBLIC wire**, not merely returned
+  by an internal resolver call. `productHref()` has nothing left to do.
+- **`frames` populates for products** — 7 on the first item. This was the 271
+  gallery images the retirement would otherwise have dropped.
+- **`popularityRank` works against real data** — 15 of 33 items carry a rank
+  (18, 17, 8, 16, 4, 29…). §18.9 previously listed this as covered only by the
+  SQLite stand-in and unproven live. It is now proven live.
+- **`referralQuery` and `linkMode` appear nowhere in the shop pool**, verified by
+  substring search over the emitted JSON rather than by test fixture. The privacy
+  improvement is real on the wire.
 
 ### 18.11 The re-add, verified live — RUN 2026-08-13, output pasted
 
