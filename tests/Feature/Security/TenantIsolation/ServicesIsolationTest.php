@@ -65,11 +65,51 @@ it('index only returns services belonging to the authenticated professional, acr
     expect($titles)->not->toContain('A Manual', 'A Fresha');
 });
 
+// The three isolation cases above already go over HTTP. The pending-deletion
+// pair below is split ACROSS both layers on purpose (2026-08-14).
+//
+// EnforcePendingDeletionReadOnly answers a write request with its own 423
+// before the controller runs, so an HTTP-only version of these would assert the
+// middleware twice and never reach ServicePolicy::update — it would stay green
+// with the policy gate deleted. Converting them to HTTP would therefore delete
+// a probe, not fix a limitation. Each layer gets its own case instead, and the
+// two are told apart by the body: the middleware sends
+// error=account_pending_deletion, the policy does not.
+
+it('blocks a pending-deletion professional from reordering services over HTTP (423)', function () {
+    $pro = createTenant('svc-reorder-pending-http');
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $pro = $pro->fresh()->load('site');
+
+    actingAsUser($pro)
+        ->postJson('/api/services/reorder', ['ids' => [(string) Str::uuid()]])
+        ->assertStatus(423)
+        ->assertJsonPath('error', 'account_pending_deletion');
+});
+
+it('blocks a pending-deletion professional from reordering the full layout over HTTP (423)', function () {
+    $pro = createTenant('svc-layout-pending-http');
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $pro = $pro->fresh()->load('site');
+
+    actingAsUser($pro)
+        ->postJson('/api/services/reorder-layout', [
+            'categories' => [['id' => null, 'service_ids' => [(string) Str::uuid()]]],
+        ])
+        ->assertStatus(423)
+        ->assertJsonPath('error', 'account_pending_deletion');
+});
+
 // SEC-6: reorder()/reorderLayout() previously never called authorizeForUser,
 // relying solely on the HTTP-layer EnforcePendingDeletionReadOnly middleware.
 // Direct controller invocation bypasses that middleware so these actually
-// exercise the new ServicePolicy::update gate.
-it('blocks a pending-deletion professional from reordering services (423)', function () {
+// exercise the new ServicePolicy::update gate — see the note above for why
+// that is deliberate rather than a leftover.
+it('blocks a pending-deletion professional from reordering services (423, policy gate itself)', function () {
     $pro = createTenant('svc-reorder-pending');
     DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
         'status' => 'pending_deletion',
@@ -89,7 +129,7 @@ it('blocks a pending-deletion professional from reordering services (423)', func
     }
 });
 
-it('blocks a pending-deletion professional from reordering the full service layout (423)', function () {
+it('blocks a pending-deletion professional from reordering the full service layout (423, policy gate itself)', function () {
     $pro = createTenant('svc-layout-pending');
     DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
         'status' => 'pending_deletion',
