@@ -11,7 +11,8 @@
 // only, and NOT ONE write to either table goes through Eloquent:
 // ServiceCollections writes the query builder
 // (`DB::connection(self::CONNECTION)->table('content.collections')->insert`),
-// ProjectionWriter writes raw `DB::table("content.{$table}")`, and ItemMerger
+// ProjectionWriter writes raw, interpolating the table name into the DB::table
+// argument rather than spelling it, and ItemMerger
 // hands the literal table name to a generic `moveWithoutClobbering($table…)`.
 // App\Models\Content\Collection exists, but only as a policy/route-binding
 // vehicle — AppServiceProvider::boot() registers ContentCollectionPolicy
@@ -206,8 +207,8 @@ final class CollectionWriteScan
 {
     /**
      * String literals that name a guarded table. The bare 'collection_items'
-     * is required: ProjectionWriter builds the table name by interpolation
-     * (`DB::table("content.{$table}")`) from a map whose key is that literal,
+     * is required: ProjectionWriter builds the table name by interpolating a
+     * map key into the DB::table argument, and that key is this bare literal —
      * so nothing in that method ever spells the qualified name.
      */
     private const TABLE_LITERALS = ['content.collections', 'content.collection_items', 'collection_items'];
