@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\Site;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
 use App\Site\Pools\PoolSectionProvisioner;
@@ -224,6 +225,118 @@ it('refuses a pin on the reviews pool but allows an exclusion', function () {
 
     expect(DB::table('site.section_items')->where('item_id', $itemId)->value('state'))
         ->toBe('excluded');
+});
+
+// Slice 6 §5.4 retired `rating`, `reviewCount` and `reviewSummary` from
+// PublicIntegrationConnectionResource on the promise that content.source_stats
+// serves them instead. Retiring a key is easy to assert (not->toHaveKey); the
+// ARRIVAL is the half that gets forgotten, so it is pinned here.
+it('ships the place aggregates as pool stats', function () {
+    [$pro, $siteId, $itemId] = reviewPoolFixture(['rating' => 5.0]);
+
+    DB::table('content.source_stats')->insert([
+        'source_id' => DB::table('content.sources')->where('user_id', $pro->id)->value('id'),
+        'rating_avg' => 4.8, 'rating_count' => 127,
+        'summary_text' => 'Customers praise the friendly staff.',
+        'updated_at' => now(),
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect($resolved['stats'])->toBe([
+        'ratingAvg' => 4.8,
+        'ratingCount' => 127,
+        'summaryText' => 'Customers praise the friendly staff.',
+    ]);
+});
+
+// A place with reviews but no aggregates row must not publish a zero-star
+// badge — the §5.2 accepted gap is "no stats", not "stats of nothing".
+it('ships null stats when the source carries no aggregates', function () {
+    [$pro, $siteId] = reviewPoolFixture(['rating' => 5.0]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect($resolved['stats'])->toBeNull();
+});
+
+// The owner's toggle governs the badge as well as the cards. Serving a 4.8
+// rating for an owner who switched reviews off would republish the thing they
+// switched off, in summary form.
+it('withholds stats when the owner suppresses reviews', function () {
+    [$pro, $siteId] = reviewPoolFixture(['rating' => 5.0], ['reviews' => false]);
+
+    DB::table('content.source_stats')->insert([
+        'source_id' => DB::table('content.sources')->where('user_id', $pro->id)->value('id'),
+        'rating_avg' => 4.8, 'rating_count' => 127, 'summary_text' => null,
+        'updated_at' => now(),
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect($resolved['stats'])->toBeNull();
+});
+
+// Every other pool keeps a stats key so the wire shape does not change with
+// pool — the same contract `collections` keeps.
+it('ships null stats on a pool that has no aggregates lane', function () {
+    [$pro, $siteId] = poolTenant();
+    poolItem($pro->id, poolSource($pro->id, poolConnection($pro->id)), 'video', 'A video', now()->toDateTimeString());
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'watch');
+
+    expect($resolved)->toHaveKey('stats')->and($resolved['stats'])->toBeNull();
+});
+
+// The one that actually closes the §5.4 promise. A resolver-level assertion
+// would have passed all the way through the retirement landing with NOTHING
+// reading content.source_stats on a public path — which is exactly what
+// happened. This drives the real public payload builder.
+it('publishes the aggregates on the public profile payload', function () {
+    // Provisioned here rather than in beforeEach, following EventsPoolTest —
+    // only the payload-builder cases walk blocks and the design kit.
+    setupContentSelectionTable();
+    setupBlocksTable();
+    setupServicesTable();
+    setupDesignKitsTable();
+
+    [$pro, $siteId, $itemId] = reviewPoolFixture(['rating' => 5.0]);
+
+    DB::table('content.source_stats')->insert([
+        'source_id' => DB::table('content.sources')->where('user_id', $pro->id)->value('id'),
+        'rating_avg' => 4.83, 'rating_count' => 12719,
+        'summary_text' => 'Punters rave about the razor fades.',
+        'updated_at' => now(),
+    ]);
+
+    $payload = app(IndividualProfilePayloadBuilder::class)
+        ->build($pro->fresh(), Site::query()->findOrFail($siteId));
+
+    // The resource casts pools to an object so an empty map serializes {}.
+    $reviews = $payload['profile']['pools']->reviews ?? null;
+
+    expect($reviews)->not->toBeNull()
+        ->and($reviews['stats'])->toBe([
+            'ratingAvg' => 4.83,
+            'ratingCount' => 12719,
+            'summaryText' => 'Punters rave about the razor fades.',
+        ]);
+});
+
+// Absent, not null — the same contract `collections` keeps, so a pool with no
+// aggregates does not ship an empty badge object for the renderer to guard.
+it('omits the stats key entirely when there are no aggregates', function () {
+    setupContentSelectionTable();
+    setupBlocksTable();
+    setupServicesTable();
+    setupDesignKitsTable();
+
+    [$pro, $siteId] = reviewPoolFixture(['rating' => 5.0]);
+
+    $payload = app(IndividualProfilePayloadBuilder::class)
+        ->build($pro->fresh(), Site::query()->findOrFail($siteId));
+
+    expect($payload['profile']['pools']->reviews)->not->toHaveKey('stats');
 });
 
 // The section-curation endpoint above is not the only way to pin. PoolController

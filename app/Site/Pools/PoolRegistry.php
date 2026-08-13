@@ -145,7 +145,27 @@ class PoolRegistry
      */
     public const MANUAL_ADD_FORBIDDEN_POOLS = ['reviews'];
 
+    /**
+     * Pools that render their source's own aggregates (content.source_stats)
+     * beside their items — currently the Google star average, review count and
+     * review summary, which slice 6 §5.4 retired from
+     * PublicIntegrationConnectionResource on the promise this lane serves them.
+     *
+     * Declared here rather than branched on in PoolResolver because a
+     * google_business source feeds the media pool too: without this the rating
+     * badge would surface on a pool of photos. Same one-source-of-truth reason
+     * as EXCLUDE_ONLY_POOLS above.
+     *
+     * @var list<string>
+     */
+    public const SOURCE_STATS_POOLS = ['reviews'];
+
     private const SECTION_KEY_PREFIX = 'pool:';
+
+    public static function carriesSourceStats(string $pool): bool
+    {
+        return in_array($pool, self::SOURCE_STATS_POOLS, true);
+    }
 
     public static function isPool(string $key): bool
     {

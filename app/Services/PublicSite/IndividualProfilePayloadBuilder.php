@@ -339,6 +339,13 @@ class IndividualProfilePayloadBuilder
                 // Shop groups its items into store cards; every other pool
                 // returns [] and the key is simply absent from its payload.
                 ...($resolved['collections'] === [] ? [] : ['collections' => $resolved['collections']]),
+                // Slice 6 §5.4: reviews carries its source's aggregates — the
+                // star average, review count and Google's review summary. This
+                // is where `rating`, `reviewCount` and `reviewSummary` went
+                // when they left PublicIntegrationConnectionResource; without
+                // it that retirement drops three published fields on the floor.
+                // Absent when null, the same contract `collections` keeps.
+                ...($resolved['stats'] === null ? [] : ['stats' => $resolved['stats']]),
             ];
         }
 
