@@ -28,8 +28,16 @@ final class DsarPayloadFilter
     /**
      * Third-party payload keys withheld from a data-subject export, in the
      * style of DataExportPayloadBuilder::PII_DISCLOSURE.
+     *
+     * Slice 6 extended the Google clause to name the aggregate review summary.
+     * The summary moved into content.source_stats.summary_text and is withheld
+     * there too (DataExportPayloadBuilder::streamContentSourceStats omits it
+     * from the select), so a disclosure that named only the legacy
+     * `reviewSummary` key would have understated what is held back. The
+     * 2026-08-05 sentence structure and its backticked key names are otherwise
+     * unchanged — this is an addition, not a rewrite.
      */
-    public const WITHHELD_DISCLOSURE = 'Some data fetched from your connected platforms is withheld from this export because it is personal data about OTHER people, not about you: reviewer names, photos and review text from Google Business (`reviews`, `reviewSummary`), and event organiser and venue identity from Eventbrite and Humanitix (`organiser`, `venue`). Those individuals and businesses are not parties to your Partna account and did not consent to appearing in it. Everything in this section that describes your own connection, listing or content is included in full.';
+    public const WITHHELD_DISCLOSURE = 'Some data fetched from your connected platforms is withheld from this export because it is personal data about OTHER people, not about you: reviewer names, photos and review text from Google Business (`reviews`, `reviewSummary`), including Google\'s own aggregate summary of those reviews wherever else it is held (`summary_text` in `content.source_stats`), and event organiser and venue identity from Eventbrite and Humanitix (`organiser`, `venue`). Those individuals and businesses are not parties to your Partna account and did not consent to appearing in it. Your listing\'s own star average and review count are business facts about you, not about a reviewer, and are NOT withheld. Everything in this section that describes your own connection, listing or content is included in full.';
 
     /**
      * Removed from every platform's DSAR allowlist wherever the public

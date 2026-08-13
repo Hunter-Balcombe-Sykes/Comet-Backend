@@ -127,7 +127,22 @@ class PublicIntegrationConnectionResource extends ApiResource
         'strava' => ['url', 'name', 'location', 'image', 'description', 'members'],
         // google-business: placeId / phoneIntl / priceLevel / priceRange /
         // detailsFetchedAt stay private. photos now public for home bg.
-        'google-business' => ['url', 'name', 'address', 'lat', 'lng', 'rating', 'reviewCount', 'businessStatus', 'category', 'phone', 'website', 'hours', 'links', 'reviews', 'reviewSummary', 'editorialSummary', 'amenities', 'photos'],
+        //
+        // RETIRED 2026-08-13 (slice 6): `reviews`, `reviewSummary`, `rating`
+        // and `reviewCount` left this list. Individual reviews reach the
+        // sitepage through `profile.pools.reviews`, served from
+        // content.f_review — which redaction, PruneOrphanedReviewPiiCommand and
+        // DSAR all govern, unlike this payload copy — and the aggregates
+        // through content.source_stats. Unlike the events and shop
+        // retirements, the platform KEEPS a non-empty entry: everything else
+        // on this lane (hours, address, links, photos, amenities) still
+        // publishes from here.
+        //
+        // The FETCH is unchanged. GoogleBusinessService still populates all
+        // four keys and GoogleBusinessConnectionResource (dashboard) still
+        // reads them, so nothing about billing or the owner's review toggle
+        // moves. This retires a read, not a fetch.
+        'google-business' => ['url', 'name', 'address', 'lat', 'lng', 'businessStatus', 'category', 'phone', 'website', 'hours', 'links', 'editorialSummary', 'amenities', 'photos'],
         // opentable: the reservation-widget embed is public by design (it's a
         // keyless booking widget). rid/url are public widget params, not secrets.
         'opentable' => ['url', 'rid', 'name', 'embedUrl'],

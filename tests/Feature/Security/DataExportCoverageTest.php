@@ -174,6 +174,7 @@ const CASCADE_ERASED = [
     'content.sources',       // user_id FK -> core.users ON DELETE CASCADE
     'content.items',         // user_id FK -> core.users ON DELETE CASCADE
     'content.source_items',  // source_id FK -> content.sources -> core.users ON DELETE CASCADE
+    'content.source_stats',  // source_id PK/FK -> content.sources -> core.users ON DELETE CASCADE (20260813110001)
     'content.f_text',        // item_id FK -> content.items -> core.users ON DELETE CASCADE
     'content.f_place',       // ditto
     'content.f_review',      // ditto
