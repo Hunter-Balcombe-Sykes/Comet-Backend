@@ -43,24 +43,57 @@ class ManualServiceWriter
      * (a `site.services` row from the backfill, or a plain object assembled
      * from a dashboard request) — same mapping either way.
      *
+     * @param  list<string>  $forceFacets  B1: field names ('description',
+     *                                     'duration_minutes') the CALLER is
+     *                                     actively setting THIS request —
+     *                                     UserServiceController::update()
+     *                                     passes the PATCH payload's own
+     *                                     keys. A field in this list writes
+     *                                     its facet even when the resolved
+     *                                     value is null, so
+     *                                     upsertSingletonFacet() (which only
+     *                                     touches columns present in its
+     *                                     input) actually clears a
+     *                                     previously-set value instead of
+     *                                     leaving it behind. A field NOT in
+     *                                     this list with a null value omits
+     *                                     the facet entirely — required so a
+     *                                     brand-new create/backfill (nothing
+     *                                     to clear, nothing ever forced)
+     *                                     doesn't grow a facet row it never
+     *                                     had (ServiceBackfillerTest 'omits
+     *                                     duration and body rows when the
+     *                                     legacy columns are null'). Empty
+     *                                     by default — store()/
+     *                                     ServiceBackfiller never need it,
+     *                                     since a new item has nothing to
+     *                                     clear either way.
      * @return array<string, mixed>
      */
-    public function projectionFor(object $service): array
+    public function projectionFor(object $service, array $forceFacets = []): array
     {
         $title = trim((string) ($service->title ?? ''));
         $description = trim((string) ($service->description ?? ''));
 
+        // 'headline' stays filtered: title is `required` on every write path
+        // (never legitimately blank), so an empty title omits the key rather
+        // than risk clobbering a real headline with '' turned to null.
         $projection = [
             'kind' => 'service',
             'headline' => $title,
             'facets' => ['f_text' => array_filter([
                 'headline' => $title !== '' ? $title : null,
-                'body' => $description !== '' ? $description : null,
             ], static fn ($v) => $v !== null)],
         ];
 
-        if ($service->duration_minutes !== null) {
-            $projection['facets']['f_duration'] = ['seconds' => ((int) $service->duration_minutes) * 60];
+        if ($description !== '' || in_array('description', $forceFacets, true)) {
+            $projection['facets']['f_text']['body'] = $description !== '' ? $description : null;
+        }
+
+        if ($service->duration_minutes !== null || in_array('duration_minutes', $forceFacets, true)) {
+            $projection['facets']['f_duration'] = [
+                'seconds' => $service->duration_minutes !== null ? ((int) $service->duration_minutes) * 60 : null,
+            ];
         }
 
         if ($service->price_cents !== null) {

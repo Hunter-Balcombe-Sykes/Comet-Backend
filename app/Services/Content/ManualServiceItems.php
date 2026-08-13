@@ -2,6 +2,7 @@
 
 namespace App\Services\Content;
 
+use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\Service;
 use App\Site\Pools\PoolRegistry;
@@ -24,14 +25,82 @@ class ManualServiceItems
     /** Read-only resolve of the site's own 'services' section id — never provisions. */
     public function sectionId(?Site $site): ?string
     {
-        if ($site === null) {
+        return $this->sectionIdForSiteId($site?->id);
+    }
+
+    private function sectionIdForSiteId(?string $siteId): ?string
+    {
+        if ($siteId === null) {
             return null;
         }
 
         return DB::connection('pgsql')->table('site.sections')
-            ->where('site_id', $site->id)
+            ->where('site_id', $siteId)
             ->where('key', PoolRegistry::sectionKey('services'))
             ->value('id');
+    }
+
+    /**
+     * B3: EXISTS-shaped query — at least one LIVE, non-excluded manual
+     * service. Builder-returning (not a bool) so the visibility gates that
+     * need it (SectionVisibilityContract::contextSubqueries()) can fold it
+     * into their own single-round-trip EXISTS batch instead of issuing a
+     * separate query.
+     *
+     * This is the read-side twin of ManualServiceWriter::exclude(): three
+     * call sites (BookingVisibility, the Services page-presence probe, and
+     * — narrowed further below — ServicesVisibility) each hand-rolled this
+     * predicate with NO join to site.section_items at all, so hiding every
+     * service via exclude() never closed anything they gated. Absent
+     * curation (never pinned/excluded) counts as visible, matching
+     * rows()/publicList()'s own "no row = shown" rule.
+     *
+     * Deliberately NOT built on baseQuery()/sectionId(): those resolve the
+     * section id via an immediate, separate query before the caller ever
+     * sees a Builder — fine for rows()/find() (real reads that always
+     * execute), but fatal for the EXISTS-batching contract this method
+     * serves (SectionVisibilityService::buildContext() bundles every rule's
+     * subquery into ONE SELECT — BatchCheckQueryCountTest pins that count).
+     * The section id is resolved here as a correlated subquery instead, so
+     * the whole thing stays one lazy, never-eagerly-executed Builder.
+     */
+    public function activeQuery(string $userId, string $siteId): Builder
+    {
+        return DB::connection('pgsql')->table('content.items as i')
+            ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->leftJoin('site.section_items as sec', function ($join) use ($siteId) {
+                $join->on('sec.item_id', '=', 'i.id')
+                    ->whereIn('sec.section_id', function ($q) use ($siteId) {
+                        $q->select('id')->from('site.sections')
+                            ->where('site_id', $siteId)
+                            ->where('key', PoolRegistry::sectionKey('services'));
+                    });
+            })
+            ->select(DB::raw('1'))
+            ->where('i.user_id', $userId)
+            ->where('i.kind', 'service')
+            ->whereNull('i.removed_at')
+            ->whereNull('si.removed_at')
+            ->where('cs.kind', 'manual')
+            ->where(fn ($q) => $q->whereNull('sec.state')->orWhere('sec.state', '!=', SectionItem::STATE_EXCLUDED));
+    }
+
+    /**
+     * Same bar as activeQuery(), narrowed to ServicesVisibility's "valid
+     * enough to show publicly" predicate: a non-empty title AND a priced
+     * (amount_minor > 0) offer — mirrors the pre-existing price_cents > 0
+     * bar (a $0/'free' offer still does not satisfy it).
+     */
+    public function activePricedQuery(string $userId, string $siteId): Builder
+    {
+        return $this->activeQuery($userId, $siteId)
+            ->join('content.offers as o', function ($join) {
+                $join->on('o.item_id', '=', 'i.id')->on('o.source_id', '=', 'cs.id');
+            })
+            ->whereNotNull('i.headline_cache')
+            ->where('i.headline_cache', '!=', '')
+            ->where('o.amount_minor', '>', 0);
     }
 
     /**
@@ -380,7 +449,11 @@ class ManualServiceItems
         // from 0), so mapping null to 0 put every hidden service at the
         // HEAD of the list instead of somewhere sane. PHP_INT_MAX is safe
         // here only because this model is never persisted (`exists = false`
-        // above) — it never reaches a real INTEGER column.
+        // above) — it never reaches a real INTEGER column. M2: it also never
+        // reaches the WIRE — ServiceResource maps this exact sentinel
+        // (unpersisted model + PHP_INT_MAX) back to `null` for the response,
+        // since 9223372036854775807 is above Number.MAX_SAFE_INTEGER and was
+        // shipping as a real integer on the dashboard payload.
         $service->sort_order = $row->sort_key !== null ? (int) round((float) $row->sort_key) : PHP_INT_MAX;
         // Owner-authored services carry no legacy provenance.
         $service->source = null;

@@ -40,7 +40,14 @@ class ServiceResource extends ApiResource
             'currency_code' => $this->currency_code,
             'duration_minutes' => $this->duration_minutes,
             'is_active' => $this->is_active,
-            'sort_order' => $this->sort_order,
+            // M2: ManualServiceItems::hydrate() stamps an unpinned/hidden
+            // owner-authored service (transient, never persisted) with
+            // PHP_INT_MAX so it sorts last in the merged manual+Fresha list —
+            // an internal-only sentinel that must not reach the wire as a
+            // real integer (9223372036854775807 is above JS's
+            // Number.MAX_SAFE_INTEGER). Guarded on `! exists` so a genuinely
+            // persisted row's sort_order is never reinterpreted this way.
+            'sort_order' => ! $this->resource->exists && $this->sort_order === PHP_INT_MAX ? null : $this->sort_order,
             // Fresha projection provenance: source 'fresha' + is_manual=false is
             // live-synced; is_manual=true is owner-edited ("sync broken" chip +
             // revert button). NULL source = plain manual service.

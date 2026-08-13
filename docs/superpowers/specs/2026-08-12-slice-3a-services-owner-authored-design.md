@@ -253,10 +253,16 @@ write.
 | `POST /services/{service}/restore` (323) | clears `removed_at` — see below |
 
 Deferred to 3b, unchanged in 3a: `POST /services/resync` (320),
-`POST /services/{service}/resync` (321), `PATCH /services/{service}/category`
-(345), and the six `/service-categories/*` routes (328–338). The first two are
-Fresha-only verbs; the rest are categories, which 3a does not touch because every
-live category belongs to Fresha.
+`POST /services/{service}/resync` (321), and the six `/service-categories/*`
+routes (328–338). These are Fresha-only verbs and categories, which 3a does not
+touch because every live category belongs to Fresha.
+
+`PATCH /services/{service}/category` (345) is **not** unchanged: `ServicePolicy::
+updateCategory()` now denies-as-404 for any resource whose `source` isn't
+`'fresha'`. Owner-authored (content.*) services have no `source` column to check
+in the first place — the route 404s them the same way it 404s a foreign
+professional's service. Owner-authored category assignment is deferred to 3b
+(content.* has no membership concept yet), not shipped unchanged in 3a.
 
 **Both controllers keep writing `site.services` for the Fresha half until 3b.**
 3a's cutover is scoped to the owner-authored path, so the legacy projector and

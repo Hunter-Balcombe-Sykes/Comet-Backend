@@ -3,6 +3,7 @@
 namespace App\Services\User\Visibility\Rules;
 
 use App\Models\Core\Site\Block;
+use App\Services\Content\ManualServiceItems;
 use App\Services\User\Visibility\SectionVisibilityContract;
 use Illuminate\Support\Facades\DB;
 
@@ -26,16 +27,10 @@ class BookingVisibility implements SectionVisibilityContract
             // kept). Slice 3a §3.4: owner-authored services live in
             // content.* now — a live service-kind item on the user's manual
             // source is the new mechanism for the same "at least one active
-            // manual service" meaning.
-            'has_active_service' => DB::connection('pgsql')->table('content.items as i')
-                ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
-                ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-                ->select(DB::raw('1'))
-                ->where('i.user_id', $userId)
-                ->where('i.kind', 'service')
-                ->whereNull('i.removed_at')
-                ->whereNull('si.removed_at')
-                ->where('cs.kind', 'manual'),
+            // manual service" meaning. B3: routed through ManualServiceItems::
+            // activeQuery() — the old hand-rolled copy had no join to
+            // site.section_items, so hiding every service never closed this gate.
+            'has_active_service' => app(ManualServiceItems::class)->activeQuery($userId, $siteId),
 
             // Current "has a booking destination" path: a links-group block with
             // category='booking'. Phase 2: reads the promoted column (not settings JSONB).

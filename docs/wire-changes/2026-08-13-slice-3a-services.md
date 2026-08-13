@@ -14,13 +14,22 @@ services (`source = 'fresha'`) are **not** migrated and still come from
 ## Headline: every shape is UNCHANGED — only the backing store moved
 
 **Request and response shapes did not change on any of the 8 endpoints, the
-public profile payload, or the DSAR export.** That was the acceptance
-criterion for the slice (spec §6), pinned by
-`tests/Feature/Api/User/ServiceEndpointCutoverTest.php`'s
+public profile payload, or the DSAR export**, with one exception fixed after
+review — see below. That was the acceptance criterion for the slice (spec
+§6), pinned by `tests/Feature/Api/User/ServiceEndpointCutoverTest.php`'s
 `'keeps the response shape unchanged'` cases and by
 `ServiceResource`'s unchanged field list. Consuming repos need change
 nothing to keep working — this manifest exists so they know what moved
 underneath them, not because there is anything to update.
+
+**Correction: `sort_order` on a hidden/unpinned owner-authored service is
+`null`, not `9223372036854775807`.** Post-review fix — the dashboard list
+was briefly shipping `PHP_INT_MAX` (an internal "sort last in the merged
+manual+Fresha list" sentinel from `ManualServiceItems::hydrate()`) as a raw
+integer, which is above `Number.MAX_SAFE_INTEGER` and unsafe for a JS
+consumer to round-trip. `ServiceResource` now maps that internal sentinel to
+`null` at the wire boundary; the merge still sorts these rows last
+internally, only the emitted value changed.
 
 ## Endpoints — consuming repo and what changed
 
@@ -53,11 +62,16 @@ unchanged.
 
 ### Deferred to 3b, unchanged in 3a
 
-`POST /services/resync`, `POST /services/{service}/resync`,
-`PATCH /services/{service}/category`, and all six
+`POST /services/resync`, `POST /services/{service}/resync`, and all six
 `/service-categories/*` routes stay on `site.services` untouched — every
 live category (18 of 18) belongs to Fresha, so 3a's owner-authored cutover
 has no category work to do.
+
+`PATCH /services/{service}/category` is **not** unchanged: `ServicePolicy::
+updateCategory()` now 404s the route for any service whose `source` isn't
+`'fresha'` — including every owner-authored (`content.*`) service, which has
+no `source` value to match. Owner-authored category assignment is deferred
+to 3b (content.* carries no membership concept yet), not shipped unchanged.
 
 ## Public surface
 

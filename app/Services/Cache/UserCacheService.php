@@ -199,6 +199,17 @@ class UserCacheService
      |  Existing caches you already have
      * --------------------------*/
 
+    /**
+     * B2: was a straight `site.services` read with NO `source` filter at
+     * all — the one dashboard-payload query the Task 5 cutover missed. An
+     * owner-authored (content.*) create was invisible here, an edit served
+     * pre-cutover values forever, and a delete kept showing as live. Same
+     * merge ManualServiceItems/getDashboardServices() already uses: content.*
+     * owner-authored rows (filtered to the live/visible ones — this is the
+     * PUBLIC-facing "active services" list, not the dashboard management
+     * list, so an excluded row must not appear here) plus
+     * `site.services WHERE source IS NOT NULL` (Fresha, untouched, 3b's rows).
+     */
     public function getActiveServices(string $userId): array
     {
         // busts: professionalServices + professionalServices:stale (invalidateUser)
@@ -208,15 +219,28 @@ class UserCacheService
         return $this->cacheLock->rememberLocked(
             CacheKeyGenerator::professionalServices($userId),
             (int) config('partna.cache.ttls.auth_id_lookup'),
-            fn () => Service::query()
-                ->with('categories:id')
-                ->where('user_id', $userId)
-                ->where('is_active', true)
-                ->whereNull('deleted_at')
-                ->orderBy('sort_order')
-                ->get()
-                ->map(fn (Service $s) => (new ServiceResource($s))->resolve())
-                ->all()
+            function () use ($userId) {
+                $manual = app(ManualServiceItems::class);
+                $site = Site::query()->where('user_id', $userId)->first();
+                $rows = $manual->rows($userId, $manual->sectionId($site), includeRemoved: false);
+                $manualServices = $manual->toServiceModels($userId, $rows)
+                    ->filter(fn (Service $s) => $s->is_active)
+                    ->values();
+
+                $freshaServices = Service::query()
+                    ->with('categories:id')
+                    ->where('user_id', $userId)
+                    ->whereNotNull('source')
+                    ->where('is_active', true)
+                    ->whereNull('deleted_at')
+                    ->orderBy('sort_order')
+                    ->get();
+
+                return $manualServices->concat($freshaServices)
+                    ->sortBy('sort_order')->values()
+                    ->map(fn (Service $s) => (new ServiceResource($s))->resolve())
+                    ->all();
+            }
         );
     }
 

@@ -288,15 +288,11 @@ class SitepageDataResolverService
                 // Active MANUAL services → the Services page (Fresha projections
                 // never flip public page presence). Slice 3a §3.4: the
                 // manual-source filter replaces the old whereNull('source').
-                if ($this->safeQuery(fn () => DB::connection('pgsql')->table('content.items as i')
-                    ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
-                    ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-                    ->where('i.user_id', $userId)
-                    ->where('i.kind', 'service')
-                    ->whereNull('i.removed_at')
-                    ->whereNull('si.removed_at')
-                    ->where('cs.kind', 'manual')
-                    ->exists(), false, 'active_services_exists', $site)) {
+                // B3: routed through ManualServiceItems::activeQuery() — the
+                // old inline query had no join to site.section_items, so
+                // hiding every service left the Services page advertised in
+                // nav/pageOrder with nothing to render.
+                if ($this->safeQuery(fn () => app(ManualServiceItems::class)->activeQuery($userId, $site->id)->exists(), false, 'active_services_exists', $site)) {
                     $present['services'] = true;
                 }
 

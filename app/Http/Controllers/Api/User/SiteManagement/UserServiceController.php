@@ -343,7 +343,13 @@ class UserServiceController extends ApiController
         // request itself is about to create a source_item for (defensive;
         // every item reached through find() already has one).
         $coord = $writer->coordFor($pro->id, (string) $row->id) ?? ('manual:'.$row->id);
-        $itemId = $writer->write($pro->id, $coord, $writer->projectionFor($payload));
+        // B1: fields the caller actually sent THIS request — not $payload's
+        // keys, which are always fully populated by the merge above. Tells
+        // projectionFor() which null values are an explicit clear (write it)
+        // versus an untouched field merely carrying its current value
+        // forward (leave the facet alone if that value happens to be null).
+        $forceFacets = array_intersect(array_keys($data), ['description', 'duration_minutes']);
+        $itemId = $writer->write($pro->id, $coord, $writer->projectionFor($payload, $forceFacets));
 
         // is_active moves the row between pin (visible) and exclude (hidden)
         // — content.* has no boolean column for it. Always re-applied

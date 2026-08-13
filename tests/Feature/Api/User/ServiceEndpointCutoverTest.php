@@ -82,6 +82,30 @@ it('keeps the response shape unchanged', function () {
     ]);
 });
 
+// M2 (final whole-branch review): ManualServiceItems::hydrate() stamps a
+// hidden/unpinned owner-authored service with PHP_INT_MAX (9223372036854775807)
+// so it sorts last in the merged manual+Fresha list internally — that
+// sentinel was shipping verbatim on the dashboard wire, above JS's
+// Number.MAX_SAFE_INTEGER. ServiceResource now maps it to null at the wire
+// boundary; the sort-last behaviour must still hold internally.
+it('emits null (not the internal PHP_INT_MAX sentinel) for a hidden owner service\'s sort_order, while still sorting it last', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+
+    $freshaId = ownerService($userId, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
+    $manualId = actingAsUser($user)->postJson('/api/services', ['title' => 'Manual A', 'price_cents' => 1000])
+        ->assertCreated()->json('service.id');
+
+    actingAsUser($user)->patchJson("/api/services/{$manualId}", ['is_active' => false])->assertOk();
+
+    $response = actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk();
+    $services = collect($response->json('services'));
+
+    expect($services->pluck('id')->all())->toBe([$freshaId, $manualId]);
+    expect($services->firstWhere('id', $manualId)['sort_order'])->toBeNull();
+    expect($services->firstWhere('id', $freshaId)['sort_order'])->toBe(0);
+});
+
 it('reorders by moving the pin, and the public order follows', function () {
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
@@ -233,6 +257,56 @@ it('a partial update does not blank out fields it did not send', function () {
     expect($response->json('service.description'))->toBe('Details here');
     expect($response->json('service.price_cents'))->toBe(5000);
     expect($response->json('service.duration_minutes'))->toBe(45);
+});
+
+// B1 (final whole-branch review): projectionFor() built the content.* facet
+// projection with array_filter(), which dropped a null/empty 'body' or the
+// whole 'f_duration' facet from the payload — ProjectionWriter::
+// upsertSingletonFacet() only touches columns actually present in what it's
+// given, so an omitted facet key left the EXISTING row untouched. An
+// explicit PATCH {"description": null} therefore silently no-opped instead
+// of clearing the field.
+it('an explicit PATCH {"description": null} actually clears the description', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+
+    $id = actingAsUser($user)->postJson('/api/services', [
+        'title' => 'Full', 'description' => 'Details here', 'price_cents' => 5000,
+    ])->assertCreated()->json('service.id');
+
+    $response = actingAsUser($user)->patchJson("/api/services/{$id}", ['description' => null])->assertOk();
+    expect($response->json('service.description'))->toBeNull();
+
+    // Re-read fresh (not the just-written response) and check the public
+    // payload + the raw facet row too — the three places B1 was proven live.
+    actingAsUser($user)->getJson("/api/services/{$id}")->assertOk()
+        ->assertJsonPath('service.description', null);
+
+    $site = Site::query()->find($siteId);
+    $data = app(SitepageDataResolverService::class)->buildServicesData($site, $userId);
+    $service = collect($data['services'])->firstWhere('id', $id);
+    expect($service['description'])->toBeNull();
+
+    $sourceId = DB::table('content.sources')->where('user_id', $userId)->where('kind', 'manual')->value('id');
+    expect(DB::table('content.f_text')->where('item_id', $id)->where('source_id', $sourceId)->value('body'))->toBeNull();
+});
+
+it('an explicit PATCH {"duration_minutes": null} actually clears the duration', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    $user = User::query()->with('site')->findOrFail($userId);
+
+    $id = actingAsUser($user)->postJson('/api/services', [
+        'title' => 'Full', 'price_cents' => 5000, 'duration_minutes' => 45,
+    ])->assertCreated()->json('service.id');
+
+    $response = actingAsUser($user)->patchJson("/api/services/{$id}", ['duration_minutes' => null])->assertOk();
+    expect($response->json('service.duration_minutes'))->toBeNull();
+
+    actingAsUser($user)->getJson("/api/services/{$id}")->assertOk()
+        ->assertJsonPath('service.duration_minutes', null);
+
+    $sourceId = DB::table('content.sources')->where('user_id', $userId)->where('kind', 'manual')->value('id');
+    expect(DB::table('content.f_duration')->where('item_id', $id)->where('source_id', $sourceId)->value('seconds'))->toBeNull();
 });
 
 it('falls back to the untouched Fresha row when the id is not a manual content item', function () {
