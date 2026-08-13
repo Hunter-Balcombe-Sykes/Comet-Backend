@@ -40,11 +40,30 @@ abstract class TestCase extends BaseTestCase
         // worker-private database (token 1..N → DB 1..N; local Redis ships 16
         // DBs, so ≤15 workers). flushdb then only ever clears the calling
         // worker's own DB. Solo runs keep the 0-4 defaults.
+        // `app` is in this list because TokenRevocationService, VerifyBotToken,
+        // PerTargetReportThrottle, LiveStatusInjector, CircuitBreaker,
+        // EnquirySpamBlocklist, CacheLockService and RecordCacheMetrics all read
+        // and write through Redis::connection('app'). Leave it out and the
+        // service half of those suites sits on DB 0 while the assertions read
+        // the worker-private DB.
+        //
+        // The two loops MUST stay separate. RedisManager is handed its config
+        // BY VALUE in RedisServiceProvider::register(), so it snapshots
+        // database.redis at the moment it is first resolved — and Redis::purge()
+        // is what resolves it. Rewriting config and purging in one loop
+        // therefore freezes the snapshot on the first iteration, and every
+        // connection after it keeps its original database. That bug is why this
+        // block silently remapped only `default` for its whole life.
         $token = env('TEST_TOKEN');
         if ($token !== false && $token !== null && $token !== '' && (int) $token > 0) {
             $db = (int) $token;
-            foreach (['default', 'cache', 'session', 'queue', 'cache_locks'] as $name) {
+            $connections = ['default', 'app', 'cache', 'session', 'queue', 'cache_locks'];
+
+            foreach ($connections as $name) {
                 config(["database.redis.{$name}.database" => $db]);
+            }
+
+            foreach ($connections as $name) {
                 Redis::purge($name);
             }
         }
