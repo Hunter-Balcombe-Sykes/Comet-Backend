@@ -77,7 +77,11 @@ class RunExecutor
                 identifier: (string) $source['identifier'],
                 stream: $spec,
                 cursor: $this->cursorFor($streamId),
-                config: ['scope' => $source['scope'] ?? 'all', 'scope_n' => $source['scope_n'] ?? null],
+                config: [
+                    'scope' => $source['scope'] ?? 'all',
+                    'scope_n' => $source['scope_n'] ?? null,
+                    'selection_ref' => $source['selection_ref'] ?? null,
+                ],
                 isClaimed: $this->isClaimed($source),
             );
 

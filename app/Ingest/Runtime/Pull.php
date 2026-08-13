@@ -9,7 +9,13 @@ final readonly class Pull
 {
     /**
      * @param  array<string, mixed>  $cursor  last Bookmark for this stream
-     * @param  array<string, mixed>  $config  per-source options (scope, scope_n)
+     * @param  array<string, mixed>  $config  per-source options (scope, scope_n,
+     *                                        selection_ref). selection_ref is the
+     *                                        sub-account selector: an id, the
+     *                                        literal 'storewide', or null for
+     *                                        "nothing chosen" -- which a connector
+     *                                        must treat as land-nothing, never as
+     *                                        fetch-everything.
      * @param  bool  $isClaimed  drives Manifest::redactionsFor() — a PII gate,
      *                           so the default must fail CLOSED. RunExecutor:75 is the only production
      *                           construction site today and always passes this explicitly; the default

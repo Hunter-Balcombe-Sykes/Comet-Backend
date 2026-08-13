@@ -470,6 +470,59 @@ it('provisions menu sources only from urls the platform host-pattern recognises'
         ->and(ingestSourceFor($doordash)->identifier)->toBe('https://www.doordash.com/store/burger-republic-123');
 });
 
+// ── Selection ref (which sub-account's menu to fetch) ───────────────────────
+
+function freshaConnection(array $payloadExtras): IntegrationConnection
+{
+    return makeConnection(provisionerUser(), [
+        'platform' => 'fresha',
+        'payload' => ['url' => 'https://www.fresha.com/a/some-salon-abc123'] + $payloadExtras,
+    ]);
+}
+
+it('writes the chosen employee id onto the ingest source', function () {
+    $connection = freshaConnection(['selection' => ['mode' => 'employee', 'employee' => ['employeeId' => '4891132']]]);
+
+    app(SourceProvisioner::class)->sync($connection);
+
+    expect(DB::table('ingest.sources')->where('connection_id', $connection->id)->value('selection_ref'))
+        ->toBe('4891132');
+});
+
+it('writes the storewide token when the owner chose the whole store', function () {
+    $connection = freshaConnection(['selection' => ['mode' => 'storewide']]);
+
+    app(SourceProvisioner::class)->sync($connection);
+
+    expect(DB::table('ingest.sources')->where('connection_id', $connection->id)->value('selection_ref'))
+        ->toBe('storewide');
+});
+
+it('leaves selection_ref null when nothing has been chosen', function () {
+    $connection = freshaConnection(['selection' => null]);
+
+    app(SourceProvisioner::class)->sync($connection);
+
+    expect(DB::table('ingest.sources')->where('connection_id', $connection->id)->value('selection_ref'))
+        ->toBeNull();
+});
+
+// The one that matters operationally: without this, switching who you are
+// takes up to max_interval_secs (7 days) to show on the site.
+it('refetches soon when the selection changes', function () {
+    $connection = freshaConnection(['selection' => ['mode' => 'employee', 'employee' => ['employeeId' => '111']]]);
+    app(SourceProvisioner::class)->sync($connection);
+    DB::table('ingest.sources')->where('connection_id', $connection->id)
+        ->update(['next_attempt_at' => now()->addDays(7)]);
+
+    $connection->payload = ['url' => $connection->payload['url'], 'selection' => ['mode' => 'employee', 'employee' => ['employeeId' => '222']]];
+    app(SourceProvisioner::class)->sync($connection);
+
+    $row = DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
+    expect($row->selection_ref)->toBe('222')
+        ->and(strtotime((string) $row->next_attempt_at))->toBeLessThanOrEqual(time() + 60);
+});
+
 // ── Backfill command ────────────────────────────────────────────────────────
 
 it('backfills sources for existing connections and reports skips', function () {

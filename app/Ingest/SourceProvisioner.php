@@ -70,10 +70,12 @@ class SourceProvisioner
 
         $manifest = ConnectorRegistry::manifestFor($sourceKey);
 
+        $selectionRef = $this->selectionRefFor($sourceKey, $connection);
+
         $existing = DB::table('ingest.sources')
             ->where('connection_id', $connection->id)
             ->where('source_key', $sourceKey)
-            ->first(['id', 'identifier', 'auto_sync']);
+            ->first(['id', 'identifier', 'auto_sync', 'selection_ref']);
 
         if ($existing === null) {
             DB::table('ingest.sources')->insert([
@@ -83,6 +85,7 @@ class SourceProvisioner
                 'source_key' => $sourceKey,
                 'surface_key' => (string) $connection->getAttributes()['surface_key'],
                 'identifier' => $identifier,
+                'selection_ref' => $selectionRef,
                 'cost_units' => $manifest->cost->budgetWeight(),
                 'min_interval_secs' => $manifest->defaultIntervalSeconds,
                 'max_interval_secs' => max($manifest->defaultIntervalSeconds, self::MAX_INTERVAL_FLOOR_SECS),
@@ -102,6 +105,12 @@ class SourceProvisioner
         if ((string) $existing->identifier !== $identifier) {
             $update['identifier'] = $identifier;
             // A different identifier is a different remote thing: fetch soon.
+            $update['next_attempt_at'] = now();
+        }
+        if ((string) ($existing->selection_ref ?? '') !== (string) ($selectionRef ?? '')) {
+            $update['selection_ref'] = $selectionRef;
+            // A different selection is a different menu at different prices:
+            // without this the change waits out max_interval_secs (7 days).
             $update['next_attempt_at'] = now();
         }
         if (! $existing->auto_sync && self::schedulable($manifest)) {
@@ -208,6 +217,40 @@ class SourceProvisioner
                 ?? $this->twitchLogin($this->bareSlug($resource, 'twitch')),
             default => null,
         };
+    }
+
+    /**
+     * Which sub-account's view of the remote thing to fetch. Only Fresha has
+     * one today; the match arm exists so a later connector adds a line, not a
+     * mechanism. Returns null when nothing has been chosen -- the connector
+     * treats that as "land nothing", never as "fetch everything" (spec §2).
+     */
+    private function selectionRefFor(string $sourceKey, IntegrationConnection $connection): ?string
+    {
+        return match ($sourceKey) {
+            'fresha' => $this->freshaSelectionRef($connection->payload['selection'] ?? null),
+            default => null,
+        };
+    }
+
+    /** 'employee' -> the employee id; 'storewide' -> the reserved token; else null. */
+    private function freshaSelectionRef(mixed $selection): ?string
+    {
+        if (! is_array($selection)) {
+            return null;
+        }
+
+        $mode = $selection['mode'] ?? null;
+        if ($mode === 'storewide') {
+            return 'storewide';
+        }
+
+        // Employee ids are numeric, so they can never collide with the token.
+        $employeeId = $selection['employee']['employeeId'] ?? null;
+
+        return is_scalar($employeeId) && trim((string) $employeeId) !== ''
+            ? trim((string) $employeeId)
+            : null;
     }
 
     private function cleanString(mixed $value): ?string
