@@ -36,6 +36,41 @@ use Illuminate\Support\Facades\DB;
  */
 class PoolResolver
 {
+    /**
+     * THE public wire contract for a pool item — the #API-1 enforcement point
+     * for this lane (spec §3.7).
+     *
+     * The legacy SHOP_PRODUCT_ALLOWLIST filtered a raw scraper blob with
+     * array_intersect_key. That mechanism does not transfer: pool payloads are
+     * built key-by-key from typed columns, so there is no blob to subtract from.
+     * The equivalent guarantee comes from two halves — explicit construction in
+     * itemPayloads(), and PoolWireShapeTest asserting this list is exactly what
+     * ships. That fails on ADDITIONS too, which the legacy list never could.
+     *
+     * `selected` is stripped by buildPools() before the public wire; it is
+     * listed here because this const describes the resolver's output, which the
+     * dashboard also reads.
+     *
+     * @var list<string>
+     */
+    public const ITEM_KEYS = [
+        'id', 'kind', 'slug', 'aliases', 'headline', 'headlineEdited', 'url',
+        'platform', 'creator', 'publishedAt', 'firstSeenAt', 'durationSeconds',
+        'thumbnail', 'frames', 'startsAt', 'startsAtLocal', 'endsAtLocal',
+        'timezone', 'venue', 'locality', 'price', 'availability', 'links',
+        'popularityRank', 'description', 'vendor', 'variants', 'collectionIds',
+        'selected', 'origin',
+    ];
+
+    /** Public fields of one store card in a pool's `collections` map. */
+    public const STORE_KEYS = [
+        'externalRef', 'provider', 'url', 'name', 'currency',
+        'favicon', 'logo', 'discountCode', 'position',
+    ];
+
+    /** Public fields of one product variant. */
+    public const VARIANT_KEYS = ['label', 'sku', 'imageUrl', 'availability', 'price'];
+
     private const LIBRARY_LIMIT = 500;
 
     // Mirrors PublicIntegrationController::POPULARITY_CACHE_TTL_SECONDS
