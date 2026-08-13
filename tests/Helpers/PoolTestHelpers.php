@@ -96,3 +96,89 @@ if (! function_exists('poolHeadlines')) {
         return array_column($payload[$key] ?? [], 'headline');
     }
 }
+
+// ── Media frames (slice 1a) ─────────────────────────────────────────────────
+// frameAsset is called from ShopPoolPayloadTest as well as MediaPoolFramesTest.
+
+if (! function_exists('frameAsset')) {
+    function frameAsset(string $userId, array $overrides = []): string
+    {
+        $id = (string) Str::uuid();
+        DB::table('content.media_assets')->insert(array_merge([
+            'id' => $id, 'user_id' => $userId, 'fingerprint' => 'url-'.sha1($id),
+            'source_url' => null, 'storage_path' => null, 'site_media_id' => null,
+            'width' => null, 'height' => null, 'created_at' => now(),
+        ], $overrides));
+
+        return $id;
+    }
+}
+
+if (! function_exists('frameRow')) {
+    function frameRow(string $itemId, string $sourceId, string $assetId, string $role, int $position, ?string $alt = null): void
+    {
+        DB::table('content.item_media')->insert([
+            'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+            'asset_id' => $assetId, 'role' => $role, 'position' => $position,
+            'alt_text' => $alt, 'created_at' => now(),
+        ]);
+    }
+}
+
+// ── Shop pool (slice 5b) ────────────────────────────────────────────────────
+// shopStore/shopProduct are called from ShopWireRetirementTest and
+// PoolWireShapeTest as well as ShopPoolPayloadTest.
+
+if (! function_exists('shopStore')) {
+    function shopStore(string $userId, array $overrides = []): string
+    {
+        $collectionId = (string) Str::uuid();
+        DB::table('content.collections')->insert([
+            'id' => $collectionId, 'user_id' => $userId, 'kind' => 'storefront',
+            'label' => $overrides['label'] ?? 'Test Store', 'is_user_created' => false,
+            'position' => $overrides['position'] ?? 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('content.storefronts')->insert(array_merge([
+            'collection_id' => $collectionId, 'external_ref' => 'ext-'.Str::random(6),
+            'provider' => 'shopify', 'url' => 'https://store.example.com',
+            'currency' => 'AUD', 'discount_code' => null, 'referral_query' => '',
+            'is_individual' => false, 'logo_url' => 'https://cdn.example.com/logo.png',
+            'favicon_url' => 'https://cdn.example.com/fav.ico',
+            'created_at' => now(), 'updated_at' => now(),
+        ], array_diff_key($overrides, ['label' => 1, 'position' => 1])));
+
+        return $collectionId;
+    }
+}
+
+if (! function_exists('shopProduct')) {
+    function shopProduct(string $userId, string $collectionId, string $title, int $position = 0): string
+    {
+        // Reuse the user's manual source if one exists: idx_content_sources_manual
+        // (20260727140000) allows exactly ONE manual source per user, so a second
+        // poolSource($userId, null) is a unique violation, not a second store.
+        $sourceId = DB::table('content.sources')
+            ->where('user_id', $userId)->where('kind', 'manual')->value('id')
+            ?? poolSource($userId, null);
+        $itemId = poolItem($userId, $sourceId, 'product', $title, '2026-08-01T00:00:00Z');
+        DB::table('content.collection_items')->insert([
+            'collection_id' => $collectionId, 'item_id' => $itemId,
+            'source_id' => null, 'position' => $position,
+        ]);
+        DB::table('content.f_link')->insert([
+            'item_id' => $itemId, 'source_id' => $sourceId,
+            'url' => 'https://store.example.com/products/'.Str::slug($title), 'updated_at' => now(),
+        ]);
+        DB::table('content.f_catalog')->insert([
+            'item_id' => $itemId, 'source_id' => $sourceId,
+            'handle' => Str::slug($title), 'vendor' => 'A Vendor',
+            'variant_ref' => '44073715368070', 'updated_at' => now(),
+        ]);
+        DB::table('content.f_text')->insert([
+            'item_id' => $itemId, 'source_id' => $sourceId,
+            'headline' => $title, 'body' => 'A description.', 'updated_at' => now(),
+        ]);
+
+        return $itemId;
+    }
+}

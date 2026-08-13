@@ -23,55 +23,9 @@ beforeEach(function () {
     Queue::fake();
 });
 
-function shopStore(string $userId, array $overrides = []): string
-{
-    $collectionId = (string) Str::uuid();
-    DB::table('content.collections')->insert([
-        'id' => $collectionId, 'user_id' => $userId, 'kind' => 'storefront',
-        'label' => $overrides['label'] ?? 'Test Store', 'is_user_created' => false,
-        'position' => $overrides['position'] ?? 0, 'created_at' => now(), 'updated_at' => now(),
-    ]);
-    DB::table('content.storefronts')->insert(array_merge([
-        'collection_id' => $collectionId, 'external_ref' => 'ext-'.Str::random(6),
-        'provider' => 'shopify', 'url' => 'https://store.example.com',
-        'currency' => 'AUD', 'discount_code' => null, 'referral_query' => '',
-        'is_individual' => false, 'logo_url' => 'https://cdn.example.com/logo.png',
-        'favicon_url' => 'https://cdn.example.com/fav.ico',
-        'created_at' => now(), 'updated_at' => now(),
-    ], array_diff_key($overrides, ['label' => 1, 'position' => 1])));
-
-    return $collectionId;
-}
-
-function shopProduct(string $userId, string $collectionId, string $title, int $position = 0): string
-{
-    // Reuse the user's manual source if one exists: idx_content_sources_manual
-    // (20260727140000) allows exactly ONE manual source per user, so a second
-    // poolSource($userId, null) is a unique violation, not a second store.
-    $sourceId = DB::table('content.sources')
-        ->where('user_id', $userId)->where('kind', 'manual')->value('id')
-        ?? poolSource($userId, null);
-    $itemId = poolItem($userId, $sourceId, 'product', $title, '2026-08-01T00:00:00Z');
-    DB::table('content.collection_items')->insert([
-        'collection_id' => $collectionId, 'item_id' => $itemId,
-        'source_id' => null, 'position' => $position,
-    ]);
-    DB::table('content.f_link')->insert([
-        'item_id' => $itemId, 'source_id' => $sourceId,
-        'url' => 'https://store.example.com/products/'.Str::slug($title), 'updated_at' => now(),
-    ]);
-    DB::table('content.f_catalog')->insert([
-        'item_id' => $itemId, 'source_id' => $sourceId,
-        'handle' => Str::slug($title), 'vendor' => 'A Vendor',
-        'variant_ref' => '44073715368070', 'updated_at' => now(),
-    ]);
-    DB::table('content.f_text')->insert([
-        'item_id' => $itemId, 'source_id' => $sourceId,
-        'headline' => $title, 'body' => 'A description.', 'updated_at' => now(),
-    ]);
-
-    return $itemId;
-}
+// shopStore/shopProduct now live in tests/Helpers/PoolTestHelpers.php —
+// ShopWireRetirementTest and PoolWireShapeTest call them too, and a helper
+// declared here is undefined in any --parallel worker not assigned this file.
 
 it('carries description, vendor and collectionIds on a product', function () {
     [$pro, $siteId] = poolTenant();

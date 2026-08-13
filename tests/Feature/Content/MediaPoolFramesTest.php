@@ -20,26 +20,9 @@ beforeEach(function () {
     Queue::fake();
 });
 
-function frameAsset(string $userId, array $overrides = []): string
-{
-    $id = (string) Str::uuid();
-    DB::table('content.media_assets')->insert(array_merge([
-        'id' => $id, 'user_id' => $userId, 'fingerprint' => 'url-'.sha1($id),
-        'source_url' => null, 'storage_path' => null, 'site_media_id' => null,
-        'width' => null, 'height' => null, 'created_at' => now(),
-    ], $overrides));
-
-    return $id;
-}
-
-function frameRow(string $itemId, string $sourceId, string $assetId, string $role, int $position, ?string $alt = null): void
-{
-    DB::table('content.item_media')->insert([
-        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
-        'asset_id' => $assetId, 'role' => $role, 'position' => $position,
-        'alt_text' => $alt, 'created_at' => now(),
-    ]);
-}
+// frameAsset/frameRow now live in tests/Helpers/PoolTestHelpers.php —
+// ShopPoolPayloadTest builds frames too, and a helper declared here is
+// undefined in any --parallel worker not assigned this file.
 
 it('ships ordered frames with dims for a multi-frame media item, omitting the unresolvable', function () {
     [$pro, $siteId] = poolTenant();
