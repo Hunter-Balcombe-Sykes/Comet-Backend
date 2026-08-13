@@ -235,6 +235,49 @@ slice it renders from `profile.pools.shop`.
   **unmet** rather than ticking it. Slice 2 set that precedent for standalone
   events; follow it.
 
+## What slice 3b changed under you (verified on dev 2026-08-13)
+
+Verify each yourself; this is a pointer, not evidence. Rule zero still applies.
+
+- **`Pull.config` now carries a third key: `selection_ref` (`string|null`).** It sits
+  beside `scope` and `scope_n`, and it is how a connector learns *which* sub-account
+  the owner picked without reading a user. **A connector must treat `null` as
+  land-nothing, never fetch-everything.** Landing a whole vendor account because
+  nobody chose anything publishes a storefront the owner never approved.
+  `'storewide'` is a reserved token meaning the store-wide menu, not an id.
+- **`selection_ref` is populated by `SourceProvisioner::sync()`, and it ships NULL.**
+  See the deploy step below.
+- **Slice 3a merged to `development` at `2d54c0438` on 2026-08-13**, so the
+  `PoolRegistry` collision described under "Concurrency" below is now a rebase, not a
+  live race. The rule for the second merger still stands: re-run `PoolRegistryTest`
+  and the provisioning tests *after* resolving, and read both hunks.
+
+### DEPLOY STEP — nothing lands until sync has run
+
+After a slice that adds a provisioning field like `selection_ref` deploys to an
+environment, **nothing lands until `SourceProvisioner::sync()` has run for each
+affected connection.** On dev, every Fresha source had `selection_ref = NULL` after
+the migration and the first scheduled run would have landed nothing, everywhere,
+while reporting success.
+
+**Do not reach for `ingest:backfill-sources` unqualified.** Its dry-run on dev showed
+it would process **80 connections across every connector**, bumping `next_attempt_at`
+on unrelated sources — this slice's included. Scope the sync to the connections that
+actually need it.
+
+### For whoever runs your merge gate
+
+`./vendor/bin/phpstan analyse` in a worktree dies with
+`Child process error (exit code 255): while running parallel worker` and reports
+"Result is incomplete because of severe errors", and it OOMs at the default 128M.
+**Neither failure looks like what it is.** Use:
+
+```bash
+php -d memory_limit=1G ./vendor/bin/phpstan analyse <path> --no-progress --debug
+```
+
+`--debug` disables parallelism. Under that invocation the real errors print normally.
+
 ## Non-negotiables
 
 - **Cache invalidation is three lanes.** `BuildState::bump($siteId)`, touch `site.sites.updated_at` (the payload cache key composes from it), dispatch `CloudflareCachePurgeJob`. No CI check enforces this despite the docblock claiming one — assert it directly.

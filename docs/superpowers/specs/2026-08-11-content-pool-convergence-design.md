@@ -2654,3 +2654,289 @@ was deleted first — it is the one child of `content.items` whose FK is `SET NU
 rather than `CASCADE`, so deleting the item first would have left an orphan row
 with a null `item_id`. Post-cleanup dev is back to exactly **51 live products, 0
 retired** — the pre-probe state.
+## 19. Slice 3b checkpoint — Fresha services
+
+**Status: verified on dev 2026-08-13, merge gate pending.** Branch
+`feat/slice-3b-fresha` off `bf7a4f9a4`. Prefix `20260813090000` consumed by
+`slice3b_collections_keys_and_selection_ref`. §3 invariant 1 discharged for the
+Fresha half; §3 invariant 2 (something reads the kind) discharged by the booking
+surface reading `content.*`.
+
+Unlike 3a, this half is **landed, not migrated**. There is no backfill command:
+the connector fetches the vendor and the projector writes `content.*`, so the
+verification below is a real ingest run, not a data move.
+
+### 19.1 The headline — the price that justified the slice
+
+```
+user 019ebedc -> 36 services   PARTIAL BALAYAGE+WELLAPLEX   $275
+```
+
+§1.4 of the slice spec measured that exact service live at **employee $275
+versus storewide "from $180"**. The connector fetched the chosen team member's
+menu and the resolver renders the honest price. `ULTIMATE HAIR SMOOTHENING`
+likewise landed `from $360` where the storewide menu published `from $180`.
+
+That divergence — 22 of 23 prices understated on one salon — is the whole
+reason this slice exists, and it is now closed on live data rather than in a
+fixture.
+
+### 19.2 Live dev run — 2026-08-13 ~20:35 AEST, output pasted
+
+The branch is deployed nowhere (Laravel Cloud only deploys `development`, and
+merging first would have inverted the gate), so it ran **locally against dev**
+via a scratchpad script pulling dev credentials from the Cloud CLI into process
+env, never echoed, `.env` untouched. The script refuses if `DB_USERNAME` names
+the prod ref or names neither ref. `QUEUE_CONNECTION=null` and
+`CACHE_STORE=array` kept the run off Redis and stopped any incidental job
+reaching a third party.
+
+**A prerequisite the plan did not anticipate.** `ingest.sources.selection_ref`
+was **NULL on all four dev sources** — Task 1's migration added the column but
+nothing had re-run `SourceProvisioner::sync()` since, so a run would have landed
+nothing everywhere. Backfilled by syncing **only the five Fresha connections**.
+`ingest:backfill-sources` was rejected: its dry-run showed it would process
+**80 connections across every connector**, bumping `next_attempt_at` on
+unrelated sources and risking interference with slice 5b.
+
+The backfill confirmed the `selection_ref` design on real data:
+
+| connection | selection mode | selection_ref | next_attempt_at |
+|---|---|---|---|
+| brotherwolf | `employee` | **4891132** | pulled forward to now |
+| vision | `employee` | **4508456** | pulled forward to now |
+| edward | null selection | NULL | unchanged (2026-08-15) |
+| some-salon-abc123 | null selection | NULL | unchanged |
+| anseo-studio | null selection | NULL | **n/a — no ingest source at all** |
+
+The pull-forward is the refetch-on-change line firing live. `anseo-studio`
+having no source confirms slice-spec §1.2/§7 on real data:
+`SourceProvisioner::freshaSlug()` matches only `fresha.com/…/a/<slug>` and that
+row is a `book-now/…?pId=` URL.
+
+Only 2 sources were due, both Fresha — checked before dispatching, so there
+were no collateral runs.
+
+#### Run 1 — `ingest:dispatch --sync --limit=5` → claimed 2, 0 failed
+
+```
+brotherwolf  services  health=ok           run_seq=1  selection_ref=4891132
+vision       services  health=ok           run_seq=1  selection_ref=4508456
+edward       services  health=unavailable  run_seq=0  selection_ref=NULL
+some-salon   services  health=unavailable  run_seq=0  selection_ref=NULL
+```
+
+`run_seq` moved off zero **for the first time since 2026-07-28**. 59 service
+`record_versions` landed = 23 + 36, exactly the employee-menu counts slice-spec
+§1.3 measured live. The two connections with no selection stayed at zero — the
+`no_selection` decision working, not a failure.
+
+Projection ran automatically, chained from `RunSourceJob`.
+
+```
+content.source_items kind=service:  connection 59   manual 21
+content.items kind=service:         77 live / 3 retired
+offers (connection):                exact 52 | from 4 | free 3
+gate zero-amount 'exact':           0
+gate source_items.removed_at:       0
+gate orphan items:                  0
+collections kind=service_category:  16, all keyed, all is_user_created=false, none removed
+collection_items:                   59
+```
+
+- `manual` staying at **21** is the gate: 3a's owner half is intact and
+  untouched by the Fresha landing. 77 live items = 18 owner + 59 Fresha.
+- **16 categories = brotherwolf 5 + vision 11**, matching §1.3's live probe
+  exactly. Every one is keyed on the vendor category id, which is what
+  `collections_user_kind_external_ref_uq` needs to work at all.
+- 59 `collection_items` = every landed service in exactly one category.
+- The `from $1` row was checked against the raw vendor document rather than
+  assumed a parse bug: Fresha literally publishes `"from $1"` for *Extensions*.
+  Correct parse.
+
+Legacy tables unmoved: **18 live / 3 deleted `source IS NULL`, 59 live / 2
+deleted `source = 'fresha'`** — exactly the slice spec's opening figures. §6's
+"the legacy tables are not disturbed" requirement, verified rather than assumed.
+
+#### Run 2 — identical dispatch, after nudging `next_attempt_at`
+
+```
+content.items fingerprint, run 1:  md5 = dd8494a58f6353237670d70800d7dacf  n=80
+content.items fingerprint, run 2:  md5 = dd8494a58f6353237670d70800d7dacf  n=80
+```
+
+**Not one item id changed.** Every count and every gate unmoved (21 / 59 / 77 /
+3 / 16 / 59; gates 0 / 0 / 0). §8.3's `mergeInto()` hard-delete hazard exercised
+for real, on real vendor data, and clean.
+
+#### The resolver — what no SQL stands in for
+
+```
+user 019e5c37 -> 23 services   First Time Client            $70   45min   Hair
+user 019ebedc -> 36 services   FULL HEAD BALAYAGE+WELLAPLEX $390  2h 30min BALAYAGE
+keys: name,price,category,currency,duration,serviceId,priceValue,description,hasVariants
+```
+
+Nine keys, a real category label rather than a hardcoded one, and prices and
+durations round-tripped from `content.offers` / `content.f_duration` back into
+the vendor's own display grammar.
+
+### 19.3 Pest — the chain, end to end
+
+The chain runs **connector → projector → item → pool → wire**, and it is
+drivable in a test: no seam required a live connector run to prove.
+
+| Stage | Test |
+|---|---|
+| connector: nothing chosen lands nothing and makes no HTTP call | `tests/Feature/Ingest/FreshaConnectorTest.php` — *"lands nothing and makes no HTTP call when nothing has been chosen"* |
+| connector: the chosen employee's menu is what is fetched | *"asks for one employee menu when an employee is chosen"*, *"asks for the store menu when storewide is chosen"* |
+| connector: the vendor category id survives the mapper | *"carries the vendor category id alongside its name"*; *"lands a package row whose catalog id is only on the secondary action"*; *"counts rows it could not map instead of dropping them silently"* |
+| **connector → projector → collections → wire, in one case** | `tests/Feature/Ingest/FreshaServiceProjectorTest.php` — *"drives a Fresha category from a landed record to a rendered booking category"* |
+| projector: a vendor rename follows rather than duplicating | *"follows a vendor-side category rename instead of minting a duplicate"* |
+| wire: the nine-key shape and its ordering | `tests/Feature/Platforms/FreshaBookingSurfaceTest.php` — *"reproduces the stored blob's service shape exactly"*, *"orders services deterministically when several rows share one first_seen_at"*, *"round-trips every price qualifier back to its display string"*, *"keeps a hidden service in services[] and leaves the hiding to hiddenServiceIds"* |
+| the two-surface rule, both directions | `tests/Feature/Content/ServiceTwoSurfaceTest.php` — *"never renders a Fresha service in the public services section"*, *"never renders an owner-authored service on the booking surface"* |
+| no Fresha row reaches the owner-authored price mapper | `tests/Feature/Architecture/FreshaMapperGuardTest.php` — *"routes no Fresha service through the owner-authored price mapper"* |
+
+The e2e case is load-bearing and was built to be: it starts from records landed
+in `ingest.record_versions` in the doc shape `mapServiceItem()` actually
+produces, lets the real observer and `SourceProvisioner` mint the ingest source
+(**asserted, not hand-inserted**), calls `ProjectionWriter::projectStream()`,
+reads real `content.collections` / `content.collection_items`, and finishes at
+`FreshaServiceItems::selectionServices()`. **No hand-inserted collection row
+anywhere.** The chain mutation — dropping only the `collections` key from the
+projection — reddened **both** e2e cases at the database (count 0 versus 2 and
+1), not merely the unit case.
+
+Lane coverage: `composer test:pg` 202 passed / 2 skipped (both skips
+pre-existing); `tests/Feature/Ingest` 418; `tests/Feature/Content` 199;
+`tests/Feature/Architecture` 91; `--filter=Fresha` 277 passed, 1020 assertions.
+
+### 19.4 Logs and Nightwatch — including the signal that was dismissed
+
+`ingest.anomalies` in the two hours around the run: **none**.
+
+Nightwatch showed **two new exceptions six minutes after the run** — #429 and
+#430, `RedisException` connection timeout. They were **investigated rather than
+dismissed on timing**:
+
+- the stack is `Horizon\Console\WorkCommand → RedisQueue->pop() → blpop()`,
+  i.e. dev's own Horizon worker polling its queue on Laravel Cloud;
+- this run used `QUEUE_CONNECTION=null`, enqueued nothing, ran no worker, and
+  exported no Nightwatch token, so it **cannot** be the source;
+- 2 occurrences in 24h at the queue-poll layer this repo already built
+  `GuardedPhpRedisConnector` for.
+
+**Attributed to dev infrastructure, not to slice 3b.** Recorded here rather than
+omitted: a checkpoint that lists only clean results teaches the next reader that
+clean is the expected shape of a verification, and the next person to see a
+Nightwatch entry six minutes after their run has no precedent for what to do
+with it.
+
+**Not ours, but live on dev and surfaced deliberately:** Nightwatch #427 is
+`SQLSTATE[42702] Ambiguous column: products_curated_at`, 12 hours old — the
+exact bare-column-in-`ON CONFLICT` defect class this programme's constraints
+warn about, landing in slice 5b's product territory.
+
+### 19.5 Cache invalidation (§9.2, all three lanes)
+
+| Lane | This slice |
+|---|---|
+| `site.site_build_state` | **Bumped** — every owner and staff category write verb calls `ManualServiceWriter::invalidate()` |
+| 60s public-profile payload cache | **Busted** — `invalidate()` touches `site.sites.updated_at` |
+| Cloudflare edge | **Purged** — `CloudflareCachePurgeJob` per touched site |
+
+Every lane is asserted with an **exact revision delta**, never `> 0`. 3a's
+three-lane test passed with a lane deleted because `writeManualItem()` bumps
+internally; on these routes nothing else bumps, so `> 0` would in fact have
+caught a deleted lane — the exact `+1` stays as the rule anyway, because it also
+catches a double bump.
+
+**The open cost, stated plainly:** there is no observer on
+`content.collections` and no CI check, so invalidation is a hand-maintained
+caller obligation programme-wide. A forgotten caller serves stale pages until
+TTL. Any new `content.collections` write path must invalidate explicitly.
+
+### 19.6 What the waves cost, and what they bought
+
+Twelve rulings, thirteen fix rounds. Four things are worth carrying beyond this
+slice.
+
+- **The boolean lane asymmetry is not a curiosity, it is a defect generator.**
+  `is_user_created` is a PHP bool in **neither** lane: SQLite returns INTEGER
+  `0`, PDO_PGSQL returns the string `"f"` — and `"f"` is truthy. Two independent
+  tasks hit it, one as a silently-inverted `list()` filter that would have called
+  every Fresha category owner-made **in production only, with the suite green**.
+  `item_count` and `position` come back as numeric strings from the same driver.
+  Normalise on the way out of every row-returning method; never compare a driver
+  value to a PHP literal.
+- **`content.collections.position` is a seed, not a synced column.** It was in
+  the upsert's update list, so every connector run rewrote it — silently undoing
+  the owner's reorder, on a schedule, with no signal. It is now insert-only.
+  `label` deliberately stays in the update list: a vendor rename should be
+  followed, not duplicated. `removed_at` is in neither list, so a scrape
+  re-listing a category cannot resurrect an owner deletion.
+  **`content.collection_items.position` is still recomputed from array order on
+  every run and is not owner-owned** — nothing conflicts today because service
+  ordering lives in `site.services.sort_order`, but the moment membership order
+  becomes owner-editable the same rule must be applied there.
+- **A pinned-set guard is only as good as the moment its baseline was taken.**
+  The `projectionFor(` caller list had **four** entries, not the three the plan
+  recorded — `StaffServiceManagementController` joined it mid-slice. Had the
+  baseline been copied from the document, the guard would have failed on a
+  correct caller on day one, and the natural "fix" would have been to relax it.
+  Derive a pinned set from the tree, never from the document that predates the
+  work.
+- **A filtered test run proves what it matched and nothing else.** A task ran
+  `--filter=ServiceCategory`, saw 46 passed, and missed three failures in
+  `ServiceCategoriesIsolationTest` — `ServiceCategor**ies**` diverges at the
+  `y`/`i`. Running `tests/Feature/Security` as a **directory** later found a
+  sixteenth failure a path-scoped run had missed. Same blind spot, reached two
+  different ways.
+
+### 19.7 Assurance debt this slice found and did not create
+
+- **Three tenancy tests resolved the row by the very owner they then asserted**,
+  so they could never have caught a create landing under someone else's id. Two
+  were repaired here; the pattern now has three recorded instances in this
+  repo's tenancy suite.
+- **`ServiceCategoriesIsolationTest` and its passing sibling call the controller
+  directly** (`app(UserServiceCategoryController::class)->show(...)`), bypassing
+  routing and middleware, so they can certify an authorization posture the real
+  HTTP path does not have. Pre-existing, out of scope, recorded rather than
+  left unremarked.
+- **An assertion on a value's *type* rather than its *identity* passes for any
+  member of that type.** A pre-existing test asserted only `instanceof Note`;
+  adding the new `no_selection` note silently converted it into a tautology and
+  nothing failed. Tightened to pin the code.
+- **`PruneRetiredItemSlugsTest`'s cutoff-boundary case is a flake**, not a
+  regression: untouched by this branch, passes 13/13 in isolation, and sets
+  `retired_at` exactly at the cutoff so elapsed time under full-suite load tips
+  it past. This slice adds ~130 tests and therefore lengthens the run before it
+  executes, so a marginal case may now tip more often.
+- **`phpstan analyse` in a worktree dies with `Child process error (exit code
+  255): while running parallel worker` and OOMs at 128M.** Neither failure looks
+  like what it is. Use
+  `php -d memory_limit=1G ./vendor/bin/phpstan analyse <path> --no-progress --debug`
+  — `--debug` disables parallelism, and the real errors then print normally.
+
+### 19.8 Open, and carried on
+
+- **Whether a multi-`category_ids` payload should 422 rather than collapse to
+  one** is an open product decision. The collapse is pinned by test on both
+  surfaces so it is visible and goes red the day memberships become
+  multi-valued.
+- **`ProjectionWriter::upsertCollections()`'s id lookup filters `user_id` +
+  `external_ref` but not `kind`.** Harmless today because the map key
+  disambiguates; seen twice, by two reviewers.
+- **`reorder` on the staff category surface runs two independent lock scopes**
+  (content, then legacy via `ReorderService`) that are not atomic with each
+  other. Worst case is a stale order within one block, never a collision.
+  Unifying them needs `ReorderService`, which was out of scope.
+- **`ContentFreshness:89-98`** is still un-migrated, carried from 3a.
+- **13 of the 14 `ingest.sources` stand-in declarations lack `selection_ref`**,
+  all in `tests/Postgres/`. `DuplicateStandInDdlGuardTest` structurally excludes
+  that directory, so nothing catches the divergence. Inert today because no
+  Postgres-lane test exercises `SourceProvisioner` or `RunExecutor`; the first
+  one that does must add the column.
+- **Slice 7 inherits an undercount:** there are **18** service routes on the
+  owner surface, not 17 — `UserServiceCategoryController` has seven, not six.

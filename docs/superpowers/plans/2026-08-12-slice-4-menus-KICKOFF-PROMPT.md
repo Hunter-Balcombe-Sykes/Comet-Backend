@@ -101,9 +101,32 @@ collapse them.
 464 `menu_item_categories` rows over 318 dishes: a dish belongs to **several**
 categories. `content.collections` / `collection_items` are your target. **Slice 3a
 does NOT populate them** — every one of the 61 service-category assignments belongs
-to Fresha, so collections moved wholly to slice 3b. Check whether 3b or 5 has landed
-first and follow their shape rather than inventing a second one; if neither has, you
-are the first user and must read the DDL rather than assume.
+to Fresha, so collections moved wholly to slice 3b. 3b landed them — 16 collections
+and 59 memberships, verified on dev 2026-08-13. Follow its shape rather than
+inventing a second one, and read the DDL rather than assume.
+
+**`ProjectionWriter` accepts a `collections` key on a projection — use it.** Do not
+write a per-connector collections writer; 3b added the shared one and it handles the
+upsert, the natural key (`collections_user_kind_external_ref_uq` on
+`user_id, kind, external_ref`), and the replace-by-source membership DELETE. A second
+implementation is how the two halves start disagreeing.
+
+Three rules that come with it, all of which cost real debugging to establish:
+
+- **`position` on a collection is a SEED — written on insert, never updated.** It was
+  in the upsert's update list, so every connector run rewrote it and silently undid
+  the owner's reorder, on a schedule, with no signal. An owner reorders categories;
+  a scheduled run must not snap that back.
+- **`label` IS updated** — a vendor rename should be followed, not duplicated into a
+  second collection.
+- **`removed_at` is in neither list** — a scrape re-listing a category cannot
+  resurrect a collection its owner deleted.
+
+`content.collection_items.position` is a different matter: it is still recomputed
+from array order on every run and is **not** owner-owned. Nothing conflicts today
+because ordering lives elsewhere. If your slice makes membership order
+owner-editable, the seed rule above has to be applied there too — that decision is
+yours to take, not to inherit.
 
 ### Unit 4 — Identity across three platforms
 `MenuItemProjector` serves DoorDash, Square and Uber Eats because they land the same
@@ -206,6 +229,48 @@ slice builds on. Verify each claim yourself; this is a pointer, not evidence.
   one is a runtime 500, not a red test. The curation half already expresses
   hand-ordering, so an operator buys nothing and costs a four-place edit.
 
+
+## What slice 3b changed under you (verified on dev 2026-08-13)
+
+Verify each yourself; this is a pointer, not evidence. Rule zero still applies.
+
+- **`Pull.config` now carries a third key: `selection_ref` (`string|null`).** It sits
+  beside `scope` and `scope_n`, and it is how a connector learns *which* sub-account
+  the owner picked without reading a user. **A connector must treat `null` as
+  land-nothing, never fetch-everything.** Landing the whole vendor account when the
+  owner has chosen nothing is how you publish a menu they never approved — and for
+  a billed connector it is how you spend money on data nobody asked for. `'storewide'`
+  is a reserved token meaning the store-wide menu, not an id.
+- **`selection_ref` is populated by `SourceProvisioner::sync()`, and it ships NULL.**
+  See the deploy step below — it is not optional.
+- **`ProjectionWriter` accepts a `collections` key** — see Unit 3 above.
+
+### DEPLOY STEP — nothing lands until sync has run
+
+After 3b (or any slice that adds a `selection_ref`-style provisioning field) deploys
+to an environment, **nothing lands until `SourceProvisioner::sync()` has run for each
+affected connection.** On dev, every Fresha source had `selection_ref = NULL` after
+the migration and the first scheduled run would have landed nothing, everywhere,
+while reporting success.
+
+**Do not reach for `ingest:backfill-sources` unqualified.** Its dry-run on dev showed
+it would process **80 connections across every connector**, bumping `next_attempt_at`
+on unrelated sources — including other slices' in-flight work. Scope the sync to the
+connections that actually need it.
+
+### For whoever runs your merge gate
+
+`./vendor/bin/phpstan analyse` in a worktree dies with
+`Child process error (exit code 255): while running parallel worker` and reports
+"Result is incomplete because of severe errors", and it OOMs at the default 128M.
+**Neither failure looks like what it is** — both read as real analysis failures.
+Use:
+
+```bash
+php -d memory_limit=1G ./vendor/bin/phpstan analyse <path> --no-progress --debug
+```
+
+`--debug` disables parallelism. Under that invocation the real errors print normally.
 
 ## Non-negotiables
 

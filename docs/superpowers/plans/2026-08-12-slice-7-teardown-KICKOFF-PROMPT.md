@@ -188,6 +188,78 @@ Verify each yourself — this is a pointer, not evidence (rule zero still applie
   `ProjectionWriter`, not an observer, so it is not in your §9.4 list — but any
   teardown that changes how media assets are minted needs to keep it dispatching.
 
+## What slice 3b settled for you (verified on dev 2026-08-13)
+
+Verify each yourself — this is a pointer, not evidence (rule zero still applies).
+
+- **There are 18 service routes on the owner surface, not 17.**
+  `UserServiceCategoryController` has **seven**, not six: `index`, `store`, `show`,
+  `update`, `destroy`, `reorder`, `restore`. Any inventory that says 17 inherits an
+  undercount, and a teardown that works from it leaves a live route pointed at a
+  dropped table.
+- **The staff surface is two controllers, not one.**
+  `StaffServiceManagementController` (9 methods) and
+  `StaffServiceCategoryManagementController` (7 routes, split across **two** staff
+  middleware groups — `index`/`show`/`restore` for any role, the five write verbs
+  under `staff.admin`). Both were cut onto `content.*` by 3b. The category controller
+  is at `app/Http/Controllers/Api/Staff/UserSiteManagement/`, which is not where
+  anything predicted.
+- **`StaffServiceCategoryManagementController::index()` deliberately merges both id
+  spaces** — `content.collections` plus `site.service_categories` — because Fresha
+  services still file into the legacy category table until you drop it. **That merge
+  is yours to remove**, and removing it is not optional cleanup: left in place it
+  queries a dropped table.
+- **`anseo-studio`'s Fresha connection has no ingest source at all.** Confirmed live
+  on dev during 3b's verification. `SourceProvisioner::freshaSlug()` matches only
+  `fresha.com/…/a/<slug>`, and that connection's row is a `book-now/…?pId=` URL. So a
+  coverage assertion that assumes one source per connection will show a hole there
+  which is **not** a backfill failure. Decide whether the matcher widens or the row is
+  written off, and say which — do not treat it as noise.
+- **`Pull.config` carries a third key: `selection_ref` (`string|null`)**, beside
+  `scope` and `scope_n`. A connector treats `null` as **land-nothing**, never
+  fetch-everything. `'storewide'` is a reserved token, not an id. Relevant to you
+  because a source with `selection_ref = NULL` legitimately has `run_seq = 0` and
+  zero landed rows — that is the design working, not an uncovered type.
+- **`ProjectionWriter` owns the shared `collections` writer.** `position` on a
+  collection is a **seed** — written on insert, never updated, because an owner can
+  reorder categories and a scheduled run must not snap that back. Anything you
+  re-home must preserve that.
+- **There is no observer on `content.collections` and no CI check for cache
+  invalidation**, so it is a hand-maintained caller obligation across every slice.
+  Your §9.4 observer re-homing must not assume the `content.*` side already has an
+  observer to inherit from — it does not.
+- **Legacy row counts on dev, unchanged by 3b:** 18 live / 3 deleted
+  `site.services WHERE source IS NULL`, 59 live / 2 deleted `source = 'fresha'`.
+  The `source IS NULL` rows are the shadow of the 18 owner services that now live
+  authoritatively in `content.*`; nothing public reads them.
+
+### DEPLOY STEP — nothing lands until sync has run
+
+After a slice that adds a provisioning field like `selection_ref` deploys to an
+environment, **nothing lands until `SourceProvisioner::sync()` has run for each
+affected connection.** On dev, every Fresha source had `selection_ref = NULL` after
+3b's migration and the first scheduled run would have landed nothing, everywhere,
+while reporting success. For you this is a **gate-1 hazard**: a coverage query run
+before that sync reads as an empty replacement and would either block the teardown
+falsely or, worse, be explained away.
+
+**Do not reach for `ingest:backfill-sources` unqualified.** Its dry-run on dev showed
+it would process **80 connections across every connector**, bumping `next_attempt_at`
+on unrelated sources. Scope the sync to the connections that actually need it.
+
+### For whoever runs your merge gate
+
+`./vendor/bin/phpstan analyse` in a worktree dies with
+`Child process error (exit code 255): while running parallel worker` and reports
+"Result is incomplete because of severe errors", and it OOMs at the default 128M.
+**Neither failure looks like what it is.** Use:
+
+```bash
+php -d memory_limit=1G ./vendor/bin/phpstan analyse <path> --no-progress --debug
+```
+
+`--debug` disables parallelism. Under that invocation the real errors print normally.
+
 ## Non-negotiables
 
 - **Take a backup first.** Free plan, no PITR. Dump the ten tables to the `partna-db-backup` R2 bucket and verify the dump is readable **before** the first DROP. Record its location in the checkpoint.

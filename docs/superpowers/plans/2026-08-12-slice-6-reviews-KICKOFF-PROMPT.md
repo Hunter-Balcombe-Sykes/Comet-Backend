@@ -182,6 +182,55 @@ the wire manifest records the change. `reviewSummary` (aggregate rating/count) m
 have a different source than the individual reviews — check before assuming one
 change covers both.
 
+## What slice 3b changed under you (verified on dev 2026-08-13)
+
+Verify each yourself; this is a pointer, not evidence. Rule zero still applies.
+
+- **`Pull.config` now carries a third key: `selection_ref` (`string|null`).** It sits
+  beside `scope` and `scope_n`, and it is how a connector learns *which* sub-account
+  the owner picked without reading a user. **A connector must treat `null` as
+  land-nothing, never fetch-everything.** For a billed connector that rule is also a
+  cost control: fetching a whole account because nobody chose anything spends money
+  on data no owner asked for. `'storewide'` is a reserved token, not an id.
+- **`selection_ref` is populated by `SourceProvisioner::sync()`, and it ships NULL.**
+  See the deploy step below.
+- **`ProjectionWriter` accepts a `collections` key on a projection.** If reviews ever
+  need grouping, use it rather than writing a per-connector collections writer — 3b
+  added the shared one and it handles the natural key
+  (`collections_user_kind_external_ref_uq` on `user_id, kind, external_ref`) and the
+  replace-by-source membership DELETE. **`position` on a collection is a SEED**:
+  written on insert, never updated, because an owner can reorder and a scheduled run
+  must not snap that back. `label` *is* updated (follow a vendor rename rather than
+  duplicating it); `removed_at` is in neither list, so a scrape cannot resurrect a
+  collection the owner deleted.
+
+### DEPLOY STEP — nothing lands until sync has run
+
+After a slice that adds a provisioning field like `selection_ref` deploys to an
+environment, **nothing lands until `SourceProvisioner::sync()` has run for each
+affected connection.** On dev, every Fresha source had `selection_ref = NULL` after
+the migration and the first scheduled run would have landed nothing, everywhere,
+while reporting success.
+
+**Do not reach for `ingest:backfill-sources` unqualified.** Its dry-run on dev showed
+it would process **80 connections across every connector**, bumping `next_attempt_at`
+on unrelated sources. For this slice that matters twice over: bumping a Google
+source's `next_attempt_at` is a **billed** call you did not intend. Scope the sync to
+the connections that actually need it.
+
+### For whoever runs your merge gate
+
+`./vendor/bin/phpstan analyse` in a worktree dies with
+`Child process error (exit code 255): while running parallel worker` and reports
+"Result is incomplete because of severe errors", and it OOMs at the default 128M.
+**Neither failure looks like what it is.** Use:
+
+```bash
+php -d memory_limit=1G ./vendor/bin/phpstan analyse <path> --no-progress --debug
+```
+
+`--debug` disables parallelism. Under that invocation the real errors print normally.
+
 ## Non-negotiables
 
 - **The pool item payload already grew for this.** Slice 5b added four
