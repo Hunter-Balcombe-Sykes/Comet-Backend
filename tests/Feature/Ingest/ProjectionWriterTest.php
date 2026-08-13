@@ -586,8 +586,45 @@ it('replaces memberships for its own source only', function () {
         'collections' => [['external_ref' => 'B', 'label' => 'B', 'kind' => 'service_category', 'position' => 0]],
     ]);
 
-    expect(DB::table('content.collection_items')->where('source_id', $otherSourceId)->count())->toBe(1)
-        ->and(DB::table('content.collection_items')->where('source_id', $sourceId)->count())->toBe(1);
+    $collectionB = DB::table('content.collections')
+        ->where('user_id', $userId)->where('external_ref', 'B')->value('id');
+
+    // Counts alone would pass on a writer that deleted the foreign row and
+    // re-created something else — assert WHICH collection each surviving row
+    // points at, and that A's membership is the one that went.
+    expect(DB::table('content.collection_items')->where('source_id', $otherSourceId)->pluck('collection_id')->all())
+        ->toBe([$foreign])
+        ->and(DB::table('content.collection_items')->where('source_id', $sourceId)->pluck('collection_id')->all())
+        ->toBe([(string) $collectionB]);
+});
+
+// Finding 1 (fix round 1): position is INSERT-ONLY. Task 9's
+// ServiceCollections::reposition() does not filter is_user_created, so an owner
+// can reorder a machine-derived category — and if position stayed in the
+// upsert's update list the next scheduled connector run would snap that order
+// back to the vendor's, silently. Same owner-intent-beats-scrape rule as
+// removed_at. Note the asymmetry: label DOES follow the vendor (pinned by the
+// rename case above); only position is owner-owned.
+it('seeds position on insert but never overwrites an owner reorder', function () {
+    [$sourceId, $userId] = manualSourceFor();
+    $at = fn (int $position) => [
+        'kind' => 'service', 'headline' => 'Cut',
+        'collections' => [['external_ref' => 'A', 'label' => 'Haircuts', 'kind' => 'service_category', 'position' => $position]],
+    ];
+
+    // First run seeds the vendor's ordering.
+    projectOne($sourceId, $userId, 'fresha:x:s:1', $at(0));
+    expect(DB::table('content.collections')->where('external_ref', 'A')->value('position'))->toBe(0);
+
+    // The owner reorders, then the vendor re-lists the category somewhere else.
+    DB::table('content.collections')->where('external_ref', 'A')->update(['position' => 7]);
+    projectOne($sourceId, $userId, 'fresha:x:s:1', $at(3));
+
+    expect(DB::table('content.collections')->where('external_ref', 'A')->value('position'))->toBe(7)
+        // The rename path must still work — this is not a blanket "ignore the
+        // vendor", it is position specifically.
+        ->and(DB::table('content.collections')->where('external_ref', 'A')->value('label'))->toBe('Haircuts')
+        ->and(DB::table('content.collections')->where('user_id', $userId)->count())->toBe(1);
 });
 
 it('never touches removed_at on a projection run', function () {

@@ -144,6 +144,31 @@ it('leaves removed_at untouched when the real upsertCollections() re-lists a del
         ->not->toBeNull();
 });
 
+// Finding 1 (fix round 1). position is INSERT-ONLY: the vendor seeds an order,
+// the owner owns it afterwards. Task 9's ServiceCollections::reposition() does
+// not filter is_user_created, so a position left in the update list would undo
+// an owner's reorder on the next scheduled run. This runs on Postgres because
+// that is where the DO UPDATE branch actually has a conflict target to fire
+// against — the SQLite lane cannot settle what the ON CONFLICT clause does.
+it('leaves position untouched when the real upsertCollections() re-lists a reordered collection', function () {
+    $userId = collectionsUpsertConflictTestUser();
+    $at = fn (int $position) => ['item-1' => [
+        ['external_ref' => '3282965', 'label' => 'Haircuts', 'kind' => 'service_category', 'position' => $position],
+    ]];
+
+    upsertCollectionsVia($userId, $at(0));
+    $collections = fn () => DB::connection('pgsql')->table('content.collections')->where('user_id', $userId);
+    expect($collections()->value('position'))->toBe(0);
+
+    $collections()->update(['position' => 7]);
+    upsertCollectionsVia($userId, $at(3));
+
+    expect($collections()->value('position'))->toBe(7)
+        // The rename path is deliberately NOT owner-owned — only position is.
+        ->and($collections()->value('label'))->toBe('Haircuts')
+        ->and($collections()->count())->toBe(1);
+});
+
 // A machine-derived collection with no external_ref has no natural key, so it
 // would insert a fresh row on every run. It is dropped instead of guessed at.
 it('skips an entry with no external_ref rather than minting a keyless row', function () {

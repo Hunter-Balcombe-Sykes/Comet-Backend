@@ -1192,12 +1192,26 @@ class ProjectionWriter
 
     /**
      * The content.collections rows a batch's projections name, upserted on
-     * their natural key and returned as external_ref => id.
+     * their natural key (user_id, kind, external_ref) and returned keyed by
+     * "kind\0external_ref" — NOT by external_ref alone, which is only unique
+     * within a kind.
      *
-     * removed_at is deliberately absent from BOTH the insert and the update
-     * list: it means "the owner deleted this collection" and is one-way, the
-     * same rule content.items.removed_at follows. A scrape re-listing a
-     * category is not consent to resurrect it.
+     * Three columns are deliberately treated as owner-owned, i.e. a scrape may
+     * seed them but never overwrite them:
+     *
+     * - removed_at: absent from BOTH the insert and the update list. It means
+     *   "the owner deleted this collection" and is one-way, the same rule
+     *   content.items.removed_at follows. A scrape re-listing a category is not
+     *   consent to resurrect it.
+     * - position: INSERT-ONLY. The vendor's ordering is a reasonable initial
+     *   value, but ServiceCollections::reposition() (the owner-facing reorder
+     *   endpoint) does not filter is_user_created, so leaving position in the
+     *   update list would let the next scheduled run snap a reorder the owner
+     *   just made back to the vendor's order — silently, and on a schedule.
+     *
+     * label is the deliberate exception and DOES stay in the update list: a
+     * vendor-side rename must be followed rather than mint a duplicate, which
+     * is the whole reason external_ref rather than label is the natural key.
      *
      * @param  array<string, list<array<string, mixed>>>  $byItem
      * @return array<string, string> "kind\0external_ref" => collection id
@@ -1253,10 +1267,14 @@ class ProjectionWriter
         // `set "label" = "excluded"."label"`, which is unambiguous. A DB::raw
         // with a BARE column here is SQLSTATE 42702 on Postgres and silently
         // fine on SQLite (slice 5a, 2026-08-12).
+        //
+        // 'position' is NOT here on purpose -- see the docblock. It is written
+        // by the INSERT branch only, so the vendor seeds an order and the owner
+        // owns it from then on.
         DB::table('content.collections')->upsert(
             $rows,
             ['user_id', 'kind', 'external_ref'],
-            ['label', 'position', 'updated_at'],
+            ['label', 'updated_at'],
         );
 
         $ids = [];
