@@ -12,6 +12,7 @@ use Illuminate\Cache\RateLimiter;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -187,6 +188,14 @@ it('fails a strict route CLOSED when a real Redis outage trips the E breaker', f
         'database.redis.app.port' => 1,      // nothing listens here
         'database.redis.app.timeout' => 0.2, // keep the test fast
     ]);
+    // RedisManager is handed database.redis BY VALUE and snapshots it the first
+    // time it resolves. Under --parallel that already happened in
+    // TestCase::setUp (the worker-private DB remap purges connections), so the
+    // rewrite above would never reach the connection and the request would
+    // reach the REAL Redis and 200. Drop the singleton so the unroutable
+    // host/port is what the connection is actually built from.
+    app()->forgetInstance('redis');
+    Redis::clearResolvedInstances();
 
     $jwt = mintStrictRevocationJwt();   // real revocation service left bound
 
@@ -208,6 +217,11 @@ it('still serves a NON-strict route when a real Redis outage trips the breaker',
         'database.redis.app.port' => 1,
         'database.redis.app.timeout' => 0.2,
     ]);
+    // Same RedisManager snapshot as above. Without this the outage never
+    // happens under --parallel and this test passes vacuously — it asserts a
+    // 200, which a healthy Redis also returns.
+    app()->forgetInstance('redis');
+    Redis::clearResolvedInstances();
 
     $jwt = mintStrictRevocationJwt();
 
