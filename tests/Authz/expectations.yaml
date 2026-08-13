@@ -239,3 +239,18 @@
   fixture: { category: unknown }
 - route: "api/site/sections/{section}/items/{item}"
   fixture: { section: "App\\Models\\Core\\Site\\Section", item: unknown }
+
+# ── Services — the 3a content.* cutover changed these signatures ─────────────
+# show/update/destroy/restore now take `string $service`, not `Service $service`:
+# they resolve the id against content.* first and fall back to site.services for
+# the Fresha half, so implicit model binding no longer applies and reflection has
+# nothing to read. resync/updateCategory still take `Service $service` (deferred
+# to 3b) and still resolve by reflection, which is why they need no entry here.
+#
+# STRONG form deliberately — site.services still holds every Fresha row and every
+# backfilled owner row, so identity B has a real row to substitute and this stays
+# a genuine cross-tenant probe rather than an `unknown` opt-out.
+- route: "api/services/{service}"
+  fixture: { service: "App\\Models\\Core\\User\\Service" }
+- route: "api/services/{service}/restore"
+  fixture: { service: "App\\Models\\Core\\User\\Service" }
