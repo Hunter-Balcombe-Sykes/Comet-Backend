@@ -53,7 +53,10 @@ class ProjectionWriter
         'f_catalog' => ['release_type', 'track_number', 'disc_number', 'isrc', 'gtin', 'sku', 'handle', 'vendor', 'variant_ref'],
         'f_place' => ['venue_name', 'address', 'locality', 'region', 'country_code', 'latitude', 'longitude'],
         'f_rated' => ['rating', 'rating_max', 'ratings_count'],
-        'f_review' => ['author_name', 'author_photo_url', 'rating', 'text', 'reviewed_at'],
+        // author_uri: slice 6 Task 1 (migration 20260813110000). upsertSingletonFacet
+        // filters against this list, so an unlisted column is dropped silently —
+        // no error, no row.
+        'f_review' => ['author_name', 'author_photo_url', 'author_uri', 'rating', 'text', 'reviewed_at'],
         'f_channel' => ['handle', 'followers', 'avatar_url', 'is_live', 'verified'],
         'f_file' => ['file_url', 'mime_type', 'size_bytes', 'page_count'],
     ];
