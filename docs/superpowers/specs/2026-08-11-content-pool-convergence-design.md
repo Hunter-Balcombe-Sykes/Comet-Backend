@@ -1232,6 +1232,20 @@ one-way rule was written against scrape flapping, which must not undo a
 deliberate removal — an owner re-adding a product through `addProduct` /
 `setProducts` is not that. Slices 3, 4 and 6 inherit the narrowed form.
 
+**The rule is enforced caller-side, not inside the writer — a slice adopting
+this pattern must check its own call sites rather than assume the write
+function guards itself.** In 5b, `ShopContentWriter::syncStore()`'s un-retire
+step is unconditional for every item it links — it has no owner-vs-connector
+branch and its own docblock says so explicitly. It is reached from both owner
+paths (`ShopController`, `ShopProductSeeder`) and the scheduled connector path
+(`ShopFetch::fetch()` → `ShopCatalog::syncLatest()` → `syncStore()`, a
+6-hourly refresh, `auto_sync_latest` absent meaning ON). The rule holds only
+because `ShopFetch` itself skips hand-curated brands and the individual
+bucket before ever reaching `syncStore()` — so the scheduled path can only
+un-retire items its own top-N windowing retired, never one an owner curated by
+hand. Gating `syncStore()` itself with a flag was considered and rejected by
+the owner 2026-08-13.
+
 ---
 
 ## 10. Verification and communication
@@ -2351,7 +2365,7 @@ never may" (§9.8), and `site.shop_brands` was found still written by
 | `shop` pool registered — `POOLS`, `PAGE_KEYS`, `PAGE_LABELS`, `SECTION_SHAPE` (`kind_is` / `recency`); deliberately excluded from `LATEST_TAG_POOLS` | `app/Site/Pools/PoolRegistry.php` |
 | `content:provision-shop-pins` (`--dry-run`) — flattens catalogue position into dense pins | `app/Console/Commands/ProvisionShopPinsCommand.php` |
 | `retireAbsent()`'s stale-coord row-wise match fixed to a `whereNotExists` | `ShopContentWriter::retireAbsent()` |
-| Owner-authored re-add clears `content.items.removed_at`; connector re-observation never does | `ShopContentWriter::syncStore()`, fourth step |
+| Re-add clears `content.items.removed_at` for every item just linked (unconditional in the writer); the owner-vs-connector boundary is enforced by `ShopFetch`'s callers, not inside `syncStore()` itself | `ShopContentWriter::syncStore()`, fourth step |
 | Outbound URL composition moved to the backend — mode from `site.sites.shop_link_mode`, Shopify cart deep-link / WooCommerce `?add-to-cart=`, discount + referral appended | `PoolResolver::itemPayloads()` |
 | Pool item payload gains `description`, `vendor`, `variants`, `collectionIds` (every kind, nullable off-kind); `frames` extended to `kind='product'`; `popularityRank` populated for products from `content_popularity_scores` | `PoolResolver` |
 | `collections` map added to the `shop` pool envelope, keyed by collection uuid, `name` nulled when it is the `external_ref` sentinel | `PoolResolver::collectionsFor()` |
@@ -2402,7 +2416,7 @@ not depend on the sub-spec surviving:
 
 | Convention | Value | Who needs it |
 |---|---|---|
-| Clearing `removed_at` | an **owner-authored** write may; a **connector** re-observing never may | slices 3, 4, 6 |
+| Clearing `removed_at` | the rule is owner-may/connector-never, but 5b enforces it **caller-side**: the writer's un-retire step is unconditional, and the boundary lives in what calls it | slices 3, 4, 6 — check your own call sites, do not assume the writer guards itself |
 | A pool payload carrying groups | additive `collections` map on the pool envelope, keyed by collection **uuid**, each carrying `externalRef`; items carry plural `collectionIds` | **slice 4 explicitly** — menu categories are the same problem |
 | Pool payload enforcement point | explicit key-by-key construction + a wire-shape test pinning key sets, failing on additions too | every remaining slice |
 | Owner-chosen ordering | pins seeded once by a provisioning command; nothing writes pins afterwards | slice 4 |

@@ -254,6 +254,22 @@ storefront collection, `UPDATE content.items SET removed_at = NULL, updated_at =
 now() WHERE removed_at IS NOT NULL`. Scoped to the items just linked, so it can
 never un-retire something outside this catalogue.
 
+**The rule above is enforced caller-side, not inside `syncStore()` — read this
+before reusing the pattern.** `syncStore()`'s un-retire step is unconditional
+for every item it links; its own docblock states plainly that the method is
+NOT owner-exclusive. It is reached from owner paths (`ShopController:806/956/992`,
+`ShopProductSeeder:109`) **and** from the scheduled connector path
+(`ShopFetch::fetch()` → `ShopCatalog::syncLatest():140` → `syncStore()`, a
+6-hourly refresh where `auto_sync_latest` absent means ON). The rule holds
+anyway, but only because `ShopFetch` itself skips hand-curated brands
+(`ShopContentWriter::isCurated()` → `products_curated_at`) and the individual
+bucket (`->where('is_individual', false)`) before ever calling `syncStore()` —
+so the scheduled path can only un-retire items its own top-N windowing
+retired, never a brand an owner curated by hand. Both exclusions are pinned by
+`ShopRetirementTest`. Gating `syncStore()` itself with a flag was considered
+and rejected by the owner 2026-08-13: **a slice adopting this pattern must
+check its own call sites, not assume the write function guards itself.**
+
 **Why it cannot be deferred.** No shop read in 5a filters `removed_at`, so today
 the gap is invisible. The pool read filters it. The individual bucket's
 `MAX_INDIVIDUAL_PRODUCTS = 20` cap retires the oldest product on **every** add
@@ -639,7 +655,7 @@ than ticked.
 
 | Convention | Value | Who needs it |
 |---|---|---|
-| Clearing `removed_at` | an **owner-authored** write may; a **connector** re-observing never may | slices 3, 4, 6 |
+| Clearing `removed_at` | the rule is owner-may/connector-never, but 5b enforces it **caller-side** — the writer's un-retire step is unconditional per linked item; the boundary lives in what calls it | slices 3, 4, 6 — check your own call sites, do not assume the writer guards itself |
 | A pool payload carrying groups | additive `collections` map on the pool envelope, keyed by collection **uuid**, each carrying `externalRef`; items carry plural `collectionIds` | **slice 4 explicitly** — menu categories are the same problem |
 | Pool payload enforcement point | explicit key-by-key construction + a wire-shape test pinning key sets, failing on additions too | every remaining slice |
 | Owner-chosen ordering | pins seeded once by a provisioning command; nothing writes pins afterwards | slice 4 |
