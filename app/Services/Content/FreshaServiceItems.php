@@ -75,14 +75,22 @@ class FreshaServiceItems
             // edge case -- ordering on it alone would let the customer-
             // facing booking menu shuffle order between requests. Same
             // tiebreak ProjectionWriter::resolveItems() uses at :569-570.
-            // No ->distinct(): unlike ManualServiceItems::baseQuery(), this
-            // query has no LEFT JOIN capable of fanning one item out into
-            // several rows (site.section_items has no equivalent here), so
-            // there is nothing for a whole-row DISTINCT to collapse -- and
-            // Postgres requires every ORDER BY column to appear in a
-            // DISTINCT select list, which would make si.id (always unique)
-            // defeat the DISTINCT entirely if it were added just to satisfy
-            // that rule.
+            // No ->distinct(), and the reason is NOT "there is no LEFT JOIN
+            // here so nothing can fan out" -- that rule is false, and a
+            // second review finding rested on it. An INNER JOIN fans out
+            // exactly as readily: an item with two live source_items on
+            // connection sources yields two rows from this query today.
+            //
+            // The real argument is that the SELECT LIST already
+            // differentiates them. si.record_key and cs.id ride along, so
+            // two source_items produce two rows that are genuinely
+            // DIFFERENT rows -- a whole-row DISTINCT would not collapse
+            // them, and si.id in the ORDER BY (which Postgres would then
+            // require in the select list) guarantees it could not. DISTINCT
+            // would be theatre, not a guard. What actually keeps this
+            // one-row-per-service is the data: a user has at most one live
+            // Fresha connection, so one connection source, and
+            // source_items is unique on (source_id, coord).
             ->orderBy('i.first_seen_at')
             ->orderBy('si.id')
             ->get(['i.id', 'i.headline_cache', 'si.record_key', 'cs.id as source_id']);

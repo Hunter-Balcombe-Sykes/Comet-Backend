@@ -123,6 +123,41 @@ it('moves an item between collections', function () {
         ->toBe([$b]);
 });
 
+// C2 (final review): content.collection_items is a SHARED table. Slices
+// 5a/5b file products into kind='storefront' collections with source_id NULL
+// — identical, on the two columns assign()'s delete matched, to the
+// owner-authored service lane. Unreachable today (a service item id is never
+// a product item id), but one mis-resolved id would have silently unfiled a
+// product from its storefront. The delete is scoped by kind now.
+it('never touches a membership belonging to another collection kind', function () {
+    $userId = userWithCollections();
+    $itemId = serviceItemFor($userId);
+    $serviceCategory = app(ServiceCollections::class)->create($userId, 'Colour');
+
+    // A storefront collection + membership on the SAME item, source_id NULL —
+    // exactly the shape ShopContentWriter lands.
+    $storefrontId = (string) Str::uuid();
+    DB::table('content.collections')->insert([
+        'id' => $storefrontId, 'user_id' => $userId, 'parent_id' => null,
+        'label' => 'My Shop', 'kind' => 'storefront', 'external_ref' => null,
+        'removed_at' => null, 'position' => 0, 'is_user_created' => false,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.collection_items')->insert([
+        'collection_id' => $storefrontId, 'item_id' => $itemId,
+        'source_id' => null, 'position' => 0,
+    ]);
+
+    app(ServiceCollections::class)->assign($userId, $itemId, $serviceCategory, null);
+    // ...and again through the clearing spelling, which is the wider delete.
+    app(ServiceCollections::class)->assign($userId, $itemId, null, null);
+
+    expect(DB::table('content.collection_items')
+        ->where('item_id', $itemId)->where('collection_id', $storefrontId)->count())->toBe(1);
+    expect(DB::table('content.collection_items')
+        ->where('item_id', $itemId)->where('collection_id', $serviceCategory)->count())->toBe(0);
+});
+
 it('clears an item\'s category when passed null', function () {
     $userId = userWithCollections();
     $itemId = serviceItemFor($userId);

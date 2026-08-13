@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\Content\ManualServiceItems;
 use App\Services\Content\ServiceCollections;
@@ -37,8 +38,30 @@ beforeEach(function () {
     setupServicesTable();
     setupServiceCategoriesTable();
     setupBlocksTable();
+    // C1's cross-surface case drives the staff grouped list too — the whole
+    // point is that the two dashboards agree, which cannot be asserted from
+    // one of them.
+    setupPartnaStaffTable();
     shimPgAdvisoryLockForSqlite();
     Queue::fake();
+
+    // staff.audit middleware writes here on every staff request.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
+        id TEXT PRIMARY KEY,
+        staff_id TEXT,
+        staff_email_snapshot TEXT,
+        impersonator_staff_id TEXT,
+        impersonator_email_snapshot TEXT,
+        user_id TEXT,
+        professional_handle_snapshot TEXT,
+        route TEXT NOT NULL DEFAULT \'\',
+        http_method TEXT NOT NULL DEFAULT \'\',
+        status_code INTEGER NOT NULL DEFAULT 0,
+        payload_summary TEXT NOT NULL DEFAULT \'{}\',
+        ip_hash TEXT,
+        user_agent TEXT,
+        created_at TEXT
+    )');
 });
 
 /** A professional with a site, resolved with the site relation the controller reads. */
@@ -381,4 +404,239 @@ it('fires all three invalidation lanes on a resync', function () {
         ->toBe($beforeRevision + 1);
     expect(DB::table('site.sites')->where('id', $siteId)->value('updated_at'))->not->toBe($before);
     Queue::assertPushed(CloudflareCachePurgeJob::class);
+});
+
+// ── C1 (final review): the grouped dashboard list ──────────────────────────
+//
+// Two id spaces are live at once, and a service's memberships only ever point
+// into one of them. Before this fix the OWNER's grouped list enumerated only
+// site.service_categories, so a service assigned to a content.collections
+// category matched no block AND failed the `=== []` uncategorised filter — it
+// appeared in NEITHER list and vanished from the dashboard. The staff twin had
+// already been fixed, so the two surfaces disagreed about identical data,
+// which is the worse half of the bug.
+
+/** File-local, uniquely named: a helper in one Pest file is not visible to another under a single-file run. */
+function serviceResyncStaffAdmin(): PartnaStaff
+{
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $staff->primary_email = 'admin@partna.au';
+
+    return $staff;
+}
+
+it('shows an owner-authored service under its own collection block in the grouped list', function () {
+    [$user] = serviceResyncUser();
+    $itemId = serviceResyncOwnerItem($user, 'Balayage');
+    $categoryId = app(ServiceCollections::class)->create($user->id, 'Colour');
+
+    actingAsUser($user)->patchJson("/api/services/{$itemId}/category", ['category_id' => $categoryId])->assertOk();
+
+    $response = actingAsUser($user)->getJson('/api/services?grouped=1')->assertOk();
+
+    $block = collect($response->json('categories'))->firstWhere('id', $categoryId);
+    expect($block)->not->toBeNull();
+    expect($block['title'])->toBe('Colour');
+    expect(collect($block['services'])->pluck('id')->all())->toBe([$itemId]);
+});
+
+it('never drops a categorised owner-authored service from the grouped list entirely', function () {
+    // C1 stated as the property that actually failed: whichever list it
+    // belongs in, a live service must appear in EXACTLY ONE of them. Asserting
+    // only "under its block" would still pass if it were also duplicated into
+    // uncategorised; asserting only "not in uncategorised" was true even while
+    // the bug was live. The count is what pins it.
+    [$user] = serviceResyncUser();
+    $assigned = serviceResyncOwnerItem($user, 'Balayage');
+    $unassigned = serviceResyncOwnerItem($user, 'Blow Dry');
+    $categoryId = app(ServiceCollections::class)->create($user->id, 'Colour');
+
+    actingAsUser($user)->patchJson("/api/services/{$assigned}/category", ['category_id' => $categoryId])->assertOk();
+
+    $response = actingAsUser($user)->getJson('/api/services?grouped=1')->assertOk();
+
+    $inBlocks = collect($response->json('categories'))->flatMap(fn ($c) => collect($c['services'])->pluck('id'));
+    $inUncategorised = collect($response->json('uncategorised_services'))->pluck('id');
+    $everywhere = $inBlocks->concat($inUncategorised);
+
+    expect($everywhere->filter(fn ($id) => $id === $assigned)->count())->toBe(1);
+    expect($everywhere->filter(fn ($id) => $id === $unassigned)->count())->toBe(1);
+    expect($inUncategorised->all())->toBe([$unassigned]);
+});
+
+// ── The round trip: what the grouped GET emits, the layout POST must accept ──
+//
+// C1 made collection blocks render, which made this reachable: reorderLayout()
+// validated block ids against site.service_categories only, so saving a
+// drag-and-drop of the very layout just rendered came back 422. Posting a
+// HAND-BUILT payload would not have caught it — the bug lives in the
+// relationship between the two endpoints, so the test has to feed one into
+// the other.
+
+/** The grouped payload, reshaped into exactly what reorder-layout expects. */
+function serviceResyncLayoutFromGrouped(array $grouped): array
+{
+    $blocks = collect($grouped['categories'])->map(fn ($category) => [
+        'id' => $category['id'],
+        'service_ids' => collect($category['services'])->pluck('id')->all(),
+    ])->all();
+
+    $blocks[] = [
+        'id' => null,
+        'service_ids' => collect($grouped['uncategorised_services'])->pluck('id')->all(),
+    ];
+
+    return ['categories' => $blocks];
+}
+
+it('accepts the exact layout its own grouped list just returned', function () {
+    [$user] = serviceResyncUser();
+    $collections = app(ServiceCollections::class);
+
+    $colour = $collections->create($user->id, 'Colour');
+    $cuts = $collections->create($user->id, 'Cuts');
+    $balayage = serviceResyncOwnerItem($user, 'Balayage');
+    $trim = serviceResyncOwnerItem($user, 'Trim');
+    $loose = serviceResyncOwnerItem($user, 'Loose');
+    actingAsUser($user)->patchJson("/api/services/{$balayage}/category", ['category_id' => $colour])->assertOk();
+    actingAsUser($user)->patchJson("/api/services/{$trim}/category", ['category_id' => $cuts])->assertOk();
+
+    $grouped = actingAsUser($user)->getJson('/api/services?grouped=1')->assertOk()->json();
+
+    actingAsUser($user)
+        ->postJson('/api/services/reorder-layout', serviceResyncLayoutFromGrouped($grouped))
+        ->assertOk()
+        ->assertJson(['ok' => true]);
+
+    // Round trip, not just a 200: the same grouping survives a re-read.
+    $after = actingAsUser($user)->getJson('/api/services?grouped=1')->assertOk()->json();
+    expect(serviceResyncLayoutFromGrouped($after))->toBe(serviceResyncLayoutFromGrouped($grouped));
+    expect(collect($after['uncategorised_services'])->pluck('id')->all())->toBe([$loose]);
+});
+
+it('reorders collection blocks and their services, and the new order survives a re-read', function () {
+    [$user] = serviceResyncUser();
+    $collections = app(ServiceCollections::class);
+
+    $colour = $collections->create($user->id, 'Colour');
+    $cuts = $collections->create($user->id, 'Cuts');
+    $balayage = serviceResyncOwnerItem($user, 'Balayage');
+    $tint = serviceResyncOwnerItem($user, 'Tint');
+    $trim = serviceResyncOwnerItem($user, 'Trim');
+    foreach ([$balayage, $tint] as $id) {
+        actingAsUser($user)->patchJson("/api/services/{$id}/category", ['category_id' => $colour])->assertOk();
+    }
+    actingAsUser($user)->patchJson("/api/services/{$trim}/category", ['category_id' => $cuts])->assertOk();
+
+    // Cuts moves ahead of Colour, and inside Colour the two swap.
+    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => $cuts, 'service_ids' => [$trim]],
+            ['id' => $colour, 'service_ids' => [$tint, $balayage]],
+            ['id' => null, 'service_ids' => []],
+        ],
+    ])->assertOk();
+
+    $after = actingAsUser($user)->getJson('/api/services?grouped=1')->assertOk()->json();
+
+    expect(collect($after['categories'])->pluck('id')->all())->toBe([$cuts, $colour]);
+    $colourServiceIds = collect(collect($after['categories'])->firstWhere('id', $colour)['services'])
+        ->pluck('id')->all();
+    expect($colourServiceIds)->toBe([$tint, $balayage]);
+    // The order the block reports is the order the flat list reports — one
+    // shared rank across both halves, not a per-block counter.
+    $flat = collect(actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk()->json('services'))
+        ->pluck('id')->all();
+    expect(array_search($tint, $flat, true))->toBeLessThan(array_search($balayage, $flat, true));
+});
+
+it('fires all three invalidation lanes on a layout reorder', function () {
+    [$user, $siteId] = serviceResyncUser();
+    $collections = app(ServiceCollections::class);
+    $colour = $collections->create($user->id, 'Colour');
+    $itemId = serviceResyncOwnerItem($user, 'Balayage');
+    actingAsUser($user)->patchJson("/api/services/{$itemId}/category", ['category_id' => $colour])->assertOk();
+
+    DB::table('site.sites')->where('id', $siteId)->update(['updated_at' => now()->subMinute()]);
+    $before = DB::table('site.sites')->where('id', $siteId)->value('updated_at');
+    $beforeRevision = BuildState::read($siteId)['content_revision'];
+    Queue::fake();
+
+    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => $colour, 'service_ids' => [$itemId]],
+            ['id' => null, 'service_ids' => []],
+        ],
+    ])->assertOk();
+
+    // EXACTLY one bump. reposition() and pin() are raw writes that bump
+    // nothing on their own, so this delta IS ManualServiceWriter::invalidate()
+    // and nothing else — a ">= 1" assertion would survive deleting it.
+    expect(DB::table('site.site_build_state')->where('site_id', $siteId)->value('content_revision'))
+        ->toBe($beforeRevision + 1);
+    expect(DB::table('site.sites')->where('id', $siteId)->value('updated_at'))->not->toBe($before);
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
+});
+
+it('rejects a Fresha service filed under an owner-authored category block', function () {
+    // The guard that makes accepting both id spaces safe: a block's space
+    // decides what may sit in it, so a mismatch is a 422 rather than a
+    // membership silently dropped on the next read.
+    [$user] = serviceResyncUser();
+    $colour = app(ServiceCollections::class)->create($user->id, 'Colour');
+    $freshaId = ownerService($user->id, ['title' => 'Fresha Cut', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
+
+    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => $colour, 'service_ids' => [$freshaId]],
+            ['id' => null, 'service_ids' => []],
+        ],
+    ])->assertStatus(422)->assertJsonPath('message', 'A Fresha-synced service cannot be filed under an owner-authored category.');
+});
+
+it('rejects a payload that covers every legacy category but omits a collection', function () {
+    // Coverage is per id space: a payload complete in one space and empty in
+    // the other is still an incomplete layout, and silently repositioning
+    // only what it named would scramble the rest.
+    [$user] = serviceResyncUser();
+    app(ServiceCollections::class)->create($user->id, 'Colour');
+    $itemId = serviceResyncOwnerItem($user, 'Balayage');
+
+    actingAsUser($user)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => null, 'service_ids' => [$itemId]],
+        ],
+    ])->assertStatus(422)->assertJsonPath(
+        'message',
+        'Layout payload must include all category IDs (use one block with id=null for uncategorised).'
+    );
+});
+
+it('agrees with the staff grouped list about the same service', function () {
+    // The half of C1 that is worse than the drop itself: two dashboards
+    // rendering the same rows differently. Same professional, same data, both
+    // surfaces — asserted across the pair, which neither side can do alone.
+    [$user] = serviceResyncUser();
+    $itemId = serviceResyncOwnerItem($user, 'Balayage');
+    $categoryId = app(ServiceCollections::class)->create($user->id, 'Colour');
+    actingAsUser($user)->patchJson("/api/services/{$itemId}/category", ['category_id' => $categoryId])->assertOk();
+
+    $ownerBlock = collect(actingAsUser($user)->getJson('/api/services?grouped=1')->assertOk()->json('categories'))
+        ->firstWhere('id', $categoryId);
+
+    $staffBlock = collect(
+        actingAsStaff(serviceResyncStaffAdmin())
+            ->getJson("/api/staff/professionals/{$user->id}/services?grouped=1")
+            ->assertOk()
+            ->json('categories')
+    )->firstWhere('id', $categoryId);
+
+    expect($ownerBlock)->not->toBeNull();
+    expect($staffBlock)->not->toBeNull();
+    expect(collect($staffBlock['services'])->pluck('id')->all())
+        ->toBe(collect($ownerBlock['services'])->pluck('id')->all());
+    expect($staffBlock['title'])->toBe($ownerBlock['title']);
+    expect($staffBlock['source'])->toBe($ownerBlock['source']);
 });

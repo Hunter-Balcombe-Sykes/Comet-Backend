@@ -119,13 +119,32 @@ class UserServiceController extends ApiController
             ]);
         }
 
-        // Categories list (for grouped UI): still site.service_categories.
-        // Task 9 is the one moving these seven routes onto
-        // content.collections; until it lands, an owner-authored service
-        // assigned to a content collection (Task 10's updateCategory) carries
-        // a membership whose id has no match in THIS list, so it falls into
-        // uncategorised_services below rather than under its own heading.
-        // Fresha services keep their real eager-loaded memberships.
+        // C1 (final review): TWO id spaces are live during the transition and
+        // a service's memberships only ever point into one of them — an
+        // owner-authored (content.*) service is filed into
+        // `content.collections` (updateCategory's content branch), a Fresha
+        // (site.services) one into `site.service_categories`. Listing only
+        // the legacy space made a categorised owner service match NO block
+        // AND fail the `=== []` uncategorised filter, so it appeared in
+        // neither list and vanished from the dashboard entirely.
+        //
+        // Both spaces are listed, exactly as StaffServiceManagementController
+        // ::index() does — the two dashboards must not disagree about the
+        // same data. ServiceCategoryResource already speaks both shapes
+        // (Task 9), so the wire is one contract either way.
+        $collectionRows = app(ServiceCollections::class)
+            ->list($pro->id, includeRemoved: $includeArchived || $onlyArchived);
+        if ($onlyArchived) {
+            $collectionRows = $collectionRows->filter(fn (object $row) => $row->removed_at !== null)->values();
+        }
+        // ServiceCollections rows carry no user_id column (every read is
+        // already owner-scoped) but the wire has always exposed the field.
+        $collectionRows = $collectionRows->map(function (object $row) use ($pro) {
+            $row->user_id = (string) $pro->id;
+
+            return $row;
+        })->values();
+
         $catQuery = ServiceCategory::query()
             ->where('user_id', $pro->id);
 
@@ -135,7 +154,14 @@ class UserServiceController extends ApiController
             $catQuery->withTrashed();
         }
 
-        $categories = $catQuery->orderBy('sort_order')->orderBy('created_at')->get();
+        $categories = $collectionRows
+            ->concat($catQuery->orderBy('sort_order')->orderBy('created_at')->get())
+            // The same cap /service-categories and both staff surfaces apply.
+            // It matters more here than it did before: this list is now the
+            // CONCATENATION of two stores, so the pre-merge "one store, no
+            // cap" reading could grow past what the dashboard renders.
+            ->take((int) config('partna.limits.pagination.service_categories_max', 200))
+            ->values();
 
         // Multi-category: a service appears under EVERY category it belongs
         // to; zero memberships = Uncategorised. Transient (manual) Service
@@ -145,11 +171,12 @@ class UserServiceController extends ApiController
         // queried against site.service_category_assignments.
         $categoryIds = fn (Service $s) => $s->categories->map(fn ($c) => (string) $c->id)->all();
 
-        $categoryPayload = $categories->map(function (ServiceCategory $c) use ($services, $categoryIds) {
-            $members = $services->filter(fn (Service $s) => in_array((string) $c->id, $categoryIds($s), true))->values();
+        $categoryPayload = $categories->map(function (object $category) use ($services, $categoryIds) {
+            $id = (string) $category->id;
+            $members = $services->filter(fn (Service $s) => in_array($id, $categoryIds($s), true))->values();
 
             return array_merge(
-                (new ServiceCategoryResource($c))->resolve(),
+                (new ServiceCategoryResource($category))->resolve(),
                 ['services' => ServiceResource::collection($members)->resolve()],
             );
         })->values();
@@ -878,19 +905,38 @@ class UserServiceController extends ApiController
         return $this->success(['ok' => true]);
     }
 
-    // Full layout reorder. §C3: category blocks + service_category_assignments
-    // membership are Fresha's concern (every live category belongs to
-    // Fresha, spec §1.1) and are restored here byte-for-byte from the
-    // pre-cutover implementation, including all four validations. Manual
-    // (content.*) ids carry no category concept — they may appear in ANY
-    // block (validation does not reject it, since there is nowhere else for
-    // the frontend to put an uncategorised-by-construction item), but they
-    // are never written into service_category_assignments; only their
-    // FLATTENED, first-occurrence position across every block feeds
-    // section_items.sort_key. Every one of the owner's live services —
-    // Fresha AND manual — must be covered by the payload, checked separately
-    // per half so the error path can't silently accept a payload that omits
-    // one half entirely.
+    /**
+     * Full layout reorder (categories + services).
+     *
+     * BOTH category id spaces are accepted, because the grouped read emits
+     * both (C1): a `site.service_categories` block orders that row's
+     * sort_order and syncs its Fresha memberships, a `content.collections`
+     * block is repositioned through `ServiceCollections::reposition()`. This
+     * mirrors `StaffServiceManagementController::reorderLayout()` method for
+     * method — the two surfaces run one approach over one dataset, rather
+     * than two implementations that agree until they don't.
+     *
+     * A block's id space also decides which services may sit in it: a Fresha
+     * service cannot hold a collection membership and an owner-authored one
+     * cannot hold a legacy pivot row, so a mismatch is a 422 rather than a
+     * silent membership drop. (Pre-C1 a manual id was tolerated in any block
+     * because the grouped read gave the frontend nowhere else to put it.
+     * C1 gave it its own block, so the tolerance is now the bug.)
+     *
+     * MEMBERSHIPS FOR OWNER-AUTHORED SERVICES ARE NOT WRITTEN HERE, only
+     * their ORDER — identical to the staff twin, deliberately.
+     * `PATCH /services/{id}/category` is the writer of
+     * `content.collection_items`; a layout endpoint that also rewrote them
+     * would silently re-file a service any time a UI round-tripped it
+     * through a block of the other kind. See this method's entry in
+     * task-10-report.md: this is the one point where the two instructions I
+     * was given pull apart, and parity with the twin won.
+     *
+     * Every one of the owner's live services — Fresha AND manual — must be
+     * covered by the payload, checked separately per half so the error path
+     * can't silently accept a payload that omits one half entirely; the same
+     * per-space coverage rule applies to the two category id spaces.
+     */
     public function reorderLayout(ReorderServiceLayoutRequest $request): JsonResponse
     {
         $pro = $this->currentUser($request);
@@ -904,18 +950,27 @@ class UserServiceController extends ApiController
 
         $manual = app(ManualServiceItems::class);
         $writer = app(ManualServiceWriter::class);
+        $collections = app(ServiceCollections::class);
 
         $payload = $request->validated();
 
         try {
-            DB::connection('pgsql')->transaction(function () use ($pro, $site, $manual, $writer, $payload) {
+            DB::connection('pgsql')->transaction(function () use ($pro, $site, $manual, $writer, $collections, $payload) {
                 AdvisoryLock::acquire("services:{$pro->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
                 $activeCategoryIds = ServiceCategory::query()
                     ->where('user_id', $pro->id)
                     ->pluck('id')
+                    ->map(fn ($id) => (string) $id)
                     ->all();
                 $activeCategorySet = array_flip($activeCategoryIds);
+
+                // The other id space the grouped read emits (C1). Read inside
+                // the lock, like every other set here, so a concurrent
+                // category write can't make the coverage check disagree with
+                // what is then repositioned.
+                $collectionIds = $collections->list($pro->id)->map(fn ($row) => (string) $row->id)->all();
+                $collectionSet = array_flip($collectionIds);
 
                 $activeFreshaServiceIds = Service::query()
                     ->where('user_id', $pro->id)
@@ -930,6 +985,7 @@ class UserServiceController extends ApiController
                 $manualIdSet = array_flip($manualRowsById->keys()->all());
 
                 $providedCategoryIds = [];
+                $orderedCollectionIds = [];
                 $seenPerBlock = [];
                 $membershipsByService = [];
                 $uncategorisedIds = [];
@@ -937,12 +993,15 @@ class UserServiceController extends ApiController
 
                 foreach ($payload['categories'] as $bi => $catBlock) {
                     $catId = $catBlock['id'] ?? null;
+                    $isCollectionBlock = $catId !== null && isset($collectionSet[$catId]);
 
                     if ($catId !== null) {
-                        if (! isset($activeCategorySet[$catId])) {
+                        if (! $isCollectionBlock && ! isset($activeCategorySet[$catId])) {
                             abort(422, 'One or more category IDs are invalid.');
                         }
-                        $providedCategoryIds[] = $catId;
+                        $isCollectionBlock
+                            ? $orderedCollectionIds[] = $catId
+                            : $providedCategoryIds[] = $catId;
                     }
 
                     foreach ($catBlock['service_ids'] as $sid) {
@@ -959,17 +1018,23 @@ class UserServiceController extends ApiController
                         }
                         $seenPerBlock[$bi][$sid] = true;
 
+                        // A block's id space decides what may sit in it — see
+                        // the docblock. Silently accepting the mismatch would
+                        // drop the service's real membership on the next read.
+                        if ($isCollectionBlock && ! $isManual) {
+                            abort(422, 'A Fresha-synced service cannot be filed under an owner-authored category.');
+                        }
+                        if ($catId !== null && ! $isCollectionBlock && ! $isFresha) {
+                            abort(422, 'An owner-authored service cannot be filed under a Fresha-synced category.');
+                        }
+
                         // Manual ids never enter FRESHA's membership map
                         // (site.service_category_assignments), whatever block
                         // they were placed in — only first-occurrence order
-                        // matters for them here (tracked below). Task 10 gave
-                        // them memberships of their own in
-                        // content.collection_items, but this layout endpoint
-                        // is not a writer of those: PATCH
-                        // /services/{id}/category is. Teaching it to write
-                        // them means resolving each block's id in the right
-                        // id space first — see updateCategory()'s two
-                        // branches — and belongs with Task 9's cutover.
+                        // matters for them here (tracked below). Their own
+                        // content.collection_items memberships are written by
+                        // PATCH /services/{id}/category, not here — same
+                        // stance as the staff twin, see the docblock.
                         if ($isManual) {
                             $manualIdsSeen[$sid] = true;
 
@@ -1005,15 +1070,12 @@ class UserServiceController extends ApiController
                     abort(422, 'Layout payload must include all service IDs for this professional.');
                 }
 
-                // Ensure all categories are included (excluding uncategorised null bucket)
-                $providedCategoryIds = array_values(array_unique($providedCategoryIds));
-                sort($providedCategoryIds);
-                $sortedActive = $activeCategoryIds;
-                sort($sortedActive);
-
-                if ($providedCategoryIds !== $sortedActive) {
-                    abort(422, 'Layout payload must include all category IDs (use one block with id=null for uncategorised).');
-                }
+                // Every category must be included (excluding the uncategorised
+                // null bucket), applied SEPARATELY to each id space — a
+                // payload covering every legacy category but no collection is
+                // still an incomplete layout.
+                $this->assertCoversEveryCategory($providedCategoryIds, $activeCategoryIds);
+                $this->assertCoversEveryCategory($orderedCollectionIds, $collectionIds);
 
                 // Apply category order + service order (both halves,
                 // flattened into ONE first-occurrence traversal — §NEW-C1/I1
@@ -1025,7 +1087,10 @@ class UserServiceController extends ApiController
                 foreach ($payload['categories'] as $catBlock) {
                     $catId = $catBlock['id'] ?? null;
 
-                    if ($catId !== null) {
+                    // Legacy rows are renumbered in place; collections carry
+                    // their order in content.collections.position and are
+                    // repositioned through their own writer after this loop.
+                    if ($catId !== null && isset($activeCategorySet[$catId])) {
                         ServiceCategory::query()
                             ->where('user_id', $pro->id)
                             ->where('id', $catId)
@@ -1040,6 +1105,10 @@ class UserServiceController extends ApiController
                             $orderedFreshaServiceIds[] = $serviceId;
                         }
                     }
+                }
+
+                if ($orderedCollectionIds !== []) {
+                    $collections->reposition($pro->id, array_values(array_unique($orderedCollectionIds)));
                 }
 
                 // Membership sync per FRESHA service (replace-set semantics)
@@ -1307,6 +1376,27 @@ class UserServiceController extends ApiController
         $site = $this->currentSite($pro);
         app(ManualServiceWriter::class)->invalidate([(string) $site->id]);
         app(UserCacheService::class)->invalidateServices($pro->id);
+    }
+
+    /**
+     * Every id in $expected must appear in $provided (order-insensitive) —
+     * the layout payload's "send me the whole set" rule, applied separately
+     * to each category id space so a payload covering one space fully and the
+     * other not at all is still rejected. Same helper, same message, as
+     * StaffServiceManagementController::assertCoversEvery().
+     *
+     * @param  list<string>  $provided
+     * @param  list<string>  $expected
+     */
+    private function assertCoversEveryCategory(array $provided, array $expected): void
+    {
+        $provided = array_values(array_unique($provided));
+        sort($provided);
+        sort($expected);
+
+        if ($provided !== $expected) {
+            abort(422, 'Layout payload must include all category IDs (use one block with id=null for uncategorised).');
+        }
     }
 
     private function assertCategoryBelongsToProfessional(string $userId, ?string $categoryId): void

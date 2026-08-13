@@ -399,8 +399,9 @@ it('reorderLayout renumbers both halves and orders content collections, without 
     $manual = staffSvcOwnerCreate($pro, ['title' => 'Owner One']);
     $manualTwo = staffSvcOwnerCreate($pro, ['title' => 'Owner Two']);
 
-    // StaffReorderServiceLayoutRequest declares service_ids `required`, which
-    // rejects an empty array — every block carries at least one id.
+    // Every block carries at least one id here because this case is about
+    // renumbering, not about empty blocks — those are covered on their own
+    // below, since StaffReorderServiceLayoutRequest now accepts them.
     actingAsStaff(staffSvcAdmin())
         ->postJson("/api/staff/professionals/{$pro->id}/services/reorder-layout", [
             'categories' => [
@@ -490,6 +491,95 @@ it('fires all three invalidation lanes on forceDestroy', function () {
             ->deleteJson("/api/staff/professionals/{$pro->id}/services/{$id}/hard")
             ->assertOk();
     });
+});
+
+// ── the empty-block contradiction (owner twin: ServiceResyncCutoverTest) ────
+//
+// StaffReorderServiceLayoutRequest declared service_ids `required`, and
+// `required` rejects []. reorderLayout()'s coverage rule demands that EVERY
+// category appear in the payload. For a professional holding ONE empty
+// category the two rules contradict: name it and validation 422s, omit it and
+// coverage 422s — no legal request exists, so staff could never save that
+// professional's layout. Not hypothetical: ServiceCollections::list()
+// deliberately keeps an empty user-created collection visible ("add your first
+// service here"), and an all-categorised layout has an empty uncategorised
+// bucket. `present` is the fix, and it is the same word the owner's request
+// carries — the two gate the same payload and must not drift.
+
+/** The grouped payload, reshaped into exactly what reorder-layout expects. */
+function staffSvcLayoutFromGrouped(array $grouped): array
+{
+    $blocks = collect($grouped['categories'])->map(fn ($category) => [
+        'id' => $category['id'],
+        'service_ids' => collect($category['services'])->pluck('id')->all(),
+    ])->all();
+
+    $blocks[] = [
+        'id' => null,
+        'service_ids' => collect($grouped['uncategorised_services'])->pluck('id')->all(),
+    ];
+
+    return ['categories' => $blocks];
+}
+
+it('saves a layout for a professional who owns an empty category', function () {
+    [$pro] = staffSvcTenant();
+    $filled = (string) actingAsUser($pro)->postJson('/api/service-categories', ['title' => 'Colour'])
+        ->assertCreated()->json('category.id');
+    // Created and deliberately left empty — the state list() keeps visible.
+    $empty = (string) actingAsUser($pro)->postJson('/api/service-categories', ['title' => 'Empty'])
+        ->assertCreated()->json('category.id');
+    $service = staffSvcOwnerCreate($pro, ['title' => 'Balayage']);
+    actingAsUser($pro)->patchJson("/api/services/{$service}/category", ['category_id' => $filled])->assertOk();
+
+    // Naming the empty category is the ONLY legal shape: omitting it trips the
+    // coverage rule instead.
+    actingAsStaff(staffSvcAdmin())
+        ->postJson("/api/staff/professionals/{$pro->id}/services/reorder-layout", [
+            'categories' => [
+                ['id' => $filled, 'service_ids' => [$service]],
+                ['id' => $empty, 'service_ids' => []],
+                ['id' => null, 'service_ids' => []],
+            ],
+        ])
+        ->assertOk()
+        ->assertJson(['ok' => true]);
+
+    // The empty category survives the save and still renders as its own block.
+    $grouped = actingAsStaff(staffSvcAdmin())
+        ->getJson("/api/staff/professionals/{$pro->id}/services?grouped=1")
+        ->assertOk()->json();
+    expect(collect($grouped['categories'])->pluck('id')->all())->toContain($empty);
+});
+
+it('accepts the exact layout its own grouped list just returned', function () {
+    // The round trip, not a hand-built payload: the defect above lives in the
+    // relationship between what the GET emits and what the POST accepts, so
+    // only feeding one into the other exercises it.
+    [$pro] = staffSvcTenant();
+    $colour = (string) actingAsUser($pro)->postJson('/api/service-categories', ['title' => 'Colour'])
+        ->assertCreated()->json('category.id');
+    (string) actingAsUser($pro)->postJson('/api/service-categories', ['title' => 'Empty'])
+        ->assertCreated()->json('category.id');
+    $balayage = staffSvcOwnerCreate($pro, ['title' => 'Balayage']);
+    actingAsUser($pro)->patchJson("/api/services/{$balayage}/category", ['category_id' => $colour])->assertOk();
+
+    $grouped = actingAsStaff(staffSvcAdmin())
+        ->getJson("/api/staff/professionals/{$pro->id}/services?grouped=1")
+        ->assertOk()->json();
+    // Every service is categorised, so the uncategorised bucket the reshape
+    // appends is empty — the shape `required` rejected.
+    expect($grouped['uncategorised_services'])->toBe([]);
+
+    actingAsStaff(staffSvcAdmin())
+        ->postJson("/api/staff/professionals/{$pro->id}/services/reorder-layout", staffSvcLayoutFromGrouped($grouped))
+        ->assertOk()
+        ->assertJson(['ok' => true]);
+
+    $after = actingAsStaff(staffSvcAdmin())
+        ->getJson("/api/staff/professionals/{$pro->id}/services?grouped=1")
+        ->assertOk()->json();
+    expect(staffSvcLayoutFromGrouped($after))->toBe(staffSvcLayoutFromGrouped($grouped));
 });
 
 it('fires all three invalidation lanes on reorder', function () {

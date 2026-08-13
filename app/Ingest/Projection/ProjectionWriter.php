@@ -1277,6 +1277,14 @@ class ProjectionWriter
             ['label', 'updated_at'],
         );
 
+        // The read-back deliberately does NOT filter on kind, and that is
+        // safe for a stronger reason than "the refs are unlikely to collide":
+        // the returned map is keyed by each found row's OWN kind, so a row of
+        // another kind that happens to share an external_ref lands under a
+        // DIFFERENT map key and can never be handed back as this entry's id.
+        // Adding `whereIn('kind', …)` would narrow the read but change no
+        // outcome — a wrong id is structurally impossible here, not merely
+        // improbable.
         $ids = [];
         foreach (array_chunk(array_values($wanted), $this->writeChunk()) as $chunk) {
             $refs = array_column($chunk, 'external_ref');

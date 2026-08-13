@@ -222,6 +222,18 @@ class ServiceCollections
      * a non-null $collectionId must be one of $userId's own
      * kind='service_category' collections — either mismatch is a silent
      * no-op, never a cross-tenant write.
+     *
+     * C2 (final review): "replaces the item's memberships" means the ones
+     * THIS class owns — kind='service_category'. The delete is scoped by
+     * kind as well as by source, because content.collection_items is a
+     * SHARED table: slices 5a/5b file products into kind='storefront'
+     * collections with source_id NULL, which is byte-identical to the
+     * owner-authored service lane on the two columns the delete would
+     * otherwise match on. Nothing crosses today (a service item id is never
+     * a product item id), so this is not a live bug — it is the difference
+     * between "safe" and "safe as long as no caller ever mis-resolves an
+     * id", and one mis-resolved id would silently unfile a product from its
+     * storefront on a surface this class has no business touching.
      */
     public function assign(string $userId, string $itemId, ?string $collectionId, ?string $sourceId): void
     {
@@ -248,7 +260,14 @@ class ServiceCollections
 
         DB::connection(self::CONNECTION)->transaction(function () use ($itemId, $collectionId, $sourceId) {
             $existing = DB::connection(self::CONNECTION)->table('content.collection_items')
-                ->where('item_id', $itemId);
+                ->where('item_id', $itemId)
+                // Scoped to this class's own kind — see the docblock. A join
+                // is not usable on a DELETE across drivers, so the membership
+                // is narrowed by an EXISTS against its parent collection.
+                ->whereExists(fn ($query) => $query->selectRaw('1')
+                    ->from('content.collections as col')
+                    ->whereColumn('col.id', 'content.collection_items.collection_id')
+                    ->where('col.kind', self::KIND));
             $sourceId === null ? $existing->whereNull('source_id') : $existing->where('source_id', $sourceId);
             $existing->delete();
 
