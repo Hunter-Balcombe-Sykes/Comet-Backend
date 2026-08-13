@@ -47,10 +47,15 @@ ingest.record_versions (google_business), by stream → projected source_items
    `PoolResolver::itemPayloads()` joins nine facet tables; `f_review` and
    `f_rated` are not among them, and no public lane reads `f_review` at all.
    A registry-only change ships a review card with no rating and no text.
-4. **The `profile` stream projects to nothing.** 3 record_versions, 0
+4. **The `profile` stream is vestigial, not unfinished.** 3 record_versions, 0
    source_items. `ProjectorRegistry`'s docblock defers profile_fields to
-   "field bindings (plan §14)"; no binding implementation exists anywhere in
-   `app/Ingest/`. There is no lane to extend for per-place facts.
+   "field bindings (plan §14)" — a lane that was built
+   (`20260728150000_field_bindings.sql`) and deliberately dropped
+   (`20260805110000_drop_field_bindings.sql`) in the 2026-08-05 audit wave
+   because it "never gained a production caller". The docblock now points at
+   nothing. The identity fold it was meant to serve happens instead via
+   `IdentitySync` off `IntegrationConnectionObserver::saved` on the legacy
+   connection payload, which is why nothing consumes the stream's records.
 5. **`reviewSummary` is not the only companion.** The legacy payload couples
    four keys behind one owner toggle (`DisplaySettingsFilter:33`): `reviews`,
    `reviewSummary`, `rating`, `reviewCount`. Only the first has a `content.*`
@@ -231,17 +236,27 @@ first source-level fact in `content.*`.
 
 ### 5.2 How it is written
 
-The aggregates describe the place, which is the `profile` stream's subject —
-the stream that currently projects nothing (§1.1 #4).
-`GoogleBusinessConnector::profileMessages()` gains `rating`, `review_count`,
-`review_summary` from the same `$place` payload (no extra billed call), and a
-new `GoogleBusinessProfileStatsProjector` registered for
-`google_business.profile` returns a source-scoped shape that `ProjectionWriter`
-writes to `source_stats`.
+`GoogleBusinessConnector::reviewsMessages()` emits the aggregates alongside its
+review records — `rating`, `review_count`, `review_summary`, all present in the
+same `$place` payload, so no extra billed call. `ProjectionWriter` gains a
+source-scoped write path that lands them on `source_stats`.
 
-This gives the profile stream a purpose for Google without deciding that a
-connected place *is an item* — a modelling call that would bind seven other
-Identity connectors and belongs to a wider decision, not this slice.
+**Revised 2026-08-13, and the reason matters.** The aggregates describe the
+place, so the `profile` stream is their natural subject and this spec first
+put the writer there. That was wrong: per §1.1 #4 the profile stream is
+vestigial — its intended consumer was deliberately deleted, and the identity
+fold it existed for runs elsewhere. Slice 7 is the teardown slice, and a
+reasonable teardown reads "profile stream has no consumer, remove it". Hanging
+the public wire's rating and review count off it would put a live dependency
+on machinery already scheduled for plausible deletion.
+
+The reviews stream is the one this slice exists to keep alive, so the writer
+goes there. The cost is conceptual: a `Sample` stream emits a source-level fact
+about the place rather than about its records. That is the cheaper mistake.
+
+Deliberately NOT done: landing the place as a `channel`-kind item. It would use
+the existing pipeline with no new seam, but deciding a connected place *is an
+item* binds seven other Identity connectors and belongs to a wider decision.
 
 ### 5.3 Redaction, mirroring the legacy precedent
 
@@ -317,7 +332,8 @@ This slice does **not** discharge LEGAL-2. It inherits it and adds to it:
 
 | Change | Update |
 |---|---|
-| Five corrected premises; unimplemented binding lane; new source-level seam | Parent spec §1, §5, revision note |
+| Five corrected premises; vestigial profile stream; new source-level seam | Parent spec §1, §5, revision note |
+| Profile stream is redundant with the `IdentitySync` fold — retire or justify | `slice-7-teardown` |
 | `content.source_stats`, prune dependency, DSAR sections | `slice-7-teardown` |
 | `PoolRegistry`, `PoolResolver` | `slice-5b`, `slice-4-menus` |
 | Public wire + owner exclusion | `docs/legal/reviewer-data-disclosure.md`, wire manifest |
@@ -336,7 +352,8 @@ that added the other half.
 
 ## 8. Out of scope
 
-- Building the field-binding lane. Recorded as a parent-spec finding.
+- Rebuilding the field-binding lane, or retiring the now-redundant `profile`
+  stream. Both recorded as parent-spec findings for slice 7 (§7).
 - Generalising orphan pruning beyond `f_review` — the prune command's docblock
   already files this as a correctness concern, not a PII one.
 - A reviewer takedown path. `docs/legal/reviewer-data-disclosure.md` §4 point 3
