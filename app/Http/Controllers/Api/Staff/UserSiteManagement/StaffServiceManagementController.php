@@ -20,6 +20,7 @@ use App\Services\Content\ManualServiceWriter;
 use App\Services\Content\ServiceCollections;
 use App\Services\Site\AdvisoryLock;
 use App\Services\Site\AdvisoryLockTimeoutException;
+use App\Services\Site\LegacyServiceSortOrder;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -432,7 +433,7 @@ class StaffServiceManagementController extends ApiController
                 AdvisoryLock::acquire("services:{$professional->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
                 $this->pinManualOrder($site, $writer, $manualRowsById, $fullOrder);
-                $this->renumberLegacySortOrder($professional->id, $fullOrder);
+                app(LegacyServiceSortOrder::class)->renumber($professional->id, $fullOrder);
             });
         } catch (AdvisoryLockTimeoutException) {
             // U2: same contention/423 as store() above.
@@ -627,7 +628,7 @@ class StaffServiceManagementController extends ApiController
                 }
 
                 $this->pinManualOrder($site, $writer, $manualRowsById, $orderedServiceIds);
-                $this->renumberLegacySortOrder($professional->id, $orderedServiceIds);
+                app(LegacyServiceSortOrder::class)->renumber($professional->id, $orderedServiceIds);
             });
         } catch (AdvisoryLockTimeoutException) {
             // Same contention/423 as store()/reorder() above.
@@ -887,7 +888,7 @@ class StaffServiceManagementController extends ApiController
     /**
      * Owner ordering for the manual half: a pin keyed by the id's own position
      * in $order — NOT a recompacted per-half counter, so it stays on the same
-     * numbering scale renumberLegacySortOrder() uses. Excluded (hidden) items
+     * numbering scale LegacyServiceSortOrder uses. Excluded (hidden) items
      * carry no sort_key by design (ManualServiceWriter::exclude) — accepted,
      * but they stay unpositioned until reactivated.
      *
@@ -901,84 +902,6 @@ class StaffServiceManagementController extends ApiController
             if ($row !== null && ($row->state ?? null) !== 'excluded') {
                 $writer->pin($site, $id, (float) $rank);
             }
-        }
-    }
-
-    /**
-     * Renumber site.services.sort_order for the professional's WHOLE live
-     * legacy set — Fresha rows AND the still-present legacy owner-authored
-     * rows ServiceBackfiller never deletes — never just the Fresha subset.
-     * `services_user_sort_order_uq` is `UNIQUE (user_id, sort_order) WHERE
-     * deleted_at IS NULL`, global per user and NOT scoped by source, so a
-     * subset renumber lands on slots the other rows still occupy.
-     *
-     * $order's own array index is the target rank, gaps allowed (the index
-     * requires distinctness among live rows, never contiguity). That is what
-     * keeps this on the same scale as the manual half's section_items.sort_key
-     * pins, so the merged read reconstructs the caller's actual combined order
-     * instead of grouping every manual service ahead of every Fresha one.
-     *
-     * WRITE-ONLY BOOKKEEPING for the superseded owner-authored rows: nothing
-     * reads their site.services.sort_order post-cutover. This exists solely to
-     * keep the shared unique index satisfiable while both halves still share
-     * one table, and it dies with site.services in slice 7.
-     *
-     * Deliberately NOT ReorderService: its internal two-pass recomputes a
-     * DENSE 0..N-1 over only the legacy-resolvable subset, discarding the gaps
-     * left by manual ids — which silently breaks the shared-index property the
-     * moment a manual id sits ahead of a Fresha one in $order.
-     * `UserServiceController` holds a near-twin of this method as a private
-     * helper; it is not extractable from here (that file is another task's,
-     * and neither ManualServiceWriter nor ReorderService is the right home for
-     * a legacy-table-only renumber that dies in slice 7). Flagged for the
-     * final review rather than duplicated silently.
-     *
-     * @param  list<string>  $order  ids in desired order (array position = rank),
-     *                               a mix of content.items and site.services ids
-     */
-    private function renumberLegacySortOrder(string $userId, array $order): void
-    {
-        // The SoftDeletes global scope already excludes trashed rows — this IS
-        // "every live row the partial unique index spans" for this user.
-        $legacyIds = Service::query()
-            ->where('user_id', $userId)
-            ->orderBy('sort_order')
-            ->orderBy('created_at')
-            ->pluck('id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
-
-        if ($legacyIds === []) {
-            return;
-        }
-
-        $legacyIdSet = array_flip($legacyIds);
-        $targets = [];
-        foreach ($order as $rank => $id) {
-            if (isset($legacyIdSet[$id]) && ! isset($targets[$id])) {
-                $targets[$id] = $rank;
-            }
-        }
-
-        // A live row this request never addressed — a superseded legacy manual
-        // row, or a Fresha row the caller didn't mention — keeps its current
-        // relative order, appended after every resolved id.
-        $next = count($order);
-        foreach ($legacyIds as $id) {
-            if (! isset($targets[$id])) {
-                $targets[$id] = $next++;
-            }
-        }
-
-        // Two-pass parking-value renumber: the unique index is checked per
-        // statement, not deferred, so a single pass can transiently collide
-        // with a row that hasn't been updated yet but still holds the target.
-        $offset = (int) Service::query()->where('user_id', $userId)->max('sort_order') + 1000;
-        foreach ($targets as $id => $rank) {
-            Service::query()->where('user_id', $userId)->where('id', $id)->update(['sort_order' => $offset + $rank]);
-        }
-        foreach ($targets as $id => $rank) {
-            Service::query()->where('user_id', $userId)->where('id', $id)->update(['sort_order' => $rank]);
         }
     }
 

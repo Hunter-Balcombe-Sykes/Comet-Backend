@@ -4,6 +4,7 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
+use App\Services\Migration\ServiceBackfiller;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
@@ -377,6 +378,64 @@ it('reorders across both halves without colliding on services_user_sort_order_uq
     $publicTitles = array_column(staffSvcPublicServices($siteId, $pro->id), 'title');
     expect(array_search('Owner B', $publicTitles, true))
         ->toBeLessThan(array_search('Owner A', $publicTitles, true));
+});
+
+// The case above cannot detect a renumber that does NOTHING: its seeded
+// sort_orders are already distinct, so the uniqueness assertion holds, and its
+// single Fresha id cannot be out of order relative to another Fresha id. Both
+// cases below were added when extracting LegacyServiceSortOrder: stubbing the
+// shared helper to a no-op reddened three OWNER tests and not one staff test,
+// which is a coverage hole on this surface rather than an incomplete
+// extraction.
+
+it('reorder moves a Fresha row past another Fresha row on the staff surface', function () {
+    [$pro] = staffSvcTenant();
+
+    // Seeded A-then-B; submitted B-then-A. Only an actual write to
+    // site.services.sort_order can reverse them — the manual half's sort_key
+    // pins cannot, because neither row has a content item.
+    $freshaA = ownerService($pro->id, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
+    $freshaB = ownerService($pro->id, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 1]);
+
+    actingAsStaff(staffSvcAdmin())
+        ->postJson("/api/staff/professionals/{$pro->id}/services/reorder", ['ids' => [$freshaB, $freshaA]])
+        ->assertOk();
+
+    // Pinned as the exact stored ranks, not merely "B before A": the submitted
+    // array index IS the target rank, and that shared scale is what lets the
+    // merged read interleave the two halves at all (§NEW-I1).
+    expect(DB::table('site.services')->where('id', $freshaB)->value('sort_order'))->toBe(0)
+        ->and(DB::table('site.services')->where('id', $freshaA)->value('sort_order'))->toBe(1);
+
+    $order = collect(actingAsStaff(staffSvcAdmin())
+        ->getJson("/api/staff/professionals/{$pro->id}/services")->assertOk()->json('services'))
+        ->pluck('id')->all();
+    expect($order)->toBe([$freshaB, $freshaA]);
+});
+
+it('reorder renumbers a backfilled manual item\'s legacy row from the staff surface', function () {
+    [$pro] = staffSvcTenant();
+
+    // ServiceBackfiller leaves the site.services row in place and mints a
+    // content item coordinated 'manual:{legacy_uuid}'. Staff submit the ITEM
+    // id, so reaching that legacy row needs the coord lookup — which the staff
+    // copy of this renumber never did, while the owner copy always has. The
+    // extraction unified them on the owner's behaviour; without it, the legacy
+    // row below falls into the unaddressed tail and lands at rank 2, not 0.
+    $legacyManualId = ownerService($pro->id, ['title' => 'Legacy Manual', 'source' => null, 'sort_order' => 0]);
+    app(ServiceBackfiller::class)->run();
+    $itemId = (string) DB::table('content.source_items')->where('coord', 'manual:'.$legacyManualId)->value('item_id');
+
+    $freshaA = ownerService($pro->id, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 1]);
+    $freshaB = ownerService($pro->id, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 2]);
+
+    actingAsStaff(staffSvcAdmin())
+        ->postJson("/api/staff/professionals/{$pro->id}/services/reorder", ['ids' => [$itemId, $freshaB, $freshaA]])
+        ->assertOk();
+
+    expect(DB::table('site.services')->where('id', $legacyManualId)->value('sort_order'))->toBe(0)
+        ->and(DB::table('site.services')->where('id', $freshaB)->value('sort_order'))->toBe(1)
+        ->and(DB::table('site.services')->where('id', $freshaA)->value('sort_order'))->toBe(2);
 });
 
 it('reorderLayout renumbers both halves and orders content collections, without colliding', function () {

@@ -23,6 +23,7 @@ use App\Services\Content\ServiceCollections;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Site\AdvisoryLock;
 use App\Services\Site\AdvisoryLockTimeoutException;
+use App\Services\Site\LegacyServiceSortOrder;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
@@ -102,7 +103,7 @@ class UserServiceController extends ApiController
         // manual item's transient sort_order is populated from
         // section_items.sort_key (ManualServiceItems::hydrate()), and
         // reorder()/reorderLayout() now number both halves from the same
-        // shared position index (renumberLegacySortOrder()'s docblock), so
+        // shared position index (LegacyServiceSortOrder's docblock), so
         // this reconstructs the caller's actual combined order instead of
         // always grouping every manual service ahead of every Fresha one.
         $limit = (int) config('partna.limits.pagination.services_max', 500);
@@ -825,7 +826,7 @@ class UserServiceController extends ApiController
     // professional holding both halves); a shared index is also what lets a
     // merged read reconstruct an interleaved manual+Fresha order instead of
     // always grouping manual ahead of Fresha regardless of what was
-    // submitted. See renumberLegacySortOrder()'s docblock.
+    // submitted. See LegacyServiceSortOrder's docblock.
     public function reorder(ReorderServiceRequest $request): JsonResponse
     {
         $pro = $this->currentUser($request);
@@ -871,7 +872,7 @@ class UserServiceController extends ApiController
 
                 // Manual half: section_items.sort_key, keyed by $fullOrder's
                 // own position — not a recompacted counter, so it stays on
-                // the SAME numbering scale renumberLegacySortOrder() uses
+                // the SAME numbering scale LegacyServiceSortOrder uses
                 // below. Excluded (hidden) items carry no sort_key by design
                 // (ManualServiceWriter::exclude) — accepted (no 422) but
                 // stay unpositioned; they get a real position the next time
@@ -884,9 +885,9 @@ class UserServiceController extends ApiController
                 }
 
                 // Legacy half (Fresha + still-present legacy manual rows) —
-                // see renumberLegacySortOrder()'s docblock for why this
+                // see LegacyServiceSortOrder's docblock for why this
                 // covers more than just the ids the caller sent.
-                $this->renumberLegacySortOrder($pro->id, $writer, $fullOrder);
+                app(LegacyServiceSortOrder::class)->renumber($pro->id, $fullOrder);
             });
         } catch (AdvisoryLockTimeoutException) {
             // U2: same contention/423 as store() above.
@@ -894,7 +895,7 @@ class UserServiceController extends ApiController
         }
 
         $writer->invalidate([(string) $site->id]);
-        // EDGE-1: renumberLegacySortOrder() is a raw query-builder mass
+        // EDGE-1: LegacyServiceSortOrder is a raw query-builder mass
         // update, so ServiceObserver never fires for the Fresha half either
         // — touch explicitly (fires SiteObserver: Redis + Cloudflare + cache
         // warm), mirroring what ReorderService's afterCommit callback used
@@ -1137,7 +1138,7 @@ class UserServiceController extends ApiController
 
                 // MANUAL service order → section_items.sort_key, keyed by
                 // $orderedAllServiceIds' own position (not a recompacted
-                // counter) — the same numbering scale renumberLegacySortOrder()
+                // counter) — the same numbering scale LegacyServiceSortOrder
                 // uses below (§NEW-I1). Excluded (hidden) items carry no
                 // sort_key by design (ManualServiceWriter::exclude) —
                 // covered above (no 422), but stay unpositioned; they get a
@@ -1155,8 +1156,8 @@ class UserServiceController extends ApiController
 
                 // §NEW-C1: renumber the WHOLE legacy set (Fresha + the
                 // still-present legacy manual rows), never just the Fresha
-                // subset — see renumberLegacySortOrder()'s docblock.
-                $this->renumberLegacySortOrder($pro->id, $writer, $orderedAllServiceIds);
+                // subset — see LegacyServiceSortOrder's docblock.
+                app(LegacyServiceSortOrder::class)->renumber($pro->id, $orderedAllServiceIds);
             });
         } catch (AdvisoryLockTimeoutException) {
             // Same contention/423 as store()/reorder() above.
@@ -1450,117 +1451,5 @@ class UserServiceController extends ApiController
         foreach (['booking', 'services'] as $blockType) {
             $service->reevaluateEnabled($userId, $siteId, $blockType);
         }
-    }
-
-    /**
-     * §NEW-C1 (review round 2): renumber site.services.sort_order for the
-     * professional's WHOLE live legacy set — Fresha rows AND the
-     * still-present legacy owner-authored rows ServiceBackfiller never
-     * deletes — never just the Fresha subset. services_user_sort_order_uq
-     * (baseline migration) is `UNIQUE (user_id, sort_order) WHERE deleted_at
-     * IS NULL`, GLOBAL per user and NOT scoped by source: renumbering only
-     * Fresha rows to a dense 0..N-1 lands on slots the legacy manual rows
-     * still occupy (they were never deleted at backfill, only superseded),
-     * and every reorder 500s for a professional holding both halves.
-     *
-     * $order's own array index — NOT a per-half recompacted counter — is
-     * the target rank, with gaps allowed (the index only requires
-     * distinctness among live rows, never contiguity). That is what lets
-     * this share exactly the same numbering the caller's manual
-     * `section_items.sort_key` pins use (§NEW-I1) — sorting the merged
-     * dashboard/public read by that shared rank reconstructs the caller's
-     * actual combined order instead of grouping every manual service ahead
-     * of every Fresha one regardless of what was submitted.
-     *
-     * WRITE-ONLY BOOKKEEPING for owner-authored rows: nothing reads
-     * site.services.sort_order for them post-cutover — the public path
-     * reads content.*, the dashboard list reads ManualServiceItems ordered
-     * by section_items.sort_key. This write exists SOLELY to keep the
-     * shared unique index satisfiable while both halves still share one
-     * table, and it dies with site.services in slice 7. That is NOT a
-     * second source of truth for those rows — do not "fix" this back.
-     *
-     * @param  list<string>  $order  ids in desired order (array position =
-     *                               rank) — a mix of content.items (manual)
-     *                               and site.services (Fresha) ids
-     */
-    private function renumberLegacySortOrder(string $userId, ManualServiceWriter $writer, array $order): void
-    {
-        // Eloquent's SoftDeletes global scope already excludes trashed rows
-        // — this IS "every live row the unique index spans" for this user.
-        $legacyIdSet = array_flip(
-            Service::query()->where('user_id', $userId)->pluck('id')->map(fn ($id) => (string) $id)->all()
-        );
-        if ($legacyIdSet === []) {
-            return;
-        }
-
-        // legacy row id => target sort_order. $order's own array index
-        // (NOT a recompacted counter) is the target — deliberately: reusing
-        // ReorderService::reorder() here was tried and reverted, because its
-        // own internal two-pass recomputes a DENSE 0..N-1 over only the
-        // legacy-resolvable subset, discarding the gaps left by manual ids
-        // with no legacy row. That silently breaks §NEW-I1 the moment an
-        // unresolvable (newly-created) manual id sits ahead of a Fresha id
-        // in $order — the Fresha id compacts into a slot that no longer
-        // matches its position in $order, and the merged dashboard/public
-        // read (sorted by this same rank on both sides) puts it in the
-        // wrong place relative to the manual ids around it. Keeping the raw,
-        // gapped index is what makes the two domains' numbers comparable.
-        $targets = [];
-        foreach ($order as $rank => $id) {
-            $legacyId = isset($legacyIdSet[$id]) ? $id : $this->legacyIdForManualItem($writer, $userId, $id);
-            if ($legacyId === null || isset($targets[$legacyId])) {
-                continue;
-            }
-            $targets[$legacyId] = $rank;
-        }
-
-        // A live row this request never addressed at all — a legacy manual
-        // row whose content item wasn't in $order (e.g. already superseded),
-        // or a Fresha row the caller didn't mention — keeps its current
-        // relative order, appended after every resolved id.
-        $nextRank = count($order);
-        foreach (array_keys($legacyIdSet) as $id) {
-            if (! isset($targets[$id])) {
-                $targets[$id] = $nextRank++;
-            }
-        }
-
-        // Two-pass parking-value renumber (the same technique
-        // ReorderService::reorder() uses, reimplemented rather than reused
-        // for the reason above): the unique index is checked per statement,
-        // not deferred, so a single pass can transiently collide with a row
-        // that hasn't been updated yet but still occupies the target value.
-        $offset = (int) Service::query()->where('user_id', $userId)->max('sort_order') + 1000;
-        foreach ($targets as $id => $rank) {
-            Service::query()->where('user_id', $userId)->where('id', $id)->update(['sort_order' => $offset + $rank]);
-        }
-        foreach ($targets as $id => $rank) {
-            Service::query()->where('user_id', $userId)->where('id', $id)->update(['sort_order' => $rank]);
-        }
-    }
-
-    /**
-     * A manual (content.*) item's legacy site.services counterpart, if any
-     * is still live. ServiceBackfiller coords are 'manual:{legacy_uuid}' —
-     * the legacy identifier survives the table's eventual drop (slice 7).
-     * A service created through the cut-over endpoints mints a fresh random
-     * uuid coord instead ('manual:'.Str::uuid()) and was never derived from
-     * a legacy row — null, correctly, since there is nothing to renumber.
-     */
-    private function legacyIdForManualItem(ManualServiceWriter $writer, string $userId, string $itemId): ?string
-    {
-        $coord = $writer->coordFor($userId, $itemId);
-        if ($coord === null || ! str_starts_with($coord, 'manual:')) {
-            return null;
-        }
-
-        $legacyId = substr($coord, strlen('manual:'));
-
-        // Default Eloquent scope excludes soft-deleted rows — "still live"
-        // is exactly what this needs (a trashed legacy row is outside the
-        // partial unique index and needs no protecting).
-        return Service::query()->where('id', $legacyId)->where('user_id', $userId)->exists() ? $legacyId : null;
     }
 }
