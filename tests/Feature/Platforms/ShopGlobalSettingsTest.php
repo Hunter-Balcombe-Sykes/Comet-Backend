@@ -4,10 +4,16 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
+use App\Services\Platforms\BigCartelScraper;
+use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopCatalog;
+use App\Services\Platforms\ShopifyScraper;
+use App\Services\Platforms\SquarespaceScraper;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
+use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ShopContentWriter;
 use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
@@ -193,4 +199,79 @@ it('ShopFetch skips a brand with products_curated_at set even when the global au
 
     expect(fn () => (new ShopFetch($catalog, $refresher))->fetch($conn->fresh()))
         ->toThrow(FetchNotModifiedException::class);
+});
+
+// ── #428: the scheduled refresh died on a lazy load ───────────────────────────
+//
+// Every test above mocks ShopCatalog, so syncLatest() never runs and
+// toBrandArray() is never reached — which is exactly why the suite stayed green
+// while every scheduled shop refresh on dev failed (36 in 24h). These two use
+// the REAL ShopCatalog.
+//
+// toBrandArray() materialises $this->products unconditionally. Every caller in
+// the codebase loads that relation first — ShopController via ->with('products')
+// or ->fresh('products') — except ShopFetch, which stopped eager-loading it in
+// 5a on the stated belief that "syncLatest() no longer reads $brand->products".
+// It does.
+//
+// TWO OR MORE BRANDS PER CONNECTION IS LOAD-BEARING IN THESE FIXTURES.
+// Eloquent's strict mode only arms per INSTANCE, and Builder::hydrate() sets
+// that flag `if (count($items) > 1)` — a single-row result can lazy-load
+// freely. So a one-brand connection cannot reproduce this no matter what
+// Model::preventLazyLoading() is set to, which is why the whole suite stayed
+// green while dev burned: the failing account holds five storefronts on one
+// connection. Do not "simplify" these fixtures down to one brand.
+
+/** Real ShopCatalog whose Shopify scrape returns an empty catalogue. */
+function shopCatalogWithEmptyScrape(): ShopCatalog
+{
+    $shopify = Mockery::mock(ShopifyScraper::class);
+    $shopify->shouldReceive('fetchProducts')->andReturn([]);
+
+    return new ShopCatalog(
+        $shopify,
+        Mockery::mock(WooCommerceScraper::class),
+        Mockery::mock(SquarespaceScraper::class),
+        Mockery::mock(BigCartelScraper::class),
+        Mockery::mock(GenericShopScraper::class),
+        app(ShopContentWriter::class),
+    );
+}
+
+/** A second non-individual brand, so the brands query hydrates >1 row. */
+function shopFetchSecondBrand(IntegrationConnection $conn): void
+{
+    ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'sf-brand-2', 'provider' => 'shopify',
+        'url' => 'https://sf2.example', 'selection_mode' => 'manual', 'position' => 1,
+    ]);
+}
+
+it('runs the scheduled sync end to end without tripping the lazy-loading guard', function () {
+    $user = shopSettingsUser('sflazy');
+    $conn = shopFetchConnection($user, autoLatest: true);
+    shopFetchSecondBrand($conn);
+
+    // Reaching FetchNotModifiedException means syncLatest() ran to completion
+    // for both brands: reachable, and genuinely empty. Before the fix this threw
+    // LazyLoadingViolationException from ShopBrand::toBrandArray() instead, and
+    // that exception is caught by nothing in the chain — it failed the job.
+    expect(fn () => (new ShopFetch(shopCatalogWithEmptyScrape(), Mockery::mock(IntegrationConnectionCacheRefresher::class)))
+        ->fetch($conn->fresh()))
+        ->toThrow(FetchNotModifiedException::class);
+});
+
+it('syncLatest tolerates a brand handed to it with products unloaded', function () {
+    $user = shopSettingsUser('sflazy2');
+    $conn = shopFetchConnection($user, autoLatest: true);
+    shopFetchSecondBrand($conn);
+
+    // Straight off a multi-row get(), exactly as ShopFetch hands it over — no
+    // ->with('products'), no ->fresh('products'). syncLatest() must not depend
+    // on its caller having remembered.
+    $brand = ShopBrand::query()->where('connection_id', $conn->id)->get()->firstOrFail();
+    expect($brand->relationLoaded('products'))->toBeFalse()
+        ->and($brand->preventsLazyLoading)->toBeTrue();
+
+    expect(shopCatalogWithEmptyScrape()->syncLatest($brand))->toBeNull();
 });

@@ -87,6 +87,22 @@ class ShopCatalog
      */
     public function syncLatest(ShopBrand $brand): ?int
     {
+        // #428: toBrandArray() materialises $brand->products unconditionally,
+        // so this method REQUIRES that relation loaded — 5a's claim that
+        // "syncLatest() no longer reads $brand->products" was never true, and
+        // ShopFetch stopped eager-loading it on the strength of that claim.
+        // Under Eloquent strict mode that threw LazyLoadingViolationException,
+        // which neither the catch below nor ShopFetch's catches, so every
+        // scheduled refresh of a MULTI-brand connection failed the job
+        // outright. (Multi-brand because Builder::hydrate() only arms the
+        // instance flag when a query returns more than one row — which is also
+        // why no test caught it.)
+        //
+        // Guaranteed here rather than at the call site: ShopController already
+        // passes fresh('products') and loadMissing() is a no-op for it, but a
+        // caller that forgets must not be able to kill a queue job.
+        $brand->loadMissing('products');
+
         try {
             $catalog = $this->providerProducts($brand->toBrandArray());
         } catch (HttpException $e) {
