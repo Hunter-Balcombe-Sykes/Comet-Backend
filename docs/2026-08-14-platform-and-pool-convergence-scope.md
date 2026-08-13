@@ -136,7 +136,56 @@ Capability gating does **not** depend on these — `RoutingCapabilityGate`
 keys on `routing_class`, which travels with `surface_key`. Retiring the
 pseudo-platforms does not weaken gating.
 
-### 1.7 Embeds
+### 1.7 Stream → target → pool, complete (26 streams / 21 connectors)
+
+Every stream declared by every connector, read from source:
+
+| Target kind | Connectors | Pool? |
+|---|---|---|
+| `video` | youtube, vimeo, twitch/vods | ✅ watch |
+| `release` | apple_music, bandcamp | ✅ listen |
+| `episode` | apple_podcasts | ✅ listen |
+| `track` | **youtube_music** | ✅ listen |
+| `media` | google_business, instagram | ✅ media |
+| `event` | eventbrite, humanitix | ✅ events |
+| `service` | fresha | ✅ services |
+| `product` | gumroad | ✅ shop |
+| `review` | google_business | ⚠️ slice 6 |
+| **`menu_item`** | **doordash, square, uber_eats** | ❌ **no pool** |
+| `article` | substack | ❌ no pool |
+| `channel` | skool, soundcloud, spotify, strava, twitch | ❌ retiring (§3 W3) |
+| **`profile_fields`** | **fresha, google_business, instagram** | ❌ **no implementation** |
+
+### 1.8 `profile_fields` — declared, entirely unbuilt
+
+Three connectors declare an Identity-profile `profile` stream targeting
+`profile_fields`. `ProjectorRegistry`'s header says these "resolve through
+field bindings (plan §14), not here."
+
+**Field bindings do not exist.** `grep -rn 'field_binding|FieldBinding|
+fieldBinding' app/` returns zero matches. So these streams run (google_business
+`profile` health is `ok` on 3 sources) and their output goes nowhere.
+
+The work is done today by legacy `App\Services\Platforms\IdentitySync`, which
+folds a Google Business payload into `site.workplaces` + `core.users` mirror
+columns, with account-type precedence
+(`AccountCapabilities::google_business_full_sync`) and per-field provenance in
+`workplaces.field_sources`.
+
+This is the **third** instance of the same pattern (alongside identity keys
+2/17 and the missing pools): the new architecture declares the seam, the
+legacy implementation is what actually runs.
+
+### 1.9 Legacy selection path still live
+
+`site.content_selection` holds 95 rows and `ContentSelectionService` is still
+written by `ContentController` and read by
+`IndividualProfilePayloadBuilder`. `ContentSelectionMigrator` (slice 1b D10)
+exists and deliberately migrates only uploads (3 of 89 at the time it was
+written), dropping google-photo and ig-* refs for stated reasons. The legacy
+write path was never closed.
+
+### 1.10 Embeds
 
 `f_embed` = 141 rows: **132 are YouTube/Vimeo `video` embeds** (inline
 playback of sourced items — load-bearing for the Watch pool), 9 are
@@ -221,7 +270,22 @@ grouping metadata. Promote the real ordering brands (`uber_eats`,
 
 ### W7 — Cutover + teardown
 Flip reads off legacy for shop/services/media/events; drop the parallel
-`site.*` item tables.
+`site.*` item tables. Includes closing the `site.content_selection` write
+path (§1.9) — `ContentController` still writes it and
+`IndividualProfilePayloadBuilder` still reads it.
+
+### W9 — Identity / profile-field bindings
+`profile_fields` is declared by three connectors and has **no
+implementation** (§1.8). Either build the field-binding layer plan §14
+describes, or fold `IdentitySync` into the ingest pipeline as the
+implementation of that seam. Must preserve what legacy already does
+correctly: account-type precedence
+(`AccountCapabilities::google_business_full_sync`) and per-field provenance
+(`workplaces.field_sources`, which drives the "Synced from Google" badge).
+
+Until this lands, `site.workplaces` cannot be retired and Google Business /
+Instagram / Fresha identity sync stays on the legacy path — so this is a
+**hard prerequisite for "no legacy in use"**, not an optional extra.
 
 ### W8 — Documentation truth pass
 Rewrite root + backend `CLAUDE.md`, correct the convergence spec's stale
@@ -247,6 +311,24 @@ write path, one read path — and the whole class of defect where two systems
 both look correct and only one is connected disappears.
 
 ---
+
+## 4b. Known-failing sources — investigated, NOT systemic
+
+Checked 2026-08-14 per owner request. Neither warrants a code fix:
+
+| Source | Identifier | State |
+|---|---|---|
+| fresha | `some-salon-abc123` | fake `ShowcaseSeedCommand` seed — will always fail |
+| fresha | `edward-scissorhands-…` | 3 failures, last run 08-08 |
+| fresha | `vision-hair-studio-…`, `brotherwolf-…` | **ok**, ran 08-13 |
+| bandcamp | `amiinaband` | 5 failures |
+| bandcamp | `kinggizzard` ×2, `thesonnywilsons` | **ok** |
+
+Fresha's most recent runs succeeded; the historical
+`shouldShowAllEmployees: true` defect the convergence spec §1.6 describes is
+**already fixed** in `FreshaConnector` (now `false`). The residual
+`unavailable` stream health is stale, plus one real salon whose Fresha page
+likely changed. Bandcamp is 3-of-4. Both are per-account, not code.
 
 ## 5. Open decisions
 
