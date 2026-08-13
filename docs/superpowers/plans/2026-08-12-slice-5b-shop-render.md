@@ -100,8 +100,10 @@ Edit the docblock's second paragraph — it currently reads "Sell / Services / M
 
 - [ ] **Step 4: Run the tests and confirm they pass**
 
-Run: `./vendor/bin/pest tests/Feature/Content/ShopPoolTest.php tests/Feature/Content/PoolRegistryTest.php`
+Run: `./vendor/bin/pest tests/Feature/Content/ShopPoolTest.php tests/Unit/Site/Pools/PoolRegistryTest.php`
 Expected: PASS. `PoolRegistryTest` pins that a kind belongs to at most one pool — `product` was previously poolless, so it must stay green.
+
+**Corrected 2026-08-13:** `PoolRegistryTest` lives at `tests/Unit/Site/Pools/PoolRegistryTest.php`, not under `tests/Feature/Content/`. The Feature path this plan first cited does not exist, so the command silently ran only `ShopPoolTest`.
 
 - [ ] **Step 5: Commit**
 
@@ -1753,7 +1755,7 @@ git rebase origin/development
 If `feat/slice-3-services` landed first, `PoolRegistry.php` conflicts. **Read both hunks; take neither side wholesale.** The result must carry `watch`, `listen`, `media`, `events`, `services` **and** `shop` in all four consts, and a docblock naming only Menu as absent. Then:
 
 ```bash
-./vendor/bin/pest tests/Feature/Content/ShopPoolTest.php tests/Feature/Content/PoolRegistryTest.php tests/Feature/Content/ShopPinProvisioningTest.php
+./vendor/bin/pest tests/Feature/Content/ShopPoolTest.php tests/Unit/Site/Pools/PoolRegistryTest.php tests/Feature/Content/ShopPinProvisioningTest.php
 ```
 
 Expected: PASS. Run these **after** resolving, not before — a union merge that drops half a const array still passes every test written by the other branch.
