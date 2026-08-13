@@ -145,6 +145,8 @@ class PoolRegistry
      */
     public const MANUAL_ADD_FORBIDDEN_POOLS = ['reviews'];
 
+    private const SECTION_KEY_PREFIX = 'pool:';
+
     public static function isPool(string $key): bool
     {
         return isset(self::POOLS[$key]);
@@ -159,7 +161,25 @@ class PoolRegistry
     /** The section key a pool's curation lives under (site.sections.key). */
     public static function sectionKey(string $pool): string
     {
-        return "pool:{$pool}";
+        return self::SECTION_KEY_PREFIX.$pool;
+    }
+
+    /**
+     * The pool a section key belongs to, or null for a non-pool section.
+     *
+     * The inverse of sectionKey(), and the reason the prefix is a const: the
+     * curation endpoint is reached by section UUID, so a per-pool rule there
+     * (allowsPin) has nothing but the key to recover the pool from.
+     */
+    public static function poolForSectionKey(string $sectionKey): ?string
+    {
+        if (! str_starts_with($sectionKey, self::SECTION_KEY_PREFIX)) {
+            return null;
+        }
+
+        $pool = substr($sectionKey, strlen(self::SECTION_KEY_PREFIX));
+
+        return self::isPool($pool) ? $pool : null;
     }
 
     public static function carriesLatestTag(string $pool): bool
