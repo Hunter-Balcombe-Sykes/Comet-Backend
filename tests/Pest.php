@@ -2974,17 +2974,37 @@ function setupContentTables(): void
         position INTEGER NOT NULL DEFAULT 0
     )');
 
+    // external_ref/removed_at: slice 3b Task 1 (migration
+    // 20260813090000_slice3b_collections_keys_and_selection_ref.sql) — a
+    // natural key for machine-derived collections plus an owner soft-delete.
+    // The unique index mirrors collections_user_kind_external_ref_uq: Task
+    // 5's upsert() targets ['user_id','kind','external_ref'] via Laravel's
+    // upsert(), which SQLite renders as ON CONFLICT (user_id, kind,
+    // external_ref) too, and SQLite rejects an ON CONFLICT target with no
+    // matching unique index. Without this index here, Task 5's SQLite-lane
+    // tests fail for a reason that has nothing to do with Task 5's code.
     $pg->statement('CREATE TABLE IF NOT EXISTS content.collections (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
         parent_id TEXT NULL,
         label TEXT NOT NULL,
         kind TEXT NULL,
+        external_ref TEXT NULL,
+        removed_at TEXT NULL,
         position INTEGER NOT NULL DEFAULT 0,
         is_user_created INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )');
+
+    // IF NOT EXISTS already covers the one benign case (re-running this
+    // setup against an already-provisioned schema); anything else — wrong
+    // schema qualification, wrong table name, a syntax SQLite rejects —
+    // must throw, not be swallowed, or the index silently fails to exist
+    // and Task 5's ON CONFLICT either errors confusingly or (worse) inserts
+    // duplicates, which is the exact failure mode this index prevents.
+    $pg->statement('CREATE UNIQUE INDEX IF NOT EXISTS content.collections_user_kind_external_ref_uq
+        ON collections (user_id, kind, external_ref)');
 
     $pg->statement('CREATE TABLE IF NOT EXISTS content.collection_items (
         collection_id TEXT NOT NULL,
@@ -3059,6 +3079,7 @@ function setupIngestTables(): void
         auto_sync INTEGER NOT NULL DEFAULT 1,
         scope TEXT NOT NULL DEFAULT \'all\' CHECK (scope IN (\'all\',\'latest_n\')),
         scope_n INTEGER NULL,
+        selection_ref TEXT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (connection_id, source_key)

@@ -67,12 +67,20 @@ beforeEach(function () {
 
     // Identical shape to ShopStorefrontUpsertConflictTest.php — see that
     // file's own comment for the migration files this mirrors.
+    //
+    // external_ref/removed_at: slice 3b Task 1
+    // (20260813090000_slice3b_collections_keys_and_selection_ref.sql). Added
+    // here (not just to CollectionsUpsertConflictTest.php's own provision) so
+    // an ordering fluke in this shared Postgres lane never leaves a narrower
+    // content.collections behind for that file to inherit.
     $pg->statement('CREATE TABLE content.collections (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
         parent_id uuid REFERENCES content.collections(id) ON DELETE CASCADE,
         label text NOT NULL,
         kind text,
+        external_ref text,
+        removed_at timestamptz,
         position integer NOT NULL DEFAULT 0,
         is_user_created boolean NOT NULL DEFAULT false,
         created_at timestamptz NOT NULL DEFAULT now(),
