@@ -3,6 +3,9 @@
 namespace App\Site\Pools;
 
 use App\Models\Core\Site\Site;
+use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Services\Media\MediaUrlResolver;
 use App\Site\Sections\SectionCandidates;
@@ -32,11 +35,20 @@ class PoolResolver
 {
     private const LIBRARY_LIMIT = 500;
 
+    // Mirrors PublicIntegrationController::POPULARITY_CACHE_TTL_SECONDS
+    // verbatim (CCG-102): the two read the SAME cache key, so a divergent TTL
+    // here would halve the value of a single-flight cache that exists because
+    // this read used to hit Postgres on every public request. Both track the
+    // analytics:compute-popularity cadence (routes/console.php, 15 minutes).
+    private const POPULARITY_CACHE_TTL_SECONDS = 900;
+
     public function __construct(
         private readonly PoolSectionProvisioner $provisioner,
         private readonly SectionCandidates $candidates,
         private readonly ContentItemSlugAllocator $slugs,
         private readonly MediaUrlResolver $mediaUrls,
+        private readonly ContentPopularityReader $popularity,
+        private readonly CacheLockService $cache,
     ) {}
 
     /**
@@ -78,6 +90,7 @@ class PoolResolver
      *   selection: list<array<string, mixed>>,
      *   library: list<array<string, mixed>>,
      *   latestItemId: string|null,
+     *   collections: array<string, array<string, mixed>>,
      * }
      */
     public function resolve(Site $site, string $pool): array
@@ -112,7 +125,10 @@ class PoolResolver
             ->pluck('id')
             ->all();
 
-        $payloads = $this->itemPayloads(
+        // Tuple, not a private property: collectionsFor() needs the store rows
+        // itemPayloads() already fetched, and stashing them on $this would make
+        // resolve() order-dependent (and unsafe under a reused instance).
+        [$payloads, $stores] = $this->itemPayloads(
             $site,
             array_values(array_unique([...$selectionIds, ...$libraryIds])),
         );
@@ -153,6 +169,7 @@ class PoolResolver
             'latestItemId' => PoolRegistry::carriesLatestTag($pool)
                 ? $this->latestItemId($selection)
                 : null,
+            'collections' => $this->collectionsFor($selection, $stores),
         ];
     }
 
@@ -181,13 +198,17 @@ class PoolResolver
      * Render-ready payloads for a set of items, owner-scoped, one query per
      * facet table — never one per item.
      *
+     * Returns a tuple: the payloads keyed by item id, and the storefront rows
+     * those payloads reference (keyed by collection id) so resolve() can build
+     * the sibling collections map without re-querying.
+     *
      * @param  list<string>  $ids
-     * @return array<string, array<string, mixed>>
+     * @return array{array<string, array<string, mixed>>, Collection<string, object>}
      */
     private function itemPayloads(Site $site, array $ids): array
     {
         if ($ids === []) {
-            return [];
+            return [[], collect()];
         }
 
         $items = DB::connection('pgsql')->table('content.items')
@@ -199,7 +220,56 @@ class PoolResolver
 
         $ids = $items->keys()->all();
         if ($ids === []) {
-            return [];
+            return [[], collect()];
+        }
+
+        // Shop-only reads. Gated on the resolved set actually containing a
+        // product, so watch / listen / media / events add no queries — this
+        // sits behind the 60s payload cache on the public path.
+        $hasProduct = $items->contains(fn (object $i): bool => $i->kind === 'product');
+
+        $storesByItem = collect();
+        $stores = collect();
+        $catalog = collect();
+        $variantsByItem = collect();
+        $ranks = [];
+        $linkMode = (string) ($site->shop_link_mode ?? 'checkout');
+
+        if ($hasProduct) {
+            $links = DB::connection('pgsql')->table('content.collection_items as ci')
+                ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
+                ->join('content.storefronts as s', 's.collection_id', '=', 'c.id')
+                ->whereIn('ci.item_id', $ids)
+                ->where('c.kind', 'storefront')
+                // Lowest store position composes when an item sits in two;
+                // external_ref breaks the tie, matching brandMap()'s ordering
+                // so the dashboard and the wire agree.
+                ->orderBy('c.position')->orderBy('s.external_ref')
+                ->get([
+                    'ci.item_id', 'c.id as collection_id', 'c.label', 'c.position',
+                    's.external_ref', 's.provider', 's.url', 's.currency',
+                    's.discount_code', 's.referral_query', 's.logo_url', 's.favicon_url',
+                ]);
+
+            $storesByItem = $links->groupBy('item_id');
+            $stores = $links->unique('collection_id')->keyBy('collection_id');
+
+            $catalog = DB::connection('pgsql')->table('content.f_catalog')
+                ->whereIn('item_id', $ids)
+                ->get(['item_id', 'vendor', 'handle', 'variant_ref'])
+                ->keyBy('item_id');
+
+            $variantsByItem = DB::connection('pgsql')->table('content.item_variants')
+                ->whereIn('item_id', $ids)
+                ->orderBy('position')
+                ->get(['item_id', 'label', 'sku', 'image_url'])
+                ->groupBy('item_id');
+
+            // Spec §3.6: the legacy shop wire carried a real popularityRank
+            // (analytics.content_popularity_scores, content_type='shop_product',
+            // keyed by product HANDLE). Retiring that lane without this drops
+            // live computed data to null.
+            $ranks = $this->popularityRanks($site);
         }
 
         // Headline overrides: the user's edit beats every cache.
@@ -275,11 +345,26 @@ class PoolResolver
 
         // Cheapest offer per item — the scrape sees the lowest tier and the
         // projector stamps qualifier='from' to say so. Ordered DESC so the
-        // cheapest row is written LAST and survives keyBy's overwrite.
-        $offers = DB::connection('pgsql')->table('content.offers')
+        // cheapest row lands LAST, which is the row ->last() returns.
+        $offerRows = DB::connection('pgsql')->table('content.offers')
             ->whereIn('item_id', $ids)
             ->orderByRaw('amount_minor IS NULL DESC, amount_minor DESC')
-            ->get(['item_id', 'amount_minor', 'amount_max_minor', 'currency', 'qualifier', 'availability'])
+            ->get(['item_id', 'amount_minor', 'amount_max_minor', 'currency', 'qualifier', 'availability', 'variant_label'])
+            ->groupBy('item_id');
+
+        // ONE fetch serves both readings: the cheapest offer per item (the
+        // ordering writes it last, which is exactly what keyBy used to keep)
+        // and the per-variant offers the variants payload needs.
+        $offers = $offerRows->map(fn (Collection $rows): object => $rows->last());
+
+        // f_text.body is generic, not shop-specific, so this fetch is
+        // UNCONDITIONAL: a video or an event with a body must carry its
+        // description too, and gating it on $hasProduct would null it out.
+        // The one query non-shop pools pay for in this change.
+        $texts = DB::connection('pgsql')->table('content.f_text')
+            ->whereIn('item_id', $ids)
+            ->whereNotNull('body')
+            ->get(['item_id', 'body'])
             ->keyBy('item_id');
 
         // Public URL slugs. The legacy events lane served these off
@@ -342,6 +427,22 @@ class PoolResolver
 
             $overrideHeadline = $overrides[$itemId] ?? null;
 
+            $itemStores = $storesByItem->get($itemId, collect());
+            $primaryStore = $itemStores->first();
+            $isProduct = $item->kind === 'product';
+            $handle = (string) ($catalog[$itemId]->handle ?? '');
+
+            // Composed backend-side (spec §3.7) so the affiliate suffix never
+            // has to ride the public wire for the sitepage to build the href.
+            $outboundUrl = $isProduct && $primary !== null
+                ? ShopOutboundUrl::compose(
+                    (string) $primary['url'],
+                    $linkMode,
+                    $primaryStore,
+                    $catalog[$itemId]->variant_ref ?? null,
+                )
+                : ($primary['url'] ?? null);
+
             $out[$itemId] = [
                 'id' => (string) $itemId,
                 'kind' => $item->kind,
@@ -351,7 +452,7 @@ class PoolResolver
                     ? $overrideHeadline
                     : $item->headline_cache,
                 'headlineEdited' => is_string($overrideHeadline) && $overrideHeadline !== '',
-                'url' => $primary['url'] ?? null,
+                'url' => $outboundUrl,
                 'platform' => $primary['platform'] ?? null,
                 'creator' => $creators[$itemId]->creator ?? $channels[$itemId]->handle ?? null,
                 'publishedAt' => $published[$itemId] ?? null,
@@ -359,9 +460,11 @@ class PoolResolver
                 'durationSeconds' => isset($durations[$itemId]) ? (int) $durations[$itemId] : null,
                 'thumbnail' => $this->cover($covers->get($itemId, collect()), $resolvedUrls),
                 // Slice 1a §3.5: media items ship every frame (positional);
-                // every other kind ships [] — the wire shape does not change
+                // products joined in 5b — the legacy shop wire carried 271
+                // gallery images and retiring it without this loses them.
+                // Every other kind ships [] — the wire shape does not change
                 // with kind, same contract startsAt/venue/price follow.
-                'frames' => $item->kind === 'media'
+                'frames' => in_array($item->kind, ['media', 'product'], true)
                     ? $this->frames($covers->get($itemId, collect()), $resolvedUrls)
                     : [],
                 // Dated / located / priced facets. Present on every pool item
@@ -386,7 +489,118 @@ class PoolResolver
                 // then disagree with the price it sits next to.
                 'availability' => $offers[$itemId]->availability ?? null,
                 'links' => $links,
-                'popularityRank' => null,
+                'popularityRank' => $handle !== '' ? ($ranks[$handle] ?? null) : null,
+                // Additive and nullable on EVERY item, never a kind-shaped
+                // sub-object — the same contract startsAt / venue / price
+                // already follow, so the wire shape does not vary with kind.
+                'description' => $texts[$itemId]->body ?? null,
+                'vendor' => $catalog[$itemId]->vendor ?? null,
+                'variants' => $this->variants(
+                    $variantsByItem->get($itemId, collect()),
+                    $offerRows->get($itemId, collect()),
+                ),
+                // Plural because it must be: a URL-derived coord is not
+                // store-scoped (5a §3.3), so one product URL listed by two of a
+                // user's stores is ONE item in TWO collections.
+                'collectionIds' => $itemStores->pluck('collection_id')
+                    ->unique()->map(fn ($id) => (string) $id)->values()->all(),
+            ];
+        }
+
+        return [$out, $stores];
+    }
+
+    /**
+     * The shop-product popularity ranks for a site, keyed by product handle.
+     *
+     * Same key and TTL as PublicIntegrationController (CCG-102) on purpose:
+     * two different keys would silently halve a single-flight cache that
+     * exists because this read used to hit Postgres on every public request.
+     *
+     * @return array<string, int>
+     */
+    private function popularityRanks(Site $site): array
+    {
+        $ranks = $this->cache->rememberLocked(
+            CacheKeyGenerator::sitePopularityRanks((string) $site->id),
+            self::POPULARITY_CACHE_TTL_SECONDS,
+            fn () => $this->popularity->forSite((string) $site->id),
+        );
+
+        return $ranks['shop_product'] ?? [];
+    }
+
+    /**
+     * Variant objects for a product. Built key-by-key on purpose (spec §3.7):
+     * this is the first nested collection the pool payload carries, and a
+     * spread of the DB row is exactly how an unvetted column would reach a
+     * CDN-cached public wire.
+     *
+     * @param  Collection<int, \stdClass>  $rows
+     * @param  Collection<int, \stdClass>  $offerRows
+     * @return list<array<string, mixed>>
+     */
+    private function variants(Collection $rows, Collection $offerRows): array
+    {
+        $byLabel = $offerRows->filter(fn (object $o): bool => (string) ($o->variant_label ?? '') !== '')
+            ->keyBy('variant_label');
+
+        $out = [];
+        foreach ($rows as $row) {
+            $offer = $byLabel->get((string) $row->label);
+            $out[] = [
+                'label' => (string) $row->label,
+                'sku' => $row->sku === null ? null : (string) $row->sku,
+                // Unverified against real data: image_url is populated on 0 of
+                // 268 dev rows, so this round-trips in tests only.
+                'imageUrl' => $row->image_url === null ? null : (string) $row->image_url,
+                'availability' => $offer->availability ?? null,
+                'price' => $offer === null ? null : [
+                    'amountMinor' => $offer->amount_minor === null ? null : (int) $offer->amount_minor,
+                    'amountMaxMinor' => $offer->amount_max_minor === null ? null : (int) $offer->amount_max_minor,
+                    'currency' => $offer->currency,
+                    'qualifier' => $offer->qualifier,
+                ],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The store cards the sitepage rebuilds its shop layout from. Only
+     * collections a SELECTED item references — an unreferenced store card
+     * would render as an empty group.
+     *
+     * @param  list<array<string, mixed>>  $selection
+     * @param  Collection<string, object>  $stores
+     * @return array<string, array<string, mixed>>
+     */
+    private function collectionsFor(array $selection, Collection $stores): array
+    {
+        $referenced = collect($selection)->flatMap(fn (array $i) => $i['collectionIds'] ?? [])->unique();
+
+        $out = [];
+        foreach ($referenced as $collectionId) {
+            $row = $stores->get($collectionId);
+            if ($row === null) {
+                continue;
+            }
+            // Explicit keys only (spec §3.7). referralQuery and linkMode are
+            // DELIBERATELY absent: composition is backend-side now, so the
+            // affiliate suffix stops being publicly readable. sourceUrl
+            // (re-scrape input) and connectStatus (dashboard-only) stay
+            // private — neither is even selected above.
+            $out[(string) $collectionId] = [
+                'externalRef' => (string) $row->external_ref,
+                'provider' => (string) $row->provider,
+                'url' => $row->url === null ? null : (string) $row->url,
+                'name' => (string) $row->label,
+                'currency' => $row->currency === null ? null : (string) $row->currency,
+                'favicon' => $row->favicon_url === null ? null : (string) $row->favicon_url,
+                'logo' => $row->logo_url === null ? null : (string) $row->logo_url,
+                'discountCode' => $row->discount_code === null ? null : (string) $row->discount_code,
+                'position' => (int) $row->position,
             ];
         }
 
