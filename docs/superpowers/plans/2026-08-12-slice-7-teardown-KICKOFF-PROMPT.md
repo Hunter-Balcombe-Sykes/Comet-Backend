@@ -117,6 +117,17 @@ Children before parents. Raw SQL under `supabase/migrations/`, one statement
 concern per file. Check for FK dependents, views, triggers and RLS policies on each
 before dropping — `pg_depend` will tell you what the table list will not.
 
+**`site.shop_brands` is a live write target, not inert — corrected 2026-08-13 by
+slice 5b's entry gate, and this is different from `site.shop_products`.**
+`ShopController` still writes it directly (`updateOrCreate` at `:317`,
+`firstOrCreate` at `:929`, `delete` at `:869`), and
+`ShopContentWriter::upsertStore()` takes the `ShopBrand` model as its identity
+anchor — it is not merely a legacy table nothing touches. Dropping it under that
+writer breaks every subsequent shop write, not just old reads. **Re-homing
+`ShopContentWriter` off the `ShopBrand` model is part of this unit, not a
+follow-up** — do it in the same window as the DROP, the same discipline this
+unit already applies to the `CloudflarePurgeService` lookups below.
+
 **`CloudflarePurgeService::purgeHandle()` will page you 12 times per site save if
 a DROP lands under it.** Verified 2026-08-13. That method runs three independent
 lookups — shop product handles (`content.collection_items`/`collections`/
