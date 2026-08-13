@@ -66,6 +66,7 @@ beforeEach(function () {
     $pg = DB::connection('pgsql');
 
     foreach ([
+        'content.collection_items', 'content.collections',
         'content.f_action', 'content.item_tags', 'content.item_variants', 'content.offers', 'content.item_media',
         'content.media_assets', 'content.manual_overrides', 'content.identity_candidates', 'content.item_merges',
         'content.item_anchors', 'content.identity_decisions', 'content.identity_keys', 'content.source_items',
@@ -363,11 +364,44 @@ beforeEach(function () {
         position integer NOT NULL DEFAULT 0
     )');
     $pg->statement('CREATE INDEX idx_pika_f_action_item ON content.f_action (item_id)');
+
+    // Slice 3b Task 5: replaceCollections() now DELETEs content.collection_items
+    // per chunk alongside the other four collection tables, unconditionally —
+    // the replace semantics require it even when the batch names no
+    // collections. Without this DDL every test in this file dies on
+    // SQLSTATE 42P01 rather than on an assertion (the hand-written-stand-in
+    // drift CLAUDE.md flags for this lane). Shape tracks
+    // 20260727140000_content_schema.sql:444/458 plus
+    // 20260813090000_slice3b_collections_keys_and_selection_ref.sql.
+    $pg->statement('CREATE TABLE content.collections (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
+        parent_id uuid REFERENCES content.collections(id) ON DELETE CASCADE,
+        label text NOT NULL,
+        kind text,
+        external_ref text,
+        removed_at timestamptz,
+        position integer NOT NULL DEFAULT 0,
+        is_user_created boolean NOT NULL DEFAULT false,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )');
+    $pg->statement('CREATE UNIQUE INDEX idx_pika_collections_natural_key
+        ON content.collections (user_id, kind, external_ref)');
+
+    $pg->statement('CREATE TABLE content.collection_items (
+        collection_id uuid NOT NULL REFERENCES content.collections(id) ON DELETE CASCADE,
+        item_id uuid NOT NULL REFERENCES content.items(id) ON DELETE CASCADE,
+        source_id uuid REFERENCES content.sources(id) ON DELETE CASCADE,
+        position integer NOT NULL DEFAULT 0,
+        PRIMARY KEY (collection_id, item_id)
+    )');
 });
 
 afterAll(function () {
     $pg = DB::connection('pgsql');
     foreach ([
+        'content.collection_items', 'content.collections',
         'content.f_action', 'content.item_tags', 'content.item_variants', 'content.offers', 'content.item_media',
         'content.media_assets',
         'content.manual_overrides', 'content.identity_candidates', 'content.item_merges', 'content.item_anchors',

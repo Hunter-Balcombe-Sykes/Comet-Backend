@@ -482,3 +482,132 @@ it('does not mint a slug for a kind outside SLUGGED_KINDS', function () {
     expect(DB::table('content.item_slugs')->count())->toBe(1);
     expect(DB::table('content.items')->where('kind', 'event')->count())->toBe(1);
 });
+
+// Slice 3b Task 5: a projection may carry a 'collections' key, and the writer
+// turns it into content.collections rows plus per-source membership. These
+// drive writeManualItem() rather than projectStream() on purpose —
+// projectStream() re-derives every projection through a projector, which would
+// make these cases depend on FreshaServiceProjector (Task 6) existing.
+
+/** A fresh user plus its (idempotent) manual content source id. */
+function manualSourceFor(): array
+{
+    $userId = createTenant('proj-'.Str::lower(Str::random(6)))->id;
+    $sourceId = app(ProjectionWriter::class)->ensureManualSource($userId);
+
+    return [$sourceId, $userId];
+}
+
+/** Writes one projection through the real writeManualItem() seam; returns the item id. */
+function projectOne(string $sourceId, string $userId, string $coord, array $projection): string
+{
+    return app(ProjectionWriter::class)->writeManualItem($userId, $coord, $projection);
+}
+
+/** A second, distinct content.sources row (kind='connection') to prove per-source scoping. */
+function otherSourceFor(string $userId): string
+{
+    $id = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $id, 'user_id' => $userId, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return $id;
+}
+
+it('creates a collection and links the item to it', function () {
+    [$sourceId, $userId] = manualSourceFor();
+
+    projectOne($sourceId, $userId, coord: 'fresha:x:s:1', projection: [
+        'kind' => 'service', 'headline' => 'Standard Haircut',
+        'collections' => [['external_ref' => '3282965', 'label' => 'Haircuts', 'kind' => 'service_category', 'position' => 0]],
+    ]);
+
+    $collection = DB::table('content.collections')
+        ->where('user_id', $userId)->where('external_ref', '3282965')->first();
+
+    expect($collection)->not->toBeNull()
+        ->and($collection->label)->toBe('Haircuts')
+        // Cast: SQLite hands back INTEGER 0 where Postgres hands back false —
+        // a driver artefact, not a behaviour difference.
+        ->and((bool) $collection->is_user_created)->toBeFalse()
+        ->and(DB::table('content.collection_items')->where('collection_id', $collection->id)->count())->toBe(1);
+});
+
+it('reuses the collection on a second run and does not duplicate it', function () {
+    [$sourceId, $userId] = manualSourceFor();
+    $projection = [
+        'kind' => 'service', 'headline' => 'Standard Haircut',
+        'collections' => [['external_ref' => '3282965', 'label' => 'Haircuts', 'kind' => 'service_category', 'position' => 0]],
+    ];
+
+    projectOne($sourceId, $userId, 'fresha:x:s:1', $projection);
+    projectOne($sourceId, $userId, 'fresha:x:s:1', $projection);
+
+    expect(DB::table('content.collections')->where('user_id', $userId)->count())->toBe(1)
+        ->and(DB::table('content.collection_items')->count())->toBe(1);
+});
+
+it('follows a vendor-side rename instead of minting a second collection', function () {
+    [$sourceId, $userId] = manualSourceFor();
+    $with = fn (string $label) => [
+        'kind' => 'service', 'headline' => 'Standard Haircut',
+        'collections' => [['external_ref' => '3282965', 'label' => $label, 'kind' => 'service_category', 'position' => 0]],
+    ];
+
+    projectOne($sourceId, $userId, 'fresha:x:s:1', $with('Haircuts'));
+    projectOne($sourceId, $userId, 'fresha:x:s:1', $with('Haircuts & Styling'));
+
+    $rows = DB::table('content.collections')->where('user_id', $userId)->get();
+    expect($rows)->toHaveCount(1)->and($rows->first()->label)->toBe('Haircuts & Styling');
+});
+
+it('replaces memberships for its own source only', function () {
+    [$sourceId, $userId] = manualSourceFor();
+    $otherSourceId = otherSourceFor($userId);
+    $itemId = projectOne($sourceId, $userId, 'fresha:x:s:1', [
+        'kind' => 'service', 'headline' => 'Cut',
+        'collections' => [['external_ref' => 'A', 'label' => 'A', 'kind' => 'service_category', 'position' => 0]],
+    ]);
+    $foreign = (string) Str::uuid();
+    DB::table('content.collections')->insert([
+        'id' => $foreign, 'user_id' => $userId, 'parent_id' => null,
+        'label' => 'Foreign', 'kind' => 'service_category', 'external_ref' => 'F',
+        'position' => 0, 'is_user_created' => false,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.collection_items')->insert([
+        'collection_id' => $foreign, 'item_id' => $itemId, 'source_id' => $otherSourceId, 'position' => 0,
+    ]);
+
+    projectOne($sourceId, $userId, 'fresha:x:s:1', [
+        'kind' => 'service', 'headline' => 'Cut',
+        'collections' => [['external_ref' => 'B', 'label' => 'B', 'kind' => 'service_category', 'position' => 0]],
+    ]);
+
+    expect(DB::table('content.collection_items')->where('source_id', $otherSourceId)->count())->toBe(1)
+        ->and(DB::table('content.collection_items')->where('source_id', $sourceId)->count())->toBe(1);
+});
+
+it('never touches removed_at on a projection run', function () {
+    [$sourceId, $userId] = manualSourceFor();
+    $projection = [
+        'kind' => 'service', 'headline' => 'Cut',
+        'collections' => [['external_ref' => 'A', 'label' => 'A', 'kind' => 'service_category', 'position' => 0]],
+    ];
+    projectOne($sourceId, $userId, 'fresha:x:s:1', $projection);
+    DB::table('content.collections')->where('external_ref', 'A')->update(['removed_at' => now()]);
+
+    projectOne($sourceId, $userId, 'fresha:x:s:1', $projection);
+
+    expect(DB::table('content.collections')->where('external_ref', 'A')->value('removed_at'))->not->toBeNull();
+});
+
+it('is inert for a projection that carries no collections key', function () {
+    [$sourceId, $userId] = manualSourceFor();
+
+    projectOne($sourceId, $userId, 'fresha:x:s:1', ['kind' => 'service', 'headline' => 'Cut']);
+
+    expect(DB::table('content.collections')->count())->toBe(0);
+});

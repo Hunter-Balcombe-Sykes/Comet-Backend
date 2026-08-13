@@ -1017,21 +1017,25 @@ class ProjectionWriter
         $offersByItem = [];
         $tagsByItem = [];
         $variantsByItem = [];
+        $collectionsByItem = [];
         foreach ($byItem as $itemId => $projections) {
             $media = [];
             $offers = [];
             $tags = [];
             $variants = [];
+            $collections = [];
             foreach ($projections as $projection) {
                 $media = array_merge($media, array_values((array) ($projection['media'] ?? [])));
                 $offers = array_merge($offers, array_values((array) ($projection['offers'] ?? [])));
                 $tags = array_merge($tags, array_values((array) ($projection['tags'] ?? [])));
                 $variants = array_merge($variants, array_values((array) ($projection['variants'] ?? [])));
+                $collections = array_merge($collections, array_values((array) ($projection['collections'] ?? [])));
             }
             $mediaByItem[(string) $itemId] = $media;
             $offersByItem[(string) $itemId] = $offers;
             $tagsByItem[(string) $itemId] = $tags;
             $variantsByItem[(string) $itemId] = $variants;
+            $collectionsByItem[(string) $itemId] = $collections;
         }
 
         $assetIdByFingerprint = $this->resolveMediaAssets($userId, $mediaByItem, $chunk);
@@ -1127,12 +1131,41 @@ class ProjectionWriter
             }
         }
 
+        // Before the chunk loop, so every membership row below already has a
+        // collection to point at.
+        $collectionIds = $this->upsertCollections($userId, $collectionsByItem);
+
+        $collectionItemRows = [];
+        foreach ($collectionsByItem as $itemId => $entries) {
+            $position = 0;
+            foreach ($entries as $entry) {
+                $entry = (array) $entry;
+                $key = ((string) ($entry['kind'] ?? 'collection'))."\0".((string) ($entry['external_ref'] ?? ''));
+                $collectionId = $collectionIds[$key] ?? null;
+                if ($collectionId === null) {
+                    continue;
+                }
+                $collectionItemRows[$itemId][] = [
+                    'collection_id' => $collectionId,
+                    'item_id' => $itemId,
+                    'source_id' => $contentSourceId,
+                    'position' => $position++,
+                ];
+            }
+        }
+
         foreach (array_chunk(array_keys($mediaByItem), $chunk) as $itemIds) {
             $tables = [
                 'item_media' => $this->rowsFor($mediaRows, $itemIds),
                 'offers' => $this->rowsFor($offerRows, $itemIds),
                 'item_tags' => $this->rowsFor($tagRows, $itemIds),
                 'item_variants' => $this->rowsFor($variantRows, $itemIds),
+                // The shared DELETE below is `item_id IN (batch) AND source_id
+                // = ours` — exactly the replace-by-source semantics this table
+                // needs. collection_items' PK is (collection_id, item_id) with
+                // source_id OUTSIDE it, so scoping by source is the only thing
+                // stopping two sources deleting each other's memberships.
+                'collection_items' => $this->rowsFor($collectionItemRows, $itemIds),
             ];
 
             // Batching widens the window in which an item has no collection
@@ -1155,6 +1188,90 @@ class ProjectionWriter
                 }
             });
         }
+    }
+
+    /**
+     * The content.collections rows a batch's projections name, upserted on
+     * their natural key and returned as external_ref => id.
+     *
+     * removed_at is deliberately absent from BOTH the insert and the update
+     * list: it means "the owner deleted this collection" and is one-way, the
+     * same rule content.items.removed_at follows. A scrape re-listing a
+     * category is not consent to resurrect it.
+     *
+     * @param  array<string, list<array<string, mixed>>>  $byItem
+     * @return array<string, string> "kind\0external_ref" => collection id
+     */
+    private function upsertCollections(string $userId, array $byItem): array
+    {
+        $wanted = [];
+        foreach ($byItem as $entries) {
+            foreach ($entries as $entry) {
+                $entry = (array) $entry;
+                $externalRef = isset($entry['external_ref']) && is_scalar($entry['external_ref'])
+                    ? (string) $entry['external_ref']
+                    : null;
+                $label = trim((string) ($entry['label'] ?? ''));
+                // The natural key IS the external ref; a machine-derived
+                // collection without one cannot be reconciled across runs and
+                // would insert a fresh row every time. Labels are mutable on
+                // the vendor's side and are never a key (slice 5a's incident).
+                if ($externalRef === null || $label === '') {
+                    continue;
+                }
+                $kind = (string) ($entry['kind'] ?? 'collection');
+                $wanted[$kind."\0".$externalRef] = [
+                    'kind' => $kind,
+                    'external_ref' => $externalRef,
+                    'label' => $label,
+                    'position' => (int) ($entry['position'] ?? 0),
+                ];
+            }
+        }
+
+        if ($wanted === []) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($wanted as $entry) {
+            $rows[] = [
+                'id' => (string) Str::uuid(),
+                'user_id' => $userId,
+                'parent_id' => null,
+                'label' => $entry['label'],
+                'kind' => $entry['kind'],
+                'external_ref' => $entry['external_ref'],
+                'position' => $entry['position'],
+                'is_user_created' => false,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+
+        // Plain column names in the update list -- Laravel renders these as
+        // `set "label" = "excluded"."label"`, which is unambiguous. A DB::raw
+        // with a BARE column here is SQLSTATE 42702 on Postgres and silently
+        // fine on SQLite (slice 5a, 2026-08-12).
+        DB::table('content.collections')->upsert(
+            $rows,
+            ['user_id', 'kind', 'external_ref'],
+            ['label', 'position', 'updated_at'],
+        );
+
+        $ids = [];
+        foreach (array_chunk(array_values($wanted), $this->writeChunk()) as $chunk) {
+            $refs = array_column($chunk, 'external_ref');
+            $found = DB::table('content.collections')
+                ->where('user_id', $userId)
+                ->whereIn('external_ref', $refs)
+                ->get(['id', 'kind', 'external_ref']);
+            foreach ($found as $row) {
+                $ids[$row->kind."\0".$row->external_ref] = (string) $row->id;
+            }
+        }
+
+        return $ids;
     }
 
     /**
@@ -1429,6 +1546,17 @@ class ProjectionWriter
             // declaration order is part of the cached eligible_cache value
             // (I9). Inserting it among the existing entries would reshape the
             // cached value for every item in the database.
+            //
+            // collection_items is deliberately NOT in this list (slice 3b Task
+            // 5). facets_cache has no correctness reader: nothing in app/
+            // filters or branches on it — its only consumers are this method's
+            // own change-detection and the DSAR export's column select
+            // (DataExportPayloadBuilder). Serving reads collection membership
+            // LIVE (SectionCandidates joins content.collection_items), so
+            // adding it would buy no behaviour and would reshape the cached
+            // value for every already-projected shop item, which
+            // ShopContentWriter has been writing collection_items for since
+            // slice 5a.
             foreach (['item_media', 'offers', 'item_tags', 'f_action', 'item_variants'] as $collection) {
                 $ids = DB::table("content.{$collection}")->whereIn('item_id', $batch)->distinct()->pluck('item_id');
                 foreach ($ids as $id) {

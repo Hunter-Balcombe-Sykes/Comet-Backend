@@ -1,5 +1,6 @@
 <?php
 
+use App\Ingest\Projection\ProjectionWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
@@ -83,6 +84,78 @@ it('upserts a collection twice on its natural key without duplicating', function
 
     expect($rows)->toHaveCount(1)
         ->and($rows->first()->label)->toBe('Haircuts & Styling');
+});
+
+// Slice 3b Task 5. The two above copy the statement shape by hand; a copy can
+// drift from the method it stands in for, which is the same trap CLAUDE.md
+// flags for this lane's stand-in DDL. These drive
+// ProjectionWriter::upsertCollections() ITSELF against real Postgres, so a
+// bare column reintroduced into its ON CONFLICT DO UPDATE surfaces here as
+// SQLSTATE 42702 rather than passing on SQLite forever. The default
+// connection under phpunit.pg.xml IS pgsql, so the method's DB::table() calls
+// land on the same database this file provisions.
+//
+// @param array<string, list<array<string, mixed>>> $byItem
+function upsertCollectionsVia(string $userId, array $byItem): array
+{
+    $writer = app(ProjectionWriter::class);
+    $method = new ReflectionMethod($writer, 'upsertCollections');
+    $method->setAccessible(true);
+
+    return $method->invoke($writer, $userId, $byItem);
+}
+
+it('runs the real upsertCollections() on Postgres and follows a rename in place', function () {
+    $userId = collectionsUpsertConflictTestUser();
+    $entry = fn (string $label) => ['item-1' => [
+        ['external_ref' => '3282965', 'label' => $label, 'kind' => 'service_category', 'position' => 0],
+    ]];
+
+    $first = upsertCollectionsVia($userId, $entry('Haircuts'));
+    $second = upsertCollectionsVia($userId, $entry('Haircuts & Styling'));
+
+    $rows = DB::connection('pgsql')->table('content.collections')->where('user_id', $userId)->get();
+
+    expect($rows)->toHaveCount(1)
+        ->and($rows->first()->label)->toBe('Haircuts & Styling')
+        // Same id both runs: the natural key reconciled, it did not re-mint.
+        ->and($second)->toBe($first)
+        ->and(array_values($second))->toBe([(string) $rows->first()->id]);
+});
+
+// removed_at is the owner's word, one-way, exactly like content.items.removed_at.
+// It is absent from both the insert and the update list, so a re-scrape that
+// re-lists the category must not resurrect it. Nulling it here would leave the
+// owner's deletion silently undone on the next connector run.
+it('leaves removed_at untouched when the real upsertCollections() re-lists a deleted collection', function () {
+    $userId = collectionsUpsertConflictTestUser();
+    $byItem = ['item-1' => [
+        ['external_ref' => '3282965', 'label' => 'Haircuts', 'kind' => 'service_category', 'position' => 0],
+    ]];
+
+    upsertCollectionsVia($userId, $byItem);
+    DB::connection('pgsql')->table('content.collections')
+        ->where('user_id', $userId)->update(['removed_at' => now()]);
+
+    upsertCollectionsVia($userId, $byItem);
+
+    expect(DB::connection('pgsql')->table('content.collections')->where('user_id', $userId)->count())->toBe(1)
+        ->and(DB::connection('pgsql')->table('content.collections')->where('user_id', $userId)->value('removed_at'))
+        ->not->toBeNull();
+});
+
+// A machine-derived collection with no external_ref has no natural key, so it
+// would insert a fresh row on every run. It is dropped instead of guessed at.
+it('skips an entry with no external_ref rather than minting a keyless row', function () {
+    $userId = collectionsUpsertConflictTestUser();
+
+    $ids = upsertCollectionsVia($userId, ['item-1' => [
+        ['external_ref' => null, 'label' => 'Unkeyed', 'kind' => 'service_category', 'position' => 0],
+        ['external_ref' => '77', 'label' => '', 'kind' => 'service_category', 'position' => 0],
+    ]]);
+
+    expect($ids)->toBe([])
+        ->and(DB::connection('pgsql')->table('content.collections')->where('user_id', $userId)->count())->toBe(0);
 });
 
 it('allows many user-created collections with a null external_ref', function () {
