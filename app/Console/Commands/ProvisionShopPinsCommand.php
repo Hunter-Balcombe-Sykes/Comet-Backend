@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
 use App\Site\Documents\BuildState;
+use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -81,11 +82,25 @@ class ProvisionShopPinsCommand extends Command
                 continue;
             }
 
-            $section = $this->provisioner->ensure($site, 'shop');
+            // ensure() INSERTs site.pages/site.sections rows — never call it
+            // under --dry-run. Look up the existing pool:shop section instead;
+            // a site that has never opened its Shop page has none yet, which
+            // is the common case a dry run is run against, so treat "no
+            // section" as "no existing pins" rather than skipping the site.
+            if ($dry) {
+                $section = DB::connection('pgsql')->table('site.sections')
+                    ->where('site_id', $site->id)
+                    ->where('key', PoolRegistry::sectionKey('shop'))
+                    ->first();
+            } else {
+                $section = $this->provisioner->ensure($site, 'shop');
+            }
 
-            $existing = DB::connection('pgsql')->table('site.section_items')
-                ->where('section_id', $section->id)
-                ->pluck('item_id')->flip();
+            $existing = $section === null
+                ? collect()
+                : DB::connection('pgsql')->table('site.section_items')
+                    ->where('section_id', $section->id)
+                    ->pluck('item_id')->flip();
 
             $wrote = 0;
             foreach ($itemIds as $index => $itemId) {
