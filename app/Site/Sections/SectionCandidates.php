@@ -207,11 +207,22 @@ class SectionCandidates
 
             // A collection id or its label — presets author by label before
             // the collection row exists to have an id.
+            //
+            // Slice 3b Task 9: removed_at is excluded here, on the JOIN's own
+            // table rather than inside the id/label OR block, so both arms
+            // are covered. An owner deleting a service category sets
+            // collections.removed_at (ServiceCollections::remove — the only
+            // writer); the memberships deliberately survive so a restore
+            // brings the group back intact, which means this filter is the
+            // only thing stopping items from still rendering through a group
+            // that no longer exists. Inert until Task 9 shipped the first
+            // writer of that column.
             'in_collection' => $this->applyExists($query, $negated, function ($q) use ($values) {
                 $q->orWhereExists(function ($e) use ($values) {
                     $e->from('content.collection_items')
                         ->join('content.collections', 'content.collections.id', '=', 'content.collection_items.collection_id')
                         ->whereColumn('content.collection_items.item_id', 'content.items.id')
+                        ->whereNull('content.collections.removed_at')
                         ->where(function ($w) use ($values) {
                             $ids = array_values(array_filter($values, fn (string $v) => Str::isUuid($v)));
                             if ($ids !== []) {

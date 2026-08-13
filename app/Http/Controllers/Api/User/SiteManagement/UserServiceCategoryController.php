@@ -9,15 +9,38 @@ use App\Http\Requests\Api\User\Services\ReorderServiceCategoryRequest;
 use App\Http\Requests\Api\User\Services\StoreServiceCategoryRequest;
 use App\Http\Requests\Api\User\Services\UpdateServiceCategoryRequest;
 use App\Http\Resources\ServiceCategoryResource;
-use App\Models\Core\User\Service;
-use App\Models\Core\User\ServiceCategory;
-use App\Services\Site\InsertWithSortOrder;
-use App\Services\Site\ReorderService;
+use App\Models\Content\Collection as ContentCollection;
+use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
+use App\Services\Cache\UserCacheService;
+use App\Services\Content\ManualServiceWriter;
+use App\Services\Content\ServiceCollections;
+use App\Services\Site\AdvisoryLock;
+use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
-// V2: Full CRUD + reorder for service categories. Deleting a category moves its services to uncategorized.
+/**
+ * Slice 3b Task 9: full CRUD + reorder for service categories, now backed by
+ * `content.collections` rows of kind='service_category' instead of
+ * `site.service_categories`. The wire shape is unchanged — only the store
+ * moved; `ServiceCategoryResource` does the column renaming (label→title,
+ * position→sort_order, removed_at→deleted_at, is_user_created→source).
+ *
+ * Every table access goes through `ServiceCollections`, the one read/write
+ * for these rows — no query builder against content.collections /
+ * content.collection_items lives in this file, deliberately: three of slice
+ * 3a's final-review blockers were a hand-rolled fourth copy of a predicate
+ * that already existed.
+ *
+ * Route-model binding is gone. `ServiceCategory $category` bound an Eloquent
+ * model against the legacy table, which a collection id can never resolve
+ * against; each method now takes the raw id and resolves it through the
+ * owner-scoped `ServiceCollections::find()`, 404-ing on a miss (404, not 403
+ * — a 403 would confirm the id exists and hand out an enumeration oracle).
+ */
 class UserServiceCategoryController extends ApiController
 {
     use ResolveCurrentSite;
@@ -30,20 +53,21 @@ class UserServiceCategoryController extends ApiController
         $includeArchived = $request->boolean('include_archived');
         $onlyArchived = $request->boolean('only_archived');
 
-        $q = ServiceCategory::query()
-            ->where('user_id', $pro->id);
+        $collections = app(ServiceCollections::class);
+        $rows = $collections->list($pro->id, includeRemoved: $includeArchived || $onlyArchived);
 
         if ($onlyArchived) {
-            $q->onlyTrashed();
-        } elseif ($includeArchived) {
-            $q->withTrashed();
+            $rows = $rows->filter(fn (object $row) => $row->removed_at !== null)->values();
         }
 
-        // Bound the query at scale (B18/API-4). True pagination is a frontend-coordinated change, deferred.
-        $categories = $q->orderBy('sort_order')->orderBy('created_at')->limit((int) config('partna.limits.pagination.service_categories_max', 200))->get();
+        // Bound the result at scale (B18/API-4), same ceiling as before the
+        // cutover. True pagination is a frontend-coordinated change, deferred.
+        $rows = $rows->take((int) config('partna.limits.pagination.service_categories_max', 200))->values();
 
         return $this->success([
-            'categories' => ServiceCategoryResource::collection($categories),
+            'categories' => ServiceCategoryResource::collection(
+                $rows->map(fn (object $row) => $this->stampOwner($row, $pro))
+            ),
             'filters' => [
                 'include_archived' => $includeArchived,
                 'only_archived' => $onlyArchived,
@@ -54,83 +78,129 @@ class UserServiceCategoryController extends ApiController
     public function store(StoreServiceCategoryRequest $request): JsonResponse
     {
         $pro = $this->currentUser($request);
-        // SEC-1: user_id is no longer fillable — direct assignment so the policy still sees the owner.
-        $skeleton = new ServiceCategory;
-        $skeleton->user_id = $pro->id;
-        $this->authorizeForUser($pro, 'create', $skeleton);
+        // ContentCollectionPolicy exposes view/update/delete, not create —
+        // 'update' against an owner-stamped skeleton carries exactly the two
+        // gates a create needs (ownership + pending-deletion), and mirrors
+        // what UserServiceController::reorder() already does for its own
+        // pre-write check. No inline abort_unless: CI fails the build on one.
+        $this->authorizeForUser($pro, 'update', $this->collectionSkeleton($pro));
+
         $data = $request->validated();
+        $site = $this->currentSite($pro);
+        $collections = app(ServiceCollections::class);
 
-        $category = InsertWithSortOrder::run(
-            ServiceCategory::query()->where('user_id', $pro->id),
-            "service-categories:{$pro->id}",
-            function (int $next) use ($pro, $data) {
-                // SEC-1: relation ->create() sets user_id via the FK, not mass-assignment.
-                $category = $pro->serviceCategories()->create([
-                    'title' => $data['title'],
-                    'sort_order' => $data['sort_order'] ?? $next,
-                ]);
+        try {
+            $id = DB::connection('pgsql')->transaction(function () use ($pro, $data, $collections): string {
+                AdvisoryLock::acquire("service-categories:{$pro->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
-                return $category->fresh();
-            },
-        );
+                $id = $collections->create($pro->id, (string) $data['title']);
 
-        return $this->success(['category' => new ServiceCategoryResource($category)], 201);
-    }
+                // create() always appends. An explicit sort_order (still
+                // accepted by StoreServiceCategoryRequest) is honoured by
+                // renumbering the whole set with the new id spliced into that
+                // slot, inside the same lock — the read-modify-write the
+                // legacy InsertWithSortOrder held the same key for.
+                if (array_key_exists('sort_order', $data)) {
+                    $collections->reposition($pro->id, $this->splicedOrder($collections, $pro->id, $id, (int) $data['sort_order']));
+                }
 
-    public function show(Request $request, ServiceCategory $category): JsonResponse
-    {
-        $pro = $this->currentUser($request);
-
-        $this->authorizeForUser($pro, 'view', $category);
-
-        // Optional include_archived behavior
-        $includeArchived = $request->boolean('include_archived');
-        if (! $includeArchived && $category->trashed()) {
-            abort(404);
+                return $id;
+            });
+        } catch (AdvisoryLockTimeoutException) {
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
         }
 
-        return $this->success(['category' => new ServiceCategoryResource($category)]);
+        $this->invalidate($pro, $site);
+
+        return $this->success(['category' => new ServiceCategoryResource($this->readBack($collections, $pro, $id))], 201);
     }
 
-    public function update(UpdateServiceCategoryRequest $request, ServiceCategory $category): JsonResponse
+    public function show(Request $request, string $category): JsonResponse
     {
         $pro = $this->currentUser($request);
+        $collections = app(ServiceCollections::class);
 
-        $this->authorizeForUser($pro, 'update', $category);
-        if ($category->trashed()) {
-            abort(404);
+        // The route is declared ->withTrashed(), so the lookup includes
+        // removed rows and the include_archived flag decides afterwards.
+        $row = $collections->find($pro->id, $category, includeRemoved: true);
+        if ($row === null) {
+            abort(404, 'Service category not found.');
         }
 
-        $category->fill($request->validated());
-        $category->save();
+        $this->authorizeForUser($pro, 'view', $this->collectionSkeleton($pro, $category));
 
-        return $this->success(['category' => new ServiceCategoryResource($category->fresh())]);
+        if (! $request->boolean('include_archived') && $row->removed_at !== null) {
+            abort(404, 'Service category not found.');
+        }
+
+        return $this->success(['category' => new ServiceCategoryResource($this->stampOwner($row, $pro))]);
     }
 
-    public function destroy(Request $request, ServiceCategory $category): JsonResponse
+    public function update(UpdateServiceCategoryRequest $request, string $category): JsonResponse
     {
         $pro = $this->currentUser($request);
+        $collections = app(ServiceCollections::class);
 
-        $this->authorizeForUser($pro, 'delete', $category);
-        if ($category->trashed()) {
-            abort(404);
+        // Live rows only — editing a removed category 404s, as it did before.
+        if ($collections->find($pro->id, $category) === null) {
+            abort(404, 'Service category not found.');
         }
 
-        DB::transaction(function () use ($pro, $category) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-layout:{$pro->id}"]);
+        $this->authorizeForUser($pro, 'update', $this->collectionSkeleton($pro, $category));
 
-            // Multi-category: deleting a category DETACHES its members. A
-            // service that belonged only to this category is left with zero
-            // memberships — i.e. Uncategorised, the same end state as the old
-            // ON-DELETE-SET-NULL move; one that also lives in other categories
-            // keeps those memberships. sort_order is untouched (it's the
-            // global per-user order, no longer per-bucket).
-            DB::table('site.service_category_assignments')
-                ->where('service_category_id', $category->id)
-                ->delete();
+        $data = $request->validated();
+        $site = $this->currentSite($pro);
 
-            $category->delete();
-        });
+        try {
+            DB::connection('pgsql')->transaction(function () use ($pro, $collections, $category, $data): void {
+                AdvisoryLock::acquire("service-categories:{$pro->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
+
+                if (array_key_exists('title', $data)) {
+                    $collections->rename($pro->id, $category, (string) $data['title']);
+                }
+
+                if (array_key_exists('sort_order', $data)) {
+                    $collections->reposition($pro->id, $this->splicedOrder($collections, $pro->id, $category, (int) $data['sort_order']));
+                }
+            });
+        } catch (AdvisoryLockTimeoutException) {
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
+
+        $this->invalidate($pro, $site);
+
+        return $this->success(['category' => new ServiceCategoryResource($this->readBack($collections, $pro, $category))]);
+    }
+
+    public function destroy(Request $request, string $category): JsonResponse
+    {
+        $pro = $this->currentUser($request);
+        $collections = app(ServiceCollections::class);
+
+        if ($collections->find($pro->id, $category) === null) {
+            abort(404, 'Service category not found.');
+        }
+
+        $this->authorizeForUser($pro, 'delete', $this->collectionSkeleton($pro, $category));
+
+        $site = $this->currentSite($pro);
+
+        // Deliberate change from the legacy path, ratified in review:
+        // deleting a category does NOT tear its memberships down. The legacy
+        // destroy() deleted every site.service_category_assignments row;
+        // content.collections.removed_at is a filter instead, so a later
+        // restore() brings the group back intact rather than empty.
+        //
+        // What makes that safe is SectionCandidates' in_collection rule
+        // skipping removed collections — without that filter an item would
+        // keep rendering through a group the owner had deleted, since the
+        // memberships are still there. That filter is LOAD-BEARING for this
+        // method, not an optimisation: this is the first (and, with
+        // restore(), only) writer of removed_at, so the two ship together and
+        // must not be separated.
+        $collections->remove($pro->id, $category);
+
+        $this->invalidate($pro, $site);
 
         return $this->success(['deleted' => true]);
     }
@@ -140,48 +210,149 @@ class UserServiceCategoryController extends ApiController
         $pro = $this->currentUser($request);
         $site = $this->currentSite($pro);
 
-        // SEC-5: pending-deletion + ownership gate via ServicePolicy, matching
-        // this controller's own store().
-        // SEC-1: user_id is no longer fillable — direct assignment so the policy still sees the owner.
-        $skeleton = new ServiceCategory;
-        $skeleton->user_id = $pro->id;
-        $this->authorizeForUser($pro, 'update', $skeleton);
+        // SEC-5: pending-deletion + ownership gate, matching store() above.
+        $this->authorizeForUser($pro, 'update', $this->collectionSkeleton($pro));
 
-        // EDGE-1 (audit): mass `update()` inside ReorderService bypasses Eloquent
-        // events, so ServiceCategoryObserver never touches the site. Touch
-        // explicitly in afterCommit to fire SiteObserver — Redis invalidation +
-        // Cloudflare edge purge + cache warm (mirrors UserGalleryController::reorder).
-        app(ReorderService::class)->reorder(
-            $request->input('ids', []),
-            ServiceCategory::query()->where('user_id', $pro->id),
-            "service-categories:{$pro->id}",
-            fn () => $site->touch(),
-        );
+        $collections = app(ServiceCollections::class);
+        /** @var list<string> $ids */
+        $ids = array_values(array_map(fn ($id) => (string) $id, (array) $request->input('ids', [])));
+
+        try {
+            DB::connection('pgsql')->transaction(function () use ($pro, $collections, $ids): void {
+                AdvisoryLock::acquire("service-categories:{$pro->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
+
+                // reposition() drops ids that don't exist or belong to another
+                // user before renumbering, so a foreign id consumes no slot
+                // and cannot bump one of this owner's rows out of place.
+                $collections->reposition($pro->id, $ids);
+            });
+        } catch (AdvisoryLockTimeoutException) {
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
+
+        $this->invalidate($pro, $site);
 
         return $this->success(['ok' => true]);
     }
 
-    public function restore(Request $request, ServiceCategory $category): JsonResponse
+    public function restore(Request $request, string $category): JsonResponse
     {
         $pro = $this->currentUser($request);
+        $collections = app(ServiceCollections::class);
 
-        $this->authorizeForUser($pro, 'update', $category);
-
-        if (! $category->trashed()) {
-            return $this->success(['restored' => true, 'category' => new ServiceCategoryResource($category->fresh())]);
+        $row = $collections->find($pro->id, $category, includeRemoved: true);
+        if ($row === null) {
+            abort(404, 'Service category not found.');
         }
 
-        DB::transaction(function () use ($pro, $category) {
-            $category->restore();
+        $this->authorizeForUser($pro, 'update', $this->collectionSkeleton($pro, $category));
 
-            $max = ServiceCategory::query()
-                ->where('user_id', $pro->id)
-                ->max('sort_order');
+        $site = $this->currentSite($pro);
 
-            $category->sort_order = is_null($max) ? 0 : ((int) $max + 1);
-            $category->save();
-        });
+        // Idempotent: restoring a live category is a no-op on the row.
+        //
+        // Deliberate change from the legacy path, ratified in review: the
+        // category is restored IN PLACE rather than pushed to max+1. The old
+        // renumber existed because site.service_categories.sort_order could
+        // collide; ServiceCollections::create() already appends past removed
+        // rows (its own docblock: "so a later restore doesn't collide"), so
+        // there is nothing left to renumber around and the owner gets their
+        // category back where they left it.
+        if ($row->removed_at !== null) {
+            $collections->restore($pro->id, $category);
+        }
 
-        return $this->success(['restored' => true, 'category' => new ServiceCategoryResource($category->fresh())]);
+        $this->invalidate($pro, $site);
+
+        return $this->success([
+            'restored' => true,
+            'category' => new ServiceCategoryResource($this->readBack($collections, $pro, $category)),
+        ]);
+    }
+
+    /**
+     * The three mandatory lanes come from ManualServiceWriter::invalidate()
+     * — BuildState::bump, site.sites.updated_at, the edge purge — never
+     * re-implemented here. $site->touch() then covers what the retired
+     * ServiceCategoryObserver used to: SiteObserver's Redis payload bust,
+     * edge purge and cache warm, which a raw UPDATE cannot fire. Category
+     * titles ride in the dashboard services payload, hence invalidateServices.
+     */
+    private function invalidate(User $pro, Site $site): void
+    {
+        app(ManualServiceWriter::class)->invalidate([(string) $site->id]);
+        $site->touch();
+        app(UserCacheService::class)->invalidateServices($pro->id);
+    }
+
+    /**
+     * A skeleton row for the policy. user_id is tenancy and never fillable,
+     * so it is assigned directly — otherwise ContentCollectionPolicy reads a
+     * null owner off the raw attributes and denies as 404.
+     */
+    private function collectionSkeleton(User $pro, ?string $id = null): ContentCollection
+    {
+        $collection = new ContentCollection;
+        $collection->user_id = $pro->id;
+
+        if ($id !== null) {
+            $collection->id = $id;
+        }
+
+        return $collection;
+    }
+
+    /**
+     * ServiceCollections rows carry no user_id column — every read is already
+     * scoped to one owner — but the wire has always exposed it, so stamp the
+     * resolved owner back on rather than dropping the field.
+     */
+    private function stampOwner(object $row, User $pro): object
+    {
+        $row->user_id = (string) $pro->id;
+
+        return $row;
+    }
+
+    /** Re-read a row after a write, for the response body. */
+    private function readBack(ServiceCollections $collections, User $pro, string $id): object
+    {
+        $row = $collections->find($pro->id, $id, includeRemoved: true);
+
+        if ($row === null) {
+            // Unreachable in practice: the row was written in this request
+            // and find() re-reads the same owner-scoped query. Loud rather
+            // than a contextless 500 if it ever is.
+            Log::error('Service category vanished immediately after write', ['collection_id' => $id, 'user_id' => $pro->id]);
+            abort(500, 'Service category could not be read back.');
+        }
+
+        return $this->stampOwner($row, $pro);
+    }
+
+    /**
+     * The owner's current category order with $id moved to $index — the
+     * ordered id list reposition() consumes, for the optional sort_order both
+     * the store and update requests still accept.
+     *
+     * list() hides machine-derived collections that have no live members, so
+     * such a row is absent here; reposition() appends every id it wasn't
+     * given after the ones it was, keeping their relative order, so a hidden
+     * collection simply sorts behind the visible ones instead of being
+     * scrambled.
+     *
+     * @return list<string>
+     */
+    private function splicedOrder(ServiceCollections $collections, string $userId, string $id, int $index): array
+    {
+        $ordered = $collections->list($userId, includeRemoved: true)
+            ->map(fn (object $row) => (string) $row->id)
+            ->reject(fn (string $value) => $value === $id)
+            ->values()
+            ->all();
+
+        array_splice($ordered, max(0, min($index, count($ordered))), 0, [$id]);
+
+        return $ordered;
     }
 }

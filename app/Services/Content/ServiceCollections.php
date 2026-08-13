@@ -48,7 +48,7 @@ class ServiceCollections
      * empty "Add your first service here" group is the correct render, not
      * a bug to hide.
      *
-     * @return Collection<int, \stdClass> id, label, position, external_ref, is_user_created, removed_at, item_count
+     * @return Collection<int, \stdClass> id, label, position, external_ref, is_user_created, removed_at, created_at, updated_at, item_count
      */
     public function list(string $userId, bool $includeRemoved = false): Collection
     {
@@ -284,6 +284,16 @@ class ServiceCollections
      * one. This is the same emptiness rule as the "vendor dropped the
      * category" case, just reached via item-level removal instead of
      * category-level replace.
+     *
+     * Task 9 fix round 1, Finding 1: created_at/updated_at are selected too.
+     * They are not used by anything in this class — they are here because the
+     * HTTP layer's wire shape (ServiceCategoryResource) has always carried
+     * both, and a row that omits them serialises two silent nulls rather than
+     * a missing key, which is the same invisible-regression shape the `source`
+     * mapping was caught by. Removing either column from this SELECT breaks
+     * the wire without breaking a query: pinned by
+     * tests/Feature/Api/User/ServiceCategoryEndpointCutoverTest.php's
+     * "emits real created_at/updated_at timestamps, not two silent nulls".
      */
     private function baseQuery(string $userId, bool $includeRemoved): Builder
     {
@@ -296,7 +306,7 @@ class ServiceCollections
         }
 
         return $query
-            ->select(['c.id', 'c.label', 'c.position', 'c.external_ref', 'c.is_user_created', 'c.removed_at'])
+            ->select(['c.id', 'c.label', 'c.position', 'c.external_ref', 'c.is_user_created', 'c.removed_at', 'c.created_at', 'c.updated_at'])
             ->selectSub(
                 fn ($sub) => $sub->from('content.collection_items as ci')
                     ->join('content.items as it', 'it.id', '=', 'ci.item_id')
@@ -333,8 +343,16 @@ class ServiceCollections
      * `id`/`label`/`external_ref`/`removed_at` are left alone: they're text
      * or null either way, with no PHP-type distinction a driver could get
      * wrong.
+     *
+     * Task 9 fix round 2: typed \stdClass, not `object`. The query builder
+     * already hands back \stdClass rows, and `object` here was WIDENING them
+     * — it made list()'s `->map()` produce a Collection<int, object>, which
+     * contradicts the declared Collection<int, \stdClass> and was the one
+     * PHPStan error in this file. Widening list()'s own return type instead
+     * would have "fixed" it by throwing away the type Tasks 10 and 11 consume
+     * these rows under; the narrowing is the actual cause. Do not widen back.
      */
-    private function normalizeRow(object $row): object
+    private function normalizeRow(\stdClass $row): \stdClass
     {
         $row->is_user_created = $this->isUserCreated($row);
         $row->item_count = (int) $row->item_count;

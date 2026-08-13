@@ -85,14 +85,20 @@ it('persists user_id on a service created via POST /api/services', function () {
 });
 
 it('persists user_id on a service category created via POST /api/service-categories', function () {
+    // Slice 3b Task 9: service categories are created in content.collections
+    // now (ServiceCollections::create() — a raw insert, not Eloquent mass
+    // assignment) rather than site.service_categories, so this asserts the id
+    // the create response actually returned resolves to the right owner in the
+    // new backing store, not a stray/spoofed one. Same shape as the
+    // /api/services sibling above, which slice 3a moved for the same reason.
     $pro = createTenant('mass-cat-user');
 
-    actingAsUser($pro)->postJson('/api/service-categories', [
+    $response = actingAsUser($pro)->postJson('/api/service-categories', [
         'title' => 'Hair',
     ])->assertStatus(201);
 
-    $category = ServiceCategory::query()->where('user_id', $pro->id)->firstOrFail();
-    expect($category->fresh()->user_id)->toBe($pro->id);
+    $collectionId = $response->json('category.id');
+    expect(DB::table('content.collections')->where('id', $collectionId)->value('user_id'))->toBe($pro->id);
 });
 
 it('persists user_id on a service created by staff via POST /api/staff/professionals/{professional}/services', function () {

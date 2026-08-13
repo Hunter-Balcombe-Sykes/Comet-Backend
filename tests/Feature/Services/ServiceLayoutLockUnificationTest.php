@@ -16,12 +16,19 @@
  *
  * WHAT THIS SUITE PROVES: (1) source-level — the three migrated call sites no
  * longer reference the service-layout key and DO reference AdvisoryLock's
- * services:{user_id} key + bound; the two sites that only ever touched
- * category-assignment rows (never site.services.sort_order) still use the
- * untouched raw service-layout key, confirming they were correctly left
- * alone. (2) behavioural — the migrated endpoints still function correctly
+ * services:{user_id} key + bound; the sites that only ever touched
+ * category-assignment rows (never site.services.sort_order) stay OFF the
+ * services:{user_id} key, confirming they were correctly left alone.
+ * (2) behavioural — the migrated endpoints still function correctly
  * end-to-end under the SQLite shim (shimPgAdvisoryLockForSqlite() no-ops the
  * lock entirely, per AdvisoryLock's own docblock).
+ *
+ * Slice 3b Task 9 narrowed that second group from two controllers to one:
+ * UserServiceCategoryController's categories moved to content.collections, so
+ * its assignment detach (and with it the raw service-layout key) went away
+ * entirely. It now serialises its own ordering on service-categories:{user_id}
+ * — a third key, for a third uniqueness concern. StaffServiceCategoryManagement
+ * Controller is the remaining raw service-layout site.
  *
  * WHAT THIS SUITE DOES NOT PROVE: that Postgres actually serialises the four
  * writers against each other, or that a real contended lock times out and
@@ -126,19 +133,32 @@ it('no longer keys the three sort_order-renumbering sites on service-layout', fu
         ->toBeGreaterThanOrEqual(3); // store, reorder, reorderLayout
 });
 
-it('leaves the two category-assignment-only service-layout sites untouched', function () {
+it('leaves the category-assignment-only service-layout site untouched, and keeps the migrated one off services:', function () {
     $userCategorySource = file_get_contents(app_path('Http/Controllers/Api/User/SiteManagement/UserServiceCategoryController.php'));
     $staffCategorySource = file_get_contents(app_path('Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceCategoryManagementController.php'));
 
-    expect($userCategorySource)->toContain('service-layout:');
-    expect($staffCategorySource)->toContain('service-layout:');
-
-    // Confirmed by inspection (Fix C's report): destroy() in both controllers
-    // only deletes site.service_category_assignments rows + the category row
-    // itself — never touches site.services.sort_order — so unifying keys was
-    // never applicable here; neither file references the services:{user} key.
+    // Confirmed by inspection (Fix C's report): destroy() in these controllers
+    // only deleted site.service_category_assignments rows + the category row
+    // itself — never touched site.services.sort_order — so unifying keys was
+    // never applicable here. THAT is the invariant this case protects, and it
+    // still holds for both: neither file references the services:{user} key.
     expect($userCategorySource)->not->toContain('AdvisoryLock::acquire("services:');
     expect($staffCategorySource)->not->toContain('AdvisoryLock::acquire("services:');
+
+    // The staff controller is still on the untouched raw service-layout key.
+    expect($staffCategorySource)->toContain('service-layout:');
+
+    // Slice 3b Task 9 retired the user-facing half of this pair. Its
+    // categories now live in content.collections, so the ids it handles can
+    // never match service_category_assignments.service_category_id — the
+    // detach that service-layout guarded became a guaranteed no-op and was
+    // removed with it. It still renumbers an ordering of its own
+    // (content.collections.position), so it must still hold A lock; the key
+    // is service-categories:{user}, which is what the pre-cutover reorder()
+    // already serialised on via ReorderService/InsertWithSortOrder.
+    expect($userCategorySource)->not->toContain('service-layout:');
+    expect($userCategorySource)->toContain('AdvisoryLock::acquire("service-categories:');
+    expect($userCategorySource)->toContain('catch (AdvisoryLockTimeoutException)');
 });
 
 it('updateCategory() still appends at max(sort_order)+1 under the unified key', function () {
