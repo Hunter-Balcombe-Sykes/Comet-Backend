@@ -77,6 +77,29 @@ claim propagated in the first place. **Verify assertions about guardrails before
 writing them down — a guardrail nobody checked is worse than none, because plans
 budget for its protection.**
 
+## 0d. Revision note — slice 6 entry gate, 2026-08-13
+
+Re-deriving state from dev before slice 6 falsified five premises its own kickoff prompt
+carried, and one of this document's counts. Revision 5:
+
+| Was | Is |
+|---|---|
+| §1.4: `content.f_review` holds 0 rows; Google reviews have never reached the content schema | **15 rows**, and 15 `content.items` of kind `review`. Slice 1b's media runs carried them: the connector's `profile` / `reviews` / `media` streams share ONE `places.details` effect |
+| Slice 6's kickoff: `GoogleBusinessReviewProjector` has never executed | It has. Slice 6's unit 1 was a verification job, not a build |
+| Slice 6's kickoff: the pool ships "with no payload-builder change" | `PoolResolver::itemPayloads()` joined nine facet tables and `f_review` was not among them. A registry-only change ships a review card with no rating and no text |
+| §1.6-style reading of the `profile` stream as unfinished | **Vestigial, not unfinished.** 3 `record_versions`, 0 `source_items`. Its intended consumer was the field-bindings lane, created by `20260728150000` and deliberately dropped by `20260805110000`; the identity fold it existed for runs instead via `IdentitySync` off `IntegrationConnectionObserver::saved` |
+| Slice 6's kickoff: `reviewSummary` is the only companion to `reviews` | **Four** keys sit behind one owner toggle (`DisplaySettingsFilter:33`): `reviews`, `reviewSummary`, `rating`, `reviewCount` |
+
+The transferable one is the third. **A pool is a read path, and a read path is not free
+because the write path already landed rows.** Sizing a slice from "the data is already
+there" skipped the join that makes the data renderable.
+
+Where slice 6's new facts landed in this document: the row counts in §1.4 and §1.5, the
+`content.source_stats` seam in §1.5, and the slice-6/slice-7 consequences in §7. **Not §5**
+— slice 6's own spec §7 pointed there, but §5 is the billed-effect driver seam and the
+source-level write path is a `ProjectionWriter` seam, not a driver one. Slice 6 changed
+nothing in the driver contract.
+
 ---
 
 ## 1. Verified current state
@@ -184,8 +207,13 @@ Deliberately out of scope in 2026-08-05, in scope here. All ten counts verified:
 | `site.shop_brands` | 9 | collections + a `content.storefronts` sidecar (decided in 5a; **not** `f_catalog`, which is a music facet) |
 | `site.content_selection` | 91 | `media` — but see §2.4, it is not uniformly reference-resolved |
 
-`content.f_review` holds 0 rows; Google reviews have never reached the content
-schema, blocked by the same driver gap.
+**Corrected 2026-08-13 (slice 6 entry gate).** This section used to read *"`content.f_review`
+holds 0 rows; Google reviews have never reached the content schema, blocked by the same
+driver gap."* Both halves are false. `content.f_review` holds **15 rows** and
+`content.items` holds 15 of kind `review`, landed by slice 1b's Google runs — the
+connector's `profile`, `reviews` and `media` streams share a single `places.details`
+effect, so enabling media enabled reviews with it. Reviews were therefore never blocked
+on a driver gap after slice 0.
 
 ### 1.5 What the schema anticipated but never grew
 
@@ -196,6 +224,18 @@ schema, blocked by the same driver gap.
 | `content.item_tags` | 186 | tag + tag_type |
 | `content.collections` / `collection_items` | 0 / 0 | grouping — menu and service categories |
 | `content.sources` `kind='manual'` | **0** | The unique index exists. **Nothing has ever written a row.** See §1.7 |
+
+**Added 2026-08-13 by slice 6 — `content.source_stats`, the first source-level fact in
+`content.*`.** PK `source_id` (FK → `content.sources`, CASCADE), columns `rating_avg`,
+`rating_count`, `summary_text`, `updated_at`, all nullable. Every other table in this
+schema describes an ITEM; these describe the connected account itself — the Google place's
+star average, total rating count and Google-authored review summary. **`ProjectionWriter`
+therefore now has a source-scoped write path** alongside its item-scoped ones: a projection
+may return a `source_stats` key, which upserts one row per source rather than per item.
+Any slice adding a source-level fact uses that seam rather than inventing a second one, and
+any teardown reasoning about "what a projection writes" must account for a write that has
+no `item_id`. Written by the `reviews` stream (see §7 slice 6 for why not `profile`), and
+read by the public wire as `pools.reviews.stats`.
 
 `site.menu_items` carries `base_price`, `pickup_price`, `pickup_source`,
 `delivery_price`, `delivery_source` as flat columns. That is precisely three
@@ -1024,6 +1064,34 @@ reviewer-identifying fields (`author`, `author_uri`, `author_photo`) declared in
 `GoogleBusinessConnector`'s `Manifest::$redactionScopes`, and honour the outstanding
 LEGAL-2 obligation.
 
+**Implemented 2026-08-13, dev only; not yet live-verified.** Sub-spec:
+`2026-08-12-slice-6-reviews-design.md`. Wire manifest:
+`docs/wire-changes/2026-08-12-slice-6-reviews.md`. What it settled:
+
+- **The rows already existed** — see §0d. The slice was a read path plus a PII cleanup,
+  not an ingest build.
+- **Reviews get a pool, with curation restricted to exclusion.** `PoolRegistry` gained
+  `EXCLUDE_ONLY_POOLS` and `MANUAL_ADD_FORBIDDEN_POOLS`, both currently `['reviews']`:
+  pins, reorders and hand-authored `review` items are refused 422 on all four write paths.
+  The first pool whose content is not the owner's own.
+- **The reviewer's name is now in `content.f_review` and nowhere else.** The projector
+  used to set `headline` to the display name, which `ProjectionWriter` folded into
+  `f_text` and `items.headline_cache` — two copies outside `redactionScopes`,
+  `content:prune-orphaned-review-pii` and the DSAR omission. `headline` is null by
+  contract for `review`, and `content:purge-review-headline-pii` cleared the existing
+  copies.
+- **The aggregates moved with the reviews.** `PublicIntegrationConnectionResource` no
+  longer publishes `reviews`, `reviewSummary`, `rating` or `reviewCount` for
+  `google-business`; they serve from `content.source_stats` (§1.5) as
+  `pools.reviews.stats`. The FETCH is unchanged — this retires a read, not a call.
+- **The aggregates ride the `reviews` stream, not `profile`**, precisely because
+  `profile` is vestigial (§0d) and slice 7 could legitimately delete it. A `Sample`
+  stream emitting a source-level fact is the cheaper mistake than a public-wire
+  dependency on machinery scheduled for plausible removal.
+- **LEGAL-2 is not discharged.** It is inherited and extended: owner suppression of
+  individual reviews is a new adviser question (`docs/legal/reviewer-data-disclosure.md`
+  §4 point 5).
+
 ### Slice 7 — Legacy teardown · M
 Drop the ten tables in §1.4. Re-home the orphaned observers and policies (§9).
 
@@ -1078,6 +1146,25 @@ programme's backend-only mandate and is not estimated here; slice 7 must confirm
 has landed rather than assume it. The remaining nine tables in §1.4 are unaffected
 and may be dropped on the coverage gate alone — **slice 7 may be split** if the
 frontend lags, dropping the commerce tables first and the media lane later.
+
+#### Carried from slice 6 — three things the teardown must not walk into
+
+Recorded 2026-08-13. The detail, including two findings slice 6 deliberately did not act
+on, is in `docs/superpowers/plans/2026-08-12-slice-7-teardown-KICKOFF-PROMPT.md`.
+
+1. **`content.source_stats` exists and the public wire depends on it** (§1.5). It is not a
+   scratch table: `pools.reviews.stats` is the only remaining source of the Google star
+   average, review count and review summary, because slice 6 retired all four keys from
+   `PublicIntegrationConnectionResource`.
+2. **The `google_business` `profile` stream is redundant with the `IdentitySync` fold, not
+   merely unused.** Its intended consumer (field bindings) was dropped by
+   `20260805110000`, and the identity fold runs off `IntegrationConnectionObserver::saved`
+   instead. **Retire it or justify keeping it — do not drop it silently**, and do not move
+   `source_stats` onto it.
+3. **`PruneOrphanedReviewPiiCommand` still depends on `content.f_review`** and is now the
+   sole retention mechanism for reviewer identity, since slice 6 removed the two
+   ungoverned copies. Anything that changes how review items are written or retired must
+   keep that command's guarantee true.
 
 ---
 

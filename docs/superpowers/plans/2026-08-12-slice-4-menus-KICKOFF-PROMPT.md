@@ -271,6 +271,44 @@ php -d memory_limit=1G ./vendor/bin/phpstan analyse <path> --no-progress --debug
 ```
 
 `--debug` disables parallelism. Under that invocation the real errors print normally.
+## What slice 6 changed under you (reviews, 2026-08-13)
+
+Both files you edit for Unit 7 moved. Verify each claim yourself; this is a pointer.
+
+- **`PoolRegistry` gained a `reviews` entry** in `POOLS`, `PAGE_KEYS`, `PAGE_LABELS` and
+  `SECTION_SHAPE` — the same four const arrays your Unit 7 edits. A merge that drops half
+  a const array still passes every test written by the branch that added the other half:
+  **re-run `PoolRegistryTest` after resolving any conflict, not before.**
+- **Three new const arrays, all currently `['reviews']`:** `EXCLUDE_ONLY_POOLS` (the owner
+  may hide but not pin), `MANUAL_ADD_FORBIDDEN_POOLS` (no hand-authored items),
+  `SOURCE_STATS_POOLS` (the pool renders its source's aggregates). Menus belong in none of
+  them — a dish is the owner's own content. They are declared centrally so the resolver and
+  every write endpoint read one source of truth; if you add a per-pool rule, follow that
+  shape rather than branching in a controller.
+- **New helpers:** `poolForSectionKey()` (the inverse of `sectionKey()`, used to recover a
+  pool from a section UUID), `allowsPin()`, `allowsManualAdd()`, `carriesSourceStats()`.
+  The `pool:` prefix is now a const — do not re-hardcode it.
+- **`PoolResolver::itemPayloads()` gained a `review` block** — `{rating, text, authorName,
+  authorPhotoUrl, authorUri, reviewedAt}`, null off every kind but `review`, and `'review'`
+  is in `ITEM_KEYS`. It follows the same "wire shape does not change with kind" contract
+  `price` and `startsAt` keep; a menu item ships `review: null`.
+- **`itemPayloads()` also gained a display-toggle gate that DROPS items.** Review items
+  whose connection has reviews switched off are skipped before the payload is built, so
+  they leave the selection and the library. It is the first place a pool item can vanish
+  for a reason other than curation — if you add a filter, put it in the same place and key
+  it per source, not per pool.
+- **`resolve()`'s return shape gained `stats`**, `null` for every pool except `reviews`.
+  `buildPools()` spreads it only when non-null, the same contract `collections` keeps, so
+  a menus pool payload is unaffected — but anything that destructures the resolver's return
+  must account for the key.
+- **`hasSelection()` now branches on whether the pool can carry reviews**, and the pin
+  short-circuit on the other branch is LOAD-BEARING — leave it alone. `hasSelection` is a
+  presence probe: answering from `site.section_items` alone is what lets it succeed where
+  `content.*` is absent. Slice 6 briefly collected all candidates unconditionally and broke
+  four tests, because every pool probe then faulted wherever the services probe already did
+  (4 reported exceptions instead of 1 — `PresenceProbeEscalationTest`,
+  `PresenceProbeLoggingTest`, via `pinPoolPresence()`). A menus pool takes the
+  short-circuit branch. Do not collapse the two branches into one pass.
 
 ## Non-negotiables
 

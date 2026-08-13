@@ -209,6 +209,34 @@ it('refuses a manual add to the reviews pool', function () {
     expect(DB::table('content.items')->where('user_id', $pro->id)->count())->toBe(0);
 });
 
+// Slice 6 §4.5 — provisioning. There is no reviews backfill command and no
+// per-pool branch in PoolSectionProvisioner: resolve() ensures the section on
+// first read and buildPools() iterates every PoolRegistry::POOLS key, so an
+// existing site with a google_business source grows `pool:reviews` the first
+// time anything reads the pool. Pinned because the alternative branch (a
+// provisioning command) was the one the plan expected; if a later change moves
+// provisioning off the read path, existing sites silently get no section.
+it('provisions the reviews section on first read, with the pool shape', function () {
+    [, $siteId] = reviewPoolFixture(['rating' => 5.0]);
+    $site = Site::query()->findOrFail($siteId);
+
+    expect(DB::table('site.sections')->where('site_id', $siteId)->where('key', 'pool:reviews')->count())
+        ->toBe(0);
+
+    app(PoolResolver::class)->resolve($site, 'reviews');
+
+    $section = DB::table('site.sections')
+        ->where('site_id', $siteId)->where('key', 'pool:reviews')->first();
+
+    expect($section)->not->toBeNull()
+        ->and($section->mode)->toBe('mixed')
+        ->and($section->order_by)->toBe('recency')
+        ->and(json_decode((string) $section->rule, true))
+        ->toBe(['all' => [['op' => 'kind_is', 'values' => ['review']]]])
+        ->and(DB::table('site.pages')->where('site_id', $siteId)->where('key', 'reviews')->count())
+        ->toBe(1);
+});
+
 it('refuses a pin on the reviews pool but allows an exclusion', function () {
     [$pro, $siteId, $itemId] = reviewPoolFixture(['rating' => 5.0]);
 
