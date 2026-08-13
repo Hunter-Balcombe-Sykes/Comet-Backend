@@ -632,6 +632,29 @@ than ticked.
 - `upsertStore()`'s TOCTOU race against a concurrent scheduled sync — pre-existing,
   fixed properly by denormalising `user_id` onto `storefronts` behind a unique
   index.
+- **`CloudflarePurgeService::purgeHandle()`'s un-deduped, 4x-amplified error
+  reporting.** Raised by the slice-3a session 2026-08-13 and verified here.
+  `purgeHandle()` runs three independent lookups — shop product handles
+  (`content.collection_items`/`collections`/`f_catalog`, which 5a's C2 fix
+  repointed and whose join surface went from one table to four), `site.menu_items`,
+  and event ids — and **each `catch` calls a raw `report($e)`** with no dedup
+  (OBS-101, `cdf6f9eaf`, predating this programme).
+  `CloudflareCachePurgeJob::handle()` self-dispatches three delayed follow-ups
+  (`partna.cache.purge_followup_schedule` = `[120, 300, 900]`), so one site save
+  runs `purgeHandle()` four times: **up to 12 un-deduped Nightwatch reports per
+  site save, per site** on a connection-level fault, or four if only the shop
+  lookup fails.
+
+  **Not fixed in 5b, deliberately.** 5b does not open this file, and the change is
+  cross-cutting observability affecting the products, menus and events lookups
+  alike — folding a monitoring-behaviour change into a slice that also retires a
+  public wire would make both harder to review and harder to revert. The two
+  slices that *trigger* it own it, and both prompts now say so: slice 7 (drops
+  `site.menu_items` and the shop tables out from under two of the three lookups)
+  and slice 4 (moves menus to `content.*`). The remedy in both is the same — repoint
+  the lookup in the same window as the schema change, and wrap the catch in
+  `App\Services\Analytics\Concerns\EscalatesRepeatedFaults`, already used by ten
+  services.
 
 ---
 

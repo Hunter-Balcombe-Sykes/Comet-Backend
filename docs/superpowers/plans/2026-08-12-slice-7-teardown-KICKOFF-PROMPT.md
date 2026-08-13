@@ -117,6 +117,27 @@ Children before parents. Raw SQL under `supabase/migrations/`, one statement
 concern per file. Check for FK dependents, views, triggers and RLS policies on each
 before dropping — `pg_depend` will tell you what the table list will not.
 
+**`CloudflarePurgeService::purgeHandle()` will page you 12 times per site save if
+a DROP lands under it.** Verified 2026-08-13. That method runs three independent
+lookups — shop product handles (`content.collection_items`/`collections`/
+`f_catalog`, repointed by 5a), menu items (`site.menu_items`, dropped by this
+unit), and event ids — and each `catch` calls a **raw `report($e)`** with no
+dedup (OBS-101, `cdf6f9eaf`). `CloudflareCachePurgeJob::handle()` then
+self-dispatches three delayed follow-ups (`partna.cache.purge_followup_schedule`
+= `[120, 300, 900]`), so one site save runs `purgeHandle()` four times.
+
+Three raw reports × four invocations = **up to 12 un-deduped Nightwatch reports
+per site save, per site**. Dropping `site.menu_items` trips the menu lookup on
+every purge until the lookup is repointed, and a save-storm turns that into a
+monitoring flood that reads as an infrastructure outage rather than a code
+defect.
+
+Repoint or delete each lookup **in the same migration window as its DROP**, and
+wrap the catches in `App\Services\Analytics\Concerns\EscalatesRepeatedFaults`
+(used by ten services already) rather than leaving the raw `report()`. Neither
+5a nor 5b touched this file; it is named here because this unit is what makes it
+fire.
+
 ### Unit 6 — The media half, only if gate 2 passes
 `site_media` pools `gallery` and `content` retire, and the `gallery` / `designMedia`
 wire keys leave the payload. `site_media` and `media_variants` **survive** as the
