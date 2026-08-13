@@ -8,13 +8,25 @@ use App\Http\Requests\BaseFormRequest;
 // #SVC-1: category_ids mirrors StoreServiceRequest.php (multi-category); category_id
 // is kept as the legacy single-value alias, replacing the full membership set.
 // Ownership of supplied ids is asserted in the controller, not here.
+//
+// Slice 3b Task 11: category_id lost its 'exists:service_categories,id' rule,
+// matching what UpdateServiceCategoryAssignmentRequest already does on the
+// owner side. That rule pointed at the LEGACY table, so once the staff routes
+// cut over it 422'd every valid content.collections id — a staff member
+// passing a perfectly good category got a validation error, while the plural
+// category_ids spelling (which never carried the rule) worked. It also bought
+// nothing security-wise: `exists` is not owner-scoped, so it accepted ANY
+// professional's category id. The real check is, and always was, in the
+// controller — assertCollectionBelongsToProfessional() for a content item,
+// assertLegacyCategoryBelongsToProfessional() for the §C2 Fresha branch, both
+// owner-scoped, both 422.
 class StaffUpdateServiceRequest extends BaseFormRequest
 {
     public function rules(): array
     {
         return [
             'title' => ['sometimes', 'required', 'string', 'max:255'],
-            'category_id' => ['sometimes', 'nullable', 'uuid', 'exists:service_categories,id'],
+            'category_id' => ['sometimes', 'nullable', 'uuid'],
             'category_ids' => ['sometimes', 'nullable', 'array', 'max:50'],
             'category_ids.*' => ['uuid', 'distinct'],
             'description' => ['sometimes', 'nullable', 'string', 'max:2000'],

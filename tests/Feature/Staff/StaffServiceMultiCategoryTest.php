@@ -46,6 +46,7 @@ use App\Models\Core\User\User;
 use App\Services\Content\ServiceCollections;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
@@ -165,51 +166,37 @@ it('staff can update a service to multiple category_ids', function () {
 });
 
 /*
- * ⚠️ KNOWN GAP, PINNED — the legacy SINGULAR `category_id` spelling.
+ * The legacy SINGULAR `category_id` spelling, restored to what these two cases
+ * were originally written to assert: it still works.
  *
- * These two cases asserted that `category_id` (not `category_ids`) still
- * stores the membership. Post-slice-3b that is FALSE, and NOT because of
- * anything in StaffServiceManagementController: `StaffStoreServiceRequest:17`
- * and `StaffUpdateServiceRequest:17` still validate the singular field with
- * `'exists:service_categories,id'` — a rule against the LEGACY table — while a
- * staff create now lands an owner-authored content item whose memberships can
- * only be `content.collections` ids. The plural `category_ids` spelling has no
- * such rule and works (the four cases above), so the wire is not broken, only
- * this one spelling is.
- *
- * The equivalent rule was already removed from the user-side requests
- * (StoreServiceRequest:24, UpdateServiceCategoryAssignmentRequest:21 are bare
- * `['sometimes','nullable','uuid']`). THE FIX IS THE SAME ONE LINE IN EACH OF
- * THE TWO STAFF REQUESTS — both are outside Task 11's permitted file list,
- * which is why this is pinned rather than fixed here.
- *
- * These assert the CURRENT behaviour, deliberately, and name the failure
- * precisely (the validator's own error key) so they cannot pass for an
- * unrelated reason. They are self-alarming: the moment someone drops that
- * `exists:` rule, both go RED and whoever did it has to restore the original
- * "still stores the membership" expectation, which is the outcome we want.
+ * Fix round 2 fixed the CAUSE rather than documenting it.
+ * `StaffStoreServiceRequest` / `StaffUpdateServiceRequest` carried
+ * `'exists:service_categories,id'` on this field — a rule pointed at the
+ * LEGACY table — so once the staff routes cut over to content.*, a staff
+ * member passing a perfectly valid category id got a 422 while the plural
+ * `category_ids` spelling (which never carried the rule) worked. Both requests
+ * now declare `['sometimes','nullable','uuid']`, byte-for-byte what the
+ * owner-side StoreServiceRequest and UpdateServiceCategoryAssignmentRequest
+ * already declare. Ownership stays where it always was — asserted in the
+ * controller, owner-scoped, 422 — which `exists` never was.
  */
 
-it('KNOWN GAP: staff legacy single category_id 422s on create, blocked by a stale exists:service_categories rule', function () {
+it('staff legacy single category_id still works on create (regression)', function () {
     $pro = createTenant('svcmc-legacy-store');
     $cat = svcMultiCatTest_category($pro);
 
-    actingAsStaff(svcMultiCatTest_adminStaff())
+    $response = actingAsStaff(svcMultiCatTest_adminStaff())
         ->postJson("/api/staff/professionals/{$pro->id}/services", [
             'title' => 'Legacy single-cat service',
             'price_cents' => 3000,
             'category_id' => $cat,
         ])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors(['category_id']);
+        ->assertStatus(201);
 
-    // Nothing was written — the rejection is at the FormRequest, before the
-    // controller runs at all.
-    expect(DB::connection('pgsql')->table('content.items')
-        ->where('user_id', $pro->id)->where('kind', 'service')->count())->toBe(0);
+    expect(svcMultiCatTest_categoryIds($pro, (string) $response->json('service.id')))->toBe([$cat]);
 });
 
-it('KNOWN GAP: staff legacy single category_id 422s on update, same stale rule', function () {
+it('staff legacy single category_id still works on update and replaces the membership set (regression)', function () {
     $pro = createTenant('svcmc-legacy-update');
     $catA = svcMultiCatTest_category($pro);
     $catB = svcMultiCatTest_category($pro);
@@ -219,11 +206,49 @@ it('KNOWN GAP: staff legacy single category_id 422s on update, same stale rule',
         ->patchJson("/api/staff/professionals/{$pro->id}/services/{$serviceId}", [
             'category_id' => $catB,
         ])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors(['category_id']);
+        ->assertStatus(200);
 
-    // The membership the rejected write addressed is untouched.
-    expect(svcMultiCatTest_categoryIds($pro, $serviceId))->toBe([$catA]);
+    expect(svcMultiCatTest_categoryIds($pro, $serviceId))->toBe([$catB]);
+});
+
+it('still rejects a single category_id belonging to a different professional (the check exists moved off, not away)', function () {
+    // Dropping `exists:service_categories,id` must not have opened a hole: the
+    // rule was never owner-scoped (it accepted ANY professional's category),
+    // so the controller's own owner-scoped check is what has always done this
+    // work — assert it still does, through the singular spelling.
+    $pro = createTenant('svcmc-legacy-foreign');
+    $otherPro = createTenant('svcmc-legacy-foreign-other');
+    $foreignCat = svcMultiCatTest_category($otherPro);
+
+    actingAsStaff(svcMultiCatTest_adminStaff())
+        ->postJson("/api/staff/professionals/{$pro->id}/services", [
+            'title' => 'Should be rejected',
+            'price_cents' => 3000,
+            'category_id' => $foreignCat,
+        ])
+        ->assertStatus(422);
+
+    expect(DB::connection('pgsql')->table('content.items')
+        ->where('user_id', $pro->id)->where('kind', 'service')->count())->toBe(0);
+});
+
+it('still rejects a single category_id that does not exist at all', function () {
+    // The other half of what `exists:` used to cover. A random uuid now
+    // reaches the controller instead of the validator, and must still 422 —
+    // ServiceCollections::find() returns null for it exactly as it does for a
+    // foreign one.
+    $pro = createTenant('svcmc-legacy-missing');
+
+    actingAsStaff(svcMultiCatTest_adminStaff())
+        ->postJson("/api/staff/professionals/{$pro->id}/services", [
+            'title' => 'Should be rejected',
+            'price_cents' => 3000,
+            'category_id' => (string) Str::uuid(),
+        ])
+        ->assertStatus(422);
+
+    expect(DB::connection('pgsql')->table('content.items')
+        ->where('user_id', $pro->id)->where('kind', 'service')->count())->toBe(0);
 });
 
 it('clears the membership set when staff send an explicit empty category_ids', function () {
