@@ -301,9 +301,10 @@ class IndividualProfilePayloadBuilder
      * removals — resolved LIVE by the same PoolResolver the dashboard reads,
      * so what the owner curates and what a visitor sees cannot diverge. The
      * library never ships publicly; a pool with nothing selected is simply
-     * absent. Wire: {watch|listen|media: {items, latestItemId}}.
+     * absent. Wire: {watch|listen|media: {items, latestItemId}}; shop adds a
+     * sibling `collections` map of the store cards its items belong to.
      *
-     * @return array<string, array{items: list<array<string, mixed>>, latestItemId: string|null}>
+     * @return array<string, array{items: list<array<string, mixed>>, latestItemId: string|null, collections?: array<string, array<string, mixed>>}>
      */
     private function buildPools(?Site $site): array
     {
@@ -335,6 +336,9 @@ class IndividualProfilePayloadBuilder
                     $resolved['selection'],
                 ),
                 'latestItemId' => $resolved['latestItemId'],
+                // Shop groups its items into store cards; every other pool
+                // returns [] and the key is simply absent from its payload.
+                ...($resolved['collections'] === [] ? [] : ['collections' => $resolved['collections']]),
             ];
         }
 
