@@ -54,16 +54,19 @@ class ServiceCollections
     {
         return $this->baseQuery($userId, $includeRemoved)
             ->get()
-            ->reject(fn ($row) => ! $this->isUserCreated($row) && (int) $row->item_count === 0)
+            ->map(fn ($row) => $this->normalizeRow($row))
+            ->reject(fn ($row) => ! $row->is_user_created && $row->item_count === 0)
             ->values();
     }
 
     /** Single collection, scoped to its owner. A miss (wrong id, wrong owner, removed and not asked for) returns null, never another user's row. */
     public function find(string $userId, string $id, bool $includeRemoved = false): ?object
     {
-        return $this->baseQuery($userId, $includeRemoved)
+        $row = $this->baseQuery($userId, $includeRemoved)
             ->where('c.id', $id)
             ->first();
+
+        return $row === null ? null : $this->normalizeRow($row);
     }
 
     /**
@@ -109,16 +112,75 @@ class ServiceCollections
             ->update(['label' => $label, 'updated_at' => now()]);
     }
 
-    /** @param  list<string>  $orderedIds  Foreign/other-user ids are silently skipped — the WHERE user_id clause matches nothing for them. */
+    /**
+     * Fix round 1, Finding 2: `idx_collections_user` on (user_id, position)
+     * is NOT unique, so numbering only the supplied ids from 0..n-1 and
+     * leaving every omitted id at its stale position is a silent slot
+     * collision — nothing in the DB rejects two categories claiming the
+     * same position, it just renders in an arbitrary order.
+     *
+     * Contract chosen: a partial list is authoritative for the ids it
+     * names, not a request to reject. The supplied ids take positions
+     * 0..n-1 in the given order; every other kind='service_category'
+     * collection this user owns (an id the caller never mentioned) is
+     * appended afterward, in its own current relative order — so a caller
+     * that reorders only the categories it actually changed doesn't
+     * scramble the ones it left alone, and no two rows ever end up sharing
+     * a position. Rejecting an incomplete list was the other option, but it
+     * would force every caller (including a future drag-one-row UI) to
+     * always resend the full set just to move one item, for no benefit —
+     * this method already runs the whole update inside one transaction.
+     *
+     * $orderedIds entries that don't exist or don't belong to $userId's own
+     * kind='service_category' collections are dropped before renumbering
+     * anything — they consume no slot and cannot bump a real row out of
+     * place (this is what makes "handle ids that don't exist or belong to
+     * another user" true, not just the WHERE-clause-matches-nothing
+     * no-op the single-id write methods rely on).
+     *
+     * @param  list<string>  $orderedIds
+     */
     public function reposition(string $userId, array $orderedIds): void
     {
         DB::connection(self::CONNECTION)->transaction(function () use ($userId, $orderedIds) {
-            foreach ($orderedIds as $index => $id) {
+            $owned = DB::connection(self::CONNECTION)->table('content.collections')
+                ->where('user_id', $userId)
+                ->where('kind', self::KIND)
+                ->pluck('id')
+                ->map(fn ($id) => (string) $id)
+                ->all();
+            $ownedSet = array_flip($owned);
+
+            $supplied = [];
+            foreach ($orderedIds as $id) {
+                $id = (string) $id;
+                if (isset($ownedSet[$id]) && ! in_array($id, $supplied, true)) {
+                    $supplied[] = $id;
+                }
+            }
+
+            $now = now();
+            foreach ($supplied as $index => $id) {
                 DB::connection(self::CONNECTION)->table('content.collections')
                     ->where('id', $id)
                     ->where('user_id', $userId)
                     ->where('kind', self::KIND)
-                    ->update(['position' => $index, 'updated_at' => now()]);
+                    ->update(['position' => $index, 'updated_at' => $now]);
+            }
+
+            $next = count($supplied);
+            $omitted = DB::connection(self::CONNECTION)->table('content.collections')
+                ->where('user_id', $userId)
+                ->where('kind', self::KIND)
+                ->whereNotIn('id', $supplied)
+                ->orderBy('position')
+                ->pluck('id');
+
+            foreach ($omitted as $id) {
+                DB::connection(self::CONNECTION)->table('content.collections')
+                    ->where('id', $id)
+                    ->update(['position' => $next, 'updated_at' => $now]);
+                $next++;
             }
         });
     }
@@ -209,9 +271,19 @@ class ServiceCollections
 
     /**
      * Shared shape for list()/find(): every column the Interfaces block
-     * promises, plus a correlated item_count subquery (live memberships —
-     * content.collection_items carries no removed_at of its own, a
-     * membership either exists or it was already replaced away).
+     * promises, plus a correlated item_count subquery.
+     *
+     * Fix round 1, Finding 3: item_count now joins content.items and
+     * excludes removed_at rows. Without this, a machine-derived category
+     * whose every member had since been individually removed (owner
+     * deletion, or ManualServiceWriter::markRemoved()) still counted as
+     * non-empty — content.collection_items itself carries no removed_at of
+     * its own (a membership either exists or Task 5's replace-by-source
+     * already deleted it), so "still has membership rows" and "still has
+     * LIVE members" are different questions, and rule 1 needs the second
+     * one. This is the same emptiness rule as the "vendor dropped the
+     * category" case, just reached via item-level removal instead of
+     * category-level replace.
      */
     private function baseQuery(string $userId, bool $includeRemoved): Builder
     {
@@ -227,20 +299,51 @@ class ServiceCollections
             ->select(['c.id', 'c.label', 'c.position', 'c.external_ref', 'c.is_user_created', 'c.removed_at'])
             ->selectSub(
                 fn ($sub) => $sub->from('content.collection_items as ci')
+                    ->join('content.items as it', 'it.id', '=', 'ci.item_id')
                     ->selectRaw('count(*)')
-                    ->whereColumn('ci.collection_id', 'c.id'),
+                    ->whereColumn('ci.collection_id', 'c.id')
+                    ->whereNull('it.removed_at'),
                 'item_count'
             )
             ->orderBy('c.position');
     }
 
     /**
-     * PDO_PGSQL hands raw boolean columns back as the strings "t"/"f", not
-     * PHP bool — a bare `(bool) $row->is_user_created` would treat "f" as
-     * truthy and silently invert rule 1's filter on real Postgres while
-     * looking correct against SQLite's 0/1 integers. Normalise explicitly
-     * rather than trust either driver's native representation.
+     * Fix round 1, Finding 1: normalises every driver-dependent column on
+     * the way OUT, for every method that surfaces a row — not just as a
+     * private detail of list()'s filter decision. The original version
+     * normalised `is_user_created` only for its own internal `reject()`
+     * check and handed callers the raw, still driver-dependent value on the
+     * row itself: PDO_PGSQL returns a boolean column as the strings "t"/"f",
+     * not PHP bool, so a caller (Task 9's wire mapping is written against
+     * `is_user_created === false`) would silently misclassify every
+     * Fresha-derived category as user-created on real Postgres, invisibly
+     * to the SQLite test lane. Fixing the read in one place — inside this
+     * class, not at each call site — is the entire reason ServiceCollections
+     * exists as "the one" read/write.
+     *
+     * `item_count` gets the same treatment: Postgres's COUNT(*) is a
+     * bigint, which PDO_PGSQL also hands back as a numeric string, not
+     * PHP int — silently correct under loose `==` comparisons but wrong
+     * under `===` or arithmetic that assumes int. `position` is cast for
+     * the same reason (a plain `integer` column, same PDO string-return
+     * behaviour) even though nothing in this class's own tests currently
+     * depends on its type — a caller doing `$row->position === 0` would hit
+     * the identical class of bug this whole fix round is about.
+     * `id`/`label`/`external_ref`/`removed_at` are left alone: they're text
+     * or null either way, with no PHP-type distinction a driver could get
+     * wrong.
      */
+    private function normalizeRow(object $row): object
+    {
+        $row->is_user_created = $this->isUserCreated($row);
+        $row->item_count = (int) $row->item_count;
+        $row->position = (int) $row->position;
+
+        return $row;
+    }
+
+    /** Reads the RAW is_user_created value off the row — called by normalizeRow() before that field is overwritten with the normalised bool. */
     private function isUserCreated(object $row): bool
     {
         $value = $row->is_user_created;
