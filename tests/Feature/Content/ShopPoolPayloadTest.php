@@ -101,12 +101,22 @@ it('leaves the new keys null or empty on a non-shop kind', function () {
         ->and($item['popularityRank'])->toBeNull();
 });
 
-it('ships variants with their own price and availability', function () {
+it('ships variants with their own price, availability and per-variant image', function () {
     [$pro, $siteId] = poolTenant();
     $store = shopStore($pro->id);
     $itemId = shopProduct($pro->id, $store, 'Tee');
     $sourceId = DB::table('content.source_items')->where('item_id', $itemId)->value('source_id');
 
+    // The third variant carries a REAL image_url. That end-to-end leg matters
+    // more than it looks: content.item_variants had no image column at all
+    // until migration 20260813100003 added one, and the field was silently
+    // lost for a whole fix round before that. It is what the sitepage swaps the
+    // product photo on when a shopper picks a colour, and the only other
+    // coverage is a key-presence check (PoolWireShapeTest) plus the two null
+    // rows below — neither of which fails if a projector or resolver quietly
+    // stops populating the column. Both cases are asserted in one exact-shape
+    // toBe(), so a regression on either side cannot hide.
+    //
     // No updated_at: content.item_variants has no such column
     // (20260727140000_content_schema.sql:404 + the 100003 image_url add).
     DB::table('content.item_variants')->insert([
@@ -114,6 +124,9 @@ it('ships variants with their own price and availability', function () {
             'label' => 'Small', 'sku' => 'sku-s', 'position' => 0, 'image_url' => null],
         ['id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
             'label' => 'Large', 'sku' => 'sku-l', 'position' => 1, 'image_url' => null],
+        ['id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+            'label' => 'Navy', 'sku' => 'sku-n', 'position' => 2,
+            'image_url' => 'https://cdn.example.com/variants/navy.jpg'],
     ]);
     DB::table('content.offers')->insert([
         ['id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
@@ -122,6 +135,9 @@ it('ships variants with their own price and availability', function () {
         ['id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
             'amount_minor' => 3500, 'currency' => 'AUD', 'qualifier' => 'exact',
             'availability' => 'out_of_stock', 'variant_label' => 'Large', 'updated_at' => now()],
+        ['id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+            'amount_minor' => 3200, 'currency' => 'AUD', 'qualifier' => 'exact',
+            'availability' => 'in_stock', 'variant_label' => 'Navy', 'updated_at' => now()],
     ]);
 
     $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop');
@@ -132,7 +148,16 @@ it('ships variants with their own price and availability', function () {
             'price' => ['amountMinor' => 3000, 'amountMaxMinor' => null, 'currency' => 'AUD', 'qualifier' => 'exact']],
         ['label' => 'Large', 'sku' => 'sku-l', 'imageUrl' => null, 'availability' => 'out_of_stock',
             'price' => ['amountMinor' => 3500, 'amountMaxMinor' => null, 'currency' => 'AUD', 'qualifier' => 'exact']],
+        ['label' => 'Navy', 'sku' => 'sku-n', 'imageUrl' => 'https://cdn.example.com/variants/navy.jpg',
+            'availability' => 'in_stock',
+            'price' => ['amountMinor' => 3200, 'amountMaxMinor' => null, 'currency' => 'AUD', 'qualifier' => 'exact']],
     ]);
+
+    // Belt-and-braces on the leg that was lost once: the URL really travels to
+    // the serialised wire, not merely into the in-memory array above.
+    // JSON_UNESCAPED_SLASHES because json_encode() escapes `/` by default, so a
+    // plain needle would never match its own encoding.
+    expect(json_encode($out, JSON_UNESCAPED_SLASHES))->toContain('https://cdn.example.com/variants/navy.jpg');
 
     // The item-level price stays the CHEAPEST offer — unchanged behaviour.
     expect($item['price']['amountMinor'])->toBe(3000);
@@ -186,6 +211,7 @@ it('keeps referralQuery, linkMode, sourceUrl and connectStatus off the wire', fu
     }
 });
 
+// The NAMED half of the store-card name rule — see the unnamed half below.
 it('publishes the collections map beside the items', function () {
     [$pro, $siteId] = poolTenant();
     $store = shopStore($pro->id, ['label' => 'Above the Ground', 'external_ref' => '75102060779', 'discount_code' => 'ALEX10']);
@@ -205,6 +231,30 @@ it('publishes the collections map beside the items', function () {
             'discountCode' => 'ALEX10',
             'position' => 0,
         ]);
+});
+
+// The UNNAMED half. content.collections.label is NOT NULL and upsertStore()
+// writes `name ?? brand_id` into it, so a store whose name was never fetched
+// stores its own id as its label. ShopContentReader:159 nulls that back out for
+// the dashboard; collectionsFor() must apply the IDENTICAL rule, or the two
+// disagree and — worse — a raw brand id ("75102060779", "fearnoevil-com-au")
+// ships as the public store-card name on a CDN-cached page. Fix round 1,
+// Finding 1: this became a live path when slice 5b started rendering
+// still-pending stores, which are exactly the ones with no fetched name yet.
+it('publishes a null store name when the label is just the external ref', function () {
+    [$pro, $siteId] = poolTenant();
+    // upsertStore()'s no-name outcome, reproduced exactly: label === external_ref.
+    $store = shopStore($pro->id, ['label' => '75102060779', 'external_ref' => '75102060779']);
+    shopProduct($pro->id, $store, 'Hat');
+
+    $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop');
+
+    expect($out['collections'][$store]['name'])->toBeNull()
+        // The card itself still ships — this is a null NAME, not a dropped store.
+        ->and($out['collections'][$store]['externalRef'])->toBe('75102060779');
+
+    // The id must not ride onto the wire as a name by any other route.
+    expect(substr_count(json_encode($out['collections']), '75102060779'))->toBe(1);
 });
 
 it('returns an empty collections map for a pool with no products', function () {
