@@ -1,8 +1,10 @@
 <?php
 
 use App\Ingest\Projection\ProjectionWriter;
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 // SCALE-6/7/8 (unit-10-projectionwriter plan): the N+1 lane. Distinct helper
@@ -682,6 +684,16 @@ it('pins the steady-state (second, unchanged) run query count', function () {
 
     $writer = app(ProjectionWriter::class);
     $writer->projectStream($source, $streamId, 'releases'); // establish
+
+    // ONLY the purge job, and only so this keeps measuring the WRITER.
+    // projectStream now fires all three cache lanes (parent spec §4), and
+    // phpunit.xml sets QUEUE_CONNECTION=sync — so without this the purge job's
+    // whole handler runs inside the measured window and adds ~20 queries the
+    // writer never issues. In production that job is queued on Redis and costs
+    // the run nothing. Faking the one job keeps the budget honest; raising the
+    // threshold instead would bake in a cost that does not exist off the test
+    // lane. Everything else the writer dispatches stays real.
+    Queue::fake([CloudflareCachePurgeJob::class]);
 
     $queries = 0;
     DB::listen(function () use (&$queries) {

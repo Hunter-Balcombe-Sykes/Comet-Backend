@@ -1,10 +1,12 @@
 <?php
 
 use App\Ingest\Projection\ProjectionWriter;
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 // The projection stage end-to-end at the DB grain (plan §4→§5/§6): landed
@@ -264,16 +266,60 @@ it('folds a reappearing record back into the item the user removed, never a fres
         ->and(DB::table('content.items')->where('id', $itemId)->value('removed_at'))->not->toBeNull();
 });
 
-it('bumps the site build state so the document sweeper picks the change up', function () {
+it('fires all three cache lanes for a projected stream, with an exact revision delta', function () {
+    // Parent spec §4: a connector run that changes a rendered surface must fire
+    // all three lanes. It used to fire one — BuildState only. That is not a
+    // Fresha-specific concern: buildPools() renders every pool in
+    // PoolRegistry::POOLS with no source-kind filter, so a scheduled YouTube,
+    // Instagram, Google Business, Eventbrite or Gumroad run changes
+    // payload.data.pools.* on the public profile. With only lane 1 the ORIGIN
+    // kept serving its previous payload for the full 60s TTL (the cache key
+    // derives from site.sites.updated_at) and the edge copy was never purged.
+    //
+    // EXACT delta, never toBeGreaterThan — which is what this assertion used to
+    // be. A ">" bar is cleared by any neighbouring bump, so it stayed green with
+    // a whole lane deleted; slice 3a shipped precisely that bug.
     [$userId, , $source, $streamId] = projectableBandcamp([
         'album/bump' => bandcampDoc('Bump', 'https://artist.bandcamp.com/album/bump'),
     ]);
     $siteId = (string) DB::table('site.sites')->where('user_id', $userId)->value('id');
-    $before = BuildState::read($siteId)['content_revision'];
+
+    // AFTER seeding, not before: creating the tenant and the connection fires
+    // SiteObserver, which dispatches its own purge. Faking earlier makes the
+    // lane-3 assertion below pass on the fixture's job rather than this run's —
+    // the negative control caught exactly that.
+    Queue::fake();
+    DB::table('site.sites')->where('id', $siteId)->update(['updated_at' => now()->subMinute()]);
+    $beforeRevision = BuildState::read($siteId)['content_revision'];
+    $beforeUpdatedAt = DB::table('site.sites')->where('id', $siteId)->value('updated_at');
 
     app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
 
-    expect(BuildState::read($siteId)['content_revision'])->toBeGreaterThan($before);
+    // Lane 1 — build state, exactly one bump for the stream.
+    expect(BuildState::read($siteId)['content_revision'])->toBe($beforeRevision + 1);
+    // Lane 2 — the origin's own payload cache key.
+    expect(DB::table('site.sites')->where('id', $siteId)->value('updated_at'))->not->toBe($beforeUpdatedAt);
+    // Lane 3 — the edge.
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
+});
+
+it('fires no lane at all when a stream projects nothing', function () {
+    // The negative control. Without it the case above passes on an
+    // implementation that busts every site on every run, which would purge the
+    // edge on each of the fifteen-minute scheduled sweeps for every user.
+    [$userId, , $source, $streamId] = projectableBandcamp([]);
+    $siteId = (string) DB::table('site.sites')->where('user_id', $userId)->value('id');
+
+    Queue::fake();
+    DB::table('site.sites')->where('id', $siteId)->update(['updated_at' => now()->subMinute()]);
+    $beforeRevision = BuildState::read($siteId)['content_revision'];
+    $beforeUpdatedAt = DB::table('site.sites')->where('id', $siteId)->value('updated_at');
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    expect(BuildState::read($siteId)['content_revision'])->toBe($beforeRevision)
+        ->and(DB::table('site.sites')->where('id', $siteId)->value('updated_at'))->toBe($beforeUpdatedAt);
+    Queue::assertNotPushed(CloudflareCachePurgeJob::class);
 });
 
 it('skips streams with no projector and sources with no connection', function () {

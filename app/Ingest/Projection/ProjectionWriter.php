@@ -15,6 +15,7 @@ use App\Routing\SecretParams;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Services\Media\MediaMirror;
 use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -212,7 +213,16 @@ class ProjectionWriter
         }
 
         if ($projections !== [] || $removed > 0) {
-            $this->bumpSite($userId);
+            // All THREE lanes here, not just build state (parent spec §4). A
+            // connector run lands items into content.*, and buildPools() renders
+            // every pool in PoolRegistry::POOLS with no source-kind filter — so a
+            // scheduled YouTube, Instagram, Google Business, Eventbrite or Gumroad
+            // run changes payload.data.pools.* on the public profile. Bumping only
+            // build state leaves the ORIGIN serving its previous payload for the
+            // full 60s TTL (the key derives from site.sites.updated_at) and leaves
+            // the edge copy alone entirely. Precedent, same surface, same missing
+            // lane: 6ab3028e8.
+            $this->invalidateSiteLanes($userId);
         }
 
         return [
@@ -1658,12 +1668,37 @@ class ProjectionWriter
         }
     }
 
+    /**
+     * Build state ONLY — one lane, deliberately.
+     *
+     * Used by writeManualItem(), whose callers all batch the other two lanes
+     * themselves via ManualServiceWriter::invalidate() (see its docblock: "the
+     * two lanes it deliberately does not own"). Firing an edge purge per item
+     * from here would issue one purge per written item instead of one per
+     * request. The connector path has no such batching caller and uses
+     * invalidateSiteLanes() below.
+     */
     private function bumpSite(string $userId): void
     {
         // site.sites has no deleted_at — sites die by cascade, not soft delete.
         $siteId = DB::table('site.sites')->where('user_id', $userId)->value('id');
         if ($siteId !== null) {
             BuildState::bump((string) $siteId);
+        }
+    }
+
+    /**
+     * All three lanes, once per projected stream.
+     *
+     * projectStream() is the connector seam: nothing downstream of it batches
+     * invalidation (RunExecutor and IngestProjectCommand touch ingest.* only),
+     * so whatever it fires is the whole cache story for a scheduled run.
+     */
+    private function invalidateSiteLanes(string $userId): void
+    {
+        $siteId = DB::table('site.sites')->where('user_id', $userId)->value('id');
+        if ($siteId !== null) {
+            SiteCacheLanes::bust([(string) $siteId]);
         }
     }
 }

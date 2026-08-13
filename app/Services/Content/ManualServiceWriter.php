@@ -3,10 +3,9 @@
 namespace App\Services\Content;
 
 use App\Ingest\Projection\ProjectionWriter;
-use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
 
@@ -204,15 +203,10 @@ class ManualServiceWriter
      */
     public function invalidate(array $siteIds): void
     {
-        foreach (array_unique($siteIds) as $siteId) {
-            BuildState::bump($siteId);
-            DB::connection('pgsql')->table('site.sites')
-                ->where('id', $siteId)->update(['updated_at' => now()]);
-            $subdomain = (string) (DB::connection('pgsql')->table('site.sites')
-                ->where('id', $siteId)->value('subdomain') ?? '');
-            if ($subdomain !== '') {
-                CloudflareCachePurgeJob::dispatch($subdomain);
-            }
-        }
+        // The lanes themselves live on SiteCacheLanes so ProjectionWriter's own
+        // connector path can fire the same three without depending on this
+        // class (which already depends on it). This stays as the named seam
+        // callers and the architecture guard reference.
+        SiteCacheLanes::bust($siteIds);
     }
 }

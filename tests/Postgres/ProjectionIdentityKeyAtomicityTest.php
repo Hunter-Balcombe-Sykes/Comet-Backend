@@ -92,10 +92,17 @@ beforeEach(function () {
         resource_id text
     )');
 
-    $pg->statement('CREATE TABLE site.sites (
+    // subdomain + updated_at: projectStream() fires all three cache lanes via
+    // SiteCacheLanes::bust(), which touches updated_at (the origin payload
+    // cache key) and reads subdomain to decide on the edge purge. Omitting
+    // either is SQLSTATE 42703 here and silently fine on the SQLite lane —
+    // this stand-in DDL is hand-written and drifts from the writer.
+    $pg->statement("CREATE TABLE site.sites (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE
-    )');
+        user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
+        subdomain text NOT NULL DEFAULT '',
+        updated_at timestamptz
+    )");
 
     $pg->statement('CREATE TABLE site.site_build_state (
         site_id uuid PRIMARY KEY REFERENCES site.sites(id) ON DELETE CASCADE,
