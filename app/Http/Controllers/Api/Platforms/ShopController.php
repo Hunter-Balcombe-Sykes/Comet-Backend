@@ -110,6 +110,15 @@ class ShopController extends ApiController
         ShopProviderDetector::PROVIDER_SQUARESPACE,
     ];
 
+    /** Cap on the stored referral suffix; mirrored by UrlParamExtractor. */
+    private const MAX_REFERRAL_QUERY = 500;
+
+    // Query params ShopOutboundUrl::compose() writes itself. A referral is
+    // appended AFTER the merchant's own discount, and stores that see a
+    // repeated key take the last one — so a referral carrying one of these
+    // would override the merchant. Matched case-insensitively.
+    private const REFERRAL_RESERVED_PARAMS = ['discount', 'add-to-cart'];
+
     public function __construct(
         private readonly ShopProviderDetector $detector,
         private readonly ShopifyScraper $shopify,
@@ -597,6 +606,17 @@ class ShopController extends ApiController
      * Extract the query-string "end bit" from a pasted referral URL. Accepts a
      * full URL (`https://store.com/?ref=abc` → `ref=abc`), a bare query
      * (`ref=abc`), or empty/null to clear. Anything unparseable stores ''.
+     * The result is appended to every outbound product link.
+     *
+     * REBUILT from the parse rather than returned raw (2026-08-14). The old
+     * body called parse_str() only to test well-formedness and then returned
+     * the caller's original string untouched, so `ref=abc&discount=FREE`
+     * passed validation and was stored whole — and since
+     * ShopOutboundUrl::compose() appends the merchant's own `discount=` FIRST
+     * and this suffix after it, a store reading the last repeated key took the
+     * crafted one. Round-tripping through http_build_query() drops the
+     * reserved params and percent-encodes `#` and friends, which the raw
+     * passthrough let straight into the composed URL.
      */
     private static function referralQueryFrom(?string $raw): string
     {
@@ -615,11 +635,27 @@ class ShopController extends ApiController
         }
 
         parse_str($query, $parsed);
+
+        $parsed = array_filter(
+            $parsed,
+            fn ($key) => ! in_array(strtolower((string) $key), self::REFERRAL_RESERVED_PARAMS, true),
+            ARRAY_FILTER_USE_KEY,
+        );
+
         if ($parsed === []) {
             return '';
         }
 
-        return mb_substr($query, 0, 500);
+        $built = http_build_query($parsed, '', '&', PHP_QUERY_RFC3986);
+        if (mb_strlen($built) <= self::MAX_REFERRAL_QUERY) {
+            return $built;
+        }
+
+        // Over the cap: drop whole pairs. Cutting mid-`%XX` would store a
+        // malformed escape that the store would then reject or mis-read.
+        $cut = mb_strrpos(mb_substr($built, 0, self::MAX_REFERRAL_QUERY + 1), '&');
+
+        return $cut === false ? '' : mb_substr($built, 0, $cut);
     }
 
     // DELETE /api/platforms/shop/brands/{id} — remove a brand.

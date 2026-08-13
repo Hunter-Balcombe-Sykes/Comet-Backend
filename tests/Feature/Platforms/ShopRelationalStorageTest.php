@@ -516,6 +516,41 @@ it('updateBrand persists selectionMode/linkMode and parses the referral URL to i
         ->assertOk()->assertJsonPath('referralQuery', '');
 });
 
+// The referral suffix is appended AFTER the merchant's own discount by
+// ShopOutboundUrl::compose(), and a store reading a repeated key takes the LAST
+// one — so before 2026-08-14 a referral of `ref=abc&discount=FREE` sailed through
+// referralQueryFrom() (it has an `=`, no space, no `://`) and overrode the
+// merchant's discount code on every product link. Sanitised at the write, not
+// papered over by the composer.
+it('updateBrand strips referral params that would override the composed link', function () {
+    $user = shopStorageUser('modesref');
+    modesBrandFor($user);
+
+    // The reserved key goes, the genuine referral survives.
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', [
+        'referralUrl' => 'ref=abc&discount=FREE',
+    ])->assertOk()->assertJsonPath('referralQuery', 'ref=abc');
+
+    expect(ShopBrand::where('brand_id', 'modes-brand')->firstOrFail()->referral_query)
+        ->toBe('ref=abc');
+
+    // Case-insensitive: Shopify does not care, so neither do we.
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', [
+        'referralUrl' => 'https://m.example.com/l?ref=abc&Discount=FREE&add-to-cart=99',
+    ])->assertOk()->assertJsonPath('referralQuery', 'ref=abc');
+
+    // A referral that is ONLY a reserved param stores nothing at all.
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', [
+        'referralUrl' => 'discount=FREE',
+    ])->assertOk()->assertJsonPath('referralQuery', '');
+
+    // `#` is encoded rather than passed through — appended raw it would turn the
+    // rest of the composed URL into a fragment the store never sees.
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', [
+        'referralUrl' => 'ref=abc#discount=FREE',
+    ])->assertOk()->assertJsonPath('referralQuery', 'ref=abc%23discount%3DFREE');
+});
+
 it('selectionMode=latest syncs the selection to the newest products immediately', function () {
     $user = shopStorageUser('modes2');
     modesBrandFor($user);
