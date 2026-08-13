@@ -90,3 +90,41 @@ it('treats an unknown link mode as checkout, the column default', function () us
     expect(ShopOutboundUrl::compose($bare, '', store('shopify'), '123'))
         ->toBe('https://store.example.com/cart/123:1');
 });
+
+// Fix round 1, finding 1: a query appended after a #fragment lands inside it
+// and never reaches the server, silently dropping the discount/referral.
+// GenericShopScraper sources og:url / JSON-LD offers.url unstripped, so a
+// fragment-bearing product URL is reachable in production.
+it('appends a query param before the URL fragment, not after it', function () {
+    expect(ShopOutboundUrl::compose('https://x/hat', 'product', store('shopify', discount: 'A'), '123'))
+        ->toBe('https://x/hat?discount=A')
+        ->and(ShopOutboundUrl::compose('https://x/hat?v=1', 'product', store('shopify', discount: 'A'), '123'))
+        ->toBe('https://x/hat?v=1&discount=A')
+        ->and(ShopOutboundUrl::compose('https://x/hat#promo', 'product', store('shopify', discount: 'A'), '123'))
+        ->toBe('https://x/hat?discount=A#promo')
+        ->and(ShopOutboundUrl::compose('https://x/hat?v=1#promo', 'product', store('shopify', discount: 'A'), '123'))
+        ->toBe('https://x/hat?v=1&discount=A#promo');
+});
+
+it('keeps discount-then-referral ordering when appending ahead of a fragment', function () {
+    expect(ShopOutboundUrl::compose('https://x/hat#promo', 'product', store('shopify', discount: 'A', referral: 'ref=abc'), '123'))
+        ->toBe('https://x/hat?discount=A&ref=abc#promo');
+});
+
+// Fix round 1, finding 2: content.storefronts.url is nullable, so the
+// Shopify arm's empty-storeUrl fallback is a live branch, not dead code.
+it('falls back to the bare URL when the shopify store has no url', function () use ($bare) {
+    expect(ShopOutboundUrl::compose($bare, 'checkout', store('shopify', ''), '123'))
+        ->toBe($bare)
+        ->and(ShopOutboundUrl::compose($bare, 'checkout', (object) [
+            'provider' => 'shopify', 'url' => null, 'discount_code' => null, 'referral_query' => '',
+        ], '123'))
+        ->toBe($bare);
+});
+
+// Fix round 1, finding 3: discount onto a base URL that already carries a query.
+it('appends the discount code with & on a URL carrying an existing query', function () {
+    $withQuery = 'https://store.example.com/products/hat?variant=9';
+    expect(ShopOutboundUrl::compose($withQuery, 'product', store('shopify', discount: 'ALEX10'), '123'))
+        ->toBe('https://store.example.com/products/hat?variant=9&discount=ALEX10');
+});
