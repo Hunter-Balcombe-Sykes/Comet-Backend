@@ -317,6 +317,7 @@ class ShopContentWriter
     public function syncStore(string $userId, string $collectionId, array $products, ?string $currency): int
     {
         $seen = [];
+        $linked = [];
         $written = 0;
 
         foreach ($products as $position => $blob) {
@@ -356,7 +357,25 @@ class ShopContentWriter
                 'position' => $position,
             ]], ['collection_id', 'item_id'], ['position']);
 
+            $linked[] = $itemId;
             $written++;
+        }
+
+        // Spec §3.3 — an OWNER-AUTHORED write may clear items.removed_at; a
+        // connector re-observing an item never may. The parent programme's
+        // one-way rule was written against scrape flapping, which must not undo
+        // a deliberate removal; a re-add through addProduct/setProducts is an
+        // explicit owner act. Scoped to the items this call just linked, so it
+        // can never reach outside this catalogue.
+        //
+        // Without this, the individual bucket's 20-item cap (which retires the
+        // oldest product on EVERY add) makes a re-added product permanently
+        // absent from the Shop page while it shows normally in the dashboard.
+        if ($linked !== []) {
+            DB::table('content.items')
+                ->whereIn('id', $linked)
+                ->whereNotNull('removed_at')
+                ->update(['removed_at' => null, 'updated_at' => now()]);
         }
 
         $this->retireAbsent($userId, $collectionId, array_keys($seen));
