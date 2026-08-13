@@ -78,6 +78,7 @@ expect()->extend('toBeOne', function () {
 */
 
 require_once __DIR__.'/Helpers/EnquiryInboxTestHelpers.php';
+require_once __DIR__.'/Helpers/PoolTestHelpers.php';
 require_once __DIR__.'/Feature/Platforms/GoldenMaster/golden_master_helpers.php';
 
 function something()
