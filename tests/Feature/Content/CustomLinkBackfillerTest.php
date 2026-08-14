@@ -34,13 +34,18 @@ beforeEach(function () {
 function customLink(string $userId, array $payload = [], array $overrides = []): string
 {
     $id = (string) Str::uuid();
+    $url = (string) ($payload['url'] ?? 'https://example.com/one');
 
     DB::connection('pgsql')->table('site.platform_connections')->insert(array_merge([
         'id' => $id,
         'user_id' => $userId,
         'surface_key' => 'partna.custom_link',
         'routing_class' => 'link',
-        'resource_id' => 'link-'.substr(sha1($id), 0, 16),
+        // Derived exactly as CustomLinksController::add() does it, so the
+        // fixture carries production's real (user, surface, resource) identity
+        // — including the unique-active index's practical effect that one
+        // owner cannot hold two live links on the same URL.
+        'resource_id' => 'link-'.substr(sha1(strtolower($url)), 0, 16),
         'resource_kind' => 'link',
         'payload' => json_encode(array_merge([
             'kind' => 'link',
@@ -108,10 +113,16 @@ it('mints the same coord the hand-add lane would', function () {
 // one URL poison it as a joining key for the entire resolution run
 // (Resolver::poisonedKeys()), taking any connector item on the same URL down
 // with them.
+//
+// The whitespace variant is how this is REACHABLE in production rather than a
+// hypothetical: idx_platform_connections_unique_active keys on resource_id,
+// which CustomLinksController derives WITHOUT trimming, so ' url ' and 'url'
+// are two permitted live rows — while the backfiller's coord trims and
+// collapses them to one. A same-URL-exactly pair cannot exist; this pair can.
 it('folds a duplicate URL onto one item rather than minting a second coord', function () {
     [$userId] = seedUserWithSite();
     customLink($userId, ['url' => 'https://example.com/dup', 'name' => 'First']);
-    customLink($userId, ['url' => 'https://example.com/dup', 'name' => 'Second']);
+    customLink($userId, ['url' => '  https://example.com/dup  ', 'name' => 'Second']);
 
     $result = app(CustomLinkBackfiller::class)->run();
 
@@ -119,6 +130,28 @@ it('folds a duplicate URL onto one item rather than minting a second coord', fun
         ->and($result['duplicate_url'])->toBe(1)
         ->and(DB::table('content.source_items')->count())->toBe(1)
         ->and(DB::table('content.items')->count())->toBe(1);
+});
+
+// The connection's own resource_id is 'link-' + the first 16 hex of
+// sha1(strtolower(url)) (CustomLinksController::add()), and the coord is
+// 'manual:' + the FULL sha1 of the same string. So a migrated item can be
+// joined back to the connection that produced it by string prefix, with no
+// lookup table — which is what Phase 6 needs when it retires the connection
+// and has to find the item that replaced it.
+//
+// Pinned because it is a coincidence of two independent derivations, not a
+// contract either side declares: change the hash basis on either and the join
+// breaks silently, at exactly the moment nobody is testing it.
+it('shares a hash basis with the connection resource_id, so Phase 6 can join on it', function () {
+    [$userId] = seedUserWithSite();
+    customLink($userId, ['url' => 'https://letaj.com.au/']);
+
+    app(CustomLinkBackfiller::class)->run();
+
+    $resourceId = DB::table('site.platform_connections')->value('resource_id');
+    $coord = (string) DB::table('content.source_items')->value('coord');
+
+    expect($resourceId)->toBe('link-'.substr(substr($coord, strlen('manual:')), 0, 16));
 });
 
 // Same URL, two owners: a coord is scoped to the user's own manual source, so

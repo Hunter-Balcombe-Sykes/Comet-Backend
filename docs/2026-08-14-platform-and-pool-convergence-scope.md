@@ -321,6 +321,9 @@ things a later phase must not re-derive wrongly:
   linkProjection()` is public as the seam for it.
 - **Both lanes publish the same link** until slice 7 retires the legacy read.
   `/integrations`' `custom` entry is unchanged and untouched by this work.
+- **Phase 6 can join a connection to its migrated item by string prefix** —
+  `resource_id = 'link-' || substr(coord, 8, 16)`, because both derive from
+  `sha1(strtolower(url))` (log F28, pinned by a test). No lookup table needed.
 
 ### W6 — Pseudo-platform retirement
 Six categories stop being connectable; `PlatformCategory` remains as

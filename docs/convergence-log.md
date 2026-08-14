@@ -531,3 +531,42 @@ LOAD-BEARING and tracking-named would break on the pool lane while still working
 on `/integrations` — and it would break silently, because both lanes publish. If
 one ever turns up, the fix is that param's classification in `SecretParams`, not
 an exemption for the pool.
+
+### F28 — the custom-link coord and the connection `resource_id` share a hash basis
+
+Noticed while pre-computing the expected coords for the live gate, then
+confirmed in code rather than inferred from samples:
+
+```
+CustomLinksController::add():101   $rid   = 'link-'  .substr(sha1(strtolower($url)), 0, 16)
+CustomLinkBackfiller::run()        $coord = 'manual:'.sha1(strtolower(trim($url)))
+```
+
+The connection's `resource_id` is the first 16 hex characters of the coord's
+hash. Nothing coordinated this — the coord convention was chosen to match
+`PoolItemCreateController`'s hand-add lane (so a re-typed link folds onto the
+migrated item), and it landed on the same basis the live write path had been
+using since custom links were built.
+
+Two things follow.
+
+**Phase 6 gets a free join.** A migrated item can be traced back to the
+connection that produced it by string prefix —
+`resource_id = 'link-' || substr(coord, 8, 16)` — with no lookup table and no
+new column. That is exactly what Phase 6 needs when it retires a connection and
+has to find the item standing in for it. **Pinned by a test**
+(`CustomLinkBackfillerTest`, "shares a hash basis with the connection
+resource_id"), because it is a coincidence of two independent derivations that
+neither side declares as a contract: change the basis on either and the join
+breaks silently, at the moment nobody is testing it.
+
+**The duplicate-URL dedupe is live defence, not dead code.** It reads at first
+glance as redundant — `idx_platform_connections_unique_active` is UNIQUE on
+`(user_id, surface_key, resource_id) WHERE deleted_at IS NULL`, and
+`resource_id` is URL-derived, so one owner cannot hold two live links on the
+same URL. But the controller derives it WITHOUT trimming while the backfiller's
+coord trims, so `'  url  '` and `'url'` are two permitted live connections that
+collapse to ONE coord. Without the dedupe those two rows would write the same
+coord twice in one run and count as two links, making the coverage gate
+unreconcilable. The test reproduces it with the whitespace pair rather than an
+impossible exact-duplicate pair.
