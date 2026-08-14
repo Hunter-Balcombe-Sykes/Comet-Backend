@@ -313,6 +313,44 @@ it('respects appliesTo and minLength for every key it emits', function () {
     }
 });
 
+it('folds accented latin to ascii the same way on every platform', function () {
+    // Regression on convergence F26. This was iconv ASCII//TRANSLIT, which is
+    // a C-library behaviour: macOS libiconv gave "beyonc'e" and glibc under
+    // the container's POSIX locale gave "beyonc?" — so "bjork" arrived on dev
+    // as the two-token "bj rk", and the same title produced different identity
+    // keys depending on which machine derived it. Asserting the ASCII output
+    // is what makes that a test failure rather than a live-data surprise.
+    $cases = [
+        'Beyoncé' => 'beyonce',
+        'Björk' => 'bjork',
+        'Señor Naan' => 'senor naan',
+        'Motörhead' => 'motorhead',
+        'Straße' => 'strasse',
+        'Ångström' => 'angstrom',
+        'naïve' => 'naive',
+        'Œuvre' => 'oeuvre',
+        'Crème Brûlée' => 'creme brulee',
+        // Not a decoration to strip — an apostrophe is a spelling difference,
+        // so it folds rather than splitting the word in two.
+        "Don't Stop" => 'dont stop',
+        'Don’t Stop' => 'dont stop',
+    ];
+
+    foreach ($cases as $input => $expected) {
+        expect(KeyClass::normalizeText((string) $input))->toBe($expected, "normalising {$input}");
+    }
+});
+
+it('emits identity keys that survive an accented artist name', function () {
+    $release = [
+        'kind' => 'release',
+        'headline' => 'Cowboy Carter',
+        'facets' => ['f_authored' => ['creator' => 'Beyoncé']],
+    ];
+
+    expect(emitted($release, KeyClass::TitleRelease))->toBe(['cowboy carter|beyonce']);
+});
+
 it('emits stable values across repeated derivation', function () {
     $projection = [
         'kind' => 'release',
