@@ -175,7 +175,12 @@ it('is idempotent: re-projecting unchanged records creates nothing new', functio
         ->and(DB::table('content.f_link')->count())->toBe(1)
         ->and(DB::table('content.item_media')->count())->toBe(1)
         ->and(DB::table('content.media_assets')->count())->toBe(1)
-        ->and(DB::table('content.identity_keys')->count())->toBe(2); // PlatformObject + CanonicalUrl
+        // The replace set, pinned by CLASS rather than by count: "Only Album"
+        // canonicalises to 10 characters, under TitleOnly's minimum of 12 but
+        // over TitleLoose's 10 — so the pair below is also the live proof that
+        // emission honours each class's own minLength.
+        ->and(DB::table('content.identity_keys')->orderBy('key_class')->pluck('key_class')->all())
+        ->toBe(['canonical_url', 'platform_object', 'title_loose', 'title_release']);
 });
 
 it('unions the same release across two connections into one item via CanonicalUrl', function () {

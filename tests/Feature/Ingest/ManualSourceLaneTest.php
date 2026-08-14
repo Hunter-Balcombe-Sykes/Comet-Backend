@@ -101,13 +101,14 @@ it('lands an owner-authored item with identity keys, an anchor, and every facet 
         ->and($sourceItem->stream_id)->toBeNull()
         ->and($sourceItem->record_key)->toBeNull();
 
-    // The two keys ProjectionWriter writes for any record. CanonicalUrl is
-    // the joining key that lets this fold into a synced item later — its
-    // absence is precisely what broke the old hand-rolled writer.
+    // A hand-authored row earns the same evidence a synced one does.
+    // CanonicalUrl is the joining key that lets this fold into a synced item
+    // later — its absence is precisely what broke the old hand-rolled writer —
+    // and the title keys are what let it fold in when the URLs differ.
     $keys = DB::table('content.identity_keys')
         ->where('source_item_id', $sourceItem->id)
         ->pluck('key_class')->sort()->values()->all();
-    expect($keys)->toBe(['canonical_url', 'platform_object']);
+    expect($keys)->toBe(['canonical_url', 'platform_object', 'title_loose', 'title_only', 'title_release']);
 
     expect(DB::table('content.item_anchors')
         ->where('user_id', $userId)->where('coord', $sourceItem->coord)->value('item_id'))->toBe($itemId);
