@@ -498,3 +498,36 @@ CJK, emoji) still collapses to spaces, which is what glibc already did — a
 Cyrillic title is a singleton, not a merge candidate; and `don't` now folds to
 `dont` rather than `don t`, deliberately, because a contraction spelled two
 ways is one thing.
+
+### F27 — the pool lane minimises link URLs; the legacy custom-link payload does not
+
+`ProjectionWriter::URL_COLUMNS` lists `f_link.url`, so every URL landing on the
+content lane passes through `SecretParams::minimiseUrl()` (#PRIV-5) and any
+tracking- or secret-named query param is stored as `key=[redacted]`. The legacy
+`site.platform_connections.payload` stores whatever the owner pasted, verbatim.
+
+Measured against the 23 live custom links, 2026-08-15: exactly **one** URL
+differs between the two lanes —
+
+```
+https://youtube.com/@gsnwilliams?si=XEbw1D8mHVXbiY43
+  → https://youtube.com/@gsnwilliams?si=[redacted]
+```
+
+`si` is YouTube's share-tracking param and the destination ignores it, so the
+migrated link resolves. Recorded rather than fixed, for three reasons:
+
+- It is the deliberate, uniform behaviour of the whole content lane, not
+  something the custom-links pool introduced. Exempting `link` would make it the
+  one kind whose URLs are not minimised.
+- **The coord is derived from the RAW url**, before minimisation, so coverage
+  and the hand-add fold-in are unaffected: an owner re-typing the full URL lands
+  on the same `manual:{sha1}` and therefore the same item.
+- It is only visible while the two lanes run side by side. Phase 6 retires the
+  legacy copy, and the question disappears with it.
+
+The trap for a later phase: a custom link whose query carries something
+LOAD-BEARING and tracking-named would break on the pool lane while still working
+on `/integrations` — and it would break silently, because both lanes publish. If
+one ever turns up, the fix is that param's classification in `SecretParams`, not
+an exemption for the pool.

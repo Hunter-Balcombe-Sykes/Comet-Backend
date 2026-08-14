@@ -18,8 +18,13 @@ namespace App\Site\Pools;
  * 2) and runs ALONGSIDE the legacy hiddenEventIds lane until that lane is
  * retired. Reviews JOINED 2026-08-13 (slice 6) and is the first pool that is
  * not the owner's own content: exclusion only, no pins, no hand-adds — see
- * EXCLUDE_ONLY_POOLS. `channel` and `article` are deliberately poolless — see
- * PoolRegistryTest for the reasons.
+ * EXCLUDE_ONLY_POOLS. Custom links JOINED 2026-08-15 (convergence Phase 3 /
+ * W5): registry key `custom_links`, kind `link`, fed by the
+ * `partna.custom_link` connections only — the other pseudo-platform
+ * connections (order links, storefronts, reservations) keep their own lanes
+ * until Phase 6, and link items carry no item_links (ItemLinkRules has no
+ * roster entry for the pool). `channel` and `article` are deliberately
+ * poolless — see PoolRegistryTest for the reasons.
  */
 class PoolRegistry
 {
@@ -38,6 +43,7 @@ class PoolRegistry
         'services' => ['service'],
         'shop' => ['product'],
         'reviews' => ['review'],
+        'custom_links' => ['link'],
     ];
 
     /**
@@ -56,6 +62,10 @@ class PoolRegistry
         'services' => 'services',
         'shop' => 'shop',
         'reviews' => 'reviews',
+        // `links` is the page these already advertise — SitepageId maps the
+        // legacy `custom` platform to it, so the pool joins the page its own
+        // connections built rather than opening a second one beside it.
+        'custom_links' => 'links',
     ];
 
     public const PAGE_LABELS = [
@@ -66,6 +76,7 @@ class PoolRegistry
         'services' => 'Services',
         'shop' => 'Shop',
         'reviews' => 'Reviews',
+        'custom_links' => 'Links',
     ];
 
     /**
@@ -119,6 +130,16 @@ class PoolRegistry
         // claim the set is complete, which is why reviews is absent from
         // LATEST_TAG_POOLS.
         'reviews' => [
+            'rule' => [['op' => 'kind_is']],
+            'order_by' => 'recency',
+        ],
+        // Every custom link lands on the user's ONE manual source, so the
+        // default's latest_per_auto_source would publish a single link and
+        // hide the rest — the pathology media, events and reviews each hit,
+        // sharpened here because the whole pool shares one source. order_by
+        // governs the unpinned tail only; the owner's arrangement rides on
+        // pins, which is what the backfill writes.
+        'custom_links' => [
             'rule' => [['op' => 'kind_is']],
             'order_by' => 'recency',
         ],

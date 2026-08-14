@@ -255,7 +255,7 @@ Nine content pools:
 | services | `service` | working |
 | shop | `product` | working (registry key `shop`, not `sell`) |
 | **menu** | `menu_item` | **W4 — new** |
-| **custom links** | `link` | **W5 — new (registry key `custom_links`)** |
+| **custom links** | `link` | **landed 2026-08-15** (registry key `custom_links`) |
 | **reviews** | `review` | landed (slice 6, merged + live-verified 2026-08-14) |
 
 Plus `platforms` in the dashboard — the connection-manager surface, not a
@@ -301,13 +301,26 @@ Add the `menu` pool; wire `menu_item` end to end; migrate 318
 yet, so this is cheapest now); cut `PublicMenuController` over to
 `content.*`; re-home slug allocation off `MenuItemObserver`.
 
-### W5 — Custom links pool
+### W5 — Custom links pool — **BUILT 2026-08-15** (checkpoint: parent spec §22)
 `link` kind exists (`Mirror`). Add the pool: registry key `custom_links`,
 kind `link`. Fed by the **23 `partna.custom_link` connections ONLY** — the
 other 18 pseudo-platform connections (order links, storefronts, reservations)
 do NOT migrate here; they keep their own lanes until Phase 6 (see the
 decisions section). Link items do **not** carry `item_links`. Manual entry +
 website/Linktree harvest input; no platform sources it.
+
+Shipped as `PoolRegistry` config plus `CustomLinkBackfiller` +
+`content:backfill-custom-links` (idempotent on a URL-derived coord). Two
+things a later phase must not re-derive wrongly:
+
+- **The pool is a SNAPSHOT until Phase 6.** `CustomLinksController` still owns
+  every write and does not mint content items, so a link added after the
+  backfill runs appears only on the legacy lane until the command is re-run.
+  Moving that write path is Phase 6's, by construction — it is the phase where
+  `partna.custom_link` stops being connectable at all. `CustomLinkBackfiller::
+  linkProjection()` is public as the seam for it.
+- **Both lanes publish the same link** until slice 7 retires the legacy read.
+  `/integrations`' `custom` entry is unchanged and untouched by this work.
 
 ### W6 — Pseudo-platform retirement
 Six categories stop being connectable; `PlatformCategory` remains as

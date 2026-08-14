@@ -34,7 +34,7 @@ The scope doc numbers work items W1–W10; the phases doc and the session order
 | W2 listen sourcing | Phase 4 | `phase-4-listen` |
 | W3 lean out | Phase 1 (the `channel` KIND finishes in Phase 4) | `phase-1-lean-out` |
 | W4 menu convergence | Phase 3 (menu half) + Phase 5 live proof | `slice-4-menus` |
-| W5 custom links pool | Phase 3 (links half) | `custom-links-pool` |
+| W5 custom links pool | Phase 3 (links half) — **DONE 2026-08-15**, spec §22 | `custom-links-pool` |
 | W6 pseudo-platform retirement | Phase 6 | `phase-6-pseudo-platforms` |
 | W7 cutover + teardown | Phase 7 | `slice-7-teardown` |
 | W8 documentation truth pass | Phase 8 | `phase-8-docs` |
