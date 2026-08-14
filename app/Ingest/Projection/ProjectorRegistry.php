@@ -26,23 +26,18 @@ final class ProjectorRegistry
         // (App\Ingest\Support\SchemaOrgEvent) — one projector, on purpose.
         'eventbrite' => ['events' => SchemaOrgEventProjector::class],
         'fresha' => ['services' => FreshaServiceProjector::class],
-        'gumroad' => ['products' => GumroadProductProjector::class],
         'humanitix' => ['events' => SchemaOrgEventProjector::class],
         'instagram' => ['media' => InstagramMediaProjector::class],
         'google_business' => [
             'reviews' => GoogleBusinessReviewProjector::class,
             'media' => GoogleBusinessMediaProjector::class,
         ],
-        'skool' => ['community' => ChannelCardProjector::class],
+        // spotify/soundcloud still produce `channel` — they are the kind's
+        // last producers, and Phase 4 converts them to `track`. The kind (and
+        // its facet rows) retires there, not here.
         'soundcloud' => ['listen' => SoundcloudChannelProjector::class],
         'spotify' => ['listen' => SpotifyChannelProjector::class],
         'square' => ['menu' => MenuItemProjector::class],
-        'strava' => ['club' => ChannelCardProjector::class],
-        'substack' => ['posts' => SubstackArticleProjector::class],
-        'twitch' => [
-            'channel' => ChannelCardProjector::class,
-            'vods' => TwitchVodProjector::class,
-        ],
         'uber_eats' => ['menu' => MenuItemProjector::class],
         'vimeo' => ['watch' => VimeoVideoProjector::class],
         'youtube' => ['watch' => YoutubeVideoProjector::class],

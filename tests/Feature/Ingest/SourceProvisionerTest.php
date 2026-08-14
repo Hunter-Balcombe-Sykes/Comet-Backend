@@ -157,13 +157,13 @@ it('keeps the book-now alternative anchored to a real fresha host', function () 
 it('accepts a real identifier stored in resource_id (seeded showcase rows)', function () {
     $userId = provisionerUser();
 
+    // Substack was a third case here until Phase 1 de-sourced it — see the
+    // demotion test below, which now pins that it provisions nothing.
     $youtube = makeConnection($userId, ['platform' => 'youtube', 'resource_id' => 'UCLA_DiR1FfKNvjuUpBHmylQ']);
     $spotify = makeConnection($userId, ['platform' => 'spotify', 'resource_id' => 'artist/4gzpq5DPGxSnKTe4SA8HAU']);
-    $substack = makeConnection($userId, ['platform' => 'substack', 'resource_id' => 'thebrowser']);
 
     expect(ingestSourceFor($youtube)->identifier)->toBe('UCLA_DiR1FfKNvjuUpBHmylQ')
-        ->and(ingestSourceFor($spotify)->identifier)->toBe('https://open.spotify.com/artist/4gzpq5DPGxSnKTe4SA8HAU')
-        ->and(ingestSourceFor($substack)->identifier)->toBe('thebrowser');
+        ->and(ingestSourceFor($spotify)->identifier)->toBe('https://open.spotify.com/artist/4gzpq5DPGxSnKTe4SA8HAU');
 });
 
 // ── The gate: no guessing ───────────────────────────────────────────────────
@@ -446,29 +446,27 @@ it('provisions soundcloud from a payload link url or a bare profile slug in reso
         ->and(ingestSourceFor($placeholder))->toBeNull();
 });
 
-it('provisions twitch from the payload login, lowercased, and refuses placeholders', function () {
-    $userId = provisionerUser();
+it('provisions no ingest source for the five platforms Phase 1 demoted to link-only', function (string $platform, array $attributes) {
+    // Each of these had a connector, a registry line and an identifierFor()
+    // branch; Phase 1 deleted all three. The demotion is a behaviour, so it
+    // gets a positive assertion rather than only the absence of the old tests.
+    //
+    // The refusal is structural, not a special case: sourceKeyFor() gates on
+    // ConnectorRegistry::has(), so with the entry gone sync() returns
+    // 'no_connector' and never reaches identifierFor(). That is why these
+    // payloads are the ones that USED to provision successfully — if a
+    // connector were ever re-registered without re-adding its identifierFor()
+    // branch, this test would go red rather than silently provision nulls.
+    $connection = makeConnection(provisionerUser(), ['platform' => $platform] + $attributes);
 
-    $login = makeConnection($userId, ['platform' => 'twitch', 'payload' => ['login' => 'SomeStreamer']]);
-    $placeholder = makeConnection($userId, ['platform' => 'twitch', 'resource_id' => 'twitch', 'payload' => []]);
-
-    expect(ingestSourceFor($login)->identifier)->toBe('somestreamer')
-        ->and(ingestSourceFor($placeholder))->toBeNull();
-});
-
-it('provisions skool and strava as canonical community urls, refusing product chrome slugs', function () {
-    $userId = provisionerUser();
-
-    $skool = makeConnection($userId, ['platform' => 'skool', 'payload' => ['url' => 'https://skool.com/Max-Business-School/about?ref=x']]);
-    $skoolChrome = makeConnection($userId, ['platform' => 'skool', 'payload' => ['url' => 'https://www.skool.com/signup']]);
-    $strava = makeConnection($userId, ['platform' => 'strava', 'payload' => ['url' => 'https://strava.com/clubs/Midday-Milers']]);
-    $stravaBare = makeConnection($userId, ['platform' => 'strava', 'resource_id' => '289149', 'payload' => []]);
-
-    expect(ingestSourceFor($skool)->identifier)->toBe('https://www.skool.com/max-business-school')
-        ->and(ingestSourceFor($skoolChrome))->toBeNull()
-        ->and(ingestSourceFor($strava)->identifier)->toBe('https://www.strava.com/clubs/Midday-Milers')
-        ->and(ingestSourceFor($stravaBare)->identifier)->toBe('https://www.strava.com/clubs/289149');
-});
+    expect(ingestSourceFor($connection))->toBeNull();
+})->with([
+    'twitch' => ['twitch', ['payload' => ['login' => 'SomeStreamer']]],
+    'skool' => ['skool', ['payload' => ['url' => 'https://skool.com/Max-Business-School/about?ref=x']]],
+    'strava' => ['strava', ['payload' => ['url' => 'https://strava.com/clubs/Midday-Milers']]],
+    'gumroad' => ['gumroad', ['payload' => ['url' => 'https://Easlo.gumroad.com/l/brain']]],
+    'substack' => ['substack', ['resource_id' => 'thebrowser', 'payload' => []]],
+]);
 
 it('provisions youtube_music only from a real UC channel id', function () {
     $userId = provisionerUser();
@@ -479,16 +477,6 @@ it('provisions youtube_music only from a real UC channel id', function () {
     expect(ingestSourceFor($withId)->identifier)->toBe('UCabcdefghijklmnopqrstuv')
         // Unlike plain youtube there is no handle fallback for Topic channels.
         ->and(ingestSourceFor($handleOnly))->toBeNull();
-});
-
-it('provisions gumroad from the store subdomain, never the apex or www', function () {
-    $userId = provisionerUser();
-
-    $store = makeConnection($userId, ['platform' => 'gumroad', 'payload' => ['url' => 'https://Easlo.gumroad.com/l/brain']]);
-    $apex = makeConnection($userId, ['platform' => 'gumroad', 'payload' => ['url' => 'https://gumroad.com/discover']]);
-
-    expect(ingestSourceFor($store)->identifier)->toBe('easlo')
-        ->and(ingestSourceFor($apex))->toBeNull();
 });
 
 it('provisions instagram from the payload username, unscheduled (actor-billed, manual-only)', function () {

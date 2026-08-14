@@ -4,11 +4,9 @@ use App\Ingest\ConnectorRegistry;
 use App\Ingest\Projection\AppleMusicReleaseProjector;
 use App\Ingest\Projection\ApplePodcastsEpisodeProjector;
 use App\Ingest\Projection\BandcampReleaseProjector;
-use App\Ingest\Projection\ChannelCardProjector;
 use App\Ingest\Projection\FreshaServiceProjector;
 use App\Ingest\Projection\GoogleBusinessMediaProjector;
 use App\Ingest\Projection\GoogleBusinessReviewProjector;
-use App\Ingest\Projection\GumroadProductProjector;
 use App\Ingest\Projection\InstagramMediaProjector;
 use App\Ingest\Projection\MenuItemProjector;
 use App\Ingest\Projection\ProjectorRegistry;
@@ -16,8 +14,6 @@ use App\Ingest\Projection\RecordView;
 use App\Ingest\Projection\SchemaOrgEventProjector;
 use App\Ingest\Projection\SoundcloudChannelProjector;
 use App\Ingest\Projection\SpotifyChannelProjector;
-use App\Ingest\Projection\SubstackArticleProjector;
-use App\Ingest\Projection\TwitchVodProjector;
 use App\Ingest\Projection\VimeoVideoProjector;
 use App\Ingest\Projection\YoutubeMusicTrackProjector;
 use App\Ingest\Projection\YoutubeVideoProjector;
@@ -175,17 +171,6 @@ it('projects vimeo and youtube entries into videos with embeds and duration wher
         ->and($youtube['facets']['f_authored']['creator'])->toBe('A Channel');
 });
 
-it('projects a substack post into an article', function () {
-    $projected = (new SubstackArticleProjector)->project(new RecordView([
-        'id' => 'https://pub.substack.com/p/hello', 'title' => 'Hello World',
-        'url' => 'https://pub.substack.com/p/hello', 'published' => '2026-02-02T00:00:00Z',
-    ]));
-
-    expect($projected['kind'])->toBe('article')
-        ->and($projected['headline'])->toBe('Hello World')
-        ->and($projected['facets']['f_published']['published_from'])->toBe('2026-02-02T00:00:00Z');
-});
-
 it('projects a fresha service parsing duration and price conservatively', function () {
     $projected = (new FreshaServiceProjector)->project(new RecordView([
         'serviceId' => 's:123', 'name' => 'Skin Fade', 'duration' => '1h 30min',
@@ -282,44 +267,6 @@ it('projects nothing rather than a nameless or linkless event', function () {
         ->and((new SchemaOrgEventProjector)->project(new RecordView(['name' => 'Ghost Show'])))->toBeNull();
 });
 
-it('projects a normalized account card into a channel item for every og-scrape source', function () {
-    // Twitch shape: handle + live-player embed.
-    $twitch = (new ChannelCardProjector)->project(new RecordView([
-        'name' => 'SomeStreamer', 'url' => 'https://www.twitch.tv/somestreamer',
-        'handle' => 'somestreamer', 'avatar' => 'https://static-cdn.jtvnw.net/a.png',
-        'description' => 'Speedruns most evenings.',
-        'embed' => ['provider' => 'twitch', 'key' => 'somestreamer'],
-    ]));
-    // Strava shape: locality + member count, no embed.
-    $strava = (new ChannelCardProjector)->project(new RecordView([
-        'name' => 'Midday Milers', 'url' => 'https://www.strava.com/clubs/milers',
-        'location' => 'Melbourne, Victoria', 'followers' => 1204,
-    ]));
-
-    expect($twitch['kind'])->toBe('channel')
-        ->and($twitch['facets']['f_embed'])->toBe(['provider' => 'twitch', 'embed_key' => 'somestreamer'])
-        ->and($twitch['facets']['f_channel']['handle'])->toBe('somestreamer')
-        ->and($twitch['media'][0]['role'])->toBe('avatar')
-        ->and($strava['facets']['f_place']['locality'])->toBe('Melbourne, Victoria')
-        ->and($strava['facets']['f_channel']['followers'])->toBe(1204)
-        ->and($strava['facets'])->not->toHaveKey('f_embed');
-});
-
-it('projects a twitch vod as a video with duration and the vod embed variant', function () {
-    $projected = (new TwitchVodProjector)->project(new RecordView([
-        'id' => '335921245', 'title' => 'Twitch Rivals finals',
-        'url' => 'https://www.twitch.tv/videos/335921245',
-        'published' => '2026-07-14T22:04:28Z',
-        'thumbnail' => 'https://static-cdn.jtvnw.net/cf_vods/x/thumb0-640x360.jpg',
-        'duration_seconds' => 11313, 'views' => 1863062,
-    ]));
-
-    expect($projected['kind'])->toBe('video')
-        ->and($projected['facets']['f_duration']['seconds'])->toBe(11313)
-        ->and($projected['facets']['f_embed'])->toBe(['provider' => 'twitch', 'embed_key' => '335921245', 'variant' => 'vod'])
-        ->and($projected['media'][0]['role'])->toBe('cover');
-});
-
 it('projects a yt-music upload as a track linking to music.youtube.com with the standard embed', function () {
     $projected = (new YoutubeMusicTrackProjector)->project(new RecordView([
         'id' => 'dQw4w9WgXcQ', 'title' => 'New Single',
@@ -382,27 +329,6 @@ it('emits no offer for a priceless menu item rather than a zero', function () {
 
     expect($projected['offers'])->toBe([])
         ->and($projected['media'])->toBe([]);
-});
-
-it('projects a gumroad product with an honest price qualifier per pricing mode', function () {
-    $fixed = (new GumroadProductProjector)->project(new RecordView([
-        'permalink' => 'beygm', 'name' => 'Finance Tracker', 'url' => 'https://easlo.gumroad.com/l/beygm',
-        'price_cents' => 3900, 'currency' => 'USD',
-        'thumbnail' => 'https://public-files.gumroad.com/t', 'rating' => 4.9, 'ratings_count' => 134,
-    ]));
-    $pwyw = (new GumroadProductProjector)->project(new RecordView([
-        'name' => 'Tip Jar', 'url' => 'https://x.gumroad.com/l/tip', 'price_cents' => 500, 'pay_what_you_want' => true,
-    ]));
-    $free = (new GumroadProductProjector)->project(new RecordView([
-        'name' => 'Freebie', 'url' => 'https://x.gumroad.com/l/free', 'price_cents' => 0,
-    ]));
-
-    expect($fixed['kind'])->toBe('product')
-        ->and($fixed['offers'][0])->toMatchArray(['amount_minor' => 3900, 'currency' => 'USD', 'qualifier' => 'exact'])
-        ->and($fixed['facets']['f_rated'])->toBe(['rating' => 4.9, 'rating_max' => 5.0, 'ratings_count' => 134])
-        // A pay-what-you-want price is a floor, never an exact.
-        ->and($pwyw['offers'][0]['qualifier'])->toBe('from')
-        ->and($free['offers'][0]['qualifier'])->toBe('free');
 });
 
 it('projects a soundcloud oembed into a channel whose embed key is the parsed player src', function () {

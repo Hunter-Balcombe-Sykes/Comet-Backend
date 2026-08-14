@@ -9,16 +9,11 @@ use App\Ingest\Connectors\DoordashMenuConnector;
 use App\Ingest\Connectors\EventbriteConnector;
 use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Connectors\GoogleBusinessConnector;
-use App\Ingest\Connectors\GumroadConnector;
 use App\Ingest\Connectors\HumanitixConnector;
 use App\Ingest\Connectors\InstagramConnector;
-use App\Ingest\Connectors\SkoolConnector;
 use App\Ingest\Connectors\SoundcloudConnector;
 use App\Ingest\Connectors\SpotifyOembedConnector;
 use App\Ingest\Connectors\SquareMenuConnector;
-use App\Ingest\Connectors\StravaConnector;
-use App\Ingest\Connectors\SubstackConnector;
-use App\Ingest\Connectors\TwitchConnector;
 use App\Ingest\Connectors\UberEatsMenuConnector;
 use App\Ingest\Connectors\VimeoConnector;
 use App\Ingest\Connectors\YoutubeMusicConnector;
@@ -55,16 +50,11 @@ final class ConnectorRegistry
         'eventbrite' => EventbriteConnector::class,
         'fresha' => FreshaConnector::class,
         'google_business' => GoogleBusinessConnector::class,
-        'gumroad' => GumroadConnector::class,
         'humanitix' => HumanitixConnector::class,
         'instagram' => InstagramConnector::class,
-        'skool' => SkoolConnector::class,
         'soundcloud' => SoundcloudConnector::class,
         'spotify' => SpotifyOembedConnector::class,
         'square' => SquareMenuConnector::class,
-        'strava' => StravaConnector::class,
-        'substack' => SubstackConnector::class,
-        'twitch' => TwitchConnector::class,
         'uber_eats' => UberEatsMenuConnector::class,
         'vimeo' => VimeoConnector::class,
         'youtube' => YoutubeRssConnector::class,

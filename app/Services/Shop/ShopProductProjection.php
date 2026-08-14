@@ -51,7 +51,7 @@ final class ShopProductProjection
                 // store's newest products, and the public wire still carries
                 // it. Only `published_from` — the dominant shape every other
                 // f_published-writing projector uses (BandcampReleaseProjector,
-                // YoutubeVideoProjector, SubstackArticleProjector, etc. all set
+                // YoutubeVideoProjector, VimeoVideoProjector, etc. all set
                 // published_from alone; `verbatim` is reserved for a source
                 // whose OWN date is relative prose, e.g.
                 // GoogleBusinessReviewProjector's "3 months ago" — not this
