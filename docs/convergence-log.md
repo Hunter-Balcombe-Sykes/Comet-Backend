@@ -459,22 +459,42 @@ Two consequences, neither a defect today:
 
 ### F26 — `ASCII//TRANSLIT` made identity keys platform-dependent
 
-`KeyClass::normalizeText()` transliterates via `iconv('UTF-8',
-'ASCII//TRANSLIT')`, which delegates to the C library rather than to PHP:
-glibc renders "Beyoncé" as `beyonce`, while macOS/BSD libiconv renders it
-`beyonc'e`, which the following `[^a-z0-9]+` pass turns into `beyonc e`. The
-same title therefore produced DIFFERENT identity keys on a developer's machine
-and on Cloud, and a green local suite said nothing about the values that
-actually land.
+`KeyClass::normalizeText()` transliterated via `iconv('UTF-8',
+'ASCII//TRANSLIT')`, which delegates to the C library rather than to PHP.
+Measured on both, 2026-08-14:
 
-Inert until Phase 2, because `normalizeText()` had no caller that reached the
-database — every text-derived key class was unemitted. It became load-bearing
-the moment emission shipped, which is why Phase 2 fixes it: the modifier marks
-(`'` `` ` `` `^` `~` `"`) are deleted before the alphanumeric collapse, which
-converges both platforms on `beyonce`. Verified against é/ö/ñ/ø/ß/å/ï.
+```
+                macOS libiconv        Cloud (glibc, POSIX locale)
+Beyoncé      => 'beyonc\'e'        => 'beyonc?'
+Björk        => 'bj"ork'           => 'bj?rk'
+Straße       => 'strasse'          => 'strasse'
+```
 
-Two tails left deliberately alone: Latin Extended-B (`Ǎ`) makes macOS iconv
-return `false` where glibc transliterates, so such titles still normalise
-differently across platforms (rare, and the existing `!== false` guard already
-handles it without erroring); and the substitution now folds `don't` onto
-`dont` rather than `don t`, which is better matching, not worse.
+After the `[^a-z0-9]+` pass that is `beyonce`/`bjork` locally against
+**`beyonc`/`bj rk`** on dev — the same title yielding different identity keys
+depending on which machine derived it, and on Cloud yielding a mangled one
+(`bj rk` is two tokens, so it can never match `bjork` from a second source).
+glibc under the container's POSIX locale does not transliterate at all; it
+substitutes `?`.
+
+Inert before Phase 2, because `normalizeText()` had no caller that reached the
+database — every text-derived key class was unemitted. Emission made it
+load-bearing, so Phase 2 fixes it, in two passes and worth recording as two:
+
+1. **First attempt (wrong):** delete the modifier marks iconv emits, on the
+   evidence of the macOS output alone. That converges macOS on `beyonce` and
+   does nothing at all for glibc's `?`. It shipped, and the dev rebuild is what
+   exposed it — `title_release` values read `…|beyonc`. **A live assertion
+   caught what the whole test suite could not, which is invariant #1 earning
+   itself rather than being observed.**
+2. **The fix:** an explicit `TRANSLITERATIONS` table on `KeyClass` covering
+   Latin-1 Supplement and Latin Extended-A, replacing the iconv call outright.
+   No C library, no locale, identical on every platform, and pinned by
+   `IdentityKeyEmissionTest`'s accent cases so a future edit fails a test
+   instead of a database.
+
+Two consequences recorded rather than fixed: anything outside Latin (Cyrillic,
+CJK, emoji) still collapses to spaces, which is what glibc already did — a
+Cyrillic title is a singleton, not a merge candidate; and `don't` now folds to
+`dont` rather than `don t`, deliberately, because a contraction spelled two
+ways is one thing.
