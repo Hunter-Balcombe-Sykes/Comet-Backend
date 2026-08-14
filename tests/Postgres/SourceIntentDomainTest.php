@@ -13,12 +13,14 @@
 // SuggestionsController::dismiss(), 'superseded' is reserved but currently
 // unwritten (grep confirms no literal 'superseded' assignment to this
 // column — only in comments). `origin` flows through RoutingContext and has
-// exactly three known call sites today: RoutingController ('paste'),
-// WebsiteImporter ('website_import'), LinkInBioImporter ('link_in_bio' |
-// 'bio_harvest') — StoreBrandSeeder defaults to 'paste' too. A FOURTH call
-// site with an out-of-domain literal is exactly the failure mode this test
-// exists to catch (plan §5.2) — same accept/reject-literal discipline as
-// IngestAnomalyKindDomainTest.
+// four known call sites today: RoutingController ('paste'), WebsiteImporter
+// ('website_import'), LinkInBioImporter ('link_in_bio' | 'bio_harvest') and
+// CommerceProbeJob ('commerce_probe') — StoreBrandSeeder defaults to 'paste'
+// too. A call site with an out-of-domain literal is exactly the failure mode
+// this test exists to catch (plan §5.2), and commerce_probe was one: it wrote
+// a literal the CHECK did not carry, throwing 23514 on every probe that
+// resolved a store, until 20260814100000 widened the domain. Same
+// accept/reject-literal discipline as IngestAnomalyKindDomainTest.
 
 use App\Routing\Verdict;
 use Illuminate\Database\QueryException;
@@ -30,7 +32,8 @@ uses(PostgresTestCase::class)->in(__FILE__);
 // See tests/Postgres/SectionShapeDomainTest.php's REPO_ROOT comment: these
 // helpers must not depend on base_path()/expect() because a ->with() dataset
 // closure runs during test collection, before the app container boots.
-const ROUTING_MIGRATION = __DIR__.'/../../supabase/migrations/20260727120000_routing_schema.sql';
+const MIGRATIONS_DIR = __DIR__.'/../../supabase/migrations';
+const ROUTING_MIGRATION = MIGRATIONS_DIR.'/20260727120000_routing_schema.sql';
 
 /** Extract the CREATE TABLE "routing"."source_intents" (...) block. */
 function sourceIntentsTableBlock(): string
@@ -44,15 +47,46 @@ function sourceIntentsTableBlock(): string
     return $m[0];
 }
 
-/** Extract the IN (...) domain list of a named column's CHECK within the block (see SectionShapeDomainTest for the [^()]*? rationale). */
+/**
+ * The domain a column's CHECK declares TODAY, across superseding migrations.
+ *
+ * A later migration that DROPs and re-ADDs the constraint — as
+ * 20260814100000_source_intents_allow_commerce_probe.sql does for `origin` —
+ * leaves the original CREATE TABLE text untouched. Reading only that file
+ * would therefore keep comparing a domain the database no longer has, staying
+ * green while live and test drift apart. That is not hypothetical: it is the
+ * exact failure mode convergence-log F9 records for
+ * ContentKindDomainParityTest, which reads two migration files by name. So
+ * take the newest ADD CONSTRAINT for the column if any migration supersedes
+ * the inline declaration, and fall back to the inline one otherwise.
+ */
 function sourceIntentCheckDomain(string $column): array
 {
     $col = preg_quote($column, '/');
-    preg_match('/"'.$col.'"[^,]*?CHECK\s*\("'.$col.'"[^()]*?IN\s*\((.*?)\)\)/s', sourceIntentsTableBlock(), $m);
-    if (! isset($m[1])) {
-        throw new RuntimeException("CHECK domain for \"{$column}\" not found in routing.source_intents.");
+
+    // Filename order is apply order, so the last match wins. Match to the
+    // statement terminator and harvest literals, rather than trying to
+    // balance the parens of `CHECK (origin = ANY (ARRAY[...]))`.
+    $files = glob(MIGRATIONS_DIR.'/*.sql') ?: [];
+    sort($files);
+
+    $clause = null;
+    foreach ($files as $file) {
+        $sql = (string) file_get_contents($file);
+        if (preg_match_all('/ADD\s+CONSTRAINT\s+source_intents_'.$col.'_check\b(.*?);/s', $sql, $m)) {
+            $clause = (string) end($m[1]);
+        }
     }
-    preg_match_all("/'([a-z_]+)'/", $m[1], $vals);
+
+    if ($clause === null) {
+        preg_match('/"'.$col.'"[^,]*?CHECK\s*\("'.$col.'"[^()]*?IN\s*\((.*?)\)\)/s', sourceIntentsTableBlock(), $m);
+        if (! isset($m[1])) {
+            throw new RuntimeException("CHECK domain for \"{$column}\" not found in routing.source_intents.");
+        }
+        $clause = $m[1];
+    }
+
+    preg_match_all("/'([a-z_]+)'/", $clause, $vals);
 
     return $vals[1];
 }
@@ -157,14 +191,19 @@ it('accepts every origin literal actually written today', function (string $orig
     // website_import: app/Routing/Importers/WebsiteImporter.php:63
     // link_in_bio, bio_harvest: app/Routing/Importers/LinkInBioImporter.php's
     //                 KINDS const, passed straight through as $context->origin
-    // A fourth call site to RoutingContext::forUser()/preAccountBuild() with
-    // a typo'd or new literal is exactly the failure mode — see the domain
-    // set-equality test below for the reserved-but-unwritten remainder
+    // commerce_probe: app/Jobs/Platforms/CommerceProbeJob.php's ORIGIN const.
+    //                 This one is the reason the test exists: it WAS a live
+    //                 call site writing a literal the domain did not carry, so
+    //                 every probe that resolved a store threw 23514 until
+    //                 20260814100000 widened the CHECK.
+    // A further call site to RoutingContext::forUser()/preAccountBuild() with
+    // a typo'd or new literal is exactly that failure mode again — see the
+    // domain set-equality test below for the reserved-but-unwritten remainder
     // (google_business, staff, reproject).
     DB::connection('pgsql')->table('routing.source_intent_scratch')->insert(['origin' => $origin]);
 
     expect(DB::connection('pgsql')->table('routing.source_intent_scratch')->where('origin', $origin)->exists())->toBeTrue();
-})->with(['paste', 'website_import', 'link_in_bio', 'bio_harvest']);
+})->with(['paste', 'website_import', 'link_in_bio', 'bio_harvest', 'commerce_probe']);
 
 it('accepts the reserved-but-unwritten origin values', function (string $origin) {
     DB::connection('pgsql')->table('routing.source_intent_scratch')->insert(['origin' => $origin]);
@@ -184,11 +223,11 @@ it('rejects an origin outside the domain', function () {
     expect($thrown->getCode())->toBe('23514');
 });
 
-it('the origin domain is exactly the 7 values the migration declares', function () {
+it('the origin domain is exactly the 8 values the migrations declare', function () {
     $domain = sourceIntentCheckDomain('origin');
     sort($domain);
 
-    expect($domain)->toBe(['bio_harvest', 'google_business', 'link_in_bio', 'paste', 'reproject', 'staff', 'website_import']);
+    expect($domain)->toBe(['bio_harvest', 'commerce_probe', 'google_business', 'link_in_bio', 'paste', 'reproject', 'staff', 'website_import']);
 });
 
 it('accepts NULL and both boundary values of the confidence range', function (?int $confidence) {

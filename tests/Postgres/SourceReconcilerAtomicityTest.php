@@ -72,7 +72,7 @@ beforeEach(function () {
         connection_id uuid,
         confidence smallint CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
         origin text NOT NULL
-            CHECK (origin IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\')),
+            CHECK (origin IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\', \'commerce_probe\')),
         import_run_id uuid,
         detector_id text,
         catalog_digest text,
