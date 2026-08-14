@@ -433,3 +433,48 @@ against 1264.** The numbers above are the verified entry state.
 The premise Phase 2 rests on is intact and re-confirmed: still exactly **2 of
 17 key classes**, `item_merges` and `identity_candidates` both still **0**, so
 the merge engine has genuinely never run.
+
+### F25 — identity resolution is kind-scoped, so the `link` fold cannot fire
+
+`Resolver::mayUnion()` sanctions exactly one cross-kind union: a `link` is an
+unidentified thing, so anything may absorb it (a pasted URL later identified
+as a track folds into it). **That path is unreachable through
+`ProjectionWriter`.** Both callers of `resolveItems($userId, $kind)` —
+`projectStream()` at :243 with `$projector::kind()`, and `writeManualItem()` at
+:410 with the projection's own kind — scope the resolution to ONE kind, so a
+`link` source item and a `track` source item are never in the same `resolve()`
+call to begin with. `PoolItemCreateController`'s kind-change refusal already
+records the same fact from the other side.
+
+Two consequences, neither a defect today:
+
+- It is what makes emitting `TitleOnly` safe at all: a podcast episode and a
+  YouTube video sharing a title cannot fuse, because they are resolved in
+  separate passes. The kind gate inside `mayUnion()` is belt to that braces.
+- **The custom links pool inherits it.** A `link` item minted by that pool will
+  NOT fold into a synced item of another kind, however exactly the URLs match,
+  until something resolves across kinds. Worth knowing before the pool promises
+  otherwise; the fix, if it is ever wanted, is a resolution pass scoped to the
+  user rather than to (user, kind), not a change to the key set.
+
+### F26 — `ASCII//TRANSLIT` made identity keys platform-dependent
+
+`KeyClass::normalizeText()` transliterates via `iconv('UTF-8',
+'ASCII//TRANSLIT')`, which delegates to the C library rather than to PHP:
+glibc renders "Beyoncé" as `beyonce`, while macOS/BSD libiconv renders it
+`beyonc'e`, which the following `[^a-z0-9]+` pass turns into `beyonc e`. The
+same title therefore produced DIFFERENT identity keys on a developer's machine
+and on Cloud, and a green local suite said nothing about the values that
+actually land.
+
+Inert until Phase 2, because `normalizeText()` had no caller that reached the
+database — every text-derived key class was unemitted. It became load-bearing
+the moment emission shipped, which is why Phase 2 fixes it: the modifier marks
+(`'` `` ` `` `^` `~` `"`) are deleted before the alphanumeric collapse, which
+converges both platforms on `beyonce`. Verified against é/ö/ñ/ø/ß/å/ï.
+
+Two tails left deliberately alone: Latin Extended-B (`Ǎ`) makes macOS iconv
+return `false` where glibc transliterates, so such titles still normalise
+differently across platforms (rare, and the existing `!== false` guard already
+handles it without erroring); and the substitution now folds `don't` onto
+`dont` rather than `don t`, which is better matching, not worse.
