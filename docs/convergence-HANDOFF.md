@@ -23,6 +23,24 @@ Read in this order:
 | `2026-08-14-convergence-phases.md` | Phase 1–2 executable; 3–8 settled decisions |
 | `convergence-log.md` | 17 findings, corrections, capability baseline |
 
+## W# ↔ Phase# ↔ session mapping
+
+The scope doc numbers work items W1–W10; the phases doc and the session order
+(`2026-08-14-convergence-session-prompts.md`) number phases. They map:
+
+| W# (scope doc) | Phase | Session |
+|---|---|---|
+| W1 identity keys | Phase 2 | `phase-2-identity-keys` |
+| W2 listen sourcing | Phase 4 | `phase-4-listen` |
+| W3 lean out | Phase 1 (the `channel` KIND finishes in Phase 4) | `phase-1-lean-out` |
+| W4 menu convergence | Phase 3 (menu half) + Phase 5 live proof | `slice-4-menus` |
+| W5 custom links pool | Phase 3 (links half) | `custom-links-pool` |
+| W6 pseudo-platform retirement | Phase 6 | `phase-6-pseudo-platforms` |
+| W7 cutover + teardown | Phase 7 | `slice-7-teardown` |
+| W8 documentation truth pass | Phase 8 | `phase-8-docs` |
+| W9 delete `profile_fields` seam | Phase 1 | `phase-1-lean-out` |
+| W10 `document` kind | — kept (owner reversal, log F8); nothing to do | — |
+
 ---
 
 ## Overlap with your work — please read first

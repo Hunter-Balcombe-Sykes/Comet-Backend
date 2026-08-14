@@ -118,8 +118,14 @@ scheduled ingest and presents as a broken pipeline.
 
 1. Substack demoted; `article` kind deleted.
 2. Gumroad demoted to link-only.
-3. `channel` kind + `ChannelCardProjector` + `f_channel` deleted.
-4. `document` kind deleted.
+3. `ChannelCardProjector` deleted in Phase 1; the `channel` KIND (and its 9
+   `f_channel` rows) retires in **Phase 4**, when Spotify/SoundCloud stop
+   producing it — retiring it earlier leaves live connectors projecting into an
+   undeclared kind.
+4. `document` kind **KEPT** (owner decision 2026-08-14, log F8): a live
+   user-documents feature sits behind it (`site.site_media` pool='documents',
+   `UserDocumentController`). No documents pool; the kind stays declared and
+   unpooled.
 5. YouTube Music **kept and provisioned** — free, keyless RSS, the only real
    `track` producer.
 6. Spotify/SoundCloud → Apify track sourcing; channel projectors deleted.
@@ -144,11 +150,13 @@ Each is gated on evidence, not assertion.
 table above re-confirmed.
 
 **1 — Lean out + `commerce_probe` fix.** Demote twitch/skool/strava/gumroad/
-substack. Delete `channel`/`article`/`document` kinds, `ChannelCardProjector`,
-the `profile_fields` seam and its three `profile` streams. Add `commerce_probe`
-to `source_intents_origin_check`.
-*Exit:* suite green; kinds gone from `KindRegistry`; a real `CommerceProbeJob`
-intent write succeeds on dev.
+substack. Delete the `article` kind (its only producer, Substack, is demoted
+here), `ChannelCardProjector`, `TwitchVodProjector`, the `profile_fields` seam
+and its three `profile` streams. Add `commerce_probe` to
+`source_intents_origin_check`. The `channel` kind survives to Phase 4; the
+`document` kind is kept outright (locked decisions 3–4).
+*Exit:* suite green; `article` gone from `KindRegistry`; `f_channel` still 9; a
+real `CommerceProbeJob` intent write succeeds on dev.
 
 **2 — Identity keys.** Emit the missing `KeyClass` values (`Isrc`,
 `TitleDuration`, `TitleRelease`, `OfferingName*`, `Gtin14`, `FeedGuid`,
@@ -156,10 +164,13 @@ intent write succeeds on dev.
 *Exit:* >2 key classes present on dev after `ingest:project --rebuild`; merges
 reviewed row-by-row, not just counted.
 
-**3 — Pools: menu + links.** `PoolRegistry` gains both. Migrate 318 slugs to
-`content.item_slugs` (0 retired today — cheapest it will ever be). Re-home slug
-allocation off `MenuItemObserver`. Move the 41 `partna.*` connections into the
-links pool.
+**3 — Pools: menu + custom links.** `PoolRegistry` gains both. Migrate 318
+slugs to `content.item_slugs` (0 retired today — cheapest it will ever be).
+Re-home slug allocation off `MenuItemObserver`. The links pool is the **CUSTOM
+LINKS pool**: registry key `custom_links`, kind `link`, fed by the **23
+`partna.custom_link` connections only** — the other 18 pseudo-platform
+connections (order links, storefronts, reservations) keep their own lanes until
+Phase 6, and link items carry no `item_links`.
 *Exit:* both pools return via `/content/pools/{pool}`; slug count preserved.
 
 **4 — Listen sourcing.** Provision `youtube_music`. Select and validate Apify

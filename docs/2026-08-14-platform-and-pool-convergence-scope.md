@@ -253,17 +253,19 @@ Nine content pools:
 | media | `media` | working |
 | events | `event` | working |
 | services | `service` | working |
-| sell | `product` | working |
+| shop | `product` | working (registry key `shop`, not `sell`) |
 | **menu** | `menu_item` | **W4 — new** |
-| **links** | `link` | **W5 — new** |
-| **reviews** | `review` | slice 6, in flight |
+| **custom links** | `link` | **W5 — new (registry key `custom_links`)** |
+| **reviews** | `review` | landed (slice 6, merged + live-verified 2026-08-14) |
 
 Plus `platforms` in the dashboard — the connection-manager surface, not a
 content pool.
 
-Kinds retired by this programme: `channel` (W3), `article` (W3, with
-Substack), `document` (W10). Identity data (`profile_fields`) is not a pool
-and stays in `site.workplaces` (W9).
+Kinds retired by this programme: `article` (Phase 1, with Substack) and
+`channel` (**Phase 4** — its projectors die in Phase 1, but Spotify/SoundCloud
+keep producing the kind until Phase 4 converts them to `track`). The
+`document` kind is **KEPT** (owner, 2026-08-14 — see W10). Identity data
+(`profile_fields`) is not a pool and stays in `site.workplaces` (W9).
 
 ### W1 — Identity keys
 Emit the remaining `KeyClass` values, minimum: `Isrc`, `TitleDuration`,
@@ -286,9 +288,12 @@ Emit the remaining `KeyClass` values, minimum: `Isrc`, `TitleDuration`,
 
 ### W3 — Lean out
 De-source `twitch` (owner decision, 2026-08-14 — do not re-investigate),
-`skool`, `strava`, `gumroad`, `substack`. With Spotify/SoundCloud converted,
-`channel` loses every producer: retire the kind, `ChannelCardProjector`, and
-the `f_channel` facet. `article` likewise loses its only producer.
+`skool`, `strava`, `gumroad`, `substack`. `ChannelCardProjector` (and
+`TwitchVodProjector`) die here — their only consumers are the demoted
+platforms. The `channel` KIND does **not** retire here: Spotify and SoundCloud
+still produce it until Phase 4 converts them to `track`; the kind (and its 9
+`f_channel` rows) retires in Phase 4. `article` loses its only producer here
+and retires immediately.
 
 ### W4 — Menu convergence
 Add the `menu` pool; wire `menu_item` end to end; migrate 318
@@ -296,10 +301,13 @@ Add the `menu` pool; wire `menu_item` end to end; migrate 318
 yet, so this is cheapest now); cut `PublicMenuController` over to
 `content.*`; re-home slug allocation off `MenuItemObserver`.
 
-### W5 — Links pool
-`link` kind exists (`Mirror`). Add the pool. Manual entry + website/Linktree
-harvest input; no platform sources it. Migrate the 23 `partna.custom_link`
-connections into it.
+### W5 — Custom links pool
+`link` kind exists (`Mirror`). Add the pool: registry key `custom_links`,
+kind `link`. Fed by the **23 `partna.custom_link` connections ONLY** — the
+other 18 pseudo-platform connections (order links, storefronts, reservations)
+do NOT migrate here; they keep their own lanes until Phase 6 (see the
+decisions section). Link items do **not** carry `item_links`. Manual entry +
+website/Linktree harvest input; no platform sources it.
 
 ### W6 — Pseudo-platform retirement
 Six categories stop being connectable; `PlatformCategory` remains as
@@ -335,11 +343,14 @@ loses nothing at runtime and deletes an unbuilt abstraction.
 Consequence: `site.workplaces` is **not** legacy and is not retired. W9
 leaves the critical path — it becomes a deletion, not a build.
 
-### W10 — Delete the unused `document` kind (owner decision, 2026-08-14)
-`document` is declared in `KindRegistry` (`Mirror`, `f_file`) with **0 items
-and no producer**. Unrelated to `site.site_documents`, which is the built
-sitepage JSON cache, not user files. Delete under the same
-no-unbuilt-seams principle as W9.
+### W10 — The `document` kind is KEPT (owner decision REVERSED, 2026-08-14)
+The original delete recommendation was wrong (convergence-log F8): there is a
+**live user-documents feature** behind it — `site.site_media` with
+`pool='documents'` (2 rows on dev), managed by `UserDocumentController` via
+`SiteMedia::POOL_DOCUMENTS`. `document` is the third instance of the
+declared-kind-awaiting-a-pool pattern, alongside `link` and `menu_item`.
+**No documents pool is built** (documents have no platform source; the lane is
+upload-only) and the kind stays declared and unpooled. Nothing to do.
 
 ### W8 — Documentation truth pass
 Rewrite root + backend `CLAUDE.md`, correct the convergence spec's stale
@@ -384,14 +395,39 @@ Fresha's most recent runs succeeded; the historical
 `unavailable` stream health is stale, plus one real salon whose Fresha page
 likely changed. Bandcamp is 3-of-4. Both are per-account, not code.
 
-## 5. Open decisions
+## 5. Decisions
 
-1. `substack` / `article` — demote confirmed, but `article` has no pool
-   either. Retire the kind, or keep it for a future posts pool?
-2. Sequencing within W4: promote ordering brands before or after the menu
-   pool exists? (Before = data lands nowhere; after = one extra step.)
-3. Whether `link` items support per-platform links (they inherit
-   `item_links` for free, but may not want it).
+### 5.1 Owner rulings, 2026-08-14 (recorded before execution)
+
+1. **Serial execution.** One fresh session per slice/phase, run in the order
+   fixed by `docs/superpowers/plans/2026-08-14-convergence-session-prompts.md`.
+   No umbrella branch: each session branches off latest `origin/development`
+   and merges when its exit criteria pass.
+2. **The 18 non-custom-link connections take the natural mapping** (Phase 6):
+   order links → the promoted ordering brands (`uber_eats`/`doordash`/
+   `menulog`), storefronts → the shop lane, reservations → the booking
+   surface. Only the 23 `partna.custom_link` connections feed the
+   `custom_links` pool.
+3. **Google aggregates stay on-demand only** for the remaining 11
+   google_business sources — no scheduled refresh cadence is added by this
+   programme.
+4. **The RLS gap is ACCEPTED and recorded** (see §8): no access path exists —
+   zero `anon`/`authenticated` grants and PostgREST is silenced. Revisit
+   pre-pilot.
+5. **anseo-studio's Fresha connection is written off** — the salon's Fresha
+   site returns 410 Gone. Not a code defect; no further investigation.
+6. **Slice 7 deletes `BackfillClaimedGoogleBusinessReviewsCommand`.**
+7. **`article` retires in Phase 1** (its only producer, Substack, is demoted
+   there). Resolves former open decision 1.
+8. **`link` items do NOT carry `item_links`.** Resolves former open
+   decision 3.
+
+### 5.2 Still open
+
+1. Sequencing within W4: promote ordering brands before or after the menu
+   pool exists? (Before = data lands nowhere; after = one extra step.
+   In the session order, slice-4-menus runs before phase-6-pseudo-platforms,
+   so the pool exists first by construction.)
 
 ---
 
@@ -429,4 +465,9 @@ does not), `content.storefronts` (carries `referral_query` — affiliate
 revenue), `content.source_stats`.
 
 Remediation is `ALTER TABLE … ENABLE ROW LEVEL SECURITY`, but enabling
-without policies blocks all access. Owner decision required.
+without policies blocks all access.
+
+**Owner ruling 2026-08-14: ACCEPTED and recorded, not actioned.** There is no
+access path today — the `anon`/`authenticated` roles hold zero grants on
+these objects and the PostgREST Data API is disabled on the project. Revisit
+before pilot.
