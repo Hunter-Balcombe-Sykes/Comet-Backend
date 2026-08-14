@@ -6,7 +6,15 @@ namespace App\Ingest\Projection;
  * (source_key, stream) → projector. The projection twin of ConnectorRegistry,
  * with one deliberate difference: an unmapped stream returns null rather than
  * throwing, because "this stream projects to no item" is a legitimate state —
- * profile_fields streams resolve through field bindings (plan §14), not here.
+ * a `target: 'none'` stream fetches for a side effect and lands no item.
+ *
+ * It is NOT a place to park an unbuilt lane. This docblock used to promise
+ * that `profile_fields` streams "resolve through field bindings (plan §14)";
+ * field bindings were built in 20260728150000 and deliberately dropped in
+ * 20260805110000, so that sentence outlived its subject by months and three
+ * connectors kept declaring a stream whose output was discarded. Phase 1
+ * deleted the seam. Identity is App\Services\Platforms\IdentitySync's job,
+ * off the connection payload, writing site.workplaces.
  *
  * A stream whose spec targets an ITEM kind but has no projector line is the
  * bug case; `ingest:project` reports those loudly instead of skipping them

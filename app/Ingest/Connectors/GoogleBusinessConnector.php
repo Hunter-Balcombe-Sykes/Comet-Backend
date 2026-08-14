@@ -68,15 +68,6 @@ class GoogleBusinessConnector implements Connector
             // PlacesBudgetGuardTest fails the build if one appears).
             hosts: [],
             streams: [
-                'profile' => new StreamSpec(
-                    name: 'profile',
-                    target: 'profile_fields',
-                    profile: SourceProfile::Identity,
-                    requires: ['display_name'],
-                    volatile: [],
-                    orderField: null,
-                    authoritativeFields: ['display_name', 'address', 'phone', 'website'],
-                ),
                 'reviews' => new StreamSpec(
                     name: 'reviews',
                     target: 'review',
@@ -130,34 +121,10 @@ class GoogleBusinessConnector implements Connector
         }
 
         yield from match ($pull->stream->name) {
-            'profile' => $this->profileMessages($place, $placeId),
             'reviews' => $this->reviewsMessages($place),
             'media' => $this->mediaMessages($place),
             default => [],
         };
-    }
-
-    /** @return iterable<Message> */
-    private function profileMessages(array $place, string $placeId): iterable
-    {
-        $doc = array_filter([
-            'display_name' => is_string(data_get($place, 'displayName.text')) ? data_get($place, 'displayName.text') : null,
-            'address' => is_string($place['formattedAddress'] ?? null) ? $place['formattedAddress'] : null,
-            'phone' => is_string($place['nationalPhoneNumber'] ?? null) ? $place['nationalPhoneNumber'] : null,
-            'website' => is_string($place['websiteUri'] ?? null) ? $place['websiteUri'] : null,
-        ], static fn ($v) => $v !== null);
-
-        if (! isset($doc['display_name'])) {
-            // No name means nothing renderable — degrade quietly rather than
-            // land a profile record the shape check would reject anyway.
-            yield new Note('no_profile_fields', 'Places details carried no display name');
-
-            return;
-        }
-
-        yield new Record('profile', $placeId, $doc);
-        // One authoritative fact-set, fully returned — never a partial list.
-        yield new Covered('profile', Coverage::exhaustive());
     }
 
     /** @return iterable<Message> */
@@ -166,12 +133,12 @@ class GoogleBusinessConnector implements Connector
         $reviews = is_array($place['reviews'] ?? null) ? $place['reviews'] : [];
 
         // Slice 6 §5.2: the place's own aggregates ride on every review record.
-        // They describe the PLACE, not the review, but the `profile` stream that
-        // would naturally own them projects to nothing (its field-bindings
-        // consumer was dropped by 20260805110000), and hanging a public-wire
-        // fact off a stream slice 7 could legitimately delete is a defect
-        // waiting for someone to act correctly. Identical across the run, so
-        // the writer's last-one-wins upsert is the intended behaviour.
+        // They describe the PLACE, not the review, and the `profile` stream
+        // that would naturally have owned them no longer exists — its
+        // field-bindings consumer was dropped by 20260805110000 and Phase 1
+        // deleted the stream itself. Riding the reviews stream was already the
+        // right call for that reason; it is now the only one. Identical across
+        // the run, so the writer's last-one-wins upsert is intended.
         // A place returning zero reviews emits no records and so no stats —
         // accepted: with no reviews there is no pool to render a rating against.
         $stats = array_filter([

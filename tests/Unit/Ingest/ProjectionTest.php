@@ -91,7 +91,7 @@ it('is versioned so a changed projector can trigger a rebuild', function () {
 it('maps a projector for every registered connector stream that targets an item kind', function () {
     foreach (ConnectorRegistry::all() as $sourceKey => $connectorClass) {
         foreach ($connectorClass::manifest()->streams as $streamName => $spec) {
-            if (in_array($spec->target, ['profile_fields', 'none'], true)) {
+            if ($spec->target === 'none') {
                 expect(ProjectorRegistry::has($sourceKey, $streamName))->toBeFalse(
                     "{$sourceKey}/{$streamName} targets {$spec->target} and must not have a projector",
                 );

@@ -82,29 +82,6 @@ it('declares no fetchable hosts at all, because its one call is a billed effect'
     expect(fn () => $io->get('https://evil.com/places/details'))->toThrow(EffectRefused::class);
 });
 
-it('yields one profile record from the places details effect, exhaustive', function () {
-    $io = gbIo(['status' => 'ok', 'cached' => false, 'data' => [
-        'displayName' => ['text' => 'Invented Cafe'],
-        'formattedAddress' => '1 Invented St, Sydney NSW 2000',
-        'nationalPhoneNumber' => '(02) 0000 0000',
-        'websiteUri' => 'https://invented-cafe.example',
-    ]]);
-
-    $messages = iterator_to_array((new GoogleBusinessConnector)->pull(gbPull('profile', 'INVENTEDPLACEID000'), $io));
-
-    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
-    $covered = array_values(array_filter($messages, fn ($m) => $m instanceof Covered));
-
-    expect($records)->toHaveCount(1)
-        ->and($records[0]->key)->toBe('INVENTEDPLACEID000')
-        ->and($records[0]->doc['display_name'])->toBe('Invented Cafe')
-        ->and($records[0]->doc['address'])->toBe('1 Invented St, Sydney NSW 2000')
-        ->and($records[0]->doc['phone'])->toBe('(02) 0000 0000')
-        ->and($records[0]->doc['website'])->toBe('https://invented-cafe.example')
-        ->and($covered)->toHaveCount(1)
-        ->and($covered[0]->coverage->toArray()['type'])->toBe('exhaustive');
-});
-
 it('yields a record per review but NEVER a coverage claim, since a sample can never be exhaustively seen', function () {
     $io = gbIo(['status' => 'ok', 'cached' => false, 'data' => [
         'reviews' => [
@@ -211,9 +188,12 @@ it('yields a record per photo with an unknown coverage claim, never exhaustive o
 });
 
 it('reports a non-ok ledger verdict as unavailable, not as an empty listing', function () {
+    // Rode the `profile` stream until Phase 1 deleted it. The behaviour is the
+    // effect-status guard, which runs before the per-stream match, so any
+    // surviving stream exercises it identically.
     $io = gbIo(['status' => 'refused', 'cached' => true, 'data' => null]);
 
-    $messages = iterator_to_array((new GoogleBusinessConnector)->pull(gbPull('profile'), $io));
+    $messages = iterator_to_array((new GoogleBusinessConnector)->pull(gbPull('reviews'), $io));
 
     expect($messages)->toHaveCount(1)
         ->and($messages[0])->toBeInstanceOf(Unavailable::class);
@@ -243,14 +223,6 @@ it('marks reviews a Sample stream that explicitly must never delete', function (
     $spec = GoogleBusinessConnector::manifest()->stream('reviews');
 
     expect($spec->profile)->toBe(SourceProfile::Sample)
-        ->and($spec->mayDelete())->toBeFalse();
-});
-
-it('marks profile an Identity stream with no order field, so it cannot delete either', function () {
-    $spec = GoogleBusinessConnector::manifest()->stream('profile');
-
-    expect($spec->profile)->toBe(SourceProfile::Identity)
-        ->and($spec->orderField)->toBeNull()
         ->and($spec->mayDelete())->toBeFalse();
 });
 

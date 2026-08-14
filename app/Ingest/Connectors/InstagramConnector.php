@@ -36,8 +36,7 @@ use App\Ingest\Support\Fields;
  * media bytes themselves are mirrored to R2 by the driver (owned-bytes
  * policy §12), never hot-linked from Instagram's expiring CDN URLs.
  *
- * Two streams off one actor result:
- *   - `profile` (Identity → profile_fields): username, name, bio, avatar.
+ * One stream off the actor result:
  *   - `media` (Feed): the recent grid. A carousel (Sidecar) is ONE media
  *     record whose `images` list carries every child frame (plan §6: one
  *     item, N gallery rows). Pinned posts are re-sorted by timestamp so a
@@ -56,18 +55,6 @@ class InstagramConnector implements Connector
             identifierKind: 'username',
             hosts: [],
             streams: [
-                'profile' => new StreamSpec(
-                    name: 'profile',
-                    target: 'profile_fields',
-                    profile: SourceProfile::Identity,
-                    requires: ['username'],
-                    volatile: [],
-                    orderField: null,
-                    // EMPTY until the P7 driver proves the field paths live:
-                    // declaring a field authoritative authorises clearing the
-                    // user's value when it comes back absent.
-                    authoritativeFields: [],
-                ),
                 'media' => new StreamSpec(
                     name: 'media',
                     target: 'media',
@@ -109,9 +96,7 @@ class InstagramConnector implements Connector
             return;
         }
 
-        yield from $pull->stream->name === 'profile'
-            ? $this->profileMessages($profile, $username)
-            : $this->mediaMessages($profile, $pull);
+        yield from $this->mediaMessages($profile, $pull);
     }
 
     /**
@@ -132,22 +117,6 @@ class InstagramConnector implements Connector
         }
 
         return $item;
-    }
-
-    /** @param array<string, mixed> $profile */
-    private function profileMessages(array $profile, string $username): iterable
-    {
-        $doc = array_filter([
-            'username' => Fields::firstString($profile, ['username', 'userName']) ?? $username,
-            'full_name' => Fields::firstString($profile, ['fullName', 'full_name']),
-            'biography' => Fields::firstString($profile, ['biography', 'bio']),
-            'avatar' => Fields::firstString($profile, ['profilePicUrlHD', 'profile_pic_url_hd', 'profilePicUrl', 'profile_pic_url']),
-            'followers' => Fields::firstInt($profile, ['followersCount', 'followers_count', 'edge_followed_by.count']),
-        ], static fn ($v) => $v !== null);
-
-        yield new Record('profile', $username, $doc);
-        // One authoritative fact-set, fully returned.
-        yield new Covered('profile', Coverage::exhaustive());
     }
 
     /** @param array<string, mixed> $profile */

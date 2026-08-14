@@ -43,7 +43,7 @@ function claimGateManifest(): Manifest
         identifierKind: 'test',
         hosts: [],
         streams: [
-            'data' => new StreamSpec(name: 'data', target: 'profile_fields', profile: SourceProfile::Mirror),
+            'data' => new StreamSpec(name: 'data', target: 'none', profile: SourceProfile::Mirror),
         ],
         redactions: ['reviewer_name', 'nested.reviewer_photo', 'reviews.*.author'],
         redactionScopes: [

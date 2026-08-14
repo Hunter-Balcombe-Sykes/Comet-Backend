@@ -31,12 +31,15 @@ use App\Ingest\Runtime\Pull;
  * exactly like the scraper does — including its `primaryAction`/
  * `secondaryAction` id's embedded `{"catalogId":"s:123"}` string, verified
  * against a real captured response (tests/Feature/Platforms/
- * RefreshFetchBudgetTest.php). `profile` reads a `location` object off the
- * SAME response for display_name/address/phone — **this path is NOT verified
- * against a live capture** (only `screenServices` is proven in this
- * codebase); it is this connector's one deliberate best-effort guess, and a
- * missing `location` degrades to a quiet Note rather than Unavailable, since
- * the call itself still succeeded.
+ * RefreshFetchBudgetTest.php).
+ *
+ * There was a second stream, `profile`, reading a `location` object off the
+ * SAME response for display_name/address/phone. Phase 1 deleted it: it
+ * targeted `profile_fields`, whose consumer was dropped by
+ * 20260805110000_drop_field_bindings.sql, so its output went nowhere. The
+ * identity work it looked like it was doing is done by
+ * App\Services\Platforms\IdentitySync, which reads the CONNECTION payload,
+ * not this stream.
  *
  * The persisted-query hash is pinned to a specific Fresha frontend build and
  * WILL rotate; `FRESHA_BOOKING_INIT_HASH` / `FRESHA_CLIENT_VERSION`
@@ -65,24 +68,6 @@ class FreshaConnector implements Connector
                     // time — there is no reverse-chron prefix to claim, so
                     // this stream is exhaustive-or-nothing, never partial.
                     orderField: null,
-                ),
-                'profile' => new StreamSpec(
-                    name: 'profile',
-                    target: 'profile_fields',
-                    profile: SourceProfile::Identity,
-                    requires: [],
-                    volatile: [],
-                    orderField: null,
-                    // EMPTY until a real capture confirms the location path
-                    // this connector currently guesses at. Declaring a field
-                    // authoritative is a claim that this source is CAPABLE of
-                    // reporting it — which authorises clearing the user's value
-                    // when it comes back absent. Making that claim on an
-                    // unverified path risks wiping a real business name,
-                    // address or phone number the first time the guess is
-                    // wrong. Populate this in the same change that verifies
-                    // the path, never before.
-                    authoritativeFields: [],
                 ),
             ],
             cost: CostClass::Free,
@@ -128,10 +113,6 @@ class FreshaConnector implements Connector
             yield from $this->servicesMessages($decoded);
 
             return;
-        }
-
-        if ($pull->stream->name === 'profile') {
-            yield from $this->profileMessages($decoded, $slug);
         }
     }
 
@@ -190,34 +171,6 @@ class FreshaConnector implements Connector
             // 12% of its menu -- vanished with no record and no signal.
             yield new Note('unmapped_rows', $unmapped.' Fresha row(s) carried no recognisable catalog id and were not landed');
         }
-    }
-
-    /** @return iterable<Message> */
-    private function profileMessages(array $decoded, string $slug): iterable
-    {
-        $location = data_get($decoded, 'data.bookingFlowInitialize.location');
-        if (! is_array($location)) {
-            // The connectivity/auth call succeeded — this is "the response
-            // didn't carry profile fields this run", not a fetch failure.
-            yield new Note('no_profile_fields', 'Fresha booking-flow response carried no location profile data');
-
-            return;
-        }
-
-        $doc = array_filter([
-            'display_name' => is_string($location['name'] ?? null) ? $location['name'] : null,
-            'address' => is_string($location['formattedAddress'] ?? null) ? $location['formattedAddress'] : null,
-            'phone' => is_string($location['phoneNumber'] ?? null) ? $location['phoneNumber'] : null,
-        ], static fn ($v) => $v !== null);
-
-        if ($doc === []) {
-            yield new Note('no_profile_fields', 'Fresha location object carried no usable profile fields');
-
-            return;
-        }
-
-        yield new Record('profile', $slug, $doc);
-        yield new Covered('profile', Coverage::exhaustive());
     }
 
     /** @return array<string, mixed>|null */
