@@ -4,18 +4,33 @@ Google reviews move from the legacy `platform_connections` payload to the conten
 pool lane. Backend-only execution; the frontends are told, not designed around
 (spec `docs/superpowers/specs/2026-08-12-slice-6-reviews-design.md`).
 
-> **STATUS (2026-08-13): PENDING — not verified on dev.** The branch is complete
-> and the two migrations (`20260813110000` `f_review.author_uri`,
-> `20260813110001` `content.source_stats`) are applied to
-> `glncumufgaqcmqhzwrxm`, but slice 6's Task 10 (verify on dev) has **not run**
-> and nothing below has been observed on a live payload. Treat every shape here
-> as the code's contract, not as measured behaviour.
+> **STATUS (2026-08-14): LIVE on dev — every shape below read back off a real
+> payload.** Merged as `9efd9516c`, deployed, and verified end to end against
+> `dev-api.partna.au`. The two migrations (`20260813110000` `f_review.author_uri`,
+> `20260813110001` `content.source_stats`) are applied to `glncumufgaqcmqhzwrxm`.
 >
-> Dev state measured 2026-08-13, before verification: `content.f_review` holds
-> 15 rows — 5 on claimed (active) accounts with attribution, 10 on unclaimed
-> accounts with author fields stripped at landing. `content.source_stats` holds
-> **0 rows**; nothing has been re-projected since the aggregates lane landed, so
-> `stats` is absent from every pool payload until a Google source runs again.
+> Read back live from `GET /api/public/profiles/kebab-acai-kingz-melbourne`:
+> `pools.reviews.stats` = `{ratingAvg: 4.4, ratingCount: 725, summaryText: null}`,
+> five review items, `headline` **null** on every one, and the `review` block
+> carrying all six keys including `authorUri`. `GET .../integrations` no longer
+> serves `reviews`, `reviewSummary`, `rating` or `reviewCount`, while `address`,
+> `amenities`, `businessStatus`, `category`, `hours`, `lat`, `links`, `lng`,
+> `name`, `phone`, `photos` and `url` still publish from that lane.
+>
+> The `source_stats` row came from one of the **never-run** google_business
+> sources, not a replay — effect replay returns the cached Details payload
+> without calling the driver, so re-running a recent source would have proved
+> nothing. `summaryText` is null because Google returned no `reviewSummary` for
+> that place; that is a data fact, not a mapping gap.
+>
+> **The §2.2 defect is closed on dev, measured:** review items carrying a
+> `headline_cache` went 15 → **0**, `f_text` rows for review-kind items 15 → **0**,
+> and the 5 that carried a real reviewer display name → **0**. All 15 review items
+> survive. Redaction holds in both directions and the new column inherits it:
+> claimed 5 rows / 5 named / 5 with `author_uri`; unclaimed 10 rows / **0** named /
+> **0** with `author_uri`.
+>
+> **Prod: NOT run**, and out of scope for this slice. Prod has never had the
 >
 > **Prod: NOT run**, and out of scope for this slice. Prod has never had the
 > content-pool migrations applied.

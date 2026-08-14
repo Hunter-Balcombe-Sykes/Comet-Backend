@@ -1064,9 +1064,62 @@ reviewer-identifying fields (`author`, `author_uri`, `author_photo`) declared in
 `GoogleBusinessConnector`'s `Manifest::$redactionScopes`, and honour the outstanding
 LEGAL-2 obligation.
 
-**Implemented 2026-08-13, dev only; not yet live-verified.** Sub-spec:
-`2026-08-12-slice-6-reviews-design.md`. Wire manifest:
+**Shipped and LIVE-VERIFIED on dev 2026-08-14 (`9efd9516c`); prod out of scope.**
+Sub-spec: `2026-08-12-slice-6-reviews-design.md`. Wire manifest:
 `docs/wire-changes/2026-08-12-slice-6-reviews.md`. What it settled:
+
+**Checkpoint — Task 10, measured on `glncumufgaqcmqhzwrxm`, counts not names.**
+
+| Assertion | Before | After |
+|---|---|---|
+| review items with `headline_cache` | 15 | **0** |
+| `f_text` rows for review-kind items | 15 | **0** |
+| of those, carrying a real display name | 5 | **0** |
+| total review items (must survive) | 15 | **15** |
+
+Redaction, both directions, with the new column inheriting it unchanged:
+claimed **5 rows / 5 named / 5 `author_uri`**; unclaimed **10 rows / 0 named /
+0 `author_uri` / 0 photo**, text and rating present on both. That `author_uri`
+landed 5/5 and 0/10 without a manifest edit is the proof the `when_unclaimed`
+scope already covered it, which §2.4 asserted but could not show until now.
+
+**The claim transition behaves as §2.1 says, not as intuition says.** One
+unclaimed user was flipped to `active` by direct SQL, re-projected scoped to
+that user, and attribution stayed **0 named / 0 `author_uri`** — redaction is
+applied at LANDING, so the stored doc is permanently redacted and only a fresh
+billed fetch past the freshness window could restore it. Status restored.
+
+**`content:prune-orphaned-review-pii` exercised against real rows for the first
+time.** One claimed review was orphaned and aged past the grace window: dry-run
+reported exactly 1, the real run deleted 1 and bumped 1 site, and afterwards the
+`f_review` row, any `f_text` row and `headline_cache` were all gone. Before this
+slice that same prune would have left the name in the latter two. Restored by
+re-projection; counts back to baseline.
+
+**`content.source_stats` proved on a NEVER-RUN source**, not a replay — effect
+replay returns the cached Details payload without calling the driver, so
+re-running a recent source proves nothing. It landed `rating_avg 4.4`,
+`rating_count 725`, `summary_text` null (Google returned no `reviewSummary` for
+that place — a data fact, not a mapping gap).
+
+**Read back off the live public wire**: `pools.reviews.stats` =
+`{ratingAvg: 4.4, ratingCount: 725, summaryText: null}`, five review items,
+`headline` null on every one, the `review` block carrying all six keys including
+`authorUri`; and `/integrations` no longer serving any of the four retired keys
+while the rest of that lane still publishes.
+
+**One premise of the plan was wrong, in our favour.** It called
+`content:purge-review-headline-pii` mandatory because `upsertSingletonFacet`
+never deletes. True — but `ingest:project --rebuild` "first drops the
+projection-derived rows … so a projector whose OUTPUT SHAPE changed leaves no
+orphans behind", which is exactly this change, and the plan's own Task 10 runs
+the rebuild first. Both purge runs therefore reported "nothing to do". The
+command is still correct and unit-tested; it is the targeted tool when a full
+rebuild is not run. **The dev run demonstrated it executes cleanly and leaves
+zero remnants — it did not demonstrate its delete path.**
+
+Nightwatch: no new exceptions since the deploy (most recent open issue last seen
+`2026-08-13T16:00`, deploy `2026-08-14T00:54`). Dev logs clean.
 
 - **The rows already existed** — see §0d. The slice was a read path plus a PII cleanup,
   not an ingest build.
