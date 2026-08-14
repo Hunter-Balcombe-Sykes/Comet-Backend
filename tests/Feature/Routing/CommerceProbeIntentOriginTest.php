@@ -43,13 +43,18 @@ it('writes a source intent whose origin is the one CommerceProbeJob actually sen
         RoutingContext::forUser($pro, $origin),
     );
 
-    // 'choose', not 'place' — and that is the design, not a shortfall. Only
-    // 'paste' is a direct request (RoutingContext::isDirectRequest()), so a
-    // probe-originated link is proposed for the user rather than auto-placed.
-    // CommerceProbeJob's ORIGIN docblock picked a non-'paste' literal for
-    // exactly this reason: it keeps the probe tombstone-safe. Pinning the
-    // verdict here means a change that quietly promoted probes to direct
-    // requests fails this test instead of resurrecting removed links in prod.
+    // 'choose' for THIS input, and the verdict is incidental to what is being
+    // tested — do not read a general rule into it. The origin does not decide
+    // place-vs-choose; PlacementPolicy does, from the surface and confidence.
+    // Nightwatch #432 caught the real failure with state='applied' on a
+    // shopify.store, i.e. the same origin reaching Place. What the origin DOES
+    // decide is directness (RoutingContext::isDirectRequest() is true only for
+    // 'paste'), which is why CommerceProbeJob deliberately chose a non-'paste'
+    // literal: it keeps the probe tombstone-safe.
+    //
+    // Both verdicts write an intent, which is the only property this test
+    // needs; it is pinned so the assertion below cannot silently start
+    // examining a row written down a different path.
     expect($result['verdict'])->toBe('choose');
 
     $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->first();
