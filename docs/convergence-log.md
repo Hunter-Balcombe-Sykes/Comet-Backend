@@ -414,3 +414,22 @@ change, so Phase 1 unit 1.3 needs no wire manifest. It is the same defect
 class as the `profile_fields` seam (F20) and the ProjectorRegistry
 field-bindings sentence — a document outliving its subject — and it is why
 Phase 8's documentation pass is worth doing properly.
+
+### F24 — Phase 2's identity baseline, re-measured at Phase 1 exit
+
+The RUNBOOK records `content.identity_keys` = 1264 (platform_object 707 +
+canonical_url 557). Measured 2026-08-14 after Phase 1:
+
+```
+identity_keys 1233 | distinct key_class 2 (canonical_url, platform_object)
+item_merges 0 | identity_candidates 0 | content.items 722
+```
+
+Phase 1 accounts for only 2 of the 31-row difference (the `article` item's
+keys). The rest moved between the RUNBOOK baseline being written and now —
+other sessions' projections landing, not this phase. **Do not reconcile Phase 2
+against 1264.** The numbers above are the verified entry state.
+
+The premise Phase 2 rests on is intact and re-confirmed: still exactly **2 of
+17 key classes**, `item_merges` and `identity_candidates` both still **0**, so
+the merge engine has genuinely never run.
