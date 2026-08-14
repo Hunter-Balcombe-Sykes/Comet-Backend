@@ -6,8 +6,19 @@ use App\Ingest\ConnectorRegistry;
 use App\Ingest\Manifest\SourceProfile;
 
 /**
- * The 14 closed item kinds and what the dashboard may do with each — the wire
+ * The 13 closed item kinds and what the dashboard may do with each — the wire
  * behind `GET /api/content/kinds` (plan §6/§16).
+ *
+ * THIS registry is the application-level truth, and it is deliberately
+ * NARROWER than the DB. `content.items.kind` and `content.source_items.kind`
+ * each carry a CHECK listing 14 values, and retiring a kind here does not
+ * narrow them: that domain is a permissive backstop, not the source of truth.
+ * The asymmetry is on purpose (convergence-log F9) — removing an unused value
+ * from a CHECK buys nothing, while the migration plus the guard rewrite it
+ * forces is disproportionate churn that risks leaving
+ * ContentKindDomainParityTest reading as authoritative when it no longer is.
+ * `article` was retired from here on 2026-08-14 with its producer (Substack)
+ * and is the first value the two sides disagree on.
  *
  * The curation flags are DERIVED, not declared twice: each kind names the
  * SourceProfile that governs it, and {@see SourceProfile::isPinnable()} /
@@ -58,8 +69,6 @@ final class KindRegistry
             'facets' => ['f_review', 'f_rated', 'f_published']],
         'document' => ['label' => 'Document', 'plural' => 'Documents', 'profile' => SourceProfile::Mirror,
             'facets' => ['f_text', 'f_link', 'f_file', 'item_media']],
-        'article' => ['label' => 'Post', 'plural' => 'Posts', 'profile' => SourceProfile::Feed,
-            'facets' => ['f_text', 'f_link', 'f_published', 'f_authored', 'item_media']],
     ];
 
     /** @return list<string> */
