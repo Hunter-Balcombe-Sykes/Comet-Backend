@@ -533,26 +533,26 @@ violated #1 and #6 itself.
 Nine slices, each independently shippable and independently verifiable. Slice 1 was
 split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 
-### 4.1 Status — 2026-08-12
+### 4.1 Status — 2026-08-14
 
 | # | Slice | Size | Status | Hard blocker |
 |---|---|---|---|---|
 | 0 | Billed-effect driver seam | M | **Merged** — checkpoint §13, plus #MONEY-1/2 fixes | — |
 | 0b | Manual-source write lane | M | **Merged** — checkpoint §12 | — |
 | 2 | The events pool (`event` only) | M | **Merged** — checkpoint §14 | — |
-| 1a | Media asset spine + upload lane | L | **Merged** — live on dev | — |
+| 1a | Media asset spine + upload lane | L | **Merged** — live on dev (checkpoint in the 1a design doc) | — |
 | 1b | Google pass-through, IG mirroring, the 91 selections | L | **Merged** — checkpoint §15 | — |
-| 3a | Services — owner-authored, pool, write cutover | L | Implemented on `feat/slice-3-services` | — |
-| 3b | Services — Fresha connector, excludes, collections | L | Not started | 3a **merged** |
+| 3a | Services — owner-authored, pool, write cutover | L | **Merged** — checkpoint §17 | — |
+| 3b | Services — Fresha connector, excludes, collections | L | **Merged** — checkpoint §19, plus the 3b-residuals follow-up | — |
 | 4 | Menus → `content.*` | XL | Not started | — |
 | 5a | Shop data move → `content.*` | L | **Merged** — checkpoint §16 | — |
-| 5b | Shop pool + public render | M | Kickoff written, spec not started | partna-monorepo |
-| 6 | Reviews → `content.*` | M | Not started | — |
-| 7 | Legacy teardown | M | Not started | 1b, 3a, 3b, 4, 5, 6 **+ frontend + standalone events** |
+| 5b | Shop pool + public render | M | **Merged** — checkpoint §18 | — |
+| 6 | Reviews → `content.*` | M | **Merged, CLOSED, live-verified** — checkpoint inline in §7 (commit `e82890b1e`) | — |
+| 7 | Legacy teardown | M | Not started | 4 **+ standalone events**; frontend gate overridden by owner ruling 2026-08-14 (rebuild, not repair — see convergence-log F17) |
 
-With 0, 0b and 2 merged, the blocker graph has almost emptied: **3a, 4, 5 and 6
-are unblocked now.** 1b needs 1a merged, 3b needs 3a merged, and 7 is gated on all
-of them.
+Everything except 4 and 7 is merged with a checkpoint on record (§12–§19; slice 6's
+is inline in §7). **Slice 4 is the only build left; 7 is unblocked the moment 4's
+checkpoint lands.**
 
 **Slice 3 split into 3a/3b on 2026-08-12**, on a seam the database dictated rather
 than a preference: all 61 `service_category_assignments` and 16 of the 18
@@ -1148,8 +1148,9 @@ Nightwatch: no new exceptions since the deploy (most recent open issue last seen
 ### Slice 7 — Legacy teardown · M
 Drop the ten tables in §1.4. Re-home the orphaned observers and policies (§9).
 
-**Gate:** the §8.4 coverage gate green on dev for every migrated type. Irreversible —
-Supabase is on the Free plan with no PITR and no managed backups.
+**Gate:** the §8.4 coverage gate green on dev for every migrated type. Irreversible
+in practice — Supabase is Pro since 2026-08-14 (daily backups), but the `pg_dump`
+per-table exact-count gate stays mandatory as the surgical control.
 
 #### Carried from slice 2 — standalone events still ride the legacy wire
 
