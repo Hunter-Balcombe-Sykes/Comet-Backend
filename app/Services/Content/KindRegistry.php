@@ -6,8 +6,16 @@ use App\Ingest\ConnectorRegistry;
 use App\Ingest\Manifest\SourceProfile;
 
 /**
- * The 13 closed item kinds and what the dashboard may do with each — the wire
- * behind `GET /api/content/kinds` (plan §6/§16).
+ * The 13 closed item kinds and what the dashboard may do with each.
+ *
+ * This docblock used to call itself "the wire behind `GET /api/content/kinds`
+ * (plan §6/§16)". **There is no such route** — verified 2026-08-14 against
+ * routes/ and a live 404 on dev. The endpoint was planned and never built, and
+ * the sentence outlived the plan. The registry's only caller in `app/` today is
+ * `SectionRuleRules`, which uses {@see self::has()} to reject a section rule
+ * naming an unknown kind; everything else here is declarative and read by
+ * tests. Said plainly because a registry that believes it is a public contract
+ * gets defended as one.
  *
  * THIS registry is the application-level truth, and it is deliberately
  * NARROWER than the DB. `content.items.kind` and `content.source_items.kind`

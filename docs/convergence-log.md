@@ -400,3 +400,17 @@ resources and routes (and twitch's live-status lane) behind **7 live
 connections**, which Phase 1 does not name and which is a product decision.
 The ingest goal is met regardless — none of the five can produce a
 `content.item` any more. Recommendation: fold it into Phase 6.
+
+### F23 — `GET /api/content/kinds` does not exist and never did
+
+`KindRegistry`'s docblock described itself as "the wire behind
+`GET /api/content/kinds` (plan §6/§16)". Verified 2026-08-14: no such route in
+`routes/`, and a live 404 on dev. The endpoint was planned and never built.
+The registry's only caller in `app/` is `SectionRuleRules`, which uses `has()`
+to reject a section rule naming an unknown kind.
+
+Consequence: retiring a kind from `KindRegistry` is **not** a public-wire
+change, so Phase 1 unit 1.3 needs no wire manifest. It is the same defect
+class as the `profile_fields` seam (F20) and the ProjectorRegistry
+field-bindings sentence — a document outliving its subject — and it is why
+Phase 8's documentation pass is worth doing properly.
