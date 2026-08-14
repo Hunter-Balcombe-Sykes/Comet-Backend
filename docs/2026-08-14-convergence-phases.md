@@ -116,7 +116,12 @@ a documents pool in Phase 3.
 - [ ] `article` absent from `KindRegistry`; 0 `article` rows in `content.items`
 - [ ] `ChannelCardProjector`, `TwitchVodProjector` and the five connectors deleted
 - [ ] No `profile_fields` target anywhere in `app/`
-- [ ] `content.f_channel` still 9 (spotify/soundcloud still produce channel — correct until Phase 4)
+- [ ] `content.f_channel` still 9 — **measured composition: spotify 4 + TWITCH 4
+      + soundcloud 1** (log F18). The criterion holds only because twitch's
+      landed items are LEFT IN PLACE; twitch is de-sourced, not deleted. Phase 4
+      must dispose of those 4 rows explicitly — they will not go away when
+      spotify and soundcloud convert to `track`, because twitch has no
+      connector left to reproject.
 
 ---
 

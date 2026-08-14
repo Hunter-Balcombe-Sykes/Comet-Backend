@@ -3129,3 +3129,124 @@ slice.
   one that does must add the column.
 - **Slice 7 inherits an undercount:** there are **18** service routes on the
   owner surface, not 17 — `UserServiceCategoryController` has seven, not six.
+
+---
+
+## 20. Phase 1 checkpoint — lean out + the `commerce_probe` fix
+
+Convergence programme Phase 1 (`docs/2026-08-14-convergence-phases.md` §1), run
+2026-08-14 on branch `feat/phase-1-lean-out`. Dev only; production untouched.
+§3 invariant 1 discharged below — every claim is a live assertion against
+`glncumufgaqcmqhzwrxm`, output pasted.
+
+### What shipped
+
+| Unit | Change |
+|---|---|
+| 1.1 | `routing.source_intents.origin` accepts `commerce_probe` (migration `20260814100000`) |
+| 1.2 | twitch, skool, strava, gumroad, substack de-sourced — 5 connectors + 4 projectors deleted |
+| 1.3 | `article` retired from `KindRegistry`; its 1 orphan row deleted |
+| 1.4 | the `profile_fields` seam deleted from all three connectors; 10 dead streams retired |
+
+### Exit criteria, measured on dev
+
+```sql
+SELECT
+  (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+     WHERE conname='source_intents_origin_check'
+       AND conrelid='routing.source_intents'::regclass)          AS origin_check,
+  (SELECT convalidated FROM pg_constraint
+     WHERE conname='source_intents_origin_check'
+       AND conrelid='routing.source_intents'::regclass)          AS validated,
+  (SELECT count(*) FROM content.items WHERE kind='article')      AS article_items,
+  (SELECT count(*) FROM content.source_items WHERE kind='article') AS article_source_items,
+  (SELECT count(*) FROM content.f_channel)                       AS f_channel,
+  (SELECT count(*) FROM content.items)                           AS items_total,
+  (SELECT count(*) FROM ingest.streams)                          AS streams_total,
+  (SELECT count(*) FROM ingest.streams WHERE stream_name='profile') AS profile_streams,
+  (SELECT count(*) FROM ingest.sources
+     WHERE source_key IN ('twitch','substack') AND auto_sync)    AS demoted_still_scheduled,
+  (SELECT count(*) FROM content.source_items WHERE item_id IS NULL) AS orphan_source_items;
+```
+
+```
+origin_check            | CHECK ((origin = ANY (ARRAY['paste'::text, 'website_import'::text,
+                        |   'link_in_bio'::text, 'bio_harvest'::text, 'google_business'::text,
+                        |   'staff'::text, 'reproject'::text, 'commerce_probe'::text])))
+validated               | true
+article_items           | 0
+article_source_items    | 0
+f_channel               | 9
+items_total             | 722
+streams_total           | 49
+profile_streams         | 0
+demoted_still_scheduled | 0
+orphan_source_items     | 0
+```
+
+The live `commerce_probe` write gate, run before cleanup (the insert succeeded
+under the new constraint, then the probe row was deleted):
+
+```sql
+INSERT INTO routing.source_intents
+  (user_id, surface_key, routing_class, identifier, canonical_url, state, origin)
+SELECT id, 'shopify.store', 'commerce', 'commerce-probe-live-gate',
+       'https://example.invalid/commerce-probe-live-gate', 'proposed', 'commerce_probe'
+FROM core.users ORDER BY created_at LIMIT 1
+RETURNING origin, state;
+-- => commerce_probe | proposed        (routing.source_intents back to 0 rows after cleanup)
+```
+
+Deltas against the RUNBOOK baseline: `content.items` 723 → 722 (the one
+`article`), `ingest.streams` 59 → 49 (the ten `profile` streams).
+`content.f_channel` is unchanged at 9, as the phase requires.
+
+### Four things a later phase must not re-derive wrongly
+
+1. **`content.f_channel` = 9 is spotify 4 + TWITCH 4 + soundcloud 1.** The
+   phases doc's parenthetical — "spotify/soundcloud still produce channel" —
+   accounts for only 5 of the 9. Twitch's 4 are landed history behind a
+   now-de-sourced connector. Phase 4 retires the `channel` kind and must
+   therefore dispose of twitch's 4 rows explicitly; they will not disappear
+   when spotify/soundcloud convert to `track`.
+
+2. **The de-sourced platforms keep their `ingest.sources` rows,
+   `auto_sync = false`.** `SourceScheduler::scoreDue()` filters on that flag,
+   so nothing claims them, and `IngestProjectCommand` skips streams with no
+   projector — so a Phase 2 `--rebuild` passes over them rather than dropping
+   their content. Deleting those rows would have taken twitch's 4 `f_channel`
+   items with them and broken this phase's own exit criterion.
+
+3. **`KindRegistry` (13 kinds) is deliberately narrower than the DB CHECK (14).**
+   `article` is the one value they disagree on. Narrowing the DB would force a
+   rewrite of `ContentKindDomainParityTest`, which reads its expected domain
+   out of two migration files BY NAME and would not see a superseding
+   migration — it would keep passing against stale text (log F9). Both
+   docblocks record this so the gap is not "fixed".
+
+4. **`SourceIntentDomainTest` now resolves the EFFECTIVE domain**, taking the
+   newest `ADD CONSTRAINT` for a column across all migrations and falling back
+   to the inline `CREATE TABLE` declaration. Before this change it read one
+   migration by name — the same latent staleness as (3). `state` and
+   `block_reason` still take the fallback path.
+
+### Raised, not done — needs an owner ruling
+
+**Phase 1.2 says the five demoted platforms end as `PD::linkOnly()`
+registrations. That half was not executed, and should not be without a
+decision.** gumroad and substack were *already* `PD::linkOnly()`, so they
+needed nothing. twitch, skool and strava are not: they carry connect
+strategies, scrapers, their own resources, route shapes, display toggles and —
+for twitch — the live-status lane (`TwitchApiClient` → `LiveStatusPoller`,
+which is unrelated to ingest and survives). Dev holds live connections behind
+them: **twitch 5, skool 1, strava 1, substack 1**.
+
+Converting those three descriptors to `linkOnly` would move real connections
+onto `LinkConnectionResource`, delete user-facing connect flows, and change the
+public wire — none of which Phase 1 names, and all of which is product, not
+cleanup. The ingest demotion (this phase's actual goal) is complete without it:
+none of the five can produce a `content.item` any more.
+
+**Recommendation:** fold the descriptor question into Phase 6, which already
+owns platform-surface retirement and has to decide each connection's
+destination anyway.
