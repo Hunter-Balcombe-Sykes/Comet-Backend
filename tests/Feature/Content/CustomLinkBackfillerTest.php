@@ -207,6 +207,54 @@ it('is idempotent across two runs', function () {
         ->and(DB::table('site.section_items')->count())->toBe(1);
 });
 
+// The command is MEANT to be re-run — it is how a link added after the first
+// pass lands, until Phase 6 moves the live write path — so a second run must
+// not restate its opinion over the owner's. Clobbering would flip an
+// `excluded` row (the owner took this link off their page) back to `pinned`
+// and republish it: a migration undoing a person's decision.
+it('leaves the owner\'s later exclusion alone on a re-run', function () {
+    [$userId, $siteId] = seedUserWithSite();
+    customLink($userId);
+
+    app(CustomLinkBackfiller::class)->run();
+
+    DB::table('site.section_items')->update(['state' => 'excluded', 'sort_key' => null]);
+
+    $result = app(CustomLinkBackfiller::class)->run();
+
+    expect($result['already_curated'])->toBe(1)
+        ->and(DB::table('site.section_items')->value('state'))->toBe('excluded')
+        ->and(app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'custom_links')['selection'])
+        ->toBe([]);
+});
+
+// Corollary: a link added after the first run APPENDS. Seeding the pin counter
+// from 1.0 on every run would drop each new link in front of the arrangement
+// the first run wrote.
+it('appends a newly-added link after the existing pins', function () {
+    // Distinct created_at on purpose: two rows sharing BOTH sort_order and
+    // created_at fall through to the uuid tie-break, which is deterministic in
+    // production (it has to break somewhere) but arbitrary in a fixture.
+    [$userId, $siteId] = seedUserWithSite();
+    customLink($userId, ['url' => 'https://a.example'], ['created_at' => now()->subDays(2)->toDateTimeString()]);
+    customLink($userId, ['url' => 'https://b.example'], ['created_at' => now()->subDay()->toDateTimeString()]);
+
+    app(CustomLinkBackfiller::class)->run();
+
+    customLink($userId, ['url' => 'https://c.example'], ['sort_order' => 0]);
+
+    app(CustomLinkBackfiller::class)->run();
+
+    $ordered = DB::table('site.section_items as si')
+        ->join('content.f_link as fl', 'fl.item_id', '=', 'si.item_id')
+        ->where('si.state', 'pinned')
+        ->orderBy('si.sort_key')
+        ->pluck('fl.url')
+        ->all();
+
+    expect($ordered)->toBe(['https://a.example', 'https://b.example', 'https://c.example']);
+});
+
 it('writes nothing under dry run but still counts', function () {
     [$userId] = seedUserWithSite();
     customLink($userId);

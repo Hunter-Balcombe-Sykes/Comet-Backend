@@ -46,12 +46,12 @@ class CustomLinkBackfiller
         private readonly PoolSectionProvisioner $sections,
     ) {}
 
-    /** @return array{backfilled: int, duplicate_url: int, skipped_no_url: int, skipped_no_site: int, failed: int} */
+    /** @return array{backfilled: int, duplicate_url: int, skipped_no_url: int, skipped_no_site: int, already_curated: int, failed: int} */
     public function run(bool $dryRun = false, ?string $userId = null): array
     {
         $result = [
             'backfilled' => 0, 'duplicate_url' => 0, 'skipped_no_url' => 0,
-            'skipped_no_site' => 0, 'failed' => 0,
+            'skipped_no_site' => 0, 'already_curated' => 0, 'failed' => 0,
         ];
 
         $rows = DB::connection('pgsql')->table('site.platform_connections')
@@ -71,7 +71,7 @@ class CustomLinkBackfiller
         $sites = [];
         /** @var array<string, array<string, true>> user id => coords already written this run */
         $seen = [];
-        /** @var array<string, float> user id => next pin position */
+        /** @var array<string, float> section id => last pin position written */
         $position = [];
         $touchedSites = [];
 
@@ -126,11 +126,19 @@ class CustomLinkBackfiller
                 // curation row would be re-selected by the section's kind_is
                 // rule and republished on the new lane, which is the pathology
                 // slice 6 hit from the other side.
-                (bool) ($connection->is_active ?? true)
-                    ? $this->pin($site, $itemId, $position[$owner] = ($position[$owner] ?? 0.0) + 1.0)
-                    : $this->exclude($site, $itemId);
+                $curated = $this->curate(
+                    $site,
+                    $itemId,
+                    (bool) ($connection->is_active ?? true),
+                    $position,
+                );
 
-                $touchedSites[(string) $site->id] = true;
+                if ($curated) {
+                    $touchedSites[(string) $site->id] = true;
+                } else {
+                    $result['already_curated']++;
+                }
+
                 $result['backfilled']++;
             } catch (\Throwable $e) {
                 report($e);
@@ -221,43 +229,70 @@ class CustomLinkBackfiller
     }
 
     /**
-     * Owner ordering lives in the CURATION half (parent §3.3): a pin, not a new
+     * Write this item's curation, unless it already has some. Returns whether
+     * anything was written.
+     *
+     * FIRST WRITE WINS, and that is the whole point. This command is meant to
+     * be re-run — it is how a link added after the first pass lands, until
+     * Phase 6 moves the live write path — so a second run must not restate its
+     * opinion over the owner's. Clobbering unconditionally would flip an
+     * `excluded` row (the owner removed this link from their page) back to
+     * `pinned` and republish it, which is a migration undoing a person's
+     * decision. It also means the legacy `is_active` flag governs only at FIRST
+     * SIGHT: after that the pool's own curation is the record.
+     *
+     * Owner ordering lives in the curation half (parent §3.3): a pin, not a new
      * ordering operator. It also protects the row — mergeInto()'s hasCuration
      * check reads site.section_items, so a pinned item cannot be hard-deleted
      * by a later merge (parent §8.3).
+     *
+     * @param  array<string, float>  $position  per-section pin counter, by reference
      */
-    private function pin(Site $site, string $itemId, float $sortKey): void
-    {
-        $row = $this->curationRow($site, $itemId);
-        $row->state = SectionItem::STATE_PINNED;
-        $row->sort_key = $sortKey;
-        $row->save();
-    }
-
-    /** A live-but-hidden link. No sort_key — a stale one would resurface it in pin order. */
-    private function exclude(Site $site, string $itemId): void
-    {
-        $row = $this->curationRow($site, $itemId);
-        $row->state = SectionItem::STATE_EXCLUDED;
-        $row->sort_key = null;
-        $row->save();
-    }
-
-    private function curationRow(Site $site, string $itemId): SectionItem
+    private function curate(Site $site, string $itemId, bool $isActive, array &$position): bool
     {
         $section = $this->sections->ensure($site, self::POOL);
+        $sectionId = (string) $section->id;
 
-        $row = SectionItem::query()
-            ->where('section_id', $section->id)
+        $exists = SectionItem::query()
+            ->where('section_id', $sectionId)
             ->where('item_id', $itemId)
-            ->first() ?? new SectionItem;
+            ->exists();
 
-        $row->section_id = (string) $section->id;
-        $row->item_id = $itemId;
-        if (! $row->exists) {
-            $row->created_at = now();
+        if ($exists) {
+            return false;
         }
 
-        return $row;
+        $row = new SectionItem;
+        $row->section_id = $sectionId;
+        $row->item_id = $itemId;
+        $row->created_at = now();
+
+        if ($isActive) {
+            $row->state = SectionItem::STATE_PINNED;
+            // Seeded from what is already pinned so a re-run APPENDS. Starting
+            // from 1.0 every time would drop each newly-added link in front of
+            // the arrangement the first run wrote.
+            $row->sort_key = $position[$sectionId] = ($position[$sectionId] ?? $this->highestSortKey($sectionId)) + 1.0;
+        } else {
+            // No sort_key — a stale one would resurface it in pin order the
+            // moment a later write forgets to clear excluded state first.
+            $row->state = SectionItem::STATE_EXCLUDED;
+            $row->sort_key = null;
+        }
+
+        $row->save();
+
+        return true;
+    }
+
+    /** The highest pin position already in this section, or 0.0. */
+    private function highestSortKey(string $sectionId): float
+    {
+        $highest = SectionItem::query()
+            ->where('section_id', $sectionId)
+            ->where('state', SectionItem::STATE_PINNED)
+            ->max('sort_key');
+
+        return $highest === null ? 0.0 : (float) $highest;
     }
 }
