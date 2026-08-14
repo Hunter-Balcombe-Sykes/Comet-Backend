@@ -137,6 +137,30 @@ yours to take, not to inherit.
 doc shape. The identity resolver **unions across sources by design**, so the same
 dish sold on two platforms collapses to one `content.item` with two `offers`.
 
+**Amended 2026-08-14 (convergence Phase 2).** That sentence was aspirational when it
+was written: `writeIdentityKeys()` emitted only `platform_object` and `canonical_url`,
+neither of which can match across platforms, so two `menu_item` rows could never have
+unioned. Phase 2 shipped the emission and the union now genuinely fires. What that
+means concretely for your Unit 4:
+
+- The key that does the work is **`offering_name_in_category`** — `norm(category)|norm(dish)`,
+  minLength 5. It is what makes "Fries" and "Cola" mergeable at all; bare
+  `offering_name` has minLength 8 and drops them. **It is derived from the
+  projection's `collections` entries**, so `MenuItemProjector` must emit a category
+  with a non-empty `label` or short dishes silently stop merging. Verify this on real
+  scraped output, not on a fixture.
+- `offering_name_spec` (`norm(name)|seconds`) needs `f_duration` and so does nothing
+  for menu items; `name_price_band` is evidential and only ever raises a candidate.
+- Corroborating unions are **cross-source only and skip poisoned values**: if ONE
+  platform lists the same normalised dish name twice (a size variant, a duplicate
+  listing), that value is discarded for the whole run rather than merged. Expect the
+  coord-coverage assertion to see fewer merges than a naive name match predicts, and
+  check `content.identity_candidates` for what got deferred to review instead.
+- Live on dev at Phase 2 exit: 12 key classes, `item_merges` 0 — because no two
+  sources on dev yet carry the same dish. Yours will be the **first** slice to
+  produce real merges, so §8.3's hard-delete of uncurated losers gets exercised for
+  the first time by your backfill. Inspect `content.item_merges` row by row.
+
 **This is why parent §8.4 replaced row-count equality with coord coverage.** 318
 legacy rows will legitimately become fewer items. Assert coord coverage; a
 count-equality assertion here is wrong and will either fail forever or be weakened
