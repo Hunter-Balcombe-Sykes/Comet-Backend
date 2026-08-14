@@ -49,7 +49,7 @@ SELECT count(*) FROM site.menu_platform_links;              -- expect 6
 -- THE 301 LANE. Every dish has a slug; these are live public URLs.
 SELECT item_type, count(*), count(*) FILTER (WHERE retired_at IS NOT NULL) AS retired
 FROM site.item_slugs GROUP BY 1;
-SELECT count(*) FROM content.item_slugs;                    -- the destination; expect 0
+SELECT count(*) FROM content.item_slugs;                    -- the destination; expect 16 (slice 2 dual-wrote event slugs)
 
 -- Pricing shape you must reproduce in offers
 SELECT count(*) FILTER (WHERE base_price     IS NOT NULL) AS base,
@@ -75,9 +75,13 @@ permalink *and its redirect history*. Slice 4 owns this, not slice 7.
 
 Design it explicitly:
 - retired slugs migrate too, with their `retired_at`, or the 301s die
-- slug **uniqueness scope** — verify whether it is per-site or global, and whether
-  `content.item_slugs` enforces the same. A scope mismatch silently drops rows on
-  insert.
+- slug **uniqueness scope is settled — the migration is collision-free** (verified
+  live 2026-08-14, convergence-log F11): both tables enforce UNIQUE `(user_id, slug)`,
+  so no scope mismatch exists. Nine live collisions do exist between the two tables
+  and **every one is `item_type='event'`, zero `menu_item`** — they are slice 2's
+  dual-write (16 event slugs copied to `content.item_slugs`, 11 legacy rows left
+  behind), and **teardown (slice 7) deletes those 11 legacy event slugs**
+  (owner-approved). They are not yours; do not migrate or delete them.
 - after the cutover, who allocates a slug for a new dish? `MenuItemObserver` dies
   with the table (§9.4), so the behaviour must be re-homed onto the `content.*` write
   path **in this slice**, not deferred.
@@ -156,6 +160,13 @@ Owner decision 2026-08-12: **all four remaining commerce types get pools.** Add 
 `PoolRegistry` entry (`POOLS`, `PAGE_KEYS`, `PAGE_LABELS`, plus a `SECTION_SHAPE`
 block) and provision sections for existing users. `buildPools()` loops all `POOLS`,
 so it ships publicly with no payload-builder change.
+
+**Pool addition is registry config only — no migration** (verified: no CHECK on
+`site.pages.key`/`site.sections.key`; `PoolSectionProvisioner::ensure()` creates
+lazily, idempotent). **The template is the reviews-pool commit `8dd1ff989`** —
+`PoolRegistry` const-array entries plus one test. **Pool tests must live in
+`tests/Feature/Content/`** — a new `tests/Feature/` child directory fails
+`AuditPipelineIntegrityTest` until wired into `codebase_chunks()`; do not create one.
 
 - **Not** in `LATEST_TAG_POOLS` — a "latest dish" is meaningless.
 - Existing menu curation migrates into pool pins/excludes, the way slice 2 migrated
