@@ -333,3 +333,70 @@ before any of this work.
 | `pg_dump` | verified with real data (see F3) |
 | Nightwatch | app `a1698025-90b3-426d-94ae-4b85ae5bb4c2` |
 | `cloud env:logs` | works; `--minutes` window appears lagged |
+
+---
+
+## 2026-08-14 · Phase 1 EXECUTED (branch `feat/phase-1-lean-out`, dev only)
+
+Doc hygiene (Unit 0) plus Phase 1 units 1.1–1.4. Checkpoint with live SQL is
+parent spec **§20**. Counts: `content.items` 723 → 722, `ingest.streams`
+59 → 49, `content.f_channel` unchanged at 9.
+
+### F18 — `f_channel`'s 9 rows are NOT all spotify/soundcloud
+
+The phases doc justified "f_channel still 9" with "(spotify/soundcloud still
+produce channel)". Measured: **spotify 4 + twitch 4 + soundcloud 1**. So the
+criterion holds only because twitch's landed items were LEFT IN PLACE. The
+exit criterion and its own parenthetical explanation disagreed with the data;
+the criterion was followed, the explanation is corrected here.
+
+**Consequence for Phase 4:** retiring the `channel` kind must dispose of
+twitch's 4 rows explicitly. They do not go away when spotify and soundcloud
+convert to `track`, because twitch no longer has a connector to reproject.
+
+### F19 — de-sourcing ≠ deleting; `auto_sync` is the existing retirement seam
+
+The five demoted platforms keep their `ingest.sources` rows with
+`auto_sync = false`. `SourceScheduler::scoreDue()` filters on that flag (so
+nothing is ever claimed, and `RunSourceJob` never reaches the deleted
+connector), and `IngestProjectCommand` `continue`s past any stream with no
+projector (so a `--rebuild` does not drop their content). This was chosen over
+deleting the rows precisely because deletion would have taken twitch's 4
+`f_channel` items with it — see F18. Reversible: flip the flag back.
+
+### F20 — the profile_fields seam landed 6 records and 0 items, confirming F15
+
+Measured before deletion: 10 `profile` streams (fresha 4, google_business 4,
+instagram 2), 6 `record_state` / 6 `record_versions` between them, and
+**0 `content.source_items`**. The seam cost fetches and produced nothing, for
+months. Deleted with its rows. `IdentitySync` and `site.workplaces` untouched.
+
+### F21 — a domain guard that reads ONE migration by name goes stale silently
+
+`SourceIntentDomainTest` extracted the origin domain from
+`20260727120000_routing_schema.sql` alone. Unit 1.1's superseding `ALTER`
+would have left it comparing the original text — passing while live and test
+diverged. This is F9's failure mode, live, in a second guard. Fixed by
+resolving the *effective* domain (newest `ADD CONSTRAINT` for the column,
+inline declaration as fallback). **`ContentKindDomainParityTest` still has the
+unfixed version of this problem**, which is exactly why Phase 1 did not narrow
+the kind CHECK.
+
+### F22 — the two drivers disagree about CHECK violations
+
+Postgres raises 23514 on the intent insert. SQLite does not: the insert goes
+through `insertOrIgnore()`, and `INSERT OR IGNORE` swallows CHECK violations
+as well as unique ones, so the row is silently skipped and it is
+`SourceReconciler`'s own "Could not upsert source intent" invariant that
+throws. A regression test phrased as "does not throw" would be testing two
+different mechanisms; assert the ROW EXISTS instead.
+
+### Decision — the `PD::linkOnly()` half of 1.2 was NOT executed
+
+Raised for an owner ruling rather than done; full reasoning in spec §20's
+final section. In short: gumroad and substack were already `linkOnly`;
+converting twitch/skool/strava would delete live user-facing connect flows,
+resources and routes (and twitch's live-status lane) behind **7 live
+connections**, which Phase 1 does not name and which is a product decision.
+The ingest goal is met regardless — none of the five can produce a
+`content.item` any more. Recommendation: fold it into Phase 6.

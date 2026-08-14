@@ -100,7 +100,7 @@ it('writes a new version for a changed document, demotes the previous one, and p
 });
 
 it('does not change the hash when a document\'s keys are reordered', function () {
-    $spec = new StreamSpec(name: 'profile', target: 'profile_fields', profile: SourceProfile::Identity);
+    $spec = new StreamSpec(name: 'profile', target: 'none', profile: SourceProfile::Identity);
     $lander = new Lander;
 
     $first = $lander->land('s1', 'r1', $spec, [new Record('profile', 'k1', ['a' => 1, 'b' => 2])], null);
@@ -143,7 +143,7 @@ it('excludes a volatile path from the hash, but the stored document keeps its fu
 });
 
 it('applies redactions before landing — a redacted path never reaches the stored document', function () {
-    $spec = new StreamSpec(name: 'profile', target: 'profile_fields', profile: SourceProfile::Identity);
+    $spec = new StreamSpec(name: 'profile', target: 'none', profile: SourceProfile::Identity);
     $lander = new Lander;
 
     $lander->land('s1', 'r1', $spec, [new Record('profile', 'k1', ['name' => 'Jane', 'ssn' => '123-45-6789'])], null, ['ssn']);

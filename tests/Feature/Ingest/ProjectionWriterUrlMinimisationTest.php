@@ -43,21 +43,29 @@ function pumBandcampStream(string $userId): array
     return [$source, $streamId];
 }
 
-/** @return array{0: array<string, mixed>, 1: string} ingest.sources row + streamId — a gumroad "products" stream. */
-function pumGumroadStream(string $userId): array
+/**
+ * @return array{0: array<string, mixed>, 1: string} ingest.sources row + streamId — an eventbrite "events" stream.
+ *
+ * Was a gumroad "products" stream until Phase 1 de-sourced Gumroad. The
+ * behaviour under test is ProjectionWriter's, not any one projector's — the
+ * minimisation happens at the single `SecretParams::minimiseUrl($offer['url'])`
+ * call — so it just needs any live lane whose projection carries an offer with
+ * a url. Eventbrite is that lane.
+ */
+function pumEventbriteStream(string $userId): array
 {
     $connection = IntegrationConnection::create([
         'user_id' => $userId,
-        'platform' => 'gumroad',
+        'platform' => 'eventbrite',
         'resource_id' => 'acct-'.substr(sha1(Str::random(8)), 0, 16),
-        'payload' => ['url' => 'https://'.Str::lower(Str::random(8)).'.gumroad.com'],
+        'payload' => ['url' => 'https://www.eventbrite.com/o/'.Str::lower(Str::random(8))],
         'is_active' => true,
     ]);
 
     $source = (array) DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
     $streamId = (string) Str::uuid();
     DB::table('ingest.streams')->insert([
-        'id' => $streamId, 'source_id' => $source['id'], 'stream_name' => 'products',
+        'id' => $streamId, 'source_id' => $source['id'], 'stream_name' => 'events',
         'created_at' => now(), 'updated_at' => now(),
     ]);
 
@@ -109,16 +117,17 @@ it('minimises f_link.url and the media source_url, keeping the load-bearing id p
 
 it('minimises content.offers.url the same way as f_link.url', function () {
     $userId = createTenant('pum-'.Str::lower(Str::random(6)))->id;
-    [$source, $streamId] = pumGumroadStream($userId);
+    [$source, $streamId] = pumEventbriteStream($userId);
 
-    pumLand($streamId, 'products/1', [
-        'name' => 'A Product',
+    pumLand($streamId, 'events/1', [
+        'name' => 'An Event',
         'url' => PUM_URL,
-        'price_cents' => 500,
-        'currency' => 'USD',
+        'startDate' => '2026-09-01T18:00:00+10:00',
+        'price_min' => 5.0,
+        'currency' => 'AUD',
     ]);
 
-    $result = app(ProjectionWriter::class)->projectStream($source, $streamId, 'products');
+    $result = app(ProjectionWriter::class)->projectStream($source, $streamId, 'events');
     expect($result['status'])->toBe('ok');
 
     $item = DB::table('content.items')->where('user_id', $userId)->first();

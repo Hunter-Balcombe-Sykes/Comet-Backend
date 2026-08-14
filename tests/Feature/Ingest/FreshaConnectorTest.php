@@ -130,31 +130,6 @@ it('yields a record per service plus an exhaustive coverage claim, since the who
         ->and($covered[0]->coverage->toArray()['type'])->toBe('exhaustive');
 });
 
-it('yields one profile record from the same booking-flow response, also exhaustive', function () {
-    $io = freshaIo([
-        'status' => 200,
-        'body' => freshaBookingFlowBody([], [
-            'name' => 'Invented Salon',
-            'formattedAddress' => '123 Invented St, Sydney NSW',
-            'phoneNumber' => '+61 2 0000 0000',
-        ]),
-        'headers' => [],
-    ]);
-
-    $messages = iterator_to_array((new FreshaConnector)->pull(freshaPull('profile', 'invented-salon'), $io));
-
-    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
-    $covered = array_values(array_filter($messages, fn ($m) => $m instanceof Covered));
-
-    expect($records)->toHaveCount(1)
-        ->and($records[0]->key)->toBe('invented-salon')
-        ->and($records[0]->doc['display_name'])->toBe('Invented Salon')
-        ->and($records[0]->doc['address'])->toBe('123 Invented St, Sydney NSW')
-        ->and($records[0]->doc['phone'])->toBe('+61 2 0000 0000')
-        ->and($covered)->toHaveCount(1)
-        ->and($covered[0]->coverage->toArray()['type'])->toBe('exhaustive');
-});
-
 it('reports a non-200 booking-flow response as unavailable', function () {
     $io = freshaIo(['status' => 500, 'body' => '', 'headers' => []]);
 
@@ -217,20 +192,6 @@ it('emits no coverage when categories parse but nothing maps to a real service',
         ->and(array_filter($messages, fn ($m) => $m instanceof Covered))->toBeEmpty();
 });
 
-it('emits a note with no coverage when the response carries no location profile data', function () {
-    $io = freshaIo([
-        'status' => 200,
-        'body' => freshaBookingFlowBody([]),
-        'headers' => [],
-    ]);
-
-    $messages = iterator_to_array((new FreshaConnector)->pull(freshaPull('profile'), $io));
-
-    expect($messages)->toHaveCount(1)
-        ->and($messages[0])->toBeInstanceOf(Note::class)
-        ->and(array_filter($messages, fn ($m) => $m instanceof Covered))->toBeEmpty();
-});
-
 it('refuses to post to a host outside its own manifest', function () {
     $io = freshaIo(['status' => 200, 'body' => freshaBookingFlowBody([]), 'headers' => []]);
 
@@ -242,14 +203,6 @@ it('marks services exhaustive-or-nothing: a Catalogue profile with no order fiel
     $spec = FreshaConnector::manifest()->stream('services');
 
     expect($spec->profile)->toBe(SourceProfile::Catalogue)
-        ->and($spec->orderField)->toBeNull()
-        ->and($spec->mayDelete())->toBeFalse();
-});
-
-it('marks profile an Identity stream with no order field, so it can never delete either', function () {
-    $spec = FreshaConnector::manifest()->stream('profile');
-
-    expect($spec->profile)->toBe(SourceProfile::Identity)
         ->and($spec->orderField)->toBeNull()
         ->and($spec->mayDelete())->toBeFalse();
 });
@@ -286,16 +239,6 @@ it('asks for the store menu when storewide is chosen', function () {
     $options = $io->posts[0]['body']['variables']['input']['options'];
     expect($options['employeeId'])->toBeNull()
         ->and($options['shouldShowAllEmployees'])->toBeFalse();
-});
-
-// The profile stream does not depend on whose menu it is.
-it('still fetches profile when nothing has been chosen', function () {
-    $io = freshaIo(freshaResponseWith([['id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1')]]]));
-    $pull = freshaPull('profile', 'some-salon-abc123', config: ['selection_ref' => null]);
-
-    iterator_to_array((new FreshaConnector)->pull($pull, $io));
-
-    expect($io->posts)->toHaveCount(1);
 });
 
 it('lands a package row whose catalog id is only on the secondary action', function () {

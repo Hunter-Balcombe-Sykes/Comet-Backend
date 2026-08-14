@@ -126,10 +126,13 @@ it('bills once for a whole run and lands records on every stream', function () {
         ]);
     }));
 
+    // Two streams, not three: Phase 1 deleted `profile`. The point of the test
+    // is unchanged and is the $calls assertion — ONE billed Places call serves
+    // every stream in the run, however many that is.
     expect($result['outcome'])->toBe('ok')
         ->and($calls)->toBe(1)
-        ->and($result['streams'])->toBe(['profile' => 'ok', 'reviews' => 'ok', 'media' => 'ok'])
+        ->and($result['streams'])->toBe(['reviews' => 'ok', 'media' => 'ok'])
         ->and(DB::table('ingest.effects')->where('status', 'ok')->count())->toBe(1);
 
-    expect(DB::table('ingest.record_state')->whereNull('tombstoned_at')->count())->toBe(3);
+    expect(DB::table('ingest.record_state')->whereNull('tombstoned_at')->count())->toBe(2);
 });

@@ -12,8 +12,8 @@ namespace App\Ingest\Manifest;
 final readonly class StreamSpec
 {
     /**
-     * @param  string  $name  'releases' | 'profile' | 'reviews' | 'media' | …
-     * @param  string  $target  projection target: item kind, 'profile_fields', or 'none'
+     * @param  string  $name  'releases' | 'reviews' | 'media' | …
+     * @param  string  $target  projection target: an item kind, or 'none'
      * @param  list<string>  $requires  JSON paths that MUST be present (violation ⇒ Shape)
      * @param  list<string>  $volatile  paths excluded from doc_hash (rotating CDN params etc.)
      * @param  ?string  $orderField  enables prefix domination; null ⇒ this stream can NEVER delete

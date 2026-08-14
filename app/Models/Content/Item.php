@@ -20,7 +20,9 @@ use Illuminate\Support\Carbon;
  *
  * @property string $id
  * @property string $user_id FK → core.users.id.
- * @property string $kind One of the 14 closed kinds — see KindRegistry.
+ * @property string $kind One of the 13 closed kinds — see KindRegistry. (The
+ *                        DB CHECK still permits 14; the registry is narrower
+ *                        on purpose — see KindRegistry's docblock.)
  * @property string|null $headline_cache Dashboard filtering only; serving joins live tables.
  * @property list<string> $facets_cache
  * @property list<string> $eligible_cache

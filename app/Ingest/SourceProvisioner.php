@@ -193,9 +193,6 @@ class SourceProvisioner
                 ?? $this->bareSlug($resource, 'fresha'),
             'instagram' => $this->instagramUsername($payload['username'] ?? null)
                 ?? $this->instagramUsername($this->bareSlug($resource, 'instagram')),
-            'gumroad' => $this->gumroadSubdomain($payload['url'] ?? null)
-                ?? $this->gumroadSubdomain($resource)
-                ?? $this->bareSlug($resource, 'gumroad'),
             'google_business' => $this->cleanString($connection->place_id)
                 ?? $this->cleanString($payload['placeId'] ?? null)
                 ?? $this->googlePlaceId($resource),
@@ -208,14 +205,6 @@ class SourceProvisioner
                 ?? $this->menuStoreUrl('uber-eats', $resource),
             'doordash' => $this->menuStoreUrl('doordash', $payload['url'] ?? null)
                 ?? $this->menuStoreUrl('doordash', $resource),
-            'skool' => $this->skoolUrl($payload['url'] ?? null)
-                ?? $this->skoolUrl($this->bareSlug($resource, 'skool')),
-            'strava' => $this->stravaClubUrl($payload['url'] ?? null)
-                ?? $this->stravaClubUrl($this->bareSlug($resource, 'strava')),
-            'substack' => $this->bareSlug($resource, 'substack')
-                ?? $this->substackSlug($payload['url'] ?? null),
-            'twitch' => $this->twitchLogin($payload['login'] ?? null)
-                ?? $this->twitchLogin($this->bareSlug($resource, 'twitch')),
             default => null,
         };
     }
@@ -392,69 +381,6 @@ class SourceProvisioner
         return null;
     }
 
-    /** The store subdomain from a {sub}.gumroad.com URL (never gumroad.com itself). */
-    private function gumroadSubdomain(mixed $value): ?string
-    {
-        $value = $this->cleanString($value);
-        if ($value !== null && preg_match('~^https?://([a-z0-9][a-z0-9-]*)\.gumroad\.com~i', $value, $m)
-            && strtolower($m[1]) !== 'www' && strtolower($m[1]) !== 'app') {
-            return strtolower($m[1]);
-        }
-
-        return null;
-    }
-
-    /** Canonical Skool community URL from a skool.com link or a bare slug. */
-    private function skoolUrl(mixed $value): ?string
-    {
-        $value = $this->cleanString($value);
-        if ($value === null) {
-            return null;
-        }
-        if (preg_match('~^https?://(?:www\.)?skool\.com/([a-z0-9][a-z0-9-]*)~i', $value, $m)) {
-            $slug = strtolower($m[1]);
-        } elseif (preg_match('~^[a-z0-9][a-z0-9-]*$~i', $value)) {
-            $slug = strtolower($value);
-        } else {
-            return null;
-        }
-
-        // Product pages, not communities.
-        if (in_array($slug, ['signup', 'login', 'discovery', 'games', 'about', 'legal', 'careers', 'affiliates'], true)) {
-            return null;
-        }
-
-        return 'https://www.skool.com/'.$slug;
-    }
-
-    /** Canonical Strava club URL from a strava.com/clubs link or a bare slug/id. */
-    private function stravaClubUrl(mixed $value): ?string
-    {
-        $value = $this->cleanString($value);
-        if ($value === null) {
-            return null;
-        }
-        if (preg_match('~^https?://(?:www\.)?strava\.com/clubs/([A-Za-z0-9_-]+)~i', $value, $m)) {
-            return 'https://www.strava.com/clubs/'.$m[1];
-        }
-        if (preg_match('~^[A-Za-z0-9_-]{2,60}$~', $value)) {
-            return 'https://www.strava.com/clubs/'.$value;
-        }
-
-        return null;
-    }
-
-    /** A twitch login: 3–25 word chars, lowercased. */
-    private function twitchLogin(mixed $value): ?string
-    {
-        $value = $this->cleanString($value);
-        if ($value !== null && preg_match('/^@?([A-Za-z0-9_]{3,25})$/', $value, $m)) {
-            return strtolower($m[1]);
-        }
-
-        return null;
-    }
-
     /** Canonical SoundCloud entity URL (profile/track/set, ≤3 path segments). */
     private function soundcloudUrl(mixed $value): ?string
     {
@@ -513,15 +439,5 @@ class SourceProvisioner
         // Place ids in the wild start ChIJ/GhIJ/EiC…; accept the conservative
         // common case only — anything else is a legacy placeholder.
         return preg_match('/^ChIJ[A-Za-z0-9_-]{10,}$/', $value) ? $value : null;
-    }
-
-    private function substackSlug(mixed $value): ?string
-    {
-        $value = $this->cleanString($value);
-        if ($value !== null && preg_match('~^https?://([a-z0-9-]+)\.substack\.com~i', $value, $m)) {
-            return strtolower($m[1]);
-        }
-
-        return null;
     }
 }

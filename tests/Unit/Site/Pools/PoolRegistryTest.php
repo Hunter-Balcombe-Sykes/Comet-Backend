@@ -73,24 +73,28 @@ it('provisions every pool with a registered operator and a valid ordering', func
     }
 });
 
-// Slice 2 deliberately leaves `channel` and `article` poolless. Both are
-// live kinds with rows in content.items, so "no pool" must be a decision on
-// the record rather than an oversight the next reader silently corrects.
+// Slice 2 deliberately leaves `channel` poolless. It is a live kind with rows
+// in content.items, so "no pool" must be a decision on the record rather than
+// an oversight the next reader silently corrects.
 //
-//  channel — 7 rows: Twitch 3, Spotify 3, SoundCloud 1. NOT architecturally
+//  channel — 9 rows: Spotify 4, Twitch 4, SoundCloud 1. NOT architecturally
 //    blocked: two pools may share a page key, so a 'channels' pool pinned to
 //    an existing page would provision fine. The objection is product — those
 //    platforms own TWO different pages (Watch and Listen), so one pool mixes
 //    them; and a channel card is a profile, not content. Owner's call, unmade.
-//  article — 1 row (Substack). Unblocked technically; needs a Writing page,
-//    which is a new SitepageId case in LOCKSTEP with the frontend taxonomy.
-//    Owner declined 2026-08-11.
+//    The kind itself retires in Phase 4, once Spotify and SoundCloud project
+//    `track` instead; Twitch's 4 are landed history behind a de-sourced
+//    connector.
+//
+// `article` used to be listed here too. It is no longer a deferred kind —
+// Phase 1 retired it from KindRegistry with its only producer (Substack), so
+// there is no decision left to record.
 //
 // Delete the relevant line here when you build the pool — the failure is the
 // reminder to also update the deferral note in the slice-2 plan.
 it('keeps the deferred kinds out of every pool', function (string $kind) {
     expect(PoolRegistry::poolForKind($kind))->toBeNull();
-})->with(['channel', 'article']);
+})->with(['channel']);
 
 it('provisions media with a bare kind_is rule — a gallery wants every photo, not one per source', function () {
     $shape = PoolRegistry::sectionShape('media');

@@ -109,18 +109,14 @@ it('describes exactly one ledgered actor effect and never touches http', functio
         ->and($io->effects[0]['input']['username'])->toBe('some.studio');
 });
 
-it('lands the profile stream as one exhaustive identity record', function () {
-    $io = instagramIo(['status' => 'ok', 'cached' => false, 'data' => [instagramActorProfile()]]);
-
-    $messages = iterator_to_array((new InstagramConnector)->pull(instagramPull('profile'), $io));
-    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
-    $covered = array_values(array_filter($messages, fn ($m) => $m instanceof Covered));
-
-    expect($records)->toHaveCount(1)
-        ->and($records[0]->doc['username'])->toBe('some.studio')
-        ->and($records[0]->doc['full_name'])->toBe('Some Studio')
-        ->and($records[0]->doc['followers'])->toBe(12840)
-        ->and($covered[0]->coverage->toArray()['type'])->toBe('exhaustive');
+it('declares exactly one stream, media — the profile stream is gone', function () {
+    // Phase 1 deleted the `profile` stream: it targeted profile_fields, whose
+    // consumer was dropped by 20260805110000, so every record it landed was
+    // discarded. Asserted positively rather than by the absence of the old
+    // test, because re-adding the stream without a projection target is the
+    // regression worth catching. Instagram identity is IdentitySync's job,
+    // read off the connection payload.
+    expect(array_keys(InstagramConnector::manifest()->streams))->toBe(['media']);
 });
 
 it('lands posts newest-first with a carousel as ONE record carrying every frame', function () {
@@ -169,31 +165,12 @@ it('is actor-billed, so the provisioner keeps it unscheduled — manual-only by 
         ->and(InstagramConnector::manifest()->hosts)->toBe([]);
 });
 
-it('declares media as a taken_at feed and profile as identity with no authoritative fields yet', function () {
+it('declares media as a taken_at feed', function () {
+    // The `profile` stream this also used to assert on was deleted in Phase 1
+    // — it targeted profile_fields, whose consumer no longer exists.
     $media = InstagramConnector::manifest()->stream('media');
-    $profile = InstagramConnector::manifest()->stream('profile');
 
     expect($media->profile)->toBe(SourceProfile::Feed)
         ->and($media->orderField)->toBe('taken_at')
-        ->and($profile->profile)->toBe(SourceProfile::Identity)
-        ->and($profile->target)->toBe('profile_fields')
-        ->and($profile->authoritativeFields)->toBe([]);
-});
-
-// #SLOP-2 characterisation: Instagram already had the numeric fallback and used
-// data_get() before consolidation, so moving firstString/firstInt into
-// App\Ingest\Support\Fields is a no-op for this connector — pinned explicitly.
-it('characterisation: profile field resolution is unchanged by the Fields consolidation (#SLOP-2)', function () {
-    $io = instagramIo(['status' => 'ok', 'cached' => false, 'data' => [instagramActorProfile()]]);
-
-    $messages = iterator_to_array((new InstagramConnector)->pull(instagramPull('profile'), $io));
-    $record = array_values(array_filter($messages, fn ($m) => $m instanceof Record))[0];
-
-    expect($record->doc)->toBe([
-        'username' => 'some.studio',
-        'full_name' => 'Some Studio',
-        'biography' => 'Cuts and colour. Bookings via link.',
-        'avatar' => 'https://scontent.cdninstagram.com/v/avatar_hd.jpg?sig=abc',
-        'followers' => 12840,
-    ]);
+        ->and($media->target)->toBe('media');
 });

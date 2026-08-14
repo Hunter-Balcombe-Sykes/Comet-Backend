@@ -259,7 +259,9 @@ return [
         // literal is a prefix label, not a secret.
         'f5d227992271', // scripts/dast/active/seed-identities.php:70
         '2152b8323ce7', // TwitchApiClient:52
-        'f77b31bf97df', // TwitchConnector:138 — Bearer header over the app token minted at :132
+        // TwitchConnector:138's Bearer-header entry retired with the connector
+        // itself (Phase 1 de-sourced Twitch); the live-status TwitchApiClient
+        // above is a different lane and keeps its suppression.
 
         // ── Command injection: false positives, vetted 2026-07-19 ──────────
         // SET statement_timeout/lock_timeout interpolate config-derived ints

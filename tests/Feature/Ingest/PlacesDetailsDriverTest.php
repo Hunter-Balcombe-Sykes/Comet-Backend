@@ -136,7 +136,7 @@ it('treats a mid-loop budget denial as NoAnswer, never as a clean refusal', func
         ->and($result->reason)->toContain('budget');
 });
 
-it('lets GoogleBusinessConnector produce profile, review and media records', function () {
+it('lets GoogleBusinessConnector produce review and media records', function () {
     // The whole point of slice 0: this connector could not complete a run at all
     // before, because HttpIo::runBilledEffect() threw unconditionally.
     config()->set('partna.ingest.billed_effects_enabled', true);
@@ -189,11 +189,11 @@ it('lets GoogleBusinessConnector produce profile, review and media records', fun
         return $records;
     };
 
-    $profile = $collect('profile');
-    expect($profile)->toHaveCount(1)
-        ->and($profile[0]->doc['display_name'])->toBe('Maha')
-        ->and($profile[0]->doc['website'])->toBe('https://maha.test');
-
+    // The `profile` stream asserted here was deleted in Phase 1 — it targeted
+    // profile_fields, whose consumer no longer exists. The display_name and
+    // website it checked are IdentitySync's business, off the connection
+    // payload, not this driver's.
+    //
     // The reviewer-PII keys the manifest's when_unclaimed redaction is declared
     // over must be PRESENT here — the Lander strips them, not the connector, and a
     // mapped payload would have made that redaction vacuous.

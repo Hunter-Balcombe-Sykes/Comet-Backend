@@ -79,9 +79,11 @@ final class RedisConnectionPinningScanner
         //
         // StreamingTokenManager: reachable only via TwitchApiClient/
         // KickApiClient -> LiveStatusPoller -> CheckStreamingLiveStatusJob,
-        // and via TwitchConnector -> Ingest\RunSourceJob. Both entry points
-        // are queued jobs. Investigated (not repointed) during U1 review
-        // follow-up; recommendation was to leave it on `default`.
+        // a queued job. (It was also reachable via TwitchConnector ->
+        // Ingest\RunSourceJob until Phase 1 de-sourced Twitch; the live-status
+        // lane above is unrelated to ingest and survives.) Investigated (not
+        // repointed) during U1 review follow-up; recommendation was to leave
+        // it on `default`.
         'app/Services/Streaming/StreamingTokenManager.php',
 
         // LiveStatusPoller: reachable only via CheckStreamingLiveStatusJob.
