@@ -231,6 +231,91 @@ Note `SitepageDataResolverService` and `IndividualProfilePayloadBuilder` are
 **public-payload** readers — the cutover changes what sitepages serve, so they
 are the two to verify hardest.
 
+---
+
+## 2026-08-14 midday — reconciled against 19 further commits from `jhunter7333`
+
+### F14 — Slice 6 (reviews) has LANDED. Drop it from this scope.
+
+`feat(pools): reviews pool — exclusion only, no pins, no manual adds` plus
+`content.source_stats`, `f_review.author_uri`, reviewer-name PII purging, and
+`feat(wire): retire the legacy review read`.
+
+End-state pool count is unchanged at 9; **this programme now only owes `menu`
+and `links`.**
+
+His `PoolRegistry` diff is the **template for Phase 3** and confirms F12 —
+pool addition is registry config (`POOLS`, `PAGE_KEYS`, `PAGE_LABELS`,
+`SECTION_SHAPE`) plus one test, no migration. He also added capability flags
+worth copying the shape of: `EXCLUDE_ONLY_POOLS`,
+`MANUAL_ADD_FORBIDDEN_POOLS`, `allowsPin()`, `allowsManualAdd()`.
+
+**Trap his commit message records:** the pool test MUST live in
+`tests/Feature/Content/`. `AuditPipelineIntegrityTest` fails any new
+`tests/Feature` child directory that `codebase_chunks()` does not map, and
+`scripts/audit` belongs to another lane.
+
+He also documented `channel` and `article` as "deliberately poolless", which
+agrees with this programme retiring them.
+
+### F15 — CORRECTION (his finding is better than mine): field bindings existed
+
+I wrote that field bindings "do not exist — zero matches in `app/`". True of
+today's code, wrong about why. Verified in migrations:
+
+```
+20260728150000_field_bindings.sql        built
+20260805110000_drop_field_bindings.sql   deliberately dropped
+```
+
+His characterisation is the accurate one: *"The profile stream is not an
+unfinished lane, it is a redundant one. Its intended consumer was deliberately
+deleted."* He also measured it more precisely — **3 record_versions, 0
+source_items**.
+
+**The conclusion is unchanged and now independently corroborated:** delete the
+`profile_fields` seam, keep `IdentitySync`, keep `site.workplaces`. His spec
+reaches the same verdict and assigns it to `slice-7-teardown`.
+
+### F16 — His `slice-7-teardown` kickoff already exists and overlaps Phase 7
+
+`docs/superpowers/plans/2026-08-12-slice-7-teardown-KICKOFF-PROMPT.md`.
+It is more rigorous than my Phase 7 in one respect worth adopting: **"no slice
+may cite another slice's checkpoint as evidence for its own claims — re-run
+each coverage assertion yourself."**
+
+Two things in it are now stale:
+- It states *"Supabase is on the Free plan: no PITR, no managed backups. A
+  dropped table is gone."* **The owner upgraded to Pro on 2026-08-14** — daily
+  backups now exist. The `pg_dump` gate (F3) remains the surgical control.
+- Its Gate 2 is overridden — see F17.
+
+**Phase 7 should not be re-designed here.** Hand this plan to him and let him
+reconcile it with his own slice-7 plan; he owns that lane.
+
+### F17 — Gate 2 is unmet, and the owner has overridden it
+
+His kickoff gates the media half of teardown on both frontends consuming
+`pools.media` first. Verified — **the gate is genuinely unmet**:
+
+- `apps/pages` still reads `designMedia` in `content/types.ts`,
+  `resolve-site-content.ts`, `lib/fetch-profile.ts`, `lib/site-render.ts`,
+  `pages/[...path].astro`
+- **nothing** consumes `pools.media` in either frontend
+
+**OWNER DECISION (2026-08-14): the frontend is allowed to break, and will be
+REBUILT afterwards — not repaired.** Gate 2 does not apply to this programme.
+
+This is stronger than "breaking is tolerable" and simplifies Phase 7
+materially: there is **no wire-compatibility to preserve**. Legacy wire keys
+(`designMedia`, `gallery`, `siteImages` and the rest of the compatibility
+surface slice 1a deliberately kept) can be **removed outright** rather than
+maintained alongside `pools.media`. Phase 7 should delete them, not dual-serve.
+
+Phase 8's documentation pass is what makes the rebuild plannable — it must
+therefore describe the *new* wire accurately rather than diffing it against a
+legacy shape nobody will implement again.
+
 ### F7 — Pre-existing dev noise, not caused by this run
 `#371` cache-SLO violations, `#429`/`#430` Redis timeouts. Recurring on dev
 before any of this work.

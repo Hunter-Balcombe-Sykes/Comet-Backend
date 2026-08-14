@@ -204,11 +204,24 @@ layer.
 
 # Phases 3–8 — settled decisions, detail deferred
 
-**3 — Pools: menu + links** (+ documents pending owner call, F8).
-`PoolRegistry` gains entries; migrate 318 `site.item_slugs` → `content.item_slugs`
-(0 retired today — cheapest it will ever be); re-home slug allocation off
-`MenuItemObserver`, which dies with the table; move the 41 `partna.*`
-connections into the links pool.
+**3 — Pools: menu + links.** No documents pool (owner, 2026-08-14 — documents
+have no platform source; upload-only). Reviews already landed in slice 6, so
+these two are all this programme owes.
+
+Use **`jhunter7333`'s reviews-pool commit `8dd1ff989` as the template** — it is
+`PoolRegistry` config only (`POOLS`, `PAGE_KEYS`, `PAGE_LABELS`,
+`SECTION_SHAPE`) plus one test, confirming no migration is needed (F12/F14).
+Copy the shape of his capability flags (`allowsPin()`, `allowsManualAdd()`)
+where menu/links need equivalents.
+
+**Trap:** the pool test MUST go in `tests/Feature/Content/` —
+`AuditPipelineIntegrityTest` fails any new `tests/Feature` child directory that
+`codebase_chunks()` does not map.
+
+Then: migrate 318 `site.item_slugs` → `content.item_slugs` (**verified
+collision-free**, F11 — 0 retired today, cheapest it will ever be); re-home slug
+allocation off `MenuItemObserver`, which dies with the table; move the 41
+`partna.*` connections into the links pool.
 
 **4 — Listen sourcing.** Provision `youtube_music` (free, keyless RSS, the only
 real `track` producer, never provisioned). Select and validate Apify actors for
@@ -227,12 +240,41 @@ has never run for anyone, including reachable Square).
 `menulog` to real surfaces. Gating unaffected — `RoutingCapabilityGate` keys on
 `routing_class`, which travels with `surface_key`.
 
-**7 — Cutover + teardown (gated).** 7a dump → 7b assert dumped rows == live
-rows per table → 7c flip reads, drop tables, close the
-`site.content_selection` write path. Gate verified working today (318/44/402).
-**Also delete `LegacyServiceSortOrder`** — it manages `site.services.sort_order`
-and dies with that table (see log, jhunter7333 overlap).
+**7 — Cutover + teardown. RECONCILE, DO NOT RE-DESIGN.**
+
+`jhunter7333` already owns this lane:
+`docs/superpowers/plans/2026-08-12-slice-7-teardown-KICKOFF-PROMPT.md`. Fold
+the items below into that plan rather than running a competing Phase 7.
+
+Adopt from his kickoff: **"no slice may cite another slice's checkpoint as
+evidence for its own claims — re-run each coverage assertion yourself."**
+
+Two corrections his kickoff needs (F16/F17):
+- It says *"Supabase is on the Free plan: no PITR, no managed backups"*. The
+  owner **upgraded to Pro on 2026-08-14** — daily backups exist. The `pg_dump`
+  gate stays the surgical control regardless.
+- Its **Gate 2 (frontends must consume `pools.media` first) is overridden.**
+  The gate is genuinely unmet — `apps/pages` still reads `designMedia`, nothing
+  reads `pools.media` — but the owner has ruled the **frontend may break and
+  will be REBUILT afterwards**. So there is no wire compatibility to preserve:
+  delete the legacy wire keys outright (`designMedia`, `gallery`, `siteImages`
+  and the rest of slice 1a's compatibility surface) rather than dual-serving.
+
+Mechanics: 7a `pg_dump` → 7b assert dumped rows == live rows per table (verified
+working today, 318/44/402) → 7c flip reads, drop tables, close the
+`site.content_selection` write path.
+
+Also in scope: **delete `LegacyServiceSortOrder`** (manages
+`site.services.sort_order`, dies with that table) and **the 11 legacy event
+slugs** left behind by slice 2's dual-write (F11, owner-approved).
 
 **8 — Documentation truth pass.** Rewrite root + backend `CLAUDE.md`; correct
 the convergence spec's stale figures; `docs/wire-changes/` entries per contract
 change; record access/logistics so this research is never repeated.
+
+Since the **frontend is being rebuilt, not repaired** (owner, 2026-08-14), this
+pass must describe the **new wire on its own terms** — not as a diff against a
+legacy shape nobody will implement again. It is the input to the frontend
+rebuild, so it carries more weight than a normal docs pass: the pool payloads,
+the 9-pool model, kinds/facets, and the platform→source→pool chain all need to
+be readable by someone with no memory of the legacy system.
