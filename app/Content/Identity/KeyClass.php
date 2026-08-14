@@ -121,16 +121,30 @@ enum KeyClass: string
      * Aggressive text normalisation: case, punctuation, accents and the
      * decorations vendors add ("(Remastered 2019)", "[Official Video]") all
      * removed, because they are formatting rather than identity.
+     *
+     * Public because composite keys ("category|name") must normalise each part
+     * SEPARATELY before joining — running canonicalise() over the joined string
+     * would eat the separator. This enum stays the one owner of what
+     * normalisation means; IdentityKeyDeriver calls it rather than repeating it.
      */
-    private static function normalizeText(string $value): string
+    public static function normalizeText(string $value): string
     {
         $value = mb_strtolower($value);
         $value = preg_replace('/\((?:official|remaster(?:ed)?|explicit|clean|hd|4k|lyric)[^)]*\)/u', '', $value) ?? $value;
         $value = preg_replace('/\[(?:official|remaster(?:ed)?|explicit|clean|hd|4k|lyric)[^\]]*\]/u', '', $value) ?? $value;
-        $transliterated = iconv('UTF-8', 'ASCII//TRANSLIT', $value);
+        $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT', $value);
         if ($transliterated !== false) {
             $value = $transliterated;
         }
+        // TRANSLIT is a C-library behaviour, not a PHP one: glibc renders "é"
+        // as "e" while macOS/BSD libiconv renders it "'e". Dropping the
+        // modifier marks BEFORE the alnum collapse is what makes the two
+        // agree — otherwise a key derived locally ("beyonc e") would differ
+        // from the one Cloud derives ("beyonce") and a green local suite would
+        // say nothing about the values that actually land. Deleting rather
+        // than spacing them also folds "don't" onto "dont", which is the
+        // matching we want anyway.
+        $value = preg_replace('/[\'`^~"]/', '', $value) ?? $value;
         $value = preg_replace('/[^a-z0-9]+/', ' ', $value) ?? $value;
 
         return trim(preg_replace('/\s+/', ' ', $value) ?? $value);

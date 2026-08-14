@@ -173,7 +173,11 @@ it('drops every chunk of derived rows under --rebuild, not just the first chunk'
     // come back for every item, not just the chunks the drop reached.
     expect(DB::table('content.f_link')->where('source_id', $contentSourceId)->count())->toBe(7)
         ->and(DB::table('content.item_media')->where('source_id', $contentSourceId)->count())->toBe(7)
-        ->and(DB::table('content.identity_keys')->count())->toBe(14); // PlatformObject + CanonicalUrl per source item
+        // Per SOURCE ITEM, not a raw total: how many classes a record earns is
+        // the deriver's business and moves whenever a projector gains a field,
+        // whereas "every one of the 7 got its keys back" is the property
+        // --rebuild's chunked drop can actually break.
+        ->and(DB::table('content.identity_keys')->distinct()->count('source_item_id'))->toBe(7);
 });
 
 it('issues one DELETE per derived table per chunk, so statement count tracks ceil(n/chunk) not n', function () {

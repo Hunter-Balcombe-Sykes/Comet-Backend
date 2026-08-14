@@ -344,7 +344,8 @@ it('hand-adds an item that a later connector run enriches instead of stranding',
     $sourceItem = DB::connection('pgsql')->table('content.source_items')->where('source_id', $sourceId)->first();
 
     expect(DB::connection('pgsql')->table('content.identity_keys')
-        ->where('source_item_id', $sourceItem->id)->count())->toBe(2)
+        ->where('source_item_id', $sourceItem->id)->orderBy('key_class')->pluck('key_class')->all())
+        ->toBe(['canonical_url', 'platform_object', 'title_loose', 'title_only'])
         ->and(DB::connection('pgsql')->table('content.item_anchors')
             ->where('user_id', $pro->id)->where('coord', $sourceItem->coord)->value('item_id'))
         ->toBe($sourceItem->item_id)

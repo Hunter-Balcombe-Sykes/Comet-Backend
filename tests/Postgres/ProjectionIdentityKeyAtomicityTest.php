@@ -497,12 +497,15 @@ it('keeps a source item\'s identity keys visible to a concurrent reader across t
     $sourceItemId = (string) DB::connection('pgsql')->table('content.source_items')->where('record_key', 'race-key')->value('id');
     expect($sourceItemId)->not->toBe('');
 
-    // Proves the setup before touching the injection: the Bandcamp release
-    // projector emits an f_link.url, so writeIdentityKeys() writes
-    // PlatformObject (always) + CanonicalUrl (from the url) = 2 rows. This
-    // assertion MUST come before the DB::listen below, or a broken fixture
-    // could make the later count() trivially "correct" for the wrong reason.
-    expect(DB::connection('pgsql')->table('content.identity_keys')->where('source_item_id', $sourceItemId)->count())->toBe(2);
+    // Proves the setup before touching the injection: this Bandcamp release
+    // carries a url, a title and an artist, so the deriver emits the platform
+    // object, the canonical url, and the three title-derived classes. Pinned
+    // as the CLASS SET rather than a bare count — a count says nothing about
+    // WHICH keys landed, and this fixture's whole job is to prove the replace
+    // set is non-trivial before the injection below examines it.
+    $classes = DB::connection('pgsql')->table('content.identity_keys')
+        ->where('source_item_id', $sourceItemId)->orderBy('key_class')->pluck('key_class')->all();
+    expect($classes)->toBe(['canonical_url', 'platform_object', 'title_loose', 'title_only', 'title_release']);
 
     $fired = false;
     $observed = null;
@@ -544,8 +547,9 @@ it('keeps a source item\'s identity keys visible to a concurrent reader across t
     expect($fired)->toBeTrue();
 
     // The invariant: post-fix, a concurrent reader NEVER observes zero keys
-    // for a source item mid-rewrite, because the delete has not committed yet.
-    expect($observed)->toBe(2);
+    // for a source item mid-rewrite, because the delete has not committed yet
+    // — it still sees the whole pre-delete replace set.
+    expect($observed)->toBe(count($classes));
 
     DB::purge('pgsql_ikprobe');
 });

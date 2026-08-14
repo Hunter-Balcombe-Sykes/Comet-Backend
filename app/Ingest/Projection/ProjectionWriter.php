@@ -91,6 +91,7 @@ class ProjectionWriter
         private readonly Resolver $resolver,
         private readonly ValueResolver $values,
         private readonly ContentItemSlugAllocator $slugs,
+        private readonly IdentityKeyDeriver $identityKeys,
     ) {}
 
     /**
@@ -501,10 +502,9 @@ class ProjectionWriter
     }
 
     /**
-     * Replace-set of the evidence this record carries. PlatformObject is the
-     * record's own coord (joining within the platform); a link URL doubles as
-     * CanonicalUrl so the same thing pasted manually or synced from a second
-     * platform can union (§5).
+     * Replace-set of the evidence this record carries (§5). What counts as
+     * evidence lives in IdentityKeyDeriver — pure, so it is unit-testable
+     * without a database; this method only persists what it returns.
      *
      * MUST be called inside a transaction that ALSO covers the source item's
      * own upsert — the DELETE/INSERT pair below is not atomic on its own, and
@@ -523,21 +523,13 @@ class ProjectionWriter
     {
         DB::table('content.identity_keys')->where('source_item_id', $sourceItemId)->delete();
 
-        $rows = [[
-            'source_item_id' => $sourceItemId,
-            'key_class' => KeyClass::PlatformObject->value,
-            'key_value' => $coord,
-            'tier' => KeyClass::PlatformObject->tier()->value,
-            'created_at' => now(),
-        ]];
-
-        $url = $projection['facets']['f_link']['url'] ?? null;
-        if (is_string($url) && $url !== '') {
+        $rows = [];
+        foreach ($this->identityKeys->derive($coord, $projection) as $key) {
             $rows[] = [
                 'source_item_id' => $sourceItemId,
-                'key_class' => KeyClass::CanonicalUrl->value,
-                'key_value' => KeyClass::CanonicalUrl->canonicalise($url),
-                'tier' => KeyClass::CanonicalUrl->tier()->value,
+                'key_class' => $key->class->value,
+                'key_value' => $key->value,
+                'tier' => $key->class->tier()->value,
                 'created_at' => now(),
             ];
         }
@@ -1360,49 +1352,16 @@ class ProjectionWriter
     }
 
     /**
-     * #PRIV-5: minimise BEFORE the fingerprint is computed, so the fingerprint
-     * and the stored source_url derive from the same string — the fingerprint
-     * is the UNIQUE (user_id, fingerprint) dedupe key, and a fingerprint
-     * computed from the raw URL while a minimised URL is stored would let a
-     * re-run mint a second row for the same image. The vendor's stable ref is
-     * PREFERRED over the URL (slice 1a §3.1): Instagram URLs re-sign on every
-     * sync (`oh`/`oe` params survive minimisation), so a URL-keyed asset
-     * re-mints per sync the moment a projector emits url beside ref. The URL
-     * is the fallback for entries with no ref.
-     *
-     * ONE implementation, called from both the bulk resolve and the row build
-     * — the two must never disagree about what an entry's fingerprint is.
+     * ONE implementation, now in MediaFingerprint: the bulk resolve, the row
+     * build and IdentityKeyDeriver's ContentDigest must never disagree about
+     * what an entry's fingerprint is.
      *
      * @param  array<string, mixed>  $entry
      * @return array{0: ?string, 1: ?string} [fingerprint, minimised source url]
      */
     private function mediaFingerprint(array $entry): array
     {
-        // Upload shape (slice 1a §3.4): the stable ref IS the site_media id.
-        // Inside the url- namespace by construction — only this method mints
-        // 'upload:' fingerprints, so no existing row can collide.
-        $siteMediaId = $this->uploadSiteMediaId($entry);
-        if ($siteMediaId !== null) {
-            return ['url-'.sha1('upload:'.$siteMediaId), null];
-        }
-
-        $url = isset($entry['url']) && is_string($entry['url']) && $entry['url'] !== ''
-            ? SecretParams::minimiseUrl($entry['url'])
-            : null;
-        $url = ($url === '' ? null : $url); // minimiseUrl fails closed to ''
-        $ref = isset($entry['ref']) && is_string($entry['ref']) && $entry['ref'] !== '' ? $entry['ref'] : null;
-
-        $fingerprint = $ref ?? $url;
-
-        return [$fingerprint === null ? null : 'url-'.sha1($fingerprint), $url];
-    }
-
-    /** The upload shape: a non-empty site_media_id IS the discriminator (slice 1a §3.4). */
-    private function uploadSiteMediaId(array $entry): ?string
-    {
-        $id = $entry['site_media_id'] ?? null;
-
-        return is_string($id) && $id !== '' ? $id : null;
+        return MediaFingerprint::for($entry);
     }
 
     /**
@@ -1446,7 +1405,7 @@ class ProjectionWriter
 
         $rows = [];
         foreach ($missing as $fingerprint => [$entry, $url]) {
-            $uploadSiteMediaId = $this->uploadSiteMediaId($entry);
+            $uploadSiteMediaId = MediaFingerprint::uploadSiteMediaId($entry);
             $isUpload = $uploadSiteMediaId !== null;
             $rows[] = [
                 'id' => (string) Str::uuid(),
