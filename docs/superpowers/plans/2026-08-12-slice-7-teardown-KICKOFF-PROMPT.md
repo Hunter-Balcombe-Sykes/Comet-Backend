@@ -10,14 +10,19 @@ legacy deletion is gated on the replacement being *live-verified*, never on a cl
 that it is. Slices 1b, 3, 4, 5 and 6 must each have a checkpoint in the parent spec
 with SQL output pasted in, and the §8.4 coverage gate green.
 
-**Gate 2 — frontend, for the media half only.** Slice 1a deliberately kept the
-legacy `gallery` and `designMedia` wire keys because Partna-App and partna-monorepo
-still read them. `site_media` pools `gallery` and `content` cannot retire until both
-frontends consume `pools.media`. **Confirm this by inspecting the frontend repos, not
-by asking whether it "should" be done.**
+**Gate 2 — REPLACED by owner override (2026-08-14).** The original gate (both
+frontends consuming `pools.media` before the media half retires) was verified
+genuinely unmet — `apps/pages` still reads `designMedia`, nothing reads
+`pools.media` (convergence-log F17). The owner has ruled the **frontend may break
+and will be REBUILT afterwards, not repaired**. There is therefore no wire
+compatibility to preserve: `designMedia`, `gallery`, `siteImages` and the rest of
+slice 1a's compatibility surface are **deleted outright, not dual-served**. No
+frontend inspection gates this slice any more.
 
-**Supabase is on the Free plan: no PITR, no managed backups.** A dropped table is
-gone. The only backup is the `partna-db-backup` R2 dump.
+**Supabase is on the Pro plan (upgraded 2026-08-14, verified): daily managed
+backups exist.** The `pg_dump` per-table **exact-count** gate below stays mandatory
+regardless — it is the surgical control that proves what is being dropped, and a
+daily backup is not a substitute for it.
 
 Paste everything below the line into a fresh session. It is self-contained.
 
@@ -155,24 +160,22 @@ wrap the catches in `App\Services\Analytics\Concerns\EscalatesRepeatedFaults`
 5a nor 5b touched this file; it is named here because this unit is what makes it
 fire.
 
-### Unit 6 — The media half, only if gate 2 passes
+### Unit 6 — The media half (gate 2 replaced by the owner override, 2026-08-14)
 `site_media` pools `gallery` and `content` retire, and the `gallery` / `designMedia`
-wire keys leave the payload. `site_media` and `media_variants` **survive** as the
-byte and processing layer (parent §2.1), as do pools `design` and `documents`.
-
-**If gate 2 fails, split the slice.** Parent §7 explicitly permits this: drop the
-nine commerce tables on the coverage gate alone and leave the media lane for a
-follow-up. A blocked frontend must not hold the whole teardown hostage — but neither
-may it be worked around by retiring keys the frontends still read.
+/ `siteImages` wire keys leave the payload — deleted outright, not dual-served
+(owner override: the frontend will be rebuilt, not repaired). `site_media` and
+`media_variants` **survive** as the byte and processing layer (parent §2.1), as do
+pools `design` and `documents`. No split is needed for the media lane; the
+coverage gate (gate 1) is the only gate on this unit.
 
 ## What slice 1b settled for you (merged 2026-08-13)
 
 Verify each yourself — this is a pointer, not evidence (rule zero still applies).
 
 - **The `gallery` / `designMedia` retirement boundary has NOT moved.** 1b kept
-  both keys live, exactly as 1a did. Your gate 2 is unchanged: both frontends
-  must read `pools.media` before `site_media` pools `gallery` and `content` can
-  retire.
+  both keys live, exactly as 1a did. (Gate 2 has since been replaced by the
+  2026-08-14 owner override — the keys are deleted outright; see the gates
+  section above.)
 - **`site.content_selection` still holds every row.** 1b's migration is
   ADDITIVE: 3 upload picks became `pool:media` pins, and 91 rows
   (85 `google-photo` + 6 `ig-*`) were recorded as dropped across 11 sites
@@ -316,7 +319,7 @@ Both are real. Neither is a leftover to tidy — read the reasoning before actin
 
 ## Non-negotiables
 
-- **Take a backup first.** Free plan, no PITR. Dump the ten tables to the `partna-db-backup` R2 bucket and verify the dump is readable **before** the first DROP. Record its location in the checkpoint.
+- **Take a backup first.** Supabase is Pro (daily backups since 2026-08-14), but the surgical control is still yours: dump the ten tables to the `partna-db-backup` R2 bucket, verify the dump is readable, and assert dumped row counts exactly match live counts per table **before** the first DROP. Record its location in the checkpoint.
 - **DEV ONLY — production is out of scope for this slice** (owner decision, 2026-08-12). Apply on dev, verify, merge to `development`, and stop. Do **not** apply migrations to the prod ref, and do **not** `git push origin development:production`. See "Production is deferred" below.
 - **One migration concern per file**, raw SQL, never a Laravel migration.
 - **Cache invalidation** — dropping the tables changes every affected public payload. `BuildState::bump`, `site.sites.updated_at`, `CloudflareCachePurgeJob`.
@@ -357,7 +360,7 @@ So the rule inverts. **Anything that contradicts a gate is a stop, not a note.**
 | Something still reads a table you are about to drop | **STOP.** The owning slice repoints it |
 | An observer's behaviour was moved but never re-registered — **event discovery is disabled in this codebase** | **STOP.** A listener that was never registered has been silently dead since the slice that "moved" it |
 | A parent-spec fact is wrong | Correct the parent spec in place. It outlives this programme and is what a future session will read |
-| The frontend gate has not been met | Propose the split (parent §7 permits it) rather than proceeding or waiting indefinitely |
+| A frontend still reads a key you are deleting | Proceed — the 2026-08-14 owner override says the frontend breaks and gets rebuilt; record which keys died in the wire manifest |
 
 The one thing you **do** own propagating: this programme's closing state. Whatever
 the outcome, the parent spec's final checkpoint and
@@ -367,7 +370,7 @@ what started this whole programme.
 
 ## Process — stop at every gate
 
-1. **Verify both gates.** Re-run every coverage assertion; inspect the frontend repos for `pools.media` consumption. **STOP — sign-off on the gate report.** If gate 2 fails, the deliverable is a split proposal.
+1. **Verify gate 1.** Re-run every coverage assertion yourself (gate 2 is replaced by the 2026-08-14 owner override — no frontend inspection required). **STOP — sign-off on the gate report.**
 2. **Backup.** Dump, verify readable, record location. **STOP — sign-off.**
 3. **Spec** → `docs/superpowers/specs/2026-08-12-slice-7-teardown-design.md`, covering §9 units 1–4 before any DROP. **STOP — sign-off. Irreversible + migrations; the blocker gate applies.**
 4. **Plan** (`superpowers:writing-plans`) → `docs/superpowers/plans/2026-08-12-slice-7-teardown.md`. **STOP — sign-off.**
