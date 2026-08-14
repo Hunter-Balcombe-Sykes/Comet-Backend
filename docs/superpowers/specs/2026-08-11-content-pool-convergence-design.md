@@ -3250,3 +3250,189 @@ none of the five can produce a `content.item` any more.
 **Recommendation:** fold the descriptor question into Phase 6, which already
 owns platform-surface retirement and has to decide each connection's
 destination anyway.
+
+---
+
+## 21. Phase 2 checkpoint — identity key emission
+
+Convergence programme Phase 2 (`docs/2026-08-14-convergence-phases.md` §2), run
+2026-08-14 on branch `feat/phase-2-identity-keys`. Dev only; production
+untouched, and no tool call in the session named it. §3 invariant 1 discharged
+below — every figure is a live assertion against `glncumufgaqcmqhzwrxm`, output
+pasted.
+
+### What shipped
+
+`ProjectionWriter::writeIdentityKeys()` emitted **2 of 17** `KeyClass` values:
+`platform_object`, which embeds the platform and so can never match
+cross-source by construction, and `canonical_url`, which never matches across
+platforms. The Joining tier could union nothing; Corroborating and Evidential
+were empty. That is the whole reason `content.item_merges` and
+`content.identity_candidates` had sat at 0 since the engine shipped (log F1) —
+the resolver is complete and covered by 21 unit tests; it was **starved, not
+missing**.
+
+| Unit | Change |
+|---|---|
+| 2.1 | `IdentityKeyDeriver` — pure derivation of 15 of 17 classes; `writeIdentityKeys()` now only persists what it returns |
+| 2.1a | `MediaFingerprint` extracted, so the asset dedupe key and the `content_digest` identity key cannot drift apart |
+| 2.2 | `tests/Unit/Ingest/IdentityKeyEmissionTest.php` — 26 emission tests, including every no-data path |
+| — | `KeyClass::normalizeText()` made platform-independent (log F26) |
+
+### Entry state, re-measured before touching anything
+
+F10 required re-verification at entry, and F24's numbers had already moved
+under it. Measured immediately before the rebuild:
+
+```sql
+SELECT (SELECT count(*) FROM content.identity_keys)                    AS identity_keys,
+       (SELECT count(DISTINCT key_class) FROM content.identity_keys)   AS key_classes,
+       (SELECT count(*) FROM content.item_merges)                      AS item_merges,
+       (SELECT count(*) FROM content.identity_candidates)              AS candidates,
+       (SELECT count(*) FROM content.items)                            AS items,
+       (SELECT md5(string_agg(id::text, ',' ORDER BY id))
+          FROM content.items)                                          AS item_id_digest;
+```
+
+```
+identity_keys | key_classes | item_merges | candidates | items | item_id_digest
+         1235 |           2 |           0 |          0 |   723 | 32bd74bdb9acc42005100999eb224cad
+```
+
+F10 holds on the data and needed one correction on the design:
+
+- `isrc` 0, `gtin` 0, `track` items 0 — confirmed, so `Isrc`, `Gtin14` and
+  `TitleDuration` are unemittable **by data**, exactly as predicted. They are
+  derived anyway, from the `f_catalog`/`f_duration` columns that already exist:
+  reading an empty column invents nothing and starts working the day a
+  connector fills it.
+- **`TitleRelease` is title|ARTIST, not title|date.** F10 read "release" as the
+  release date and cited `f_published` coverage as the evidence. The key
+  registry (`docs/plans/2026-07-27-content-platform-rebuild.md` §5) rules
+  explicitly that "year is not in the music key" — two platforms disagree about
+  a remaster's date constantly and agree about who made it. Derived from
+  `f_authored.creator`, live on 192 of 223 releases.
+- **`FeedGuid` is the one class deliberately not derived.** No projection field
+  means a feed's `<guid>`; adding one that no connector fills would rebuild
+  exactly the `profile_fields` seam Phase 1 deleted (F15/F20). `EnclosureUrl`
+  IS derived, from `f_playable.stream_url`, because that field already exists.
+
+### Exit criteria, measured on dev after `ingest:project --rebuild`
+
+Sequence: `--dry-run` first (read-only; 40 streams / 597 records), then
+`--rebuild`, both via `cloud command:run development`, both exit 0, 0 failed.
+
+```sql
+SELECT key_class, tier, count(*) AS keys, count(DISTINCT key_value) AS distinct_values
+  FROM content.identity_keys GROUP BY 1,2 ORDER BY 3 DESC;
+```
+
+```
+ key_class                 | tier          | keys | distinct_values
+---------------------------+---------------+------+-----------------
+ platform_object           | joining       |  700 |             648
+ canonical_url             | joining       |  535 |             437
+ title_only                | corroborating |  420 |             313
+ title_loose               | evidential    |  420 |             280
+ title_release             | corroborating |  192 |             159
+ offering_name_in_category | corroborating |   59 |              59
+ name_price_band           | evidential    |   59 |              59
+ offering_name_spec        | corroborating |   59 |              59
+ offering_name             | corroborating |   56 |              55
+ content_digest            | joining       |   52 |              52
+ author_date_body          | evidential    |   20 |              20
+ event_occurrence          | corroborating |   13 |              13
+```
+
+| Criterion | Result |
+|---|---|
+| Full suite green | **8163 passed**, 1 skipped, 1 warning (28274 assertions) |
+| `tests/Postgres` green (MANDATORY — `ProjectionWriter` changed) | **207 passed** (959 assertions) |
+| PHPStan | **no errors** (1358 files) |
+| **More than 2 distinct `key_class` on dev** | **12** — criterion met |
+| `content.items` reconciled exactly | **723 → 723, `item_id_digest` byte-identical** |
+| `content.item_merges` defensible row by row | **0 rows** — see below |
+
+### Why zero merges is the correct outcome, not a failure
+
+Predicted before a line of code was written, by running the resolver's own
+union rules in SQL. Only seven `(user, kind)` pairs on dev have more than one
+source at all — release (apple_music + 3× bandcamp), video (vimeo + youtube),
+service (fresha + manual), event (eventbrite + humanitix), channel. Across all
+of them there is **not one** cross-source collision on a normalised name, an
+occurrence instant or a media fingerprint.
+
+Every duplicate title that does exist is duplicated **within a single source**
+(27 of them on one Apple Music catalogue: `lemonade` ×4, `texas hold em single`
+×4). `Resolver::poisonedKeys()` discards those outright — a value that does not
+identify inside a source cannot identify across them — so they are excluded
+before the union pass, not merged and then unpicked.
+
+The `content.items` digest being unchanged is the strongest available proof:
+not one item id was minted, merged or hard-deleted by the rebuild.
+
+`content.identity_candidates` is 0 for the same reason — the 140 duplicate
+`title_loose` values are all same-source, hence poisoned.
+
+### The live gate rejected the first attempt (log F26)
+
+Recorded because a clean checkpoint would teach the wrong lesson.
+`KeyClass::normalizeText()` transliterated via `iconv('ASCII//TRANSLIT')`,
+which is a C-library behaviour. Round 1 "fixed" it from the macOS output alone,
+merged, deployed, and the rebuild put this in the database:
+
+```
+ key_value
+----------------------------------
+ morning dew donk acoustic 4 44 single|beyonc
+ telephone the dj remixes|lady gaga beyonc
+```
+
+glibc under the container's POSIX locale does not transliterate — it
+substitutes `?`. So "Beyoncé" became `beyonc` and "Björk" the two-token
+`bj rk`, which could never match `bjork` from a second source. Round 2 replaced
+iconv with an explicit `TRANSLITERATIONS` table (Latin-1 Supplement + Latin
+Extended-A), and the accent cases are now pinned by unit test:
+
+```
+identity_keys | key_classes | item_merges | items | item_id_digest                    | 'beyonce' keys | mangled
+         2585 |          12 |           0 |   723 | 32bd74bdb9acc42005100999eb224cad |            145 |       0
+```
+
+The round-1 → round-2 delta is **+2 keys, all `title_loose`**, and both are
+named: `BEYONCÉ (More Only) - EP` and `BEYONCÉ (Platinum Edition) - EP`
+normalised to 9 characters under the mangling — below `TitleLoose`'s minLength
+of 10 — and to `beyonce ep` (10) once the accent folded. Every other class is
+unchanged to the row.
+
+**No test on a laptop could have caught this.** Invariant 1 is usually observed
+as bookkeeping; here the live assertion was the only thing standing between a
+silently wrong identity layer and Phase 4 building music dedup on top of it.
+
+### Cache lanes and logs
+
+No site-facing content changed — 0 items minted, merged or removed — so no
+cache-lane assertion applies; `refreshItemCaches()`/`bumpSite()` ran inside the
+rebuild as they do on any projection.
+`cloud env:logs partna development --minutes 12`, scanned after both rebuilds:
+routine `CloudflareCachePurgeJob`, `CheckStreamingLiveStatusJob`,
+`analytics:compute-popularity` and the deploy cycle. **No exceptions, no
+failures.**
+
+### What this hands the next phases
+
+- **Slice 4 (menus)** will produce the programme's **first real merges**. Its
+  kickoff has been amended in place: the working key is
+  `offering_name_in_category` (`norm(category)|norm(dish)`, minLength 5), and it
+  is derived from the projection's `collections` entries — so `MenuItemProjector`
+  must emit a category label or short dish names silently stop merging.
+- **Phase 4 (listen)** gets the identity layer it depends on, with the ISRC
+  caveat unchanged: no connector supplies one, so cross-platform track dedup
+  falls back to `title_release`/`title_only` (corroborating, cross-source only)
+  unless an Apify actor returning ISRC is selected.
+- **The custom links pool** inherits log **F25**: `Resolver::mayUnion()`
+  sanctions a `link` folding into any kind, but both callers of
+  `resolveItems()` scope resolution to ONE kind, so that path is unreachable
+  through `ProjectionWriter`. A pasted link will not fold into a synced item
+  however exactly the URLs match. It is also what makes emitting `title_only`
+  safe — a podcast episode cannot fuse with a same-titled video.
