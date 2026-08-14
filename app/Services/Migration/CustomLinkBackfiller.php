@@ -107,7 +107,7 @@ class CustomLinkBackfiller
                     continue;
                 }
 
-                $itemId = $this->writer->writeManualItem($owner, $coord, $this->projectionFor($payload, $url));
+                $itemId = $this->writer->writeManualItem($owner, $coord, $this->linkProjection($payload, $url));
 
                 $site = $sites[$owner] ??= Site::query()->where('user_id', $owner)->first();
 
@@ -159,10 +159,20 @@ class CustomLinkBackfiller
      * it. `name` is the scraped page title snapshotted at add time; when it is
      * absent the host stands in, exactly as the hand-add lane does it.
      *
+     * Deliberately NOT named after ManualServiceWriter's equivalent:
+     * FreshaMapperGuardTest pins every file under app/ that names that method,
+     * so a new caller of the owner-authored SERVICE price mapper fails the
+     * build and forces a deliberate look (a scraped Fresha row through it marks
+     * a whole salon's menu free). This is a different mapper on a different
+     * kind; joining that list would blunt the guard into "files containing a
+     * string" for every later reader — and this comment avoids spelling the
+     * literal for the same reason. Kept public as the seam Phase 6 needs when
+     * the live custom-link write path moves onto this lane.
+     *
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
-    public function projectionFor(array $payload, string $url): array
+    public function linkProjection(array $payload, string $url): array
     {
         $name = trim((string) ($payload['name'] ?? ''));
         $headline = $name !== ''
