@@ -175,6 +175,7 @@ class PoolResolver
      *   latestItemId: string|null,
      *   collections: array<string, array<string, mixed>>,
      *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null,
+     *   diningModes: list<string>|null,
      * }
      */
     public function resolve(Site $site, string $pool): array
@@ -255,6 +256,7 @@ class PoolResolver
                 : null,
             'collections' => $this->collectionsFor($selection, $stores),
             'stats' => $this->statsFor($pool, $selection),
+            'diningModes' => $this->diningModesFor($pool, $site),
         ];
     }
 
@@ -356,6 +358,13 @@ class PoolResolver
         // sits behind the 60s payload cache on the public path.
         $hasProduct = $items->contains(fn (object $i): bool => $i->kind === 'product');
 
+        // Menus group too (slice 4): a dish belongs to its categories and to
+        // the ordering platforms it is sold on. The COLLECTIONS read is gated
+        // on either kind; the catalogue, variant and popularity reads below
+        // stay shop-only, because menus have none of those.
+        $hasMenuItem = $items->contains(fn (object $i): bool => $i->kind === 'menu_item');
+        $groupsIntoCollections = $hasProduct || $hasMenuItem;
+
         $storesByItem = collect();
         $stores = collect();
         $catalog = collect();
@@ -363,24 +372,38 @@ class PoolResolver
         $ranks = [];
         $linkMode = (string) ($site->shop_link_mode ?? 'checkout');
 
-        if ($hasProduct) {
+        if ($groupsIntoCollections) {
+            // LEFT join onto storefronts, and no `c.kind` filter: a menu
+            // category is a collection with NO sidecar, and gating on the
+            // sidecar would leave every dish publishing collectionIds that
+            // point at collections absent from the map — dangling ids on the
+            // wire. The kind filter is redundant now that the join no longer
+            // requires a storefront: a product only ever sits in storefront
+            // collections, and a dish only in menu_category / order_platform.
             $links = DB::connection('pgsql')->table('content.collection_items as ci')
                 ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
-                ->join('content.storefronts as s', 's.collection_id', '=', 'c.id')
+                ->leftJoin('content.storefronts as s', 's.collection_id', '=', 'c.id')
                 ->whereIn('ci.item_id', $ids)
-                ->where('c.kind', 'storefront')
-                // Lowest store position composes when an item sits in two;
-                // external_ref breaks the tie, matching brandMap()'s ordering
-                // so the dashboard and the wire agree.
-                ->orderBy('c.position')->orderBy('s.external_ref')
+                // An owner-deleted collection must not reappear as a group
+                // header just because its members are still selected.
+                ->whereNull('c.removed_at')
+                // Lowest position composes when an item sits in two; the
+                // collection's own external_ref breaks the tie (it is NOT NULL
+                // on every row, unlike the storefront's), matching brandMap()'s
+                // ordering so the dashboard and the wire agree.
+                ->orderBy('c.position')->orderBy('c.external_ref')
                 ->get([
                     'ci.item_id', 'c.id as collection_id', 'c.label', 'c.position',
+                    'c.external_ref as collection_ref', 'c.kind as collection_kind',
                     's.external_ref', 's.provider', 's.url', 's.currency',
                     's.discount_code', 's.referral_query', 's.logo_url', 's.favicon_url',
                 ]);
 
             $storesByItem = $links->groupBy('item_id');
             $stores = $links->unique('collection_id')->keyBy('collection_id');
+        }
+
+        if ($hasProduct) {
 
             // Ordered for the same reason $places is: f_catalog is PK
             // (item_id, source_id), so an item carried by two sources has TWO
@@ -813,6 +836,39 @@ class PoolResolver
     }
 
     /**
+     * The vendor's service modes (DELIVERY / PICKUP), for the menus pool only.
+     *
+     * Store-level metadata, not per-item content: which modes a restaurant
+     * offers describes the restaurant, so it rides the pool ENVELOPE the way
+     * `stats` does rather than being stamped onto every dish. Owner ruling
+     * 2026-08-15 (Unit 6) — the alternative was dropping it as a regression.
+     *
+     * Null for every other pool, and buildPools() spreads it only when
+     * non-null, so no other pool's payload changes shape.
+     *
+     * @return list<string>|null
+     */
+    private function diningModesFor(string $pool, Site $site): ?array
+    {
+        if ($pool !== 'menus') {
+            return null;
+        }
+
+        $raw = DB::connection('pgsql')->table('site.menus')
+            ->where('user_id', $site->user_id)
+            ->whereNull('deleted_at')
+            ->value('dining_modes');
+
+        // menus_dining_modes_is_array permits NULL or a jsonb array, and the
+        // Postgres driver hands jsonb back as a STRING while the SQLite mirror
+        // stores TEXT — decode either, and treat an empty array as absent so
+        // the key does not appear carrying nothing.
+        $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
+
+        return is_array($decoded) && $decoded !== [] ? array_values($decoded) : null;
+    }
+
+    /**
      * The store cards the sitepage rebuilds its shop layout from. Only
      * collections a SELECTED item references — an unreferenced store card
      * would render as an empty group.
@@ -850,10 +906,24 @@ class PoolResolver
             // has not been fetched yet. Same narrow false positive the reader
             // accepts: a store genuinely named the same string as its own id
             // also reads back null.
-            $externalRef = (string) $row->external_ref;
+            // A menu category has no storefront sidecar, so every store-only
+            // field is null on it. The KEY SET never varies — PoolWireShapeTest
+            // fails on additions as well as removals, and a frontend
+            // destructuring this map must not have to branch on which kind of
+            // collection it got. Same contract `price`, `startsAt` and `review`
+            // keep on an item.
+            //
+            // externalRef prefers the STOREFRONT's ref where one exists, so
+            // slice 5b's shop behaviour (including the name-nulling rule below)
+            // is unchanged, and falls back to the collection's own — which is
+            // NOT NULL on every row.
+            $externalRef = $row->external_ref === null
+                ? (string) $row->collection_ref
+                : (string) $row->external_ref;
+
             $out[(string) $collectionId] = [
                 'externalRef' => $externalRef,
-                'provider' => (string) $row->provider,
+                'provider' => $row->provider === null ? null : (string) $row->provider,
                 'url' => $row->url === null ? null : (string) $row->url,
                 'name' => (string) $row->label === $externalRef ? null : (string) $row->label,
                 'currency' => $row->currency === null ? null : (string) $row->currency,
