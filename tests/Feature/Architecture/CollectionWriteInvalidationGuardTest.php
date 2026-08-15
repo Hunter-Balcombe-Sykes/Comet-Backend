@@ -51,6 +51,14 @@
  * MERGE    — identity merge; bumps BuildState via ItemMerger::bumpSites().
  * SHOP     — the kind='storefront' lane (slices 5a/5b). Different tables of
  *            record, different purge path; ManualServiceWriter does not apply.
+ * MENU     — the slice-4 menu backfill (kind='menu_category' /
+ *            'order_platform'). Invalidation is discharged ONCE PER SITE by
+ *            MenuBackfiller::run()'s SiteCacheLanes::bust() — the same three
+ *            lanes ManualServiceWriter::invalidate() fires, reached through
+ *            the class the writer already depends on rather than through the
+ *            service-flavoured wrapper. migrateOrderPlatforms() contributes
+ *            its site to the run's touched set instead of purging per row,
+ *            which is what keeps a 318-dish backfill to one purge per site.
  * READS    — the method only READS these two tables. It is listed because the
  *            scanner flags any method that names a guarded table AND issues
  *            some write terminal, and these write a DIFFERENT table.
@@ -75,6 +83,8 @@ const COLLECTION_WRITE_REGISTRY = [
     'ShopContentWriter::retireStore' => 'SHOP',
     'ShopContentWriter::retireAbsent' => 'SHOP',
     'ShopBackfiller::linkToCollection' => 'SHOP',
+
+    'MenuBackfiller::migrateOrderPlatforms' => 'MENU',
 
     'ShopController::forget' => 'READS',
     'ProvisionShopPinsCommand::handle' => 'READS',

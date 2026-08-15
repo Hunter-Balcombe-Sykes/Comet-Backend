@@ -311,7 +311,7 @@ class MenuBackfiller
      * another must carry its permalink to the SURVIVING item — otherwise the
      * slug points at a row mergeInto() hard-deleted.
      */
-    private function contentItemForLegacyDish(string $userId, string $dishId): ?string
+    public function contentItemForLegacyDish(string $userId, string $dishId): ?string
     {
         $dish = DB::connection('pgsql')->table('site.menu_items')
             ->where('id', $dishId)->first(['menu_id', 'name']);

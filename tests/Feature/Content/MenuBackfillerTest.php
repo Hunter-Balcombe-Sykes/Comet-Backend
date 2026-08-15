@@ -1,7 +1,9 @@
 <?php
 
+use App\Models\Core\Site\Site;
 use App\Services\Migration\MenuBackfiller;
 use App\Services\Platforms\MenuProjectionMapper;
+use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
@@ -228,4 +230,97 @@ it('leaves a menu it was not scoped to alone', function () {
 
     expect($result['backfilled'])->toBe(1)
         ->and(menuItemCount())->toBe(1);
+});
+
+// ── Unit 7: pin seeding ─────────────────────────────────────────────────────
+
+it('seeds a dense 1-based pin order from the legacy menu order', function () {
+    // The pool's auto half offers alphabetical / occurrence / recency and none
+    // of them is "the order the owner chose" — so the owner's arrangement is
+    // carried by pins, seeded once from the legacy category/dish positions.
+    [$userId, $siteId] = seedMenuWithDishes(['Iced Latte', 'Flat White']);
+    app(MenuBackfiller::class)->run();
+
+    $this->artisan('content:provision-menu-pins')->assertSuccessful();
+
+    $section = app(PoolSectionProvisioner::class)
+        ->ensure(Site::query()->findOrFail($siteId), 'menus');
+
+    expect(DB::connection('pgsql')->table('site.section_items')
+        ->where('section_id', $section->id)->where('state', 'pinned')
+        ->orderBy('sort_key')->pluck('sort_key')->all())
+        ->toBe([1.0, 2.0]);
+});
+
+it('pins in the legacy category order, not in item creation order', function () {
+    [$userId, $siteId, $menuId, $categoryIds] = seedMenuWithDishes(
+        ['Iced Latte', 'Flat White'], categories: ['Drinks'],
+    );
+
+    // Move the second dish into a category that sorts FIRST, so creation order
+    // and menu order disagree.
+    $firstCategory = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.menu_categories')->insert([
+        'id' => $firstCategory, 'menu_id' => $menuId, 'name' => 'Specials',
+        'position' => -1, 'source_platform' => 'uber-eats',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    $second = (string) DB::connection('pgsql')->table('site.menu_items')
+        ->where('name', 'Flat White')->value('id');
+    DB::connection('pgsql')->table('site.menu_item_categories')
+        ->where('menu_item_id', $second)->update(['menu_category_id' => $firstCategory]);
+
+    app(MenuBackfiller::class)->run();
+    $this->artisan('content:provision-menu-pins');
+
+    $section = app(PoolSectionProvisioner::class)
+        ->ensure(Site::query()->findOrFail($siteId), 'menus');
+
+    $firstPinned = DB::connection('pgsql')->table('site.section_items')
+        ->where('section_id', $section->id)->orderBy('sort_key')->value('item_id');
+
+    expect(DB::connection('pgsql')->table('content.items')->where('id', $firstPinned)->value('headline_cache'))
+        ->toBe('Flat White');
+});
+
+it('leaves an existing pin alone rather than rewriting it', function () {
+    // 5b's provision-shop-pins is the precedent: a re-run must not undo a drag
+    // the owner made afterwards.
+    [$userId, $siteId] = seedMenuWithDishes(['Iced Latte', 'Flat White']);
+    app(MenuBackfiller::class)->run();
+    $this->artisan('content:provision-menu-pins');
+
+    $section = app(PoolSectionProvisioner::class)
+        ->ensure(Site::query()->findOrFail($siteId), 'menus');
+    DB::connection('pgsql')->table('site.section_items')
+        ->where('section_id', $section->id)->orderBy('sort_key')->limit(1)->update(['sort_key' => 99]);
+
+    $this->artisan('content:provision-menu-pins');
+
+    expect((float) DB::connection('pgsql')->table('site.section_items')
+        ->where('section_id', $section->id)->max('sort_key'))->toBe(99.0)
+        ->and(DB::connection('pgsql')->table('site.section_items')
+            ->where('section_id', $section->id)->count())->toBe(2);
+});
+
+it('pins a dish in two categories once, at its earliest position', function () {
+    [$userId, $siteId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks', 'Coffee']);
+    app(MenuBackfiller::class)->run();
+
+    $this->artisan('content:provision-menu-pins');
+
+    $section = app(PoolSectionProvisioner::class)
+        ->ensure(Site::query()->findOrFail($siteId), 'menus');
+
+    expect(DB::connection('pgsql')->table('site.section_items')
+        ->where('section_id', $section->id)->count())->toBe(1);
+});
+
+it('writes nothing under --dry-run', function () {
+    [$userId, $siteId] = seedMenuWithDishes(['Iced Latte']);
+    app(MenuBackfiller::class)->run();
+
+    $this->artisan('content:provision-menu-pins', ['--dry-run' => true])->assertSuccessful();
+
+    expect(DB::connection('pgsql')->table('site.section_items')->count())->toBe(0);
 });
