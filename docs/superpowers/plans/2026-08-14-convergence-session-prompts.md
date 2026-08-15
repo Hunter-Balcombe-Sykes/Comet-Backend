@@ -193,6 +193,17 @@ content.source_items kind='menu_item' > 0 AND the menu pool returning them on th
 Apify spend capped at US$18 — re-check remaining credit before spending; exceeding the cap
 is a STOP, not a spend.
 
+**BLOCKED, established 2026-08-16 by running it (spec §23.6). This gate was never
+achievable and needs its own work first.** The three menu connectors declare a billed
+effect of kind `actor`, and `BilledEffectDriverRegistry` (an explicit list in
+AppServiceProvider) holds only PlacesDetailsDriver and InstagramActorDriver — its own
+comment already noted that the menu connectors "have no driver, which is why they keep
+hitting HttpIo's throw". Every run dies in HttpIo:158 before any third-party call, so
+nothing can be spent and nothing can land. Writing a menu actor driver against the three
+actors config('partna.menu.platforms') names is the prerequisite; it is slice-sized and
+unscoped. Sources ARE provisioned on dev (auto_sync=false, so nothing runs them), two of
+them now pointing at real stores.
+
 Autonomy: implement → test → merge to development → deploy dev without sign-off, with two
 exceptions: (a) the kickoff's blocker-gate items — the 318-slug 301 lane — get a written
 plan inside this session before implementation, then proceed; (b) the two deferred product
