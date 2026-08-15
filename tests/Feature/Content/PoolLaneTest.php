@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Content\ItemLinkController;
 use App\Http\Controllers\Api\Content\PoolController;
 use App\Http\Controllers\Api\Content\PoolItemCreateController;
 use App\Models\Core\Site\Site;
+use App\Services\Content\ManualServiceWriter;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -145,7 +146,12 @@ it('removes an item from selection and library via removed_at', function () {
 
     $request = Request::create("/api/content/items/{$item}", 'DELETE');
     $request->attributes->set('professional', $pro);
-    expect(app(ItemController::class)->destroy($request, $item)->getStatusCode())->toBe(200);
+    // The writer is method-injected since slice 4 — destroy() routes through
+    // markRemoved() so this path and the service ones share one removal seam
+    // (and therefore one slug-freeing step). Resolved explicitly here because
+    // this test calls the controller directly rather than over HTTP.
+    $remover = app(ManualServiceWriter::class);
+    expect(app(ItemController::class)->destroy($request, $item, $remover)->getStatusCode())->toBe(200);
 
     $data = poolGet($pro);
     expect($data['selection'])->toBe([]);

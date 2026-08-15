@@ -23,9 +23,14 @@ use Throwable;
 // Trailing digits in a stored slug are NOT a reliable collision marker: `table-9`
 // is what "Table 9" slugifies to at n=1, indistinguishable by shape from the -9
 // a collision would have minted. Deciding "is this slug still right?" therefore
-// needs the registry, not a regex — see ensureCurrent()/canonicalSlug(). Anyone
-// later writing an allocator for `content.item_slugs` (same table shape, no
-// allocator today) inherits the same trap.
+// needs the registry, not a regex — see ensureCurrent()/canonicalSlug().
+// ContentItemSlugAllocator (the content.item_slugs counterpart, shipped by
+// slice 2) inherited the same trap and guards it the same way; changing the
+// rule here means changing it there.
+//
+// This class now serves the LEGACY half only. Slice 4 (2026-08-15) moved menu
+// items onto ContentItemSlugAllocator via its SLUGGED_KINDS, and events moved
+// in slice 2 — both legacy tables stay live until slice 7 drops them.
 class ItemSlugAllocator
 {
     public const TYPE_EVENT = 'event';

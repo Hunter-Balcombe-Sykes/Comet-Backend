@@ -2,18 +2,37 @@
 
 namespace App\Ingest\Projection;
 
+use App\Services\Platforms\MenuProjectionMapper;
+
 /**
  * Landed menu item (Square / Uber Eats / DoorDash — one shared doc shape,
- * see App\Ingest\Support\MenuRecords) → the `menu_item` kind. The category
- * lands as a tag (tag_type 'category') — the cross-source category grouping
- * lives in collections (§6), which read exactly this tag, and the position
- * keeps the vendor's stable ordering available to the menu projector logic.
+ * see App\Ingest\Support\MenuRecords) → the `menu_item` kind.
+ *
+ * The category lands BOTH as a tag (tag_type 'category', which is what
+ * SectionCandidates reads) and as a `collections` entry. The second is not
+ * decoration: IdentityKeyDeriver derives `offering_name_in_category` —
+ * norm(category)|norm(dish), minLength 5 — from the collections entries, and
+ * that key is the only thing that makes short dish names ("Fries", "Cola")
+ * mergeable across platforms at all. Bare `offering_name` has minLength 8 and
+ * drops them. Emitting the tag alone would leave cross-platform merging
+ * silently dead for exactly the dishes most likely to be sold on two
+ * platforms.
+ *
+ * external_ref comes from MenuProjectionMapper::categoryRef() rather than
+ * being derived here, so this lane and the slice-4 backfill cannot disagree
+ * about what identifies a category — two derivations would hand the owner
+ * their categories twice, once per lane. That method's docblock carries why
+ * it keys on the label.
  */
 class MenuItemProjector implements Projector
 {
     public static function version(): int
     {
-        return 1;
+        // 2 (slice 4): the projection gained `collections`. A version bump is
+        // how a rebuild knows a landed row predates the current mapping —
+        // every row projected at v1 carries a category tag and no collection,
+        // so its identity keys are missing offering_name_in_category.
+        return 2;
     }
 
     public static function kind(): string
@@ -29,6 +48,7 @@ class MenuItemProjector implements Projector
         }
 
         $price = $view->float('price');
+        $category = $view->string('category');
 
         return [
             'kind' => self::kind(),
@@ -41,12 +61,21 @@ class MenuItemProjector implements Projector
                 'currency' => $view->string('currency'),
                 'qualifier' => $price === 0.0 ? 'free' : 'exact',
             ]],
-            'tags' => $view->string('category') === null ? [] : [
-                ['tag' => $view->string('category'), 'tag_type' => 'category'],
+            'tags' => $category === null ? [] : [
+                ['tag' => $category, 'tag_type' => 'category'],
             ],
             'media' => $view->string('image') === null ? [] : [
                 ['role' => 'cover', 'url' => $view->string('image')],
             ],
+            // position is a SEED — ProjectionWriter writes it on insert and
+            // never updates it, so an owner reordering their categories is not
+            // snapped back by the next scheduled run.
+            'collections' => $category === null ? [] : [[
+                'kind' => 'menu_category',
+                'external_ref' => MenuProjectionMapper::categoryRef($category),
+                'label' => $category,
+                'position' => $view->int('position') ?? 0,
+            ]],
         ];
     }
 }

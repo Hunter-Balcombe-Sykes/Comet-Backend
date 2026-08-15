@@ -323,6 +323,45 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
         updated_at TEXT NOT NULL,
         PRIMARY KEY (item_id, source_id)
     )');
+    // Slice 4 extended the SAME purge path: purgeHandle()'s dish lookup now
+    // reads content.items + content.item_slugs alongside the legacy
+    // site.menu_items, because both menu wires are live and purging one leaves
+    // the other stale. Unprovisioned, that lookup throws on every purge and —
+    // even with slice 4's EscalatesRepeatedFaults dedup absorbing 19 of the 20
+    // — the 5th fault escalates and lands a SECOND report, breaking the
+    // exactly-1 assertion this test is about. Same maintenance the 5a C2 fix
+    // needed above, for the same reason.
+    //
+    // Bodies copied BYTE-FOR-BYTE from tests/Pest.php per the note above:
+    // DuplicateStandInDdlGuardTest compares them, and a divergence would let
+    // the shared helper's earlier-running body win silently.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS content.items (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (
+            \'video\', \'track\', \'release\', \'episode\', \'channel\', \'service\', \'menu_item\',
+            \'product\', \'event\', \'link\', \'media\', \'review\', \'document\', \'article\'
+        )),
+        headline_cache TEXT NULL,
+        facets_cache TEXT NOT NULL DEFAULT \'[]\',
+        eligible_cache TEXT NOT NULL DEFAULT \'[]\',
+        removed_at TEXT NULL,
+        review_flag TEXT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )');
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS content.item_slugs (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        is_current INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        retired_at TEXT NULL,
+        UNIQUE (user_id, slug)
+    )');
 
     Exceptions::fake();
     $threshold = SitepageDataResolverService::FAULT_THRESHOLD;

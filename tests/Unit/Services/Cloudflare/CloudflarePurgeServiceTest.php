@@ -371,7 +371,15 @@ it('reports and warns (not silently debug-logs) when the product/menu/event enri
     // The page-only purge still fired despite all 3 enrichment lookups failing.
     Http::assertSent(fn ($req) => $req->method() === 'POST');
 
-    Exceptions::assertReportedCount(3);
+    // TWO, not three, since slice 4: the menu lane now escalates through
+    // EscalatesRepeatedFaults instead of calling report() raw. Its raw report
+    // was un-deduped while CloudflareCachePurgeJob self-dispatches three
+    // delayed follow-ups, so ONE site save reported the same fault four times.
+    // The warning still fires every time — the log line is the per-occurrence
+    // record; report() is the pager, and a pager that fires four times per
+    // save for one broken query is noise, not signal. The next test proves a
+    // SUSTAINED menu fault still reaches Nightwatch.
+    Exceptions::assertReportedCount(2);
     // Total warning-level call count, independent of args matching below —
     // catches a regression that fires the right count but wrong message/level.
     Log::shouldHaveReceived('warning')->times(3);
@@ -387,6 +395,31 @@ it('reports and warns (not silently debug-logs) when the product/menu/event enri
         fn (string $msg, array $ctx) => $msg === 'CloudflarePurgeService: event-id lookup failed, purging pages only'
             && ($ctx['handle'] ?? null) === 'nouser'
     );
+});
+
+it('escalates a SUSTAINED menu-item lookup failure to Nightwatch', function () {
+    // The other half of the dedupe: quieting the per-occurrence report is only
+    // acceptable if a real, ongoing breakage still pages someone. The trait
+    // reports the FAULT_THRESHOLD-th fault inside a 10-minute window, so a
+    // genuinely broken lookup surfaces on the second site save (each save runs
+    // the purge four times — once plus three delayed follow-ups).
+    attachTestSchemas();
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', '');
+    Config::set('partna.public_domain', 'partna.au');
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+    Exceptions::fake();
+
+    $service = new CloudflarePurgeService;
+    for ($i = 0; $i < CloudflarePurgeService::FAULT_THRESHOLD; $i++) {
+        $service->purgeHandle('nouser');
+    }
+
+    // 5 runs x 2 always-reporting lanes (product, event) = 10, plus exactly ONE
+    // from the menu lane on the 5th fault. A menu lane that had silently
+    // stopped reporting altogether would land on 10.
+    Exceptions::assertReportedCount(11);
 });
 
 /**
@@ -486,4 +519,83 @@ it('percent-encodes the handle and product handle before they land in a purge UR
     // them", so a two-needle negation passes the moment either is absent.
     expect($files)->not->toContain('https://jane doe.partna.au/');
     expect($files)->not->toContain('https://jane%20doe.partna.au/products/foo/bar');
+});
+
+it('builds dish purge targets from BOTH menu lanes while both are live (slice 4)', function () {
+    // The legacy menu wire still serves /menu/<legacy uuid> until slice 7
+    // retires it, and the pool serves the content item id and its slug.
+    // Purging one lane would leave the other's pages stale at the edge for the
+    // full 24h TTL — the exact regression 5a's C2 closed on the shop side.
+    setupUsersTable();
+    setupSitesTable();
+    setupContentTables();
+    attachTestSchemas();
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', '');
+    Config::set('partna.public_domain', 'partna.au');
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+
+    $db = DB::connection('pgsql');
+    $db->table('core.users')->insert([
+        'id' => 'u-menu', 'handle' => 'dishy', 'handle_lc' => 'dishy',
+        'display_name' => 'Dishy', 'first_name' => 'Dishy', 'account_type' => 'business',
+        'status' => 'active', 'auth_user_id' => 'auth-menu', 'primary_email' => 'dishy@example.com',
+    ]);
+    $db->table('site.menus')->insert([
+        'id' => 'm-1', 'user_id' => 'u-menu', 'fetch_status' => 'ok',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    $db->table('site.menu_items')->insert([
+        'id' => 'legacy-dish-1', 'menu_id' => 'm-1', 'name' => 'Iced Latte', 'is_manual' => 0,
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    $db->table('content.items')->insert([
+        'id' => 'content-dish-1', 'user_id' => 'u-menu', 'kind' => 'menu_item',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+        'first_seen_at' => now()->toDateTimeString(), 'last_seen_at' => now()->toDateTimeString(),
+    ]);
+    $db->table('content.item_slugs')->insert([
+        'id' => 's-1', 'user_id' => 'u-menu', 'item_id' => 'content-dish-1',
+        'slug' => 'iced-latte', 'is_current' => true, 'created_at' => now()->toDateTimeString(),
+    ]);
+
+    (new CloudflarePurgeService)->purgeHandle('dishy');
+
+    expect(cfRecordedFiles())->toContain(
+        'https://dishy.partna.au/menu/legacy-dish-1',
+        'https://dishy.partna.au/menu/content-dish-1',
+        'https://dishy.partna.au/menu/iced-latte',
+    );
+});
+
+it('leaves a removed dish out of the purge set', function () {
+    // A removed item's page is gone, and its slug has been freed for reuse —
+    // purging it would spend one of the 150 slots on a URL that 404s.
+    setupUsersTable();
+    setupSitesTable();
+    setupContentTables();
+    attachTestSchemas();
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', '');
+    Config::set('partna.public_domain', 'partna.au');
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+
+    $db = DB::connection('pgsql');
+    $db->table('core.users')->insert([
+        'id' => 'u-gone', 'handle' => 'gone', 'handle_lc' => 'gone',
+        'display_name' => 'Gone', 'first_name' => 'Gone', 'account_type' => 'business',
+        'status' => 'active', 'auth_user_id' => 'auth-gone', 'primary_email' => 'gone@example.com',
+    ]);
+    $db->table('content.items')->insert([
+        'id' => 'removed-dish', 'user_id' => 'u-gone', 'kind' => 'menu_item',
+        'removed_at' => now()->toDateTimeString(),
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+        'first_seen_at' => now()->toDateTimeString(), 'last_seen_at' => now()->toDateTimeString(),
+    ]);
+
+    (new CloudflarePurgeService)->purgeHandle('gone');
+
+    expect(cfRecordedFiles())->not->toContain('https://gone.partna.au/menu/removed-dish');
 });

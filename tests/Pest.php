@@ -1989,6 +1989,93 @@ function seedUserWithSite(): array
 }
 
 /**
+ * Slice 4: a tenant plus one menu, its categories and its dishes, wired the
+ * way MenuFetchJob::persist() writes them — every dish holds a membership in
+ * every category, and one menu_item_platforms row per platform.
+ *
+ * Global rather than file-local for the reason seedUserWithSite()'s docblock
+ * gives: MenuBackfillerTest and MenuSlugLaneTest both need it, and a
+ * file-local definition only resolves when Pest happens to load both files
+ * together — which is also a fatal under --parallel.
+ *
+ * @param  list<string>  $names  dish names, in menu order
+ * @param  list<string>  $categories
+ * @param  list<string>  $platforms
+ * @return array{0: string, 1: string, 2: string, 3: array<string, string>} [userId, siteId, menuId, categoryIdsByName]
+ */
+function seedMenuWithDishes(
+    array $names,
+    array $categories = ['Menu'],
+    array $platforms = ['uber_eats'],
+    ?string $currency = 'AUD',
+): array {
+    [$userId, $siteId] = seedUserWithSite();
+
+    $menuId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.menus')->insert([
+        'id' => $menuId,
+        'user_id' => $userId,
+        'content_source' => 'uber-eats',
+        'currency' => $currency,
+        'fetch_status' => 'ok',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $categoryIds = [];
+    foreach (array_values($categories) as $position => $name) {
+        $categoryIds[$name] = (string) Str::uuid();
+        DB::connection('pgsql')->table('site.menu_categories')->insert([
+            'id' => $categoryIds[$name],
+            'menu_id' => $menuId,
+            'name' => $name,
+            'position' => $position,
+            'source_platform' => 'uber-eats',
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ]);
+    }
+
+    foreach (array_values($names) as $position => $name) {
+        $dishId = (string) Str::uuid();
+        DB::connection('pgsql')->table('site.menu_items')->insert([
+            'id' => $dishId,
+            'menu_id' => $menuId,
+            'name' => $name,
+            'base_price' => 5.5,
+            'currency' => $currency,
+            'is_manual' => 0,
+            'created_at' => now()->addSeconds($position)->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ]);
+
+        foreach ($categoryIds as $categoryId) {
+            DB::connection('pgsql')->table('site.menu_item_categories')->insert([
+                'menu_item_id' => $dishId,
+                'menu_category_id' => $categoryId,
+                'position' => $position,
+                'created_at' => now()->toDateTimeString(),
+                'updated_at' => now()->toDateTimeString(),
+            ]);
+        }
+
+        foreach ($platforms as $platform) {
+            DB::connection('pgsql')->table('site.menu_item_platforms')->insert([
+                'id' => (string) Str::uuid(),
+                'menu_item_id' => $dishId,
+                'platform' => $platform,
+                'delivery_price' => 6.5,
+                'delivery_url' => 'https://example.test/'.$platform.'/'.$dishId,
+                'created_at' => now()->toDateTimeString(),
+                'updated_at' => now()->toDateTimeString(),
+            ]);
+        }
+    }
+
+    return [$userId, $siteId, $menuId, $categoryIds];
+}
+
+/**
  * Insert a ServiceCategory row for $pro and return the Eloquent model.
  *
  * @param  array<string, mixed>  $overrides

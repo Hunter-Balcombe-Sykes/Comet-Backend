@@ -3,6 +3,7 @@
 namespace App\Services\Cloudflare;
 
 use App\Enums\SitepageId;
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -19,6 +20,8 @@ use Illuminate\Support\Facades\Log;
 // Gracefully no-ops when unconfigured (local dev without CF credentials).
 class CloudflarePurgeService
 {
+    use EscalatesRepeatedFaults;
+
     // SCALE-101: gap between chunk POSTs on a multi-chunk purgeUrls() call, so a
     // burst of chunks doesn't slam Cloudflare's purge_cache endpoint back-to-back.
     //
@@ -30,17 +33,31 @@ class CloudflarePurgeService
     //              (page + SWR shadow) + 3 root urls (base/, base, root
     //              shadow)                                              =  39 / host
     //   products : ->limit(100) x 2 (page + shadow)                     = 200 / host
-    //   menu     : ->limit(150) x 2                                     = 300 / host
+    //   menu     : ->limit(150) on EACH of three lanes — the legacy dish
+    //              uuid, the content item id, and the item's current slug —
+    //              deduped into one set, x 2                            = 900 / host
+    //              Slice 4 (2026-08-15) took this from 300 to 900 while BOTH
+    //              menu wires are live: purging one lane leaves the other's
+    //              pages stale for the full 24h TTL. Slice 7 removes the
+    //              legacy third with site.menu_items, taking it to 600.
     //   events   : ->limit(30) connection rows, each contributing up to
     //              5 events (EventbriteFetch/HumanitixFetch -> *Scraper
     //              ::fetchEvents() default $limit=5) into one deduped id
     //              set, final set capped at 100 by array_slice(...,0,100),
     //              x 2                                                  = 200 / host
     //   -------------------------------------------------------------------------
-    //   (39+200+300+200) x 2 hosts (canonical + optional custom domain)
-    //   + 4 API urls (profile + integrations + platforms + menu)       = 1,482 URLs
-    //   chunked at 30/request (Cloudflare's `files` limit)              =    50 chunks
-    //                                                                       (49 gaps)
+    //   (39+200+900+200) x 2 hosts (canonical + optional custom domain)
+    //   + 4 API urls (profile + integrations + platforms + menu)       = 2,682 URLs
+    //   chunked at 30/request (Cloudflare's `files` limit)              =    90 chunks
+    //                                                                       (89 gaps)
+    //
+    // The PACING BUDGET below is why that growth is safe on the sleep side and
+    // is exactly the case it was written for: guaranteed sleep stays capped at
+    // 2s however many chunks there are. The HTTP round trips are the side that
+    // scales, and they were already named as the dominant remaining risk — a
+    // max-volume purge is now ~90 sequential blocking calls rather than ~50,
+    // so raising CloudflareCachePurgeJob::$timeout is a stronger follow-up
+    // recommendation than it was, not a new one.
     //
     // At the OLD flat 150ms/chunk pacing that's 49 x 150ms = 7.35s of GUARANTEED
     // sleep alone — 49% of CloudflareCachePurgeJob::$timeout=15 — before any of
@@ -263,19 +280,58 @@ class CloudflarePurgeService
         // Menu item detail pages (`/menu/<uuid>`, route added 2026-07-17) —
         // same per-URL edge-key staleness the products fix closed; same
         // bounded, never-break-the-purge pattern.
+        //
+        // Slice 4: dishes live in content.* now, so this reads BOTH lanes and
+        // purges the union. It cannot read only one of them while both are
+        // live — the legacy menu wire still serves `/menu/<legacy uuid>` until
+        // slice 7 retires it, and the pool serves the content item id and its
+        // slug. Purging one lane would leave the other's pages stale at the
+        // edge for the full 24h TTL, which is the exact regression the
+        // products fix (5a C2) closed on the shop side. Slice 7 drops the
+        // legacy half of this union with the tables.
         try {
-            $menuItemIds = DB::connection('pgsql')->table('site.menu_items as mi')
+            $limit = (int) config('partna.cloudflare_purge.menu_items_limit', 150);
+
+            $legacyIds = DB::connection('pgsql')->table('site.menu_items as mi')
                 ->join('site.menus as m', 'm.id', '=', 'mi.menu_id')
                 ->join('core.users as u', 'u.id', '=', 'm.user_id')
                 ->where('u.handle_lc', $h)
-                ->limit((int) config('partna.cloudflare_purge.menu_items_limit', 150))
+                ->limit($limit)
                 ->pluck('mi.id')
                 ->all();
+
+            // The content item id AND its current slug: the pool payload
+            // carries both, and which one the sitepage builds its href from is
+            // the frontend's choice, not this service's to assume.
+            $contentIds = DB::connection('pgsql')->table('content.items as i')
+                ->join('core.users as u', 'u.id', '=', 'i.user_id')
+                ->where('u.handle_lc', $h)
+                ->where('i.kind', 'menu_item')
+                ->whereNull('i.removed_at')
+                ->limit($limit)
+                ->pluck('i.id')
+                ->all();
+
+            $slugs = DB::connection('pgsql')->table('content.item_slugs as s')
+                ->join('content.items as i', 'i.id', '=', 's.item_id')
+                ->join('core.users as u', 'u.id', '=', 'i.user_id')
+                ->where('u.handle_lc', $h)
+                ->where('i.kind', 'menu_item')
+                ->where('s.is_current', true)
+                ->limit($limit)
+                ->pluck('s.slug')
+                ->all();
+
+            $menuItemIds = array_values(array_unique([...$legacyIds, ...$contentIds, ...$slugs]));
         } catch (\Throwable $e) {
-            // OBS-101: same bug as the product-handle catch above — bump to
-            // warning + report() so a stale-menu-page regression pages instead
-            // of vanishing into a log level Nightwatch never reads.
-            report($e);
+            // OBS-101: this lookup failing silently degrades to page-only
+            // purges with zero signal. The raw report() this replaces was
+            // un-deduped, and CloudflareCachePurgeJob self-dispatches three
+            // delayed follow-ups (partna.cache.purge_followup_schedule) — so
+            // ONE site save reported the same fault four times. The trait
+            // counts faults fleet-wide and reports the 5th in a 10-minute
+            // window, which is a signal rather than a stream.
+            self::escalateIfSustained($e, 'cloudflare_purge_menu_items');
             Log::warning('CloudflarePurgeService: menu-item lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
             $menuItemIds = [];
         }

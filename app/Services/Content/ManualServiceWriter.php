@@ -28,6 +28,7 @@ class ManualServiceWriter
     public function __construct(
         private readonly ProjectionWriter $writer,
         private readonly PoolSectionProvisioner $sections,
+        private readonly ContentItemSlugAllocator $slugs,
     ) {}
 
     /** Land one item through the slice-0b manual lane. Idempotent on $coord. */
@@ -168,6 +169,8 @@ class ManualServiceWriter
             ->where('id', $itemId)
             ->whereNull('removed_at')
             ->update(['removed_at' => $removedAt ?? now(), 'updated_at' => now()]);
+
+        $this->freeSlug($itemId);
     }
 
     /**
@@ -181,6 +184,75 @@ class ManualServiceWriter
         DB::connection('pgsql')->table('content.items')
             ->where('id', $itemId)
             ->update(['removed_at' => null, 'updated_at' => now()]);
+
+        $this->remintSlug($itemId);
+    }
+
+    /**
+     * Free a removed item's public URL slug (slice 4 §3.4).
+     *
+     * `idx_item_slugs_unique (user_id, slug)` is NON-partial, so even a retired
+     * row squats its name — a removed item that keeps its slug holds that URL
+     * forever, and the next dish of the same name is handed `iced-latte-2`
+     * permanently. This is the invariant `site.item_slugs` never had (no FK to
+     * `site.menu_items`, so a non-Eloquent delete stranded its rows); it lives
+     * on the side that survives slice 7's teardown.
+     *
+     * Reached ONLY from items.removed_at — the owner's delete.
+     * source_items.removed_at is projection-level absence, cleared on
+     * reappearance, and freeing the name there would break the URL the moment a
+     * vendor re-lists the dish.
+     *
+     * Kind-guarded so the five service call sites pay nothing: services are not
+     * in SLUGGED_KINDS and hold no slug rows to delete.
+     */
+    private function freeSlug(string $itemId): void
+    {
+        $row = DB::connection('pgsql')->table('content.items')
+            ->where('id', $itemId)
+            ->first(['user_id', 'kind']);
+
+        if ($row === null || ! in_array((string) $row->kind, ContentItemSlugAllocator::SLUGGED_KINDS, true)) {
+            return;
+        }
+
+        $this->slugs->forget((string) $row->user_id, $itemId);
+    }
+
+    /**
+     * The mirror of freeSlug(): a restored item gets its permalink back.
+     *
+     * Without this, freeing on removal would leave the explicit restore
+     * endpoint returning an item that serves a null slug and resolves only by
+     * raw id. The allocator's rename-back arm reactivates the original slug
+     * where it survives, so a delete-then-restore round trip is URL-stable
+     * unless someone else claimed the name in between.
+     */
+    private function remintSlug(string $itemId): void
+    {
+        $row = DB::connection('pgsql')->table('content.items')
+            ->where('id', $itemId)
+            ->first(['user_id', 'kind', 'headline_cache']);
+
+        if ($row === null || ! in_array((string) $row->kind, ContentItemSlugAllocator::SLUGGED_KINDS, true)) {
+            return;
+        }
+
+        // An unheadlined item would slug to `item-<6 hex>`, which is not a
+        // human-readable URL and would then squat that name — the same reason
+        // content:backfill-item-slugs skips them.
+        $headline = trim((string) ($row->headline_cache ?? ''));
+        if ($headline === '') {
+            return;
+        }
+
+        try {
+            $this->slugs->ensureCurrent((string) $row->user_id, $itemId, $headline);
+        } catch (\Throwable $e) {
+            // Best-effort, matching refreshItemCaches()' own mint: slug
+            // bookkeeping must never fail a restore the owner asked for.
+            report($e);
+        }
     }
 
     /** The coord an existing item was landed under, on this user's manual source. */

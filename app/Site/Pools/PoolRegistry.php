@@ -8,8 +8,9 @@ namespace App\Site\Pools;
  * its curation hangs off. Closed on purpose — a pool key arrives from the
  * URL, and this map is what stops it naming an arbitrary kind set.
  *
- * Menu is NOT here: it keeps its existing live lane, which already implements
- * sources→selection in its own machinery. Services JOINED 2026-08-12 (slice
+ * Menus JOINED 2026-08-15 (slice 4): dishes render from the pool, and the
+ * legacy site.menu_items lane runs beside it until slice 7 drops the table.
+ * Services JOINED 2026-08-12 (slice
  * 3a) for the owner-authored half; the Fresha half and its hiddenServiceIds
  * lane follow in 3b, so both run side by side until then. Sell JOINED
  * 2026-08-13 (slice 5b): products render from the pool and the legacy
@@ -44,6 +45,7 @@ class PoolRegistry
         'shop' => ['product'],
         'reviews' => ['review'],
         'custom_links' => ['link'],
+        'menus' => ['menu_item'],
     ];
 
     /**
@@ -66,6 +68,10 @@ class PoolRegistry
         // legacy `custom` platform to it, so the pool joins the page its own
         // connections built rather than opening a second one beside it.
         'custom_links' => 'links',
+        // The page the legacy menu lane already advertises — the pool joins it
+        // rather than opening a second page beside it, the same way custom
+        // links joined `links`.
+        'menus' => 'menu',
     ];
 
     public const PAGE_LABELS = [
@@ -77,6 +83,7 @@ class PoolRegistry
         'shop' => 'Shop',
         'reviews' => 'Reviews',
         'custom_links' => 'Links',
+        'menus' => 'Menu',
     ];
 
     /**
@@ -121,6 +128,14 @@ class PoolRegistry
             'order_by' => 'recency',
         ],
         'shop' => [
+            'rule' => [['op' => 'kind_is']],
+            'order_by' => 'recency',
+        ],
+        // Slice 4 makes it three. Deliberately identical to the two above —
+        // a menu is priced and undated exactly as a service and a product are,
+        // and dev's largest menu carries 156 dishes, so the default's
+        // latest_per_auto_source would publish ONE of them.
+        'menus' => [
             'rule' => [['op' => 'kind_is']],
             'order_by' => 'recency',
         ],

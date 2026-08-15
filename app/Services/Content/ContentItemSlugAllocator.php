@@ -39,17 +39,20 @@ class ContentItemSlugAllocator
     /**
      * The kinds that get a public URL slug minted for them.
      *
-     * Events only, for now: they are the kind with a detail permalink, and the
-     * lane this registry replaced (site.item_slugs) covered exactly events and
-     * menu items. Every pool item's payload carries the `slug` key regardless,
-     * null off this list — the wire shape does not vary by kind.
+     * Events and menu items — exactly the pair site.item_slugs covered. Menus
+     * joined 2026-08-15 (slice 4), and this const IS the re-homing of slug
+     * allocation off MenuItemObserver: ProjectionWriter::refreshItemCaches()
+     * mints for every kind in this list, so a landed dish gets its permalink
+     * with no observer and no second call site. Every pool item's payload
+     * carries the `slug` key regardless, null off this list — the wire shape
+     * does not vary by kind.
      *
      * The projector and the backfill BOTH read this, so widening it is one
      * edit and the two cannot disagree about which items should have slugs.
      *
      * @var list<string>
      */
-    public const SLUGGED_KINDS = ['event'];
+    public const SLUGGED_KINDS = ['event', 'menu_item'];
 
     private const MAX_BASE = 80;
 

@@ -346,6 +346,11 @@ class IndividualProfilePayloadBuilder
                 // it that retirement drops three published fields on the floor.
                 // Absent when null, the same contract `collections` keeps.
                 ...($resolved['stats'] === null ? [] : ['stats' => $resolved['stats']]),
+                // Slice 4 §7: the menus pool carries its vendor's service modes
+                // (DELIVERY / PICKUP) — store-level metadata, so it sits beside
+                // the dishes rather than on one. Absent when null, the same
+                // additive contract `collections` and `stats` keep.
+                ...($resolved['diningModes'] === null ? [] : ['diningModes' => $resolved['diningModes']]),
             ];
         }
 
