@@ -3647,9 +3647,10 @@ Merged as `3a2792eb7`, deployed to dev, and every figure below read back off
 `2026-08-12-slice-4-menus-design.md`. Wire manifest:
 `docs/wire-changes/2026-08-12-slice-4-menus.md`.
 
-**Phase 5's live connector proof is NOT met and is raised, not quietly
-deferred — see §23.6.** Everything else in the definition of done is on record
-below.
+**Phase 5's live connector proof is BLOCKED — the menu connectors declare a
+billed `actor` effect that has no registered driver, so the lane cannot run at
+all. Raised, not quietly deferred; see §23.6.** Everything else in the
+definition of done is on record below.
 
 ### 23.1 Entry state, measured before touching anything
 
@@ -3778,53 +3779,67 @@ Renaming back exercised the allocator's rename-back arm: the slug returned to
 **This is a behaviour improvement, named as one:** vendor renames now redirect,
 where the legacy lane destroyed the old URL.
 
-### 23.6 Phase 5's live proof — NOT MET, raised
+### 23.6 Phase 5's live proof — BLOCKED on an unwired driver, raised
 
-The three menu connectors exist and are registered
-(`UberEatsMenuConnector`, `DoordashMenuConnector`, `SquareMenuConnector`), and
-this slice provisioned their sources — scoped, using a `--connector` flag added
-to `ingest:backfill-sources` for the purpose:
-
-```
-$ php artisan ingest:backfill-sources --user=<showcase-eats> \
-    --connector=uber_eats --connector=doordash --connector=square
-created 3 | filtered_out 4 | no_connector 6
-```
-
-The four filtered rows are `google_business`, `instagram`, `eventbrite` and
-`humanitix` — billed lanes that scoping by user alone would have started as a
-side effect.
-
-**The gate cannot be met honestly today.** The only account holding
-`*.order` connections is `showcase-eats`, and all four of its URLs are
-placeholders:
+**The menu connector lane cannot execute at all, and no data fix would have
+changed that.** Established by running it, with the owner's go-ahead, after
+repointing two of `showcase-eats`' placeholder connections at real stores:
 
 ```
-uber_eats.order   https://www.ubereats.com/au/store/some-store
-doordash.order    https://www.doordash.com/store/some-store-123456/
-square.order      https://some-store.square.site
-menulog.order     https://www.menulog.com.au/restaurants-some-store
+uber_eats.order  -> https://www.ubereats.com/au/store/universal-restaurant/XzekA5noR8WoNpQV2DoP_A
+doordash.order   -> https://www.doordash.com/store/doc-pizza-%26-mozzarella-bar-carlton-25116160
 ```
 
-Running the actors against those spends Apify credit to land nothing. Real
-store URLs exist on dev, but only in `site.menu_platform_links`, belonging to
-four users who hold no `*.order` connection at all. Proceeding requires either
-repointing a demo account's connections at a real third party's store, or
-fabricating an integration on an account that never connected one — a data
-decision this plan does not name. **Raised to the owner rather than taken.**
+Both runs failed identically, before any third-party call:
 
-Two facts that de-risk the wait:
+```
+RuntimeException: No billed-effect driver is wired for kind 'actor'
+(effect 'menu'). A connector must not declare a billed effect it cannot perform.
+  HttpIo.php:158 <- EffectLedger.php:127 <- UberEatsMenuConnector.php:58
+                                         <- DoordashMenuConnector.php:64
+```
 
-- The three sources carry `auto_sync = false`, and `SourceScheduler` filters
-  `where('auto_sync', true)`. They cannot run themselves, so no scheduled run
-  will spend credit on the placeholder URLs.
-- **Apify budget is intact and was checked before anything ran:** US$2.81 of a
-  US$29 monthly ceiling used, US$26.19 remaining against the slice's US$18 cap.
-  Nothing in slice 4 spent any of it.
+`BilledEffectDriverRegistry` is an explicit, ordered list in
+`AppServiceProvider` holding exactly two drivers — `PlacesDetailsDriver` and
+`InstagramActorDriver`. Its own comment already says so: *"`actor` alone is
+ambiguous — the three menu connectors declare it too and have no driver, which
+is why they keep hitting HttpIo's throw."*
 
-Also established while checking: **the menu connectors do not read
-`selection_ref`** — that is Fresha's sub-account mechanism. The NULL on these
-three sources is not a blocker for them.
+**So Phase 5's gate as written — provision, dispatch, project — was never
+achievable.** It needs a menu actor driver written first, against the three
+actors `config('partna.menu.platforms')` names
+(`memo23~uber-eats-scraper`, `dz_omar~doordash-scraper`,
+`menus-r-us~restaurant-menu-scraper`). That is a slice-sized piece of work
+nobody has scoped, and it is not in slice 4's units — slice 4 moves the DATA;
+the connector lane was assumed to exist.
+
+**Nothing was spent, and that is slice 0's seam working exactly as designed.**
+It refuses an effect it has no driver for rather than letting an undeclared
+call read as free. `ingest.effects` carries two `menu` rows at
+`status='failed'` — those are CLAIMS, not charges; the Apify call never
+happened. Apify sits at **US$2.81 of a US$29 ceiling**, untouched by this
+slice, against its US$18 cap.
+
+State left behind, deliberately:
+
+- The two connections keep their real URLs. They are more truthful than
+  `some-store`, the owner approved pointing them there, and they are ready for
+  the day a driver lands. `square.order` still holds its placeholder — there is
+  no real Square store on dev to point it at.
+- The three sources carry `auto_sync = false` and `SourceScheduler` filters
+  `where('auto_sync', true)`, so nothing will run them on a schedule. Their
+  `menu` streams read `health='unavailable', consecutive_failures=1` — the
+  honest record of the attempt.
+- Also established while checking: **the menu connectors do not read
+  `selection_ref`** (that is Fresha's sub-account mechanism), so the NULL on
+  these sources is not a second blocker.
+
+**Consequence for the programme:** `content.source_items` of kind `menu_item`
+is 318, all of them from the manual backfill lane. Zero have come from a
+connector. Parent invariant #6 — registration is not execution — holds against
+the menu lane exactly as it did against `FreshaServiceProjector` before slice
+3b. Whoever picks up the driver work inherits `MenuItemProjector` at version 2,
+already emitting the `collections` its identity keys need.
 
 ### 23.7 Cache, and one warning this slice caused
 
