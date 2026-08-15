@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Content\ContentItemSlugAllocator;
+use App\Services\Content\ManualServiceWriter;
 use App\Services\Migration\MenuBackfiller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -119,6 +120,67 @@ it('counts a legacy slug whose dish never landed rather than dropping it', funct
     legacySlug($userId, (string) Str::uuid(), 'ghost-dish', isCurrent: true);
 
     expect(app(MenuBackfiller::class)->run()['slugs_unmapped'])->toBe(1);
+});
+
+it('frees the permalink when the owner deletes the dish', function () {
+    // idx_item_slugs_unique (user_id, slug) is NON-partial, so even a retired
+    // row squats its name. A removed item that keeps its slug squats it
+    // forever, and the next dish of that name gets `iced-latte-2` permanently.
+    seedMenuWithDishes(['Iced Latte']);
+    app(MenuBackfiller::class)->run();
+    $itemId = landedMenuItemId();
+
+    app(ManualServiceWriter::class)->markRemoved($itemId);
+
+    expect(DB::connection('pgsql')->table('content.item_slugs')->where('item_id', $itemId)->count())->toBe(0);
+});
+
+it('keeps the permalink when a scrape merely stops seeing the dish', function () {
+    // source_items.removed_at is PROJECTION-level absence and is cleared on
+    // reappearance. Freeing the slug there would hand the name to another dish
+    // and break the URL the moment the vendor re-lists it.
+    seedMenuWithDishes(['Iced Latte']);
+    app(MenuBackfiller::class)->run();
+    $itemId = landedMenuItemId();
+
+    DB::connection('pgsql')->table('content.source_items')
+        ->where('kind', 'menu_item')->update(['removed_at' => now()->toDateTimeString()]);
+
+    expect(DB::connection('pgsql')->table('content.item_slugs')->where('item_id', $itemId)->count())->toBe(1);
+});
+
+it('re-mints the permalink when a removed dish is restored', function () {
+    // Freeing on removal is only safe if restore puts one back — otherwise the
+    // explicit restore endpoint returns an item that serves a null slug and
+    // resolves only by raw id.
+    seedMenuWithDishes(['Iced Latte']);
+    app(MenuBackfiller::class)->run();
+    $itemId = landedMenuItemId();
+
+    $writer = app(ManualServiceWriter::class);
+    $writer->markRemoved($itemId);
+    $writer->clearRemoved($itemId);
+
+    expect(DB::connection('pgsql')->table('content.item_slugs')
+        ->where('item_id', $itemId)->where('is_current', true)->value('slug'))
+        ->toBe('iced-latte');
+});
+
+it('leaves a non-slugged kind alone on removal', function () {
+    // Services are not in SLUGGED_KINDS. markRemoved() has five callers, all
+    // service paths — the guard is what keeps this from costing them a query.
+    [$userId] = seedUserWithSite();
+    $itemId = (string) Str::uuid();
+    DB::connection('pgsql')->table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $userId, 'kind' => 'service',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+        'first_seen_at' => now()->toDateTimeString(), 'last_seen_at' => now()->toDateTimeString(),
+    ]);
+
+    app(ManualServiceWriter::class)->markRemoved($itemId);
+
+    expect(DB::connection('pgsql')->table('content.items')->where('id', $itemId)->value('removed_at'))
+        ->not->toBeNull();
 });
 
 it('is idempotent — a second run migrates no new slug rows', function () {
