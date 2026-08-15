@@ -3556,15 +3556,21 @@ destination ignores it. The coord derives from the RAW url, so coverage is
 unaffected — which the gate above proves rather than assumes.
 
 **Idempotency, proven on live data rather than asserted.** The command was run
-a SECOND time against dev:
+a SECOND and THIRD time against dev:
 
 ```
-backfilled 23, duplicate url 0, skipped (no url) 0, skipped (no site) 0, failed 0
+backfilled 23, duplicate url 0, skipped (no url) 0, skipped (no site) 0, already curated 23, failed 0
 ```
 
 and every count above was unchanged: 23 items, 23 source items, 23 curation
 rows, 749 total, `max(sort_key)` still 12 on the 12-link section. No
 duplication, no re-ordering, no resurrection.
+
+`already curated 23` IS the re-run signal — every link is written again (the
+coord is stable) while its curation is left alone. The second run did not
+print it: the counter was computed and never displayed, so a first run and an
+idempotent re-run rendered identically. Fixed and redeployed before the third
+run above, which is the one quoted.
 
 ### Three things a later phase must not re-derive wrongly
 
