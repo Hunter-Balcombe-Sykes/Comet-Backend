@@ -1138,8 +1138,16 @@ Also correct `ItemSlugAllocator`'s stale docblock line ("same table shape, no al
         return $out;
     }
 
-    /** legacy dish uuid → the content item its coord resolved to, or null. */
-    private function contentItemForLegacyDish(string $dishId): ?string
+    /**
+     * legacy dish uuid → the content item its coord is anchored to, or null.
+     *
+     * content.item_anchors is the coord→item binding ProjectionWriter::bindGroup()
+     * writes. Reading superseded_by first is load-bearing, not defensive: this
+     * slice produces the programme's first real merges, and a dish that merged
+     * into another must carry its permalink to the SURVIVING item — otherwise
+     * the slug points at a row mergeInto() hard-deleted.
+     */
+    private function contentItemForLegacyDish(string $userId, string $dishId): ?string
     {
         $dish = DB::connection('pgsql')->table('site.menu_items')
             ->where('id', $dishId)->first(['menu_id', 'name']);
@@ -1150,24 +1158,15 @@ Also correct `ItemSlugAllocator`'s stale docblock line ("same table shape, no al
 
         $coord = MenuProjectionMapper::coordFor((string) $dish->menu_id, (string) $dish->name);
 
-        $id = DB::connection('pgsql')->table('content.source_items as si')
-            ->join('content.item_sources as isrc', 'isrc.source_item_id', '=', 'si.id')
-            ->where('si.coord', $coord)
-            ->value('isrc.item_id');
+        $anchor = DB::connection('pgsql')->table('content.item_anchors')
+            ->where('user_id', $userId)->where('coord', $coord)
+            ->first(['item_id', 'superseded_by']);
 
-        return $id === null ? null : (string) $id;
+        return $anchor === null ? null : (string) ($anchor->superseded_by ?? $anchor->item_id);
     }
 ```
 
 Wire it into `run()` immediately before the `SiteCacheLanes::bust()` call, merging its counters into `$result`.
-
-**Verify the join table's real name first.** `content.item_sources` is the assumed link between a source item and its item; confirm with:
-
-```bash
-grep -n "item_sources\|source_item_id" app/Ingest/Projection/ProjectionWriter.php | head
-```
-
-If the writer resolves items differently (e.g. a column on `content.source_items`), use whatever `resolveItems()` reads and correct this step in place.
 
 - [ ] **Step 5: Run the tests**
 
@@ -1838,6 +1837,6 @@ Live SQL pasted, merges reconciled, three cache lanes named, `cloud env:logs par
 
 **Spec coverage.** §3 slug lane → Tasks 4, 5. §4 offers → Task 2. §5 collections → Tasks 2, 6. §6.1 identity → Tasks 6, 11. §6.2 pool → Tasks 1, 8, 9. §7 Unit 6 → Tasks 7, 8. §8 payload → Task 2. §9 backfill + coord → Tasks 2, 3. §10 cache/purge/k6/analytics → Tasks 3, 10, 12. §11 Phase 5 → Task 11. §12 verification → Task 12. §13 downstream edits → Task 12 step 6. No gaps.
 
-**Known unknowns, flagged rather than papered over.** Task 4 step 4 assumes `content.item_sources` is the source-item→item join and says so, with the grep that settles it. Task 6 assumes `RecordView::int()` exists; if not, cast `string('position')`. Task 8's query-count ceiling (12) is a placeholder bound to be tightened once measured — it is there to catch a regression of an order of magnitude, not to pin an exact number.
+**Known unknowns, flagged rather than papered over.** Task 6 assumes `RecordView::int()` exists; if not, cast `string('position')`. Task 8's query-count ceiling (12) is a placeholder bound to be tightened once measured — it is there to catch a regression of an order of magnitude, not to pin an exact number.
 
 **Type consistency.** `MenuProjectionMapper::coordFor(string, string): string` and `project(object, array, array, object): array` are used with those signatures in Tasks 3 and 4. `MenuBackfiller::run(bool, ?string): array` matches `ServiceBackfiller` and `CustomLinkBackfiller`. `ContentItemSlugAllocator::forget(string, string): void` matches the existing signature.
