@@ -2,6 +2,8 @@
 
 namespace App\Services\Platforms;
 
+use Illuminate\Support\Str;
+
 /**
  * One legacy site.menu_items row → the projection shape ProjectionWriter
  * accepts. Pure: no database, no side effects, so slice 4's whole mapping
@@ -26,6 +28,36 @@ class MenuProjectionMapper
     public static function coordFor(string $menuId, string $name): string
     {
         return 'manual:menu:'.$menuId.':'.sha1((new self)->normalizeName($name));
+    }
+
+    /**
+     * The `content.collections.external_ref` for a menu category — derived from
+     * the LABEL, and shared with MenuItemProjector so the backfilled menu and
+     * the scraped one describe the same category the same way. The natural key
+     * is (user_id, kind, external_ref); two derivations would hand the owner
+     * their categories twice, once per lane.
+     *
+     * Not the legacy category uuid, despite parent §8.1's usual preference:
+     * MenuFetchJob rebuilds categories the same way it rebuilds dishes and
+     * reuses their ids by NORMALISED NAME (idsByNormalizedName), so a renamed
+     * category already gets a fresh uuid. The uuid is therefore no more
+     * rename-stable than the label, and only the label is available on the
+     * connector side — MenuRecords carries no category id at all.
+     *
+     * Cost, stated: a vendor rename mints a new collection rather than being
+     * followed by the upsert's `label` update. That is the same behaviour the
+     * legacy lane has today, and the alternative (a null ref) is what
+     * FreshaServiceProjector rejected — it would insert a fresh row every run.
+     *
+     * A label that slugifies to nothing (all emoji, all punctuation) falls back
+     * to a hash, because a shared `menu:` would fold every such category into
+     * one.
+     */
+    public static function categoryRef(string $label): string
+    {
+        $slug = Str::slug($label);
+
+        return 'menu:'.($slug !== '' ? $slug : sha1((new self)->normalizeName($label)));
     }
 
     /**
@@ -140,7 +172,7 @@ class MenuProjectionMapper
             }
             $out[] = [
                 'kind' => 'menu_category',
-                'external_ref' => 'menu:'.$category['id'],
+                'external_ref' => self::categoryRef($label),
                 'label' => $label,
                 'position' => $category['position'],
             ];

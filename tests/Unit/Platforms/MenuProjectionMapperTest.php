@@ -98,9 +98,13 @@ it('emits collections from the categories, because the identity key reads them',
         ['id' => 'cat-2', 'name' => 'Coffee', 'position' => 5],
     ], [], menuRow());
 
+    // external_ref is derived from the LABEL, not the legacy category uuid —
+    // MenuItemProjector has no uuid available (MenuRecords carries no category
+    // id) and must land on the same ref, or the two lanes mint the category
+    // twice. categoryRef()'s docblock carries the full reasoning.
     expect($projection['collections'])->toBe([
-        ['kind' => 'menu_category', 'external_ref' => 'menu:cat-1', 'label' => 'Drinks', 'position' => 2],
-        ['kind' => 'menu_category', 'external_ref' => 'menu:cat-2', 'label' => 'Coffee', 'position' => 5],
+        ['kind' => 'menu_category', 'external_ref' => 'menu:drinks', 'label' => 'Drinks', 'position' => 2],
+        ['kind' => 'menu_category', 'external_ref' => 'menu:coffee', 'label' => 'Coffee', 'position' => 5],
     ]);
 });
 
