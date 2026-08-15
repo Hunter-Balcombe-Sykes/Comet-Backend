@@ -529,9 +529,25 @@ it('does not mint a slug for a kind outside SLUGGED_KINDS', function () {
     ]);
     app(ProjectionWriter::class)->projectStream($source, $streamId, 'events');
 
-    expect(ContentItemSlugAllocator::SLUGGED_KINDS)->toBe(['event']);
+    // Slice 4 widened the list to ['event', 'menu_item'] — exactly the pair
+    // site.item_slugs covered, and the widening IS how menu slug allocation
+    // re-homed off MenuItemObserver.
+    expect(ContentItemSlugAllocator::SLUGGED_KINDS)->toBe(['event', 'menu_item']);
     expect(DB::table('content.item_slugs')->count())->toBe(1);
     expect(DB::table('content.items')->where('kind', 'event')->count())->toBe(1);
+
+    // The half the test's name promises and only the const assertion used to
+    // cover: an OFF-list kind lands its item and mints no slug. Asserted by
+    // writing one rather than by re-reading the const, so the test would still
+    // fail if refreshItemCaches() stopped consulting the list at all.
+    [$offUserId] = manualSourceFor();
+    app(ProjectionWriter::class)->writeManualItem($offUserId, 'manual:slug-check', [
+        'kind' => 'video',
+        'headline' => 'A Video With No Permalink',
+    ]);
+
+    expect(DB::table('content.items')->where('kind', 'video')->count())->toBe(1)
+        ->and(DB::table('content.item_slugs')->count())->toBe(1);
 });
 
 // Slice 3b Task 5: a projection may carry a 'collections' key, and the writer

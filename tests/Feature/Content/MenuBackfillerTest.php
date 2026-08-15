@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\Queue;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // The backfiller's slug phase reads site.item_slugs even when there is
+    // nothing to carry — the table has to exist for the run to complete.
+    setupItemSlugsTable();
     setupIngestTables();
     setupContentTables();
     setupSectionsTables();

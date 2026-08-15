@@ -7,6 +7,7 @@ use App\Services\Platforms\MenuProjectionMapper;
 use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Slice 4 §9: land every live `site.menu_items` row as a `menu_item` content
@@ -29,7 +30,7 @@ class MenuBackfiller
         private readonly MenuProjectionMapper $mapper,
     ) {}
 
-    /** @return array{backfilled:int, duplicate_name:int, skipped_no_site:int, skipped_no_name:int, failed:int} */
+    /** @return array{backfilled:int, duplicate_name:int, skipped_no_site:int, skipped_no_name:int, failed:int, slugs_migrated:int, slugs_collided:int, slugs_unmapped:int} */
     public function run(bool $dryRun = false, ?string $userId = null): array
     {
         $result = [
@@ -38,6 +39,9 @@ class MenuBackfiller
             'skipped_no_site' => 0,
             'skipped_no_name' => 0,
             'failed' => 0,
+            'slugs_migrated' => 0,
+            'slugs_collided' => 0,
+            'slugs_unmapped' => 0,
         ];
         $touchedSites = [];
 
@@ -117,6 +121,11 @@ class MenuBackfiller
             }
         }
 
+        // Phase 2, in the same command rather than a second one someone can
+        // forget: the mapping is legacy uuid -> coord -> content item, and the
+        // middle term does not exist until the items above have landed.
+        $result = array_merge($result, $this->migrateSlugs($dryRun, $userId));
+
         if (! $dryRun && $touchedSites !== []) {
             // All three lanes (§9.2). writeManualItem() bumps build state per
             // item, but the 60s public-profile cache keys off
@@ -126,6 +135,102 @@ class MenuBackfiller
         }
 
         return $result;
+    }
+
+    /**
+     * Carry site.item_slugs' menu_item rows onto the content items their dishes
+     * became. is_current, retired_at and created_at are preserved verbatim:
+     * created_at is what lookupCurrent() orders stranded rows by, and
+     * retired_at IS the 301 — dropping it would migrate the live URL and lose
+     * every redirect behind it.
+     *
+     * A (user_id, slug) already held by a DIFFERENT item is counted and
+     * skipped, never inserted. idx_item_slugs_unique is NON-partial, so the
+     * alternative is a 23505 mid-run with half the permalinks moved.
+     *
+     * @return array{slugs_migrated:int, slugs_collided:int, slugs_unmapped:int}
+     */
+    private function migrateSlugs(bool $dryRun, ?string $userId): array
+    {
+        $out = ['slugs_migrated' => 0, 'slugs_collided' => 0, 'slugs_unmapped' => 0];
+
+        $legacy = DB::connection('pgsql')->table('site.item_slugs')
+            ->where('item_type', 'menu_item')
+            ->when($userId !== null, fn ($q) => $q->where('user_id', $userId))
+            ->orderBy('created_at')
+            ->get();
+
+        foreach ($legacy as $row) {
+            $itemId = $this->contentItemForLegacyDish((string) $row->user_id, (string) $row->item_key);
+            if ($itemId === null) {
+                // The dish never landed — it was deleted, nameless, or its
+                // owner has no site. Counted so the total reconciles against
+                // the 318 rather than quietly shrinking.
+                $out['slugs_unmapped']++;
+
+                continue;
+            }
+
+            $holder = DB::connection('pgsql')->table('content.item_slugs')
+                ->where('user_id', $row->user_id)->where('slug', $row->slug)
+                ->value('item_id');
+
+            if ($holder !== null && (string) $holder !== $itemId) {
+                $out['slugs_collided']++;
+
+                continue;
+            }
+
+            // Already carried — by a previous run, or by the mint that
+            // refreshItemCaches() performs for every landed dish.
+            if ($holder !== null) {
+                $out['slugs_migrated']++;
+
+                continue;
+            }
+
+            if (! $dryRun) {
+                DB::connection('pgsql')->table('content.item_slugs')->insertOrIgnore([
+                    'id' => (string) Str::uuid(),
+                    'user_id' => $row->user_id,
+                    'item_id' => $itemId,
+                    'slug' => $row->slug,
+                    'is_current' => (bool) $row->is_current,
+                    'created_at' => $row->created_at,
+                    'retired_at' => $row->retired_at,
+                ]);
+            }
+
+            $out['slugs_migrated']++;
+        }
+
+        return $out;
+    }
+
+    /**
+     * legacy dish uuid -> the content item its coord is anchored to, or null.
+     *
+     * content.item_anchors is the coord->item binding bindGroup() writes.
+     * Reading superseded_by FIRST is load-bearing, not defensive: this slice
+     * produces the programme's first real merges, and a dish that merged into
+     * another must carry its permalink to the SURVIVING item — otherwise the
+     * slug points at a row mergeInto() hard-deleted.
+     */
+    private function contentItemForLegacyDish(string $userId, string $dishId): ?string
+    {
+        $dish = DB::connection('pgsql')->table('site.menu_items')
+            ->where('id', $dishId)->first(['menu_id', 'name']);
+
+        if ($dish === null) {
+            return null;
+        }
+
+        $anchor = DB::connection('pgsql')->table('content.item_anchors')
+            ->where('user_id', $userId)
+            ->where('coord', MenuProjectionMapper::coordFor((string) $dish->menu_id, (string) $dish->name))
+            ->first(['item_id', 'superseded_by']);
+
+        return $anchor === null ? null : (string) ($anchor->superseded_by ?? $anchor->item_id);
     }
 
     /**
