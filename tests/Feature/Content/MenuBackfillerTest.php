@@ -108,8 +108,15 @@ it('writes the category memberships as collections', function () {
 
     app(MenuBackfiller::class)->run();
 
-    expect(DB::connection('pgsql')->table('content.collections')->where('kind', 'menu_category')->count())->toBe(2)
-        ->and(DB::connection('pgsql')->table('content.collection_items')->count())->toBe(2);
+    // Scoped to menu_category on purpose: the same dish also joins an
+    // order_platform collection (Unit 6), and an unscoped count would silently
+    // start measuring both.
+    $categoryIds = DB::connection('pgsql')->table('content.collections')
+        ->where('kind', 'menu_category')->pluck('id');
+
+    expect($categoryIds)->toHaveCount(2)
+        ->and(DB::connection('pgsql')->table('content.collection_items')
+            ->whereIn('collection_id', $categoryIds)->count())->toBe(2);
 });
 
 it('carries the per-platform order url onto an offer', function () {
@@ -121,6 +128,96 @@ it('carries the per-platform order url onto an offer', function () {
 
     expect($urls)->toHaveCount(1)
         ->and($urls->first())->toContain('uber_eats');
+});
+
+// ── Unit 6: ordering platforms (owner ruling 2026-08-15) ────────────────────
+
+function menuPlatformLink(string $menuId, string $platform, string $storeUrl): void
+{
+    DB::connection('pgsql')->table('site.menu_platform_links')->insert([
+        'id' => (string) Str::uuid(),
+        'menu_id' => $menuId,
+        'platform' => $platform,
+        'store_url' => $storeUrl,
+        'status' => 'ok',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+}
+
+it('turns each menu platform link into an order_platform collection with a storefront', function () {
+    [$userId, $siteId, $menuId] = seedMenuWithDishes(['Iced Latte'], platforms: ['uber_eats']);
+    menuPlatformLink($menuId, 'uber_eats', 'https://ubereats.com/store/x');
+
+    app(MenuBackfiller::class)->run();
+
+    $collection = DB::connection('pgsql')->table('content.collections')
+        ->where('kind', 'order_platform')->first();
+
+    expect($collection)->not->toBeNull()
+        ->and($collection->external_ref)->toBe('order:uber_eats')
+        ->and(DB::connection('pgsql')->table('content.storefronts')
+            ->where('collection_id', $collection->id)->value('url'))
+        ->toBe('https://ubereats.com/store/x');
+});
+
+it('makes every dish sold on that platform a member of its collection', function () {
+    [$userId, $siteId, $menuId] = seedMenuWithDishes(['Iced Latte', 'Flat White'], platforms: ['uber_eats']);
+    menuPlatformLink($menuId, 'uber_eats', 'https://ubereats.com/store/x');
+
+    app(MenuBackfiller::class)->run();
+
+    $collection = DB::connection('pgsql')->table('content.collections')
+        ->where('kind', 'order_platform')->first();
+
+    expect(DB::connection('pgsql')->table('content.collection_items')
+        ->where('collection_id', $collection->id)->count())->toBe(2);
+});
+
+it('writes the storefront even when the platform link has no dishes yet', function () {
+    // A ghost platform: the owner connected a store whose scrape has not landed
+    // per-dish rows. The order link is still real and must reach the wire, or
+    // connecting a platform looks like it did nothing.
+    [$userId, $siteId, $menuId] = seedMenuWithDishes(['Iced Latte'], platforms: []);
+    menuPlatformLink($menuId, 'doordash', 'https://doordash.com/store/y');
+
+    app(MenuBackfiller::class)->run();
+
+    expect(DB::connection('pgsql')->table('content.collections')
+        ->where('external_ref', 'order:doordash')->exists())->toBeTrue()
+        ->and(DB::connection('pgsql')->table('content.storefronts')->count())->toBe(1);
+});
+
+it('does not overwrite a collection position the owner has reordered', function () {
+    // position is INSERT-ONLY on collections — ProjectionWriter's upsert list
+    // omits it deliberately, so a scheduled run cannot snap an owner's reorder
+    // back. A re-run of this backfill must obey the same rule.
+    [$userId, $siteId, $menuId] = seedMenuWithDishes(['Iced Latte'], platforms: ['uber_eats']);
+    menuPlatformLink($menuId, 'uber_eats', 'https://ubereats.com/store/x');
+    app(MenuBackfiller::class)->run();
+
+    DB::connection('pgsql')->table('content.collections')
+        ->where('kind', 'order_platform')->update(['position' => 7]);
+    app(MenuBackfiller::class)->run();
+
+    expect(DB::connection('pgsql')->table('content.collections')
+        ->where('kind', 'order_platform')->value('position'))->toBe(7);
+});
+
+it('follows a changed store url on a re-run', function () {
+    // The sidecar's url is vendor-owned, unlike position: a store that moves
+    // must be followed, or the order button points at a dead page.
+    [$userId, $siteId, $menuId] = seedMenuWithDishes(['Iced Latte'], platforms: ['uber_eats']);
+    menuPlatformLink($menuId, 'uber_eats', 'https://ubereats.com/store/x');
+    app(MenuBackfiller::class)->run();
+
+    DB::connection('pgsql')->table('site.menu_platform_links')
+        ->update(['store_url' => 'https://ubereats.com/store/moved']);
+    app(MenuBackfiller::class)->run();
+
+    expect(DB::connection('pgsql')->table('content.storefronts')->value('url'))
+        ->toBe('https://ubereats.com/store/moved')
+        ->and(DB::connection('pgsql')->table('content.storefronts')->count())->toBe(1);
 });
 
 it('leaves a menu it was not scoped to alone', function () {

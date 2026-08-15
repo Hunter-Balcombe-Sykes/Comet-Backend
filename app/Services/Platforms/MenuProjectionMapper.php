@@ -61,6 +61,20 @@ class MenuProjectionMapper
     }
 
     /**
+     * The `content.collections.external_ref` for an ordering platform (owner
+     * ruling 2026-08-15, Unit 6). One collection per platform, carrying a
+     * `content.storefronts` sidecar with the store URL — reusing slice 5b's
+     * store-card shape rather than inventing a second grouping mechanism.
+     *
+     * The platform slug is already the vendor's stable identifier, so unlike a
+     * category this ref never drifts.
+     */
+    public static function orderPlatformRef(string $platform): string
+    {
+        return 'order:'.$platform;
+    }
+
+    /**
      * @param  list<array{id: string, name: string, position: int}>  $categories
      * @param  list<object>  $platformRows  site.menu_item_platforms rows
      * @return array<string, mixed>
@@ -79,8 +93,53 @@ class MenuProjectionMapper
             'offers' => $this->offers($dish, $platformRows, $currency),
             'tags' => $this->badges($dish),
             'media' => $this->media($dish),
-            'collections' => $this->collections($categories),
+            // Categories AND the ordering platforms this dish is sold on. Both
+            // are collections; content.collections.kind is what keeps them
+            // apart, and the natural key is (user_id, kind, external_ref), so
+            // a category and a platform sharing a ref string cannot collide.
+            'collections' => [
+                ...$this->collections($categories),
+                ...$this->platformCollections($platformRows),
+            ],
         ];
+    }
+
+    /**
+     * One order_platform collection per platform the dish carries a row for.
+     * This is what makes a dish a MEMBER of its store card — the same edge
+     * site.menu_item_platforms expresses.
+     *
+     * position 0 for every entry: ordering platforms have no vendor-supplied
+     * order, and position is insert-only anyway, so the owner owns it from the
+     * first run.
+     *
+     * @param  list<object>  $platformRows
+     * @return list<array<string, mixed>>
+     */
+    private function platformCollections(array $platformRows): array
+    {
+        $out = [];
+        $seen = [];
+
+        foreach ($platformRows as $row) {
+            $platform = $this->text($row->platform ?? null);
+            if ($platform === null || isset($seen[$platform])) {
+                continue;
+            }
+            $seen[$platform] = true;
+
+            $out[] = [
+                'kind' => 'order_platform',
+                'external_ref' => self::orderPlatformRef($platform),
+                // The label is the platform slug until the sidecar write gives
+                // it a display name; upsertCollections() skips a blank label
+                // entirely, so it cannot be left empty here.
+                'label' => $platform,
+                'position' => 0,
+            ];
+        }
+
+        return $out;
     }
 
     /** @return array<string, mixed> */

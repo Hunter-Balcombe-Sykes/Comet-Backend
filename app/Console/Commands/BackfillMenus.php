@@ -30,6 +30,11 @@ class BackfillMenus extends Command
             .', skipped (no name) '.$result['skipped_no_name']
             .', failed '.$result['failed']);
 
+        $this->line('  slugs: migrated '.$result['slugs_migrated']
+            .', collided '.$result['slugs_collided']
+            .', unmapped '.$result['slugs_unmapped']
+            .' | storefronts '.$result['storefronts']);
+
         return $result['failed'] > 0 ? self::FAILURE : self::SUCCESS;
     }
 }

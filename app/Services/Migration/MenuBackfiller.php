@@ -30,7 +30,7 @@ class MenuBackfiller
         private readonly MenuProjectionMapper $mapper,
     ) {}
 
-    /** @return array{backfilled:int, duplicate_name:int, skipped_no_site:int, skipped_no_name:int, failed:int, slugs_migrated:int, slugs_collided:int, slugs_unmapped:int} */
+    /** @return array{backfilled:int, duplicate_name:int, skipped_no_site:int, skipped_no_name:int, failed:int, slugs_migrated:int, slugs_collided:int, slugs_unmapped:int, storefronts:int} */
     public function run(bool $dryRun = false, ?string $userId = null): array
     {
         $result = [
@@ -126,6 +126,11 @@ class MenuBackfiller
         // middle term does not exist until the items above have landed.
         $result = array_merge($result, $this->migrateSlugs($dryRun, $userId));
 
+        // Phase 3 — the store cards. After the items, because the dish
+        // projections are what create the order_platform collections these
+        // sidecars hang off.
+        $result['storefronts'] = $this->migrateOrderPlatforms($dryRun, $userId, $touchedSites);
+
         if (! $dryRun && $touchedSites !== []) {
             // All three lanes (§9.2). writeManualItem() bumps build state per
             // item, but the 60s public-profile cache keys off
@@ -135,6 +140,96 @@ class MenuBackfiller
         }
 
         return $result;
+    }
+
+    /**
+     * The 5 site.menu_platform_links become content.storefronts sidecars on
+     * order_platform collections (owner ruling 2026-08-15, Unit 6). Reuses
+     * slice 5b's store-card shape rather than inventing a second grouping
+     * mechanism — content.storefronts already models "a place you can
+     * transact, belonging to a collection" and already carries provider, url
+     * and the logo columns.
+     *
+     * The collection is created by the dish projections (via the mapper's
+     * order_platform entries), but a link whose scrape has landed no per-dish
+     * rows yet has no dish to create it — a "ghost" platform in MenuMerger's
+     * sense. Those get their collection here, because the order link is real
+     * and connecting a platform must not look like it did nothing.
+     *
+     * `status` (pending|ok|unavailable) does NOT migrate: it is scrape health,
+     * connect_status on the sidecar means something else, and no public
+     * surface reads it. Named as a deliberate drop in the wire manifest.
+     *
+     * @param  array<string, bool>  $touchedSites  by reference via the caller's array
+     */
+    private function migrateOrderPlatforms(bool $dryRun, ?string $userId, array &$touchedSites): int
+    {
+        $written = 0;
+
+        $links = DB::connection('pgsql')->table('site.menu_platform_links as l')
+            ->join('site.menus as m', 'm.id', '=', 'l.menu_id')
+            ->whereNull('m.deleted_at')
+            ->when($userId !== null, fn ($q) => $q->where('m.user_id', $userId))
+            ->orderBy('l.platform')
+            ->get(['l.platform', 'l.store_url', 'm.user_id', 'm.currency']);
+
+        foreach ($links as $link) {
+            $platform = trim((string) $link->platform);
+            if ($platform === '' || $dryRun) {
+                continue;
+            }
+
+            $owner = (string) $link->user_id;
+            $ref = MenuProjectionMapper::orderPlatformRef($platform);
+
+            $collectionId = DB::connection('pgsql')->table('content.collections')
+                ->where('user_id', $owner)->where('kind', 'order_platform')->where('external_ref', $ref)
+                ->value('id');
+
+            if ($collectionId === null) {
+                // A ghost platform — no dish carries a row for it, so no
+                // projection created the collection. position 0 and
+                // is_user_created false match what the writer's upsert would
+                // have written.
+                $collectionId = (string) Str::uuid();
+                DB::connection('pgsql')->table('content.collections')->insert([
+                    'id' => $collectionId,
+                    'user_id' => $owner,
+                    'parent_id' => null,
+                    'label' => $platform,
+                    'kind' => 'order_platform',
+                    'external_ref' => $ref,
+                    'position' => 0,
+                    'is_user_created' => false,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            // url IS vendor-owned and must be followed — a store that moves
+            // would otherwise leave the order button pointing at a dead page.
+            // That is the opposite of `position`, which stays insert-only.
+            DB::connection('pgsql')->table('content.storefronts')->upsert([[
+                'collection_id' => (string) $collectionId,
+                'provider' => $platform,
+                'url' => trim((string) $link->store_url) ?: null,
+                'external_ref' => $ref,
+                'currency' => $link->currency,
+                'referral_query' => '',
+                'is_individual' => false,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]], ['collection_id'], ['url', 'currency', 'updated_at']);
+
+            $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $owner)->value('id');
+            if ($siteId !== null) {
+                $touchedSites[(string) $siteId] = true;
+            }
+
+            $written++;
+        }
+
+        return $written;
     }
 
     /**
