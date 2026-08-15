@@ -83,16 +83,30 @@ Two kinds appear for menus, distinguished by their `externalRef` prefix:
     "favicon": null, "logo": null, "discountCode": null
   },
   "0193…": {                      // an ordering platform
-    "externalRef": "order:uber_eats",
-    "name": "uber_eats",
-    "provider": "uber_eats",
-    "url": "https://www.ubereats.com/store/…",
+    "externalRef": "order:uber-eats",
+    "name": null,
+    "provider": "uber-eats",
+    "url": "https://www.ubereats.com/au/store/…",
     "currency": "AUD",
     "position": 0,
     "favicon": null, "logo": null, "discountCode": null
   }
 }
 ```
+
+**`name` is `null` on an ordering platform, deliberately.** The stored label is
+the bare platform slug (`doordash`, `uber-eats`) — strings a consumer can only
+render *wrongly*, since neither title-cases to "DoorDash" or "Uber Eats".
+Publishing null and letting the consumer map `provider` to its own display name
+beats publishing a name that is guaranteed incorrect. This is slice 5b's
+"never publish a raw id as a name" rule, widened to cover namespaced refs. A
+real display-name vocabulary for these platforms belongs to Phase 6, which
+promotes them to first-class surfaces with brand metadata.
+
+Note the slug spelling: the legacy `menu_platform_links.platform` values are
+`uber-eats` and `doordash` (hyphen, not underscore), matching
+`config('partna.menu.platforms')`. Phase 6 will need to reconcile those with
+the `uber_eats.order` / `doordash.order` surface keys.
 
 - **Categories group dishes for display.** The pool selects *dishes*;
   categories are not themselves selectable.

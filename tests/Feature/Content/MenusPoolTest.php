@@ -166,3 +166,43 @@ it('hides a collection the owner deleted, even while its dishes stay selected', 
     expect(collect($resolved['collections'])->firstWhere('externalRef', 'menu:drinks'))->toBeNull()
         ->and($resolved['selection'])->not->toBeEmpty();
 });
+
+it('does not publish a raw platform slug as a store-card name', function () {
+    // "doordash" and "uber-eats" are strings a consumer can only render
+    // wrongly — neither title-cases to "DoorDash" or "Uber Eats". Slice 5b's
+    // rule (label === externalRef -> null) missed them because the collection
+    // ref is namespaced while the label is the bare slug. Publishing null and
+    // letting the consumer map `provider` beats publishing a guaranteed-wrong
+    // name; a real vocabulary belongs to Phase 6.
+    [$userId, $siteId, $menuId] = seedMenuWithDishes(['Iced Latte'], platforms: ['uber-eats']);
+    DB::connection('pgsql')->table('site.menu_platform_links')->insert([
+        'id' => (string) Str::uuid(), 'menu_id' => $menuId, 'platform' => 'uber-eats',
+        'store_url' => 'https://ubereats.com/store/x', 'status' => 'ok',
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    app(MenuBackfiller::class)->run();
+    pinEveryMenuItem($siteId);
+
+    $platform = collect(app(PoolResolver::class)
+        ->resolve(Site::query()->findOrFail($siteId), 'menus')['collections'])
+        ->firstWhere('externalRef', 'order:uber-eats');
+
+    expect($platform['name'])->toBeNull()
+        // provider still carries the slug, so the consumer has what it needs.
+        ->and($platform['provider'])->toBe('uber-eats');
+});
+
+it('still publishes a real category name', function () {
+    // The nulling rule must not swallow genuine labels — a category called
+    // "Drinks" has ref menu:drinks, whose suffix differs from the label by
+    // case and would slip through a sloppier comparison.
+    [$userId, $siteId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks']);
+    app(MenuBackfiller::class)->run();
+    pinEveryMenuItem($siteId);
+
+    $category = collect(app(PoolResolver::class)
+        ->resolve(Site::query()->findOrFail($siteId), 'menus')['collections'])
+        ->firstWhere('externalRef', 'menu:drinks');
+
+    expect($category['name'])->toBe('Drinks');
+});
