@@ -6,8 +6,27 @@ execution; the frontends are told, not designed around (programme spec
 `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md`, scope
 `docs/2026-08-14-platform-and-pool-convergence-scope.md` §W5).
 
-> **STATUS: pending live verification on dev.** Replaced with measured figures at
-> the checkpoint.
+> **STATUS (2026-08-15): LIVE on dev — every shape below read back off a real
+> payload.** Merged as `b7657b50e`, deployed, and verified against
+> `dev-api.partna.au`. No migration was needed: `link` was already in both
+> `content.items` and `content.source_items` kind CHECKs.
+>
+> `content:backfill-custom-links` landed **23 of 23** live `partna.custom_link`
+> connections — coord coverage 23 expected / 23 landed / 0 missing, derived
+> independently in PHP and in `pgcrypto` and agreeing. `content.items` went
+> 726 → **749** exactly (no merges, nothing absorbed), with 23 `f_link` rows and
+> 13 carrying a description. 9 `links` pages and 9 `pool:custom_links` sections
+> provisioned; 23 pinned, 0 excluded.
+>
+> Read back live from `GET /api/public/profiles/ollies`: `pools` now carries
+> `custom_links` alongside `events, listen, media, services, shop, watch`; 12
+> items, `latestItemId` **null**, no `stats` and no `collections` key, and on
+> every item `platform` null, `origin` `"manual"`, `thumbnail` null. Host
+> fallback confirmed on `gsnwilliams` / `showcase-creator` (`tiktok.com`,
+> `youtube.com`, `www.nasa.gov`). A second run changed nothing — 23/23/749
+> unchanged, `max(sort_key)` still 12.
+>
+> **Prod: NOT run**, and out of scope. Checkpoint: parent spec §22.
 
 ## `GET /api/public/profiles/{handle}` and `GET /api/content/pools/{pool}`
 

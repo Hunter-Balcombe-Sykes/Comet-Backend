@@ -22,10 +22,15 @@ class BackfillCustomLinks extends Command
         $dryRun = (bool) $this->option('dry-run');
         $result = $backfiller->run($dryRun, $this->option('user'));
 
+        // already_curated is the re-run signal: on a second pass every link is
+        // written again (the coord is stable) but its curation is left alone,
+        // so "backfilled 23, already curated 23" is what a healthy no-op looks
+        // like. Omitting it made the two runs print identically.
         $this->line(($dryRun ? '[dry-run] would backfill ' : 'backfilled ').$result['backfilled']
             .', duplicate url '.$result['duplicate_url']
             .', skipped (no url) '.$result['skipped_no_url']
             .', skipped (no site) '.$result['skipped_no_site']
+            .', already curated '.$result['already_curated']
             .', failed '.$result['failed']);
 
         return $result['failed'] > 0 ? self::FAILURE : self::SUCCESS;

@@ -3436,3 +3436,175 @@ failures.**
   through `ProjectionWriter`. A pasted link will not fold into a synced item
   however exactly the URLs match. It is also what makes emitting `title_only`
   safe — a podcast episode cannot fuse with a same-titled video.
+
+---
+
+## 22. Phase 3 checkpoint — the custom links pool (W5)
+
+Phase 3's LINKS half. The menu half (W4) is slice 4's and is not touched here.
+Merged as `b7657b50e`, deployed to dev, and every figure below read back off
+`glncumufgaqcmqhzwrxm` or `dev-api.partna.au` after the run.
+
+### What shipped
+
+- **`PoolRegistry` gains `custom_links`** — kind `link`, page key `links`, label
+  `Links`, section shape a BARE `kind_is` on `recency`. Registry config plus one
+  test, on the reviews-pool template (`8dd1ff989`): no migration, confirming
+  F12/F14. `link` was already in both `content.items` and
+  `content.source_items` kind CHECKs, so nothing DDL moved.
+- **`CustomLinkBackfiller` + `content:backfill-custom-links`** (`--dry-run`,
+  `--user=`) under `app/Services/Migration/` — production code, idempotent,
+  re-runnable (invariant #4).
+- **Curation flags are the mirror of reviews** and needed no new consts:
+  `allowsPin()` and `allowsManualAdd()` both answer true off the existing
+  exclusion lists. `item_links` stay refused by ABSENCE — `ItemLinkRules` has no
+  roster entry, so `allowsPlatform()` rejects every platform (owner ruling
+  2026-08-14).
+
+### Entry state, measured before touching anything
+
+```
+live partna.custom_link connections   23   (26 rows, 3 soft-deleted)
+distinct (user, lower(url))           23   distinct users 9   all 9 have sites
+content.items kind='link'              0
+content.items total                  726
+site.pages key='links'                 0
+```
+
+The other five pseudo-platform surfaces, unchanged and deliberately out of
+scope: `partna.order_link` 10, `partna.storefront` 6, `partna.reserve_link` 2,
+`partna.booking_link` 0, `partna.manual_event` 0 — 18 non-custom-link
+connections, matching the scope doc's figure exactly.
+
+### The run
+
+```
+$ php artisan content:backfill-custom-links --dry-run
+[dry-run] would backfill 23, duplicate url 0, skipped (no url) 0, skipped (no site) 0, failed 0
+
+$ php artisan content:backfill-custom-links
+backfilled 23, duplicate url 0, skipped (no url) 0, skipped (no site) 0, failed 0
+```
+
+### Exit criteria, measured on dev
+
+**Coverage gate — coord coverage, not row equality.** Derived independently
+twice: once in PHP with the app's own `sha1()`, once in SQL with `pgcrypto`.
+Both produced the same 23 coords.
+
+```sql
+with live as (
+  select user_id, btrim(payload->>'url') as url
+  from site.platform_connections
+  where surface_key='partna.custom_link' and deleted_at is null
+    and coalesce(btrim(payload->>'url'),'') <> ''
+), want as (
+  select distinct user_id,
+         'manual:'||encode(extensions.digest(lower(url),'sha1'),'hex') as coord
+  from live
+)
+select (select count(*) from live) live_connections, count(*) expected_coords,
+       count(si.id) landed_coords, count(*) filter (where si.id is null) missing
+from want w
+left join content.sources cs on cs.user_id=w.user_id and cs.kind='manual'
+left join content.source_items si on si.source_id=cs.id and si.coord=w.coord;
+
+ live_connections | expected_coords | landed_coords | missing
+------------------+-----------------+---------------+---------
+               23 |              23 |            23 |       0
+```
+
+**Items and curation.**
+
+```
+content.items kind='link'          23      f_link rows for them          23
+content.items total               749      = 726 + 23, no merges
+f_text rows carrying a body        13      = 23 − the 10 with no description
+site.pages key='links'              9      site.sections key='pool:custom_links'   9
+section_items pinned               23      excluded                        0
+content.item_merges                 0      identity key classes           12
+```
+
+`item_merges` 0 is the CORRECT outcome, not a miss: no `link` items existed
+before this run, and F25 records that identity resolution is kind-scoped, so a
+link cannot fold into a synced item of another kind. `749 = 726 + 23` exactly —
+nothing was absorbed and nothing was lost.
+
+**The wire, read back off `dev-api.partna.au`.**
+
+`GET /api/public/profiles/ollies` → `pools` keys are now `custom_links, events,
+listen, media, services, shop, watch`. `pools.custom_links` carries 12 items,
+`latestItemId` **null**, and **no** `stats` or `collections` key. Item keys are
+exactly `PoolResolver::ITEM_KEYS` minus `selected`, which the public builder
+strips. On every item: `platform` null (the manual source has no connection),
+`origin` `"manual"` (they are pins), `thumbnail` null, `links` a single
+`{platform: null, url, source: "synced"}` entry.
+
+Headline fallback, live on `gsnwilliams` and `showcase-creator` — where the
+payload carried no `name`, the host stands in exactly as the hand-add lane does
+it: `tiktok.com`, `broadsheet.com.au`, `youtube.com`, `www.nasa.gov`.
+
+**F27 confirmed live.** Exactly one of the 23 differs between the lanes:
+
+```
+https://youtube.com/@gsnwilliams?si=[redacted]
+```
+
+`f_link.url` is minimised by `SecretParams::minimiseUrl()` (#PRIV-5) while the
+legacy payload keeps the raw query. `si` is YouTube's share param and the
+destination ignores it. The coord derives from the RAW url, so coverage is
+unaffected — which the gate above proves rather than assumes.
+
+**Idempotency, proven on live data rather than asserted.** The command was run
+a SECOND time against dev:
+
+```
+backfilled 23, duplicate url 0, skipped (no url) 0, skipped (no site) 0, failed 0
+```
+
+and every count above was unchanged: 23 items, 23 source items, 23 curation
+rows, 749 total, `max(sort_key)` still 12 on the 12-link section. No
+duplication, no re-ordering, no resurrection.
+
+### Three things a later phase must not re-derive wrongly
+
+1. **The pool is a SNAPSHOT until Phase 6.** `CustomLinksController` still owns
+   every custom-link write and does not mint content items, so a link added
+   after this run appears only on the legacy lane until the command is re-run.
+   That is by construction, not an oversight: Phase 6 is where
+   `partna.custom_link` stops being connectable at all, and moving the write
+   path before then would mean building it twice.
+   `CustomLinkBackfiller::linkProjection()` is public as the seam.
+
+2. **Re-runs are FIRST-WRITE-WINS on curation** (fixed pre-flight, in
+   self-review). The command re-pinned unconditionally at first, so a second run
+   would have flipped an `excluded` row — the owner having taken a link off
+   their page — back to `pinned` and republished it. Curation is now written
+   only when the item has no curation row at all, and the pin counter seeds from
+   the section's highest existing `sort_key` so a new link APPENDS. Consequence:
+   the legacy `is_active` flag governs at FIRST SIGHT only; after that the
+   pool's own curation is the record.
+
+3. **The coord and the connection `resource_id` share a hash basis** (log F28),
+   so Phase 6 can join a retired connection to the item standing in for it by
+   string prefix — `resource_id = 'link-' || substr(coord, 8, 16)` — with no
+   lookup table. Pinned by a test, because it is a coincidence of two
+   independent derivations that neither side declares as a contract.
+
+### Cache lanes, suite, and what was not done
+
+All three lanes fire once per touched site through `SiteCacheLanes::bust()`
+(`BuildState::bump`, `site.sites.updated_at`, the Cloudflare purge), asserted
+directly in `CustomLinkBackfillerTest` against the +2 revision bump — ">0" would
+pass with the `invalidate` call deleted, which is why it is not asserted that
+way.
+
+Suite green at merge: **8193 passed, 1 skipped, 0 failed**. 20 backfiller cases
+plus 8 pool cases, all in `tests/Feature/Content/` (a new `tests/Feature` child
+directory would fail `AuditPipelineIntegrityTest`).
+
+**Not done, deliberately:** `favicon`/`logo` are not carried onto the pool.
+Minting `content.media_assets` for third-party image URLs pulls slice 1a's
+borrowed-asset lane in for decoration, so a link publishes `thumbnail: null`.
+If link cards want brand marks that is its own decision with its own storage
+question. **Production is untouched** — dev only, per this programme's scope.
