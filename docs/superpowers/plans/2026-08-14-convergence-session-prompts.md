@@ -239,7 +239,22 @@ dev only, prod out of scope.
 
 Work: the six pseudo-platform categories (custom, online-ordering, shop, reservations,
 booking, events-custom) stop being connectable; PlatformCategory remains as grouping
-metadata; promote uber_eats/doordash/menulog to real surfaces. The 18 non-custom-link
+metadata; promote uber_eats/doordash/menulog to real surfaces.
+
+Two things slice 4 left you (2026-08-16, spec §23):
+- The ordering platforms ALREADY have a home on the content side:
+  `content.collections` kind `order_platform`, ref `order:{platform}`, with a
+  `content.storefronts` sidecar carrying provider + store url. 5 exist on dev.
+  Promote into that rather than minting a parallel shape.
+- **The slug spellings disagree and you own reconciling them.** The legacy
+  `site.menu_platform_links.platform` values (which those refs are built from,
+  and which `config('partna.menu.platforms')` keys on) are `uber-eats` and
+  `doordash` — HYPHEN. The connection surface keys are `uber_eats.order` and
+  `doordash.order` — UNDERSCORE. Slice 4 did not unify them because renaming a
+  live ref rewrites every collection's natural key.
+- The pool wire publishes `name: null` for these cards on purpose: the label is
+  the bare slug, and neither "doordash" nor "uber-eats" title-cases correctly.
+  A real display-name vocabulary is yours to mint. The 18 non-custom-link
 connections land in their ruled homes (order links → the promoted ordering brands,
 storefronts → the shop lane, reservations → the booking surface) — verify each
 connection's destination actually exists and functions BEFORE retiring its
