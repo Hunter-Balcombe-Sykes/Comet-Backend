@@ -382,7 +382,12 @@ Both files you edit for Unit 7 moved. Verify each claim yourself; this is a poin
 - **Tests run SQLite, production is Postgres.** The `menus.dining_modes` shape CHECK and `offers_qualifier_check` must be verified against the DDL.
 - **`content.offers.availability` has a vocabulary now.** It was NULL on all 14 rows and carries no CHECK; slice 5a established `in_stock` / `out_of_stock` (schema.org ItemAvailability shorthand). Use it rather than minting a second spelling.
 - **The coord rule depends on whether the legacy writer rewrites rows.** Parent §8.1 prescribes `manual:{legacy_uuid}`, and that holds only where the legacy id is stable. Slice 5a had to diverge: `ShopCatalog::syncLatest()` DELETEs and re-INSERTs every row each sync, so the uuid is a fresh value per cycle and a uuid-keyed coord would mint a new item every run. **Check your writers before choosing.** Where a platform scrape rewrites `site.menu_items` rather than updating in place, key on the canonical URL — `manual:{sha1(url)}` — which also satisfies §1.7's one-coord-per-URL rule by construction.
-- **The k6 harness hard-codes menu invariants** (`scripts/launch-check/k6/`). If this slice changes menu shape, re-check `seed.sql` and `jobs.js`.
+- **The k6 harness does NOT hard-code menu invariants** — corrected 2026-08-16
+  after checking. A case-insensitive search for `menu`, `dish` or `food` across
+  every `.js`, `.sql` and `.md` under `scripts/launch-check/k6/` returns
+  nothing. CLAUDE.md's list of the harness's three hard-coded invariants is
+  gallery-max-6, the `media_variants` webp row and the analytics `Origin`
+  header; this line generalised from that list. No re-check is owed.
 - **`CloudflarePurgeService::purgeHandle()` reads `site.menu_items` directly, and its error path is 4x-amplified and un-deduped.** Verified 2026-08-13. The lookup at `:267` joins `site.menu_items`/`site.menus`/`core.users` to build `/menu/<uuid>` purge targets; when menus move to `content.*` this lookup must move with them in the same window, or every purge silently degrades to page-only and leaves dish pages stale at the edge for the full 24h TTL. Its `catch` calls a **raw `report($e)`** with no dedup (OBS-101, `cdf6f9eaf`), and `CloudflareCachePurgeJob` self-dispatches three delayed follow-ups (`partna.cache.purge_followup_schedule`), so one site save runs it four times. Wrap the catch in `App\Services\Analytics\Concerns\EscalatesRepeatedFaults` rather than leaving the raw `report()`.
 
 ## If reality diverges, update the downstream prompts — do not just note it

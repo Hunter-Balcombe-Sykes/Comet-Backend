@@ -80,6 +80,20 @@ For each, enumerate its side-effects — slug bookkeeping, cache invalidation,
 path by its owning slice, or do it here. **Event discovery is disabled in this
 codebase**; a replacement listener must be explicitly registered or it never fires.
 
+**`MenuItemObserver` is DONE — slice 4, 2026-08-16 (spec §23.5).** Its three
+duties are re-homed, and the replacement is a const, not a listener, so event
+discovery does not apply:
+
+| Observer duty | Now lives at |
+|---|---|
+| mint on create | `ProjectionWriter::refreshItemCaches()`, for every kind in `ContentItemSlugAllocator::SLUGGED_KINDS` |
+| re-slug on rename, old slug kept as a 301 | same call — `ensureCurrent()` retires and promotes |
+| free the slug on delete | `ManualServiceWriter::markRemoved()` → `ContentItemSlugAllocator::forget()` |
+
+Retiring the observer is therefore safe. **Removing `'menu_item'` from
+`SLUGGED_KINDS` is not** — that const IS the re-homing, and dropping the entry
+silently stops every dish getting a permalink.
+
 ### Unit 2 — Policies (§9.6)
 `ServicePolicy` and `ContentSelectionPolicy` become orphaned. `PolicyCoverageTest`
 asserts every model has a policy or a justified `POLICY_EXEMPT`, so it **will** trip.
@@ -142,9 +156,21 @@ unit already applies to the `CloudflarePurgeService` lookups below.
 **`CloudflarePurgeService::purgeHandle()` will page you 12 times per site save if
 a DROP lands under it.** Verified 2026-08-13. That method runs three independent
 lookups — shop product handles (`content.collection_items`/`collections`/
-`f_catalog`, repointed by 5a), menu items (`site.menu_items`, dropped by this
-unit), and event ids — and each `catch` calls a **raw `report($e)`** with no
-dedup (OBS-101, `cdf6f9eaf`). `CloudflareCachePurgeJob::handle()` then
+`f_catalog`, repointed by 5a), menu items, and event ids — and the product and
+event `catch` blocks each call a **raw `report($e)`** with no dedup (OBS-101,
+`cdf6f9eaf`).
+
+**The menu third is already handled — slice 4, 2026-08-16.** Its lookup now
+reads BOTH lanes (legacy `site.menu_items` plus `content.items` and
+`content.item_slugs`, because both wires are live and it cannot know which form
+a consumer built its href from), and its catch is wrapped in
+`EscalatesRepeatedFaults` — so it reports the 5th fault in a 10-minute window
+rather than 4 times per save. **Dropping `site.menu_items` therefore does NOT
+trip it**: the legacy third of a `whereIn`-style union simply returns nothing.
+Delete that third with the table, and take the class docblock's URL-volume
+derivation back down from 900 to 600 per host while you are there — slice 4
+raised it and recorded the arithmetic (§23.7). Two raw reports remain, not
+three, so the ceiling is 8 per site save rather than 12. `CloudflareCachePurgeJob::handle()` then
 self-dispatches three delayed follow-ups (`partna.cache.purge_followup_schedule`
 = `[120, 300, 900]`), so one site save runs `purgeHandle()` four times.
 

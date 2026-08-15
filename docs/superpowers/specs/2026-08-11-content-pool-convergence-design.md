@@ -196,16 +196,25 @@ Deliberately out of scope in 2026-08-05, in scope here. All ten counts verified:
 
 | Table | Rows | Kind it becomes |
 |---|---|---|
-| `site.menu_items` | 370 | `menu_item` |
-| `site.menu_item_categories` | 464 | (collection membership) |
-| `site.menu_item_platforms` | 370 | (offers) |
-| `site.menu_categories` | 52 | (collections) |
+| `site.menu_items` | **318** | `menu_item` |
+| `site.menu_item_categories` | **402** | (collection membership) |
+| `site.menu_item_platforms` | **318** | (offers) |
+| `site.menu_categories` | **44** | (collections) |
 | `site.services` | 82 | `service` |
 | `site.service_category_assignments` | 61 | (collection membership) |
 | `site.service_categories` | 18 | (collections) |
 | `site.shop_products` | 51 | `product` |
 | `site.shop_brands` | 9 | collections + a `content.storefronts` sidecar (decided in 5a; **not** `f_catalog`, which is a music facet) |
 | `site.content_selection` | 91 | `media` — but see §2.4, it is not uniformly reference-resolved |
+
+**Corrected 2026-08-16 (slice 4 entry gate).** The four menu rows above read
+370 / 464 / 370 / 52 when this table was written on 2026-08-11. Every one was
+stale by the next day. The deltas are exactly one menu tree — `showcase-eats`,
+deleted between 08-11 and 08-12 through application code (zero orphan slug rows
+survive, and nothing at the DB level would have cleaned them). It was not a
+scrape: no menu had been fetched since 08-06. The trigger is not recoverable —
+no audit table covers menus — and is recorded as undetermined rather than
+guessed at. Full working in §23.1.
 
 **Corrected 2026-08-13 (slice 6 entry gate).** This section used to read *"`content.f_review`
 holds 0 rows; Google reviews have never reached the content schema, blocked by the same
@@ -544,15 +553,15 @@ split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 | 1b | Google pass-through, IG mirroring, the 91 selections | L | **Merged** — checkpoint §15 | — |
 | 3a | Services — owner-authored, pool, write cutover | L | **Merged** — checkpoint §17 | — |
 | 3b | Services — Fresha connector, excludes, collections | L | **Merged** — checkpoint §19, plus the 3b-residuals follow-up | — |
-| 4 | Menus → `content.*` | XL | Not started | — |
+| 4 | Menus → `content.*` | XL | **Merged** — checkpoint §23; Phase 5's live connector proof RAISED, see §23.6 | — |
 | 5a | Shop data move → `content.*` | L | **Merged** — checkpoint §16 | — |
 | 5b | Shop pool + public render | M | **Merged** — checkpoint §18 | — |
 | 6 | Reviews → `content.*` | M | **Merged, CLOSED, live-verified** — checkpoint inline in §7 (commit `e82890b1e`) | — |
 | 7 | Legacy teardown | M | Not started | 4 **+ standalone events**; frontend gate overridden by owner ruling 2026-08-14 (rebuild, not repair — see convergence-log F17) |
 
-Everything except 4 and 7 is merged with a checkpoint on record (§12–§19; slice 6's
-is inline in §7). **Slice 4 is the only build left; 7 is unblocked the moment 4's
-checkpoint lands.**
+Everything except 7 is merged with a checkpoint on record (§12–§19 and §23; slice
+6's is inline in §7). **Slice 4 landed 2026-08-16 — 7 is unblocked**, with the
+carry-overs in §23.10 and the one open question in §23.6.
 
 **Slice 3 split into 3a/3b on 2026-08-12**, on a seam the database dictated rather
 than a preference: all 61 `service_category_assignments` and 16 of the 18
@@ -661,6 +670,11 @@ per slice, so ordering never depends on who committed first.
 Block `20260813110000`–`20260813119999` was pre-assigned to slice 5b. 5b shipped
 no DDL — every write lands in an existing table — so the block went unused and
 returns to the pool for whichever slice needs it next.
+
+Same again for slice 4's `20260813120000`–`20260813129999`: `menu_item` was
+already in both kind CHECKs, `content.offers` already carried `channel`/`url`,
+and `content.collections.kind` has no CHECK at all, so the whole slice shipped
+without a migration. That block also returns to the pool.
 
 **Rule 6 — one worktree per session; never the main checkout.** This repo has
 already lost uncommitted work to a concurrent merge. Run `git worktree list` before
@@ -1331,11 +1345,20 @@ keys, and must additionally state whether it touched `site.sites.updated_at` and
 whether an edge purge was dispatched.
 
 ### 9.3 `site.item_slugs` and the 301 lane
-`MenuItemObserver` maintains `site.item_slugs` for `menu_item`, retaining old slugs
-as 301 redirects (`ItemSlugAllocator` handles `event` and `menu_item`).
-`content.item_slugs` exists as the destination and holds 0 rows. Dropping
-`site.menu_items` without migrating slugs **breaks every existing dish permalink and
-its redirect**. Slice 4 owns this.
+**DONE — slice 4, 2026-08-16 (§23.5).** All 318 `menu_item` slugs live in
+`content.item_slugs`, and ongoing allocation re-homed off `MenuItemObserver`
+onto `ContentItemSlugAllocator::SLUGGED_KINDS`, which
+`ProjectionWriter::refreshItemCaches()` already honours. Removal frees a slug
+via `ManualServiceWriter::markRemoved()`.
+
+Two things this section got wrong, corrected here because slice 7 reads it:
+the destination allocator was NOT absent — `ContentItemSlugAllocator` shipped
+in slice 2 — and the retired set was empty, because `MenuFetchJob` forgets a
+vendor-renamed dish's slug rather than retiring it. Migrating to `content.*`
+is what makes vendor renames redirect at all.
+
+The 11 legacy `item_type='event'` rows in `site.item_slugs` are untouched and
+remain slice 7's to delete.
 
 ### 9.4 Observers orphaned by slice 7
 `MenuItemObserver`, `Core\MenuObserver`, `Core\ServiceObserver`,
@@ -3614,3 +3637,266 @@ Minting `content.media_assets` for third-party image URLs pulls slice 1a's
 borrowed-asset lane in for decoration, so a link publishes `thumbnail: null`.
 If link cards want brand marks that is its own decision with its own storage
 question. **Production is untouched** — dev only, per this programme's scope.
+
+---
+
+## 23. Slice 4 checkpoint — menus on `content.*`
+
+Merged as `3a2792eb7`, deployed to dev, and every figure below read back off
+`glncumufgaqcmqhzwrxm` or `dev-api.partna.au` after the run. Spec:
+`2026-08-12-slice-4-menus-design.md`. Wire manifest:
+`docs/wire-changes/2026-08-12-slice-4-menus.md`.
+
+**Phase 5's live connector proof is NOT met and is raised, not quietly
+deferred — see §23.6.** Everything else in the definition of done is on record
+below.
+
+### 23.1 Entry state, measured before touching anything
+
+```
+site.menu_items            318   (is_manual 7)
+site.menu_categories        44
+site.menu_item_categories  402
+site.menu_item_platforms   318
+site.menus                   5
+site.menu_platform_links     5
+site.item_slugs   menu_item 318 (retired 0) | event 11 (retired 0)
+content.item_slugs          16   (all current)
+content.source_items kind=menu_item   0
+content.items              749
+pricing: base 317 | pickup 34 | delivery 315 | currency NULL 93
+```
+
+**The parent spec's §1.4 figures (370/52/464/370) are stale and corrected
+there.** The drop is exactly one menu tree — −52 items, −8 categories, −62
+memberships, −52 platform rows, −1 menu, −1 link — belonging to
+`showcase-eats`, deleted between 2026-08-11 and 08-12. It cannot have been a
+scrape: `max(last_fetched_at)` across all five surviving menus is 2026-08-06.
+Zero orphan slug rows survive, and `site.item_slugs` has no FK to
+`site.menu_items`, so nothing at the database level would have cleaned them —
+the delete went through application code that reconciles slugs. **The exact
+trigger is not recoverable**: no audit table covers menus and Cloud logs do
+not reach back. Recorded as undetermined rather than guessed.
+
+### 23.2 The run
+
+```
+$ php artisan content:backfill-menus --dry-run
+[dry-run] would backfill 318, duplicate name 0, skipped (no site) 0, skipped (no name) 0, failed 0
+  slugs: migrated 0, collided 0, unmapped 318 | storefronts 0
+
+$ php artisan content:backfill-menus
+backfilled 318, duplicate name 0, skipped (no site) 0, skipped (no name) 0, failed 0
+  slugs: migrated 318, collided 0, unmapped 0 | storefronts 5
+
+$ php artisan content:provision-menu-pins
+pool:menus pins: pinned 318, left alone 0, unmapped 0, across 5 site(s).
+```
+
+The dry run's `unmapped 318` is correct and not a defect: no items exist yet,
+so no `content.item_anchors` row maps a dish. It resolves to 0 on the real run.
+
+**Idempotency, proven by re-running both:**
+
+```
+$ php artisan content:backfill-menus          # second run
+backfilled 318, duplicate name 0, skipped (no site) 0, skipped (no name) 0, failed 0
+  slugs: migrated 318, collided 0, unmapped 0 | storefronts 5     <- identical
+
+$ php artisan content:provision-menu-pins     # second run
+pool:menus pins: pinned 0, left alone 318, unmapped 0, across 0 site(s).
+```
+
+`content.items` kind `menu_item` stayed at 318 across both.
+
+### 23.3 The coverage gate — derived twice, independently
+
+Parent §8.4: coord coverage, not row counts. Derived once in PHP by the app's
+own `sha1(normalizeName(...))` and once in SQL with `pgcrypto`, mirroring the
+normalisation in a regex. The two agree exactly:
+
+```sql
+with want as (
+  select 'manual:menu:'||mi.menu_id||':'||encode(digest(
+     btrim(regexp_replace(regexp_replace(lower(mi.name),'[^a-z0-9]+',' ','g'),'\s+',' ','g')),
+     'sha1'),'hex') as coord
+  from site.menu_items mi
+)
+legacy dishes              318
+distinct expected coords   318
+landed coords              318
+expected NOT landed          0
+landed NOT expected          0
+```
+
+### 23.4 Exit state on dev
+
+```
+content.items kind=menu_item      318
+content.source_items menu_item    318
+content.item_slugs                334   (16 event + 318 menu_item)
+content.offers on menu items     1018
+content.collections menu_category  44   order_platform 5
+content.storefronts                14   (9 shop + 5 ordering platforms)
+collection_items (menu lanes)     720   = 402 category + 318 platform memberships
+pins on pool:menus                318
+content.item_merges                 0
+identity keys on menu items      1654   across 4 key classes
+```
+
+`content.items` total 749 → 1068. That is +319, and the extra one is **not
+slice 4's**: it is an `episode` created 2026-08-15 16:15 UTC by a scheduled
+podcast run, hours before the backfill at 22:48. Only `menu_item` rows were
+created in the backfill window.
+
+**`item_merges` is 0, and that is CORRECT rather than a missing outcome.** The
+slice was expected to produce the programme's first merges. It did not,
+because dev has no dish sold on two platforms: each of the five menus carries
+exactly one `menu_item_platforms` row per dish, so there is no cross-source
+pair to union. `identity_candidates` is likewise 0. §8.3's hard-delete of
+uncurated losers therefore remains **unexercised in production data** and is
+carried to whichever slice first lands a genuinely multi-platform menu.
+
+### 23.5 The 301 lane, proven live
+
+The retired set was EMPTY at entry (all 329 `site.item_slugs` rows current),
+because `MenuFetchJob` *forgets* a vendor-renamed dish's slug rather than
+retiring it. So the 301 had to be created, not migrated. On dev, against a
+real dish on `ollies`:
+
+```
+BEFORE   slug pizza-margherita          aliases [<raw id>]
+RENAME   -> "Pizza Margherita Deluxe"
+AFTER    slug pizza-margherita-deluxe   aliases [pizza-margherita, <raw id>]
+```
+
+Read back off `dev-api.partna.au` on the public wire, not just the database.
+Renaming back exercised the allocator's rename-back arm: the slug returned to
+`pizza-margherita` (reactivated, **not** `pizza-margherita-2`) with
+`pizza-margherita-deluxe` retired behind it.
+
+**This is a behaviour improvement, named as one:** vendor renames now redirect,
+where the legacy lane destroyed the old URL.
+
+### 23.6 Phase 5's live proof — NOT MET, raised
+
+The three menu connectors exist and are registered
+(`UberEatsMenuConnector`, `DoordashMenuConnector`, `SquareMenuConnector`), and
+this slice provisioned their sources — scoped, using a `--connector` flag added
+to `ingest:backfill-sources` for the purpose:
+
+```
+$ php artisan ingest:backfill-sources --user=<showcase-eats> \
+    --connector=uber_eats --connector=doordash --connector=square
+created 3 | filtered_out 4 | no_connector 6
+```
+
+The four filtered rows are `google_business`, `instagram`, `eventbrite` and
+`humanitix` — billed lanes that scoping by user alone would have started as a
+side effect.
+
+**The gate cannot be met honestly today.** The only account holding
+`*.order` connections is `showcase-eats`, and all four of its URLs are
+placeholders:
+
+```
+uber_eats.order   https://www.ubereats.com/au/store/some-store
+doordash.order    https://www.doordash.com/store/some-store-123456/
+square.order      https://some-store.square.site
+menulog.order     https://www.menulog.com.au/restaurants-some-store
+```
+
+Running the actors against those spends Apify credit to land nothing. Real
+store URLs exist on dev, but only in `site.menu_platform_links`, belonging to
+four users who hold no `*.order` connection at all. Proceeding requires either
+repointing a demo account's connections at a real third party's store, or
+fabricating an integration on an account that never connected one — a data
+decision this plan does not name. **Raised to the owner rather than taken.**
+
+Two facts that de-risk the wait:
+
+- The three sources carry `auto_sync = false`, and `SourceScheduler` filters
+  `where('auto_sync', true)`. They cannot run themselves, so no scheduled run
+  will spend credit on the placeholder URLs.
+- **Apify budget is intact and was checked before anything ran:** US$2.81 of a
+  US$29 monthly ceiling used, US$26.19 remaining against the slice's US$18 cap.
+  Nothing in slice 4 spent any of it.
+
+Also established while checking: **the menu connectors do not read
+`selection_ref`** — that is Fresha's sub-account mechanism. The NULL on these
+three sources is not a blocker for them.
+
+### 23.7 Cache, and one warning this slice caused
+
+All three lanes (§9.2) fire from `MenuBackfiller::run()` via
+`SiteCacheLanes::bust()`, once per touched site rather than per row.
+
+`CloudflarePurgeService::purgeHandle()` now purges dish pages under all three
+addressable forms — legacy uuid, content item id, current slug — because both
+menu wires are live and it cannot know which one a consumer built its href
+from. That triples the menu contribution, from 300 to 900 URLs per host, and
+dev's largest menu now trips the existing volume canary:
+
+```
+cloudflare.purge.url_volume_high  handle=fable-sevenrun url_count=941 threshold=900
+```
+
+**The threshold is deliberately left alone.** It exists to flag volume nobody
+predicted; this volume is predicted and written into the service's own
+derivation. Raising it to silence a true signal would retire the canary for
+the next real jump. Slice 7 removes the legacy third and takes it back under
+the line on its own — **listed as a slice 7 expectation, not a standing
+alarm.**
+
+### 23.8 Logs and performance
+
+`cloud env:logs partna development --minutes 45`: no exceptions, no failures,
+every `CloudflareCachePurgeJob` DONE. Two warnings, both accounted for — the
+purge-volume canary above, and one `slow_public_profile` (ollies, 1644ms)
+which is a cold-cache rebuild after this run's own purge. Warm reads measured
+straight after:
+
+```
+ollies (65 dishes)          301-535ms
+fable-sevenrun (156 dishes) 215-336ms
+```
+
+No new Nightwatch issues; the cold-rebuild pattern maps to existing #386, the
+same finding Phase 3 recorded.
+
+### 23.9 Tests
+
+Full suite `8260 passed, 1 skipped, 28529 assertions` on the merge commit.
+Postgres lane `207 passed / 959 assertions` (run against a throwaway
+`postgres:16` — the local `.env` DB_HOST is a dead ref). PHPStan clean across
+`app/`. Pint clean.
+
+New: `MenuProjectionMapperTest` (12), `MenuBackfillerTest` (19),
+`MenuSlugLaneTest` (10), `MenusPoolTest` (13), `MenuItemProjectorTest` (6),
+plus three `--connector` cases on `SourceProvisionerTest`.
+
+### 23.10 What slice 7 inherits
+
+- **The menu tables are NOT dropped.** Both wires run side by side.
+- `MenuItemObserver`'s slug duty is re-homed onto
+  `ContentItemSlugAllocator::SLUGGED_KINDS`, and removal now frees a slug via
+  `ManualServiceWriter::markRemoved()`. Retiring the observer is safe;
+  retiring the const entry is not.
+- `CloudflarePurgeService`'s dish lookup reads both lanes — drop the legacy
+  third with the table.
+- The 11 legacy `item_type='event'` rows in `site.item_slugs` are untouched
+  and remain slice 7's to delete.
+- `content.item_merges` is still 0, so §8.3's hard-delete path is unexercised.
+
+### 23.11 A kickoff premise that was false
+
+The slice-4 kickoff lists as a non-negotiable: *"The k6 harness hard-codes
+menu invariants (`scripts/launch-check/k6/`). If this slice changes menu
+shape, re-check `seed.sql` and `jobs.js`."*
+
+**It does not.** A case-insensitive search for `menu`, `dish` or `food` across
+every `.js`, `.sql` and `.md` file under `scripts/launch-check/k6/` returns
+nothing. CLAUDE.md's own list of the harness's three hard-coded invariants is
+gallery-max-6, the `media_variants` webp row, and the analytics `Origin`
+header — none of them menu-related. The kickoff generalised from that list.
+Corrected in the kickoff in place.
