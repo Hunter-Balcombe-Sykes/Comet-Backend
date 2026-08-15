@@ -617,3 +617,60 @@ it('backfill --dry-run writes nothing', function () {
 
     expect(DB::table('ingest.sources')->count())->toBe(0);
 });
+
+// ── ingest:backfill-sources --connector (slice 4) ────────────────────────────
+//
+// Provisioning is not free: it hands the scheduler a row it will then RUN, and
+// several connectors are billed. The menu lane must not spend money on Google
+// Places or an Apify Instagram run as a side effect of proving itself.
+//
+// square-ordering stands in for the menu platforms here because it is in
+// LegacyPlatformMap::ROUTING_CLASS, so the fixture does not depend on the
+// compiled catalog being present. The flag it exercises is connector-agnostic.
+
+it('provisions only the named connectors when --connector is given', function () {
+    $userId = provisionerUser();
+    $square = makeConnection($userId, ['platform' => 'square-ordering', 'payload' => ['url' => 'https://order.square.site/merchant/abc']]);
+    $fresha = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://fresha.com/a/brotherwolf-s82k3a7o']]);
+
+    DB::table('ingest.sources')->delete();
+
+    $this->artisan('ingest:backfill-sources', [
+        '--user' => $userId,
+        '--connector' => ['square'],
+    ])->assertSuccessful();
+
+    expect(ingestSourceFor($square))->not->toBeNull()
+        ->and(ingestSourceFor($fresha))->toBeNull();
+});
+
+it('provisions every connector when --connector is omitted', function () {
+    $userId = provisionerUser();
+    $square = makeConnection($userId, ['platform' => 'square-ordering', 'payload' => ['url' => 'https://order.square.site/merchant/abc']]);
+    $fresha = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://fresha.com/a/brotherwolf-s82k3a7o']]);
+
+    DB::table('ingest.sources')->delete();
+
+    $this->artisan('ingest:backfill-sources', ['--user' => $userId])->assertSuccessful();
+
+    expect(ingestSourceFor($square))->not->toBeNull()
+        ->and(ingestSourceFor($fresha))->not->toBeNull();
+});
+
+it('accepts several --connector values at once', function () {
+    $userId = provisionerUser();
+    $square = makeConnection($userId, ['platform' => 'square-ordering', 'payload' => ['url' => 'https://order.square.site/merchant/abc']]);
+    $fresha = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://fresha.com/a/brotherwolf-s82k3a7o']]);
+    $youtube = makeConnection($userId, ['platform' => 'youtube', 'payload' => ['handle' => 'mkbhd']]);
+
+    DB::table('ingest.sources')->delete();
+
+    $this->artisan('ingest:backfill-sources', [
+        '--user' => $userId,
+        '--connector' => ['square', 'fresha'],
+    ])->assertSuccessful();
+
+    expect(ingestSourceFor($square))->not->toBeNull()
+        ->and(ingestSourceFor($fresha))->not->toBeNull()
+        ->and(ingestSourceFor($youtube))->toBeNull();
+});

@@ -17,6 +17,7 @@ class IngestBackfillSourcesCommand extends Command
 {
     protected $signature = 'ingest:backfill-sources
         {--user= : Only this user id}
+        {--connector=* : Only these source keys (e.g. --connector=uber_eats --connector=square)}
         {--dry-run : Report what would happen without writing}';
 
     protected $description = 'Provision ingest.sources rows for every existing platform connection with a registered connector.';
@@ -31,6 +32,20 @@ class IngestBackfillSourcesCommand extends Command
             $query->where('user_id', (string) $this->option('user'));
         }
 
+        /**
+         * Slice 4: provisioning a source is not free — it hands the scheduler a
+         * row it will then RUN, and several connectors here are billed (Apify
+         * actors, Places details). Unscoped, this command's dry run showed it
+         * would process 80 connections across every connector; even scoped to
+         * one user it picked up google_business, instagram, eventbrite and
+         * humanitix alongside the three menu platforms. --connector narrows it
+         * to the lane you actually mean, so proving one connector never spends
+         * money on four others.
+         *
+         * @var list<string> $connectors
+         */
+        $connectors = array_values(array_filter(array_map('strval', (array) $this->option('connector'))));
+
         $dryRun = (bool) $this->option('dry-run');
         $tally = [];
         $skips = [];
@@ -42,6 +57,15 @@ class IngestBackfillSourcesCommand extends Command
                 // Off-registry brands are the normal majority (socials,
                 // link-only surfaces) — not worth a per-row line.
                 $tally['no_connector'] = ($tally['no_connector'] ?? 0) + 1;
+
+                continue;
+            }
+
+            if ($connectors !== [] && ! in_array($sourceKey, $connectors, true)) {
+                // Counted, not silent: "I asked for uber_eats and it processed
+                // nothing" needs to be distinguishable from "there were no
+                // connections at all".
+                $tally['filtered_out'] = ($tally['filtered_out'] ?? 0) + 1;
 
                 continue;
             }
