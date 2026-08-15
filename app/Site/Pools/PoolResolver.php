@@ -836,6 +836,41 @@ class PoolResolver
     }
 
     /**
+     * A collection's public display name, or null when the stored label is
+     * really just its identifier wearing a name's clothes.
+     *
+     * `content.collections.label` is NOT NULL, so every write path has to put
+     * SOMETHING there — and for a machine-created collection the honest value
+     * is often the id itself. Slice 5b established the rule for stores whose
+     * name was never fetched (`label === external_ref` → null) precisely so a
+     * raw brand id like "75102060779" could never publish as a store-card name
+     * on a CDN-cached page.
+     *
+     * Slice 4 needed it one step wider. A menu ordering platform's collection
+     * ref is namespaced (`order:doordash`) while its label is the bare slug
+     * (`doordash`), so the equality test missed it and the wire published
+     * "doordash" and "uber-eats" as display names — strings a consumer can
+     * only render WRONGLY, since neither title-cases to "DoorDash" or
+     * "Uber Eats". Publishing null and letting the consumer map `provider`
+     * is strictly better than publishing a name that is guaranteed incorrect.
+     *
+     * A real display-name vocabulary for the ordering platforms belongs to
+     * Phase 6, which promotes them to first-class surfaces with brand
+     * metadata. Minting one here would be a second source of truth for it.
+     */
+    private function publicCollectionName(string $label, string $externalRef, string $collectionRef): ?string
+    {
+        foreach (array_unique([$externalRef, $collectionRef]) as $ref) {
+            // The bare ref, or the ref minus its `kind:` namespace prefix.
+            if ($label === $ref || str_ends_with($ref, ':'.$label)) {
+                return null;
+            }
+        }
+
+        return $label;
+    }
+
+    /**
      * The vendor's service modes (DELIVERY / PICKUP), for the menus pool only.
      *
      * Store-level metadata, not per-item content: which modes a restaurant
@@ -925,7 +960,7 @@ class PoolResolver
                 'externalRef' => $externalRef,
                 'provider' => $row->provider === null ? null : (string) $row->provider,
                 'url' => $row->url === null ? null : (string) $row->url,
-                'name' => (string) $row->label === $externalRef ? null : (string) $row->label,
+                'name' => $this->publicCollectionName((string) $row->label, $externalRef, (string) $row->collection_ref),
                 'currency' => $row->currency === null ? null : (string) $row->currency,
                 'favicon' => $row->favicon_url === null ? null : (string) $row->favicon_url,
                 'logo' => $row->logo_url === null ? null : (string) $row->logo_url,
