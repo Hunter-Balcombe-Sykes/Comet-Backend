@@ -1,8 +1,9 @@
 <?php
 
 use App\Jobs\Platforms\CommerceProbeJob;
-use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\RouteContext;
 use Illuminate\Support\Facades\Queue;
@@ -10,14 +11,32 @@ use Illuminate\Support\Facades\Queue;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Phase 6: custom links live in the custom_links POOL.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
     setupNotificationsTable();
 });
+
+/**
+ * Phase 6: an unclassified link becomes a custom_links POOL item, and a pool
+ * item needs a section, which hangs off the site.
+ */
+function hostDedupePoolUser(array $attrs = []): User
+{
+    $user = User::factory()->create($attrs);
+    $site = new Site(['subdomain' => 'pu'.substr((string) $user->id, 0, 8), 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+
+    return $user->refresh();
+}
 
 it('spends one probe per website, not one per page', function () {
     // The live 2026-08-10 shape: six nav pages of one studio's site consumed the
     // whole budget of 6 and starved the three links behind them.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -36,12 +55,12 @@ it('spends one probe per website, not one per page', function () {
     expect($ctx->probesUsed())->toBe(1);
     // Nothing vanishes: the five deduped links still become cards. The probed
     // one is 'pending' and writes no card until its job misses.
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(5);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(5);
 });
 
 it('leaves the budget free for the links behind the repeated website', function () {
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -67,7 +86,7 @@ it('leaves the budget free for the links behind the repeated website', function 
 
 it('treats www and the bare host as one website', function () {
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -81,7 +100,7 @@ it('treats a subdomain as a different website', function () {
     // A shop subdomain is very often a separate storefront from the marketing
     // site, and the probes target scheme://host — so these are two questions.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -95,7 +114,7 @@ it('spends a probe for each distinct website', function () {
     // Guard against the dedupe over-reaching: two unrelated hosts are two
     // questions and must both be asked.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -109,7 +128,7 @@ it('grants a second probe to a product page on an already-seen website', functio
     // A homepage probe cannot find a specific product: the platform probes hit
     // scheme://host, and only reading the pasted page extracts a product.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -121,7 +140,7 @@ it('grants a second probe to a product page on an already-seen website', functio
 
 it('is symmetric — a product link first still leaves the homepage a probe', function () {
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -133,7 +152,7 @@ it('is symmetric — a product link first still leaves the homepage a probe', fu
 
 it('caps a website at two probes however many product links it has', function () {
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -158,7 +177,7 @@ it('grants a deep collections url the product slot rather than the homepage slot
     // worth spending. Keying it :plain instead would let it evict the
     // homepage's probe whenever it happened to be seen first.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -173,7 +192,7 @@ it('still probes the homepage when a deep product url is seen first', function (
     // this whole change exists to remove, and one a :plain-bucketed deep URL
     // would silently reintroduce as a "healthy" sites_deduped.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -189,7 +208,7 @@ it('probes each unparseable url rather than folding them together', function () 
     // junk strings must not collapse into one question just because neither
     // parses.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -202,7 +221,7 @@ it('probes each unparseable url rather than folding them together', function () 
 
 it('spends one probe for two links to the same store', function () {
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -217,7 +236,7 @@ it('still probes two different merchants on the same platform', function () {
     // (WebsiteLinkHarvester.php:401-404), so platform keying would collapse
     // these two merchants into one probe. Host keying must not.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = hostDedupePoolUser(['account_type' => 'business']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 

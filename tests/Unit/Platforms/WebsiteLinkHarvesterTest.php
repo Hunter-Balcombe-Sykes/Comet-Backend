@@ -136,16 +136,27 @@ it('classifies reservation hosts to their specific provider platform', function 
     ['https://acme.nowbookit.com', 'nowbookit', 'NowBookit'],
 ]);
 
-it('classifies ordering hosts to the generic online-ordering platform, keeping the provider as the label', function () {
+// Convergence Phase 6: ordering hosts name their BRAND, not the retired
+// 'online-ordering' pseudo-platform. That collapse is the defect scope §1.6
+// describes — every ordering link looked identical to ingest, so a scraped Uber
+// Eats menu and a DoorDash one could not be told apart by surface. The category
+// and label are deliberately unchanged: the category still drives the capability
+// gate, and the label is still what renders on the card.
+it('classifies ordering hosts to their own brand surface, keeping the provider as the label', function () {
     expect(classifierHarvester()->classify('https://www.ubereats.com/au/store/doc-pizza'))
-        ->toBe(['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => 'Uber Eats']);
+        ->toBe(['platform' => 'uber_eats.order', 'category' => 'online-ordering', 'label' => 'Uber Eats']);
     expect(classifierHarvester()->classify('https://www.doordash.com/store/doc-pizza'))
-        ->toBe(['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => 'DoorDash']);
+        ->toBe(['platform' => 'doordash.order', 'category' => 'online-ordering', 'label' => 'DoorDash']);
     // Found live 2026-07-20 directly on a real AU restaurant's homepage
     // (errols.com.au's "Order Now" button) — a real AU/NZ ordering platform
     // this list didn't cover yet.
     expect(classifierHarvester()->classify('https://ordermate.online/errols/menu'))
-        ->toBe(['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => 'OrderMate']);
+        ->toBe(['platform' => 'ordermate.order', 'category' => 'online-ordering', 'label' => 'OrderMate']);
+    // bopple.app was missing from ORDERING_HOSTS entirely until Phase 6, so a
+    // real ollies ordering link on it classified as nothing and burned a
+    // commerce probe rediscovering a host the catalog could already name.
+    expect(classifierHarvester()->classify('https://bopple.app/carlton-doc-pizza'))
+        ->toBe(['platform' => 'bopple', 'category' => 'online-ordering', 'label' => 'Bopple']);
 });
 
 it('returns null for an unrecognised host', function () {

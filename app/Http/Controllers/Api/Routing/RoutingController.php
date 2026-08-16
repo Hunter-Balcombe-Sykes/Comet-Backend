@@ -83,7 +83,11 @@ class RoutingController extends ApiController
             if ($write['status'] === 'unavailable') {
                 return $this->error('This integration is currently unavailable.', 503);
             }
-            if ($write['row'] !== null) {
+            // Keyed on STATUS, not on a returned row. Convergence Phase 6 moved
+            // this write onto the custom_links pool, and there is no connection
+            // to hand back any more — `row` is null on every path, so the old
+            // `!== null` test silently stopped reporting outcome 'link' at all.
+            if ($write['status'] === 'created' || $write['status'] === 'exists') {
                 $outcome = 'link';
             }
         }

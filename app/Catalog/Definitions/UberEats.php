@@ -47,7 +47,13 @@ class UberEats
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
+                // Connectable since convergence Phase 6: this surface replaces
+                // the `online-ordering` pseudo-platform as the home for an Uber
+                // Eats store link, and it is the source a menu connector runs
+                // against. Single-account by deliberate omission of
+                // multiAccount() — owner ruling 2026-08-16: a second Uber Eats
+                // store for one user becomes a links-pool item rather than
+                // widening the `order:{platform}` collection natural key.
                 ->detect(
                     Detector::url('ubereats.com')
                         ->path('#^/(?:[a-z]{2}/)?store/(?<slug>[^/?]+)/(?<id>[^/?]+)#')

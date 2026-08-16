@@ -54,12 +54,19 @@ it('still classifies real brand hosts in WebsiteLinkHarvester::classify()', func
         ->not->toBeNull()
         ->and(app(WebsiteLinkHarvester::class)->classify($url)['platform'])->toBe($platform);
 })->with([
+    // Convergence Phase 6 retired the shared booking/reservations/online-ordering
+    // pseudo-platforms, so each brand now names itself. A REGISTERED brand keeps
+    // its legacy slug; a CATALOG-ONLY brand (one added after P1, which can never
+    // get a legacy slug — LegacyPlatformMap is frozen to the backfill migration)
+    // is named by its surface key. This test's subject is host SPOOFING, and that
+    // half is unchanged above: what matters here is only that a genuine host
+    // still resolves to something.
     ['https://www.opentable.com.au/r/doc-pizza', 'opentable'],
-    ['https://www.thefork.com.au/restaurant/some-place', 'reservations'],
-    ['https://www.quandoo.com.au/place/some-place-1234', 'reservations'],
-    ['https://deliveroo.co.uk/menu/london/x', 'online-ordering'],
-    ['https://www.just-eat.co.uk/restaurants-x', 'online-ordering'],
-    ['https://www.treatwell.co.uk/place/x', 'booking'],
+    ['https://www.thefork.com.au/restaurant/some-place', 'thefork.reserve'],
+    ['https://www.quandoo.com.au/place/some-place-1234', 'quandoo'],
+    ['https://deliveroo.co.uk/menu/london/x', 'deliveroo.order'],
+    ['https://www.just-eat.co.uk/restaurants-x', 'just_eat.order'],
+    ['https://www.treatwell.co.uk/place/x', 'treatwell.book'],
     ['https://www.eventbrite.com.au/o/organiser-1234', 'eventbrite'],
     ['https://www.ticketmaster.com.au/event/x', 'events-custom'],
 ]);

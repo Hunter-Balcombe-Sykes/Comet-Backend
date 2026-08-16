@@ -2,9 +2,12 @@
 
 namespace App\Services\Platforms;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
+use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Support\Str;
@@ -199,16 +202,20 @@ class LinkRouter
     {
         $userId = (string) $user->id;
 
-        // Shared-key booking platforms (Booksy, Timely, etc.) — write directly
-        // with provider string. Fresha/Square use the rich flow below.
-        if ($platform === Platform::Booking->value) {
+        // Every booking brand that is not Fresha or Square writes a plain
+        // provider card. Before convergence Phase 6 they all shared the
+        // 'booking' pseudo-platform key; now each carries its own (booksy,
+        // treatwell.book, …), so the branch is on "is this one of the two rich
+        // flows" rather than on a single shared slug. The payload shape is
+        // unchanged — the dashboard renders "Book with {provider}" off it.
+        if ($platform === Platform::Fresha->value || $platform === Platform::Square->value) {
+            $write = $this->resolveWrite($platform, $url);
+        } else {
             $write = [
-                'platform' => Platform::Booking->value,
-                'resourceId' => Platform::Booking->value,
+                'platform' => $platform,
+                'resourceId' => $this->brandResourceId($platform),
                 'payload' => ['url' => $url, 'provider' => $classified['label'], 'source' => 'auto'],
             ];
-        } else {
-            $write = $this->resolveWrite($platform, $url);
         }
 
         // LIFE-106: booking's XOR invariant spans THREE platforms
@@ -301,10 +308,15 @@ class LinkRouter
             'source' => 'auto',
         ];
 
-        $this->write((string) $user->id, Platform::Reservations->value, Platform::Reservations->value, $payload);
+        // Phase 6: the brand's own key, not the retired 'reservations' pseudo
+        // key. Reservations stay SINGLE-SLOT across the family — that invariant
+        // lives in ReservationsController::clearReservations() and now keys on
+        // routing_class, which is what lets it span brands it has never heard of.
+        $resourceId = $this->brandResourceId($platform);
+        $this->write((string) $user->id, $platform, $resourceId, $payload);
 
-        return RouteResult::seeded(Platform::Reservations->value, Platform::Reservations->value, $classified['category'], [
-            $this->seededFinding(Platform::Reservations->value, Platform::Reservations->value, $classified['category'], $classified['label'], $url),
+        return RouteResult::seeded($platform, $resourceId, $classified['category'], [
+            $this->seededFinding($platform, $resourceId, $classified['category'], $classified['label'], $url),
         ]);
     }
 
@@ -313,6 +325,28 @@ class LinkRouter
      */
     private function seedOnlineOrdering(User $user, string $platform, string $url, array $classified): RouteResult
     {
+        $surface = LegacyPlatformMap::surfaceFor($platform) ?? $platform;
+
+        // ONE store per ordering brand (owner ruling 2026-08-16). A second Uber
+        // Eats store for the same user does not get a second connection — it
+        // falls through to a links-pool card. The alternative was widening the
+        // `order:{platform}` collection natural key, which slice 4 declined to
+        // touch because it rewrites every collection's key.
+        //
+        // Same URL is not a second store: that is a re-sync, and write() below
+        // is an updateOrCreate on it.
+        $occupied = IntegrationConnection::query()
+            ->where('user_id', (string) $user->id)
+            ->where('surface_key', $surface)
+            ->get()
+            ->contains(fn (IntegrationConnection $row) => ! $this->sameUrl(
+                (string) (CardPayload::fromArray($row->payload)->url() ?? ''), $url,
+            ));
+
+        if ($occupied) {
+            return RouteResult::custom(handled: true);
+        }
+
         $payload = [
             'url' => $url,
             'provider' => $classified['label'],
@@ -320,11 +354,30 @@ class LinkRouter
             'source' => 'auto',
         ];
 
-        $this->write((string) $user->id, Platform::OnlineOrdering->value, Platform::OnlineOrdering->value, $payload);
+        // Ordering is a MULTI-entry family across brands, so the resource id is
+        // url-derived rather than the brand — and it is byte-identical to
+        // OnlineOrderingController::entryResourceId(), because SiteActionsService
+        // emits `ordering:<resource_id>` action ids that users store preferences
+        // against. A different shape here would fork those ids by write path.
+        $resourceId = 'order-'.substr(sha1(strtolower($url)), 0, 16);
+        $this->write((string) $user->id, $platform, $resourceId, $payload);
 
-        return RouteResult::seeded(Platform::OnlineOrdering->value, Platform::OnlineOrdering->value, $classified['category'], [
-            $this->seededFinding(Platform::OnlineOrdering->value, Platform::OnlineOrdering->value, $classified['category'], $classified['label'], $url),
+        return RouteResult::seeded($platform, $resourceId, $classified['category'], [
+            $this->seededFinding($platform, $resourceId, $classified['category'], $classified['label'], $url),
         ]);
+    }
+
+    /**
+     * The single-slot resource id for a brand — its brand prefix, whether the
+     * caller passed a legacy slug ('booksy') or a catalog surface key
+     * ('treatwell.book'). Matches what the existing per-brand rows already use
+     * (opentable/resdiary/nowbookit all store resource_id = their slug).
+     */
+    private function brandResourceId(string $platform): string
+    {
+        return LegacyPlatformMap::legacyFor(
+            LegacyPlatformMap::surfaceFor($platform) ?? $platform,
+        );
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────

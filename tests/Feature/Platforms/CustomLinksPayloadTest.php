@@ -1,39 +1,48 @@
 <?php
 
-use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolWriter;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
+    Queue::fake();
 });
 
 function customLinksUser(string $h): User
 {
-    return User::create([
+    $user = User::create([
         'handle' => $h, 'handle_lc' => strtolower($h), 'display_name' => ucfirst($h), 'first_name' => ucfirst($h),
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
+
+    $site = new Site(['subdomain' => $h, 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+
+    return $user->refresh();
 }
 
+// Convergence Phase 6: the card is assembled from the pool item's facets
+// (f_link.url, f_text.headline/body) rather than a connection payload blob.
+// favicon/logo are null BY DESIGN — see LinkPoolWriter.
 it('lists a stored custom link with its full card shape', function () {
     $user = customLinksUser('clink');
-    IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'custom', 'resource_id' => 'link-abc',
-        'resource_kind' => 'link',
-        'payload' => ['kind' => 'link', 'url' => 'https://acme.test', 'name' => 'Acme',
-            'description' => 'Best', 'favicon' => 'https://f.ico', 'logo' => 'https://l.png'],
-        'is_active' => true, 'last_refresh_status' => 'ok',
-    ]);
+    $id = app(LinkPoolWriter::class)->add($user, 'https://acme.test', 'Acme', 'Best');
 
     actingAsUser($user)->getJson('/api/platforms/custom/links')
         ->assertOk()
-        ->assertJsonPath('links.0.id', 'link-abc')
+        ->assertJsonPath('links.0.id', $id)
         ->assertJsonPath('links.0.url', 'https://acme.test')
         ->assertJsonPath('links.0.name', 'Acme')
         ->assertJsonPath('links.0.description', 'Best')
-        ->assertJsonPath('links.0.favicon', 'https://f.ico')
-        ->assertJsonPath('links.0.logo', 'https://l.png');
+        ->assertJsonPath('links.0.favicon', null)
+        ->assertJsonPath('links.0.logo', null);
 });

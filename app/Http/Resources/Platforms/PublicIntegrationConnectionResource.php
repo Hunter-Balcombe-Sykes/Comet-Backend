@@ -222,6 +222,68 @@ class PublicIntegrationConnectionResource extends ApiResource
         // carry one; deleting it would report a MissingPublicAllowlistException
         // to Nightwatch on every public request.
         'shop' => [],
+
+        // ── Catalog-only brands (convergence Phase 6) ────────────────────────
+        // Every key below names a CATALOG brand, not a PlatformRegistry one.
+        // The two vocabularies are not the same set and cannot be made the
+        // same set: CatalogLegacyMapTest freezes LegacyPlatformMap to the
+        // 20260727110001 backfill CASE pair-for-pair, and RegistryCoverageTest
+        // chains the registry to that same frozen 78, so a brand added after P1
+        // is CATALOG-ONLY by construction. Connections still land on them —
+        // isKnownSurface() falls through to CompiledCatalog, which is the write
+        // authority — and `platform` is then the brand prefix.
+        //
+        // That is why these were missing and why nothing caught it:
+        // PublicAllowlistCoverageTest iterated PlatformRegistry::keys(), so the
+        // catalog-only set was structurally outside its reach. On dev this was
+        // not theoretical — showcase-eats published doordash/menulog/uber_eats/
+        // shopify as EMPTY payloads and reported MissingPublicAllowlistException
+        // on every public request (Nightwatch #436). The coverage test now
+        // iterates catalog brands too, so this cannot reopen.
+        //
+        // Key set is the CardPayload contract the 27 named provider cards above
+        // already use. Storefront brands take `[]` for the same reason 'shop'
+        // does — products reach the wire through `profile.pools.shop`, and a
+        // second, thinner store shape here would only be able to disagree with it.
+        'uber_eats' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'doordash' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'menulog' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'deliveroo' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'ordermate' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'order_online' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'skipthedishes' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'just_eat' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'grubhub' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'slice' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'chownow' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'toast' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'wolt' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'zomato' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'thefork' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'chope' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'tablein' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'eat_app' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'calendly' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'acuity' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'setmore' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'genbook' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'treatwell' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'noterro' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'schedulicity' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'simplybook_me' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'circle' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'kajabi' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'luma' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'partiful' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        // Storefront brands — see the `[]` rationale above.
+        'shopify' => [],
+        'woocommerce' => [],
+        'squarespace' => [],
+        'bigcartel' => [],
+        'stan' => [],
+        // partna.manual_product is the dormant manual product add-path (§16);
+        // it has no public shape of its own for the same reason as the above.
+        'partna' => [],
     ];
 
     // SHOP_BRAND_ALLOWLIST + SHOP_PRODUCT_ALLOWLIST were deleted with the shop

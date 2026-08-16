@@ -8,13 +8,19 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolWriter;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
     setupContentPopularityScoresTable();
+    Queue::fake();
 });
 
 function stravaCustomUser(string $h): User
@@ -111,28 +117,17 @@ it('custom/links freezes the exact per-link shape and strips payload-only fields
         'created_at' => now(),
         'updated_at' => now(),
     ]);
-    // Seed a row manually so we don't need to hit the external scraper.
-    // The controller's linksData() reads CardPayload fields: url, name, description,
-    // favicon, logo. The `kind` field is stored but only used internally.
-    IntegrationConnection::create([
-        'user_id' => $user->id,
-        'platform' => 'custom',
-        'resource_id' => 'link-abc123def456',
-        'resource_kind' => 'link',
-        'payload' => [
-            'kind' => 'link',
-            'url' => 'https://acme.example',
-            'name' => 'Acme Corp',
-            'description' => 'The best company.',
-            'favicon' => 'https://acme.example/favicon.ico',
-            'logo' => 'https://acme.example/og-image.png',
-        ],
-        'is_active' => true,
-        'last_refresh_status' => 'ok',
-    ]);
 
-    // RANK-1: link_item ranks are keyed by payload.url, not resource_id —
-    // seed a real rank row under the URL and assert the dashboard surfaces it.
+    // Convergence Phase 6: a pool item, not a connection payload. favicon/logo
+    // are structurally absent from this lane (LinkPoolWriter's docblock), so the
+    // frozen shape carries the KEYS with null values — the dashboard still reads
+    // six keys plus the rank, which is what this snapshot exists to pin.
+    $id = app(LinkPoolWriter::class)->add(
+        $user->refresh(), 'https://acme.example', 'Acme Corp', 'The best company.',
+    );
+
+    // RANK-1: link_item ranks are keyed by the link URL, not its id — seed a real
+    // rank row under the URL and assert the dashboard surfaces it.
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
@@ -146,14 +141,14 @@ it('custom/links freezes the exact per-link shape and strips payload-only fields
     actingAsUser($user)->getJson('/api/platforms/custom/links')
         ->assertOk()
         ->assertExactJson(['links' => [[
-            'id' => 'link-abc123def456',
+            'id' => $id,
             'url' => 'https://acme.example',
             'name' => 'Acme Corp',
             'description' => 'The best company.',
-            'favicon' => 'https://acme.example/favicon.ico',
-            'logo' => 'https://acme.example/og-image.png',
+            'favicon' => null,
+            'logo' => null,
             // Rides every dashboard link since 2026-08-04 (content_popularity
-            // ranks keyed by payload.url) — the Smart order switch sorts on it.
+            // ranks keyed by the link URL) — the Smart order switch sorts on it.
             'popularityRank' => 2,
         ]]]);
 });
@@ -168,30 +163,20 @@ it('custom/links emits nulls for absent optional fields and unseeded ranks', fun
         'created_at' => now(),
         'updated_at' => now(),
     ]);
-    IntegrationConnection::create([
-        'user_id' => $user->id,
-        'platform' => 'custom',
-        'resource_id' => 'link-000000000000',
-        'resource_kind' => 'link',
-        'payload' => [
-            'kind' => 'link',
-            'url' => 'https://minimal.example',
-            // name, description, favicon, logo absent → CardPayload defaults to null.
-        ],
-        'is_active' => true,
-        'last_refresh_status' => 'ok',
-    ]);
 
-    // Deliberately no content_popularity_scores row for this link's URL —
-    // the site exists and the reader runs its real query, it just finds
-    // nothing to key against. This is the legitimate "no rank yet" contract,
-    // not the RANK-1 mismatch (which produced null for every link, seeded or not).
+    // No title given — the host stands in, which is the pool hand-add contract.
+    $id = app(LinkPoolWriter::class)->add($user->refresh(), 'https://minimal.example');
+
+    // Deliberately no content_popularity_scores row for this link's URL — the
+    // site exists and the reader runs its real query, it just finds nothing to
+    // key against. The legitimate "no rank yet" contract, not the RANK-1
+    // mismatch (which produced null for every link, seeded or not).
     actingAsUser($user)->getJson('/api/platforms/custom/links')
         ->assertOk()
         ->assertExactJson(['links' => [[
-            'id' => 'link-000000000000',
+            'id' => $id,
             'url' => 'https://minimal.example',
-            'name' => null,
+            'name' => 'minimal.example',
             'description' => null,
             'favicon' => null,
             'logo' => null,

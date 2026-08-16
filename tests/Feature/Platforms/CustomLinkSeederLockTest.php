@@ -1,25 +1,44 @@
 <?php
 
-// PWL-10: CustomLinkSeeder::seed() writes an IntegrationConnection('custom')
-// row with no lock, racing CustomLinksController::addLink() (which locks via
-// withConnectionLock -> CacheKeyGenerator::platformConnectionLock('custom',
-// $userId)). This test proves the seeder now takes the SAME lock key across
-// its authoritative read (existing-row check + MAX_LINKS count) + write, and
-// backs off (returns null, logs a timeout warning) rather than double-writing
-// when a concurrent holder already has the key — mirroring BookingXorLockTest's
-// contention-probe pattern.
+// PWL-10: CustomLinkSeeder::seed() once wrote its row with no lock, racing
+// CustomLinksController::addLink(). This proves the seeder takes the SAME lock
+// key across its authoritative read + write and backs off (returns null, logs a
+// timeout warning) rather than double-writing when a concurrent holder has the
+// key — mirroring BookingXorLockTest's contention-probe pattern.
+//
+// Convergence Phase 6 moved the write onto the custom_links POOL. The lock did
+// NOT go with it: the pool write is an idempotent upsert on a deterministic
+// coord and needs no serialising, but the 20-link CAP is still a read-then-write
+// and two concurrent seeds could both observe 19. Same key, same contract.
 
-use App\Jobs\Platforms\EnrichLinkCardJob;
-use App\Models\Core\Site\IntegrationConnection;
+use App\Jobs\Content\EnrichPoolLinkJob;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\CustomLinkSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 
+// A pool item needs a section, which hangs off the site — so unlike the
+// connection lane, a siteless user has nowhere to put a link and short-circuits
+// before the lock is ever taken. Every case here therefore needs a real site.
+function seederLockUser(): User
+{
+    $user = User::factory()->create(['account_type' => 'business']);
+    $site = new Site(['subdomain' => 'lock'.substr((string) $user->id, 0, 8), 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+
+    return $user->refresh();
+}
+
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
     // Without this, FeatureAvailability::allows() queries a nonexistent table,
     // fails open, and logs its own unrelated
     // 'feature_availability.resolve_overrides_failed' warning — which pollutes
@@ -39,7 +58,7 @@ it('a concurrent holder of the custom-link lock makes seed() skip (not double-wr
     // ('platforms.enrich_link_card.lock_timeout'), masking whether seed()
     // itself is the thing taking the lock.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = seederLockUser();
     // Hard-coded string (not CacheKeyGenerator) — matches
     // BookingXorLockTest's precedent of proving the exact key independently
     // of the production code that derives it.
@@ -63,8 +82,8 @@ it('a concurrent holder of the custom-link lock makes seed() skip (not double-wr
     expect($elapsed)->toBeGreaterThanOrEqual(4.5);
     expect($result)->toBeNull();
 
-    $rid = 'link-'.substr(sha1(strtolower('https://example.com/thing')), 0, 16);
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'custom')->where('resource_id', $rid)->exists())->toBeFalse();
+    // Nothing written — the whole point of backing off rather than double-writing.
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toBe([]);
 
     Log::shouldHaveReceived('warning')
         ->once()
@@ -72,13 +91,16 @@ it('a concurrent holder of the custom-link lock makes seed() skip (not double-wr
             && ($context['user_id'] ?? null) === (string) $user->id);
 });
 
-it('an uncontended call creates the row and dispatches EnrichLinkCardJob', function () {
+it('an uncontended call creates the pool item and dispatches the enrichment', function () {
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = seederLockUser();
 
-    $row = app(CustomLinkSeeder::class)->seedCustom($user, 'https://example.com/thing');
+    // seedCustom() returns null on every path now: there is no connection row to
+    // hand back, and every caller already discarded the return value (Issue F).
+    app(CustomLinkSeeder::class)->seedCustom($user, 'https://example.com/thing');
 
-    expect($row)->not->toBeNull();
-    expect($row->platform)->toBe('custom');
-    Queue::assertPushed(EnrichLinkCardJob::class, 1);
+    $cards = app(LinkPoolReader::class)->cards($user->refresh());
+    expect($cards)->toHaveCount(1)
+        ->and($cards[0]['url'])->toBe('https://example.com/thing');
+    Queue::assertPushed(EnrichPoolLinkJob::class, 1);
 });

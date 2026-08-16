@@ -1,9 +1,11 @@
 <?php
 
-use App\Jobs\Platforms\EnrichLinkCardJob;
+use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Content\LinkPoolReader;
+use App\Services\Content\LinkPoolWriter;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -12,6 +14,10 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupRoutingTables();
+    // Phase 6: a Verdict::Note link becomes a custom_links POOL item.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
 
 // ── preview: decides and explains, writes nothing ────────────────────────────
@@ -122,12 +128,12 @@ it('keeps an unrecognised link as a real link card, not a vanished pending', fun
         ->assertJsonPath('verdict', 'note')
         ->assertJsonPath('blockReason', null);
 
-    // No platform connection — but exactly one custom link card.
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', '!=', 'custom')->count())->toBe(0);
-    $card = IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->first();
-    expect($card)->not->toBeNull()
-        ->and($card->resource_kind)->toBe('link')
-        ->and($card->payload['url'])->toBe($response->json('canonicalUrl'));
+    // No platform connection — but exactly one pool link. Phase 6: a Note link
+    // is a custom_links content item, not a partna.custom_link connection.
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+    $cards = app(LinkPoolReader::class)->cards($pro->refresh());
+    expect($cards)->toHaveCount(1)
+        ->and($cards[0]['url'])->toBe($response->json('canonicalUrl'));
 
     // Visible where the dashboard and sitepage actually read links from.
     $links = actingAsUser($pro)->getJson('/api/platforms/custom/links')->assertOk()->json('links');
@@ -135,7 +141,7 @@ it('keeps an unrecognised link as a real link card, not a vanished pending', fun
         ->and($links[0]['name'])->toBe('joesplumbing.com.au');
 
     // The enrichment job upgrades the minimal card, same as a legacy add.
-    Queue::assertPushed(EnrichLinkCardJob::class, fn ($j) => $j->platform === 'custom');
+    Queue::assertPushed(EnrichPoolLinkJob::class, fn ($j) => $j->userId === (string) $pro->id);
 
     // Still observed: an unmatched link is exactly what the rot report needs.
     expect(DB::table('routing.link_observations')->count())->toBe(1);
@@ -150,30 +156,23 @@ it('adding the same unrecognised link twice keeps one card and still answers out
         ->assertStatus(202)
         ->assertJsonPath('outcome', 'link');
 
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->count())->toBe(1);
+    expect(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(1);
 });
 
 it('answers a structured 422 when the link cap is full', function () {
     Queue::fake();
     $pro = createTenant('routing-note-cap');
 
+    $writer = app(LinkPoolWriter::class);
     foreach (range(1, 20) as $i) {
-        IntegrationConnection::create([
-            'user_id' => $pro->id,
-            'platform' => 'custom',
-            'resource_id' => "link-capfill{$i}",
-            'resource_kind' => 'link',
-            'payload' => ['kind' => 'link', 'url' => "https://example{$i}.com.au"],
-            'is_active' => true,
-            'last_refresh_status' => 'ok',
-        ]);
+        $writer->add($pro, "https://example{$i}.com.au");
     }
 
     actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://joesplumbing.com.au/'])
         ->assertStatus(422)
         ->assertJsonPath('code', 'link_cap_reached');
 
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->count())->toBe(20);
+    expect(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(20);
 });
 
 it('sends a below-auto-threshold link to review rather than connecting or noting it', function () {
@@ -238,8 +237,8 @@ it('gates a reservations link for an account that cannot use reservations', func
         ->assertJsonPath('blockReason', null)
         ->assertJsonPath('routedTo', null);
 
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', '!=', 'custom')->count())->toBe(0)
-        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->count())->toBe(1)
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0)
+        ->and(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(1)
         ->and(DB::table('routing.link_observations')->where('block_reason', 'gate')->count())->toBe(1);
 });
 
@@ -326,11 +325,11 @@ it('redacts a secret-shaped param on the note (custom-link) path while a benign 
 
     $response->assertStatus(202)->assertJsonPath('outcome', 'link');
 
-    $card = IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->first();
-    expect($card)->not->toBeNull()
-        ->and($card->payload['url'])->toContain('page=2')
-        ->and($card->payload['url'])->not->toContain('session=abc123')
-        ->and($card->payload['url'])->not->toContain('abc123');
+    $cards = app(LinkPoolReader::class)->cards($pro->refresh());
+    expect($cards)->toHaveCount(1)
+        ->and($cards[0]['url'])->toContain('page=2')
+        ->and($cards[0]['url'])->not->toContain('session=abc123')
+        ->and($cards[0]['url'])->not->toContain('abc123');
 });
 
 // ── #TEST-2: the two write outcomes RoutingEndpointTest was missing — busy
@@ -363,7 +362,7 @@ it('answers 423 when the custom-link lock is held by a concurrent writer', funct
         $held->release();
     }
 
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->count())->toBe(0);
+    expect(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(0);
 });
 
 it('answers 503 when the custom integration is feature-disabled', function () {
@@ -384,5 +383,5 @@ it('answers 503 when the custom integration is feature-disabled', function () {
         ->assertStatus(503)
         ->assertJsonPath('message', 'This integration is currently unavailable.');
 
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->count())->toBe(0);
+    expect(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(0);
 });
