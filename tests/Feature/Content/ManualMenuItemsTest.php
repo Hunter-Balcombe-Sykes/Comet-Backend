@@ -367,3 +367,29 @@ it('never persists the hydrated model or lazily queries the legacy tables', func
         ->and($model->relationLoaded('platformLinks'))->toBeTrue()
         ->and($model->relationLoaded('categories'))->toBeTrue();
 });
+
+// Slice 7 Task 6 chose content.manual_overrides as the content-lane home for
+// is_manual, but the write and the read landed in different tasks: the
+// controller recorded overrides while this reader still hardcoded false, so an
+// owner-edited dish read as synced and MenuFetchJob would have clobbered it on
+// the next scrape. That is the loop this closes.
+it('reports is_manual for a dish the owner has authored a column of', function () {
+    $user = mmiSeedDishWithOffers(base: 5.50);
+    $itemId = (string) DB::connection('pgsql')->table('content.items')->value('id');
+
+    expect(app(ManualMenuItems::class)->rows((string) $user->id)[0]->is_manual)->toBeFalse();
+
+    DB::connection('pgsql')->table('content.manual_overrides')->insert([
+        'id' => (string) Str::uuid(),
+        'item_id' => $itemId,
+        'facet' => 'f_text',
+        'column_name' => 'headline',
+        'value' => 'Owner Name',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $row = app(ManualMenuItems::class)->rows((string) $user->id)[0];
+    expect($row->is_manual)->toBeTrue()
+        ->and(app(ManualMenuItems::class)->toMenuItemModel($row)->is_manual)->toBeTrue();
+});

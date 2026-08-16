@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\DB;
  * (ManualMenuWriter::pin()) and are the public pool's business, not this one's.
  *
  * Three legacy columns are NOT recoverable and are documented rather than
- * guessed: `is_manual`, `pickup_source`/`delivery_source` and `dd_external_id`
+ * guessed: `pickup_source`/`delivery_source` and `dd_external_id`
  * have no projection target (MenuProjectionMapper never wrote them). Spec unit
  * A gives `is_manual` a home on `site.menus`, which survives the teardown —
  * Task 6 wires it, and this class deliberately leaves it false rather than
@@ -114,7 +114,7 @@ class ManualMenuItems
         $item->pickup_source = null;
         $item->delivery_source = null;
         $item->dd_external_id = null;
-        $item->is_manual = false;
+        $item->is_manual = (bool) ($row->is_manual ?? false);
         $item->created_at = $row->created_at !== null ? Carbon::parse($row->created_at) : null;
         $item->updated_at = $row->updated_at !== null ? Carbon::parse($row->updated_at) : null;
 
@@ -196,6 +196,17 @@ class ManualMenuItems
         // Alphabetical because content.item_tags carries no ordinal column at
         // all — the vendor's badge order did not survive the projection, and an
         // arbitrary-but-stable order beats one that differs run to run.
+        // The content-lane `is_manual` (slice 7 Task 6): a dish the owner has
+        // authored at least one column of carries content.manual_overrides
+        // rows. NOT source-scoped — an override is the owner's, not a
+        // projection's, and content.manual_overrides has no source_id.
+        $ownerEdited = DB::connection('pgsql')->table('content.manual_overrides')
+            ->whereIn('item_id', $itemIds)
+            ->distinct()
+            ->pluck('item_id')
+            ->map(fn ($id) => (string) $id)
+            ->flip();
+
         $badges = DB::connection('pgsql')->table('content.item_tags')
             ->whereIn('item_id', $itemIds)->where('source_id', $sourceId)
             ->where('tag_type', 'badge')
@@ -216,7 +227,7 @@ class ManualMenuItems
         $memberships = $this->memberships($userId, $itemIds);
         $platformUrls = $this->storefrontHosts($userId);
 
-        return $items->map(function (object $item) use ($descriptions, $rated, $offers, $badges, $media, $memberships, $platformUrls): \stdClass {
+        return $items->map(function (object $item) use ($descriptions, $rated, $offers, $badges, $media, $memberships, $platformUrls, $ownerEdited): \stdClass {
             $id = (string) $item->id;
             $itemOffers = $offers->get($id, collect());
             $categories = $memberships['menu_category'][$id] ?? [];
@@ -227,6 +238,7 @@ class ManualMenuItems
                 'id' => $id,
                 'coord' => (string) $item->coord,
                 'source_id' => (string) $item->source_id,
+                'is_manual' => $ownerEdited->has($id),
                 'headline' => (string) ($item->headline_cache ?? ''),
                 'description' => $descriptions[$id] ?? null,
                 'base_price' => $this->priceFor($itemOffers, 'base'),
