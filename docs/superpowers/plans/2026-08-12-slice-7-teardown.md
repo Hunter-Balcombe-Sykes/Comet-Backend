@@ -598,28 +598,64 @@ Under the 2026-08-14 override the `gallery` / `designMedia` / `siteImages` keys 
 
 **Files:**
 - Modify: `app/Services/User/DataExport/DataExportPayloadBuilder.php:269,822,841`
-- Test: `tests/Feature/Export/DataExportServicesSectionTest.php`
+- Test: `tests/Feature/User/DataExport/DataExportPayloadBuilderTest.php` (the existing services-export block, not a new file — `seedProForPayload()` and the lane's stand-in DDL live there, and `DuplicateStandInDdlGuardTest` forbids a second copy)
 
-- [ ] **Step 1: Failing test** — the export's `services` and `service_categories` sections populate from `content.*` with the legacy tables empty.
-- [ ] **Step 2: Run; confirm it fails.**
-- [ ] **Step 3: Repoint at `ManualServiceItems::exportRows()`** — it exists for exactly this.
-- [ ] **Step 4: RETAIN the legacy section keys.** The 2026-08-05 precedent is that DSAR allowlists keep them so previously-stored payloads stay disclosable. Deleting a key is a disclosure regression, not a cleanup.
-- [ ] **Step 5: Confirm `DsarPayloadFilter::WITHHELD_DISCLOSURE` still names both halves** of slice 6's `content.source_stats` rule (`summary_text` withheld, `rating_avg`/`rating_count` included).
-- [ ] **Step 6: Run; commit.**
+- [x] **Step 1: Failing test** — the export's `services` and `service_categories` sections populate from `content.*` with the legacy tables empty.
+- [x] **Step 2: Run; confirm it fails.**
+- [x] **Step 3: Repoint at `ManualServiceItems::exportRows()`** — it exists for exactly this.
+- [x] **Step 4: RETAIN the legacy section keys.** The 2026-08-05 precedent is that DSAR allowlists keep them so previously-stored payloads stay disclosable. Deleting a key is a disclosure regression, not a cleanup.
+- [x] **Step 5: Confirm `DsarPayloadFilter::WITHHELD_DISCLOSURE` still names both halves** of slice 6's `content.source_stats` rule (`summary_text` withheld, `rating_avg`/`rating_count` included).
+- [x] **Step 6: Run; commit.**
+
+**What the task turned out to be wider than.** The plan named only `exportRows()`, which covers the OWNER half. `streamServices()` had a SECOND half reading `site.services WHERE source IS NOT NULL` (the Fresha projection) plus a per-row `site.service_category_assignments` lookup, and `streamServiceCategories()` read `site.service_categories` outright. All three tables drop, so all three were re-sourced:
+
+| Section | Before | After |
+|---|---|---|
+| `services` (owner) | `ManualServiceItems::exportRows()` | unchanged |
+| `services` (connector) | `site.services` + `site.service_category_assignments` | `content.items` × `source_items` × `sources` (kind=`connection`) ⟕ `site.platform_connections`, facets via `ManualServiceItems::facets()`, categories via `content.collection_items` scoped to the source |
+| `service_categories` | `site.service_categories` | `content.collections` kind=`service_category`, mapped label→title / position→sort_order / removed_at→deleted_at / is_user_created→source (the mapping `ServiceCategoryResource::fromCollectionRow()` already ships) |
+
+Section keys are byte-identical before and after: `services`, `service_categories`.
+
+**Three legacy columns have no `content.*` equivalent** and are emitted as their honest default rather than a guess: `sort_order` (null), `deleted_origin` (null), `is_active` (re-derived as "still held" — the old hidden-toggle bit lives in the connection payload's `selection`, disclosed in full in the `integrations` section).
+
+**Open, for Phase 6 — `ManualServiceItems::legacyIdsFor()` still reads `site.services`.** It cross-checks each `manual:<uuid>` coord against a real `site.services` row before trusting it as a legacy id (that cross-check is load-bearing: `UserServiceController::store()` mints a syntactically identical coord with no backing row). Neither the plan nor spec §Unit I accounts for it, and after the DROP the query raises `42P01` and takes the WHOLE DSAR export down. It must be resolved in the same window as the DROP — not left to be discovered by a 500.
 
 ### Task 19: Analytics — verify, then document
 
 Unit J is documentation **unless** the one verification fails.
 
-- [ ] **Step 1: Grep every analytics query for an inner join to `content.items`.**
+- [x] **Step 1: Grep every analytics query for an inner join to `content.items`.**
 
 ```bash
 grep -rn "item_views\|content_popularity" app/ --include=*.php | grep -i "join"
 ```
 
-- [ ] **Step 2: If any inner-joins**, write a failing test proving an orphaned analytics row drops or errors, then make the path null-safe. **That is code, not documentation.**
-- [ ] **Step 3: If none**, record the row count that will be orphaned and move on. Owner decision 2026-08-12: accepted as lost, no FK, orphans inert.
-- [ ] **Step 4: Commit** the count into the checkpoint draft.
+- [x] **Step 2: If any inner-joins**, write a failing test proving an orphaned analytics row drops or errors, then make the path null-safe. **That is code, not documentation.**
+- [x] **Step 3: If none**, record the row count that will be orphaned and move on. Owner decision 2026-08-12: accepted as lost, no FK, orphans inert.
+- [x] **Step 4: Commit** the count into the checkpoint draft.
+
+**Verdict: no inner join exists. Unit J stays documentation.** The grep returns nothing, and following the readers confirms it rather than resting on the grep:
+
+- `app/Services/Analytics/` contains **zero** references to any `content.*` table (`grep -rn "content\." app/Services/Analytics/` is empty). Same for `ComputeContentPopularityScores`, `PurgeRawAnalyticsEvents`, `DevInsightsController` and `AnalyticsController`.
+- Of the 47 `->table('analytics.…')` calls in `app/`, none is followed by a join of any kind.
+- Every rank consumer (`PoolResolver`, `IndividualProfilePayloadBuilder`, `ShopController`, `CustomLinksController`, `PublicMenuController`, `UserSiteActionsController`) goes through `ContentPopularityReader::forSite()`, which returns a `content_key → rank` **array** that call sites read as `$ranks[$key] ?? null`. An unmatched key is a miss, not a dropped row — and the reader is already fail-open on `QueryException`.
+- No Postgres view or matview references either table (`information_schema.views` on dev: 0 rows).
+
+**Rows orphaned by the DROPs, measured on dev `glncumufgaqcmqhzwrxm` 2026-08-16:**
+
+| Table | Total | Orphaned by this slice | Breakdown |
+|---|---|---|---|
+| `analytics.item_views` | 560 | **197** | 182 `menu_item` → `site.menu_items`, 15 `service` → `site.services` |
+| `analytics.content_popularity_scores` | 276 | **96** | 80 `menu_item`, 16 `service` |
+| **Combined** | 836 | **293** | |
+
+Two facts worth not rediscovering:
+
+1. **Zero rows in either table reference a `content.items` id today** — every uuid-shaped `item_id` / `content_key` resolves to a legacy table, and the non-uuid remainder (359 `item_views`, e.g. every `shop_product`, `link_item`, `listen_item`, `watch_item`, `engine_item`) is keyed by handle/slug, not by id at all. So the "merged-away item" half of the owner's 2026-08-12 decision is not yet exercised on dev; what the DROP actually orphans is the legacy-id half.
+2. `content_popularity_scores`' `block` (8) and `gallery_item` (6) uuid keys point at `site.blocks` / `site.site_media`, which this slice does **not** drop. They are not in the 96.
+
+Beyond the id link, `analytics.item_views.item_title` denormalises each item's title at write time, so the orphaned rows stay human-readable in the DSAR export and in `DevInsightsController` regardless.
 
 ### Task 20: Retire the five observers
 

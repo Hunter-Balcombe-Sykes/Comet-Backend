@@ -1930,30 +1930,215 @@ it('reflects a post-cutover edit to an already-backfilled owner service, not the
     expect(json_encode($payload, JSON_THROW_ON_ERROR))->not->toContain('Old description.');
 });
 
-it('still exports Fresha-projected services straight off site.services (unchanged by slice 3a)', function () {
-    $pro = seedProForPayload((string) Str::uuid());
+// Slice 7 Task 18: site.services / site.service_categories /
+// site.service_category_assignments are dropped in Phase 6, so BOTH halves of
+// the `services` section and the whole of `service_categories` re-source from
+// content.*. The section KEYS are unchanged on purpose — the 2026-08-05
+// precedent is that DSAR allowlists keep legacy keys so a previously-stored
+// payload stays disclosable; only the store moves.
+//
+// The connector (Fresha) half seeds a connection-kind content source rather
+// than site.services, which the pre-slice-7 export read directly. Each of
+// these asserts the legacy table is EMPTY, so a green run cannot be a
+// pass-through of the old lane.
 
-    DB::connection('pgsql')->table('site.services')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'title' => 'Fresha Cut',
-        'price_cents' => 6000,
-        'currency_code' => 'AUD',
-        'is_active' => 1,
-        'sort_order' => 0,
-        'source' => 'fresha',
-        'is_manual' => 0,
-        'external_id' => 'fresha-svc-1',
+/** Slice 7 Task 18: a Fresha-shaped connection + its content source, seeded straight (no projector). */
+function s7dsarFreshaSource(string $userId): array
+{
+    $connectionId = (string) Str::uuid();
+    $sourceId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => $connectionId,
+        'user_id' => $userId,
+        'platform' => 'fresha',
+        'resource_id' => 'jane-salon',
+        'payload' => '{}',
         'created_at' => '2026-01-01T00:00:00Z',
         'updated_at' => '2026-01-01T00:00:00Z',
     ]);
+
+    DB::connection('pgsql')->table('content.sources')->insert([
+        'id' => $sourceId,
+        'user_id' => $userId,
+        'kind' => 'connection',
+        'connection_id' => $connectionId,
+        'priority' => 200,
+        'created_at' => '2026-01-01T00:00:00Z',
+        'updated_at' => '2026-01-01T00:00:00Z',
+    ]);
+
+    return [$connectionId, $sourceId];
+}
+
+it('exports Fresha-projected services from content.*, with site.services empty', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+    [, $sourceId] = s7dsarFreshaSource($pro->id);
+
+    $itemId = (string) Str::uuid();
+    $collectionId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
+        'headline_cache' => 'Fresha Cut', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'first_seen_at' => '2026-01-01T00:00:00Z', 'last_seen_at' => '2026-01-02T00:00:00Z',
+        'created_at' => '2026-01-01T00:00:00Z', 'updated_at' => '2026-01-02T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => 'fresha:fresha-svc-1', 'record_key' => 'fresha-svc-1',
+        'item_id' => $itemId, 'kind' => 'service',
+        'first_seen_at' => '2026-01-01T00:00:00Z', 'last_seen_at' => '2026-01-02T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('content.offers')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'amount_minor' => 6000, 'currency' => 'AUD', 'qualifier' => 'exact',
+        'updated_at' => '2026-01-02T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('content.f_duration')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId, 'seconds' => 2700,
+        'updated_at' => '2026-01-02T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('content.f_text')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId, 'body' => 'Wash, cut and finish.',
+        'updated_at' => '2026-01-02T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('content.collections')->insert([
+        'id' => $collectionId, 'user_id' => $pro->id, 'label' => 'Hair',
+        'kind' => 'service_category', 'position' => 0, 'is_user_created' => 0,
+        'external_ref' => 'fresha-cat-1',
+        'created_at' => '2026-01-01T00:00:00Z', 'updated_at' => '2026-01-01T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('content.collection_items')->insert([
+        'collection_id' => $collectionId, 'item_id' => $itemId,
+        'source_id' => $sourceId, 'position' => 0,
+    ]);
+
+    // The pre-slice-7 lane must contribute nothing — a green run here is
+    // content.* or nothing.
+    expect(DB::connection('pgsql')->table('site.services')->where('user_id', $pro->id)->count())->toBe(0);
 
     $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
 
     $row = collect($payload['services'])->firstWhere('title', 'Fresha Cut');
     expect($row)->not->toBeNull();
+    expect($row['id'])->toBe($itemId);
+    expect($row['user_id'])->toBe($pro->id);
     expect($row['source'])->toBe('fresha');
+    expect($row['is_manual'])->toBeFalse();
     expect($row['external_id'])->toBe('fresha-svc-1');
+    expect($row['price_cents'])->toBe(6000);
+    expect($row['currency_code'])->toBe('AUD');
+    expect($row['duration_minutes'])->toBe(45);
+    expect($row['description'])->toBe('Wash, cut and finish.');
+    expect($row['is_active'])->toBeTrue();
+    expect($row['deleted_at'])->toBeNull();
+    expect($row['category_ids'])->toBe([$collectionId]);
+});
+
+it('exports a removed Fresha service with deleted_at set, not silently dropped', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+    [, $sourceId] = s7dsarFreshaSource($pro->id);
+
+    $itemId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
+        'headline_cache' => 'Retired Treatment', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'removed_at' => '2026-02-01T00:00:00Z',
+        'first_seen_at' => '2026-01-01T00:00:00Z', 'last_seen_at' => '2026-01-02T00:00:00Z',
+        'created_at' => '2026-01-01T00:00:00Z', 'updated_at' => '2026-02-01T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => 'fresha:fresha-svc-2', 'record_key' => 'fresha-svc-2',
+        'item_id' => $itemId, 'kind' => 'service',
+        'first_seen_at' => '2026-01-01T00:00:00Z', 'last_seen_at' => '2026-01-02T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    $row = collect($payload['services'])->firstWhere('title', 'Retired Treatment');
+    expect($row)->not->toBeNull();
+    expect($row['deleted_at'])->not->toBeNull();
+    expect($row['is_active'])->toBeFalse();
+});
+
+it('exports service_categories from content.collections, with site.service_categories empty', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    $ownerCategoryId = (string) Str::uuid();
+    $vendorCategoryId = (string) Str::uuid();
+    $removedCategoryId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('content.collections')->insert([
+        [
+            'id' => $ownerCategoryId, 'user_id' => $pro->id, 'label' => 'Colour',
+            'kind' => 'service_category', 'position' => 1, 'is_user_created' => 1,
+            'external_ref' => null, 'removed_at' => null,
+            'created_at' => '2026-01-01T00:00:00Z', 'updated_at' => '2026-01-02T00:00:00Z',
+        ],
+        [
+            'id' => $vendorCategoryId, 'user_id' => $pro->id, 'label' => 'Hair',
+            'kind' => 'service_category', 'position' => 0, 'is_user_created' => 0,
+            'external_ref' => 'fresha-cat-1', 'removed_at' => null,
+            'created_at' => '2026-01-01T00:00:00Z', 'updated_at' => '2026-01-02T00:00:00Z',
+        ],
+        // Deleted by the owner: still held data during the grace window, so
+        // Article 15 still covers it — same rule exportRows() applies to a
+        // removed item.
+        [
+            'id' => $removedCategoryId, 'user_id' => $pro->id, 'label' => 'Gone',
+            'kind' => 'service_category', 'position' => 2, 'is_user_created' => 1,
+            'external_ref' => null, 'removed_at' => '2026-02-01T00:00:00Z',
+            'created_at' => '2026-01-01T00:00:00Z', 'updated_at' => '2026-02-01T00:00:00Z',
+        ],
+        // Another kind on the same table — storefronts file products here too.
+        [
+            'id' => (string) Str::uuid(), 'user_id' => $pro->id, 'label' => 'Not A Category',
+            'kind' => 'storefront', 'position' => 0, 'is_user_created' => 1,
+            'external_ref' => null, 'removed_at' => null,
+            'created_at' => '2026-01-01T00:00:00Z', 'updated_at' => '2026-01-01T00:00:00Z',
+        ],
+        // Another tenant's category — must never cross.
+        [
+            'id' => (string) Str::uuid(), 'user_id' => (string) Str::uuid(), 'label' => 'OTHER-USER-CATEGORY',
+            'kind' => 'service_category', 'position' => 0, 'is_user_created' => 1,
+            'external_ref' => null, 'removed_at' => null,
+            'created_at' => '2026-01-01T00:00:00Z', 'updated_at' => '2026-01-01T00:00:00Z',
+        ],
+    ]);
+
+    expect(DB::connection('pgsql')->table('site.service_categories')->where('user_id', $pro->id)->count())->toBe(0);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload)->toHaveKey('service_categories');
+
+    $rows = collect($payload['service_categories']);
+    expect($rows)->toHaveCount(3);
+    expect($rows->pluck('title')->all())->not->toContain('Not A Category');
+    expect(json_encode($payload, JSON_THROW_ON_ERROR))->not->toContain('OTHER-USER-CATEGORY');
+
+    $owner = $rows->firstWhere('id', $ownerCategoryId);
+    expect($owner['user_id'])->toBe($pro->id);
+    expect($owner['title'])->toBe('Colour');
+    expect($owner['sort_order'])->toBe(1);
+    expect($owner['source'])->toBeNull();
+    expect($owner['deleted_at'])->toBeNull();
+
+    // is_user_created=false means the projector made it from a vendor
+    // category, which today only ever means Fresha — the same mapping
+    // ServiceCategoryResource::fromCollectionRow() already ships.
+    expect($rows->firstWhere('id', $vendorCategoryId)['source'])->toBe('fresha');
+    expect($rows->firstWhere('id', $removedCategoryId)['deleted_at'])->not->toBeNull();
 });
 
 it('exports the ORIGINAL site.services.id for a backfilled-but-unedited owner service', function () {
