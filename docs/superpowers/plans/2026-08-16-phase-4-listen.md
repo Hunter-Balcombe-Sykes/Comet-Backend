@@ -65,15 +65,17 @@ Twitch's 4 `channel` items are already orphaned — Phase 1 de-sourced the platf
 
 Free lane, no Apify. This proves connector → projector → `content.items` end to end before any money is involved. Owner approved restoring the soft-deleted connection (2026-08-16).
 
-> **STATUS 2026-08-16 — RUN, AND IT LANDS NOTHING. See convergence-log F29.**
+> **STATUS 2026-08-16 — ✅ COMPLETE. 15 `track` items live on dev. See convergence-log F29 + its resolution.**
 >
-> Steps 1-4 were **dropped as duplication**, not skipped: `tests/Feature/Ingest/SourceProvisionerTest.php` already pins both behaviours this task proposed to test — `youtube_music` provisions only from a real UC channel id (line 471) and a trashed connection returns `retired` (line 360). All 42 of its tests pass. Writing them again would have added nothing.
+> Steps 1-4 were **dropped as duplication**, not skipped: `tests/Feature/Ingest/SourceProvisionerTest.php` already pins both behaviours this task proposed to test — `youtube_music` provisions only from a real UC channel id (line 471) and a trashed connection returns `retired` (line 360). All 42 of its tests pass.
 >
-> Steps 5-7 were executed. The connection is restored and the source is provisioned and healthy (`created 1`, `identifier=UC3AXBjLrXTrTpm4SwYdBYAQ`, `auto_sync=true`, `cost_units=1`), but the run returns `outcome=ok` with `records_seen=0`: `videos.xml` for that channel serves **200 with zero entries**. The connector's `empty_feed` guard fires correctly. **0 track items landed.**
+> Steps 5-7 executed. Connection restored (owner-approved) and source provisioned: `auto_sync=true`, `cost_units=1`. The originally stored channel id `UC3AXBjLrXTrTpm4SwYdBYAQ` is **dead** — `videos.xml` returns 200 with zero entries — so it was repointed at a verified Topic channel, `UCIxs9iTyfD_m4wN2eeZ0B5w` ("bootleg gizzard - Topic"), which serves 15 art tracks with clean song titles.
 >
-> Do NOT "fix" this by pointing the connection at the artist's main YouTube channel. That was tried, landed 15 items, and every one was a livestream or visualiser typed as `track` — a false pass on this phase's own EXIT gate. It is fully reverted.
+> **Live result:** 15 records → 15 `track` items, `f_authored.creator` and `f_published` on all 15, and identity keys deriving `title_release` ×15 — the cross-platform music key. No `isrc`, exactly as F10 predicted; that is the paid lane's job.
 >
-> **This task cannot complete without one genuine Topic-channel id that serves feed entries** (source it from a YouTube Music artist page's Songs shelf, never from YouTube search — search returns the main channel). Until then Phase 4's EXIT gate rests entirely on Tasks 3-7, the paid lane.
+> **Two traps, both paid for once — do not repeat:**
+> 1. Never search `"<artist> - Topic"` for a channel id. YouTube resolves it to the Official Artist Channel. Doing so landed 15 livestreams/visualisers typed as `track` — a false pass on this phase's own gate. Get the id off an art track's watch page instead (body contains `Provided to YouTube by`).
+> 2. `content.items.facets_cache` is an array of facet **names**, not values. Query the `content.f_*` tables for values, or you will invent a phantom "the projector dropped the artist" defect.
 
 **Files:**
 - Test: `tests/Feature/Ingest/YoutubeMusicProvisioningTest.php` (create)
