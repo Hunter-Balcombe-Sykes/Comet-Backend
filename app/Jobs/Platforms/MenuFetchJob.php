@@ -404,7 +404,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             $coords[$writer->coordFor((string) $menu->id, $dish['name'])] = true;
         }
 
-        $absent = $this->absentDishIds($menu, $coords, $ownerNames['protected']);
+        $absent = $this->absentDishIds($menu, $coords, $ownerNames['protected'], $ownerNames['protected_coords']);
 
         $itemIds = [];
         $namesById = [];
@@ -658,11 +658,16 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
      * previously matched onto — the pre-slice-7 job deleted it and let the scan
      * reapply in handle() rebuild it, which a one-way removed_at cannot do).
      *
+     * A third, coord-matched: a dish carrying a `content.manual_overrides` row
+     * (see ownerLockedCoords) — the owner edited it, so the vendor dropping it
+     * must not one-way retire the owner's work.
+     *
      * @param  array<string, true>  $coords  coords this scrape wrote
      * @param  array<string, true>  $protected  normalized names the owner owns
+     * @param  array<string, true>  $protectedCoords  coords the owner has edited
      * @return list<string> content item ids
      */
-    private function absentDishIds(Menu $menu, array $coords, array $protected): array
+    private function absentDishIds(Menu $menu, array $coords, array $protected, array $protectedCoords = []): array
     {
         $userId = (string) $menu->user_id;
 
@@ -683,6 +688,9 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 continue;
             }
             if (isset($protected[$this->normalizeName((string) ($row->headline_cache ?? ''))])) {
+                continue;
+            }
+            if (isset($protectedCoords[(string) $row->coord])) {
                 continue;
             }
             $candidates[(string) $row->id] = true;
@@ -821,20 +829,23 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     }
 
     /**
-     * The two owner-authored name sets a scrape must respect, both normalized
-     * with the same rule MenuProjectionMapper hashes into the coord.
+     * The owner-authored sets a scrape must respect. The two name sets are
+     * normalized with the same rule MenuProjectionMapper hashes into the coord;
+     * the coord set is keyed on the coord itself (see ownerLockedCoords).
      *
      * `skip_write` — names the scrape must not write AT ALL. This is
      * `menus.suppressed_items`, the column MenuContentController writes when
-     * the owner deletes a scraped dish, and the ONE of the four slice-7
-     * behaviour homes that already had a home that survives the teardown. It is
-     * also where an owner EDIT has to land: the legacy `menu_items.is_manual`
-     * flag has no column on `site.menus` (the spec claimed one; it does not
-     * exist) and no representable target in `content.*`, and "the scrape must
-     * not overwrite this dish" is exactly what suppression already means. The
-     * scrape's behaviour is identical under either reading, so this honours
-     * whatever MenuContentController records there without needing to know
-     * which of the two it meant.
+     * the owner DELETES a scraped dish. That is the only signal it carries: an
+     * owner EDIT does not land here. Editing a dish records
+     * `content.manual_overrides` rows instead (MenuContentController's
+     * `recordOwnerEdits()`, the content-lane `is_manual` that slice 7 Tasks 6
+     * and 8 settled on), and this job does NOT yet honour those on the write
+     * side — a scrape still re-projects the vendor's values over an
+     * owner-edited dish. That gap is known, deliberately deferred to the drop
+     * phase, and described in `docs/superpowers/plans/2026-08-12-slice-7-teardown.md`;
+     * it needs a coord-keyed write skip that does not strand the coord and an
+     * owner call on per-column vs whole-dish locking, which is more than a
+     * predicate change.
      *
      * `protected` — names the scrape must not RETIRE. Everything in skip_write,
      * plus `menus.scan_items`: a photo-scan dish the scrape had matched onto
@@ -843,7 +854,10 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
      * owner restore), where the pre-slice-7 job deleted it and let the scan
      * reapply in handle() put it back.
      *
-     * @return array{skip_write: array<string, true>, protected: array<string, true>}
+     * `protected_coords` — coords the scrape must not RETIRE, for the same
+     * one-way reason, because the owner has edited them.
+     *
+     * @return array{skip_write: array<string, true>, protected: array<string, true>, protected_coords: array<string, true>}
      */
     private function ownerAuthoredNames(Menu $menu): array
     {
@@ -860,7 +874,53 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             }
         }
 
-        return ['skip_write' => $suppressed, 'protected' => $protected];
+        return [
+            'skip_write' => $suppressed,
+            'protected' => $protected,
+            'protected_coords' => $this->ownerLockedCoords($menu),
+        ];
+    }
+
+    /**
+     * Coords of this menu's dishes carrying a `content.manual_overrides` row —
+     * the owner has edited them by hand, so a vendor dropping the dish must not
+     * retire it. Same "any override locks the dish" derivation
+     * MenuScanApplier::lockedItemIds() uses, so the two lanes agree on what
+     * owner-locked means.
+     *
+     * Keyed on COORD, not on the dish name: after a rename `headline_cache`
+     * holds the owner's name while the coord still hashes the vendor's, so a
+     * name-keyed lookup would miss exactly the case most worth protecting.
+     *
+     * Retirement ONLY. This never reaches the write skip, so a locked dish is
+     * still re-projected and its coord still enters persist()'s $coords —
+     * which is what keeps this from stranding a coord and retiring the dish it
+     * was meant to save.
+     *
+     * @return array<string, true>
+     */
+    private function ownerLockedCoords(Menu $menu): array
+    {
+        $userId = (string) $menu->user_id;
+
+        $coords = DB::connection('pgsql')->table('content.manual_overrides as mo')
+            ->join('content.items as i', 'i.id', '=', 'mo.item_id')
+            ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->where('cs.user_id', $userId)
+            ->where('cs.kind', 'manual')
+            ->where('i.user_id', $userId)
+            ->where('i.kind', 'menu_item')
+            ->where('si.coord', 'like', 'manual:menu:'.$menu->id.':%')
+            ->distinct()
+            ->pluck('si.coord');
+
+        $out = [];
+        foreach ($coords as $coord) {
+            $out[(string) $coord] = true;
+        }
+
+        return $out;
     }
 
     /**
@@ -957,7 +1017,8 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // scrape", which is exactly what having no ordering platform means.
         // One pass only — nothing is written afterwards, so nothing re-mints
         // the slugs this frees (see persist()'s second retire()).
-        $this->retire($writer, $this->absentDishIds($menu, [], $this->ownerAuthoredNames($menu)['protected']));
+        $ownerNames = $this->ownerAuthoredNames($menu);
+        $this->retire($writer, $this->absentDishIds($menu, [], $ownerNames['protected'], $ownerNames['protected_coords']));
 
         $this->clearStorefronts($userId);
         $menu->platformLinks()->delete();

@@ -974,6 +974,70 @@ it('preserves manual content and honours suppression across a forced scrape rebu
     expect($dishes['Water']->base_price)->toBe(2.5);
 });
 
+// DATA-LOSS REGRESSION. An owner edit records content.manual_overrides rows
+// (MenuContentController::recordOwnerEdits) — the content-lane `is_manual`.
+// MenuFetchJob honours that on the RETIREMENT side: a dish the vendor drops is
+// not marked removed if the owner has edited it, because items.removed_at is
+// one-way and would silently bin the owner's work.
+//
+// The edit here is a RENAME on purpose. It splits the dish's two identities —
+// headline_cache becomes the owner's name while the coord still hashes the
+// vendor's — so this only passes if the exemption is keyed on the coord.
+//
+// Fries is the control: untouched by the owner, dropped by the same scrape, and
+// it MUST still retire. Without it this test would pass on a job that had
+// stopped retiring anything at all.
+it('keeps an owner-edited dish the vendor dropped, and still retires an untouched one', function () {
+    $user = mmcUser('mm16');
+    mmcOrdering($user);
+
+    $run1 = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [['name' => 'Mains', 'items' => [
+            ['name' => 'Burger', 'pickupPrice' => 12.0, 'deliveryPrice' => 12.0],
+            ['name' => 'Fries', 'pickupPrice' => 5.0, 'deliveryPrice' => 5.0],
+        ]]],
+    ]];
+    // Run 2 drops BOTH dishes and offers an unrelated one.
+    $run2 = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [['name' => 'Mains', 'items' => [
+            ['name' => 'Soup', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0],
+        ]]],
+    ]];
+    $this->mock(MenuApifyScraper::class, function ($m) use ($run1, $run2) {
+        $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
+    });
+
+    mmcRunFetch($user);
+    $burgerId = (string) mmcDishes($user)['Burger']->id;
+
+    // The owner edit, through the real verb — so this breaks if
+    // recordOwnerEdits() ever stops firing, not just if the job regresses.
+    actingAsUser($user)->patchJson("/api/platforms/menu/items/{$burgerId}", [
+        'name' => 'House Burger', 'price' => 18.0,
+    ])->assertOk();
+    expect(mmcOverrides($burgerId))->not->toHaveCount(0);
+
+    mmcRunFetch($user, force: true);
+
+    // The edited dish survived the vendor dropping it, at the owner's values.
+    $live = mmcDishes($user);
+    expect($live->has('House Burger'))->toBeTrue();
+    expect($live['House Burger']->removed_at)->toBeNull();
+    expect((float) $live['House Burger']->base_price)->toBe(18.0);
+    expect($live['House Burger']->is_manual)->toBeTrue();
+    // Same item, not a second one minted alongside it.
+    expect((string) $live['House Burger']->id)->toBe($burgerId);
+
+    // Control: the untouched dish the same scrape dropped DID retire.
+    expect($live->has('Fries'))->toBeFalse();
+    expect(mmcAllDishes($user)['Fries']->removed_at)->not->toBeNull();
+
+    // And the rebuild itself ran normally.
+    expect($live->has('Soup'))->toBeTrue();
+});
+
 it('preserves a manual dish when the last ordering link is removed (clearScrapedContent)', function () {
     $user = mmcUser('mm15');
     $menu = Menu::create([

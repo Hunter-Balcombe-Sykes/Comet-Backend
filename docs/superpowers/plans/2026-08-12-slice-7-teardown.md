@@ -486,6 +486,16 @@ Result: full suite 8385 passed / 2 skipped; pg lane 205 passed / 2 skipped; PHPS
 
 - [x] **Step 6: Commit.**
 
+#### DEFERRED TO THE DROP PHASE — the scrape still clobbers an owner-edited dish
+
+Tasks 6, 7 and 8 were built in parallel and landed three different answers for where `is_manual` — "the owner edited this dish, so the scrape must not overwrite it" — lives. Tasks 6 and 8 chose `content.manual_overrides` (the table's own DDL comment at `supabase/migrations/20260727140000_content_schema.sql:169` says it "is what replaces is_manual flags"); Task 7 chose `menus.suppressed_items`. On merge, Tasks 6 and 8 won: `MenuContentController::recordOwnerEdits()` writes override rows, `MenuScanApplier::lockedItemIds()` honours them, and `ManualMenuItems` derives `is_manual` from them.
+
+**`MenuFetchJob` honours them on the RETIREMENT side only.** `ownerLockedCoords()` (`app/Jobs/Platforms/MenuFetchJob.php:902`) exempts override-carrying coords from `absentDishIds()`, so a vendor dropping an owner-edited dish no longer marks it removed — that loss was irreversible (`items.removed_at` is one-way) and so was fixed immediately.
+
+**The WRITE side is still open.** `ownerAuthoredNames()['skip_write']` (`:848`) is built purely from `menus.suppressed_items`, which `MenuContentController` writes only on its two DELETE paths (`:329`, `:596`) — never on an edit. So a PATCHed dish is not skipped, and `mergedDishes()` (`:491`) re-projects the vendor's values over it on the next scrape. What the owner sees depends on the column: `PoolResolver` (`:436-442`) overlays exactly one override at read time, `f_text`/`headline`, so a RENAME survives publicly but not in the dashboard or the slug — two surfaces disagreeing; and `recordOwnerEdits()` (`:759`) never records price at all, so a PRICE edit reverts to the vendor's on the public site while `ManualMenuItems` still reports `is_manual = true`, telling the owner their edit held. There is no write-time protection at any layer below: `ValueResolver::resolve()` (`app/Content/Values/ValueResolver.php:59`) takes an `?Override` parameter built for exactly this — "the user wins, including when they cleared the field" — and `ProjectionWriter:1614` calls it with three arguments, never passing one.
+
+Deferred deliberately rather than patched. A write skip must key on the **coord**, not the dish name (after a rename `headline_cache` holds the owner's name while the coord still hashes the vendor's), and skipping the write means the coord never enters `persist()`'s `$coords` (`:404`), which would make the dish a retirement candidate at `:683` — a naive fix deletes the dishes it was meant to protect. It also needs an owner decision this plan cannot make: `MenuScanApplier` locks the whole dish on any override, while `ManualOverride` is per-column by design. Pick one before writing the skip.
+
 ### Task 8: `MenuScanApplier` and the two website-scan jobs
 
 **Files:**
