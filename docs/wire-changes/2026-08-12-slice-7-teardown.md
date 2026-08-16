@@ -103,15 +103,37 @@ projected onto `f_occurrence` / `f_place` / `f_text` / `offers` and read back by
 human "AUD 16.97 – 398.03" string), `availability`, `soldOut` and `image` are
 now always `null`/`false` — see "Not carried" below.
 
-**Retired 422:** `"You can add up to 10 individual events per platform."`
-`EventsCatalog::MAX_EVENTS` is gone. A pool item's cap is the section's, not a
-per-platform connection count — the same ruling convergence Phase 6 made when
-the hand-added arm moved.
+**The cap SURVIVES**, moved rather than retired. It now lives on
+`ManualEventWriter::MAX_STANDALONE_EVENTS` (still 10) and counts live
+`event`-kind items on the owner's own MANUAL source. Idempotency on a
+deterministic coord prevents duplicates of the *same* event; it does nothing
+about an unbounded number of *different* ones, which is what the cap is for.
+Two collapses were forced by the destination, and both TIGHTEN:
+
+| | Before | After |
+|---|---|---|
+| scope | per platform (10 eventbrite + 10 humanitix = 20 reachable) | per owner (10) |
+| counts | standalone connection rows only | every owner-authored pool event, hand-added cards included |
+
+Neither can be avoided: a pool item carries no platform, and the pool keeps no
+marker for which lane wrote an item — that indistinguishability is the point of
+converging them. Message is unchanged bar the platform qualifier: **"You can add
+up to 10 individual events."** Re-adding an event the owner already holds is
+still an UPDATE and still never 422s, at the ceiling or below.
+
+Deliberately NOT applied to the scan seeder, which keeps its own per-platform
+cap on connection rows — see "The scan seeder" below.
 
 **Retired 423 on this arm:** the standalone write no longer takes
 `CacheKeyGenerator::platformConnectionLock`. It writes no connection, and an
 idempotent upsert on a deterministic coord has no read-then-write span to
 serialise. The ORGANISER arm still locks and still 423s.
+
+One consequence, named rather than hidden: the cap check is now an unserialised
+read-then-write, so two exactly-simultaneous adds can both pass it and land an
+eleventh event. A soft ceiling on owner-authored cards is not worth taking a
+cross-store lock for, and the same window has existed on the hand-add arm since
+convergence Phase 6.
 
 ### `GET /api/platforms/events/selection`
 
@@ -163,9 +185,9 @@ not an asset this platform owns. Also not carried: `price` (the display string �
 `priceMin` + `currency` are the structured form and both survive),
 `availability` and `soldOut`, none of which the pool's item shape has a home for.
 
-**Re-runnable by design** (parent invariant #4), and it needs to be: the
-per-platform `POST /api/platforms/{eventbrite|humanitix}/events` verb still
-writes a connection row. See "Residual" below.
+**Re-runnable by design** (parent invariant #4). Its remaining job after this
+phase is the pre-cutover rows and anything the scan seeder wrote before the dual
+write landed; every live add path now lands the item itself.
 
 ### Deploy order — this matters
 
@@ -233,21 +255,60 @@ permalink…") and, for the live add path, by
 permalink for a pasted single event"), which also asserts nothing lands in
 `site.item_slugs` any more.
 
-### Residual — the per-platform add verb
+### `POST /api/platforms/{eventbrite|humanitix}/events` — repointed too
 
-`POST /api/platforms/{eventbrite|humanitix}/events`
-(`EventsPlatformController::addStandaloneEvent()`) **still writes a
-`resource_kind='event'` connection.** It was left alone deliberately: the parent
-spec's step 2 and the plan's file list both scope this phase to the Tickets &
-Events card, and repointing that surface pulls in its own cap, its
-`removeEvent()` standalone arm and its per-platform `selectionData()`.
+**Consuming repo:** Partna-App, the per-platform Eventbrite / Humanitix cards.
 
-Consequence: an event added there is publicly **invisible** until
-`content:backfill-standalone-events` next runs. It stays visible in
-`GET /api/platforms/events/selection` throughout (the skip above is URL-keyed,
-so an uncarried row is still listed). This is the same stance Phase 3 took for
-custom links — the backfiller is the bridge until Phase 6 retires the surface —
-and Phase 6 should either repoint or delete that verb.
+`EventsPlatformController::addStandaloneEvent()` calls `writeConnection()`
+directly and never flowed through `EventsCatalog::storeStandalone()`, so
+repointing the card path did not cover it. Both routes are live. It now writes
+the same pool item through the same `ManualEventWriter` lane, on the same coord.
+
+The response shape is `selectionData()`, unchanged in structure. Three
+consequences:
+
+- **`DELETE /api/platforms/{platform}/events/{id}`** accepts a content-item uuid
+  and removes the pool item. The legacy arms — a pre-repoint standalone
+  connection, and the account-event hide — are tried after it, in that order.
+  The two id shapes cannot collide (uuid vs hex behind an `event-` prefix).
+- **`GET /api/platforms/{platform}/selection`** reads the standalone half from
+  the pool. Because a pool item has no platform, this per-platform endpoint now
+  lists the owner's hand-added and other-platform standalone events too. It must
+  list them: the add verb's own response IS this shape, so an event missing from
+  it reads as an add that did nothing.
+- The **423** on this route is gone, for the same reason as on the card path.
+  `SessionA2LockTest`'s case is inverted rather than deleted, so the lock's
+  disappearance stays witnessed.
+
+`DELETE /api/platforms/{platform}` (forget) still clears connections only. It
+does not clear pool events, deliberately: those are cross-platform and include
+hand-added cards, so a per-platform forget must not reach them.
+
+### The scan seeder — a DUAL WRITE, not a repoint
+
+`EventsSeeder::seedStandalone()`, reached from `LinkRouter` and
+`CommerceProbeJob`, was a **third** live writer of `resource_kind='event'` rows.
+It now writes the connection **and** the pool item.
+
+The connection is kept rather than repointed because it is what the synced-modal
+finding lane resolves against: `shapeFinding()` in BOTH `InstagramController`
+and `GoogleBusinessController` looks a seeded finding up by
+`platform|resourceId` over connection rows and derives its status from
+`last_refresh_status`, dropping anything it cannot match. Repointing here would
+silently remove every scanned event from that modal. Teaching that lane to
+resolve a pool item is its own piece of work in the scan surface.
+
+This is not two lanes that can disagree: the connection publishes `[]` either
+way, so it is dashboard-and-scan bookkeeping now — exactly what an events
+ACCOUNT row became in slice 2. Both selection readers skip a connection row
+whose canonical URL already has a pool card, so the pair is never listed twice.
+
+The pool half is **uncapped**, governed by the seeder's own unchanged
+per-platform connection cap. Capping the item while still writing the connection
+would reintroduce the invisible-event bug this phase exists to fix.
+
+**No live path writes a standalone event that fails to publish.** All three are
+covered: `tests/Feature/Platforms/StandaloneEventPoolLaneTest.php`.
 
 ### Not changed
 
