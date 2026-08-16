@@ -704,7 +704,19 @@ Children before parents, one concern per file:
 - [ ] **Step 1: Write them.**
 - [ ] **Step 2: `supabase link --project-ref glncumufgaqcmqhzwrxm` then `db push --dry-run`.**
 - [ ] **Step 3: Apply to dev only.** Never the prod ref.
-- [ ] **Step 4: Delete the ten models, the four migration services and their commands, and `BackfillClaimedGoogleBusinessReviewsCommand`** (owner ruling 2026-08-14).
+- [ ] **Step 4: Fix `ManualServiceItems::legacyIdsFor()` — found by Track E 2026-08-16, named by neither the spec nor this plan.**
+
+  `app/Services/Content/ManualServiceItems.php:444` queries `site.services`
+  directly, to confirm that a `manual:{uuid}` coord's uuid is a REAL legacy id
+  before trusting it — load-bearing, because `UserServiceController::store()`
+  mints a syntactically identical coord with no backing row. After the DROP that
+  query raises `42P01` and takes the **entire DSAR export** down, not just the
+  services section. Must be resolved in this same window. Options: drop the
+  cross-check and accept coord-shape as sufficient, or record a
+  `legacy_id` facet at backfill time. Decide deliberately — the cross-check
+  exists to stop a fabricated legacy id reaching a disclosure payload.
+
+- [ ] **Step 5: Delete the ten models, the four migration services and their commands, and `BackfillClaimedGoogleBusinessReviewsCommand`** (owner ruling 2026-08-14).
 - [ ] **Step 5: Run the full suite, `composer test:pg`, `composer test:schema`, PHPStan, Pint.**
 - [ ] **Step 6: Commit.**
 
