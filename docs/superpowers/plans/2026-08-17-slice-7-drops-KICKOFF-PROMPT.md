@@ -193,6 +193,31 @@ from `absentDishIds()`, so a vendor dropping an owner-edited dish no longer mark
 it removed. That half was fixed first because `items.removed_at` is one-way and
 the loss was unrecoverable. Give the write-side lock its own branch.
 
+### 4c. The five remaining query sites — swept 2026-08-17, delete with the tables
+
+A grep for real query sites (`DB::table('site.<t>')`, comment lines excluded)
+across the nine drop-list tables returns exactly **five**. Every one is a
+deliberate transitional fallback that dies with its table; none is an unmigrated
+write lane. **Re-run this sweep yourself before dropping** — this is a snapshot,
+and the sweep is one command:
+
+```bash
+grep -rn "table('site\.<table>'" app/ | grep -v Migration
+```
+
+| Site | Nature |
+|---|---|
+| `StaffServiceCategoryManagementController.php:441` | `destroyLegacy()`'s raw detach. Left by Task 12 on purpose — removing it early orphans pivot rows ahead of the retirement |
+| `MenuFetchJob.php:1094` | `hasOwnerContent()`'s legacy arm. Its own docblock says it dies with the tables |
+| `MenuFetchJob.php:1121` | `remainingContentSource()`'s legacy half. Degrades to `scan > website-scan > manual` while legacy rows exist |
+| `MenuDashboardPayload.php:189` | The legacy-fallback `itemCount`, paired with the composer's content-lane-with-legacy-fallback gate |
+| `FoodContentProbe.php:36` | Probes whether a menu exists at all — **check this one first**, it gates sector/capability behaviour, not just a payload |
+
+The Eloquent-model reads are separate and larger: `Service`, `ServiceCategory`,
+`MenuItem`, `MenuCategory`, `MenuItemPlatform`, `ShopProduct` and their relations,
+plus `->categories()->sync()` in two service controllers and both grouped
+`index()` methods. Those go with the models in step 7.
+
 ### 5. Retire the five observers — the highest-risk step in the phase
 
 `MenuItemObserver` (via `#[ObservedBy]` on the model) and `Core\MenuObserver` /
