@@ -111,7 +111,7 @@ it('addBrand + setProducts persist the relational marker and child rows, not a J
 it('removeBrand hard-deletes the brand row and its products', function () {
     $user = shopStorageUser('rel2');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'brand-x', 'provider' => 'shopify', 'url' => 'https://x', 'position' => 0]);
@@ -128,7 +128,7 @@ it('removeBrand hard-deletes the brand row and its products', function () {
 it('forget deletes all shop child rows and soft-deletes the connection', function () {
     $user = shopStorageUser('rel3');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'b1', 'provider' => 'shopify', 'url' => 'https://b1', 'position' => 0]);
@@ -343,7 +343,7 @@ it('makes ZERO popularity reads on the public platforms endpoint and publishes n
     $site = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->first();
 
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'cache-brand', 'provider' => 'shopify', 'url' => 'https://cache.example.com', 'position' => 0]);
@@ -369,7 +369,7 @@ it('makes ZERO popularity reads on the public platforms endpoint and publishes n
     DB::connection('pgsql')->disableQueryLog();
 
     // Both requests are identical, and neither carries a rank — or a product.
-    expect($first->json('data.platforms.shop.0.payload'))->toBe([]);
+    expect($first->json('data.platforms.shopify.0.payload'))->toBe([]);
     expect($second->json())->toEqual($first->json());
     expect($first->getContent())->not->toContain('popularityRank');
 
@@ -695,7 +695,7 @@ it('rejects invalid mode values', function () {
 it('connect_status column is nullable with no default and round-trips a written value', function () {
     $user = shopStorageUser('connstatus1');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 

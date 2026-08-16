@@ -93,7 +93,7 @@ function gbApifyItem(): array
                 ['name' => 'Sketchy', 'orderUrl' => 'javascript:alert(1)'],   // dropped by safeUrl
             ],
         ],
-        'bookingLinks' => ['https://booking.example/fadelab', 'javascript:alert(2)'],
+        'bookingLinks' => ['https://calendly.com/fadelab', 'javascript:alert(2)'],
         'instagrams' => ['https://instagram.com/fadelab'],
         'facebooks' => ['https://facebook.com/fadelab'],
         'linkedIns' => [],                                          // empty → key dropped
@@ -273,7 +273,7 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     // Booking → NOT seeded: a food business books via Reservations (above),
     // even though Google's data also carried a booking link (proves the gate,
     // not absent data, is what withheld it).
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeFalse();
 });
 
 it('consolidates same-store pickup and delivery ordering providers into one row', function () {
@@ -338,7 +338,7 @@ it('syncs ONLY the booking link for a standard (partna) account', function () {
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     // Booking IS synced for every account type (Google's appointment link, only-if-empty).
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeTrue();
 
     // The Business-only seeds are all skipped for a standard account.
     foreach (['opentable', 'reservations', 'online-ordering', 'facebook', 'tiktok', 'instagram'] as $businessOnly) {
@@ -385,8 +385,13 @@ it('drops the website from booking links but keeps a real provider link', functi
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    // No custom 'booking' card from the website; the Fresha link connected (pending).
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeFalse();
+    // No custom booking CARD from the website echo; the Fresha link connected.
+    // Scoped away from fresha/square explicitly: routing_class 'booking' spans
+    // the whole family including those two, and the Fresha row is exactly what
+    // the next line asserts exists.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)
+        ->where('routing_class', 'booking')
+        ->whereNotIn('platform', ['fresha', 'square'])->exists())->toBeFalse();
     $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
     expect($fresha['url'])->toBe('https://www.fresha.com/a/brother-wolf');
     expect($fresha['selection'])->toBeNull();
@@ -410,10 +415,19 @@ it('keeps a same-domain appointment link and auto-syncs it as the booking card',
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    // The same-domain appointment link became the user's (custom) booking card.
-    $booking = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->firstOrFail()->payload;
-    expect($booking['url'])->toBe('https://www.fadelab.com.au/book-appointment');
-    expect($booking['source'])->toBe('google-business');
+    // Convergence Phase 6 CHANGES THIS OUTCOME, and the change is named rather
+    // than asserted away: the same-domain appointment link is still KEPT by the
+    // website-echo filter (that half is unchanged, and is what this case was
+    // written to protect), but there is no brand whose surface it belongs to —
+    // it is the merchant's own domain. The Google harvest now skips a link it
+    // cannot type instead of writing it to a retired shared key, because a
+    // background harvest must not publish a link the owner never chose (see
+    // GoogleBusinessAutoSync's ordering arm for the full reasoning).
+    //
+    // The owner can still connect it by hand: BookingController::detect sends
+    // exactly this URL to the links pool under owner ruling 2A.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)
+        ->where('routing_class', 'booking')->exists())->toBeFalse();
 });
 
 it('keeps the Google Business selection business-info-only after enrichment', function () {
@@ -576,7 +590,7 @@ it('keeps apify enrichment off the public endpoint', function () {
             'menu' => 'https://fadelab.example/menu',
             'reservation' => ['url' => 'https://book.example/fadelab'],
             'order' => ['googleFood' => 'https://food.google.example/fadelab'],
-            'booking' => ['https://booking.example/fadelab'],
+            'booking' => ['https://calendly.com/fadelab'],
             'socials' => ['instagram' => 'https://instagram.com/fadelab'],
             'apifyStatus' => 'ok',
             'apifyFetchedAt' => '2026-06-16T00:00:00+00:00',

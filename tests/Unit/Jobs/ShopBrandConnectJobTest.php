@@ -67,7 +67,7 @@ function sbcjConnection(User $user, array $overrides = []): IntegrationConnectio
 {
     return IntegrationConnection::create(array_merge([
         'user_id' => $user->id,
-        'platform' => 'shop',
+        'platform' => 'shopify.store',
         'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'],
         'is_active' => true,

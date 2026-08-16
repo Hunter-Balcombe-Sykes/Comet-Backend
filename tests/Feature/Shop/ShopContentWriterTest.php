@@ -126,7 +126,7 @@ it('does not retire an item still live in another storefront of the same user', 
 
     $connectionB = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'shop',
+        'platform' => 'shopify.store',
         'resource_id' => 'shop-b',
         'payload' => ['storage' => 'relational'],
         'is_active' => true,

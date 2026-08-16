@@ -661,7 +661,7 @@ it('T12: a settled brands GET /brands body carries no connectStatus/connectError
 it('T13: the public payload carries no brand at all and never exposes connectStatus', function () {
     $user = shopAsyncUserWithSite('t13pub');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
@@ -689,7 +689,7 @@ it('T13: the public payload carries no brand at all and never exposes connectSta
 
     $response = $this->getJson('/api/public/profiles/t13pub/platforms')->assertOk();
 
-    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
+    expect($response->json('data.platforms.shopify.0.payload'))->toBe([]);
 
     // Neither brand ships, and — the durable half of T13 — no connect-state
     // bookkeeping rides anywhere in the body.
@@ -710,7 +710,7 @@ it('T13: the public payload carries no brand at all and never exposes connectSta
 it('T14: presentPageIds still excludes Shop when the only brand is pending (zero products)', function () {
     $pro = createTenant('t14-pending-page');
     $conn = IntegrationConnection::create([
-        'user_id' => $pro->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $pro->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     ShopBrand::create([
@@ -729,7 +729,7 @@ it('T14: presentPageIds still excludes Shop when the only brand is pending (zero
 it('T19: a pending row stale for 6 minutes polls failed synthetically, without writing the row', function () {
     $user = shopAsyncUser('t19stale');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create([
@@ -759,7 +759,7 @@ it('T19: a pending row stale for 6 minutes polls failed synthetically, without w
 it('T20: a failed brand is retained, still returns products, and re-POSTing its URL retries onto the same row', function () {
     $user = shopAsyncUser('t20retry');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create([
@@ -941,7 +941,7 @@ it('T21: poll 404s for an unknown brand id and for another users brand, never 40
     $owner = shopAsyncUser('t21owner');
     $stranger = shopAsyncUser('t21stranger');
     $conn = IntegrationConnection::create([
-        'user_id' => $owner->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $owner->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'owner-brand', 'provider' => 'shopify', 'url' => 'https://o.example', 'position' => 0]);
@@ -960,7 +960,7 @@ it('T21: poll 404s for an unknown brand id and for another users brand, never 40
 it('T22: the poll route answers under /shop and the old /shopify alias 404s', function () {
     $user = shopAsyncUser('t22');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'dual-brand', 'provider' => 'shopify', 'url' => 'https://d.example', 'position' => 0]);

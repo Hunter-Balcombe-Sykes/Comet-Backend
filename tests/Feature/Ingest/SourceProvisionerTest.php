@@ -223,7 +223,7 @@ it('creates no source for event- and link-grade resource rows', function () {
     $user = provisionerUser();
     $connection = IntegrationConnection::create([
         'user_id' => $user,
-        'platform' => 'custom',
+        'platform' => 'uber_eats.order',
         'resource_id' => 'link-'.substr(sha1('x'), 0, 16),
         'resource_kind' => 'link',
         'payload' => ['url' => 'https://example.com'],
@@ -338,7 +338,7 @@ it('reports each sync outcome by name so the backfill command can count them', f
 
     $linkRow = IntegrationConnection::create([
         'user_id' => $userId,
-        'platform' => 'custom',
+        'platform' => 'uber_eats.order',
         'resource_id' => 'link-'.substr(sha1('t32link'), 0, 16),
         'resource_kind' => 'link',
         'payload' => ['url' => 'https://example.com'],

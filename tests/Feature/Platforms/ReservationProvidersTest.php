@@ -334,7 +334,10 @@ it('seeds a custom booking card for an unknown google booking link', function ()
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://calendly.com/ollies']], 'Ollies');
 
-    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->firstOrFail();
+    // Convergence Phase 6: Calendly has its own catalog surface, so the Google
+    // harvest seeds calendly.book — not the retired shared 'booking' key.
+    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->firstOrFail();
+    expect($row->surface_key)->toBe('calendly.book');
     expect($row->payload['provider'])->toBe('custom');
     expect($row->payload['url'])->toBe('https://calendly.com/ollies');
 });

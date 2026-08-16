@@ -76,13 +76,21 @@ class IntegrationConnection extends BaseModel
      * partna.* surface that ConnectorRegistry could never see, which is what
      * made 41 live connections structurally invisible to ingest.
      *
-     * NOT yet enforced in booted(): the guard lands with the write-path move,
-     * because turning it on first would only make every not-yet-migrated caller
-     * throw. Declared here now so the migration and the callers share one list.
-     * Kept as a const rather than derived from the
-     * catalog's Lifecycle::Hidden because hidden and retired are different
-     * claims: partna.manual_product is hidden and dormant but NOT retired (§16),
-     * and conflating them would close a lane nobody decided to close.
+     * ENFORCED in booted() since Phase 6 unit 6 — deliberately last, after all
+     * five write paths moved. Turning it on first would only have made every
+     * not-yet-migrated caller throw (observed cost of getting the order wrong:
+     * 10 red tests).
+     *
+     * The guard fires on CREATE only, never on update. A pre-migration row must
+     * stay editable: the retirement command itself repoints, soft-deletes and
+     * (for ordering) rewrites `surface_key` on these rows, and a guard that
+     * refused those writes would make the migration unable to run at all.
+     *
+     * Kept as a const rather than derived from the catalog's Lifecycle::Hidden
+     * because hidden and retired are different claims: partna.manual_product is
+     * hidden and dormant but NOT retired (§16) — it is where the shop's
+     * individual-products bucket anchors — and conflating them would close a
+     * lane nobody decided to close.
      */
     public const RETIRED_SURFACES = [
         'partna.custom_link',
@@ -176,6 +184,24 @@ class IntegrationConnection extends BaseModel
             }
 
             $surfaceKey = $connection->getAttributes()['surface_key'] ?? null;
+
+            // Convergence Phase 6: the six pseudo-platform surfaces cannot be
+            // CREATED any more. Every write path that used to has moved — see
+            // each surface's replacement in RETIRED_SURFACES' docblock.
+            //
+            // Creates only ($exists === false). The retirement command repoints
+            // and soft-deletes these same rows, and a guard that fired on update
+            // would block the migration that clears them.
+            if (! $connection->exists && in_array($surfaceKey, self::RETIRED_SURFACES, true)) {
+                report(new UnregisteredPlatformException(
+                    platform: (string) $surfaceKey,
+                    userId: $connection->user_id,
+                ));
+
+                throw ValidationException::withMessages([
+                    'platform' => 'That platform has been retired and can no longer be connected.',
+                ]);
+            }
 
             if (! is_string($surfaceKey) || ! LegacyPlatformMap::isKnownSurface($surfaceKey)) {
                 // report() before throwing so Nightwatch sees this. ValidationException

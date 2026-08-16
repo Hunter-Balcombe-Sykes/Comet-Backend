@@ -113,7 +113,7 @@ it('stays silent for per-link and per-event rows', function () {
     $user = icnUser('icn4');
 
     app(IntegrationNotifier::class)->connected(icnConnection($user, [
-        'platform' => 'custom',
+        'platform' => 'uber_eats.order',
         'resource_id' => 'link-abc',
         'resource_kind' => 'link',
     ]));

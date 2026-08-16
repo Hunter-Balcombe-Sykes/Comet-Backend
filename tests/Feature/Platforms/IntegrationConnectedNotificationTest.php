@@ -308,8 +308,10 @@ it('notifies once EnrichLinkCardJob completes a resource_kind-NULL card', functi
 
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'booking',
-        'resource_id' => 'booking',
+        'platform' => 'booksy.book',
+        // The brand prefix — what ManagesIntegrationConnection::brandResourceId()
+        // produces for a single-slot brand since convergence Phase 6.
+        'resource_id' => 'booksy',
         'payload' => ['provider' => 'custom', 'url' => 'https://book.example'],
         'is_active' => true,
         'last_refresh_status' => 'pending',
@@ -320,11 +322,15 @@ it('notifies once EnrichLinkCardJob completes a resource_kind-NULL card', functi
         'favicon' => null, 'logo' => null,
     ]));
 
-    app()->call([new EnrichLinkCardJob($user->id, 'booking', 'booking', 'https://book.example'), 'handle']);
+    app()->call([new EnrichLinkCardJob($user->id, 'booking', 'booksy', 'https://book.example', 'booksy.book'), 'handle']);
 
     $rows = icwRows($user);
     expect($rows)->toHaveCount(1);
-    expect($rows->first()->title)->toContain('Booking');
+    // "Booksy connected", not "Booking connected" — convergence Phase 6 put the
+    // card on the BRAND's surface, so the bell names the brand the owner
+    // actually connected instead of the retired category bucket. A better
+    // notice, and a consequence of the move rather than a regression.
+    expect($rows->first()->title)->toContain('Booksy');
 });
 
 it('does not notify when a seeded custom link completes enrichment', function () {

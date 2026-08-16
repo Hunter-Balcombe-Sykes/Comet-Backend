@@ -99,7 +99,7 @@ it('keeps publishing a standalone events-custom row', function () {
 
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'events-custom',
+        'platform' => 'eventbrite',
         'resource_id' => 'event-hexccc',
         'resource_kind' => 'event',
         'payload' => ['kind' => 'event', 'id' => 'hexccc', 'name' => 'Launch Party', 'link' => 'https://example.com/launch'],
@@ -108,7 +108,7 @@ it('keeps publishing a standalone events-custom row', function () {
 
     $payload = $this->getJson("/api/public/profiles/{$user->handle_lc}/platforms")
         ->assertOk()
-        ->json('data.platforms.events-custom.0.payload');
+        ->json('data.platforms.eventbrite.0.payload');
 
     expect($payload['name'])->toBe('Launch Party');
 });

@@ -91,7 +91,7 @@ it('does not un-retire an item outside the catalogue being synced', function () 
 function shopFetchBoundaryBrand(string $userId, array $brandAttrs = []): IntegrationConnection
 {
     $conn = IntegrationConnection::create([
-        'user_id' => $userId, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $userId, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     ShopBrand::create($brandAttrs + [

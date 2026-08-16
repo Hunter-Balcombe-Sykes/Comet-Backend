@@ -152,7 +152,7 @@ function seedShopifyBrand(): User
 {
     $user = fbActingUser();
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'],
     ]);
     ShopBrand::create([

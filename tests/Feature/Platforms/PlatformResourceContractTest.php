@@ -447,7 +447,7 @@ it('shopify brands list strips unknown per-brand keys', function () {
     // FOUND-25: brands are relational rows now — fixed columns mean there is no
     // "unknown key" to leak, but ShopBrandResource must still shape the row into
     // exactly this contract (no internal columns like source_url/fetch_mode).
-    $conn = seedPlatformConnection($user, 'shop', ['storage' => 'relational']);
+    $conn = seedPlatformConnection($user, 'shopify.store', ['storage' => 'relational']);
     $brand = ShopBrand::create([
         'connection_id' => $conn->id, 'brand_id' => 'brand-1', 'provider' => 'shopify',
         'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',

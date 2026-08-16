@@ -58,7 +58,7 @@ it('shop forget (child-row delete + forgetConnection in ShopController::forget) 
     $user = sessionA3User('shoplock1');
     $connection = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'shop',
+        'platform' => 'shopify.store',
         'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'],
         'is_active' => true,
@@ -101,7 +101,7 @@ it('custom links removeLink (forgetConnection write) is blocked by a held platfo
     $user = sessionA3User('cllock1');
     $row = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'custom',
+        'platform' => 'uber_eats.order',
         'resource_id' => 'link-abc',
         'resource_kind' => 'link',
         'payload' => ['kind' => 'link', 'url' => 'https://acme.test', 'name' => 'Acme',
@@ -128,7 +128,7 @@ it('custom links forget (forgetAllConnections write) is blocked by a held platfo
     $user = sessionA3User('cllock2');
     $row = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'custom',
+        'platform' => 'uber_eats.order',
         'resource_id' => 'link-def',
         'resource_kind' => 'link',
         'payload' => ['kind' => 'link', 'url' => 'https://acme2.test', 'name' => 'Acme2',

@@ -1050,6 +1050,13 @@ class ShopController extends ApiController
             // a store surface: its anchor is `partna.manual_product`, hidden,
             // dormant and explicitly NOT retired (§16 names it "the manual
             // product add-path"). That reservation is exactly this case.
+            //
+            // The OV-A availability assert is explicit here because
+            // ShopConnections is a storage helper and does not gate (see its
+            // anchor() docblock). This path used to reach it for free through
+            // writeConnection(); losing it silently would have let a staff
+            // takedown of the shop integration still accept a product add.
+            $this->assertPlatformAvailable($user);
             $connection = $this->shop->individualAnchor($user);
 
             $maxPosition = $this->shop->brands($user)->max('position');
@@ -1177,7 +1184,7 @@ class ShopController extends ApiController
             // 2026-08-05: auto-latest lives on the store connections' own
             // display_settings now (one toggle grammar); still site-wide in
             // effect because the setter writes every store connection.
-            AutoSyncSetting::set((string) $user->id, 'shop', (bool) $validated['autoLatest']);
+            AutoSyncSetting::set((string) $user->id, [...ShopConnections::surfaces(), ShopConnections::LEGACY_SURFACE], (bool) $validated['autoLatest']);
         }
 
         // Propagate the new public linkMode to the CDN — the shop connection's
@@ -1203,7 +1210,7 @@ class ShopController extends ApiController
     {
         return [
             'linkMode' => $site->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE,
-            'autoLatest' => AutoSyncSetting::isOn((string) $site->user_id, 'shop'),
+            'autoLatest' => AutoSyncSetting::isOn((string) $site->user_id, [...ShopConnections::surfaces(), ShopConnections::LEGACY_SURFACE]),
         ];
     }
 

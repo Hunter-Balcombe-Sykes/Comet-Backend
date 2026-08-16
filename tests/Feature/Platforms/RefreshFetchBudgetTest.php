@@ -76,7 +76,7 @@ function rfbShopSyncUser(string $h): User
 function rfbShopSyncBrand(User $user, string $brandId): ShopBrand
 {
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 

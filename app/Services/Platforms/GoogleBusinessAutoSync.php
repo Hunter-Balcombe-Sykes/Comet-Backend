@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
@@ -156,7 +157,7 @@ class GoogleBusinessAutoSync
     {
         try {
             // Pure — no DB — so it stays outside the lock below.
-            $write = $this->resolveReservationWrite($enrichment, $businessName);
+            $write = $this->resolveReservationWrite($userId, $enrichment, $businessName);
             if ($write === null) {
                 return [];
             }
@@ -197,7 +198,7 @@ class GoogleBusinessAutoSync
      *
      * @return array{platform:string, resourceId:string, payload:array<string,mixed>}|null
      */
-    private function resolveReservationWrite(array $enrichment, ?string $businessName): ?array
+    private function resolveReservationWrite(string $userId, array $enrichment, ?string $businessName): ?array
     {
         $reservation = data_get($enrichment, 'reservation');
         if (! is_array($reservation)) {
@@ -239,7 +240,20 @@ class GoogleBusinessAutoSync
             return null;
         }
 
-        return ['platform' => Platform::Reservations->value, 'resourceId' => Platform::Reservations->value, 'payload' => [
+        // Convergence Phase 6: the shared 'reservations' pseudo-key is retired,
+        // so the brand is resolved from the host. A link matching NO reservation
+        // brand is skipped rather than pooled — same call as the ordering arm
+        // above: this is a background harvest, and a pool link is public.
+        $surface = $this->brandSurfaceFor($url, 'reservations');
+        if ($surface === null) {
+            Log::info('platforms.google_business.reservation_unroutable', [
+                'user_id' => $userId, 'host' => parse_url($url, PHP_URL_HOST),
+            ]);
+
+            return null;
+        }
+
+        return ['platform' => $surface, 'resourceId' => LegacyPlatformMap::legacyFor($surface), 'payload' => [
             'provider' => 'custom', 'url' => $url,
             'name' => $this->clean(data_get($reservation, 'provider')) ?? $businessName,
             'favicon' => null, 'logo' => null, 'source' => 'google-business',
@@ -264,7 +278,7 @@ class GoogleBusinessAutoSync
     {
         try {
             // Pure — no DB — so it stays outside the lock below.
-            $write = $this->resolveBookingWrite($enrichment, $businessName);
+            $write = $this->resolveBookingWrite($userId, $enrichment, $businessName);
             if ($write === null) {
                 return [];
             }
@@ -323,7 +337,7 @@ class GoogleBusinessAutoSync
      *
      * @return array{platform:string, resourceId:string, payload:array<string,mixed>}|null
      */
-    private function resolveBookingWrite(array $enrichment, ?string $businessName): ?array
+    private function resolveBookingWrite(string $userId, array $enrichment, ?string $businessName): ?array
     {
         $links = data_get($enrichment, 'booking');
         $url = is_array($links) ? $this->safeUrl($links[0] ?? null) : null;
@@ -348,10 +362,38 @@ class GoogleBusinessAutoSync
             ]];
         }
 
-        return ['platform' => Platform::Booking->value, 'resourceId' => Platform::Booking->value, 'payload' => [
+        // Convergence Phase 6 — see the reservation arm for the same reasoning.
+        $surface = $this->brandSurfaceFor($url, 'booking');
+        if ($surface === null) {
+            Log::info('platforms.google_business.booking_unroutable', [
+                'user_id' => $userId, 'host' => parse_url($url, PHP_URL_HOST),
+            ]);
+
+            return null;
+        }
+
+        return ['platform' => $surface, 'resourceId' => LegacyPlatformMap::legacyFor($surface), 'payload' => [
             'provider' => 'custom', 'url' => $url, 'name' => $businessName,
             'favicon' => null, 'logo' => null, 'source' => 'google-business',
         ]];
+    }
+
+    /**
+     * The catalog surface a harvested URL belongs to within one routing
+     * category, or null when nothing recognises it. Identical in shape to
+     * BookingController::bookingSurfaceFor / ReservationsController::
+     * reservationSurfaceFor — the same question, asked from the harvest side.
+     */
+    private function brandSurfaceFor(string $url, string $category): ?string
+    {
+        $classified = app(WebsiteLinkHarvester::class)->classify($url);
+        if ($classified === null || $classified['category'] !== $category) {
+            return null;
+        }
+
+        $platform = $classified['platform'];
+
+        return LegacyPlatformMap::surfaceFor($platform) ?? $platform;
     }
 
     // ── workplace ─────────────────────────────────────────────────
