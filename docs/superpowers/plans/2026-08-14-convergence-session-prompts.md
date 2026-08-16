@@ -217,7 +217,30 @@ of scope.
 
 ---
 
-## 4b — menu-actor-driver (added 2026-08-16; rewritten same day once Phase 4 landed)
+## 4b — menu-actor-driver ✅ DONE 2026-08-16 — checkpoint §25
+
+**Landed.** `MenuActorDriver` is wired for `('actor', 'menu')` and merged to
+`development` (`310100093`, `42c2306e0`); a DoorDash menu runs end to end and 30
+connector-sourced `menu_item` rows serve off `dev-api.partna.au`. Full record in
+convergence-design **§25**; **§23.6 is resolved**. Do not re-run this prompt.
+
+Three things worth carrying rather than rediscovering:
+
+- **F30 was already clear** when this ran — the cheap-actor probe answered 201.
+  The gate below was correct to exist and correct to lift; see
+  `reference_apify_x402_402_was_transient_not_billing`.
+- **The prompt's "fold the three `*MenuDriver` mappers in as adapters" rested on
+  a false premise.** They are live on the legacy `MenuFetchJob` lane, and their
+  mapping was already ported into the connectors by slice 4. The driver ships no
+  adapters; §25.1 says why.
+- **Still unexercised, and needing an owner call rather than code:**
+  cross-platform menu identity and §8.3's hard-delete of uncurated losers. Only
+  DoorDash can be scraped on dev — Uber Eats hits a deterministic bot wall
+  (`def.uber.com/en/challenge`) and Square still holds the `some-store`
+  placeholder. One platform cannot merge with itself (§25.6).
+
+<details>
+<summary>Original gating note and prompt, kept for the record</summary>
 
 **GATED ON F30 — do not start this session until the Apify billing fault is
 fixed.** Phase 4 proved that Apify refuses EVERY pay-per-event actor
@@ -322,6 +345,8 @@ Autonomy: implement → test → merge to development → deploy dev without sig
 Stop ONLY for: F30 still biting, the spend cap, an owner-level product decision, a
 gate contradiction, or anything touching auth/prod.
 ```
+
+</details>
 
 ---
 

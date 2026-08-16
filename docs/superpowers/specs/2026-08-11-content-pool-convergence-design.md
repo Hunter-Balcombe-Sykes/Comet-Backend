@@ -553,15 +553,19 @@ split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 | 1b | Google pass-through, IG mirroring, the 91 selections | L | **Merged** — checkpoint §15 | — |
 | 3a | Services — owner-authored, pool, write cutover | L | **Merged** — checkpoint §17 | — |
 | 3b | Services — Fresha connector, excludes, collections | L | **Merged** — checkpoint §19, plus the 3b-residuals follow-up | — |
-| 4 | Menus → `content.*` | XL | **Merged** — checkpoint §23; Phase 5's live connector proof RAISED, see §23.6 | — |
+| 4 | Menus → `content.*` | XL | **Merged, live-verified** — checkpoint §23; the driver §23.6 raised landed 2026-08-16, checkpoint §25 | — |
 | 5a | Shop data move → `content.*` | L | **Merged** — checkpoint §16 | — |
 | 5b | Shop pool + public render | M | **Merged** — checkpoint §18 | — |
 | 6 | Reviews → `content.*` | M | **Merged, CLOSED, live-verified** — checkpoint inline in §7 (commit `e82890b1e`) | — |
 | 7 | Legacy teardown | M | Not started | 4 **+ standalone events**; frontend gate overridden by owner ruling 2026-08-14 (rebuild, not repair — see convergence-log F17) |
 
-Everything except 7 is merged with a checkpoint on record (§12–§19 and §23; slice
-6's is inline in §7). **Slice 4 landed 2026-08-16 — 7 is unblocked**, with the
-carry-overs in §23.10 and the one open question in §23.6.
+Everything except 7 is merged with a checkpoint on record (§12–§19, §23 and §25;
+slice 6's is inline in §7). **Slice 4 landed 2026-08-16 — 7 is unblocked**, with
+the carry-overs in §23.10. §23.6's open question — the unwired menu actor driver
+— was closed the same day (§25); what carries forward from it is narrower and
+needs an owner call, not code: cross-platform menu identity and §8.3's
+hard-delete of uncurated losers are **still unexercised**, because only one of
+the three menu platforms can currently be scraped on dev (§25.6).
 
 **Slice 3 split into 3a/3b on 2026-08-12**, on a seam the database dictated rather
 than a preference: all 61 `service_category_assignments` and 16 of the 18
@@ -3779,7 +3783,24 @@ Renaming back exercised the allocator's rename-back arm: the slug returned to
 **This is a behaviour improvement, named as one:** vendor renames now redirect,
 where the legacy lane destroyed the old URL.
 
-### 23.6 Phase 5's live proof — BLOCKED on an unwired driver, raised
+### 23.6 Phase 5's live proof — was BLOCKED on an unwired driver; RESOLVED 2026-08-16
+
+> **RESOLVED — see §25.** The driver this section called for landed the same day:
+> `MenuActorDriver`, registered for `('actor', 'menu')`. A DoorDash menu now runs
+> end to end and 30 `menu_item` rows from a **connector** source are served off
+> `dev-api.partna.au`. Two corrections to what follows, both established by
+> running it:
+>
+> 1. **The "zero from a connector" conclusion below was measured with the wrong
+>    join.** `content.source_items.source_id` references `content.sources`, not
+>    `ingest.sources` — that join reports "no source row" for 100% of menu items
+>    whatever their provenance. The 318 figure is right; provenance is
+>    `content.sources.kind` (`manual` vs `connection`).
+> 2. **`consecutive_failures` read 2, not 1**, by the time Phase 5 picked this up.
+>
+> Everything else below is the accurate record of the state Phase 5 inherited, and
+> is kept as written.
+
 
 **The menu connector lane cannot execute at all, and no data fix would have
 changed that.** Established by running it, with the owner's go-ahead, after
@@ -3987,3 +4008,188 @@ after `article`. `youtube_music` sits on a different user (`ollies`) from the tw
 paid sources (`broken-oven`), so it can never merge with them — merges resolve
 within a user. Spotify's `topTracks` is ~10 TOP tracks, not a catalogue: a Spotify
 track count is not a completeness measure.
+
+## 25. Phase 5 checkpoint — the menu actor driver, and menus on the wire from a connector
+
+**Resolves §23.6.** The wall that blocked slice 4's live proof is gone: the
+`('actor', 'menu')` driver exists, and a menu scraped by a connector is being
+served off `dev-api.partna.au`. Merged 2026-08-16 (`310100093`, `42c2306e0`).
+
+### 25.1 What landed
+
+`MenuActorDriver` (`app/Ingest/Runtime/Effects/MenuActorDriver.php`), registered
+fourth in `AppServiceProvider`'s `BilledEffectDriverRegistry` list.
+
+**It ships no adapters, and that is deliberate.** The obvious move was to mirror
+Phase 4 exactly — a driver plus one adapter per platform, folding in
+`UberEatsMenuDriver` / `DoorDashMenuDriver` / `SquareMenuDriver`. Two facts rule
+it out. Those three classes are **live**: they implement `MenuPlatformDriver`,
+are wired through `config('partna.menu.platforms.*.driver')`, and carry the
+legacy `MenuFetchJob` / `MenuApifyScraper` / `MenuMerger` lane under four test
+files. And their mapping was **already ported** into the three connectors during
+slice 4 — `UberEatsMenuConnector`'s own docblock says so. Music needs adapters
+because its connectors send `['platform', 'identifier']` and know nothing of the
+vendor; the menu connectors send `['actor', 'input']` and already own both halves
+of the vendor's shape. The prescribed split still holds — the driver owns budget,
+token and transport — but "the thing that owns the vendor's shape" is the
+connector here. Adding adapters would have made a third copy of a mapping that
+already exists twice.
+
+Carried across from `MenuApifyScraper::attemptScrape()`, none of which music
+needed: retries; `successful()` rather than `ok()`, because
+`run-sync-get-dataset-items` answers **201**; 4xx hard and 5xx retryable; and the
+budget claimed **per real actor run**, inside the loop, under the bare tag
+`'menu'` that already existed in `partna.limits.apify.actors`.
+
+Two refinements to the money semantics as briefed, both to stop a configuration
+break being cached as truth for the freshness window:
+
+- **`401/402/403/404` → `NoAnswer`, not `Answered([])`.** Those say our token,
+  rental or actor id is wrong — nothing about the store. Settling them ok would
+  cache "no menu" for every store at once, the exact failure
+  `BilledEffectOutcome`'s docblock exists to prevent. Any other 4xx (the vendor
+  rejecting *this* store) still settles `Answered([])`, so a dead store is not
+  re-billed every run.
+- **The actor id is checked against `config('partna.menu.platforms')` before
+  use.** It arrives in the effect payload rather than being read in the driver;
+  without the check an unregistered id would be POSTed and its 404 settled as a
+  verdict on the store. It is also what keeps the class in SSRF category A.
+
+### 25.2 The `HttpIo` defect, found while diagnosing
+
+`HttpIo::runBilledEffect()`'s "no driver wired" throw was a bare
+`RuntimeException`, so the ledger stamped the digest `failed` and **settled** it —
+locking that source+input until the freshness bucket rolled, even though nothing
+left the process. Wiring a driver afterwards would have changed nothing until
+expiry. That is precisely `EffectNotAttempted`'s contract, and it is why slice 4's
+second run produced no new effect rows at all.
+
+The existing test asserted `toThrow(RuntimeException::class, …)`, which stays
+green either way — `EffectNotAttempted extends EffectRefused extends
+\RuntimeException` — even though the two mean opposite things to the ledger. It
+now pins the specific class **and** the observable half: no row left behind.
+
+The two rows slice 4 left (`claimed_at 2026-08-15 23:42:15`, both carrying that
+`RuntimeException`) were deleted before the first run, scoped by digest. Safe for
+the one reason the ledger's own guarded DELETE exists for: the throw fires before
+any driver exists to call a vendor, so they were claims that never became charges.
+
+### 25.3 Timeout headroom — a coupled constraint, now pinned
+
+`RunSourceJob::$timeout` was 120 and `supervisor-ingest`'s worker timeout was 120.
+Four 60s attempts cannot fit. Both are now **300**; the `redis` connection's
+`retry_after` (360) still exceeds them, which is the JOB-103 invariant.
+
+The reason retries must live *inside one driver call* is worth recording: they
+cannot be deferred to `SourceScheduler` the way a normal fetch retry is, because
+`EffectLedger` settles the digest — the next scheduled run replays the settled row
+instead of re-attempting. Two new `HorizonQueueCoverageTest` assertions pin both
+sides (absorbs the retry budget; does not outrun the lane).
+
+### 25.4 The live run, and what it found
+
+First run, Uber Eats, settled **`ok`** — and was wrong to. HTTP 201, one dataset
+row carrying every expected key:
+
+```
+message      warning: menu not found.
+statusCode   200      hasMenu   false     menuItemCount  0
+bodyLength   40226    title     null      storeUuid      null
+loadedUrl    https://def.uber.com/en/challenge?from_service=d2ViLWVhdHMtdjI%3D
+```
+
+`loadedUrl` is Uber's **bot wall**, not the store. Two direct probes returned
+byte-identical 40226-byte bodies, so for this store it is deterministic, not a
+stochastic block — retrying the same actor and proxy will not recover it.
+
+**The retry predicate was at the wrong level, and only the live run could show
+it.** It tested `$dataset === []`, but the real-world empty is a fully-keyed row
+with an empty menu *inside* it. The legacy lane avoided this only because
+`attemptScrape()` mapped the payload itself and retried on `categories === []`; a
+driver that does not map cannot see inside the row. Fixed by having the connector
+declare `expect` — the dotted path(s) its own mapping reads — with the driver
+treating a declared-payload-less run as a retryable miss. Vendor field names stay
+with the connector that owns them, for the same reason there are no adapters.
+`uber-eats: menuItems`; `doordash: menu_categories` (**not** `featured_items` — it
+re-lists items already in the categories, so a payload with only that maps to
+nothing); `square: menu.categories, categories`. Absent `expect`, behaviour is
+unchanged.
+
+Uber Eats after the fix — the honest record instead of a false answer:
+
+```sql
+digest 29f1532f0a92b432586579a57a76b32e  status failed   50s over 4 attempts
+meta   {"error": "EffectNoAnswer",
+        "message": "menu actor 'memo23~uber-eats-scraper' returned
+                    menuItems-less rows on attempt 4"}
+run    outcome 'unavailable'   (was 'ok' + note empty_menu)
+```
+
+### 25.5 The gate, met
+
+DoorDash — Doc Pizza & Mozzarella Bar, Carlton — is the first menu on the
+platform to come from a connector.
+
+```sql
+-- ingest: the actor answered, the ledger settled once
+digest 2cc7cde1754b1c9870a6d2b24346ca4c  status ok  9s  meta 42,676 chars
+   payload: name "DOC Pizza & Mozzarella Bar", currency AUD,
+            menu_categories = 7 categories / 40 items
+run  outcome ok  records_seen 40  records_changed 30
+   -- 40 -> 30 is correct: keys are DoorDash item_id, and ten dishes are
+   -- listed in two categories each, collapsing to one record.
+ingest.record_state  30 rows
+
+-- content: kind='menu_item' by provenance
+ source_kind | label    | projector_version | items
+-------------+----------+-------------------+-------
+ manual      | manual   |                 0 |   318
+ connection  | doordash |                 2 |    30   <-- new, 2026-08-16 03:14:24
+```
+
+**A correction to §23.6's reasoning, not its number.** The 318 figure is right,
+but `content.source_items.source_id` references **`content.sources`**, not
+`ingest.sources`. A join to `ingest.sources` returns "no source row" for 100% of
+menu items regardless of provenance — an easy way to read a healthy connector
+lane as an empty one. Provenance is `content.sources.kind` (`manual` vs
+`connection`), corroborated by `projector_version` (0 vs 2).
+
+On the wire, `GET https://dev-api.partna.au/api/public/profiles/showcase-eats`,
+`data.profile.pools.menus`:
+
+```
+items       30      collections   6
+first       {"headline": "Coca Cola", "slug": "coca-cola", "kind": "menu_item",
+             "thumbnail": "https://img.cdn4dd.com/.../doordash-static..."}
+```
+
+Re-running DoorDash after the `expect` change was idempotent — `records_seen 40,
+records_changed 0` — as a second run over unchanged records should be.
+
+### 25.6 `item_merges` is still 0, and Phase 5 could not change that
+
+Slice 4 recorded zero merges because no dish on dev was sold on two platforms.
+Phase 5 was meant to be where cross-platform identity got its first real
+exercise, and where §8.3's hard-delete of uncurated losers first bit. **It is
+not.** Only one platform can be scraped at all: Uber Eats is bot-walled and
+Square still points at the `some-store` placeholder, so DoorDash is the only
+menu on the site. One platform cannot union with itself — there is nothing for a
+merge to resolve.
+
+Every row was inspected: `select count(*) from content.item_merges` → **0**, and
+the table is empty platform-wide, not merely for this user. So:
+
+- **Cross-platform menu identity remains unexercised against live data.** It is
+  not evidence of a bug; it is an absence of the input the mechanism needs.
+- **§8.3's hard-delete of uncurated losers remains unexercised**, for the same
+  reason. Both carry forward.
+
+Exercising them needs a second live menu for one store, which needs either a
+residential-proxy or alternate Uber Eats actor (a spend decision), or a real
+Square store on dev to replace the placeholder. Both are owner calls, not tasks.
+
+### 25.7 Spend
+
+US$0.0761 for the whole phase — 5 billed menu runs plus 3 probes — against the
+US$18 cap. Apify sits at **US$3.0817 of US$29**. Menu actor runs measured at
+~1.1c each, so the 4-attempt ceiling costs ~4.5c for a store that never answers.
