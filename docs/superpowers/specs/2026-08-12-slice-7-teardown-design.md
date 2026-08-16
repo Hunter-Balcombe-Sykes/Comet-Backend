@@ -173,7 +173,44 @@ public fact to a pool is a slice of its own. Compose the same shape from
 `ManagesIntegrationConnection`'s advisory-lock timeouts are sized around this
 projector's runtime; re-check them once it no longer writes Postgres rows per
 service, and **narrow rather than delete** — the docblock chain at `:396-450`
-explains what each guards.
+explains what each guards. Re-check them in the SAME commit that lands the
+repoint, not before: until `sync()` stops writing Postgres rows its runtime is
+unchanged, so narrowing early sizes the lock for a cutover that has not
+happened.
+
+#### D3a — owner-edited Fresha prices are unsupported. Owner ruling 2026-08-16.
+
+Found by building it: an owner-edited **price** has no home in `content.*`.
+`title` → `f_text.headline`, `description` → `f_text.body` and
+`duration_minutes` → `f_duration.seconds` all have a `content.manual_overrides`
+lane. `price_cents` does not, and cannot without breaking the invariant
+`FacetRegistry` is built on (`app/Services/Content/FacetRegistry.php:16`):
+*"The list is the SINGLETON facets only. Collections (item_media, offers,
+item_variants …) resolve by set-union and have no single value to override."*
+
+Composing the blob from `content.*` would therefore silently revert an owner's
+edited price to the vendor's number **on the public booking wire** — the exact
+class of change that must never happen quietly.
+
+**Ruling: retire `is_manual` for the Fresha lane.** Both surfaces show the
+vendor's price. Three facts made this the cheap answer rather than a loss:
+
+- **Nothing uses it.** On dev, all 61 `site.services WHERE source='fresha'` rows
+  carry `is_manual = false`, and **zero** carry a non-null non-zero
+  `price_cents` — the legacy zeros are the vendor blob's null `priceValue`, not
+  hand-entered prices (the same fact `FreshaMapperGuardTest` was written
+  against).
+- **It is already inconsistent in production.** Post-3b the dashboard
+  (`FreshaSelectionResource`, from `content.*`) ignores owner overrides while the
+  public blob (from `site.services`) honours them. An owner who edited a price
+  saw the old one on their dashboard and the new one on their public page. This
+  ruling makes the two agree.
+- The alternatives were an offers override lane (breaks the singleton rule) or a
+  second parallel override mechanism (trips `ServiceTwoSurfaceTest`).
+
+**Cost, stated rather than buried:** this is a public behaviour removal on a
+booking surface and needs its own wire-manifest entry. `title`, `description`
+and `duration` overrides are unaffected and keep working.
 
 ### Unit D — standalone events, the four-step · M
 
