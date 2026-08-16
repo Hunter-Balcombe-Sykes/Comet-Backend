@@ -2,10 +2,12 @@
 
 namespace App\Services\Platforms;
 
-use App\Jobs\Platforms\EnrichLinkCardJob;
+use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Content\LinkPoolReader;
+use App\Services\Content\LinkPoolWriter;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
@@ -31,6 +33,8 @@ class CustomLinkSeeder
     public function __construct(
         private readonly LinkCardScraper $scraper,
         private readonly LinkRouter $router,
+        private readonly LinkPoolWriter $linkWriter,
+        private readonly LinkPoolReader $linkReader,
     ) {}
 
     /**
@@ -98,7 +102,7 @@ class CustomLinkSeeder
      * the outcome is discriminated so the controller can shape a real HTTP
      * answer instead of a silent null (cap → 422, lock → 423).
      *
-     * @return array{status: 'created'|'exists'|'cap_full'|'busy'|'invalid'|'unavailable', row: ?IntegrationConnection}
+     * @return array{status: 'created'|'exists'|'cap_full'|'busy'|'invalid'|'unavailable', row: null}
      */
     public function addManual(User $user, string $url): array
     {
@@ -120,48 +124,66 @@ class CustomLinkSeeder
      * from the lowercased URL, minimal card payload, per-user custom lock,
      * dedupe by rid, MAX_LINKS cap, EnrichLinkCardJob on genuine creates.
      *
-     * @return array{status: 'created'|'exists'|'cap_full'|'busy', row: ?IntegrationConnection}
+     * @return array{status: string, row: null}
+     */
+    /**
+     * Convergence Phase 6: a seeded link is a `custom_links` POOL item, not a
+     * `partna.custom_link` connection. Same lane the dashboard's manual add now
+     * uses (LinkPoolWriter), same deterministic url-derived coord, so a link
+     * discovered by a scrape and the same link typed by the owner resolve to ONE
+     * item instead of two.
+     *
+     * The per-platform Cache lock STAYS. The pool write itself is an idempotent
+     * upsert on a deterministic coord, so it needs no serialising — but the
+     * 20-link CAP is a read-then-write, and two concurrent seeds could both
+     * observe 19 and both write. Same key as before, so this still excludes
+     * against any other custom-link writer.
+     *
+     * A siteless user is 'cap_full'-shaped rather than a silent success: a pool
+     * item needs a section, which hangs off the site. The connection lane could
+     * store a link for a siteless user; the pool cannot.
+     *
+     * @return array{status: string, row: null}
      */
     private function writeCard(User $user, string $normalized): array
     {
-        $rid = 'link-'.substr(sha1(strtolower($normalized)), 0, 16);
-        $payload = ['kind' => 'link', ...$this->scraper->minimalCard($normalized)];
+        if ($user->site === null) {
+            return ['status' => 'cap_full', 'row' => null];
+        }
 
         $key = CacheKeyGenerator::platformConnectionLock('custom', (string) $user->id);
         try {
-            [$row, $isNew] = Cache::lock($key, 10)->block(5, function () use ($user, $rid, $payload) {
-                $existing = IntegrationConnection::query()
-                    ->where('user_id', $user->id)->where('platform', 'custom')->where('resource_id', $rid)->first();
-
-                if ($existing === null) {
-                    $currentCount = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'custom')->count();
-                    if ($currentCount >= self::MAX_LINKS) {
-                        return [null, false];
-                    }
-                }
-
-                $row = IntegrationConnection::updateOrCreate(
-                    ['user_id' => $user->id, 'platform' => 'custom', 'resource_id' => $rid],
-                    ['resource_kind' => 'link', 'payload' => $payload, 'is_active' => true, 'last_refresh_status' => 'pending'],
+            $status = Cache::lock($key, 10)->block(5, function () use ($user, $normalized) {
+                $cards = $this->linkReader->cards($user);
+                $already = collect($cards)->contains(
+                    fn (array $card) => is_string($card['url'])
+                        && strtolower(trim($card['url'])) === strtolower(trim($normalized)),
                 );
 
-                return [$row, $existing === null];
+                if (! $already && count($cards) >= self::MAX_LINKS) {
+                    return 'cap_full';
+                }
+
+                $this->linkWriter->add($user, $normalized);
+
+                return $already ? 'exists' : 'created';
             });
         } catch (LockTimeoutException) {
-            Log::warning('platforms.custom_link_seeder.lock_timeout', ['user_id' => (string) $user->id, 'resource_id' => $rid]);
+            Log::warning('platforms.custom_link_seeder.lock_timeout', [
+                'user_id' => (string) $user->id, 'url' => $normalized,
+            ]);
 
             return ['status' => 'busy', 'row' => null];
         }
 
-        if ($row === null) {
-            return ['status' => 'cap_full', 'row' => null];
+        if ($status === 'created') {
+            EnrichPoolLinkJob::dispatch((string) $user->id, $normalized)->afterCommit();
         }
 
-        if ($isNew) {
-            EnrichLinkCardJob::dispatch((string) $user->id, 'custom', $rid, $normalized)->afterCommit();
-        }
-
-        return ['status' => $isNew ? 'created' : 'exists', 'row' => $row];
+        // `row` is null on every path now — there is no connection to hand back.
+        // Every caller already discarded it (Issue F), which is why seedCustom()
+        // could return null in the routed case in the first place.
+        return ['status' => $status, 'row' => null];
     }
 
     /**

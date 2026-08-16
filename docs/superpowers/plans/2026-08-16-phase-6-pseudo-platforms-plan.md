@@ -135,6 +135,53 @@ Order links in detail:
   `RoutingCapabilityGate`'s routing_class keying, and the
   `account-capability-audit` skill against everything touched.
 
+## STATUS as of 2026-08-16 (handoff)
+
+`feat/phase-6-pseudo-platforms`, NOT merged. `development` is untouched and green.
+
+**Green and committed**
+- `536989b5b` — Unit 1. Allowlist gap closed (36 catalog brands), coverage guard
+  widened to catalog surfaces and proven to fail, `uber_eats.order` +
+  `menulog.order` promoted, artefact recompiled.
+- `9b4e383cc` — Units 2–3. Per-brand classification, per-brand router seeders,
+  booking XOR + reservations single-slot moved onto `routing_class`,
+  `write()` re-keyed onto `surface_key`. 2265 passed / 9040 assertions.
+
+**Unit 4, IN PROGRESS — working tree is RED. Do not merge.**
+
+The custom-link half is built: `LinkPoolWriter`, `LinkPoolReader`,
+`EnrichPoolLinkJob` (ports the title enrichment the pool hand-add never had),
+`CustomLinksController` rewritten onto the pool with its JSON shape unchanged,
+`CustomLinkSeeder::writeCard()` redirected onto the same lane keeping its cap
+lock. PHPStan clean on all of it. 36 tests converted and passing across
+`CustomLinksControllerTest`, `CustomLinksPayloadTest`,
+`StravaAndCustomLinksContractTest`, `CustomLinkSeederLockTest`,
+`CustomLinkSeederPreviousWebsiteTest`, `LinkInBioScanJobTest`.
+
+Still red, both for the same two reasons — the users have no `site` (a pool item
+needs a section, which hangs off the site), and the assertions read connection
+rows:
+- `tests/Feature/Platforms/CustomLinkSeederTest.php` — 4 cases.
+- `tests/Feature/Routing/RoutingEndpointTest.php` — ~5 cases. These also assert
+  the Note-link response shape, which came from the connection row; the endpoint
+  itself may need its 'busy'/423 branch revisited since `writeCard` still returns
+  that status but no row.
+
+**Not started**
+- online-ordering, booking/reservations and events-custom write paths.
+- The shop split into one connection per store (owner ruling 4 / option B) — the
+  largest remaining piece, and it overlaps slice 7's scheduled rework of
+  `site.shop_brands`.
+- Unit 5 migration command; Unit 6 guard activation, capability audit, checkpoint.
+
+**Two behaviour changes already made that belong in the checkpoint**
+- A pool link publishes `favicon: null` and `logo: null`. Phase 3's ruling,
+  restated — dashboard link cards lose their brand marks. Pinned by a test so it
+  reads as a decision, not a regression.
+- A SITELESS user can no longer hold a custom link. The connection lane allowed
+  it; a pool item cannot exist without a section. `writeCard()` returns
+  `cap_full` for that case rather than failing silently.
+
 ## Exit criteria
 
 - No write path can create a `partna.*` connection; guarded by a test.

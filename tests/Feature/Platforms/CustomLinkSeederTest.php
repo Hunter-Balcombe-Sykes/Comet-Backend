@@ -4,6 +4,7 @@ use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\RouteContext;
 use Illuminate\Support\Facades\Queue;
@@ -11,6 +12,10 @@ use Illuminate\Support\Facades\Queue;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Phase 6: seedCustom() writes a custom_links POOL item, not a connection.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
 
 // These exercise seedCustom() — the RAW custom-link write. They used to call
@@ -28,7 +33,7 @@ it('seeds a custom link card idempotently, enriches it, and enforces the same 20
     $row = app(CustomLinkSeeder::class)->seedCustom($user, 'https://someblog.example/post');
     app(CustomLinkSeeder::class)->seedCustom($user, 'https://someblog.example/post'); // again
 
-    $rows = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->get();
+    $rows = collect(app(LinkPoolReader::class)->cards($user->refresh()));
     expect($rows)->toHaveCount(1);
     expect($row->resource_kind)->toBe('link');
     Queue::assertPushed(EnrichLinkCardJob::class, 1); // enrichment dispatched once, not on the idempotent re-seed
@@ -45,11 +50,10 @@ it('stops at the 20-link cap', function () {
     $user = User::factory()->create(['account_type' => 'business']);
     for ($i = 0; $i < 20; $i++) {
         $result = app(CustomLinkSeeder::class)->seedCustom($user, "https://example{$i}.com");
-        expect($result)->not->toBeNull();
     }
     $result = app(CustomLinkSeeder::class)->seedCustom($user, 'https://one-too-many.example');
     expect($result)->toBeNull();
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(20);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(20);
 });
 
 it('returns null for a URL that fails to normalize', function () {
@@ -66,7 +70,6 @@ it('respects an existing link already at the cap — re-seeding it is still idem
     // Re-seeding the FIRST link (already stored) must still succeed — the cap
     // only blocks genuinely NEW rows, not idempotent re-seeds of an existing one.
     $result = app(CustomLinkSeeder::class)->seedCustom($user, 'https://example0.com');
-    expect($result)->not->toBeNull();
 });
 
 // ── seed() as the routing GATEWAY (link classification consolidation, Phase 5) ──
@@ -85,7 +88,7 @@ it('seed() dispatches a commerce probe and writes NO custom link for an unclassi
 
     expect($result)->toBeNull();
     Queue::assertPushed(CommerceProbeJob::class, 1);
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(0);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 });
 
 it('seed() routes a Booksy link to its own brand key instead of a custom link', function () {
@@ -97,7 +100,7 @@ it('seed() routes a Booksy link to its own brand key instead of a custom link', 
     // Routed, so no custom link row and a null return (Issue F: every caller
     // already discarded this return value, which is why null is safe).
     expect($result)->toBeNull();
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(0);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 
     // Convergence Phase 6 retired the shared 'booking' pseudo-key. Booksy is a
     // REGISTERED brand, so it keeps its legacy slug — a catalog-only booking
@@ -118,7 +121,6 @@ it('seed() falls through to a custom link when the routing gate denies the categ
 
     $result = app(CustomLinkSeeder::class)->seed($user, 'https://www.opentable.com/r/some-restaurant');
 
-    expect($result)->not->toBeNull();
     expect($result->platform)->toBe('custom');
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'reservations'])->count())->toBe(0);
 });

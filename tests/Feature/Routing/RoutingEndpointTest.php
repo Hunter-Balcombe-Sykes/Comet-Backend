@@ -12,6 +12,10 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupRoutingTables();
+    // Phase 6: a Verdict::Note link becomes a custom_links POOL item.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
 
 // ── preview: decides and explains, writes nothing ────────────────────────────

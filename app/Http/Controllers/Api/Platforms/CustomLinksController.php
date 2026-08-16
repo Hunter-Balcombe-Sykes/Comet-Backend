@@ -3,31 +3,44 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\AddCustomLinkRequest;
-use App\Jobs\Platforms\EnrichLinkCardJob;
-use App\Models\Core\Site\IntegrationConnection;
+use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Core\User\User;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Content\LinkPoolReader;
+use App\Services\Content\LinkPoolWriter;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\LinkRouter;
-use App\Services\Platforms\Payloads\CardPayload;
-use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\RouteContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 
-// The 'custom' integration — arbitrary user-attached URLs rendered as a
-// Links section on the sitepage. Each link is one connection row
-// (resource_id 'link-<hash>'): the page is fetched once at add time and its
-// favicon, logo (og:image), name, and description are snapshotted into the
-// payload. Just a titled, branded outbound link — no tracking, no
-// commerce metadata, no refresh loop.
+// Arbitrary user-attached URLs rendered as a Links section on the sitepage.
+//
+// Convergence Phase 6: these are `content.items` of kind `link` in the
+// `custom_links` pool, NOT `partna.custom_link` connections. Phase 3 carried the
+// 23 existing connections onto the pool and named this move explicitly — "the
+// pool is a SNAPSHOT until Phase 6 … moving the write path before then would
+// mean building it twice" (parent spec §22). The endpoints and their JSON are
+// unchanged so the dashboard keeps working; only the storage moved.
+//
+// Two deliberate consequences of that move, both inherited from Phase 3's own
+// ruling rather than decided here:
+//   - `favicon` and `logo` are always null. Minting content.media_assets for
+//     third-party image URLs pulls slice 1a's borrowed-asset lane in for
+//     decoration; if link cards want brand marks that is its own decision with
+//     its own storage question.
+//   - `id` is now a content item uuid, not `link-<hash>`. The dashboard
+//     round-trips whatever ids this endpoint hands it, so the change is opaque
+//     to it — but anything that PARSED the old prefix would break.
+//
+// ManagesIntegrationConnection is gone from this class: with no connection row
+// there is no per-platform lock to take, and the pool write is a single
+// idempotent upsert on a deterministic coord rather than a read-mutate-write
+// cycle, so the lost-update hazard that lock existed for cannot arise.
 class CustomLinksController extends ApiController
 {
-    use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
     private const MAX_LINKS = 20;
@@ -35,34 +48,26 @@ class CustomLinksController extends ApiController
     public function __construct(
         private readonly LinkCardScraper $scraper,
         private readonly LinkRouter $router,
+        private readonly LinkPoolWriter $writer,
+        private readonly LinkPoolReader $reader,
     ) {}
 
-    protected function platform(): string
-    {
-        return Platform::Custom->value;
-    }
-
-    // GET /api/platforms/custom/links — every attached link, ordered.
+    // GET /api/platforms/custom/links — every attached link, in pin order.
     public function links(Request $request): JsonResponse
     {
         return $this->success(['links' => $this->linksData($this->currentUser($request))]);
     }
 
     // POST /api/platforms/custom/links — attach a URL. Routes through LinkRouter
-    // first: if the URL is a known platform it becomes the right connection type
-    // (booking / reservations / social / …) instead of a custom link; otherwise
-    // it falls through to the custom-link write below, unchanged.
+    // first: a URL that is a known platform becomes the right connection type
+    // (booking / reservations / social / …) instead of a link; otherwise it
+    // falls through to the pool write below.
     //
-    // Response contract (the plan's option (a) — additive, frontend untouched):
-    // the routed branches keep the same 202-shaped envelope and ADD an optional
-    // `routedTo`. Verified against the dashboard: custom-links-section.tsx's
-    // handleAdd() reads ONLY `body.links` (guarded by Array.isArray) and then
-    // calls resetPlatformStatuses() — it never reads `status`, `link` or
-    // `statusUrl` from this endpoint. So a routed connection returns the
-    // refreshed `links` list (unchanged, since no custom link was written) and
-    // the dashboard re-renders correctly without knowing about `routedTo` yet.
-    // Do NOT switch to a shape that omits `links`: a routed add would then
-    // silently leave the list stale until the next GET.
+    // Response contract is unchanged (the plan's option (a)): the routed
+    // branches keep the 202-shaped envelope and add `routedTo`. Verified against
+    // the dashboard — custom-links-section.tsx's handleAdd() reads ONLY
+    // `body.links` (Array.isArray-guarded). Do NOT switch to a shape that omits
+    // `links`: a routed add would then leave the list stale until the next GET.
     public function addLink(AddCustomLinkRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -72,20 +77,12 @@ class CustomLinksController extends ApiController
             return $this->error('Enter a valid link (https://...).', 422);
         }
 
-        // Route FIRST, outside withConnectionLock(), so LinkRouter's own locks
-        // (booking XOR, per-platform seed) are never nested inside the
-        // custom-platform connection lock — nesting them invites a deadlock,
-        // the same rule CustomLinkSeeder's dispatch comment already states.
         // maxProbes: 0 — a MANUAL add deliberately never commerce-probes. The
         // probe exists for SCANNED links, where an unclassified URL might be the
         // business's own store nobody told us about (signup-v2 C4). Here the user
         // has explicitly said "add this as a link", and probing first would mean
-        // an ordinary unclassified URL (a personal blog, a news article) returns
-        // 'pending' with no card in the list until the probe misses and the job's
-        // seedCustom() fallback runs — the card used to appear instantly. So an
-        // unclassified manual URL falls straight through to the custom-link write
-        // below, exactly as before, while a CLASSIFIED one (Fresha, Booksy,
-        // OpenTable) still routes. Flip this to 1 if manual adds should probe.
+        // an ordinary unclassified URL returns 'pending' with no card in the list
+        // until the probe misses. Flip to 1 if manual adds should probe.
         $result = $this->router->route($user, $url, new RouteContext(maxProbes: 0));
 
         if ($result->outcome === 'seeded' || $result->outcome === 'pending') {
@@ -96,42 +93,46 @@ class CustomLinksController extends ApiController
             ], 202);
         }
 
-        // outcome === 'custom' or 'skipped' — proceed with custom-link write.
-        $payload = ['kind' => 'link', ...$this->scraper->minimalCard($url)];
-        $rid = 'link-'.substr(sha1(strtolower($url)), 0, 16);
+        // outcome === 'custom' or 'skipped' — this really is a link.
+        $existing = collect($this->reader->cards($user))
+            ->first(fn (array $card) => is_string($card['url']) && $this->scraper->normalizeUrl($card['url']) === $url);
 
-        return $this->withConnectionLock($user, function () use ($user, $payload, $rid, $url) {
-            $existing = $this->linkRows($user)->firstWhere('resource_id', $rid);
-            if (! $existing && $this->linkRows($user)->count() >= self::MAX_LINKS) {
-                return $this->error('You can add up to '.self::MAX_LINKS.' links.', 422);
-            }
+        if ($existing === null && count($this->reader->cards($user)) >= self::MAX_LINKS) {
+            return $this->error('You can add up to '.self::MAX_LINKS.' links.', 422);
+        }
 
-            $this->writePendingLinkCard($user, $payload, $rid, resourceKind: 'link');
-            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $rid, $url)->afterCommit();
+        // The item exists the moment this returns — the pool write is
+        // synchronous, unlike the connection lane's pending card. The title is
+        // the URL host until EnrichPoolLinkJob upgrades it off-thread.
+        $itemId = $this->writer->add($user, $url);
+        EnrichPoolLinkJob::dispatch((string) $user->id, $url)->afterCommit();
 
-            return $this->success([
-                'status' => 'pending',
-                'link' => $this->cardData($rid, $payload),
-                'statusUrl' => url("/api/platforms/custom/links/{$rid}/status"),
-            ], 202);
-        });
+        return $this->success([
+            'status' => 'pending',
+            'link' => collect($this->linksData($user))->firstWhere('id', $itemId),
+            'statusUrl' => url("/api/platforms/custom/links/{$itemId}/status"),
+        ], 202);
     }
 
-    // GET /api/platforms/custom/links/{id}/status — poll link-card enrichment.
+    // GET /api/platforms/custom/links/{id}/status — poll title enrichment.
+    //
+    // 'ready' the moment the item exists, which is immediately: the card is
+    // usable from the first response and only its TITLE improves later. The old
+    // connection lane could answer 'pending' because it wrote a row with
+    // last_refresh_status='pending'; a pool item carries no such field, and
+    // inventing one to reproduce a spinner would be storing UI state in content.
     public function linkStatus(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
 
-        return $this->linkCardStatusResponse($user, $id, fn () => [
-            'links' => $this->linksData($user),
-        ]);
+        if (! $this->reader->owns($user, $id)) {
+            return $this->error('Link not found.', 404);
+        }
+
+        return $this->success(['status' => 'ready', 'links' => $this->linksData($user)]);
     }
 
-    // PUT /api/platforms/custom/links/order — persist the user's manual order
-    // (W13 reorder). `ids` is the full desired order; rows omitted from it
-    // keep their relative order after the listed ones. sort_order is the same
-    // column connectionsFor() and the public resolver already order by, so
-    // the dashboard, payload, and sitepage all follow.
+    // PUT /api/platforms/custom/links/order — persist the owner's order.
     public function reorderLinks(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -140,35 +141,21 @@ class CustomLinksController extends ApiController
             'ids.*' => ['string'],
         ])['ids'];
 
-        return $this->withConnectionLock($user, function () use ($user, $ids) {
-            $rows = $this->linkRows($user)->keyBy('resource_id');
-            foreach ($ids as $id) {
-                if (! $rows->has($id)) {
-                    return $this->error('Link not found.', 404);
-                }
+        $known = array_column($this->reader->cards($user), 'id');
+        foreach ($ids as $id) {
+            if (! in_array($id, $known, true)) {
+                return $this->error('Link not found.', 404);
             }
+        }
 
-            $position = 0;
-            foreach ($ids as $id) {
-                $rows[$id]->update(['sort_order' => $position++]);
-            }
-            foreach ($rows as $rid => $row) {
-                if (! in_array($rid, $ids, true)) {
-                    $row->update(['sort_order' => $position++]);
-                }
-            }
+        // Pin order IS the public order — sort_key is the column PoolResolver
+        // reads — so the dashboard, the payload and the sitepage cannot disagree.
+        // The connection lane needed an explicit $site->touch() here because a
+        // pure sort_order shuffle fired no observer; SiteCacheLanes::bust() inside
+        // reorder() covers all three lanes.
+        $this->reader->reorder($user, $ids);
 
-            // A pure sort_order shuffle fires NOTHING by itself:
-            // IntegrationConnectionObserver::saved() gates on payload/
-            // display_settings/is_active, so neither the edge purge nor the
-            // site touch ran and the public payload key (site.updated_at)
-            // stayed pinned on the old order for the full TTL. Same bug
-            // class ServiceObserver::touchParentSite() documents; Gallery's
-            // reorder touches via ReorderService's afterCommit.
-            $user->site?->touch();
-
-            return $this->success(['links' => $this->linksData($user)]);
-        });
+        return $this->success(['links' => $this->linksData($user)]);
     }
 
     // DELETE /api/platforms/custom/links/{id} — remove one link.
@@ -176,88 +163,36 @@ class CustomLinksController extends ApiController
     {
         $user = $this->currentUser($request);
 
-        return $this->withConnectionLock($user, function () use ($user, $id) {
-            if (! $this->linkRows($user)->firstWhere('resource_id', $id)) {
-                return $this->error('Link not found.', 404);
-            }
-            $this->forgetConnection($user, $id);
+        if (! $this->reader->remove($user, $id)) {
+            return $this->error('Link not found.', 404);
+        }
 
-            return $this->success(['links' => $this->linksData($user)]);
-        });
+        return $this->success(['links' => $this->linksData($user)]);
     }
 
     // DELETE /api/platforms/custom — remove every link.
     public function forget(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
+        $this->reader->removeAll($user);
 
-        return $this->withConnectionLock($user, function () use ($user) {
-            $this->forgetAllConnections($user);
-
-            return $this->success(['links' => []]);
-        });
+        return $this->success(['links' => []]);
     }
 
     // ── internals ────────────────────────────────────────────────
 
-    /**
-     * Single-card response shape for the 202 body — mirrors one entry of
-     * linksData() so the dashboard can render the placeholder immediately.
-     *
-     * @return array<string,mixed>
-     */
-    private function cardData(string $rid, array $payload): array
-    {
-        $card = CardPayload::fromArray($payload);
-
-        return [
-            'id' => $rid,
-            'url' => $card->url(),
-            'name' => $card->name(),
-            'description' => $card->description(),
-            'favicon' => $card->favicon(),
-            'logo' => $card->logo(),
-        ];
-    }
-
-    /**
-     * Link rows ('link-*'), ordered.
-     *
-     * @return Collection<int, IntegrationConnection>
-     */
-    private function linkRows(User $user)
-    {
-        return $this->connectionsFor($user)->filter(
-            fn (IntegrationConnection $row) => $row->resource_kind === 'link',
-        )->values();
-    }
-
     /** @return list<array<string,mixed>> */
     private function linksData(User $user): array
     {
-        // link_item ranks are keyed by the link's URL (payload.url) — what
-        // ContentFreshness/ComputeContentPopularityScores write as the
-        // link_item content_key, not the connection's resource_id. The
-        // dashboard's Smart order switch sorts on popularityRank; until
-        // 2026-08-04 this payload never carried it, so "engagement order"
-        // silently meant "stored order". Fail-open: a read fault degrades to
-        // null ranks.
-        $ranks = app(ContentPopularityReader::class)
-            ->forSite($user->site?->id);
+        // link_item ranks are keyed by the link's URL, not its id — what
+        // ContentFreshness/ComputeContentPopularityScores write as the link_item
+        // content_key. Fail-open: a read fault degrades to null ranks.
+        $ranks = app(ContentPopularityReader::class)->forSite($user->site?->id);
         $linkRanks = $ranks['link_item'] ?? [];
 
-        return $this->linkRows($user)->map(function (IntegrationConnection $row) use ($linkRanks): array {
-            $card = CardPayload::fromArray($row->payload);
-
-            return [
-                'id' => $row->resource_id,
-                'url' => $card->url(),
-                'name' => $card->name(),
-                'description' => $card->description(),
-                'favicon' => $card->favicon(),
-                'logo' => $card->logo(),
-                'popularityRank' => $linkRanks[(string) $card->url()] ?? null,
-            ];
-        })->values()->all();
+        return array_map(
+            fn (array $card): array => [...$card, 'popularityRank' => $linkRanks[(string) $card['url']] ?? null],
+            $this->reader->cards($user),
+        );
     }
 }

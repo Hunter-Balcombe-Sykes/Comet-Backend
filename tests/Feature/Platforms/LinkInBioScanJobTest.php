@@ -3,7 +3,9 @@
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\LinkRouter;
@@ -19,7 +21,25 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupNotificationsTable();
+    // Phase 6: an unrecognised bio link becomes a custom_links POOL item.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
+
+/**
+ * Phase 6: an unrecognised bio link lands in the custom_links POOL, and a pool
+ * item needs a section, which hangs off the site. The connection lane could
+ * store a link for a siteless user; the pool cannot.
+ */
+function libSite(User $user): User
+{
+    $site = new Site(['subdomain' => 'lib'.substr((string) $user->id, 0, 8), 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+
+    return $user->refresh();
+}
 
 /** The pending IG connection row the scan job's findings merge back into. */
 function libIgConnection(User $user, array $payload = []): IntegrationConnection
@@ -66,7 +86,7 @@ it('falls back to CustomLinkSeeder for a classified-but-gated link instead of dr
     // partna account's can_use_booking is always true, food sector or not).
     // fresha is gated here, so LinkRouter returns outcome 'custom' — this job
     // must still turn that into a custom link, not silently drop it.
-    $user = User::factory()->create(['account_type' => 'business', 'sector' => 'restaurant']);
+    $user = libSite(User::factory()->create(['account_type' => 'business', 'sector' => 'restaurant']));
     Http::fake([
         'linktr.ee/*' => Http::response('<a href="https://www.fresha.com/a/venue-1">Book</a>', 200),
     ]);
@@ -79,9 +99,9 @@ it('falls back to CustomLinkSeeder for a classified-but-gated link instead of dr
     );
 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeFalse();
-    $custom = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->first();
-    expect($custom)->not->toBeNull();
-    expect($custom->payload['url'])->toBe('https://www.fresha.com/a/venue-1');
+    $cards = app(LinkPoolReader::class)->cards($user->refresh());
+    expect($cards)->toHaveCount(1)
+        ->and($cards[0]['url'])->toBe('https://www.fresha.com/a/venue-1');
 });
 
 it("excludes links back to the bio page's own host — platform chrome, not the account owner's content", function () {
@@ -111,7 +131,7 @@ it("excludes links back to the bio page's own host — platform chrome, not the 
     );
 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(0);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 });
 
 it('does nothing when the fetch fails', function () {
@@ -331,7 +351,7 @@ it('still writes a card for a link skipped because its platform already won the 
     // and a specific booking link had one of them silently disappear, which is
     // the "nothing vanishes" promise broken by the one outcome the loop forgot.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'business']);
+    $user = libSite(User::factory()->create(['account_type' => 'business']));
     Http::fake([
         'linktr.ee/*' => Http::response(
             '<a href="https://www.fresha.com/a/venue-1">Book</a>'
@@ -348,7 +368,7 @@ it('still writes a card for a link skipped because its platform already won the 
     );
 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(1);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1);
 });
 
 it('writes no card for a link already synced to a live connection', function () {
@@ -376,7 +396,7 @@ it('writes no card for a link already synced to a live connection', function () 
         app(CustomLinkSeeder::class),
     );
 
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(0);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 });
 
 it('does nothing when the user no longer exists', function () {
