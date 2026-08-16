@@ -3,7 +3,6 @@
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\User\User;
 use App\Services\Content\ManualMenuItems;
 use App\Services\Platforms\MenuApifyScraper;
@@ -21,9 +20,8 @@ beforeEach(function () {
     // MenuItemObserver + MenuFetchJob write site.item_slugs best-effort — with
     // no table they swallow "no such table" and mask real slug regressions.
     setupItemSlugsTable();
-    // Slice 7 Task 8: the scan half of this test writes content.* through
-    // MenuScanApplier → ManualMenuWriter. The scrape half still writes
-    // site.menu_* until Task 7 moves it.
+    // Slice 7 Tasks 7 + 8: BOTH lanes now land in content.* — the scan through
+    // MenuScanApplier → ManualMenuWriter, the scrape through MenuFetchJob.
     setupContentTables();
     Queue::fake();
 });
@@ -95,10 +93,31 @@ it('protects website-scan-sourced menu content from an ordering-platform rebuild
     expect($categories->has($websiteScanCategoryId))->toBeTrue()
         ->and((string) $categories[$websiteScanCategoryId]->label)->toBe('Mains')
         ->and(app(ManualMenuItems::class)->rows((string) $user->id)->pluck('headline')->all())
-        ->toBe(['House Special Pasta']);
+        // Both lanes land in content.* since Task 7 — the SCRAPED dish ('Cola')
+        // now sits beside the website-scanned one instead of in site.menu_items.
+        // What this test guards is unchanged: the scrape did not destroy the
+        // website-scan dish.
+        ->toBe(['Cola', 'House Special Pasta']);
 
-    // The uber-eats rebuild still happened normally alongside it.
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'uber-eats')->exists())->toBeTrue();
+    // The uber-eats rebuild still happened normally alongside it — in content.*,
+    // which is where BOTH lanes write since Tasks 7 + 8. The old form of this
+    // pair asked site.menu_categories for a 'uber-eats' / 'website-scan'
+    // source_platform row; neither lane writes that table any more, so the same
+    // two questions are asked of the labels that survived the rebuild instead:
+    // 'Drinks' proves the scrape ran, 'Mains' proves it did not take the
+    // website-scan category with it.
+    $labels = DB::connection('pgsql')->table('content.collections')
+        ->where('user_id', $user->id)->where('kind', 'menu_category')
+        ->whereNull('removed_at')->pluck('label')->sort()->values()->all();
+    expect($labels)->toBe(['Drinks', 'Mains']);
+
+    // And the scrape's own dish landed, under its own category — not merged
+    // into the website-scan one.
+    expect(DB::connection('pgsql')->table('content.collection_items as ci')
+        ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
+        ->join('content.items as i', 'i.id', '=', 'ci.item_id')
+        ->where('c.user_id', $user->id)->where('c.label', 'Drinks')
+        ->pluck('i.headline_cache')->all())->toBe(['Cola']);
 });
 
 it('reports (but does not fail the scrape on) a scan-reapply failure (R3-OBS-3)', function () {

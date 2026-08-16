@@ -56,11 +56,18 @@ it('routes no Fresha service through the owner-authored price mapper', function 
     // an absent scan price stays null (`$item['price'] ?? null`) rather than
     // becoming 0, so it mints no offer at all; a 0 there is an OCR-read "free",
     // which is the hand-entered case the 'free' qualifier is FOR.
+    //
+    // MenuFetchJob.php added by slice 7 Task 7 — the scrape's own write path,
+    // calling ManualMenuWriter::projectionFor(), i.e. the menu mapper above and
+    // not the service one. It hands the merger's basePrice/pickupPrice/
+    // deliveryPrice through UNCOERCED (dishRow() uses `?? null`), which is what
+    // keeps the skip-a-null arm reachable.
     expect($callers)->toEqualCanonicalizing([
         'ManualMenuWriter.php',
         'MenuScanApplier.php',
         'ManualServiceWriter.php',
         'MenuContentController.php',
+        'MenuFetchJob.php',
         'ServiceBackfiller.php',
         'UserServiceController.php',
         'StaffServiceManagementController.php',

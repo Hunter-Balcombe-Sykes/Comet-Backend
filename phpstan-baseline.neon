@@ -1453,12 +1453,6 @@ parameters:
 			path: app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuPlatformLink\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Platforms/MenuFetchJob.php
-
-		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1

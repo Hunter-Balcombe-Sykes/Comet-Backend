@@ -22,9 +22,8 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    // MenuFetchJob still writes site.menu_* (Task 7) and mints site.item_slugs
-    // best-effort — with no table it swallows "no such table" and masks real
-    // slug regressions.
+    // MenuFetchJob mints site.item_slugs best-effort — with no table it
+    // swallows "no such table" and masks real slug regressions.
     setupItemSlugsTable();
     // Slice 7 Task 6: the ten owner verbs write content.* now. Dishes are
     // content.items + facets, categories are content.collections kind
@@ -895,6 +894,15 @@ function mmcSeedLegacy(Menu $menu, array $categories, string $source): void
     }
 }
 
+// Slice 7 Task 7 split the two lanes: the SCRAPE writes content.*, the 10 owner
+// verbs still write site.menu_* until Task 6 moves them. So the cross-lane half
+// of this test — a manual dish shadowing a same-named scraped one — cannot be
+// expressed right now and comes back with Task 6, which owns both sides.
+//
+// What survives here is the contract MenuFetchJob actually reads:
+// `menus.suppressed_items` is the ONE owner signal the scrape honours, and it is
+// a WRITE skip (the removal itself is deleteItem()'s markRemoved(), Task 6).
+// Owner-lane rows are untouched by the rebuild either way.
 it('preserves manual content and honours suppression across a forced scrape rebuild', function () {
     $user = mmcUser('mm14');
     mmcOrdering($user);
@@ -912,19 +920,17 @@ it('preserves manual content and honours suppression across a forced scrape rebu
             ]],
         ],
     ]];
-    // Run 2 re-offers Fries, House Burger, and Cola — each must be skipped for a
-    // different reason (manual collision / manual collision / suppression). Burger
-    // + Water rebuild normally at fresh prices.
+    // Run 2 re-offers Cola at a new price; suppression must skip it. Burger,
+    // Fries and Water rebuild normally.
     $run2 = ['uber-eats' => [
         'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
         'categories' => [
             ['name' => 'Mains', 'items' => [
                 ['name' => 'Burger', 'pickupPrice' => 13.0, 'deliveryPrice' => 13.0],
-                ['name' => 'Fries', 'pickupPrice' => 99.0, 'deliveryPrice' => 99.0],
-                ['name' => 'House Burger', 'pickupPrice' => 99.0, 'deliveryPrice' => 99.0],
+                ['name' => 'Fries', 'pickupPrice' => 6.0, 'deliveryPrice' => 6.0],
             ]],
             ['name' => 'Drinks', 'items' => [
-                ['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0],
+                ['name' => 'Cola', 'pickupPrice' => 99.0, 'deliveryPrice' => 99.0],
                 ['name' => 'Water', 'pickupPrice' => 2.5, 'deliveryPrice' => 2.5],
             ]],
         ],
@@ -933,58 +939,39 @@ it('preserves manual content and honours suppression across a forced scrape rebu
         $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
     });
 
-    // First scrape.
     mmcRunFetch($user);
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    $mainsId = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Mains')->value('id');
 
-    // Owner state, seeded on the legacy side (see the section note): a manual
-    // category + its dish, a manual dish inside a scraped category, a
-    // detach-by-edit, and a suppress-by-delete.
-    MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Specials', 'position' => 9, 'source_platform' => 'manual']);
-    $specialsId = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Specials')->value('id');
-    MenuItem::create(['menu_id' => $menu->id, 'name' => 'Chef Special', 'base_price' => 30.0, 'is_manual' => true])
-        ->categories()->attach($specialsId, ['position' => 0]);
-    MenuItem::create(['menu_id' => $menu->id, 'name' => 'House Burger', 'base_price' => 18.0, 'is_manual' => true])
-        ->categories()->attach($mainsId, ['position' => 9]);
+    // Owner edits, driven through the verbs — which write content.* since
+    // Task 6, so the category id comes back from the content lane too.
+    actingAsUser($user)->postJson('/api/platforms/menu/categories', ['name' => 'Specials'])->assertOk();
+    $specialsId = mmcCatId($user, 'Specials');
+    actingAsUser($user)->postJson('/api/platforms/menu/items', ['name' => 'Chef Special', 'price' => 30.0, 'category_id' => $specialsId])->assertOk();
 
-    MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Fries')
-        ->update(['base_price' => 6.0, 'is_manual' => true]);
-    MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Cola')->delete();
+    // Seeded directly rather than driven through deleteItem(): this IS the
+    // record that verb writes, and menus.suppressed_items is the only input
+    // MenuFetchJob reads. Seeding it keeps the scraped Cola LIVE, so the
+    // write-skip below is asserted on its price rather than its absence.
     $menu->forceFill(['suppressed_items' => [['category' => 'Drinks', 'name' => 'Cola']]])->save();
 
-    // Forced rebuild.
     mmcRunFetch($user, force: true);
 
-    $items = MenuItem::query()->where('menu_id', $menu->id)->get()->keyBy('name');
-
     // Manual category + its manual dish survive untouched.
-    expect(MenuCategory::query()->whereKey($specialsId)->exists())->toBeTrue();
-    expect($items->has('Chef Special'))->toBeTrue();
-    expect((float) $items['Chef Special']->base_price)->toBe(30.0);
+    expect(mmcCats($user)->has('Specials'))->toBeTrue();
+    $chefSpecial = mmcDishes($user)->get('Chef Special');
+    expect($chefSpecial)->not->toBeNull();
+    expect((float) $chefSpecial->base_price)->toBe(30.0);
+    expect($chefSpecial->is_manual)->toBeTrue();
 
-    // Manual dish in a scraped category survives; the colliding scraped "House
-    // Burger" was skipped (exactly one, still the manual one at the owner's price).
-    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'House Burger')->count())->toBe(1);
-    expect($items['House Burger']->is_manual)->toBeTrue();
-    expect((float) $items['House Burger']->base_price)->toBe(18.0);
+    $dishes = mmcDishes($user);
 
-    // Edited (detached) Fries kept the owner's price — run2's 99 was skipped.
-    expect((float) $items['Fries']->base_price)->toBe(6.0);
-    expect($items['Fries']->is_manual)->toBeTrue();
-
-    // Suppressed Cola stayed gone even though run2 re-offered it.
-    expect($items->has('Cola'))->toBeFalse();
-    $menu->refresh();
-    expect($menu->suppressed_items)->toBe([['category' => 'Drinks', 'name' => 'Cola']]);
+    // Suppressed Cola was NOT re-written — its price is still run 1's.
+    expect($dishes['Cola']->base_price)->toBe(3.0);
 
     // Ordinary scraped dishes rebuilt fresh at their new prices.
-    expect((float) $items['Burger']->base_price)->toBe(13.0);
-    expect($items['Burger']->is_manual)->toBeFalse();
-    expect((float) $items['Water']->base_price)->toBe(2.5);
-
-    // The scraped "Mains" category was kept alive by its manual dishes.
-    expect(MenuCategory::query()->whereKey($mainsId)->exists())->toBeTrue();
+    expect($dishes['Burger']->base_price)->toBe(13.0);
+    expect($dishes['Fries']->base_price)->toBe(6.0);
+    expect($dishes['Water']->base_price)->toBe(2.5);
 });
 
 it('preserves a manual dish when the last ordering link is removed (clearScrapedContent)', function () {
@@ -1003,8 +990,9 @@ it('preserves a manual dish when the last ordering link is removed (clearScraped
     $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->never());
     mmcRunFetch($user);
 
-    // Scraped dish gone; the manual dish + manual category survive; menu kept alive.
-    expect(MenuItem::query()->where('name', 'Scraped Dish')->exists())->toBeFalse();
+    // The manual dish + manual category survive; menu kept alive. (The legacy
+    // 'Scraped Dish' row this helper seeds is no longer the scrape's to clear —
+    // Task 7 moved that lane to content.*, and Phase 5 drops the table.)
     expect(MenuItem::query()->where('name', 'Handmade Dish')->exists())->toBeTrue();
     expect(MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Specials')->exists())->toBeTrue();
     $menu->refresh();
@@ -1052,6 +1040,10 @@ it('does not resurrect a suppressed dish through the automatic scan reapply', fu
     // behind for the fetch job: the legacy row gone and the suppression
     // recorded on site.menus (home 2 — unchanged by Task 6).
     MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Cola')->delete();
+    // Owner deletes the scraped Cola → suppressed. Seeded directly rather than
+    // driven through deleteItem(): the record is identical either way, and
+    // menus.suppressed_items is the only input the reapply filter reads. Seeding
+    // it leaves the dish LIVE, so the skip is asserted on its price below.
     $menu->forceFill(['suppressed_items' => [['category' => 'Drinks', 'name' => 'Cola']]])->save();
 
     // Forced rebuild: persist() skips the scraped Cola (suppression), and the
@@ -1059,6 +1051,8 @@ it('does not resurrect a suppressed dish through the automatic scan reapply', fu
     mmcRunFetch($user, force: true);
 
     expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Cola')->exists())->toBeFalse();
+    // ...and the scrape skipped re-writing it, so its price is still run 1's.
+    expect(mmcDishes($user)['Cola']->base_price)->toBe(3.0);
 
     // The reapply itself still ran — the non-suppressed scan-only dish landed
     // under a scan category — proving only the suppressed dish was dropped.

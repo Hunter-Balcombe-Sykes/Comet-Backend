@@ -69,6 +69,14 @@
  *            ManualServiceWriter receiver specifically, and routing a menu
  *            write through the service-flavoured wrapper to satisfy a guard
  *            would be the tail wagging the dog.
+ *            MenuFetchJob's two entries (slice 7 Task 7) are the live twin of
+ *            that migration: the scrape mirrors each site.menu_platform_links
+ *            row into an order_platform collection + storefront sidecar, and
+ *            drops the sidecars when the last ordering link goes. Both sit
+ *            inside handle(), which discharges all three lanes ONCE per run via
+ *            bustSiteCache() -> SiteCacheInvalidator::touchSite -> SiteObserver
+ *            (Redis invalidate + CF purge + KV) — the menu lane's established
+ *            purge path, not the service-flavoured wrapper.
  * READS    — the method only READS these two tables. It is listed because the
  *            scanner flags any method that names a guarded table AND issues
  *            some write terminal, and these write a DIFFERENT table.
@@ -95,6 +103,8 @@ const COLLECTION_WRITE_REGISTRY = [
     'ShopBackfiller::linkToCollection' => 'SHOP',
 
     'MenuBackfiller::migrateOrderPlatforms' => 'MENU',
+    'MenuFetchJob::syncOrderPlatforms' => 'MENU',
+    'MenuFetchJob::clearStorefronts' => 'MENU',
 
     'MenuCollections::ensure' => 'MENU',
     'MenuCollections::rename' => 'MENU',
