@@ -69,6 +69,30 @@ class IntegrationConnection extends BaseModel
 
     protected $keyType = 'string';
 
+    /**
+     * The six pseudo-platform surfaces retired by convergence Phase 6 (scope
+     * §1.6 / §W6). Each existed twice — correctly as PlatformCategory grouping
+     * metadata, and incorrectly as a connectable platform mapped to a hidden
+     * partna.* surface that ConnectorRegistry could never see, which is what
+     * made 41 live connections structurally invisible to ingest.
+     *
+     * NOT yet enforced in booted(): the guard lands with the write-path move,
+     * because turning it on first would only make every not-yet-migrated caller
+     * throw. Declared here now so the migration and the callers share one list.
+     * Kept as a const rather than derived from the
+     * catalog's Lifecycle::Hidden because hidden and retired are different
+     * claims: partna.manual_product is hidden and dormant but NOT retired (§16),
+     * and conflating them would close a lane nobody decided to close.
+     */
+    public const RETIRED_SURFACES = [
+        'partna.custom_link',
+        'partna.order_link',
+        'partna.storefront',
+        'partna.reserve_link',
+        'partna.booking_link',
+        'partna.manual_event',
+    ];
+
     // Mass-assignment posture (SEC-1): `user_id` is KEPT fillable on purpose —
     // mirrors the User.handle precedent. The updateOrCreate() idiom in
     // ManagesIntegrationConnection::writeConnection() (and the analogous calls

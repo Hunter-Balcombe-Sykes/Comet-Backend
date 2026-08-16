@@ -88,7 +88,7 @@ it('seed() dispatches a commerce probe and writes NO custom link for an unclassi
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(0);
 });
 
-it('seed() routes a Booksy link to the shared booking key instead of a custom link', function () {
+it('seed() routes a Booksy link to its own brand key instead of a custom link', function () {
     Queue::fake();
     $user = User::factory()->create(['account_type' => 'partna']);
 
@@ -99,10 +99,13 @@ it('seed() routes a Booksy link to the shared booking key instead of a custom li
     expect($result)->toBeNull();
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(0);
 
-    $booking = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'booking'])->first();
-    expect($booking)->not->toBeNull();
-    // Decision 10: the brand is a `provider` string on the shared key, never a
-    // registry key of its own.
+    // Convergence Phase 6 retired the shared 'booking' pseudo-key. Booksy is a
+    // REGISTERED brand, so it keeps its legacy slug — a catalog-only booking
+    // brand (treatwell.book) would be named by its surface key instead. The
+    // `provider` string stays either way: it is what renders "Book with Booksy".
+    $booking = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'booksy'])->first();
+    expect($booking)->not->toBeNull()
+        ->and($booking->routing_class)->toBe('booking');
     expect($booking->payload['provider'])->toBe('Booksy');
     expect($booking->payload['url'])->toBe('https://booksy.com/en-us/12345_the-salon');
 });

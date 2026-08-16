@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms\Concerns;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -115,8 +116,23 @@ trait BuildsAutoSyncFindings
      */
     private function write(string $userId, string $platform, string $resourceId, array $payload): void
     {
+        // Match on surface_key, NOT platform. `platform` is a GENERATED column
+        // in Postgres (split_part of surface_key, plus the SPECIAL_TO_LEGACY
+        // CASE), so it only ever holds a legacy slug. Since convergence Phase 6
+        // the router also passes CATALOG surface keys for brands added after P1
+        // (uber_eats.order, thefork.reserve, …) — those have no legacy slug, and
+        // matching a surface key against the generated column can never hit.
+        // The lookup would miss on every re-sync and updateOrCreate would CREATE
+        // a duplicate row each time instead of updating one.
+        //
+        // surface_key is what the mutator resolves either input to, so keying on
+        // it is exactly equivalent for the 78 legacy slugs and correct for the rest.
         IntegrationConnection::updateOrCreate(
-            ['user_id' => $userId, 'platform' => $platform, 'resource_id' => $resourceId],
+            [
+                'user_id' => $userId,
+                'surface_key' => LegacyPlatformMap::surfaceFor($platform) ?? $platform,
+                'resource_id' => $resourceId,
+            ],
             [
                 'payload' => $payload,
                 'is_active' => true,
@@ -316,6 +332,7 @@ trait BuildsAutoSyncFindings
     private function looksLikeBookingSlotApply(array $finding, array $apply): bool
     {
         return ($finding['category'] ?? null) === 'booking'
+            || ($apply['removeRoutingClass'] ?? null) === 'booking'
             || array_intersect((array) ($apply['remove'] ?? []), self::BOOKING_SLOT_PLATFORMS) !== [];
     }
 
@@ -330,6 +347,7 @@ trait BuildsAutoSyncFindings
     private function looksLikeReservationsSlotApply(array $finding, array $apply): bool
     {
         return ($finding['category'] ?? null) === 'reservations'
+            || ($apply['removeRoutingClass'] ?? null) === 'reservations'
             || array_intersect((array) ($apply['remove'] ?? []), self::RESERVATIONS_SLOT_PLATFORMS) !== [];
     }
 
@@ -349,6 +367,23 @@ trait BuildsAutoSyncFindings
             }
             IntegrationConnection::query()
                 ->where('user_id', $userId)->where('platform', $platform)
+                ->get()->each->delete();
+        }
+
+        // Convergence Phase 6. `remove` is a STORED slug list — a finding is
+        // persisted when it is raised and applied later — so its shape cannot
+        // change without invalidating findings already sitting in the blob.
+        // `removeRoutingClass` is therefore ADDITIVE: old findings keep clearing
+        // their three slugs, new ones clear the whole family.
+        //
+        // It is needed because a slug list can no longer enumerate a family.
+        // Phase 6 gives each booking/reservation brand its own key, so "remove
+        // whatever currently occupies the booking slot" is a routing_class
+        // question, not a list of names anyone can keep up to date.
+        $removeClass = $apply['removeRoutingClass'] ?? null;
+        if (is_string($removeClass) && $removeClass !== '') {
+            IntegrationConnection::query()
+                ->where('user_id', $userId)->where('routing_class', $removeClass)
                 ->get()->each->delete();
         }
 
@@ -623,16 +658,32 @@ trait BuildsAutoSyncFindings
      */
     protected function resolveBookingLink(string $userId, string $platform, string $url, array $write, array $classified): array
     {
+        // Convergence Phase 6: the conflict set is every connection whose
+        // ROUTING CLASS is booking, not the three-slug BOOKING_SLOT_PLATFORMS
+        // list. Under Decision 10 every non-Fresha/Square brand shared the
+        // 'booking' key, so three slugs covered the family exactly. Phase 6
+        // retires that shared key and gives each brand its own — booksy,
+        // calendly.book, treatwell.book — so a slug list can no longer enumerate
+        // the family, and a user could hold Fresha AND Booksy at once.
+        //
+        // routing_class is the right axis for the same reason RoutingCapabilityGate
+        // keys on it: it travels with surface_key on every row by construction
+        // (IntegrationConnection::booted fills it from the map/catalog), so a
+        // brand added later joins the XOR set without anyone remembering to.
         $conflictingBooking = IntegrationConnection::query()
             ->where('user_id', $userId)
-            ->whereIn('platform', self::BOOKING_SLOT_PLATFORMS)
-            ->where('platform', '!=', $platform)
+            ->where('routing_class', 'booking')
+            ->where('surface_key', '!=', LegacyPlatformMap::surfaceFor($platform) ?? $platform)
             ->first();
 
         if ($conflictingBooking !== null) {
             return [
                 'findings' => [$this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
+                    // Both: the slug list keeps a pre-Phase-6 consumer working,
+                    // removeRoutingClass is what actually clears the family now
+                    // that each brand carries its own key.
                     'remove' => self::BOOKING_SLOT_PLATFORMS,
+                    'removeRoutingClass' => 'booking',
                     'write' => $write,
                 ])],
                 'unmatched' => [],

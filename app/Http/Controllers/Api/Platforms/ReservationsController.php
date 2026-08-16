@@ -180,15 +180,31 @@ class ReservationsController extends ApiController
         return ['connected' => false, 'provider' => null, 'name' => null, 'url' => null, 'embedUrl' => null];
     }
 
-    /** Remove every reservation-family connection (the single-slot guarantee). */
+    /**
+     * Remove every reservation-family connection (the single-slot guarantee).
+     *
+     * Convergence Phase 6: keyed on routing_class, not the three KEYLESS_PROVIDERS
+     * slugs. Those three enumerated the family only while every other reservation
+     * brand shared the retired 'reservations' pseudo-key; now SevenRooms, Resy,
+     * TheFork and the rest each carry their own surface, so a slug list silently
+     * under-covers and the "single slot" stops being single.
+     *
+     * routing_class travels with surface_key on every row by construction, so a
+     * brand added later is covered without anyone remembering to add it.
+     *
+     * Dev does hold a user (ollies) with an opentable.reserve row and a SevenRooms
+     * row live at once, but do NOT read that as this list under-covering: the old
+     * three slugs plus the shared 'reservations' key did span both. It got there
+     * through a write path that never calls this method at all — the Google
+     * Business harvest seeds a reservation row directly. Widening the axis here
+     * does not close that hole; it only stops a NEW one opening as brands split
+     * off the shared key.
+     */
     private function clearReservations(User $user): void
     {
-        foreach (self::KEYLESS_PROVIDERS as $provider) {
-            foreach ($user->integrationConnections()->where('platform', $provider)->get() as $row) {
-                $row->delete();   // soft-delete; observer purges the sitepage cache
-            }
+        foreach ($user->integrationConnections()->where('routing_class', 'reservations')->get() as $row) {
+            $row->delete();   // soft-delete; observer purges the sitepage cache
         }
-        $this->forgetConnection($user);   // the custom 'reservations' row, if any
     }
 
     /** @return array{provider:string, url:?string, name:?string, favicon:?string, logo:?string} */

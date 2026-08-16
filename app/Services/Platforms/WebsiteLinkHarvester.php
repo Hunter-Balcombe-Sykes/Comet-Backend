@@ -82,12 +82,14 @@ class WebsiteLinkHarvester
         // does not do.
     ];
 
-    /** Label => platform slug for RESERVATION_HOSTS, used only by classify(). */
+    /** Label => platform key for RESERVATION_HOSTS — see BOOKING_PLATFORM on the two shapes. */
     private const RESERVATION_PLATFORM = [
         'OpenTable' => 'opentable', 'ResDiary' => 'resdiary', 'NowBookit' => 'nowbookit',
-        'SevenRooms' => 'reservations', 'Tock' => 'reservations', 'TheFork' => 'reservations',
-        'Quandoo' => 'reservations', 'Resy' => 'reservations', 'Chope' => 'reservations',
-        'Tablein' => 'reservations', 'Eat App' => 'reservations', 'TableCheck' => 'reservations',
+        'SevenRooms' => 'sevenrooms', 'Tock' => 'tock', 'Quandoo' => 'quandoo',
+        'Resy' => 'resy', 'TableCheck' => 'tablecheck',
+        // Catalog-only.
+        'TheFork' => 'thefork.reserve', 'Chope' => 'chope.reserve',
+        'Tablein' => 'tablein.reserve', 'Eat App' => 'eat_app.reserve',
     ];
 
     /** Online-ordering provider hosts (AU market set + expanded 2026-07-25). */
@@ -107,6 +109,29 @@ class WebsiteLinkHarvester
         'Toast Takeout' => '~(^|\.)toasttab\.com$~',
         'Wolt' => '~(^|\.)wolt\.com$~',
         'Zomato' => '~(^|\.)zomato\.com$~',
+        // Phase 6: bopple.app was never listed, so a real ollies ordering link
+        // on that host classified as nothing and spent a commerce probe. The
+        // catalog's own Bopple detector still covers only bopple.com/.me — it
+        // is a separate table and is deliberately not widened here.
+        'Bopple' => '~(^|\.)bopple\.(com|me|app)$~',
+    ];
+
+    /**
+     * Label => platform key for ORDERING_HOSTS — see BOOKING_PLATFORM on the two
+     * shapes. Before Phase 6 every ordering host collapsed to the single
+     * 'online-ordering' pseudo-platform, which is why ollies' Uber Eats and
+     * DoorDash links were indistinguishable to ingest (scope §1.6).
+     */
+    private const ORDERING_PLATFORM = [
+        'Bopple' => 'bopple',
+        // Catalog-only.
+        'Uber Eats' => 'uber_eats.order', 'DoorDash' => 'doordash.order',
+        'Menulog' => 'menulog.order', 'Deliveroo' => 'deliveroo.order',
+        'Order Online' => 'order_online.order', 'OrderMate' => 'ordermate.order',
+        'SkipTheDishes' => 'skipthedishes.order', 'Just Eat' => 'just_eat.order',
+        'Grubhub' => 'grubhub.order', 'Slice' => 'slice.order',
+        'ChowNow' => 'chownow.order', 'Toast Takeout' => 'toast.order',
+        'Wolt' => 'wolt.order', 'Zomato' => 'zomato.order',
     ];
 
     /** Booking provider hosts, keyed by label. Expanded 2026-07-25. */
@@ -132,15 +157,27 @@ class WebsiteLinkHarvester
         'SimplyBook.me' => '~(^|\.)simplybook\.me$~',
     ];
 
-    /** Label => platform slug for BOOKING_HOSTS, used only by classify(). */
+    /**
+     * Label => platform key for BOOKING_HOSTS, used only by classify().
+     *
+     * Convergence Phase 6 retired the shared 'booking' pseudo-platform, so every
+     * brand names itself. Two shapes appear here and the difference is not
+     * cosmetic: a REGISTERED brand (booksy, vagaro, …) uses its legacy slug,
+     * while a CATALOG-ONLY brand uses its full surface key. LegacyPlatformMap is
+     * frozen to the 20260727110001 backfill CASE pair-for-pair, so a brand added
+     * after P1 can never get a legacy slug — its surface key IS its only name.
+     * IntegrationConnection::setPlatformAttribute accepts either verbatim.
+     */
     private const BOOKING_PLATFORM = [
         'Fresha' => 'fresha', 'Square' => 'square',
-        'Booksy' => 'booking', 'Timely' => 'booking', 'Calendly' => 'booking',
-        'Vagaro' => 'booking', 'Mindbody' => 'booking', 'Acuity' => 'booking',
-        'Setmore' => 'booking', 'Genbook' => 'booking', 'GlossGenius' => 'booking',
-        'Mangomint' => 'booking', 'Boulevard' => 'booking', 'Ovatu' => 'booking',
-        'Treatwell' => 'booking', 'Noterro' => 'booking', 'Schedulicity' => 'booking',
-        'SimplyBook.me' => 'booking',
+        'Booksy' => 'booksy', 'Timely' => 'timely', 'Vagaro' => 'vagaro',
+        'Mindbody' => 'mindbody', 'GlossGenius' => 'glossgenius',
+        'Mangomint' => 'mangomint', 'Boulevard' => 'boulevard', 'Ovatu' => 'ovatu',
+        // Catalog-only — no legacy slug exists or can exist.
+        'Calendly' => 'calendly.book', 'Acuity' => 'acuity.book',
+        'Setmore' => 'setmore.book', 'Genbook' => 'genbook.book',
+        'Treatwell' => 'treatwell.book', 'Noterro' => 'noterro.book',
+        'Schedulicity' => 'schedulicity.book', 'SimplyBook.me' => 'simplybook_me.book',
     ];
 
     /**
@@ -436,7 +473,7 @@ class WebsiteLinkHarvester
 
         foreach (self::ORDERING_HOSTS as $label => $pattern) {
             if (preg_match($pattern, $host)) {
-                return ['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => $label];
+                return ['platform' => self::ORDERING_PLATFORM[$label], 'category' => 'online-ordering', 'label' => $label];
             }
         }
 
