@@ -123,9 +123,9 @@ class PublicIntegrationConnectionResource extends ApiResource
         // youtube-music: channelId (the re-fetch input) stays private.
         'youtube-music' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items'],
         // 2026-08-16: demoted to link-only, finishing Phase 1.2. They published
-        // scraped card decoration — name, image, description, member counts —
-        // which nothing refreshes any more now the fetch strategies and
-        // scrapers are gone. Publishing a stale name forever is worse than
+        // scraped card decoration — name, image, description, follower/member
+        // counts — which nothing refreshes any more now the fetch strategies
+        // and scrapers are gone. Publishing a stale name forever is worse than
         // publishing the link, so they take the same {username, url} contract
         // as every other link-only platform above. Existing payloads are
         // normalised to that shape by `platforms:backfill-link-payloads`.
@@ -292,6 +292,12 @@ class PublicIntegrationConnectionResource extends ApiResource
         // per-store split needed a home for it). Same `[]` as every other
         // storefront brand: products reach the wire through `profile.pools.shop`.
         'generic' => [],
+        // direct.book — the booking page no brand claims, nearly always the
+        // business's own site. Takes the CARD key set, not `[]`: the sitepage
+        // renders it as a Book button and needs the url to do that. This is why
+        // it has its own brand rather than sharing `generic`, which must stay
+        // empty for storefronts.
+        'direct' => ['url', 'name', 'favicon', 'logo', 'provider'],
         // partna.manual_product is the dormant manual product add-path (§16);
         // it has no public shape of its own for the same reason as the above.
         'partna' => [],

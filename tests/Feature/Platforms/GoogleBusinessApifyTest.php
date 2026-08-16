@@ -415,19 +415,16 @@ it('keeps a same-domain appointment link and auto-syncs it as the booking card',
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    // Convergence Phase 6 CHANGES THIS OUTCOME, and the change is named rather
-    // than asserted away: the same-domain appointment link is still KEPT by the
-    // website-echo filter (that half is unchanged, and is what this case was
-    // written to protect), but there is no brand whose surface it belongs to —
-    // it is the merchant's own domain. The Google harvest now skips a link it
-    // cannot type instead of writing it to a retired shared key, because a
-    // background harvest must not publish a link the owner never chose (see
-    // GoogleBusinessAutoSync's ordering arm for the full reasoning).
-    //
-    // The owner can still connect it by hand: BookingController::detect sends
-    // exactly this URL to the links pool under owner ruling 2A.
-    expect(IntegrationConnection::query()->where('user_id', $user->id)
-        ->where('routing_class', 'booking')->exists())->toBeFalse();
+    // The same-domain appointment link became the user's booking card — the
+    // behaviour this case was written to protect, unchanged by convergence
+    // Phase 6. What DID change is where it is stored: `direct.book`, the
+    // booking page no brand claims (owner ruling 2026-08-16), instead of the
+    // retired shared 'booking' key.
+    $booking = IntegrationConnection::query()->where('user_id', $user->id)
+        ->where('routing_class', 'booking')->firstOrFail();
+    expect($booking->surface_key)->toBe('direct.book');
+    expect($booking->payload['url'])->toBe('https://www.fadelab.com.au/book-appointment');
+    expect($booking->payload['source'])->toBe('google-business');
 });
 
 it('keeps the Google Business selection business-info-only after enrichment', function () {

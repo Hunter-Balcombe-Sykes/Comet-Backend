@@ -8,14 +8,15 @@ use App\Ingest\Manifest\SourceProfile;
 /**
  * The 12 closed item kinds and what the dashboard may do with each.
  *
- * This docblock used to call itself "the wire behind `GET /api/content/kinds`
- * (plan §6/§16)". **There is no such route** — verified 2026-08-14 against
- * routes/ and a live 404 on dev. The endpoint was planned and never built, and
- * the sentence outlived the plan. The registry's only caller in `app/` today is
- * `SectionRuleRules`, which uses {@see self::has()} to reject a section rule
- * naming an unknown kind; everything else here is declarative and read by
- * tests. Said plainly because a registry that believes it is a public contract
- * gets defended as one.
+ * This IS the wire behind `GET /api/content/kinds` (`KindsController`,
+ * routes/api/user.php) — but only since 2026-08-16. For most of this file's
+ * life the docblock claimed that route while none existed: it was planned,
+ * never built, and the sentence outlived the plan until the field renderer
+ * finally needed the schema. Recorded because the gap was real and briefly
+ * documented as such (convergence-log F23); the claim is simply true now.
+ *
+ * Its other caller is `SectionRuleRules`, which uses {@see self::has()} to
+ * reject a section rule naming an unknown kind.
  *
  * THIS registry is the application-level truth, and it is deliberately
  * NARROWER than the DB. `content.items.kind` and `content.source_items.kind`

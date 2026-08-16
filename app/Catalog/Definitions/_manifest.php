@@ -17,6 +17,7 @@ use App\Catalog\Definitions\Chownow;
 use App\Catalog\Definitions\Circle;
 use App\Catalog\Definitions\Codepen;
 use App\Catalog\Definitions\Deliveroo;
+use App\Catalog\Definitions\DirectBooking;
 use App\Catalog\Definitions\Discord;
 use App\Catalog\Definitions\Doordash;
 use App\Catalog\Definitions\Dribbble;
@@ -143,6 +144,7 @@ return [
     Glossgenius::class,
     GoogleBusiness::class,
     Grubhub::class,
+    DirectBooking::class,
     GenericStore::class,
     Gumroad::class,
     Humanitix::class,
