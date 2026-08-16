@@ -28,7 +28,14 @@ Order:
 6. `phase-6-pseudo-platforms` (PARTIAL — finished in 6b)
 6b. `phase-6-finish` ✅ DONE 2026-08-16 — checkpoint §26. 0 live partna.*
     connections remain; the guard refuses new ones.
-7. `slice-7-teardown`
+7. `slice-7-teardown` ⛔ **BLOCKED 2026-08-16 at its entry gate — do NOT re-run
+   this prompt until both blockers clear.** Coverage gate green (re-derived
+   live). The "nothing still reads the legacy tables" gate FAILS: the whole
+   legacy menu lane (14 routes incl. the public `/menu` endpoint, plus
+   `MenuFetchJob` and `MenuScanApplier`) and `Services\Platforms\FreshaServiceProjector`
+   are live, unrepointed writers of drop-list tables. Slices 4 and 3b reopen.
+   Evidence: `2026-08-16-slice-7-entry-gate-report.md`. Nothing was dropped,
+   backed up, specced or planned.
 7b. `programme-review` (added 2026-08-16 — whole-programme verification gate;
     phase-8-docs may not start until it reports PASS)
 8. `phase-8-docs`
