@@ -10,12 +10,15 @@ use App\Models\Core\Site\MenuPlatformLink;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Content\ManualMenuItems;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
+use App\Services\Platforms\MenuProjectionMapper;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -151,6 +154,46 @@ function seedMenu(User $user, array $menuAttrs, array $categories): Menu
     return $menu;
 }
 
+/**
+ * Slice 7 Task 7 read helpers. MenuFetchJob lands the scrape in content.* now,
+ * so the assertions below read it back through ManualMenuItems — the same fold
+ * the dashboard uses, which is what makes "the scrape wrote it" and "the
+ * dashboard can see it" one assertion instead of two.
+ *
+ * @return Collection<string, stdClass> normalized name => folded dish
+ */
+function menuContentDishes(User $user, bool $includeRemoved = false): Collection
+{
+    return app(ManualMenuItems::class)->rows((string) $user->id, $includeRemoved)
+        ->keyBy(fn (stdClass $row) => (string) $row->headline);
+}
+
+function menuContentDish(User $user, string $name, bool $includeRemoved = false): ?stdClass
+{
+    return menuContentDishes($user, $includeRemoved)->get($name);
+}
+
+/** @return list<string> category labels in the order the dashboard renders them */
+function menuContentCategories(User $user): array
+{
+    return app(ManualMenuItems::class)->categories((string) $user->id)
+        ->pluck('label')->map(fn ($l) => (string) $l)->all();
+}
+
+/** Dish names grouped under each content.* category, in category order. */
+function menuContentStructure(User $user): array
+{
+    $dishes = menuContentDishes($user);
+    $out = [];
+    foreach (app(ManualMenuItems::class)->categories((string) $user->id) as $category) {
+        $out[(string) $category->label] = $dishes
+            ->filter(fn (stdClass $row) => in_array((string) $category->id, $row->category_ids, true))
+            ->keys()->all();
+    }
+
+    return $out;
+}
+
 // ── Source resolution (Uber Eats > DoorDash > none) ───────────────────
 
 it('resolves uber eats over doordash for menu content', function () {
@@ -240,21 +283,143 @@ it('scrapes and stores the relational menu on source change', function () {
     expect($menu->fetch_status)->toBe('ok');
     expect($menu->platformLinks->firstWhere('platform', 'uber-eats')?->store_url)->toBe('https://www.ubereats.com/store/x');
     expect($menu->store_name)->toBe('Ollies');
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->value('name'))->toBe('Pizzas');
-    $item = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
-    expect($item->name)->toBe('Margherita');
+
+    // Slice 7 Task 7: the dishes land in content.*, and site.menu_* is not
+    // touched at all — this pair is the whole point of the task.
+    expect(menuContentCategories($user))->toBe(['Pizzas']);
+    $item = menuContentDish($user, 'Margherita');
+    expect($item)->not->toBeNull();
     expect($item->base_price)->toBe(12.5);
     // Image set persists hero-first alongside the single image_url.
     expect($item->image_url)->toBe('https://ue/marg.jpg');
     expect($item->images)->toBe(['https://ue/marg.jpg']);
+
+    expect(MenuItem::query()->where('menu_id', $menu->id)->exists())->toBeFalse();
+    expect(MenuCategory::query()->where('menu_id', $menu->id)->exists())->toBeFalse();
+    expect(MenuItemPlatform::query()->count())->toBe(0);
+});
+
+it('lands the scrape on the coord MenuProjectionMapper derives, with the store card beside it', function () {
+    // The two structural halves Task 7 owes the read side: the coord (identity
+    // across rebuilds AND the key slice 4's backfill already used for the 318
+    // live dishes) and the order_platform storefront (the ONLY thing that
+    // re-pairs a dish's deep link with its platform — ManualMenuItems matches
+    // by URL host against it).
+    $user = menuUser('m6coord');
+    ordering($user, 'https://www.ubereats.com/store/coord', null, '2026-06-17 10:00:00');
+
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
+        ]]);
+    });
+
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    expect(menuContentDish($user, 'Margherita')->coord)
+        ->toBe(MenuProjectionMapper::coordFor((string) $menu->id, 'Margherita'));
+
+    $storefront = DB::connection('pgsql')->table('content.collections as c')
+        ->join('content.storefronts as sf', 'sf.collection_id', '=', 'c.id')
+        ->where('c.user_id', $user->id)->where('c.kind', 'order_platform')
+        ->first(['c.external_ref', 'sf.provider', 'sf.url']);
+    expect($storefront)->not->toBeNull();
+    expect($storefront->external_ref)->toBe(MenuProjectionMapper::orderPlatformRef('uber-eats'));
+    expect($storefront->provider)->toBe('uber-eats');
+    expect($storefront->url)->toBe('https://www.ubereats.com/store/coord');
+});
+
+it('seeds a pool:menus pin for a dish that has none and never rewrites one the owner set', function () {
+    // Dish ORDER lives in the pins, not in content.collection_items.position
+    // (ProvisionMenuPinsCommand's docblock, and MenuPayloadComposer::pinOrder()
+    // is the reader). An unpinned dish trails every pinned one, so a scrape that
+    // pinned nothing would render a brand-new menu alphabetically. Seeding is
+    // therefore required; REWRITING is forbidden — a scheduled run must never
+    // snap an owner's reorder back (parent §19).
+    setupSectionsTables();
+    $user = menuUser('m6pin');
+    // A pin hangs off the owner's pool:menus section, so this needs a real site.
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $user->id, 'subdomain' => 'm6pin',
+        'is_published' => 1, 'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    ordering($user, 'https://www.ubereats.com/store/pin', null, '2026-06-17 10:00:00');
+
+    $run1 = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [['name' => 'Mains', 'items' => [
+            ['name' => 'Steak', 'pickupPrice' => 30.0, 'deliveryPrice' => 30.0],
+            ['name' => 'Fries', 'pickupPrice' => 6.0, 'deliveryPrice' => 6.0],
+        ]]],
+    ]];
+    $run2 = $run1;
+    $run2['uber-eats']['categories'][0]['items'][] = ['name' => 'Pie', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0];
+
+    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2));
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $pins = fn () => DB::connection('pgsql')->table('site.section_items as si')
+        ->join('content.items as i', 'i.id', '=', 'si.item_id')
+        ->orderBy('si.sort_key')->pluck('i.headline_cache')->all();
+
+    // The vendor's order, laid down 1..N on the first run.
+    expect($pins())->toBe(['Steak', 'Fries']);
+
+    // The owner drags Fries to the front.
+    DB::connection('pgsql')->table('site.section_items')
+        ->where('item_id', menuContentDish($user, 'Fries')->id)->update(['sort_key' => 0.5]);
+
+    (new MenuFetchJob((string) $user->id, force: true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    // The drag survives, and the new dish appends after it rather than
+    // displacing anything.
+    expect($pins())->toBe(['Fries', 'Steak', 'Pie']);
+});
+
+it('writes one storefront per menu_platform_links row so a two-platform dish keeps both order links', function () {
+    $user = menuUser('m6sf2');
+    ordering($user, 'https://www.ubereats.com/store/two', null, '2026-06-17 09:00:00');
+    ordering($user, 'https://www.doordash.com/store/two/', null, '2026-06-17 10:00:00');
+
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn([
+            'uber-eats' => [
+                'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+                'categories' => [['name' => 'Mains', 'items' => [['name' => 'Burrito', 'pickupPrice' => 17.0, 'deliveryPrice' => 17.0]]]],
+            ],
+            'doordash' => [
+                'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+                'categories' => [['name' => 'Mains', 'items' => [['name' => 'Burrito', 'pickupPrice' => 15.5, 'deliveryPrice' => 15.5]]]],
+            ],
+        ]);
+    });
+
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $providers = DB::connection('pgsql')->table('content.collections as c')
+        ->join('content.storefronts as sf', 'sf.collection_id', '=', 'c.id')
+        ->where('c.user_id', $user->id)->where('c.kind', 'order_platform')
+        ->orderBy('sf.provider')->pluck('sf.provider')->all();
+    expect($providers)->toBe(['doordash', 'uber-eats']);
+
+    // Host-matched attribution through those storefronts — drop them and both
+    // entries come back link-less.
+    $platforms = collect(menuContentDish($user, 'Burrito')->platforms)->keyBy('platform');
+    expect($platforms->keys()->sort()->values()->all())->toBe(['doordash', 'uber-eats']);
+    expect($platforms['uber-eats']->pickup_url)->toContain('ubereats.com');
+    expect($platforms['doordash']->pickup_url)->toContain('doordash.com');
 });
 
 it('reuses category and item ids across rebuilds when names match (stable identity)', function () {
     // Popularity scores (analytics item_id) and sitepage item-detail URLs both
-    // key on menu_items.id across refreshes — a wholesale rebuild must therefore
-    // re-assign the SAME id to a dish that still exists (matched by normalized
-    // name, the same identity MenuMerger uses cross-platform). Removed dishes
-    // free their id; new dishes mint fresh ones.
+    // key on the dish id across refreshes, so a refresh must land on the SAME
+    // row for a dish that still exists. Slice 7: the identity is no longer
+    // reconstructed by a reuse pool — the coord IS the normalized name, so an
+    // upsert-by-coord gives it for free. A dish the vendor drops is marked
+    // removed (never hard-deleted) and a new dish mints a fresh id.
     $user = menuUser('m6ids');
     ordering($user, 'https://www.ubereats.com/store/ids', null, '2026-06-17 10:00:00');
 
@@ -284,31 +449,35 @@ it('reuses category and item ids across rebuilds when names match (stable identi
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
-    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    $idsBefore = MenuItem::query()->where('menu_id', $menu->id)->pluck('id', 'name');
-    $pizzasIdBefore = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Pizzas')->value('id');
+    $idsBefore = menuContentDishes($user)->map(fn (stdClass $row) => (string) $row->id);
+    $pizzasIdBefore = app(ManualMenuItems::class)->categories((string) $user->id)
+        ->firstWhere('label', 'Pizzas')->id;
 
     // Forced refresh (the unchanged-skip gate would otherwise no-op the rebuild).
     (new MenuFetchJob((string) $user->id, force: true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
-    $idsAfter = MenuItem::query()->where('menu_id', $menu->id)->pluck('id', 'name');
+    $idsAfter = menuContentDishes($user)->map(fn (stdClass $row) => (string) $row->id);
     expect($idsAfter['Margherita'])->toBe($idsBefore['Margherita']);
     expect($idsAfter['Fries'])->toBe($idsBefore['Fries']);
     // The refreshed price landed on the SAME row (a real update, not a lookalike).
-    expect((float) MenuItem::query()->whereKey($idsBefore['Margherita'])->value('base_price'))->toBe(13.0);
-    // Removed dish is gone; its id was not silently re-assigned to the new dish.
+    expect(menuContentDish($user, 'Margherita')->base_price)->toBe(13.0);
+    // The dropped dish is marked removed — NOT hard-deleted, and its id was
+    // not silently re-assigned to the new dish.
     expect($idsAfter)->not->toHaveKey('Pepperoni');
+    expect(menuContentDish($user, 'Pepperoni', includeRemoved: true)->removed_at)->not->toBeNull();
     expect($idsAfter['Calzone'])->not->toBe($idsBefore['Pepperoni']);
     // Categories keep their identity through the upstream reorder too.
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Pizzas')->value('id'))
-        ->toBe($pizzasIdBefore);
+    expect((string) app(ManualMenuItems::class)->categories((string) $user->id)
+        ->firstWhere('label', 'Pizzas')->id)->toBe((string) $pizzasIdBefore);
 });
 
 it('collapses a same-named dish in two categories into ONE item with BOTH memberships, id-stable across rebuilds', function () {
     // Multi-category model (2026-07-21): "Coke" under Drinks AND Combos is a
-    // single menu_items row with two pivot memberships — the duplicate-rows
-    // problem this redesign removes. Its id must survive forced rebuilds
-    // (popularity scores + item URLs key on it).
+    // single dish with two category memberships — the duplicate-rows problem
+    // this redesign removes. Slice 7 keeps it by deduping menu-wide BEFORE the
+    // write: writeManualItem() replaces an item's memberships per source, so
+    // writing the coord twice would leave Coke in whichever category came last.
+    // Its id must survive forced rebuilds (popularity scores + item URLs key on it).
     $user = menuUser('m6xcat');
     ordering($user, 'https://www.ubereats.com/store/xcat', null, '2026-06-17 10:00:00');
 
@@ -324,23 +493,25 @@ it('collapses a same-named dish in two categories into ONE item with BOTH member
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
-    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
 
-    $coke = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Coke')->get();
-    expect($coke)->toHaveCount(1);
-    $cokeCategories = fn () => MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Coke')
-        ->firstOrFail()->categories->pluck('name')->sort()->values()->all();
+    expect(menuContentDishes($user))->toHaveCount(1);
+    $cokeCategories = function () use ($user) {
+        $labels = menuContentDish($user, 'Coke')->category_labels;
+        sort($labels);
+
+        return array_values($labels);
+    };
     expect($cokeCategories())->toBe(['Combos', 'Drinks']);
     // First occurrence (Drinks) wins the display fields.
-    expect((float) $coke->first()->pickup_price)->toBe(4.0);
-    $idBefore = (string) $coke->first()->id;
+    expect(menuContentDish($user, 'Coke')->pickup_price)->toBe(4.0);
+    $idBefore = (string) menuContentDish($user, 'Coke')->id;
 
     (new MenuFetchJob((string) $user->id, force: true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
-    expect((string) MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Coke')->firstOrFail()->id)->toBe($idBefore);
+    expect((string) menuContentDish($user, 'Coke')->id)->toBe($idBefore);
     expect($cokeCategories())->toBe(['Combos', 'Drinks']);
 
     (new MenuFetchJob((string) $user->id, force: true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
-    expect((string) MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Coke')->firstOrFail()->id)->toBe($idBefore);
+    expect((string) menuContentDish($user, 'Coke')->id)->toBe($idBefore);
     expect($cokeCategories())->toBe(['Combos', 'Drinks']);
 });
 
@@ -384,7 +555,7 @@ it('re-scrapes when a connected platform last came back unavailable', function (
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
     $menu->load('platformLinks');
     expect($menu->platformLinks->firstWhere('platform', 'uber-eats')?->status)->toBe('ok');
-    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Margherita')->exists())->toBeTrue();
+    expect(menuContentDish($user, 'Margherita'))->not->toBeNull();
 });
 
 it('forces a re-scrape and replaces the menu even when the url is unchanged', function () {
@@ -406,7 +577,10 @@ it('forces a re-scrape and replaces the menu even when the url is unchanged', fu
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
     $menu->refresh();
     expect($menu->rating)->toBe(4.5);
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->pluck('name')->all())->toBe(['Fresh']);
+    expect(menuContentCategories($user))->toBe(['Fresh']);
+    // The pre-existing legacy 'Old' category is not touched by the scrape any
+    // more — Phase 5 drops that table; the scrape's own lane is content.*.
+    expect(menuContentDish($user, 'New'))->not->toBeNull();
 });
 
 it('clears the menu when no ordering source remains', function () {
@@ -681,8 +855,7 @@ it('captures and serves the uber eats item currency and store dining modes end t
 
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
     expect($menu->dining_modes)->toBe(['DELIVERY', 'PICKUP']);
-    $item = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
-    expect($item->currency)->toBe('AUD');
+    expect(menuContentDish($user, 'Margherita')->currency)->toBe('AUD');
 
     $res = actingAsUser($user)->getJson('/api/platforms/menu')->assertOk();
     expect($res->json('diningModes'))->toBe(['DELIVERY', 'PICKUP']);
@@ -782,32 +955,31 @@ it('unions both platforms and persists a per-platform availability list', functi
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
-    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-
     // The shared dish: one row, both platforms, gap-filled description from DD.
-    $burrito = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Burrito')->firstOrFail();
+    $burrito = menuContentDish($user, 'Burrito');
     expect($burrito->base_price)->toBe(15.5);                 // min across platforms
     expect($burrito->pickup_price)->toBe(15.5);              // DoorDash offers pickup
-    expect($burrito->pickup_source)->toBe('doordash');
     expect($burrito->delivery_price)->toBe(17.0);            // Uber Eats offers delivery
-    expect($burrito->delivery_source)->toBe('uber-eats');
     expect($burrito->description)->toBe('Loaded burrito.');  // gap-filled from DD
     expect($burrito->image_url)->toBe('https://ue/b.jpg');   // UE image preferred
-    $burrito->load('platformLinks');
-    expect($burrito->platformLinks)->toHaveCount(2);
-    expect($burrito->platformLinks->pluck('platform')->all())->toBe(['uber-eats', 'doordash']);
-    expect((float) $burrito->platformLinks->firstWhere('platform', 'uber-eats')->delivery_price)->toBe(17.0);
-    expect($burrito->platformLinks->firstWhere('platform', 'uber-eats')->pickup_price)->toBeNull();
-    expect((float) $burrito->platformLinks->firstWhere('platform', 'doordash')->pickup_price)->toBe(15.5);
-    expect($burrito->platformLinks->firstWhere('platform', 'doordash')->delivery_price)->toBeNull();
+    // pickup_source / delivery_source (which platform backed the aggregate min)
+    // have no projection target — MenuProjectionMapper never carried them and
+    // ManualMenuItems documents them as unrecoverable. The per-platform prices
+    // below still say the same thing.
+    $platforms = collect($burrito->platforms)->keyBy('platform');
+    expect($platforms)->toHaveCount(2);
+    expect($platforms->keys()->all())->toBe(['uber-eats', 'doordash']);
+    expect($platforms['uber-eats']->delivery_price)->toBe(17.0);
+    expect($platforms['uber-eats']->pickup_price)->toBeNull();
+    expect($platforms['doordash']->pickup_price)->toBe(15.5);
+    expect($platforms['doordash']->delivery_price)->toBeNull();
 
     // The DoorDash-only dish appears (not dropped) with a single-platform entry.
-    $churros = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Churros')->firstOrFail();
-    $churros->load('platformLinks');
-    expect($churros->platformLinks)->toHaveCount(1);
-    expect($churros->platformLinks->first()->platform)->toBe('doordash');
-    expect((float) $churros->platformLinks->first()->pickup_price)->toBe(8.0);
-    expect($churros->platformLinks->first()->delivery_price)->toBeNull();
+    $churros = collect(menuContentDish($user, 'Churros')->platforms);
+    expect($churros)->toHaveCount(1);
+    expect($churros->first()->platform)->toBe('doordash');
+    expect($churros->first()->pickup_price)->toBe(8.0);
+    expect($churros->first()->delivery_price)->toBeNull();
 });
 
 // ── Online-ordering store consolidation (one store = one entry) ────────
@@ -911,26 +1083,22 @@ it('wholesale rebuild produces identical menu structure across two forced runs w
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    // Category-grouped item names in display order (category position, then
-    // per-membership pivot position) — the structure the readers render.
-    $structure = fn () => MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->with('items')->get()
-        ->flatMap(fn ($c) => $c->items->pluck('name'))->all();
-    $cats1 = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name')->all();
-    $items1 = $structure();
-    $linkCount1 = MenuItemPlatform::query()->whereIn('menu_item_id', MenuItem::query()->where('menu_id', $menu->id)->pluck('id'))->count();
+    // Category-grouped dish names in display order — the structure the readers
+    // render, now read back out of content.*.
+    $platformEntries = fn () => menuContentDishes($user)->sum(fn (stdClass $row) => count($row->platforms));
+    $cats1 = menuContentCategories($user);
+    $items1 = menuContentStructure($user);
+    $linkCount1 = $platformEntries();
 
     // Run #2 — identical scraper output, forced rebuild.
     $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($scraperOutput));
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     $menu->refresh();
-    $cats2 = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name')->all();
-    $items2 = $structure();
-    $linkCount2 = MenuItemPlatform::query()->whereIn('menu_item_id', MenuItem::query()->where('menu_id', $menu->id)->pluck('id'))->count();
 
-    expect($cats2)->toBe($cats1);
-    expect($items2)->toBe($items1);
-    expect($linkCount2)->toBe($linkCount1);
+    expect(menuContentCategories($user))->toBe($cats1);
+    expect(menuContentStructure($user))->toBe($items1);
+    expect($platformEntries())->toBe($linkCount1);
     expect($menu->fetch_status)->toBe('ok');
 });
 
@@ -960,8 +1128,9 @@ it('persists identical category positions across two scrapes even when the upstr
     $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($run1Output));
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
-    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    $positions1 = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name', 'position')->all();
+    $categoryPositions = fn () => app(ManualMenuItems::class)->categories((string) $user->id)
+        ->pluck('label', 'position')->map(fn ($l) => (string) $l)->all();
+    $positions1 = $categoryPositions();
     expect($positions1)->toBe([0 => 'Featured items', 1 => 'Mains', 2 => 'Sides']);
 
     // Run 2 — SAME 3 categories, upstream scrape reshuffled the array order.
@@ -975,8 +1144,7 @@ it('persists identical category positions across two scrapes even when the upstr
     $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($run2Output));
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
-    $positions2 = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name', 'position')->all();
-    expect($positions2)->toBe($positions1);
+    expect($categoryPositions())->toBe($positions1);
 });
 
 it('resolveAll returns null as the doordash locale address when only a street is stored (no city/state)', function () {
@@ -1260,43 +1428,98 @@ it('preserves scan-sourced categories and items across a forced scraper rebuild 
     $user = menuUser('scan9');
     ordering($user, 'https://www.ubereats.com/store/scanguard', null, '2026-06-17 10:00:00');
 
-    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
-        ['name' => 'Mains', 'items' => [['name' => 'Old Scraped Dish', 'base_price' => 10.0]]],
-    ]);
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->twice()->andReturn(
+            ['uber-eats' => [
+                'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+                'categories' => [['name' => 'Mains', 'items' => [['name' => 'Old Scraped Dish', 'pickupPrice' => 10.0, 'deliveryPrice' => 10.0]]]],
+            ]],
+            ['uber-eats' => [
+                'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+                'categories' => [['name' => 'Fresh', 'items' => [['name' => 'New Scraped Dish', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0]]]],
+            ]],
+        );
+    });
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
         'items' => [['name' => 'Special Lasagna', 'description' => 'Family recipe.', 'price' => 22.0, 'category' => 'Specials']],
     ])->assertOk();
 
+    // MenuScanApplier still writes site.menu_* until Task 8, so the scan lane
+    // is asserted where it lives today. What this test pins is that the scrape
+    // does not reach into it.
     $scanCategory = MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'scan')->firstOrFail();
     $scanItem = $scanCategory->items()->firstOrFail();
 
-    // A forced scraper refresh returns entirely different scraped content.
-    $this->mock(MenuApifyScraper::class, function ($m) {
-        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
-            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
-            'categories' => [['name' => 'Fresh', 'items' => [['name' => 'New Scraped Dish', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0]]]],
-        ]]);
-    });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
-    // Scraped content rebuilt as expected...
-    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Old Scraped Dish')->exists())->toBeFalse();
-    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'New Scraped Dish')->exists())->toBeTrue();
+    // The dish the vendor dropped is marked removed, not hard-deleted...
+    expect(menuContentDish($user, 'Old Scraped Dish'))->toBeNull();
+    expect(menuContentDish($user, 'Old Scraped Dish', includeRemoved: true)->removed_at)->not->toBeNull();
+    expect(menuContentDish($user, 'New Scraped Dish'))->not->toBeNull();
 
-    // ...but the scan-sourced category + item survived, untouched.
+    // ...and the scan-sourced category + item survived, untouched.
     expect(MenuCategory::query()->where('id', $scanCategory->id)->exists())->toBeTrue();
     $scanItem->refresh();
     expect($scanItem->name)->toBe('Special Lasagna');
     expect((float) $scanItem->base_price)->toBe(22.0);
 });
 
+it('never retires a dish the owner deleted, hand-added or had photo-scanned', function () {
+    // The three exemptions retireAbsentDishes() owes: menus.suppressed_items
+    // (the owner's delete / detach), menus.scan_items (a photo-scan dish the
+    // scrape had matched onto) and "no order_platform membership" — which is
+    // what makes a hand-added dish invisible to the scrape's write scope, and
+    // is the content.* replacement for rebuildableCategoryIds().
+    $user = menuUser('scan9b');
+    ordering($user, 'https://www.ubereats.com/store/exempt', null, '2026-06-17 10:00:00');
+
+    $full = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [['name' => 'Mains', 'items' => [
+            ['name' => 'Dropped Dish', 'pickupPrice' => 10.0, 'deliveryPrice' => 10.0],
+            ['name' => 'Suppressed Dish', 'pickupPrice' => 11.0, 'deliveryPrice' => 11.0],
+            ['name' => 'Scanned Dish', 'pickupPrice' => 12.0, 'deliveryPrice' => 12.0],
+        ]]],
+    ]];
+    $empty = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [['name' => 'Mains', 'items' => [['name' => 'Survivor', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0]]]],
+    ]];
+
+    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->twice()->andReturn($full, $empty));
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    Menu::query()->where('user_id', $user->id)->firstOrFail()->forceFill([
+        'suppressed_items' => [['category' => 'Mains', 'name' => 'Suppressed Dish']],
+        'scan_items' => ['items' => [['name' => 'Scanned Dish', 'price' => 12.0, 'category' => 'Mains']]],
+    ])->save();
+
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $live = menuContentDishes($user)->keys()->sort()->values()->all();
+    expect($live)->toBe(['Scanned Dish', 'Suppressed Dish', 'Survivor']);
+    expect(menuContentDish($user, 'Dropped Dish', includeRemoved: true)->removed_at)->not->toBeNull();
+    // Suppression is a WRITE skip too — the scrape never re-listed it, so its
+    // price is still the one from the first run.
+    expect(menuContentDish($user, 'Suppressed Dish')->base_price)->toBe(11.0);
+});
+
 it('preserves scan-sourced content when the user disconnects their only ordering platform', function () {
     $user = menuUser('scan10');
     ordering($user, 'https://www.ubereats.com/store/scanguard2', null, '2026-06-17 10:00:00');
 
-    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
-        ['name' => 'Mains', 'items' => [['name' => 'Scraped Dish', 'base_price' => 10.0]]],
-    ]);
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => [['name' => 'Mains', 'items' => [['name' => 'Scraped Dish', 'pickupPrice' => 10.0, 'deliveryPrice' => 10.0]]]],
+        ]]);
+    });
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
         'items' => [['name' => 'Scanned Special', 'description' => null, 'price' => 12.0, 'category' => 'Specials']],
     ])->assertOk();
@@ -1308,8 +1531,11 @@ it('preserves scan-sourced content when the user disconnects their only ordering
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
-    // Scraped content is gone, but the scan item + the menu row itself survive.
-    expect(MenuItem::query()->where('name', 'Scraped Dish')->exists())->toBeFalse();
+    // The scraped dish is retired and its store card sidecar dropped, but the
+    // scan item + the menu row itself survive.
+    expect(menuContentDish($user, 'Scraped Dish'))->toBeNull();
+    expect(menuContentDish($user, 'Scraped Dish', includeRemoved: true)->removed_at)->not->toBeNull();
+    expect(DB::connection('pgsql')->table('content.storefronts')->count())->toBe(0);
     expect(MenuItem::query()->where('id', $scanItem->id)->exists())->toBeTrue();
     $menu->refresh();
     expect($menu->trashed())->toBeFalse();
@@ -1347,7 +1573,7 @@ it('re-scrapes after a disconnect + reconnect to the same store — a stale plat
     // bug leaves behind after disconnect.
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Original Scraped Dish')->exists())->toBeTrue();
+    expect(menuContentDish($user, 'Original Scraped Dish'))->not->toBeNull();
     expect(MenuPlatformLink::query()->where('menu_id', $menu->id)->where('platform', 'uber-eats')->exists())->toBeTrue();
 
     // Scan content that must survive the disconnect.
@@ -1360,7 +1586,7 @@ it('re-scrapes after a disconnect + reconnect to the same store — a stale plat
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     // Scraped content + the stale platformLinks row are gone; scan content survives.
-    expect(MenuItem::query()->where('name', 'Original Scraped Dish')->exists())->toBeFalse();
+    expect(menuContentDish($user, 'Original Scraped Dish'))->toBeNull();
     expect(MenuItem::query()->where('name', 'Scanned Special')->exists())->toBeTrue();
     expect(MenuPlatformLink::query()->where('menu_id', $menu->id)->where('platform', 'uber-eats')->exists())->toBeFalse();
 
@@ -1368,7 +1594,11 @@ it('re-scrapes after a disconnect + reconnect to the same store — a stale plat
     ordering($user, $storeUrl, null, '2026-06-17 11:00:00');
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
-    expect(MenuItem::query()->where('name', 'Post-Reconnect Dish')->exists())->toBeTrue();
+    expect(menuContentDish($user, 'Post-Reconnect Dish'))->not->toBeNull();
+    // The storefront sidecar comes back with the reconnect — the order_platform
+    // collection was kept (empty) precisely so the upsert had a row to land on.
+    expect(DB::connection('pgsql')->table('content.storefronts')->where('provider', 'uber-eats')->value('url'))
+        ->toBe($storeUrl);
     $menu->refresh();
     expect($menu->content_source)->toBe('uber-eats');
 });
@@ -1485,6 +1715,32 @@ function menuSlugRowCount(User $user, string $itemId): int
         ->where('item_key', $itemId)->count();
 }
 
+/**
+ * Slice 7 Task 7: a scraped dish's permalink lives in content.item_slugs now,
+ * minted by ProjectionWriter::refreshItemCaches() and freed by
+ * ManualPoolWriter::markRemoved() — MenuFetchJob no longer reconciles
+ * site.item_slugs at all (its menu_item lane belongs to the legacy writers
+ * until Tasks 6 and 8, then to Phase 5's drop).
+ */
+function menuContentSlugRow(User $user, string $itemId): ?object
+{
+    return DB::connection('pgsql')->table('content.item_slugs')
+        ->where('user_id', $user->id)->where('item_id', $itemId)->where('is_current', 1)
+        ->first(['id', 'slug']);
+}
+
+function menuContentSlugCount(User $user, string $itemId): int
+{
+    return DB::connection('pgsql')->table('content.item_slugs')
+        ->where('user_id', $user->id)->where('item_id', $itemId)->count();
+}
+
+/** The scraped dish's content item id, by name. */
+function menuContentId(User $user, string $name): string
+{
+    return (string) menuContentDish($user, $name, includeRemoved: true)->id;
+}
+
 /** Mock one Uber Eats scrape returning $categories verbatim. */
 function mockMenuScrape(array $categories): void
 {
@@ -1512,10 +1768,10 @@ it('mints an item_slugs row for a brand-new scraped dish', function () {
     mockMenuScrape([['name' => 'Tacos', 'items' => [scrapedDish('Fish Tacos'), scrapedDish('Beef Tacos')]]]);
     runMenuFetch($user);
 
-    $fish = MenuItem::query()->where('name', 'Fish Tacos')->firstOrFail();
-    $beef = MenuItem::query()->where('name', 'Beef Tacos')->firstOrFail();
-    expect(menuSlugRow($user, $fish->id)?->slug)->toBe('fish-tacos');
-    expect(menuSlugRow($user, $beef->id)?->slug)->toBe('beef-tacos');
+    expect(menuContentSlugRow($user, menuContentId($user, 'Fish Tacos'))?->slug)->toBe('fish-tacos');
+    expect(menuContentSlugRow($user, menuContentId($user, 'Beef Tacos'))?->slug)->toBe('beef-tacos');
+    // The scrape no longer touches the legacy lane at all.
+    expect(DB::connection('pgsql')->table('site.item_slugs')->where('item_type', 'menu_item')->count())->toBe(0);
 });
 
 it('frees a dropped dish slug on the next scrape and leaves the survivor row untouched', function () {
@@ -1525,19 +1781,21 @@ it('frees a dropped dish slug on the next scrape and leaves the survivor row unt
     mockMenuScrape([['name' => 'Tacos', 'items' => [scrapedDish('Fish Tacos'), scrapedDish('Beef Tacos')]]]);
     runMenuFetch($user);
 
-    $fish = MenuItem::query()->where('name', 'Fish Tacos')->firstOrFail();
-    $beef = MenuItem::query()->where('name', 'Beef Tacos')->firstOrFail();
-    $fishRow = menuSlugRow($user, $fish->id);
+    $fishId = menuContentId($user, 'Fish Tacos');
+    $beefId = menuContentId($user, 'Beef Tacos');
+    $fishRow = menuContentSlugRow($user, $fishId);
 
     // Scrape 2 drops the beef tacos entirely.
     mockMenuScrape([['name' => 'Tacos', 'items' => [scrapedDish('Fish Tacos')]]]);
     runMenuFetch($user);
 
     // The dropped dish's slug is HARD-deleted (a retired row would still squat
-    // the slug — the unique index is not partial).
-    expect(menuSlugRowCount($user, $beef->id))->toBe(0);
+    // the slug — the unique index is not partial). The ITEM survives, marked
+    // removed rather than deleted.
+    expect(menuContentSlugCount($user, $beefId))->toBe(0);
+    expect(menuContentDish($user, 'Beef Tacos', includeRemoved: true)->removed_at)->not->toBeNull();
     // ...and the survivor's row is the SAME row, not a delete-and-remint.
-    $fishAfter = menuSlugRow($user, $fish->id);
+    $fishAfter = menuContentSlugRow($user, $fishId);
     expect($fishAfter->id)->toBe($fishRow->id);
     expect($fishAfter->slug)->toBe('fish-tacos');
 });
@@ -1550,7 +1808,7 @@ it('does not churn item_slugs rows when an identical scrape reuses every dish id
     mockMenuScrape($categories);
     runMenuFetch($user);
 
-    $before = DB::connection('pgsql')->table('site.item_slugs')->orderBy('item_key')->get(['id', 'item_key', 'slug'])->toArray();
+    $before = DB::connection('pgsql')->table('content.item_slugs')->orderBy('slug')->get(['id', 'item_id', 'slug'])->toArray();
     expect($before)->toHaveCount(2);
 
     mockMenuScrape($categories);
@@ -1559,7 +1817,7 @@ it('does not churn item_slugs rows when an identical scrape reuses every dish id
     // Byte-identical ROW IDS — asserting only the slug would still pass under a
     // delete-and-remint, which would reset redirect history and can permute the
     // -N suffixes between two same-based dishes.
-    $after = DB::connection('pgsql')->table('site.item_slugs')->orderBy('item_key')->get(['id', 'item_key', 'slug'])->toArray();
+    $after = DB::connection('pgsql')->table('content.item_slugs')->orderBy('slug')->get(['id', 'item_id', 'slug'])->toArray();
     expect($after)->toEqual($before);
 });
 
@@ -1569,39 +1827,41 @@ it('forgets a dropped dish before minting the replacement that shares its slug b
 
     // "Café Latte" and "Cafe Latte" are DIFFERENT dishes to normalizeName()
     // (the accented byte is stripped, not transliterated → "caf latte" vs
-    // "cafe latte"), so no identity is reused — but Str::slug transliterates
-    // both to the same base `cafe-latte`.
+    // "cafe latte"), so they hash to different coords and are two items — but
+    // Str::slug transliterates both to the same base `cafe-latte`.
     mockMenuScrape([['name' => 'Drinks', 'items' => [scrapedDish('Café Latte')]]]);
     runMenuFetch($user);
 
-    $old = MenuItem::query()->where('name', 'Café Latte')->firstOrFail();
-    expect(menuSlugRow($user, $old->id)?->slug)->toBe('cafe-latte');
+    $oldId = menuContentId($user, 'Café Latte');
+    expect(menuContentSlugRow($user, $oldId)?->slug)->toBe('cafe-latte');
 
     mockMenuScrape([['name' => 'Drinks', 'items' => [scrapedDish('Cafe Latte')]]]);
     runMenuFetch($user);
 
-    $new = MenuItem::query()->where('name', 'Cafe Latte')->firstOrFail();
-    expect($new->id)->not->toBe($old->id);
-    // Ensure-before-forget would hand this `cafe-latte-2` — and ensureCurrent()
-    // short-circuits on an unchanged base afterwards, so it would stay there
-    // permanently.
-    expect(menuSlugRow($user, $new->id)?->slug)->toBe('cafe-latte');
-    expect(menuSlugRowCount($user, $old->id))->toBe(0);
+    $newId = menuContentId($user, 'Cafe Latte');
+    expect($newId)->not->toBe($oldId);
+    // This is why persist() retires BEFORE it writes: mint-first would hand
+    // this `cafe-latte-2`, and ensureCurrent() short-circuits on an unchanged
+    // base afterwards, so it would stay there permanently.
+    expect(menuContentSlugRow($user, $newId)?->slug)->toBe('cafe-latte');
+    expect(menuContentSlugCount($user, $oldId))->toBe(0);
 });
 
 it('frees scraped dish slugs when the last ordering link is removed but keeps manual dish slugs', function () {
     $user = menuUser('slugclear');
     ordering($user, 'https://www.ubereats.com/store/slugclear', null, '2026-06-17 10:00:00');
 
-    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
-        ['name' => 'Mains', 'items' => [['name' => 'Scraped Dish', 'base_price' => 10.0]]],
-    ]);
-    $scraped = MenuItem::query()->where('name', 'Scraped Dish')->firstOrFail();
-    $category = MenuCategory::query()->where('menu_id', $menu->id)->firstOrFail();
+    mockMenuScrape([['name' => 'Mains', 'items' => [scrapedDish('Scraped Dish')]]]);
+    runMenuFetch($user);
+    $scrapedId = menuContentId($user, 'Scraped Dish');
+    expect(menuContentSlugRow($user, $scrapedId)?->slug)->toBe('scraped-dish');
+
+    // A hand-added dish still lives in the legacy lane until Task 6 — its slug
+    // must be untouched by the scrape either way.
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    $category = MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'manual']);
     $manual = MenuItem::create(['menu_id' => $menu->id, 'name' => 'House Special', 'is_manual' => true]);
     $manual->categories()->attach($category->id, ['position' => 1]);
-
-    expect(menuSlugRow($user, $scraped->id)?->slug)->toBe('scraped-dish');
     $manualRow = menuSlugRow($user, $manual->id);
     expect($manualRow?->slug)->toBe('house-special');
 
@@ -1609,7 +1869,7 @@ it('frees scraped dish slugs when the last ordering link is removed but keeps ma
     IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->delete();
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
-    expect(menuSlugRowCount($user, $scraped->id))->toBe(0);
+    expect(menuContentSlugCount($user, $scrapedId))->toBe(0);
     expect(menuSlugRow($user, $manual->id)?->id)->toBe($manualRow->id);
 });
 
@@ -1632,9 +1892,8 @@ it('leaves a manual dish item_slugs row untouched across a scraper rebuild', fun
     $manualAfter = menuSlugRow($user, $manual->id);
     expect($manualAfter->id)->toBe($manualRow->id);
     expect($manualAfter->slug)->toBe('house-special');
-    // ...and the new scraped dish got its own.
-    $fresh = MenuItem::query()->where('name', 'New Scraped Dish')->firstOrFail();
-    expect(menuSlugRow($user, $fresh->id)?->slug)->toBe('new-scraped-dish');
+    // ...and the new scraped dish got its own, on the content lane.
+    expect(menuContentSlugRow($user, menuContentId($user, 'New Scraped Dish'))?->slug)->toBe('new-scraped-dish');
 });
 
 // ── the collision surface Unit 5 opened: MenuScanApplier runs INSIDE a

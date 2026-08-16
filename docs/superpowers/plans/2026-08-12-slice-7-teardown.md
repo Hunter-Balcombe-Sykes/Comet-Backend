@@ -458,20 +458,24 @@ git commit -am "feat(slice-7): MenuContentController's 10 verbs write content.*"
 - Consumes: `ManualMenuWriter`, `MenuProjectionMapper`.
 - Produces: no signature change. `MenuMerger`, `MenuApifyScraper`, the rate limiter, `$tries`/`$backoff`/`uniqueFor` and the cost controls are **untouched** (spec D1 — the ingest lane covers 0 of the 5 real menus and is `auto_sync=false`).
 
-- [ ] **Step 1: Write a failing test** asserting a scrape lands `content.items` and leaves `site.menu_items` untouched.
-- [ ] **Step 2: Run it; confirm it fails.**
-- [ ] **Step 3: Replace the delete-and-reinsert block with per-dish `write()` calls.**
+- [x] **Step 1: Write a failing test** asserting a scrape lands `content.items` and leaves `site.menu_items` untouched.
+- [x] **Step 2: Run it; confirm it fails.** Three new MenuTest cases red against HEAD, green after.
+- [x] **Step 3: Replace the delete-and-reinsert block with per-dish `write()` calls.**
 
 The legacy writer deletes and re-inserts every dish per scrape, reusing uuids by normalised name. The coord scheme already absorbs that (its docblock explains why it is name-derived, not uuid-derived), so an upsert-by-coord is a straight simplification: no `takeReusedId()`, no orphan cleanup.
 
 Dishes absent from this scrape get `markRemoved()`, **not** a hard delete — and never `source_items.removed_at`, which is cleared on reappearance and would resurrect an owner-deleted dish.
 
-- [ ] **Step 4: Preserve `rebuildableCategoryIds()`'s exclusion of `scan` / `website-scan` / `manual` categories.**
-- [ ] **Step 5: Run the menu suite + the Postgres lane.**
+- [x] **Step 4: Preserve `rebuildableCategoryIds()`'s exclusion of `scan` / `website-scan` / `manual` categories.**
+
+Its replacement is `absentDishIds()`'s "holds an `order_platform` collection membership" test. `content.collections` has no source column, and it CANNOT get one that answers this: a scanned "Drinks" and a scraped "Drinks" share `MenuProjectionMapper::categoryRef` and are ONE row. The platform membership is the signal that does exist — a photo-scan or hand-added dish carries no platform rows, so neither is ever a retirement candidate. `previousCategoryOrder()` keeps a category-level exclusion off `content.collections.is_user_created`, which `upsertCollections()` writes on insert and never updates.
+
+- [x] **Step 5: Run the menu suite + the Postgres lane.**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/ && composer test:pg`
+Result: full suite 8385 passed / 2 skipped; pg lane 205 passed / 2 skipped; PHPStan `[OK] No errors`.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ### Task 8: `MenuScanApplier` and the two website-scan jobs
 

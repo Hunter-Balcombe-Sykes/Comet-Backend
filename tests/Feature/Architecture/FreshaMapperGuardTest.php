@@ -44,9 +44,16 @@ it('routes no Fresha service through the owner-authored price mapper', function 
     // mints no offer at all. The Fresha trap was the opposite shape: legacy
     // rows stored a real 0 to mean "unknown". A menu writer that ever starts
     // defaulting a null price to 0 reintroduces it.
+    //
+    // MenuFetchJob.php added by slice 7 Task 7 — the scrape's own write path,
+    // calling ManualMenuWriter::projectionFor(), i.e. the menu mapper above and
+    // not the service one. It hands the merger's basePrice/pickupPrice/
+    // deliveryPrice through UNCOERCED (dishRow() uses `?? null`), which is what
+    // keeps the skip-a-null arm reachable.
     expect($callers)->toEqualCanonicalizing([
         'ManualMenuWriter.php',
         'ManualServiceWriter.php',
+        'MenuFetchJob.php',
         'ServiceBackfiller.php',
         'UserServiceController.php',
         'StaffServiceManagementController.php',

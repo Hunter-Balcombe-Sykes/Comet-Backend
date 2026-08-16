@@ -59,6 +59,14 @@
  *            service-flavoured wrapper. migrateOrderPlatforms() contributes
  *            its site to the run's touched set instead of purging per row,
  *            which is what keeps a 318-dish backfill to one purge per site.
+ *            MenuFetchJob's two entries (slice 7 Task 7) are the live twin of
+ *            that migration: the scrape mirrors each site.menu_platform_links
+ *            row into an order_platform collection + storefront sidecar, and
+ *            drops the sidecars when the last ordering link goes. Both sit
+ *            inside handle(), which discharges all three lanes ONCE per run via
+ *            bustSiteCache() -> SiteCacheInvalidator::touchSite -> SiteObserver
+ *            (Redis invalidate + CF purge + KV) — the menu lane's established
+ *            purge path, not the service-flavoured wrapper.
  * READS    — the method only READS these two tables. It is listed because the
  *            scanner flags any method that names a guarded table AND issues
  *            some write terminal, and these write a DIFFERENT table.
@@ -85,6 +93,8 @@ const COLLECTION_WRITE_REGISTRY = [
     'ShopBackfiller::linkToCollection' => 'SHOP',
 
     'MenuBackfiller::migrateOrderPlatforms' => 'MENU',
+    'MenuFetchJob::syncOrderPlatforms' => 'MENU',
+    'MenuFetchJob::clearStorefronts' => 'MENU',
 
     'ShopController::forget' => 'READS',
     'ProvisionShopPinsCommand::handle' => 'READS',

@@ -19,6 +19,9 @@ beforeEach(function () {
     // MenuItemObserver + MenuFetchJob write site.item_slugs best-effort — with
     // no table they swallow "no such table" and mask real slug regressions.
     setupItemSlugsTable();
+    // Slice 7 Task 7: MenuFetchJob lands the scrape in content.*. MenuScanApplier
+    // still writes site.menu_* until Task 8, so this file exercises both lanes.
+    setupContentTables();
 });
 
 function mfjwspUser(string $handle): User
@@ -79,8 +82,13 @@ it('protects website-scan-sourced menu content from an ordering-platform rebuild
     // The website-scan category and its item must survive the rebuild untouched.
     expect(MenuCategory::query()->whereKey($websiteScanCategory->id)->exists())->toBeTrue();
     expect(MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'website-scan')->first()->name)->toBe('Mains');
-    // The uber-eats rebuild still happened normally alongside it.
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'uber-eats')->exists())->toBeTrue();
+    // The uber-eats rebuild still happened normally alongside it — in
+    // content.*, which is where the scrape writes since Task 7.
+    expect(DB::connection('pgsql')->table('content.collections')
+        ->where('user_id', $user->id)->where('kind', 'menu_category')->pluck('label')->all())->toBe(['Drinks']);
+    expect(DB::connection('pgsql')->table('content.items')
+        ->where('user_id', $user->id)->where('kind', 'menu_item')->whereNull('removed_at')
+        ->pluck('headline_cache')->all())->toBe(['Cola']);
 });
 
 it('reports (but does not fail the scrape on) a scan-reapply failure (R3-OBS-3)', function () {

@@ -3,19 +3,20 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\MenuCategory;
-use App\Models\Core\Site\MenuItem;
-use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\MenuPlatformLink;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheInvalidator;
+use App\Services\Content\ContentItemSlugAllocator;
+use App\Services\Content\ManualMenuWriter;
 use App\Services\Notifications\Dispatchers\PlatformHealthNotifier;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
+use App\Services\Platforms\MenuProjectionMapper;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use App\Services\Platforms\NormalizesMenuItemNames;
-use App\Services\Site\ItemSlugAllocator;
+use App\Site\Pools\PoolRegistry;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -30,9 +31,18 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
-// Fetches (or refreshes) a user's menu into the relational site.menus +
-// menu_categories + menu_items tables from their connected online-ordering
-// platforms. Each connected platform (Uber Eats and/or DoorDash) is scraped
+// Fetches (or refreshes) a user's menu from their connected online-ordering
+// platforms. Slice 7 Task 7: the merged result lands in `content.*` through
+// ManualMenuWriter (an upsert keyed on MenuProjectionMapper's name-derived
+// coord); `site.menus` + `site.menu_platform_links` survive and keep the
+// menu-level bookkeeping (fetch status, dining modes, scan_items,
+// suppressed_items, per-platform store URL + sync status). The scrape itself,
+// MenuMerger, MenuApifyScraper, the rate limiter and every cost control below
+// are untouched — spec D1: the ingest connectors cover 0 of the 5 real menus
+// and are all auto_sync=false, so retiring this job would stop automatic menu
+// refresh entirely.
+//
+// Each connected platform (Uber Eats and/or DoorDash) is scraped
 // once; MenuMerger UNIONs them — every dish from every platform appears. Uber
 // Eats structure is canonical and wins display-field ties (gap-filling from
 // DoorDash where UE lacks a value); DoorDash adds per-item ratings/badges. Each
@@ -121,12 +131,11 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // Registry platform slugs in content-priority order (Uber Eats first).
         $slugs = array_keys(config('partna.menu.platforms'));
 
-        // Categories eager-loaded here (position order) feed stableSortCategories()'s
-        // cross-run persisted-order match below — loaded BEFORE persist() wholesale
-        // deletes/rebuilds them, and nothing between here and the merge() call
-        // touches menu_categories, so this stays fresh for that read.
+        // previousCategoryOrder() reads content.collections directly (see that
+        // method) — the menu row is loaded here only for its platform links and
+        // the skip-gate below.
         $existing = Menu::query()->where('user_id', $this->userId)
-            ->with(['platformLinks', 'categories' => fn ($q) => $q->orderBy('position')])
+            ->with(['platformLinks'])
             ->first();
         $existingLinks = $existing?->platformLinks->keyBy('platform') ?? collect();
 
@@ -225,8 +234,8 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         $this->writePlatformSyncStatus($storeLinks, $menus, $menu, $now);
 
         // Re-apply the persisted Google-photos scan enrichment (menus.scan_items,
-        // written by GoogleMenuPhotoScanJob) over the freshly rebuilt rows —
-        // the wholesale rebuild just recreated every scraped item WITHOUT the
+        // written by GoogleMenuPhotoScanJob) over the freshly written rows —
+        // the scrape just upserted every dish WITHOUT the
         // scan's longer descriptions / dietary badges, and this restores them
         // from the stored extraction instead of re-billing OCR. Suppressed
         // dishes are filtered out first — persist() skipping a deleted scraped
@@ -256,12 +265,19 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     }
 
     /**
-     * The site's previously persisted category names, in position order — the
+     * The owner's previously persisted category labels, in position order — the
      * cross-run stability baseline MenuMerger sorts known categories against
-     * (fix-round). Scoped to the same set persist() rebuilds (excludes owner
-     * content — scan/manual/website-scan — those are never scraper output and
-     * were never part of a prior merge() result, so they can't meaningfully
-     * anchor one).
+     * (fix-round).
+     *
+     * Slice 7: `content.collections` kind `menu_category`, replacing
+     * site.menu_categories. `is_user_created` is the source marker that survived
+     * the move — content.collections carries no source column, and it is the one
+     * bit available: ProjectionWriter::upsertCollections() writes `false` on
+     * insert and NEVER updates it, so a category first created by an owner-lane
+     * write (manual / photo scan / website scan) stays flagged even after a
+     * scrape lists the same label. Excluding those here is the same exclusion
+     * site.menu_categories.source_platform used to express: owner content was
+     * never part of a prior merge() result, so it cannot anchor one.
      *
      * @return list<string>
      */
@@ -271,10 +287,15 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             return [];
         }
 
-        return $existing->categories
-            ->filter(fn (MenuCategory $c) => ! in_array($c->source_platform, ['scan', 'manual', 'website-scan'], true))
-            ->pluck('name')
-            ->values()
+        return DB::connection('pgsql')->table('content.collections')
+            ->where('user_id', $existing->user_id)
+            ->where('kind', 'menu_category')
+            ->whereNull('removed_at')
+            ->where('is_user_created', false)
+            ->orderBy('position')
+            ->orderBy('label')
+            ->pluck('label')
+            ->map(fn ($label) => (string) $label)
             ->all();
     }
 
@@ -316,429 +337,528 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     }
 
     /**
-     * Replace the menu's categories + items + per-platform availability wholesale
-     * within a transaction, and write the resolved store-level fields.
+     * Land the merged scrape in `content.*` and write the resolved store-level
+     * fields onto the surviving `site.menus` row.
+     *
+     * Slice 7 Task 7. What this writes, in order:
+     *
+     *  1. the menu's store fields (name / logo / rating / currency / dining
+     *     modes) — `site.menus` is NOT part of the teardown;
+     *  2. one `content.items` upsert per merged dish, through
+     *     ManualMenuWriter::write() on MenuProjectionMapper's coord;
+     *  3. `items.removed_at` for every dish this scrape's platforms no longer
+     *     carry (markRemoved, NEVER a hard delete and NEVER
+     *     source_items.removed_at), then a slug re-assert over what was
+     *     written — see the call site for why that order;
+     *  4. one `order_platform` collection + `content.storefronts` sidecar per
+     *     `site.menu_platform_links` row (see syncOrderPlatforms — dropping it
+     *     costs every two-platform dish its order links);
+     *  5. a `pool:menus` pin for any dish that has never had one;
+     *  6. `fetch_status='ok'` + the two timestamps, LAST.
+     *
+     * The delete-and-reinsert rebuild is gone. The coord is derived from the
+     * normalised dish name (MenuProjectionMapper's docblock says why), which is
+     * exactly the identity key takeReusedId() used to reconstruct by hand — so
+     * an upsert-by-coord is a straight simplification: no id reuse pool, no
+     * orphan cleanup, and no window in which a dish does not exist.
+     *
+     * NO outer transaction, deliberately. write() is atomic per dish and
+     * idempotent, so a mid-way failure leaves a partially-refreshed menu the
+     * next scrape converges — where the old rebuild HAD to be atomic because
+     * it had already deleted everything. The status stamp is last for the same
+     * reason it used to sit inside the transaction: a failure must leave
+     * fetch_status where it was, not claim success over half a menu.
      *
      * Protected (not private) so a test can subclass and override it to force
      * a deterministic failure — proving TXN-101's ordering guarantee (the
-     * per-platform sync status must never be written before this succeeds)
-     * without having to engineer a real DB-level exception through the
-     * collision-safe identity-reuse logic below.
+     * per-platform sync status must never be written before this succeeds).
      *
      * @param  array{store:array<string,mixed>, categories:list<array<string,mixed>>}  $merged
      */
     protected function persist(Menu $menu, string $contentSource, array $merged, Carbon $now): void
     {
-        // Slug reconcile inputs: computed INSIDE the rebuild transaction (pure
-        // PHP, no DB) but applied only after it commits — see
-        // reconcileItemSlugs(). By-reference so the closure can fill them.
-        /** @var list<string> $vanishedItemIds */
-        $vanishedItemIds = [];
-        /** @var array<string, string> $slugNamesByKey */
-        $slugNamesByKey = [];
+        $writer = app(ManualMenuWriter::class);
+        $userId = (string) $menu->user_id;
 
-        DB::connection('pgsql')->transaction(function () use ($menu, $contentSource, $merged, $now, &$vanishedItemIds, &$slugNamesByKey) {
-            // Wholesale rebuild (delete children → reinsert) is intentional, not a perf gap:
-            // persist() only runs when handle()'s unchanged-skip gate misses (genuine content
-            // change / forced refresh / recovery), so it is not a hot path. Keep it atomic
-            // in the txn.
-            //
-            // STABLE IDENTITY across rebuilds: category + item UUIDs are REUSED when a
-            // rebuilt row's normalized name matches a pre-rebuild row (FIFO per name, so
-            // duplicate names can't double-assign one id). UUID churn used to be harmless
-            // ("read fresh on every render"), but two consumers now key on the id across
-            // refreshes: item-seen popularity scores (analytics.item_views item_id +
-            // content_popularity_scores content_key) and the sitepage's per-item detail
-            // URLs — a fresh UUID every scrape silently reset both. Name-matching is the
-            // same identity heuristic MenuMerger uses cross-platform; a renamed dish gets
-            // a new id (and starts its score over), which is the honest interpretation.
-            // Item identity is MENU-scoped: with the multi-category model, one normalized
-            // name = one row among scraped dishes (a dish under several categories is a
-            // single row with several pivot memberships), so a name maps to exactly one
-            // id and identities can never swap across rebuilds.
-            //
-            // Scoped to rebuildableCategoryIds() (NOT every category) — owner-authored
-            // categories (source_platform 'scan'/'manual') are never scraper output and
-            // must survive every rebuild; see that method's docblock. Within a rebuildable
-            // (scraper-owned) category, is_manual dishes are ALSO preserved: only the
-            // scraped (is_manual=false) items are deleted, and a rebuildable category that
-            // still holds a manual dish is kept (folded back into on reinsert) rather than
-            // dropped. The identity-reuse pool is built from DELETED rows only — a surviving
-            // row keeps its live id, so reusing it would collide.
-            //
-            // Also clears children explicitly (FK cascade covers this on Postgres, but being
-            // explicit prevents orphaned pivot/item-platform rows in SQLite tests).
-            $rebuildableCategoryIds = $this->rebuildableCategoryIds($menu->id);
+        // Store fields first: MenuProjectionMapper falls back to menus.currency
+        // for the 93 dishes that carry none, so the row has to be current
+        // BEFORE the dish writes read it.
+        $store = $merged['store'];
+        $menu->forceFill([
+            'content_source' => $contentSource,
+            'store_name' => $store['name'] ?? null,
+            'logo_url' => $store['logo'] ?? null,
+            'rating' => $store['rating'] ?? null,
+            'review_count' => $store['reviewCount'] ?? null,
+            'currency' => $store['currency'] ?? 'AUD',
+            'dining_modes' => $store['diningModes'] ?? null,
+        ])->save();
 
-            // Membership rows in scraper-owned categories — the scrape's write scope.
-            $rebuildableMemberships = DB::connection('pgsql')->table('site.menu_item_categories')
-                ->whereIn('menu_category_id', $rebuildableCategoryIds)
-                ->get(['menu_item_id', 'menu_category_id']);
+        $ownerNames = $this->ownerAuthoredNames($menu);
+        $dishes = $this->mergedDishes($merged, $ownerNames['skip_write']);
 
-            // Manual dishes anywhere on the menu — the owner's own edits/additions.
-            // They survive the rebuild, keep their categories alive, and outrank a
-            // same-named scraped dish MENU-WIDE (one name = one dish).
-            $manualItems = MenuItem::query()
-                ->where('menu_id', $menu->id)
-                ->where('is_manual', true)
-                ->get(['id', 'name']);
-            $manualItemIds = [];
-            foreach ($manualItems as $mi) {
-                $manualItemIds[(string) $mi->id] = true;
-            }
+        $coords = [];
+        foreach ($dishes as $dish) {
+            $coords[$writer->coordFor((string) $menu->id, $dish['name'])] = true;
+        }
 
-            // Rebuildable categories kept alive by a manual dish member.
-            $survivingCategoryIds = $rebuildableMemberships
-                ->filter(fn ($m) => isset($manualItemIds[(string) $m->menu_item_id]))
-                ->pluck('menu_category_id')->map(fn ($id) => (string) $id)->unique()->values();
+        $absent = $this->absentDishIds($menu, $coords, $ownerNames['protected']);
 
-            // Categories to actually delete: rebuildable ones NOT kept alive by a manual
-            // dish. Every dish in them is scraped, so they're empty once the scrape rows go.
-            $deletableCategoryIds = $rebuildableCategoryIds
-                ->reject(fn ($id) => $survivingCategoryIds->contains((string) $id))->values();
+        $itemIds = [];
+        $namesById = [];
+        foreach ($dishes as $dish) {
+            $itemId = $writer->write($userId, $writer->coordFor((string) $menu->id, $dish['name']), $writer->projectionFor(
+                $this->dishRow($dish['item']),
+                $dish['categories'],
+                $this->platformRows($dish['item']),
+                $menu,
+            ));
+            $itemIds[] = $itemId;
+            $namesById[$itemId] = $dish['name'];
+        }
 
-            // Items to delete: non-manual dishes holding at least one scraper-owned
-            // membership. A scan-created dish living only in scan categories has no
-            // scraped membership and survives; its scan memberships are restored by
-            // the scan reapply in handle() either way. Ordered for deterministic
-            // FIFO identity snapshots below.
-            $memberItemIds = $rebuildableMemberships->pluck('menu_item_id')->map(fn ($id) => (string) $id)->unique()->values();
-            $deletableItems = MenuItem::query()
-                ->whereIn('id', $memberItemIds)
-                ->where('is_manual', false)
-                ->orderBy('created_at')->orderBy('id')
-                ->get(['id', 'name']);
-            $deletableItemIds = $deletableItems->pluck('id');
+        // FREE THEN RE-ASSERT, and the order is load-bearing for exactly the
+        // reason the pre-slice-7 reconcileItemSlugs() spelled out: a dropped
+        // "Café Latte" and a new "Cafe Latte" are distinct dishes to
+        // normalizeName() but share the slug base `cafe-latte`, and whoever
+        // mints while the other still holds it is stuck on `cafe-latte-2`
+        // permanently (ensureCurrent() treats a `-N` it would still allocate as
+        // settled). markRemoved() frees the vanished dish's slug; the pass
+        // after it hands the base to the newcomer.
+        $this->retire($writer, $absent);
+        $this->reassertSlugs($userId, $namesById);
 
-            // Identity snapshot BEFORE the delete: normalized name → FIFO queue of ids.
-            // Scoped to DELETED rows only (survivors keep their live ids).
-            $previousCategoryIds = $this->idsByNormalizedName(
-                MenuCategory::query()->whereIn('id', $deletableCategoryIds)->orderBy('position')->get(['id', 'name'])
-            );
-            $previousItemIds = $this->idsByNormalizedName($deletableItems);
+        // After the dish writes: the projections are what create the
+        // order_platform collections these sidecars hang off (same ordering
+        // MenuBackfiller::run() uses for the same reason).
+        $this->syncOrderPlatforms($menu);
+        $this->seedPins($userId, $itemIds);
 
-            MenuItemPlatform::query()->whereIn('menu_item_id', $deletableItemIds)->delete();
-            DB::connection('pgsql')->table('site.menu_item_categories')->whereIn('menu_item_id', $deletableItemIds)->delete();
-            MenuItem::query()->whereIn('id', $deletableItemIds)->delete();
-            DB::connection('pgsql')->table('site.menu_item_categories')->whereIn('menu_category_id', $deletableCategoryIds)->delete();
-            MenuCategory::query()->whereIn('id', $deletableCategoryIds)->delete();
-
-            // Rebuildable categories kept alive by a manual dish, keyed by normalized
-            // name — a scraped category of the same name folds its items back into the
-            // existing row instead of duplicating it.
-            $survivingCategoriesByName = MenuCategory::query()
-                ->whereIn('id', $survivingCategoryIds)
-                ->get()
-                ->keyBy(fn (MenuCategory $c) => $this->normalizeName((string) $c->name));
-
-            // Normalized names of every manual dish — a scraped dish that collides
-            // with one is skipped anywhere on the menu (the manual version wins;
-            // sync never re-imposes memberships the owner may have removed).
-            $manualNames = [];
-            foreach ($manualItems as $mi) {
-                $key = $this->normalizeName((string) $mi->name);
-                if ($key !== '') {
-                    $manualNames[$key] = true;
-                }
-            }
-
-            // Normalized names of dishes the owner deleted from scraped content —
-            // the rebuild must not resurrect them (name-only: a dish spans
-            // categories now, so the owner's delete intent is "this dish, gone").
-            $suppressedNames = $this->suppressedItemNames($menu);
-
-            $store = $merged['store'];
-            $menu->forceFill([
-                'content_source' => $contentSource,
-                'store_name' => $store['name'] ?? null,
-                'logo_url' => $store['logo'] ?? null,
-                'rating' => $store['rating'] ?? null,
-                'review_count' => $store['reviewCount'] ?? null,
-                'currency' => $store['currency'] ?? 'AUD',
-                'dining_modes' => $store['diningModes'] ?? null,
-                'fetch_status' => 'ok',
-                'last_fetched_at' => $now,
-                // LIFE-12: the ONLY writer of last_successful_fetch_at. It is the
-                // failure-episode boundary for PlatformHealthNotifier::menuScrapeFailed(),
-                // which needs "when did this menu last genuinely succeed" —
-                // last_fetched_at cannot answer that, because manual dish edits
-                // (MenuContentController::resolveMenu), photo-scan applies
-                // (MenuScanApplier::resolveMenu) and this job's own
-                // soft-unavailable branch all advance it without anything
-                // having been fixed. Do not stamp this anywhere else.
-                'last_successful_fetch_at' => $now,
-            ])->save();
-
-            // Accumulate rows across all categories; items insert first, then the
-            // pivot memberships (FK menu_item_id) and item-platform children.
-            $itemRows = [];
-            $pivotRows = [];
-            $platformRows = [];
-            // Dedup bookkeeping: the same dish under several merged categories
-            // becomes ONE row + several memberships. First occurrence wins the
-            // display fields and the platform child rows (the merger emits the
-            // same fused dish either way); later occurrences only attach.
-            $itemIdByName = [];
-            $attachedByName = [];
-
-            foreach ($merged['categories'] as $ci => $category) {
-                $categoryKey = $this->normalizeName((string) $category['name']);
-                $survivor = $survivingCategoriesByName->get($categoryKey);
-
-                if ($survivor !== null) {
-                    // Fold scraped items back into the preserved category, and re-slot it
-                    // to the scrape's position so the overall order still follows the scrape.
-                    $cat = $survivor;
-                    $cat->forceFill(['position' => $ci])->save();
-                    // Append scraped items AFTER the manual dishes already occupying it.
-                    $position = 1 + (int) (DB::connection('pgsql')->table('site.menu_item_categories')
-                        ->where('menu_category_id', $cat->id)->max('position') ?? -1);
-                } else {
-                    // new MenuCategory + explicit id (NOT ::create) — 'id' isn't mass-
-                    // assignable, and HasUuids only fills the key when it's still empty,
-                    // so a reused id set here is respected.
-                    $cat = new MenuCategory([
-                        'menu_id' => $menu->id,
-                        'name' => $category['name'],
-                        'position' => $ci,
-                        'source_platform' => $category['sourcePlatform'],
-                    ]);
-                    $cat->id = $this->takeReusedId($previousCategoryIds, (string) $category['name']) ?? (string) Str::uuid();
-                    $cat->save();
-                    $position = 0;
-                }
-
-                foreach ($category['items'] as $item) {
-                    $itemKey = $this->normalizeName((string) $item['name']);
-                    // A manual dish of this name outranks the scraped one — skip it.
-                    if (isset($manualNames[$itemKey])) {
-                        continue;
-                    }
-                    // The owner deleted this scraped dish — don't resurrect it.
-                    if (isset($suppressedNames[$itemKey])) {
-                        continue;
-                    }
-
-                    // Seen under an earlier category this rebuild → attach only.
-                    // (Empty-name dishes can't dedupe by name; each stays its own row.)
-                    if ($itemKey !== '' && isset($itemIdByName[$itemKey])) {
-                        if (isset($attachedByName[$itemKey][(string) $cat->id])) {
-                            continue; // same-name repeat within one category — one membership
-                        }
-                        $pivotRows[] = [
-                            'menu_item_id' => $itemIdByName[$itemKey],
-                            'menu_category_id' => (string) $cat->id,
-                            'position' => $position++,
-                            'created_at' => $now,
-                            'updated_at' => $now,
-                        ];
-                        $attachedByName[$itemKey][(string) $cat->id] = true;
-
-                        continue;
-                    }
-
-                    $itemId = $this->takeReusedId($previousItemIds, (string) $item['name']) ?? (string) Str::uuid();
-                    $itemRows[] = [
-                        'id' => $itemId,
-                        'menu_id' => $menu->id,
-                        'name' => $item['name'],
-                        'description' => $item['description'] ?? null,
-                        'image_url' => $item['imageUrl'] ?? null,
-                        // Hero-first image set (JSON like badges — bulk insert bypasses casts).
-                        'images' => isset($item['images']) ? json_encode($item['images']) : null,
-                        'rating' => $item['rating'] ?? null,
-                        'rating_count' => $item['ratingCount'] ?? null,
-                        // Kept as JSONB (reviewed 2026-07-04, #FOUND-13) — display-only, no query pattern exists.
-                        'badges' => isset($item['badges']) ? json_encode($item['badges']) : null,
-                        'base_price' => $item['basePrice'] ?? null,
-                        'pickup_price' => $item['pickupPrice'] ?? null,
-                        'pickup_source' => $item['pickupSource'] ?? null,
-                        'delivery_price' => $item['deliveryPrice'] ?? null,
-                        'delivery_source' => $item['deliverySource'] ?? null,
-                        'dd_external_id' => $item['ddExternalId'] ?? null,
-                        'currency' => $item['currency'] ?? null,
-                        // Scraper output is never manual (an edited scraped dish flips
-                        // is_manual and is preserved above, not re-inserted here).
-                        'is_manual' => false,
-                        'created_at' => $now,
-                        'updated_at' => $now,
-                    ];
-                    $pivotRows[] = [
-                        'menu_item_id' => $itemId,
-                        'menu_category_id' => (string) $cat->id,
-                        'position' => $position++,
-                        'created_at' => $now,
-                        'updated_at' => $now,
-                    ];
-                    if ($itemKey !== '') {
-                        $itemIdByName[$itemKey] = $itemId;
-                        $attachedByName[$itemKey][(string) $cat->id] = true;
-                    }
-
-                    foreach (($item['platforms'] ?? []) as $p) {
-                        if (! is_array($p) || ! isset($p['platform'])) {
-                            continue;
-                        }
-                        $platformRows[] = [
-                            'id' => (string) Str::uuid(),
-                            'menu_item_id' => $itemId,
-                            'platform' => $p['platform'],
-                            'pickup_price' => $p['pickupPrice'] ?? null,
-                            'pickup_url' => $p['pickupUrl'] ?? null,
-                            'delivery_price' => $p['deliveryPrice'] ?? null,
-                            'delivery_url' => $p['deliveryUrl'] ?? null,
-                            'created_at' => $now,
-                            'updated_at' => $now,
-                        ];
-                    }
-                }
-            }
-
-            if ($itemRows !== []) {
-                // Bulk insert (bypasses casts — badges already JSON).
-                MenuItem::query()->insert($itemRows);
-            }
-
-            // Slug reconcile inputs (pure PHP — no DB work in here). Every row
-            // this rebuild wrote needs a current slug keyed by its id; the bulk
-            // insert above bypasses MenuItemObserver, so nothing else mints one.
-            $slugNamesByKey = array_column($itemRows, 'name', 'id');
-
-            // Only dishes that genuinely VANISHED may have their slug freed.
-            // $deletableItemIds also holds every SURVIVING dish — persist()
-            // deletes and re-inserts survivors under the SAME uuid (identity
-            // reuse via takeReusedId), and every reused id reappears in
-            // $itemRows exactly once. Forgetting the whole delete set would
-            // destroy and re-mint every slug on every scrape, wrecking redirect
-            // history and permuting the -N suffixes so two dishes' public URLs
-            // could silently swap.
-            $reusedIds = [];
-            foreach (array_keys($slugNamesByKey) as $reusedId) {
-                $reusedIds[(string) $reusedId] = true;
-            }
-            $vanishedItemIds = $deletableItemIds
-                ->map(fn ($id) => (string) $id)
-                ->reject(fn (string $id) => isset($reusedIds[$id]))
-                ->values()
-                ->all();
-
-            if ($pivotRows !== []) {
-                DB::connection('pgsql')->table('site.menu_item_categories')->insert($pivotRows);
-            }
-            if ($platformRows !== []) {
-                MenuItemPlatform::query()->insert($platformRows);
-            }
-        });
-
-        // POST-COMMIT (see reconcileItemSlugs' hazard note) — never inside the
-        // transaction closure above.
-        $this->reconcileItemSlugs((string) $menu->user_id, $vanishedItemIds, $slugNamesByKey);
+        $menu->forceFill([
+            'fetch_status' => 'ok',
+            'last_fetched_at' => $now,
+            // LIFE-12: the ONLY writer of last_successful_fetch_at. It is the
+            // failure-episode boundary for PlatformHealthNotifier::menuScrapeFailed(),
+            // which needs "when did this menu last genuinely succeed" —
+            // last_fetched_at cannot answer that, because manual dish edits
+            // (MenuContentController::resolveMenu), photo-scan applies
+            // (MenuScanApplier::resolveMenu) and this job's own
+            // soft-unavailable branch all advance it without anything
+            // having been fixed. Do not stamp this anywhere else.
+            'last_successful_fetch_at' => $now,
+        ])->save();
     }
 
     /**
-     * Keep site.item_slugs in step with a wholesale menu rebuild. The rebuild
-     * writes items through the query builder (bulk insert / mass delete), which
-     * bypasses MenuItemObserver entirely — so without this a scraped dish never
-     * gets a pretty URL, and a dropped dish squats its slug forever (the
-     * (user_id, slug) unique index is NOT partial, so a retired row still
-     * blocks reuse).
+     * One entry per merged dish, deduped MENU-WIDE by normalized name, each
+     * carrying every category it appeared under.
      *
-     * Deliberately runs AFTER the rebuild transaction has committed. The
-     * allocator is now safe inside a transaction (insertUnique() allocates with
-     * insertOrIgnore behind a savepoint, so a collision can't abort the caller
-     * with SQLSTATE 25P02), but this walks every dish on the menu one at a
-     * time — keeping those round trips out of the rebuild transaction is the
-     * point, and this is best-effort work that must not be able to roll the
-     * rebuild back.
+     * The dedupe is not an optimisation. writeManualItem() REPLACES an item's
+     * collection memberships for its source, so writing the same coord twice
+     * would leave the dish holding only the last category it was seen under —
+     * the multi-category model's "one dish, several memberships" collapsing to
+     * one. First occurrence wins the display fields and the platform rows,
+     * matching the pre-slice-7 rebuild (the merger emits the same fused dish
+     * either way).
      *
-     * FORGET BEFORE ENSURE — the order is load-bearing. A dropped "Café Latte"
-     * and a newly added "Cafe Latte" are distinct dishes to normalizeName() but
-     * share the slug base `cafe-latte`. Ensure-first would hand the newcomer
-     * `cafe-latte-2`, and because ensureCurrent() short-circuits on an unchanged
-     * base thereafter it would keep that suffix permanently.
+     * A nameless dish is skipped rather than written: its coord would be
+     * sha1('') and every nameless dish on the menu would collapse onto one
+     * item. MenuBackfiller skips them for the same reason.
      *
-     * Best-effort by design, not style: this runs before writePlatformSyncStatus()
-     * in handle(), so throwing here would invert TXN-101's ordering guarantee and
-     * hide a platform from menu:retry-unavailable's self-heal query.
-     *
-     * @param  list<string>  $forgetIds  ids whose dish is genuinely gone
-     * @param  array<string, string>  $namesByKey  item id => name, for every written row
+     * @param  array{store:array<string,mixed>, categories:list<array<string,mixed>>}  $merged
+     * @param  array<string, true>  $skip  normalized names the owner owns
+     * @return list<array{name:string, item:array<string,mixed>, categories:list<array{id:string,name:string,position:int}>}>
      */
-    private function reconcileItemSlugs(string $userId, array $forgetIds, array $namesByKey): void
+    private function mergedDishes(array $merged, array $skip): array
     {
-        if ($forgetIds === [] && $namesByKey === []) {
+        $dishes = [];
+        $indexByName = [];
+
+        foreach ($merged['categories'] as $position => $category) {
+            $label = trim((string) $category['name']);
+
+            foreach ($category['items'] as $item) {
+                $key = $this->normalizeName((string) ($item['name'] ?? ''));
+                if ($key === '' || isset($skip[$key])) {
+                    continue;
+                }
+
+                if (! isset($indexByName[$key])) {
+                    $indexByName[$key] = count($dishes);
+                    $dishes[] = ['name' => (string) $item['name'], 'item' => $item, 'categories' => []];
+                }
+
+                $index = $indexByName[$key];
+                $ref = MenuProjectionMapper::categoryRef($label);
+                foreach ($dishes[$index]['categories'] as $seen) {
+                    if ($seen['id'] === $ref) {
+                        continue 2;
+                    }
+                }
+                // `id` is the collection's natural key, not a uuid — the mapper
+                // reads only name + position, and this is the value it derives
+                // the ref from anyway, so it doubles as the dedupe key above.
+                $dishes[$index]['categories'][] = ['id' => $ref, 'name' => $label, 'position' => (int) $position];
+            }
+        }
+
+        return $dishes;
+    }
+
+    /**
+     * The merged dish in the legacy `site.menu_items` column shape
+     * MenuProjectionMapper::project() reads. Three merged keys have no
+     * projection target and are dropped here rather than carried nowhere:
+     * pickupSource / deliverySource (which platform backed the aggregate min)
+     * and ddExternalId — ManualMenuItems documents the same three as
+     * unrecoverable on the read side, so the two halves agree.
+     *
+     * @param  array<string, mixed>  $item
+     */
+    private function dishRow(array $item): object
+    {
+        return (object) [
+            'name' => (string) $item['name'],
+            'description' => $item['description'] ?? null,
+            'image_url' => $item['imageUrl'] ?? null,
+            'images' => $item['images'] ?? null,
+            'rating' => $item['rating'] ?? null,
+            'rating_count' => $item['ratingCount'] ?? null,
+            'badges' => $item['badges'] ?? null,
+            'base_price' => $item['basePrice'] ?? null,
+            'pickup_price' => $item['pickupPrice'] ?? null,
+            'delivery_price' => $item['deliveryPrice'] ?? null,
+            'currency' => $item['currency'] ?? null,
+        ];
+    }
+
+    /**
+     * The dish's per-platform availability, shaped as the
+     * `site.menu_item_platforms` rows MenuProjectionMapper::offers() and
+     * ::platformCollections() expect. MenuMerger always emits at least one
+     * entry (a connected-but-unscraped platform rides along as a ghost), which
+     * is what makes "has an order_platform membership" a sound test for
+     * scraper-owned in retireAbsentDishes().
+     *
+     * @param  array<string, mixed>  $item
+     * @return list<object>
+     */
+    private function platformRows(array $item): array
+    {
+        $rows = [];
+
+        foreach (($item['platforms'] ?? []) as $platform) {
+            if (! is_array($platform) || ! isset($platform['platform'])) {
+                continue;
+            }
+            $rows[] = (object) [
+                'platform' => (string) $platform['platform'],
+                'pickup_price' => $platform['pickupPrice'] ?? null,
+                'pickup_url' => $platform['pickupUrl'] ?? null,
+                'delivery_price' => $platform['deliveryPrice'] ?? null,
+                'delivery_url' => $platform['deliveryUrl'] ?? null,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * One `order_platform` collection + `content.storefronts` sidecar per
+     * `site.menu_platform_links` row — the store card, and the ONLY thing that
+     * re-pairs a dish's deep link with the platform it belongs to.
+     *
+     * Load-bearing, not bookkeeping: MenuProjectionMapper::offer() carries the
+     * order URL but drops the platform label, so ManualMenuItems::platforms()
+     * recovers the attribution by matching the offer URL's HOST against each
+     * platform's storefront URL. Stop writing these and every dish sold on two
+     * platforms loses its order links (a dish on one platform survives on
+     * ManualMenuItems' single-platform fallback, which is four of the five live
+     * menus — so the failure would be invisible on most of them).
+     *
+     * The collection normally already exists: the dish projections above create
+     * it. A platform whose scrape landed no dish (MenuMerger's "ghost") has
+     * none, so it gets one here — the order link is real and connecting a
+     * platform must not look like it did nothing. Same shape and same reasoning
+     * as MenuBackfiller::migrateOrderPlatforms(), which seeded these from the
+     * same table.
+     */
+    private function syncOrderPlatforms(Menu $menu): void
+    {
+        $userId = (string) $menu->user_id;
+
+        foreach (MenuPlatformLink::query()->where('menu_id', $menu->id)->get() as $link) {
+            $platform = trim((string) $link->platform);
+            if ($platform === '') {
+                continue;
+            }
+
+            $ref = MenuProjectionMapper::orderPlatformRef($platform);
+            $collectionId = DB::connection('pgsql')->table('content.collections')
+                ->where('user_id', $userId)->where('kind', 'order_platform')->where('external_ref', $ref)
+                ->value('id');
+
+            if ($collectionId === null) {
+                $collectionId = (string) Str::uuid();
+                DB::connection('pgsql')->table('content.collections')->insert([
+                    'id' => $collectionId,
+                    'user_id' => $userId,
+                    'parent_id' => null,
+                    'label' => $platform,
+                    'kind' => 'order_platform',
+                    'external_ref' => $ref,
+                    'position' => 0,
+                    'is_user_created' => false,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            // url IS vendor-owned and must be followed — a store that moves
+            // would otherwise leave the order button pointing at a dead page.
+            DB::connection('pgsql')->table('content.storefronts')->upsert([[
+                'collection_id' => (string) $collectionId,
+                'provider' => $platform,
+                'url' => trim((string) $link->store_url) ?: null,
+                'external_ref' => $ref,
+                'currency' => $menu->currency,
+                'referral_query' => '',
+                'is_individual' => false,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]], ['collection_id'], ['url', 'currency', 'updated_at']);
+        }
+    }
+
+    /**
+     * The scraper-owned dishes this run did NOT re-emit — persist() retires them.
+     *
+     * `items.removed_at` only — never a hard delete (the old rebuild's delete
+     * was safe only because it re-inserted in the same transaction) and never
+     * `source_items.removed_at`, which is cleared the moment a dish reappears
+     * and would therefore resurrect a dish its owner deleted.
+     *
+     * SCRAPER-OWNED means "holds at least one `order_platform` collection
+     * membership". That is the content.* replacement for
+     * rebuildableCategoryIds() and it preserves that method's whole point —
+     * scanned and hand-authored content survives a scrape — through a signal
+     * that actually exists on this side: a hand-added dish and a photo-scan
+     * dish carry no platform rows, so neither is ever a candidate here. It is
+     * also strictly more accurate than the old category proxy, which could only
+     * infer ownership from where a dish happened to sit; `content.collections`
+     * folds a scanned "Drinks" and a scraped "Drinks" into ONE row (they share
+     * MenuProjectionMapper::categoryRef), so the category can no longer answer
+     * the question at all.
+     *
+     * Two further exemptions, both name-matched with the same normalization the
+     * coord hashes: `menus.suppressed_items` (the owner's delete / detach
+     * intent) and `menus.scan_items` (a photo-scan dish that the scrape had
+     * previously matched onto — the pre-slice-7 job deleted it and let the scan
+     * reapply in handle() rebuild it, which a one-way removed_at cannot do).
+     *
+     * @param  array<string, true>  $coords  coords this scrape wrote
+     * @param  array<string, true>  $protected  normalized names the owner owns
+     * @return list<string> content item ids
+     */
+    private function absentDishIds(Menu $menu, array $coords, array $protected): array
+    {
+        $userId = (string) $menu->user_id;
+
+        $live = DB::connection('pgsql')->table('content.items as i')
+            ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->where('cs.user_id', $userId)
+            ->where('cs.kind', 'manual')
+            ->where('i.user_id', $userId)
+            ->where('i.kind', 'menu_item')
+            ->whereNull('i.removed_at')
+            ->where('si.coord', 'like', 'manual:menu:'.$menu->id.':%')
+            ->get(['i.id', 'i.headline_cache', 'si.coord']);
+
+        $candidates = [];
+        foreach ($live as $row) {
+            if (isset($coords[(string) $row->coord])) {
+                continue;
+            }
+            if (isset($protected[$this->normalizeName((string) ($row->headline_cache ?? ''))])) {
+                continue;
+            }
+            $candidates[(string) $row->id] = true;
+        }
+
+        if ($candidates === []) {
+            return [];
+        }
+
+        return $this->scraperOwnedItemIds($userId, array_keys($candidates));
+    }
+
+    /**
+     * `items.removed_at` + a freed slug, for each id. Idempotent — see the
+     * second call site in persist().
+     *
+     * @param  list<string>  $itemIds
+     */
+    private function retire(ManualMenuWriter $writer, array $itemIds): void
+    {
+        foreach ($itemIds as $itemId) {
+            $writer->markRemoved($itemId);
+        }
+    }
+
+    /**
+     * Re-run the slug allocator over the dishes this scrape wrote, AFTER the
+     * retirements have freed their bases — see the call site.
+     *
+     * A no-op for every dish whose slug already matches its name (one SELECT
+     * each, the same cost ProjectionWriter::refreshItemCaches() already pays
+     * per item), so this only ever moves a dish that was parked on a `-N`
+     * suffix by a name the vendor has since dropped.
+     *
+     * Best-effort, matching every other slug call site: a permalink must never
+     * fail a scrape, and this runs before writePlatformSyncStatus() in
+     * handle(), where throwing would invert TXN-101's ordering guarantee.
+     *
+     * @param  array<string, string>  $namesById  item id => dish name
+     */
+    private function reassertSlugs(string $userId, array $namesById): void
+    {
+        if ($namesById === []) {
             return;
         }
 
         try {
-            // Container-resolved, not a constructor arg — jobs serialize their
-            // constructor args (same convention as bustSiteCache below).
-            $slugs = app(ItemSlugAllocator::class);
-            $slugs->forgetMany($userId, ItemSlugAllocator::TYPE_MENU_ITEM, $forgetIds);
-            $slugs->ensureCurrentMany($userId, ItemSlugAllocator::TYPE_MENU_ITEM, $namesByKey);
+            $slugs = app(ContentItemSlugAllocator::class);
+            foreach ($namesById as $itemId => $name) {
+                $slugs->ensureCurrent($userId, $itemId, $name);
+            }
         } catch (Throwable $e) {
             report($e);
-            Log::warning('menu_fetch.item_slug_reconcile_failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+            Log::warning('menu_fetch.slug_reassert_failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
         }
     }
 
     /**
-     * Category ids under $menuId that the SCRAPER is allowed to wholesale
-     * delete/replace — every category except owner-authored ones:
-     * source_platform='scan' (menu-scan-apply, MenuScanApplier) and
-     * source_platform='manual' (MenuContentController). Shared by persist()'s
-     * rebuild and clearScrapedContent() below so both delete points treat
-     * owner content identically. NULL source_platform (shouldn't occur in
-     * practice — every scraper-written category always sets one) is treated
-     * as rebuildable, matching the pre-scan behaviour of deleting everything.
+     * The subset of $itemIds holding an `order_platform` membership — see
+     * retireAbsentDishes(). One query for the whole set, not one per dish.
      *
-     * NOTE: a category IS rebuildable while still protecting any is_manual dish
-     * inside it — persist()/clearScrapedContent() delete only the scraped
-     * (is_manual=false) items and keep the category alive if a manual dish
-     * remains. This method gates the CATEGORY delete; item-level preservation
-     * is enforced at the delete sites.
-     *
-     * @return Collection<int, string>
+     * @param  list<string>  $itemIds
+     * @return list<string>
      */
-    private function rebuildableCategoryIds(string $menuId): Collection
+    private function scraperOwnedItemIds(string $userId, array $itemIds): array
     {
-        return MenuCategory::query()
-            ->where('menu_id', $menuId)
-            ->where(fn ($q) => $q->whereNull('source_platform')->orWhereNotIn('source_platform', ['scan', 'manual', 'website-scan']))
-            ->pluck('id');
+        return DB::connection('pgsql')->table('content.collection_items as ci')
+            ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
+            ->whereIn('ci.item_id', $itemIds)
+            ->where('c.user_id', $userId)
+            ->where('c.kind', 'order_platform')
+            ->distinct()
+            ->pluck('ci.item_id')
+            ->map(fn ($id) => (string) $id)
+            ->all();
     }
 
     /**
-     * normalized name → FIFO list of row ids, from a (id, name) collection in
-     * its already-sorted stable order. Feeds the persist() identity reuse
-     * (categories AND items — both are menu-scoped name pools now): each
-     * rebuilt row shifts the oldest unclaimed id sharing its name.
+     * Give a dish the scrape has never seen pinned a place in the owner's
+     * `pool:menus` arrangement, at the end of it.
      *
-     * @param  \Illuminate\Database\Eloquent\Collection<int, MenuCategory>|\Illuminate\Database\Eloquent\Collection<int, MenuItem>  $rows
-     * @return array<string, list<string>>
+     * Dish ORDER lives in the pins (site.section_items.sort_key), NOT in
+     * content.collection_items.position — that column is ProjectionWriter's
+     * per-item counter over a dish's own collection list, which is why
+     * ProvisionMenuPinsCommand had to seed the pins from the legacy order at
+     * all. MenuPayloadComposer::pinOrder() is the reader, and an UNPINNED dish
+     * trails every pinned one, so a scrape that pinned nothing would render a
+     * brand-new menu alphabetically instead of in the vendor's order.
+     *
+     * SEED ONLY — an existing pin is never rewritten. That is the same
+     * idempotency rule ProvisionMenuPinsCommand states and the same rule
+     * content.collections.position follows: a scheduled run must never snap an
+     * owner's reorder back (parent §19). So the first scrape of a fresh menu
+     * lays the vendor's order down 1..N, and every later scrape appends new
+     * dishes after whatever the owner has arranged.
+     *
+     * Best-effort: pool provisioning is not what a menu refresh is for, and an
+     * owner who has never opened their Menu page has no section yet.
+     *
+     * @param  list<string>  $itemIds  in the scrape's own category/item order
      */
-    private function idsByNormalizedName($rows): array
+    private function seedPins(string $userId, array $itemIds): void
     {
-        $map = [];
-        foreach ($rows as $row) {
-            $key = $this->normalizeName((string) $row->name);
-            if ($key !== '') {
-                $map[$key][] = (string) $row->id;
+        if ($itemIds === []) {
+            return;
+        }
+
+        try {
+            $site = Site::query()->where('user_id', $userId)->first();
+            if ($site === null) {
+                return;
+            }
+
+            $writer = app(ManualMenuWriter::class);
+            $sectionKey = PoolRegistry::sectionKey('menus');
+
+            $existing = DB::connection('pgsql')->table('site.section_items as si')
+                ->join('site.sections as s', 's.id', '=', 'si.section_id')
+                ->where('s.site_id', $site->id)
+                ->where('s.key', $sectionKey)
+                ->pluck('si.sort_key', 'si.item_id');
+
+            $next = 1.0 + (float) ($existing->filter(fn ($k) => $k !== null)->max() ?? 0.0);
+
+            foreach ($itemIds as $itemId) {
+                if ($existing->has($itemId)) {
+                    continue;
+                }
+                $writer->pin($site, $itemId, $next);
+                $next += 1.0;
+            }
+        } catch (Throwable $e) {
+            report($e);
+            Log::warning('menu_fetch.pin_seed_failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * The two owner-authored name sets a scrape must respect, both normalized
+     * with the same rule MenuProjectionMapper hashes into the coord.
+     *
+     * `skip_write` — names the scrape must not write AT ALL. This is
+     * `menus.suppressed_items`, the column MenuContentController writes when
+     * the owner deletes a scraped dish, and the ONE of the four slice-7
+     * behaviour homes that already had a home that survives the teardown. It is
+     * also where an owner EDIT has to land: the legacy `menu_items.is_manual`
+     * flag has no column on `site.menus` (the spec claimed one; it does not
+     * exist) and no representable target in `content.*`, and "the scrape must
+     * not overwrite this dish" is exactly what suppression already means. The
+     * scrape's behaviour is identical under either reading, so this honours
+     * whatever MenuContentController records there without needing to know
+     * which of the two it meant.
+     *
+     * `protected` — names the scrape must not RETIRE. Everything in skip_write,
+     * plus `menus.scan_items`: a photo-scan dish the scrape had matched onto
+     * shares one item now, and marking it removed when the vendor drops it
+     * would be one-way (items.removed_at is never cleared except by an explicit
+     * owner restore), where the pre-slice-7 job deleted it and let the scan
+     * reapply in handle() put it back.
+     *
+     * @return array{skip_write: array<string, true>, protected: array<string, true>}
+     */
+    private function ownerAuthoredNames(Menu $menu): array
+    {
+        $suppressed = $this->suppressedItemNames($menu);
+        $protected = $suppressed;
+
+        foreach (($menu->scan_items['items'] ?? []) as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            $name = $this->normalizeName((string) ($entry['name'] ?? ''));
+            if ($name !== '') {
+                $protected[$name] = true;
             }
         }
 
-        return $map;
-    }
-
-    /** Shift (consume) the oldest previous id recorded under this name, or null when none is left. */
-    private function takeReusedId(array &$idsByName, string $name): ?string
-    {
-        $key = $this->normalizeName($name);
-        if ($key === '' || empty($idsByName[$key])) {
-            return null;
-        }
-
-        return array_shift($idsByName[$key]);
+        return ['skip_write' => $suppressed, 'protected' => $protected];
     }
 
     /**
@@ -796,21 +916,31 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     }
 
     /**
-     * Clear every NON-scan-sourced category/item/item-platform row for a user
-     * (the same scope persist() rebuilds), used when no ordering platform is
-     * connected at all. Also clears the menu's platformLinks — by definition
-     * no platform is connected at this point, so no menu_platform_links row
-     * can be legitimately valid afterward; leaving one behind would let a
-     * later reconnect's urlUnchanged+settled skip-gate (handle(), above)
-     * wrongly compare against stale data and no-op a scrape that should run.
-     * Manual dishes (is_manual) are preserved the same way persist() preserves
-     * them — only the scraped items are deleted, and a rebuildable category that
-     * still holds a manual dish survives. When nothing owner-authored remains
-     * afterward, the menu row itself is soft-deleted — IDENTICAL to the prior
-     * unconditional-delete behaviour for every user who never used scan/manual.
-     * When owner content DOES remain, the row survives and content_source flips
-     * to the accurate remaining source ('scan' when scan content exists, else
-     * 'manual') instead of keeping a now-inaccurate scraped platform name.
+     * Retire every scraper-owned dish for a user, used when no ordering
+     * platform is connected at all — the same scope persist() refreshes, run
+     * with an empty scrape.
+     *
+     * `items.removed_at` only (see retireAbsentDishes): a photo-scan or
+     * hand-added dish carries no `order_platform` membership and is never
+     * touched, and neither is anything named in `menus.suppressed_items` /
+     * `menus.scan_items`.
+     *
+     * Also clears the menu's platformLinks AND their `content.storefronts`
+     * sidecars — by definition no platform is connected at this point, so
+     * neither can be legitimately valid afterward. Leaving a link row behind
+     * would let a later reconnect's urlUnchanged+settled skip-gate (handle(),
+     * above) wrongly compare against stale data and no-op a scrape that should
+     * run; leaving a storefront behind would keep a dead store card on the
+     * public menu. The `order_platform` COLLECTION survives, empty: it is the
+     * natural key a reconnect upserts back onto, and content.collections
+     * .removed_at is one-way (upsertCollections never clears it), so removing
+     * it would strand the platform permanently.
+     *
+     * When nothing owner-authored remains afterward, the menu row itself is
+     * soft-deleted — IDENTICAL to the prior unconditional-delete behaviour for
+     * every user who never used scan/manual. When owner content DOES remain,
+     * the row survives and content_source flips to the accurate remaining
+     * source instead of keeping a now-inaccurate scraped platform name.
      */
     private function clearScrapedContent(string $userId): void
     {
@@ -819,84 +949,119 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             return;
         }
 
-        // Filled inside the transaction, applied after it commits (see
-        // reconcileItemSlugs). Nothing is re-inserted on this path, so every
-        // deleted dish is genuinely vanished.
-        /** @var list<string> $vanishedItemIds */
-        $vanishedItemIds = [];
+        $writer = app(ManualMenuWriter::class);
 
-        DB::connection('pgsql')->transaction(function () use ($menu, &$vanishedItemIds) {
-            $rebuildableCategoryIds = $this->rebuildableCategoryIds($menu->id);
-            // Delete only scraped items (non-manual dishes with a membership in a
-            // scraper-owned category) — manual dishes survive even when no
-            // ordering platform is connected at all, and scan-created dishes
-            // living only in scan categories are untouched.
-            $memberItemIds = DB::connection('pgsql')->table('site.menu_item_categories')
-                ->whereIn('menu_category_id', $rebuildableCategoryIds)
-                ->distinct()->pluck('menu_item_id');
-            $deletableItemIds = MenuItem::query()
-                ->whereIn('id', $memberItemIds)
-                ->where('is_manual', false)
-                ->pluck('id');
-            $vanishedItemIds = $deletableItemIds->map(fn ($id) => (string) $id)->values()->all();
-            MenuItemPlatform::query()->whereIn('menu_item_id', $deletableItemIds)->delete();
-            DB::connection('pgsql')->table('site.menu_item_categories')->whereIn('menu_item_id', $deletableItemIds)->delete();
-            MenuItem::query()->whereIn('id', $deletableItemIds)->delete();
+        // An empty coord set: every scraper-owned dish is "absent from this
+        // scrape", which is exactly what having no ordering platform means.
+        // One pass only — nothing is written afterwards, so nothing re-mints
+        // the slugs this frees (see persist()'s second retire()).
+        $this->retire($writer, $this->absentDishIds($menu, [], $this->ownerAuthoredNames($menu)['protected']));
 
-            // Drop rebuildable categories that are now empty; keep any that still
-            // hold a manual dish (its name/position intact).
-            $nonEmptyCategoryIds = DB::connection('pgsql')->table('site.menu_item_categories')
-                ->whereIn('menu_category_id', $rebuildableCategoryIds)
-                ->distinct()->pluck('menu_category_id');
-            MenuCategory::query()
-                ->whereIn('id', $rebuildableCategoryIds)
-                ->whereNotIn('id', $nonEmptyCategoryIds)
-                ->delete();
+        $this->clearStorefronts($userId);
+        $menu->platformLinks()->delete();
 
-            $menu->platformLinks()->delete();
+        if ($this->hasOwnerContent($menu)) {
+            $menu->forceFill(['content_source' => $this->remainingContentSource($menu)])->save();
+        } else {
+            $menu->delete();
+        }
 
-            if (! $menu->categories()->exists()) {
-                $menu->delete();
-            } else {
-                $menu->forceFill(['content_source' => $this->remainingContentSource($menu)])->save();
-            }
-        });
-
-        // POST-COMMIT. Nothing was re-inserted, so every deleted dish frees its
-        // slug; no ensure pass is needed (manual dishes were never deleted, so
-        // their slugs are untouched).
-        $this->reconcileItemSlugs($userId, $vanishedItemIds, []);
-
-        // Scraped rows were removed from the public menu — bust the edge cache
-        // (a menu existed, so this is a real content change, not a no-op).
+        // Scraped rows left the public menu — bust the edge cache (a menu
+        // existed, so this is a real content change, not a no-op).
         $this->bustSiteCache($userId);
+    }
+
+    /** Drop the store-card sidecars; the parent collections stay (see clearScrapedContent). */
+    private function clearStorefronts(string $userId): void
+    {
+        $collectionIds = DB::connection('pgsql')->table('content.collections')
+            ->where('user_id', $userId)->where('kind', 'order_platform')
+            ->pluck('id');
+
+        if ($collectionIds->isNotEmpty()) {
+            DB::connection('pgsql')->table('content.storefronts')
+                ->whereIn('collection_id', $collectionIds)->delete();
+        }
+    }
+
+    /**
+     * Whether anything owner-authored survives on a menu whose scraped dishes
+     * were just retired: a live dish (photo-scan, website-scan or hand-added —
+     * all three land as `menu_item` content items on this menu's coord) or an
+     * owner-created category with nothing in it yet.
+     *
+     * The legacy arm is TRANSITIONAL, the same concession MenuPayloadComposer
+     * makes for the same reason: Phase 2 moves the four menu write paths one
+     * task at a time, and until Tasks 6 and 8 land, MenuContentController and
+     * MenuScanApplier still write site.menu_*. Reading only content.* here
+     * would soft-delete the menu row out from under a scan-only owner. Deleted
+     * in Phase 5 with the tables.
+     */
+    private function hasOwnerContent(Menu $menu): bool
+    {
+        $liveDish = DB::connection('pgsql')->table('content.items as i')
+            ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->where('cs.user_id', $menu->user_id)
+            ->where('cs.kind', 'manual')
+            ->where('i.kind', 'menu_item')
+            ->whereNull('i.removed_at')
+            ->where('si.coord', 'like', 'manual:menu:'.$menu->id.':%')
+            ->exists();
+
+        if ($liveDish) {
+            return true;
+        }
+
+        if (DB::connection('pgsql')->table('content.collections')
+            ->where('user_id', $menu->user_id)
+            ->where('kind', 'menu_category')
+            ->whereNull('removed_at')
+            ->where('is_user_created', true)
+            ->exists()) {
+            return true;
+        }
+
+        return $this->legacyOwnerSource($menu) !== null
+            || DB::connection('pgsql')->table('site.menu_items')
+                ->where('menu_id', $menu->id)->where('is_manual', true)->exists();
     }
 
     /**
      * The content_source to stamp on a menu whose scraped content was just
-     * cleared but that still has owner-authored content: 'scan' when any
-     * scan-sourced category remains (preserves the prior scan-only behaviour),
-     * 'website-scan' when only previous-website-scanned categories remain
-     * (previously fell through to the 'manual' branch below, mislabelling a
-     * menu that was never hand-typed), otherwise 'manual' (a scraped category
-     * kept alive purely by a manual dish has an inaccurate scraped
-     * source_platform, so 'manual' is the honest label).
+     * cleared but that still has owner-authored content.
+     *
+     * The legacy source_platform answer ('scan' > 'website-scan' > 'manual')
+     * while those rows still exist — see hasOwnerContent()'s note. Once they
+     * are gone the answer DEGRADES to 'scan' (a photo scan ran —
+     * menus.scan_items is the only per-source marker that survives the
+     * teardown) or 'manual'. `website-scan` has no replacement: content
+     * .collections carries no source column, only the insert-only
+     * `is_user_created` bit, which cannot tell three owner lanes apart, and
+     * inventing a fourth home here would disagree with whatever
+     * MenuScanApplier records in Task 8. Named as a deliberate drop.
      */
     private function remainingContentSource(Menu $menu): string
     {
-        $remaining = MenuCategory::query()
+        return $this->legacyOwnerSource($menu)
+            ?? (($menu->scan_items['items'] ?? []) !== [] ? 'scan' : 'manual');
+    }
+
+    /** Transitional — see hasOwnerContent(). Null when no owner-lane legacy category remains. */
+    private function legacyOwnerSource(Menu $menu): ?string
+    {
+        $remaining = DB::connection('pgsql')->table('site.menu_categories')
             ->where('menu_id', $menu->id)
-            ->whereIn('source_platform', ['scan', 'website-scan'])
+            ->whereIn('source_platform', ['scan', 'website-scan', 'manual'])
             ->pluck('source_platform');
 
-        if ($remaining->contains('scan')) {
-            return 'scan';
-        }
-        if ($remaining->contains('website-scan')) {
-            return 'website-scan';
+        foreach (['scan', 'website-scan', 'manual'] as $source) {
+            if ($remaining->contains($source)) {
+                return $source;
+            }
         }
 
-        return 'manual';
+        return null;
     }
 
     /**

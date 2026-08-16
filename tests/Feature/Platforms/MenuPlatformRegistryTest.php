@@ -3,12 +3,13 @@
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\User\User;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuPlatformDriver;
+use App\Services\Platforms\MenuProjectionMapper;
 use App\Services\Platforms\MenuSource;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -21,6 +22,8 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Slice 7 Task 7: MenuFetchJob lands the scrape in content.*.
+    setupContentTables();
 });
 
 // Test double for MenuPlatformDriver — returns a canned normalized menu, no HTTP.
@@ -148,7 +151,7 @@ it('merges a menulog-only dish into the union', function () {
     expect($merged['categories'][0]['items'][0]['platforms'][0]['platform'])->toBe('menulog');
 });
 
-it('MenuFetchJob persists a menu_item_platforms row for the registered platform', function () {
+it('MenuFetchJob persists a per-platform offer + storefront for the registered platform', function () {
     registerMenulogPlatform();
     $user = registryUser('reg2');
     registryOrdering($user, 'https://www.menulog.com.au/restaurants/test-diner');
@@ -167,17 +170,24 @@ it('MenuFetchJob persists a menu_item_platforms row for the registered platform'
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
-    // menu_item_platforms.platform is intentionally un-CHECKed (by design, see
-    // 20260701140100_menu_item_platforms_table.sql) so this row is safe on
-    // Postgres regardless. site.menus.content_source ALSO now writes 'menulog'
-    // cleanly here — but only because 20260704170000_drop_menu_platform_checks
-    // dropped the old hardcoded ('uber-eats','doordash') CHECK. SQLite (the test
-    // driver) never enforced that CHECK either way, so a green run here does NOT
-    // by itself prove the Postgres write is safe — the migration is what makes it so.
+    // site.menus.content_source writes 'menulog' cleanly only because
+    // 20260704170000_drop_menu_platform_checks dropped the old hardcoded
+    // ('uber-eats','doordash') CHECK. SQLite (the test driver) never enforced
+    // that CHECK either way, so a green run here does NOT by itself prove the
+    // Postgres write is safe — the migration is what makes it so.
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
     expect($menu->content_source)->toBe('menulog');
 
-    $itemPlatform = MenuItemPlatform::query()->where('platform', 'menulog')->first();
-    expect($itemPlatform)->not->toBeNull();
-    expect((float) $itemPlatform->pickup_price)->toBe(10.0);
+    // Slice 7 Task 7: the per-platform availability is an `order_platform`
+    // collection + its content.storefronts sidecar, and a priced pickup offer
+    // — neither carries a platform allowlist, so a registry addition still
+    // needs no code change here.
+    $storefront = DB::connection('pgsql')->table('content.storefronts')->where('provider', 'menulog')->first();
+    expect($storefront)->not->toBeNull();
+    expect($storefront->external_ref)->toBe(MenuProjectionMapper::orderPlatformRef('menulog'));
+
+    $offer = DB::connection('pgsql')->table('content.offers')
+        ->where('channel', 'pickup')->whereNotNull('url')->first();
+    expect($offer)->not->toBeNull();
+    expect((int) $offer->amount_minor)->toBe(1000);
 });
