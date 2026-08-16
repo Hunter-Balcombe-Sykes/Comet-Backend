@@ -668,6 +668,11 @@ class MenuContentController extends ApiController
             'id' => (string) $category->id,
             'name' => (string) $category->label,
             'position' => (int) $category->position,
+            // Pass the STORED key, never let the mapper re-derive it from the
+            // label: owner categories live in their own external_ref namespace
+            // (MenuScanApplier::categoryRefFor), so a re-derivation would mint a
+            // second, scraper-shaped collection beside this one.
+            'external_ref' => $category->external_ref ?? null,
         ])->values()->all();
     }
 

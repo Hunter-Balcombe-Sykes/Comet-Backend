@@ -3,23 +3,28 @@
 use App\Jobs\Platforms\GoogleMenuPhotoScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\MenuCategory;
-use App\Models\Core\Site\MenuItem;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualMenuItems;
+use App\Services\Content\ManualMenuWriter;
 use App\Services\Platforms\GoogleMenuImagesScraper;
 use App\Services\Platforms\MenuAiExtractor;
 use App\Services\Platforms\MenuScanApplier;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupItemSlugsTable();
+    setupContentTables();
+    Queue::fake();
 });
 
 function scanUser(string $h, string $accountType = 'business', string $sector = 'restaurant'): User
 {
-    return User::create([
+    $user = User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
@@ -29,23 +34,42 @@ function scanUser(string $h, string $accountType = 'business', string $sector = 
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $user->id, 'subdomain' => $h,
+        'is_published' => 1, 'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    return $user;
 }
 
-function scanMenuWithItem(User $user, string $itemName, ?string $description, ?float $price, mixed $badges = null): MenuItem
+/**
+ * A SCRAPED dish, landed the way MenuFetchJob's persist lands one: through the
+ * projection mapper, so its category carries a plain `menu:<slug>` ref and is
+ * therefore scraper-owned as far as the applier is concerned.
+ */
+function scanMenuWithItem(User $user, string $itemName, ?string $description, ?float $price, mixed $badges = null): string
 {
-    $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'fetch_status' => 'ok']);
-    $category = MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'uber-eats']);
+    $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'currency' => 'AUD', 'fetch_status' => 'ok']);
+    $writer = app(ManualMenuWriter::class);
 
-    $item = MenuItem::create([
-        'menu_id' => $menu->id,
-        'name' => $itemName,
-        'description' => $description,
-        'base_price' => $price,
-        'badges' => $badges,
-    ]);
-    $item->categories()->attach($category->id, ['position' => 0]);
+    return $writer->write(
+        (string) $user->id,
+        $writer->coordFor((string) $menu->id, $itemName),
+        $writer->projectionFor(
+            (object) ['name' => $itemName, 'description' => $description, 'base_price' => $price, 'badges' => $badges],
+            [['id' => (string) Str::uuid(), 'name' => 'Mains', 'position' => 0]],
+            [],
+            $menu,
+        ),
+    );
+}
 
-    return $item;
+/** The dish the assertions below read back, folded to the legacy columns. */
+function scanRow(User $user, string $name): ?object
+{
+    return app(ManualMenuItems::class)->rows((string) $user->id)->firstWhere('headline', $name);
 }
 
 // ── Extractor parsing ────────────────────────────────────────────────────────
@@ -123,45 +147,48 @@ it('parses a dense multi-category menu into per-category items, never a bare cat
 
 it('updates a matched item description only when the scanned one is longer', function () {
     $user = scanUser('longerwins');
-    $item = scanMenuWithItem($user, 'Pizza Margherita', 'Tomato.', 25.5);
+    scanMenuWithItem($user, 'Pizza Margherita', 'Tomato.', 25.5);
 
     app(MenuScanApplier::class)->apply($user, [
         ['name' => 'Pizza Margherita', 'description' => 'San Marzano tomato, fior di latte mozzarella & fresh basil.', 'price' => null, 'category' => null, 'dietary' => null],
     ], enrichOnly: true);
-    expect($item->fresh()->description)->toContain('San Marzano');
+    expect(scanRow($user, 'Pizza Margherita')->description)->toContain('San Marzano');
 
     app(MenuScanApplier::class)->apply($user, [
         ['name' => 'Pizza Margherita', 'description' => 'Short.', 'price' => null, 'category' => null, 'dietary' => null],
     ], enrichOnly: true);
-    expect($item->fresh()->description)->toContain('San Marzano');
+    expect(scanRow($user, 'Pizza Margherita')->description)->toContain('San Marzano');
 });
 
 it('fills a missing price but never overwrites a scraped one', function () {
     $user = scanUser('pricefill');
-    $item = scanMenuWithItem($user, 'Garlic Bread', null, 12.0);
+    scanMenuWithItem($user, 'Garlic Bread', null, 12.0);
 
     app(MenuScanApplier::class)->apply($user, [
         ['name' => 'Garlic Bread', 'description' => null, 'price' => 9.0, 'category' => null, 'dietary' => null],
     ], enrichOnly: true);
-    expect($item->fresh()->base_price)->toBe(12.0);
+    expect(scanRow($user, 'Garlic Bread')->base_price)->toBe(12.0);
 
-    $item->forceFill(['base_price' => null])->save();
-    app(MenuScanApplier::class)->apply($user, [
+    $unpriced = scanUser('pricefillempty');
+    scanMenuWithItem($unpriced, 'Garlic Bread', null, null);
+    app(MenuScanApplier::class)->apply($unpriced, [
         ['name' => 'Garlic Bread', 'description' => null, 'price' => 9.0, 'category' => null, 'dietary' => null],
     ], enrichOnly: true);
-    expect($item->fresh()->base_price)->toBe(9.0);
+    expect(scanRow($unpriced, 'Garlic Bread')->base_price)->toBe(9.0);
 });
 
 it('merges scanned dietary markers into existing badges without duplicates', function () {
     $user = scanUser('badgemerge');
-    $item = scanMenuWithItem($user, 'Green Curry', 'Thai classic', 24.0, [['text' => 'Popular'], ['text' => 'Vegan', 'type' => 'dietary']]);
+    scanMenuWithItem($user, 'Green Curry', 'Thai classic', 24.0, [['text' => 'Popular'], ['text' => 'Vegan', 'type' => 'dietary']]);
 
     app(MenuScanApplier::class)->apply($user, [
         ['name' => 'Green Curry', 'description' => null, 'price' => null, 'category' => null, 'dietary' => ['Vegan', 'Gluten free']],
     ]);
 
-    $badges = $item->fresh()->badges;
-    expect(collect($badges)->pluck('text')->all())->toBe(['Popular', 'Vegan', 'Gluten free']);
+    // Alphabetical, and text-only: content.item_tags carries neither an ordinal
+    // column nor the badge's own `type` (MenuProjectionMapper::badges()).
+    expect(collect(scanRow($user, 'Green Curry')->badges)->pluck('text')->all())
+        ->toBe(['Gluten free', 'Popular', 'Vegan']);
 });
 
 it('badges brand-new scan items with their dietary markers', function () {
@@ -172,9 +199,8 @@ it('badges brand-new scan items with their dietary markers', function () {
         ['name' => 'Buckwheat Pancakes', 'description' => 'House made', 'price' => 18.0, 'category' => 'Breakfast', 'dietary' => ['Gluten free']],
     ]);
 
-    $new = MenuItem::query()->where('name', 'Buckwheat Pancakes')->first();
-    expect($new)->not->toBeNull()
-        ->and($new->badges)->toBe([['text' => 'Gluten free', 'type' => 'dietary']]);
+    expect(scanRow($user, 'Buckwheat Pancakes'))->not->toBeNull()
+        ->and(scanRow($user, 'Buckwheat Pancakes')->badges)->toBe([['text' => 'Gluten free']]);
 });
 
 // ── Job guards ───────────────────────────────────────────────────────────────
@@ -249,9 +275,9 @@ it('scans stored google photos, applies items, and persists scan_items', functio
         app(MenuScanApplier::class),
     );
 
-    $item = MenuItem::query()->where('name', 'Pizza Margherita')->first();
-    expect($item->description)->toContain('wood fired')
-        ->and(collect($item->badges)->pluck('text')->all())->toContain('Gluten free');
+    $row = scanRow($user, 'Pizza Margherita');
+    expect($row->description)->toContain('wood fired')
+        ->and(collect($row->badges)->pluck('text')->all())->toContain('Gluten free');
 
     $menu = Menu::query()->where('user_id', $user->id)->first();
     expect($menu->scan_items['source'] ?? null)->toBe('google-photos')
@@ -338,22 +364,26 @@ TXT;
         app(MenuScanApplier::class),
     );
 
-    $menu = Menu::query()->where('user_id', $user->id)->first();
-    $categories = MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'scan')->get();
+    // Every category the scan created is scan-OWNED: its external_ref sits in
+    // the `menu:scan:*` namespace, unreachable from a scraped label.
+    $categories = app(ManualMenuItems::class)->categories((string) $user->id)
+        ->filter(fn ($c) => MenuScanApplier::isOwnerCategoryRef((string) $c->external_ref))
+        ->values();
 
     expect($categories)->toHaveCount(4)
-        ->and($categories->pluck('name')->sort()->values()->all())
+        ->and($categories->pluck('label')->sort()->values()->all())
         ->toBe(['BEERS & CIDER', 'COCKTAILS', 'RED WINES', 'SPARKLING']);
 
+    $rows = app(ManualMenuItems::class)->rows((string) $user->id);
     foreach ($categories as $category) {
-        $categoryItems = $category->items()->get();
-        expect($categoryItems)->toHaveCount(2);
+        $members = $rows->filter(fn ($r) => in_array((string) $category->id, $r->category_ids, true));
+        expect($members)->toHaveCount(2);
         // The bug under test: a category header must never itself land as
         // an item row (e.g. a bare "COCKTAILS" item with no price).
-        expect($categoryItems->pluck('name')->all())->not->toContain($category->name);
+        expect($members->pluck('headline')->all())->not->toContain($category->label);
     }
 
-    $chianti = MenuItem::query()->where('name', 'Chianti Classico')->first();
+    $chianti = scanRow($user, 'Chianti Classico');
     expect($chianti->base_price)->toBe(15.0)
         ->and($chianti->description)->toContain('Bottle $60');
 });

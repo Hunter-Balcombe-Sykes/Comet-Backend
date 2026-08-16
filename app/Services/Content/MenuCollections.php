@@ -48,6 +48,24 @@ use Illuminate\Support\Str;
  * invalidation is deliberately absent — the controller owns both, exactly as
  * ServiceCollections' docblock explains for its own half.
  */
+// RECONCILED 2026-08-17. Tasks 6 and 8 landed two ref conventions. Task 8
+// namespaces SCAN categories (`menu:scan:x`, `menu:website-scan:x`) so a scan
+// can never reuse a scraped category — that separation is kept, and it is
+// structural because Str::slug() emits [a-z0-9-] only, so a colon form is
+// unreachable from any vendor label.
+//
+// MANUAL categories deliberately do NOT get a namespace: they share the bare
+// `menu:<slug>` key with the scraped row of the same label, which is what lets
+// an owner ADOPT a scraped category (ensure(..., ownerCreated: true) flips
+// is_user_created on the existing row) and thereby edit or delete it at all.
+// Namespacing manual too was tried and reverted — it splits the adopted row in
+// two, and deleteCategory() then suppresses nothing.
+//
+// The residual hazard, recorded rather than fixed: is_user_created is written
+// by upsertCollections()'s INSERT arm only, so if a SCRAPE lands a label before
+// the owner ever adopts it, the flag stays false and the category is
+// uneditable under EDITABLE_SOURCES until adopted. Adoption is the escape
+// hatch, which is why it must keep working.
 class MenuCollections
 {
     public const KIND = 'menu_category';

@@ -20,8 +20,10 @@ use Throwable;
 // slow Mistral OCR call never blocks ScanPreviousWebsiteContentJob's own
 // timeout budget (mirrors why the link-in-bio scan is its own job too).
 // enrichOnly like the Google-photos scan: adds to what a platform scrape
-// already knows, never overwrites it — tagged 'website-scan' (not 'scan'),
-// independently protected from MenuFetchJob's rebuild wipe.
+// already knows, never overwrites it — tagged 'website-scan' (not 'scan'), so
+// its categories land in their own `menu:website-scan:*` external_ref namespace
+// and can never be folded into (or rebuilt away with) a scraped one. See
+// MenuScanApplier::categoryRefFor().
 class WebsiteMenuPdfScanJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;

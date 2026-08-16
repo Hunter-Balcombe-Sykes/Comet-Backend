@@ -9,9 +9,11 @@ use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\MenuPlatformLink;
 use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheInvalidator;
+use App\Services\Content\ManualMenuItems;
 use App\Services\Notifications\Dispatchers\PlatformHealthNotifier;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
+use App\Services\Platforms\MenuPayloadComposer;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use App\Services\Platforms\NormalizesMenuItemNames;
@@ -855,7 +857,13 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
             $menu->platformLinks()->delete();
 
-            if (! $menu->categories()->exists()) {
+            // hasOwnerContent() reads BOTH lanes since slice 7 Task 8 moved the
+            // scan writes to content.*. Without it a scan-only menu now has no
+            // site.menu_categories rows at all, so this soft-delete would take
+            // the row that IS the coord namespace (MenuProjectionMapper
+            // ::coordFor) and holds scan_items / suppressed_items with it —
+            // orphaning every content.* dish the owner ever scanned.
+            if (! $menu->categories()->exists() && ! app(MenuPayloadComposer::class)->hasOwnerContent($menu)) {
                 $menu->delete();
             } else {
                 $menu->forceFill(['content_source' => $this->remainingContentSource($menu)])->save();
@@ -887,7 +895,12 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         $remaining = MenuCategory::query()
             ->where('menu_id', $menu->id)
             ->whereIn('source_platform', ['scan', 'website-scan'])
-            ->pluck('source_platform');
+            ->pluck('source_platform')
+            // The content-lane half: since slice 7 Task 8 an owner category is a
+            // content.collections row whose external_ref names its source
+            // (MenuScanApplier::categoryRefFor), so the same two answers are
+            // derivable from the ref rather than a dropped column.
+            ->merge($this->ownerContentSources($menu));
 
         if ($remaining->contains('scan')) {
             return 'scan';
@@ -897,6 +910,31 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         }
 
         return 'manual';
+    }
+
+    /**
+     * The owner-category sources present in the content lane, as the same
+     * 'scan' / 'website-scan' strings the legacy column held.
+     *
+     * @return list<string>
+     */
+    private function ownerContentSources(Menu $menu): array
+    {
+        $userId = DB::connection('pgsql')->table('site.menus')->where('id', $menu->id)->value('user_id');
+        if ($userId === null) {
+            return [];
+        }
+
+        $out = [];
+        foreach (app(ManualMenuItems::class)->categories((string) $userId) as $category) {
+            foreach (['scan', 'website-scan'] as $source) {
+                if (str_starts_with((string) $category->external_ref, 'menu:'.$source.':')) {
+                    $out[] = $source;
+                }
+            }
+        }
+
+        return $out;
     }
 
     /**

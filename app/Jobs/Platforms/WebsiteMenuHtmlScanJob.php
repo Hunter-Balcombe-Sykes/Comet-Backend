@@ -24,6 +24,12 @@ use Throwable;
 // for menu-density before ever dispatching this job). Own job for the same
 // reason the PDF path is its own job: the AI call's own timeout (90s) is
 // longer than ScanPreviousWebsiteContentJob's own budget (60s).
+//
+// enrichOnly, tagged 'website-scan' (not 'scan'), so its categories land in
+// their own `menu:website-scan:*` external_ref namespace and can never be
+// folded into (or rebuilt away with) a scraped one. Since slice 7 Task 8 the
+// applier writes content.* through ManualMenuWriter; nothing about this job's
+// contract with it changed. See MenuScanApplier::categoryRefFor().
 class WebsiteMenuHtmlScanJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;

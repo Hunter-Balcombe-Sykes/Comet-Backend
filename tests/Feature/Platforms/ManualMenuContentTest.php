@@ -13,6 +13,7 @@ use App\Services\Content\MenuCollections;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuProjectionMapper;
+use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -217,6 +218,9 @@ it('marks an owner-created category is_user_created and a scraped one not', func
     // scraper-owned half to false.
     expect($cats['Specials']->is_user_created)->toBeTrue();
     expect($cats['Mains']->is_user_created)->toBeFalse();
+    // Manual categories share the bare `menu:<slug>` key with a scraped row of
+    // the same label ON PURPOSE — that shared key is what lets an owner adopt a
+    // scraped category and edit it. Only SCAN categories are namespaced.
     expect($cats['Specials']->external_ref)->toBe(MenuProjectionMapper::categoryRef('Specials'));
 });
 
@@ -1058,9 +1062,14 @@ it('does not resurrect a suppressed dish through the automatic scan reapply', fu
 
     // The reapply itself still ran — the non-suppressed scan-only dish landed
     // under a scan category — proving only the suppressed dish was dropped.
-    $lemonade = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Lemonade')->first();
+    // Since slice 7 Task 8 the reapply writes content.*, so the scan category
+    // is a content.collections row in the `menu:scan:*` ref namespace.
+    $items = app(ManualMenuItems::class);
+    $lemonade = $items->rows((string) $user->id)->firstWhere('headline', 'Lemonade');
     expect($lemonade)->not->toBeNull();
-    expect($lemonade->categories->first()->source_platform)->toBe('scan');
+    $categories = $items->categories((string) $user->id)->keyBy('id');
+    expect((string) $categories[$lemonade->category_ids[0]]->external_ref)
+        ->toBe(MenuScanApplier::categoryRefFor('scan', 'Beverages'));
 
     // The suppression record survives for future rebuilds.
     $menu->refresh();

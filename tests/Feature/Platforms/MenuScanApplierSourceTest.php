@@ -1,15 +1,19 @@
 <?php
 
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualMenuItems;
 use App\Services\Platforms\MenuScanApplier;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupItemSlugsTable();
+    setupContentTables();
+    Queue::fake();
 });
 
 function msaSourceUser(string $handle): User
@@ -37,7 +41,8 @@ it('tags a custom source when passed, defaulting to "scan" when omitted', functi
     ]);
     $defaultMenu = Menu::query()->where('user_id', $defaultUser->id)->firstOrFail();
     expect($defaultMenu->content_source)->toBe('scan');
-    expect(MenuCategory::query()->where('menu_id', $defaultMenu->id)->first()->source_platform)->toBe('scan');
+    expect((string) app(ManualMenuItems::class)->categories((string) $defaultUser->id)[0]->external_ref)
+        ->toBe(MenuScanApplier::categoryRefFor('scan', 'Pizza'));
 
     $customUser = msaSourceUser('msacustom');
     app(MenuScanApplier::class)->apply($customUser, [
@@ -45,7 +50,8 @@ it('tags a custom source when passed, defaulting to "scan" when omitted', functi
     ], enrichOnly: true, source: 'website-scan');
     $customMenu = Menu::query()->where('user_id', $customUser->id)->firstOrFail();
     expect($customMenu->content_source)->toBe('website-scan');
-    expect(MenuCategory::query()->where('menu_id', $customMenu->id)->first()->source_platform)->toBe('website-scan');
+    expect((string) app(ManualMenuItems::class)->categories((string) $customUser->id)[0]->external_ref)
+        ->toBe(MenuScanApplier::categoryRefFor('website-scan', 'Pizza'));
 });
 
 it('scopes the scan-category lookup to the given source, not "scan" unconditionally', function () {
@@ -57,13 +63,18 @@ it('scopes the scan-category lookup to the given source, not "scan" unconditiona
     ]);
 
     // A 'website-scan' apply for the SAME category name must create its OWN
-    // category, not reuse the 'scan' one — different source_platform tags.
+    // category, not reuse the 'scan' one — the source lives in the
+    // external_ref, so the two refs cannot collide.
     app(MenuScanApplier::class)->apply($user, [
         ['name' => 'Carbonara', 'description' => null, 'price' => 20.0, 'category' => 'Pizza'],
     ], enrichOnly: true, source: 'website-scan');
 
-    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    $categories = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Pizza')->get();
+    $categories = app(ManualMenuItems::class)->categories((string) $user->id)
+        ->filter(fn ($c) => $c->label === 'Pizza');
+
     expect($categories)->toHaveCount(2);
-    expect($categories->pluck('source_platform')->sort()->values()->all())->toBe(['scan', 'website-scan']);
+    expect($categories->pluck('external_ref')->map(fn ($r) => (string) $r)->sort()->values()->all())->toBe([
+        MenuScanApplier::categoryRefFor('scan', 'Pizza'),
+        MenuScanApplier::categoryRefFor('website-scan', 'Pizza'),
+    ]);
 });

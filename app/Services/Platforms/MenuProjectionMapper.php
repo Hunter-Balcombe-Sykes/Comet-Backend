@@ -217,7 +217,7 @@ class MenuProjectionMapper
      * rather than written: offering_name_in_category derives from these
      * entries, and an empty one silently stops short dish names merging.
      *
-     * @param  list<array{id: string, name: string, position: int}>  $categories
+     * @param  list<array{id: string, name: string, position: int, external_ref?: string|null}>  $categories
      * @return list<array<string, mixed>>
      */
     private function collections(array $categories): array
@@ -231,7 +231,12 @@ class MenuProjectionMapper
             }
             $out[] = [
                 'kind' => 'menu_category',
-                'external_ref' => self::categoryRef($label),
+                // A caller that already HOLDS the collection's key passes it;
+                // only the scrape, which has labels and no stored row, falls
+                // back to deriving one. Re-deriving a stored key from a MUTABLE
+                // label is how an owner category minted under one convention
+                // silently grew a second row under another (slice 7, 2026-08-17).
+                'external_ref' => $category['external_ref'] ?? self::categoryRef($label),
                 'label' => $label,
                 'position' => $category['position'],
             ];

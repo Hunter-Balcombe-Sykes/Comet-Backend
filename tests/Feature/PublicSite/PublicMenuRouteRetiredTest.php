@@ -31,6 +31,10 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Slice 7 Task 8: MenuScanApplier seeds this file's fixture menu into
+    // content.* through ManualMenuWriter, not into site.menu_items.
+    setupItemSlugsTable();
+    setupContentTables();
 });
 
 function retiredMenuRouteUser(string $h): User

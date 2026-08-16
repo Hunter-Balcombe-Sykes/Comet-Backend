@@ -49,8 +49,16 @@ it('routes no Fresha service through the owner-authored price mapper', function 
     // service one, and it passes the dashboard's `price` through unchanged —
     // an omitted price stays null and mints no offer, rather than becoming a 0
     // that MenuProjectionMapper::offer() would qualify as 'free'.
+    //
+    // MenuScanApplier.php added by slice 7 Task 8, same deliberate look: it
+    // calls ManualMenuWriter::projectionFor(), i.e. MenuProjectionMapper, never
+    // the service mapper. Its own price handling keeps the Fresha shape out —
+    // an absent scan price stays null (`$item['price'] ?? null`) rather than
+    // becoming 0, so it mints no offer at all; a 0 there is an OCR-read "free",
+    // which is the hand-entered case the 'free' qualifier is FOR.
     expect($callers)->toEqualCanonicalizing([
         'ManualMenuWriter.php',
+        'MenuScanApplier.php',
         'ManualServiceWriter.php',
         'MenuContentController.php',
         'ServiceBackfiller.php',

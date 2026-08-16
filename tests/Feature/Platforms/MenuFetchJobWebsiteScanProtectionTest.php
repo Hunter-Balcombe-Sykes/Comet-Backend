@@ -5,12 +5,14 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualMenuItems;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -19,6 +21,11 @@ beforeEach(function () {
     // MenuItemObserver + MenuFetchJob write site.item_slugs best-effort — with
     // no table they swallow "no such table" and mask real slug regressions.
     setupItemSlugsTable();
+    // Slice 7 Task 8: the scan half of this test writes content.* through
+    // MenuScanApplier → ManualMenuWriter. The scrape half still writes
+    // site.menu_* until Task 7 moves it.
+    setupContentTables();
+    Queue::fake();
 });
 
 function mfjwspUser(string $handle): User
@@ -61,7 +68,10 @@ it('protects website-scan-sourced menu content from an ordering-platform rebuild
     ], enrichOnly: true, source: 'website-scan');
 
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    $websiteScanCategory = MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'website-scan')->firstOrFail();
+    $items = app(ManualMenuItems::class);
+    $websiteScanCategoryId = (string) $items->categories((string) $user->id)
+        ->firstWhere('external_ref', MenuScanApplier::categoryRefFor('website-scan', 'Mains'))
+        ->id;
 
     $this->mock(MenuApifyScraper::class, function ($m) {
         $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
@@ -76,9 +86,17 @@ it('protects website-scan-sourced menu content from an ordering-platform rebuild
         app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class)
     );
 
-    // The website-scan category and its item must survive the rebuild untouched.
-    expect(MenuCategory::query()->whereKey($websiteScanCategory->id)->exists())->toBeTrue();
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'website-scan')->first()->name)->toBe('Mains');
+    // The website-scan category and its dish must survive the rebuild
+    // untouched. Since slice 7 Task 8 the protection is structural rather than
+    // a source_platform filter: the category lives in the `menu:website-scan:*`
+    // external_ref namespace, which a scrape's own category refs can never
+    // reach, so a rebuild has nothing to delete it with.
+    $categories = app(ManualMenuItems::class)->categories((string) $user->id)->keyBy('id');
+    expect($categories->has($websiteScanCategoryId))->toBeTrue()
+        ->and((string) $categories[$websiteScanCategoryId]->label)->toBe('Mains')
+        ->and(app(ManualMenuItems::class)->rows((string) $user->id)->pluck('headline')->all())
+        ->toBe(['House Special Pasta']);
+
     // The uber-eats rebuild still happened normally alongside it.
     expect(MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'uber-eats')->exists())->toBeTrue();
 });

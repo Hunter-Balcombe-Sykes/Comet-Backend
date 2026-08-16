@@ -2,17 +2,20 @@
 
 use App\Jobs\Platforms\WebsiteMenuPdfScanJob;
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\MenuCategory;
-use App\Models\Core\Site\MenuItem;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualMenuItems;
 use App\Services\Platforms\MenuAiExtractor;
 use App\Services\Platforms\MenuScanApplier;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupItemSlugsTable();
+    setupContentTables();
+    Queue::fake();
 });
 
 function wmpsjUser(string $h, string $accountType = 'business', string $sector = 'restaurant'): User
@@ -43,10 +46,14 @@ it('OCRs, structures, and applies a website PDF menu, tagged website-scan', func
         ->handle(app(MenuAiExtractor::class), app(MenuScanApplier::class));
 
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    $item = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Pizza Margherita')->firstOrFail();
-    expect($item->description)->toBe('San Marzano tomato, basil.');
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->firstOrFail()->source_platform)->toBe('website-scan');
-    expect($menu->content_source)->toBe('website-scan');
+    $items = app(ManualMenuItems::class);
+    $row = $items->rows((string) $user->id)->firstWhere('headline', 'Pizza Margherita');
+
+    expect($row)->not->toBeNull()
+        ->and($row->description)->toBe('San Marzano tomato, basil.')
+        ->and((string) $items->categories((string) $user->id)[0]->external_ref)
+        ->toBe(MenuScanApplier::categoryRefFor('website-scan', 'Pizza'))
+        ->and($menu->content_source)->toBe('website-scan');
 
     Http::assertSent(fn ($request) => str_contains($request->url(), 'api.mistral.ai')
         && ($request['document']['document_url'] ?? null) === 'https://venue.example/menu.pdf');

@@ -87,16 +87,40 @@ class MenuPayloadComposer
             return false;
         }
 
-        if ($menu->relationLoaded('categories')) {
-            return $menu->categories->contains(function (MenuCategory $c) {
+        $legacy = $menu->relationLoaded('categories')
+            ? $menu->categories->contains(function (MenuCategory $c) {
                 return in_array($c->source_platform, ['scan', 'manual', 'website-scan'], true)
                     || ($c->relationLoaded('items') && $c->items->contains(fn (MenuItem $i) => $i->is_manual));
-            });
-        }
+            })
+            : MenuCategory::query()->where('menu_id', $menu->id)
+                ->whereIn('source_platform', ['scan', 'manual', 'website-scan'])->exists()
+                || MenuItem::query()->where('menu_id', $menu->id)->where('is_manual', true)->exists();
 
-        return MenuCategory::query()->where('menu_id', $menu->id)
-            ->whereIn('source_platform', ['scan', 'manual', 'website-scan'])->exists()
-            || MenuItem::query()->where('menu_id', $menu->id)->where('is_manual', true)->exists();
+        // The content-lane half is asked on BOTH branches. load() eager-loads
+        // `categories`, so a check that only hung off the unloaded branch would
+        // never run for the dashboard read — which is the exact call that
+        // decides whether a scan-only menu is shown at all.
+        return $legacy || $this->hasOwnerContentInContentLane($menu);
+    }
+
+    /**
+     * The content.* half of the same question, added by slice 7 Task 8 when the
+     * scan lane stopped writing site.menu_categories: an owner-owned menu
+     * category is now a content.collections row in the `menu:<source>:*`
+     * external_ref namespace (MenuScanApplier::categoryRefFor).
+     *
+     * ORed with the legacy check rather than replacing it — the scrape still
+     * writes site.menu_* until Task 7 lands, and a scan-only menu that read as
+     * "orphaned" here would be hidden from its own dashboard entirely.
+     */
+    private function hasOwnerContentInContentLane(Menu $menu): bool
+    {
+        $userId = DB::connection('pgsql')->table('site.menus')->where('id', $menu->id)->value('user_id');
+
+        return $userId !== null && $this->items->categories((string) $userId)
+            ->contains(fn (object $c) => MenuScanApplier::isOwnerCategoryRef(
+                $c->external_ref === null ? null : (string) $c->external_ref
+            ));
     }
 
     /**
