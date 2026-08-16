@@ -161,3 +161,40 @@ it('keeps a rating with no count, and a count with no rating', function () {
     expect($ratingOnly['facets']['f_rated'])->toBe(['rating' => 4.7])
         ->and($countOnly['facets']['f_rated'])->toBe(['ratings_count' => 31]);
 });
+
+// Slice 7: the backfill landed ZERO badges for all 318 dishes, verified on dev
+// (content.item_tags tag_type='badge' = 0). The tests above only ever used the
+// STRING badge shape, which works; DoorDashMenuDriver::badges() normalises to
+// [{text, type?}] MAPS, and text() returns null for a non-string, so every
+// scraped badge was silently dropped. The shape that ships is the shape to pin.
+it('maps the {text, type} badge shape DoorDash actually emits', function () {
+    $dish = menuDish();
+    $dish->badges = json_encode([
+        ['text' => '#1 Most liked', 'type' => 'most_liked_1'],
+        ['text' => 'Vegetarian'],
+    ]);
+
+    expect((new MenuProjectionMapper)->project($dish, [], [], menuRow())['tags'])->toBe([
+        ['tag' => '#1 Most liked', 'tag_type' => 'badge'],
+        ['tag' => 'Vegetarian', 'tag_type' => 'badge'],
+    ]);
+});
+
+it('accepts the name and label aliases DoorDashMenuDriver also tolerates', function () {
+    $dish = menuDish();
+    $dish->badges = json_encode([['name' => 'Popular'], ['label' => 'Spicy']]);
+
+    expect((new MenuProjectionMapper)->project($dish, [], [], menuRow())['tags'])->toBe([
+        ['tag' => 'Popular', 'tag_type' => 'badge'],
+        ['tag' => 'Spicy', 'tag_type' => 'badge'],
+    ]);
+});
+
+it('drops a badge map carrying no readable text rather than minting a blank tag', function () {
+    $dish = menuDish();
+    $dish->badges = json_encode([['type' => 'most_liked_1'], ['text' => '  '], ['text' => 'Real']]);
+
+    expect((new MenuProjectionMapper)->project($dish, [], [], menuRow())['tags'])->toBe([
+        ['tag' => 'Real', 'tag_type' => 'badge'],
+    ]);
+});

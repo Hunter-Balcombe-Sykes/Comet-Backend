@@ -240,13 +240,38 @@ class MenuProjectionMapper
         return $out;
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * A badge is EITHER a plain string or a `{text, type?}` map — the two shapes
+     * `DoorDashMenuDriver::badges()` normalises to, and `MenuScanApplier`'s
+     * dietary markers alongside them.
+     *
+     * Fixed 2026-08-16 (slice 7). This read `$this->text($badge)` alone, which
+     * returns null for anything non-string, so every MAP-shaped badge was
+     * silently dropped — and maps are what the scrapers actually emit. The 318
+     * dishes slice 4 backfilled landed **zero** `tag_type = 'badge'` rows on dev
+     * as a result. The unit tests missed it because they only ever passed the
+     * string shape, which works.
+     *
+     * The vendor's `type` code (`most_liked_1`) is NOT carried: `item_tags` has
+     * one classification column and `tag_type` already spends it distinguishing
+     * badge from category/genre. `type` is optional styling metadata — nothing
+     * backend-side reads it — so the display text is the half worth keeping.
+     * Recorded in the wire manifest, because the dashboard's badge entries lose
+     * that optional key.
+     *
+     * @return list<array<string, mixed>>
+     */
     private function badges(object $dish): array
     {
         $out = [];
 
         foreach ($this->jsonList($dish->badges ?? null) as $badge) {
-            $tag = $this->text($badge);
+            $tag = is_array($badge)
+                ? ($this->text($badge['text'] ?? null)
+                    ?? $this->text($badge['name'] ?? null)
+                    ?? $this->text($badge['label'] ?? null))
+                : $this->text($badge);
+
             if ($tag !== null) {
                 $out[] = ['tag' => $tag, 'tag_type' => 'badge'];
             }
