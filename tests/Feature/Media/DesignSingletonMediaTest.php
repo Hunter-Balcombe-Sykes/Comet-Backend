@@ -22,7 +22,6 @@ beforeEach(function () {
     // action family (convergence Phase 6), so site.sections must exist.
     setupSectionsTables();
     setupMediaTables();
-    setupContentSelectionTable(); // payload's designMedia resolves the selection
     setupBlocksTable();
     setupServicesTable();
     setupDesignKitsTable();
@@ -322,31 +321,38 @@ it('resolves ready design singletons keyed by purpose with webp urls', function 
     expect($out['logo_square']['url'])->toBe('https://cdn.example.com/img/sq.webp');
 });
 
-it('exposes design singletons as camelCase siteImages in the public profile payload', function () {
+// Slice 7 unit E deleted the payload's `siteImages` map outright (owner ruling
+// 2026-08-14 — apps/pages is rebuilt, not repaired). The resolver projection it
+// was built from stays, and is what these two now assert against.
+it('resolves design singletons excluding leftover pre-retirement cover rows', function () {
     $pro = createTenant('payloadhost');
     $site = $pro->site;
 
     seedReadyDesignSingleton($site->id, 'logo_full', 'img/logo.webp');
-    // A leftover pre-retirement cover row must not reach the public wire.
+    // A leftover pre-retirement cover row must not survive the allowlist.
     seedReadyDesignSingleton($site->id, 'cover_apple_music', 'img/am.webp');
 
-    $payload = app(IndividualProfilePayloadBuilder::class)->build($pro->fresh('site'), $site);
+    $out = app(SitepageDataResolverService::class)->getDesignSingletons($site);
 
-    expect($payload['siteImages']['logoFull']['url'])->toBe('https://cdn.example.com/img/logo.webp');
-    expect($payload['siteImages'])->not->toHaveKey('coverAppleMusic');
+    expect($out['logo_full']['url'])->toBe('https://cdn.example.com/img/logo.webp');
+    expect($out)->not->toHaveKey('cover_apple_music');
+
+    // …and the public payload carries no siteImages key at all any more.
+    $payload = app(IndividualProfilePayloadBuilder::class)->build($pro->fresh('site'), $site);
+    expect(array_key_exists('siteImages', $payload))->toBeFalse();
 });
 
-it('exposes a placeholder-purpose row in the payload siteImages (gap fix 2026-07-10)', function () {
+it('resolves a placeholder-purpose row as a design singleton (gap fix 2026-07-10)', function () {
     // Pre-fix, purpose='placeholder' was outside designSingletonPurposes(), so a
-    // stored placeholder image never reached the profile payload at all.
+    // stored placeholder image never reached the projection at all.
     $pro = createTenant('placeholderhost');
     $site = $pro->site;
 
     seedReadyDesignSingleton($site->id, 'placeholder', 'img/ph.webp');
 
-    $payload = app(IndividualProfilePayloadBuilder::class)->build($pro->fresh('site'), $site);
+    $out = app(SitepageDataResolverService::class)->getDesignSingletons($site);
 
-    expect($payload['siteImages']['placeholder']['url'])->toBe('https://cdn.example.com/img/ph.webp');
+    expect($out['placeholder']['url'])->toBe('https://cdn.example.com/img/ph.webp');
 });
 
 // ── Routes ──────────────────────────────────────────────────────────────────

@@ -578,13 +578,13 @@ Parent §7's four-step. Dev carries **2 live** `resource_kind='event'` connectio
 
 Under the 2026-08-14 override the `gallery` / `designMedia` / `siteImages` keys are **deleted outright, not dual-served**.
 
-- [ ] **Step 1: Failing test** — the public profile payload carries no `designMedia`, `gallery` or `siteImages` key.
-- [ ] **Step 2: Run; confirm it fails.**
-- [ ] **Step 3: Delete the four owner routes and the service.** `pool:media` pins are the replacement curation lane.
-- [ ] **Step 4: Strip the keys from the payload builder.**
-- [ ] **Step 5: Record in the manifest** which keys died and that `apps/pages` reads break by design.
-- [ ] **Step 6: Run** `./vendor/bin/pest tests/Feature/Api/PublicSite/ tests/Feature/Gallery/`.
-- [ ] **Step 7: Commit.**
+- [x] **Step 1: Failing test** — the public profile payload carries no `designMedia`, `gallery` or `siteImages` key. (`tests/Feature/PublicSite/ContentSelectionRetirementTest.php`)
+- [x] **Step 2: Run; confirm it fails.** 4 of 5 failed on the right causes.
+- [x] **Step 3: Delete the four owner routes and the service.** `pool:media` pins are the replacement curation lane. Model, policy and three form requests went with it; `ContentController` keeps library + uploads, authorising on a `SiteMedia` skeleton via `SitePolicy`.
+- [x] **Step 4: Strip the keys from the payload builder.** `designMedia`, `siteImages`, `profile.gallery` and — necessarily — `profile.curatedGallery`, which was the service's second consumer.
+- [x] **Step 5: Record in the manifest** which keys died and that `apps/pages` reads break by design. (`docs/wire-changes/2026-08-12-slice-7-teardown.md`)
+- [x] **Step 6: Run** `./vendor/bin/pest --parallel` — 8308 passed / 2 skipped (baseline 8344; −36 accounted for in the commit body). PHPStan green.
+- [x] **Step 7: Commit.**
 
 ### Task 17: Phase 4 gate — as Task 9.
 

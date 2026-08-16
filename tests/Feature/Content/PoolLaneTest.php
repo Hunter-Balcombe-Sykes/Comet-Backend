@@ -255,7 +255,6 @@ it('serves render-ready payloads: override headline, synced link, platform', fun
 
 it('serves the pool selection on the public payload with the Latest tag', function () {
     setupMediaTables();
-    setupContentSelectionTable();
     setupBlocksTable();
     setupServicesTable();
     setupDesignKitsTable();

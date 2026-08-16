@@ -21,9 +21,6 @@ beforeEach(function () {
     setupMediaTables();
     setupServiceCategoriesTable();
     setupServicesTable();
-    // designMedia now projects the resolved content SELECTION (not the raw
-    // library), so the payload build reaches into site.content_selection.
-    setupContentSelectionTable();
     // Slice 3a §3.4: the services engine now reads content.* (owner-authored
     // services live there post-backfill) — every test in this file exercises
     // the resolver, so the content/ingest schema must exist even for tests
@@ -162,19 +159,21 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     // field. Each engine emits its stable empty state when nothing is live.
     expect($profile)->toHaveKeys([
         'handle', 'displayName',
-        'gallery', 'links', 'services', 'document', 'newsletter',
+        'links', 'services', 'document', 'newsletter',
     ]);
     expect($profile)->not->toHaveKey('booking');
-    // designMedia is a top-level sibling of designKit, not a profile field.
-    expect($data)->toHaveKey('designMedia');
-    expect($data['designMedia'])->toBeArray();
+    // Slice 7 unit E: gallery / curatedGallery / designMedia / siteImages left
+    // the wire outright — the media pool is the curation lane.
+    expect(array_key_exists('gallery', $profile))->toBeFalse();
+    expect(array_key_exists('curatedGallery', $profile))->toBeFalse();
+    expect(array_key_exists('designMedia', $data))->toBeFalse();
+    expect(array_key_exists('siteImages', $data))->toBeFalse();
     expect($profile['handle'])->toBe('solo1');
     expect($profile['displayName'])->toBe('Solo Pro');
 
     // Empty-state defaults per spec §3.4 + phase 8:
     //   - object engines (document, newsletter) → null
-    //   - list engines (gallery, services) → []
-    expect($profile['gallery'])->toBe([]);
+    //   - list engines (services) → []
     expect($profile['services'])->toBe([]);
     expect($profile['document'])->toBeNull();
     expect($profile['newsletter'])->toBeNull();
@@ -429,7 +428,6 @@ it('unknown block_type does not appear in the structured response', function () 
     // Unknown block_type contributes nothing to the engine payload — each
     // engine falls back to its stable empty state (null or []) and there's
     // no `blocks[]` array to leak the raw row into.
-    expect($profile['gallery'])->toBe([]);
     expect($profile['document'])->toBeNull();
     expect($profile['newsletter'])->toBeNull();
     expect($profile['services'])->toBe([]);
@@ -449,115 +447,10 @@ it('is case-insensitive on the handle path param', function () {
 });
 
 // ── site_media-backed fields ─────────────────────────────────────────────
-// Content-pool images, gallery items, and the document slot all read off
-// site.site_media rows. Same projection as the Hydrogen affiliate endpoint.
-
-it('surfaces content-pool site_media as top-level designMedia[] in camelCase', function () {
-    $pro = seedIndividualProfile('content1');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-    $mediaId = (string) Str::uuid();
-
-    DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $mediaId,
-        'site_id' => $siteId,
-        'pool' => 'content',
-        'path' => 'images/content/original.jpg',
-        'media_type' => 'image',
-        'processing_state' => 'ready',
-        'sort_order' => 0,
-        'is_active' => 1,
-        'alt_text' => 'Studio shot',
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-    // Seed a webp variant so the item survives the URL filter.
-    DB::connection('pgsql')->table('site.media_variants')->insert([
-        'id' => (string) Str::uuid(), 'media_id' => $mediaId,
-        'variant_key' => 'optimized', 'artifact_type' => 'webp',
-        'disk' => 'media', 'path' => 'images/content/optimized.webp', 'mime' => 'image/webp',
-        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
-    ]);
-    // designMedia is the owner's CONTENT SELECTION (ordered by position), not the
-    // raw library — select the upload onto the sitepage so it surfaces.
-    DB::connection('pgsql')->table('site.content_selection')->insert([
-        'id' => (string) Str::uuid(), 'site_id' => $siteId, 'position' => 1,
-        'entry_type' => 'upload', 'media_id' => $mediaId,
-        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $data = $this->getJson('/api/public/profiles/content1')->assertOk()->json('data');
-
-    expect($data)->toHaveKey('designMedia');
-    expect($data['designMedia'])->toBeArray()->toHaveCount(1);
-    // Wire shape is camelCase, matching gallery[i] and every engine output.
-    expect($data['designMedia'][0])->toHaveKeys([
-        'id', 'sortOrder', 'kind', 'origin', 'url', 'urlHd', 'alt', 'caption', 'poster', 'durationMs',
-    ]);
-    expect($data['designMedia'][0]['kind'])->toBe('image');
-    // origin = the selection entry_type — the sitepage backdrop's ladder key.
-    expect($data['designMedia'][0]['origin'])->toBe('upload');
-    expect($data['designMedia'][0]['url'])->not->toBe('');
-    // sortOrder mirrors the selection position (1-based).
-    expect($data['designMedia'][0]['sortOrder'])->toBe(1);
-    expect($data['profile'])->not->toHaveKey('content_images');
-});
-
-it('omits soft-deleted content-media from the designMedia selection', function () {
-    $pro = seedIndividualProfile('content2');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-    $mediaId = (string) Str::uuid();
-
-    DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $mediaId,
-        'site_id' => $siteId,
-        'pool' => 'content',
-        'path' => 'images/content/deleted.jpg',
-        'media_type' => 'image',
-        'processing_state' => 'ready',
-        'sort_order' => 0,
-        'is_active' => 1,
-        'deleted_at' => now()->toDateTimeString(),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-    // Selected, but the upload is soft-deleted → resolve() drops the entry.
-    DB::connection('pgsql')->table('site.content_selection')->insert([
-        'id' => (string) Str::uuid(), 'site_id' => $siteId, 'position' => 1,
-        'entry_type' => 'upload', 'media_id' => $mediaId,
-        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $data = $this->getJson('/api/public/profiles/content2')->assertOk()->json('data');
-    expect($data['designMedia'])->toBeArray()->toBeEmpty();
-});
-
-it('omits content-media with no servable variant from the designMedia selection', function () {
-    $pro = seedIndividualProfile('content3');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-    $mediaId = (string) Str::uuid();
-
-    DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $mediaId,
-        'site_id' => $siteId,
-        'pool' => 'content',
-        'path' => 'images/content/processing.jpg',
-        'media_type' => 'image',
-        'processing_state' => 'processing',
-        'sort_order' => 0,
-        'is_active' => 1,
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-    // Selected, but still processing (no ready variant) → resolve() drops it.
-    DB::connection('pgsql')->table('site.content_selection')->insert([
-        'id' => (string) Str::uuid(), 'site_id' => $siteId, 'position' => 1,
-        'entry_type' => 'upload', 'media_id' => $mediaId,
-        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $data = $this->getJson('/api/public/profiles/content3')->assertOk()->json('data');
-    expect($data['designMedia'])->toBeArray()->toBeEmpty();
-});
+// The content-media library projection (getContentMedia) and the document slot
+// read off site.site_media rows. Its `designMedia` wire projection, and the
+// `gallery` engine, were deleted by slice 7 unit E — the media pool is the
+// public curation lane now, so what remains here is the resolver-level shape.
 
 it('projects content-pool videos with kind=video, poster and duration_ms', function () {
     $pro = seedIndividualProfile('cmedia-video');
@@ -731,7 +624,7 @@ it('returns url_hd=null for content-pool video with only optimized variant', fun
     expect($items[0]['url_hd'])->toBeNull();
 });
 
-// ── Phase 8 engines: gallery / links / services / document / newsletter
+// ── Phase 8 engines: links / services / document / newsletter
 // Each test seeds the minimum storage rows and confirms the projection lands
 // in the right engine field with the right shape (null/[]/object) and key casing.
 
@@ -806,115 +699,6 @@ it('workplace engine returns WorkplaceData when the workplace section is live', 
     expect($workplace['addressLine1'])->toBe('10 Crown St');
     expect($workplace['latitude'])->toBe(-33.886);
     expect($workplace['phone'])->toBe('+61 2 9000 0000');
-});
-
-it('gallery engine returns camelCase GalleryImage[] when items are ready', function () {
-    $pro = seedIndividualProfile('gallery-live');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-
-    // Need a live gallery section block too — the resolver gates on it.
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'gallery',
-        'block_group' => 'sections',
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'sort_order' => 0,
-        'settings' => json_encode([]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-    $mediaId = (string) Str::uuid();
-    DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $mediaId,
-        'site_id' => $siteId,
-        'pool' => 'gallery',
-        'path' => 'images/gallery/a.jpg',
-        'media_type' => 'image',
-        'processing_state' => 'ready',
-        'sort_order' => 0,
-        'is_active' => 1,
-        'alt_text' => 'Detail shot',
-        'caption' => 'Caption A',
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-    // getGallery() filters out any item whose variantUrls() resolves empty (see
-    // SiteMedia::variantUrls() — webp-only, keyed by variant_key), so without
-    // this the row above is silently dropped and the assertions below would
-    // never run against real data. scripts/launch-check/k6/seed.sql hit this
-    // exact gap when built 2026-07-26 — its gallery insert needed a matching
-    // media_variants row for every image, not just the site_media row.
-    DB::connection('pgsql')->table('site.media_variants')->insert([
-        'id' => (string) Str::uuid(),
-        'media_id' => $mediaId,
-        'variant_key' => 'optimized',
-        'artifact_type' => 'webp',
-        'disk' => 'media',
-        'path' => 'images/gallery/a-optimized.webp',
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $gallery = $this->getJson('/api/public/profiles/gallery-live')->assertOk()->json('data.profile.gallery');
-
-    // Shape contract: GalleryImage uses camelCase keys. Asserted unconditionally
-    // now — a variant-less seed previously made $gallery always empty, so this
-    // key list was never actually checked against real data (it was stale: no
-    // 'id'/'urlHd'/'popularityRank', which the real payload does carry).
-    expect($gallery)->toHaveCount(1);
-    expect(array_keys($gallery[0]))->toEqual([
-        'id', 'url', 'urlHd', 'alt', 'caption', 'kind', 'poster', 'durationMs', 'popularityRank',
-    ]);
-    expect($gallery[0]['url'])->not->toBe('');
-    expect($gallery[0]['alt'])->toBe('Detail shot');
-    expect($gallery[0]['caption'])->toBe('Caption A');
-    expect($gallery[0]['kind'])->toBe('image');
-    expect($gallery[0]['durationMs'])->toBeNull();
-});
-
-it('gallery engine filters out a ready item with no resolvable media variant', function () {
-    // Locks in the exact contract that silently broke scripts/launch-check/k6/seed.sql
-    // 2026-07-26: a site_media row can be is_active + processing_state=ready and still
-    // render nothing, because SiteMedia::variantUrls() needs a matching webp
-    // site.media_variants row too. This is deliberate (buildMediaItem() docblock: "null
-    // when the media has no resolvable primary URL"), not a bug — this test just makes
-    // sure it stays that way on purpose rather than by accident.
-    $pro = seedIndividualProfile('gallery-no-variant');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'gallery',
-        'block_group' => 'sections',
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'sort_order' => 0,
-        'settings' => json_encode([]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-    // No site.media_variants row for this one — the point of the test.
-    DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => (string) Str::uuid(),
-        'site_id' => $siteId,
-        'pool' => 'gallery',
-        'path' => 'images/gallery/no-variant.jpg',
-        'media_type' => 'image',
-        'processing_state' => 'ready',
-        'sort_order' => 0,
-        'is_active' => 1,
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $gallery = $this->getJson('/api/public/profiles/gallery-no-variant')->assertOk()->json('data.profile.gallery');
-
-    expect($gallery)->toBe([]);
 });
 
 it('links engine emits a flat list with id/title/url/category/platform', function () {
@@ -1264,7 +1048,6 @@ it('single-flights concurrent requests so only one payload is built', function (
             'designKit' => new stdClass,
             'architectureId' => 'staple',
             'publicConfig' => ['analyticsEndpoint' => '/api/analytics'],
-            'designMedia' => [],
         ]);
 
     // First request — resolve cache miss → DB lookup; payload cache miss → builder called once.

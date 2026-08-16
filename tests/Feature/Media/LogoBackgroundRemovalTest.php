@@ -24,7 +24,6 @@ beforeEach(function () {
     // action family (convergence Phase 6), so site.sections must exist.
     setupSectionsTables();
     setupMediaTables();
-    setupContentSelectionTable(); // payload's designMedia resolves the selection
     setupBlocksTable();
     setupServicesTable();
     setupDesignKitsTable();
@@ -226,7 +225,7 @@ it('returns a null svg_url for a logo without a vector variant', function () {
     expect($data['images']['logo_full']['svg_url'])->toBeNull();
 });
 
-it('exposes url_svg in the resolver and urlSvg in the public profile payload', function () {
+it('exposes url_svg in the design-singleton resolver projection', function () {
     $pro = createTenant('pubsvghost');
     $site = $pro->site;
     seedReadyLogo($site->id, 'logo_full', 'img/logo.webp', 'img/logo.svg');
@@ -234,6 +233,8 @@ it('exposes url_svg in the resolver and urlSvg in the public profile payload', f
     $resolved = app(SitepageDataResolverService::class)->getDesignSingletons($site);
     expect($resolved['logo_full']['url_svg'])->toBe('https://cdn.example.com/img/logo.svg');
 
+    // Slice 7 unit E: the payload's siteImages map (the old second half of this
+    // assertion) was deleted outright.
     $payload = app(IndividualProfilePayloadBuilder::class)->build($pro->fresh('site'), $site);
-    expect($payload['siteImages']['logoFull']['urlSvg'])->toBe('https://cdn.example.com/img/logo.svg');
+    expect(array_key_exists('siteImages', $payload))->toBeFalse();
 });

@@ -360,7 +360,6 @@ it('resolves the post-write payload key even when a stale resolve entry is re-in
     setupMediaTables();
     setupServiceCategoriesTable();
     setupServicesTable();
-    setupContentSelectionTable();
 
     $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();

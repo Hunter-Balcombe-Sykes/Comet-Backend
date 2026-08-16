@@ -6,14 +6,12 @@ use App\Http\Controllers\Api\PublicSite\IndividualProfileController;
 use App\Http\Resources\PublicSite\IndividualProfileResource;
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Models\Core\Site\Block;
-use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Design\ProfileDesignPresets;
-use App\Services\Site\ContentSelectionService;
 use App\Services\Site\SitePolicyResolver;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
@@ -34,7 +32,7 @@ use Illuminate\Support\Facades\DB;
  *   {
  *     profile: {
  *       handle, displayName, site_id,
- *       gallery: GalleryImage[],
+ *       pools: { watch|listen|media|…: {items, latestItemId} },
  *       links: ProfileLink[],
  *       services: ProfileService[],
  *       document: DocumentData | null,
@@ -44,15 +42,18 @@ use Illuminate\Support\Facades\DB;
  *       workplace: WorkplaceData | null,
  *     },
  *     designKit: { colors: {...}, typography: {...}, ... },
- *     designMedia: DesignMediaItem[],
  *     architectureId: 'staple',
  *     publicConfig: { analyticsEndpoint, ... },
  *   }
  *
+ * Slice 7 unit E deleted `profile.gallery`, `profile.curatedGallery`,
+ * `designMedia` and `siteImages` outright (owner ruling 2026-08-14 — apps/pages
+ * is rebuilt, not repaired). Curated imagery is the `media` pool now.
+ *
  * Each engine field falls back to a stable empty state so the architecture
  * never has to guard on `undefined`:
  *   - object engines (document, newsletter) → null when nothing authored
- *   - list engines (gallery, links, services) → empty array
+ *   - list engines (links, services) → empty array
  *
  * Booking is a link-engine category (`ProfileLink.category === 'booking'`),
  * not a separate engine field — `bucketLinks` in @partnaau/design-system
@@ -67,7 +68,6 @@ class IndividualProfilePayloadBuilder
         private readonly SitepageDataResolverService $resolver,
         private readonly ContentPopularityReader $popularity,
         private readonly SiteActionsService $actions,
-        private readonly ContentSelectionService $selection,
         private readonly SitePolicyResolver $policies,
         private readonly PoolResolver $pools,
     ) {}
@@ -122,8 +122,6 @@ class IndividualProfilePayloadBuilder
         return (new IndividualProfileResource($pro, [
             'site_id' => $site?->id,
             'design_kit' => $this->loadDesignKit($site, $pro),
-            'design_media' => $this->buildDesignMedia($site),
-            'site_images' => $this->buildSiteImages($site),
             'architecture_id' => $site?->architecture_id ?? Site::DEFAULT_ARCHITECTURE_ID,
             'public_config' => $this->buildPublicConfig($pro),
             // Taxonomy page order for the ONE architecture — presence + business
@@ -140,8 +138,6 @@ class IndividualProfilePayloadBuilder
             'ranked_actions' => $rankedActions,
             'ordering' => $this->actions->orderingWire($ordering),
             // Engine outputs — flat, camelCase, no envelope wrapper.
-            'gallery' => $this->buildGallery($site, $sections, $ranks['gallery_item'] ?? []),
-            'curatedGallery' => $this->resolver->buildCuratedGalleryData($site),
             'pools' => $this->buildPools($site),
             'links' => $this->buildLinks($site, $booking, $ranks['block'] ?? []),
             'services' => $this->buildServices($site, $pro->id, $sections, $ranks['service'] ?? []),
@@ -218,84 +214,6 @@ class IndividualProfilePayloadBuilder
     }
 
     /**
-     * Gallery engine — GalleryImage[] (empty array when nothing live).
-     *
-     * Remaps the resolver's snake_case keys (alt_text, duration_ms) to the
-     * camelCase wire shape (alt, durationMs).
-     *
-     * `popularityRank` is an inert annotation (nullable; V1/ONE consumes it) keyed
-     * by the media id — the array ORDER is untouched (skeletons read positionally).
-     *
-     * @param  Collection<string, Block>  $sections
-     * @param  array<string, int>  $ranks  gallery_item content_key (media id) → rank
-     * @return list<array{id: string, url: string, urlHd: string|null, alt: string|null, caption: string|null, kind: string, poster: string|null, durationMs: int|null, popularityRank: int|null}>
-     */
-    private function buildGallery(?Site $site, Collection $sections, array $ranks = []): array
-    {
-        $envelope = $this->resolver->getGallery($site, $sections);
-        $items = is_array($envelope['data'] ?? null) ? $envelope['data'] : [];
-
-        return array_values(array_map(static fn (array $item): array => [
-            // The SiteMedia UUID — gallery_item scores + item beacons key by it;
-            // without it on the wire the sitepage can never emit scoreable
-            // gallery impressions/clicks.
-            'id' => (string) ($item['id'] ?? ''),
-            'url' => (string) ($item['url'] ?? ''),
-            'urlHd' => $item['url_hd'] ?? null,
-            'alt' => $item['alt_text'] ?? null,
-            'caption' => $item['caption'] ?? null,
-            'kind' => (string) ($item['kind'] ?? 'image'),
-            'poster' => $item['poster'] ?? null,
-            'durationMs' => $item['duration_ms'] ?? null,
-            'popularityRank' => $ranks[(string) ($item['id'] ?? '')] ?? null,
-        ], $items));
-    }
-
-    /**
-     * The sitepage background media = the owner's curated content SELECTION
-     * (ordered by position on /account/content), NOT the raw content-media
-     * library. ContentSelectionService::resolve returns the servable entries in
-     * order — uploads, Google Business photos, and (when Instagram-auto is on)
-     * the reserved ig-reel (slot 1) + ig-post (slot 2) with the reel carrying a
-     * poster. Unservable rows (disconnected IG, missing/soft-deleted upload,
-     * dangling Google ref) are already dropped by resolve(). Projected into the
-     * same camelCase DesignMediaItem shape the sitepage consumes. `origin`
-     * carries the selection entry_type (upload | google-photo | ig-reel |
-     * ig-post) so the sitepage can tell the reserved Instagram slots from the
-     * owner's own picks (the backdrop's reel → post → rotation ladder).
-     *
-     * @return list<array{id: string, sortOrder: int, kind: string, origin: string, url: string, urlHd: null, alt: null, caption: null, poster: string|null, durationMs: null}>
-     */
-    private function buildDesignMedia(?Site $site): array
-    {
-        if (! $site) {
-            return [];
-        }
-
-        $out = [];
-        foreach ($this->selection->resolve($site) as $i => $entry) {
-            $url = (string) ($entry['url'] ?? '');
-            if ($url === '') {
-                continue;
-            }
-            $out[] = [
-                'id' => (string) ($entry['id'] ?? ''),
-                'sortOrder' => (int) ($entry['position'] ?? $i),
-                'kind' => (string) ($entry['kind'] ?? 'image'),
-                'origin' => (string) ($entry['type'] ?? ContentSelection::TYPE_UPLOAD),
-                'url' => $url,
-                'urlHd' => null,
-                'alt' => null,
-                'caption' => null,
-                'poster' => $entry['poster'] ?? null,
-                'durationMs' => null,
-            ];
-        }
-
-        return $out;
-    }
-
-    /**
      * The content pools (platforms-as-sources, 2026-08-05): each pool's
      * public SELECTION — pins + every auto-source's rolling latest, minus
      * removals — resolved LIVE by the same PoolResolver the dashboard reads,
@@ -351,36 +269,6 @@ class IndividualProfilePayloadBuilder
                 // the dishes rather than on one. Absent when null, the same
                 // additive contract `collections` and `stats` keep.
                 ...($resolved['diningModes'] === null ? [] : ['diningModes' => $resolved['diningModes']]),
-            ];
-        }
-
-        return $out;
-    }
-
-    /**
-     * Site image singletons — brand logos + the brand placeholder image, keyed
-     * by camelCase purpose (logoFull, logoSquare, placeholder). The cover*
-     * keys left the wire 2026-08-05 when the owner retired per-integration
-     * covers. Each value is {url, urlHd, urlSvg, urlIcon} (urlSvg only for
-     * vectorized logos; urlIcon only for square logos — the sitepage favicon
-     * source); absent purposes have no uploaded/ready image. Empty object when
-     * nothing is set. The theme decides how (if at all) to render them.
-     *
-     * @return array<string, array{url: string, urlHd: string|null, urlSvg: string|null, urlIcon: string|null}>
-     */
-    private function buildSiteImages(?Site $site): array
-    {
-        $singletons = $this->resolver->getDesignSingletons($site);
-
-        $out = [];
-        foreach ($singletons as $purpose => $urls) {
-            // snake_case purpose → camelCase wire key (cover_apple_music → coverAppleMusic).
-            $key = lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', (string) $purpose))));
-            $out[$key] = [
-                'url' => (string) ($urls['url'] ?? ''),
-                'urlHd' => $urls['url_hd'] ?? null,
-                'urlSvg' => $urls['url_svg'] ?? null,
-                'urlIcon' => $urls['url_icon'] ?? null,
             ];
         }
 

@@ -13,7 +13,6 @@ use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Content\ManualServiceItems;
 use App\Services\Platforms\Registry\PlatformRegistry;
-use App\Services\Site\ContentSelectionService;
 use App\Site\Pools\PoolResolver;
 use App\Support\UrlSafety;
 use Illuminate\Database\QueryException;
@@ -470,35 +469,6 @@ class SitepageDataResolverService
         return $this->degraded;
     }
 
-    // ── Curated gallery (Content Selection) ─────────────────────────────
-
-    /**
-     * Curated-gallery engine — the site's Content Selection (≤15 ordered picks)
-     * projected for the public payload's `profile.curatedGallery`. Delegates to
-     * ContentSelectionService::resolve(), which returns a PROJECTED DTO per row
-     * (id/position/kind/type/url/badge, + poster for reels) — never the raw
-     * content_selection columns (risk #7). Live-resolves google-photo / ig-*
-     * references and drops any that no longer resolve. Empty array when nothing
-     * is curated.
-     *
-     * Distinct from `profile.gallery` (SiteMedia POOL_GALLERY): this is the
-     * user-curated background/content set, a separate surface — the two never
-     * collide on the wire.
-     *
-     * @return list<array<string, mixed>>
-     */
-    public function buildCuratedGalleryData(?Site $site): array
-    {
-        if (! $site) {
-            return [];
-        }
-
-        // Resilient: a missing content_selection table (partial test env) / a
-        // platform-payload read fault degrades to an empty curated gallery rather
-        // than failing the whole public payload.
-        return $this->safeQuery(fn () => app(ContentSelectionService::class)->resolve($site), [], 'curated_gallery_resolve', $site);
-    }
-
     // ── Gallery ──────────────────────────────────────────────────────────
 
     /**
@@ -655,8 +625,9 @@ class SitepageDataResolverService
      * (url_svg only for vectorized logos); purposes with no uploaded/ready
      * image are absent.
      *
-     * Consumed by the public profile payload's siteImages map. Rendering
-     * is the theme's concern — this only makes the URLs available.
+     * The public payload's `siteImages` map (its only consumer) was deleted by
+     * slice 7 unit E; this projection is kept for the rebuilt pages app to pick
+     * up, and is still covered by DesignSingletonMediaTest.
      *
      * @return array<string, array{url: string, url_hd: string|null, url_svg: string|null, url_icon: string|null}>
      */

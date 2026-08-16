@@ -14,7 +14,6 @@ use stdClass;
  * mirrors the skeleton-system contract (spec §3.4 + phase-8 engines):
  *   - `profile` — content (engine fields + base profile)
  *   - `designKit` — per-user design vars (nested camelCase), partial
- *   - `designMedia` — content-pool media (polymorphic image/video, camelCase, ordered)
  *   - `architectureId` — picks which code-side architecture renders
  *   - `publicConfig` — analytics endpoint + platform-wide keys
  *
@@ -23,7 +22,7 @@ use stdClass;
  *
  * Each engine field falls back to a stable empty state:
  *   - object engines (document, newsletter) → null when nothing authored
- *   - list engines (gallery, links, services) → empty array
+ *   - list engines (links, services) → empty array
  *
  * Booking is a link-engine category, not a separate field — `bucketLinks`
  * in @partnaau/design-system splits the list at render time.
@@ -31,8 +30,9 @@ use stdClass;
  * INTENTIONAL EXCLUSIONS:
  *   - Legacy themeMode / accent / fontFamily / settings.design.* — removed in
  *     the skeleton-system cleanup. The full design surface is now design_kits.
- *   - Legacy `profile.content_images` — promoted to top-level `designMedia`
- *     and made polymorphic (images + videos, camelCase). See spec 2026-05-30.
+ *   - `profile.gallery`, `profile.curatedGallery`, `designMedia`, `siteImages`
+ *     — deleted outright by slice 7 unit E (owner ruling 2026-08-14). Curated
+ *     imagery is the `media` pool; apps/pages reads break by design.
  *   - PII (primary_email, phone, auth_user_id, street address)
  *   - Anything brand- or commerce-related (the platform is individual-only).
  */
@@ -46,14 +46,11 @@ class IndividualProfileResource extends ApiResource
      * @param  array{
      *     site_id?: string|null,
      *     design_kit?: array<string, mixed>,
-     *     design_media?: list<array<string, mixed>>,
      *     architecture_id?: string|null,
      *     public_config?: array<string, mixed>,
      *     page_order?: list<string>,
      *     ranked_actions?: list<array<string, mixed>>,
      *     ordering?: array<string, mixed>,
-     *     gallery?: list<array<string, mixed>>,
-     *     curatedGallery?: list<array<string, mixed>>,
      *     links?: list<array<string, mixed>>,
      *     pools?: array<string, array{items: list<array<string, mixed>>, latestItemId: string|null}>,
      *     services?: list<array<string, mixed>>,
@@ -84,13 +81,9 @@ class IndividualProfileResource extends ApiResource
         $publicConfig = $this->sections['public_config'] ?? [];
         $publicConfigOut = $publicConfig === [] ? new stdClass : $publicConfig;
 
-        // Same empty-object coercion as $designKit above.
-        $siteImages = $this->sections['site_images'] ?? [];
-        $siteImagesOut = $siteImages === [] ? new stdClass : $siteImages;
-
         // Engine fields preserve null-vs-array distinction precisely:
         //   - document/newsletter: null when no data is authored.
-        //   - gallery/links/services: always emitted as an array.
+        //   - links/services: always emitted as an array.
         //   (bio was removed with the dead-profile-features cleanup,
         //   migration 20260705120000.)
         return [
@@ -103,11 +96,6 @@ class IndividualProfileResource extends ApiResource
                 'site_id' => $this->sections['site_id'] ?? null,
 
                 // Engine outputs (phase 8).
-                'gallery' => $this->sections['gallery'] ?? [],
-                // Curated background/content picks (Content Selection, ≤15). A
-                // SEPARATE surface from `gallery` above — never collides with it.
-                // Always an array.
-                'curatedGallery' => $this->sections['curatedGallery'] ?? [],
                 'links' => $this->sections['links'] ?? [],
                 // The content pools (platforms-as-sources, 2026-08-05):
                 // {watch|listen|media: {items: [...], latestItemId}} — the
@@ -155,14 +143,6 @@ class IndividualProfileResource extends ApiResource
             // DESIGN_KIT_DEFAULTS (code-side) before passing to the skeleton.
             'designKit' => $designKitOut,
 
-            // Design-layer media — polymorphic image/video items ordered by
-            // sortOrder. The skeleton paints with these (backgrounds, section
-            // covers, decorative imagery). Always an array. Wire shape is
-            // camelCase per §5 convention; the builder's buildDesignMedia()
-            // remaps the resolver's snake_case before it lands here. See spec
-            // docs/superpowers/specs/2026-05-30-design-media-promotion-design.md.
-            'designMedia' => $this->sections['design_media'] ?? [],
-
             // Which code-side architecture (page layout / how pages connect)
             // renders this site — always 'staple' (single-architecture platform).
             'architectureId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,
@@ -171,12 +151,6 @@ class IndividualProfileResource extends ApiResource
             // Platform-wide knobs the skeleton needs at render time (analytics
             // endpoint, etc.). Always an object.
             'publicConfig' => $publicConfigOut,
-
-            // Site image singletons — brand logos + the placeholder, keyed by
-            // camelCase purpose (logoFull, logoSquare, placeholder). Always an
-            // object. Per-integration covers left the wire 2026-08-05;
-            // rendering is the theme's concern.
-            'siteImages' => $siteImagesOut,
 
             // Resolved site policies — {privacy, terms}, each {mode, text,
             // sections}. Auto mode carries structured sections (the sitepage

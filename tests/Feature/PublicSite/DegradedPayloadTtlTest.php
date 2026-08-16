@@ -21,7 +21,6 @@ use Illuminate\Support\Facades\Config;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    setupContentSelectionTable();
     // Shared helpers, not local DDL: setupSitesTable() already carries
     // architecture_id, and design_kits has its own helper. Building either by
     // hand here would put a second, drifting copy of a canonical tenant table

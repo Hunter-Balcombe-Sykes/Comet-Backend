@@ -400,21 +400,14 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::delete('/design-media/{purpose}', [UserDesignMediaController::class, 'destroy'])
             ->where('purpose', '[a-z_]+');
 
-        // Content library + selection (sitepage background picks). Library =
-        // content-pool uploads + referenced Google Business photos; Selection =
-        // ordered list (≤15) of uploads / google photos / Instagram reel+post.
+        // Content library (browse + upload). The ordered "selection" verbs
+        // retired with site.content_selection (slice 7 unit E) — curation is
+        // pool:media pins now.
         Route::get('/content/library', [ContentController::class, 'library']);
         Route::post('/content/uploads', [ContentController::class, 'storeUpload'])
             ->middleware('throttle:30,1');
         Route::delete('/content/uploads/{upload}', [ContentController::class, 'destroyUpload'])
             ->whereUuid('upload')
-            ->middleware('throttle:30,1');
-        Route::get('/content/selection', [ContentController::class, 'selection']);
-        Route::put('/content/selection', [ContentController::class, 'replaceSelection'])
-            ->middleware('throttle:60,1');
-        Route::put('/content/instagram-auto', [ContentController::class, 'setInstagramAuto'])
-            ->middleware('throttle:30,1');
-        Route::put('/content/google-photos', [ContentController::class, 'setGooglePhotos'])
             ->middleware('throttle:30,1');
 
         // Image Gallery (gallery-pool ordering & legacy routes)

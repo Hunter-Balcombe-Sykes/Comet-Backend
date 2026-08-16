@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Model;
  *
  * Collection carries user_id directly (Shape A — ContentItemPolicy precedent).
  * Storefront has no user_id column of its own; ownership resolves through its
- * parent collection's user_id (Shape B — ContentSelectionPolicy precedent),
+ * parent collection's user_id (Shape B — SectionPolicy precedent),
  * so the caller must have the collection relation loaded.
  *
  * Denials on route-bound resources return 404 rather than 403: an actor here
@@ -63,8 +63,7 @@ class ContentCollectionPolicy extends BasePolicy
 
     // relationLoaded() first — getRelation() THROWS on an unloaded relation
     // rather than returning null, so this guard never ran and a missing
-    // collection relation surfaced as a 500 (SectionPolicy/ContentSelectionPolicy
-    // precedent).
+    // collection relation surfaced as a 500 (SectionPolicy precedent).
     private function collectionUserId(Storefront $resource): ?string
     {
         $collection = $resource->relationLoaded('collection') ? $resource->getRelation('collection') : null;

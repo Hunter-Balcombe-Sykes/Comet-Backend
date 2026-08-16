@@ -5,7 +5,6 @@ use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\ReconcilePlatformTakedownJob;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Segments\UserSegmentMember;
-use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\IdentitySync;
@@ -191,10 +190,11 @@ it('staggers dispatch delay across the run using a run-global index, capped', fu
 });
 
 // R3-CACHE-1: the enumeration guard. Pins that a takedown's bulk update reaches
-// ONLY the cache purge — not the identity fold, the content-selection seed/auto-
-// enable/slot-reserve, or the mirrored-media cleanup — so this test fails the
-// day a future IntegrationConnectionObserver arm gets gated on is_active and the
-// takedown ought to run it too. Seed rows via a raw insert (not
+// ONLY the cache purge — not the identity fold, the Instagram auto-sync flip, or
+// the mirrored-media cleanup — so this test fails the day a future
+// IntegrationConnectionObserver arm gets gated on is_active and the takedown
+// ought to run it too. (Slice 7 unit E retired the two content-selection arms
+// this guard also used to cover.) Seed rows via a raw insert (not
 // IntegrationConnection::create()) so the seed itself doesn't fire the
 // CREATE-time observer arms this test isn't about. Sites + payloads are seeded
 // so each of the five arms below WOULD fire if the bulk update ever started
@@ -203,7 +203,6 @@ it('staggers dispatch delay across the run using a run-global index, capped', fu
 // trivially pass regardless of whether the arm ran).
 it('bypasses every reachable observer side effect except the purge (enumeration guard)', function () {
     Queue::fake();
-    setupContentSelectionTable();
 
     $gbUser = takedownUser('tkgb');
     takedownSite($gbUser, 'tkgbsite');
@@ -223,8 +222,9 @@ it('bypasses every reachable observer side effect except the purge (enumeration 
 
     $igUser = takedownUser('tkig');
     takedownSite($igUser, 'tkigsite');
+    $igConnectionId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.platform_connections')->insert([
-        'id' => (string) Str::uuid(),
+        'id' => $igConnectionId,
         'user_id' => $igUser->id,
         'surface_key' => 'instagram.profile',
         'routing_class' => 'social',
@@ -233,6 +233,9 @@ it('bypasses every reachable observer side effect except the purge (enumeration 
             '_folder' => 'platforms/instagram/old',
             'images' => ['https://example.com/ig-1.jpg'],
         ]),
+        // An EXPLICIT false is what enableContentInstagramAuto() would strip —
+        // it surviving below is the observable proving that arm never ran.
+        'display_settings' => json_encode(['auto_sync_latest' => false]),
         'is_active' => 1,
     ]);
 
@@ -245,17 +248,10 @@ it('bypasses every reachable observer side effect except the purge (enumeration 
 
     Queue::assertNotPushed(DeleteMirroredMediaJob::class);
 
-    $gbSiteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $gbUser->id)->value('id');
-    $igSiteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $igUser->id)->value('id');
-
-    // GB content seed never ran: no google-photo pick was created despite a
-    // seedable photo in the payload.
-    // (2026-08-05: the IG auto flag moved to connection display_settings and
-    // the connect flip only STRIPS an explicit false there — the slot check
-    // below is the observable that proves the IG hooks were bypassed.)
-    expect(ContentSelection::query()->where('site_id', $gbSiteId)->exists())->toBeFalse()
-        // IG slot reservation never ran: no ig-reel/ig-post rows despite a
-        // seedable image in the payload.
-        ->and(ContentSelection::query()->where('site_id', $igSiteId)->whereIn('entry_type', ContentSelection::IG_TYPES)->exists())
-        ->toBeFalse();
+    // IG auto-sync flip never ran: the explicit false is still on the row
+    // (enableContentInstagramAuto strips it whenever that arm fires).
+    $igSettings = DB::connection('pgsql')->table('site.platform_connections')
+        ->where('id', $igConnectionId)
+        ->value('display_settings');
+    expect(json_decode((string) $igSettings, true))->toBe(['auto_sync_latest' => false]);
 });

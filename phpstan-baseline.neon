@@ -1027,26 +1027,14 @@ parameters:
 			path: app/Http/Resources/PublicSite/IndividualProfileResource.php
 
 		-
-			message: '#^Offset ''policies'' on array\{site_id\?\: string\|null, design_kit\?\: array\<string, mixed\>, design_media\?\: list\<array\<string, mixed\>\>, architecture_id\?\: string\|null, public_config\?\: array\<string, mixed\>, page_order\?\: list\<string\>, ranked_actions\?\: list\<array\<string, mixed\>\>, ordering\?\: array\<string, mixed\>, \.\.\.\} on left side of \?\? does not exist\.$#'
+			message: '#^Offset ''policies'' on array\{site_id\?\: string\|null, design_kit\?\: array\<string, mixed\>, architecture_id\?\: string\|null, public_config\?\: array\<string, mixed\>, page_order\?\: list\<string\>, ranked_actions\?\: list\<array\<string, mixed\>\>, ordering\?\: array\<string, mixed\>, links\?\: list\<array\<string, mixed\>\>, \.\.\.\} on left side of \?\? does not exist\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Http/Resources/PublicSite/IndividualProfileResource.php
 
 		-
-			message: '#^Offset ''popularity'' on array\{site_id\?\: string\|null, design_kit\?\: array\<string, mixed\>, design_media\?\: list\<array\<string, mixed\>\>, architecture_id\?\: string\|null, public_config\?\: array\<string, mixed\>, page_order\?\: list\<string\>, ranked_actions\?\: list\<array\<string, mixed\>\>, ordering\?\: array\<string, mixed\>, \.\.\.\} on left side of \?\? does not exist\.$#'
+			message: '#^Offset ''popularity'' on array\{site_id\?\: string\|null, design_kit\?\: array\<string, mixed\>, architecture_id\?\: string\|null, public_config\?\: array\<string, mixed\>, page_order\?\: list\<string\>, ranked_actions\?\: list\<array\<string, mixed\>\>, ordering\?\: array\<string, mixed\>, links\?\: list\<array\<string, mixed\>\>, \.\.\.\} on left side of \?\? does not exist\.$#'
 			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Resources/PublicSite/IndividualProfileResource.php
-
-		-
-			message: '#^Offset ''site_images'' on array\{site_id\?\: string\|null, design_kit\?\: array\<string, mixed\>, design_media\?\: list\<array\<string, mixed\>\>, architecture_id\?\: string\|null, public_config\?\: array\<string, mixed\>, page_order\?\: list\<string\>, ranked_actions\?\: list\<array\<string, mixed\>\>, ordering\?\: array\<string, mixed\>, \.\.\.\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Resources/PublicSite/IndividualProfileResource.php
-
-		-
-			message: '#^Strict comparison using \=\=\= between array\{\} and array\{\} will always evaluate to true\.$#'
-			identifier: identical.alwaysTrue
 			count: 1
 			path: app/Http/Resources/PublicSite/IndividualProfileResource.php
 
@@ -2071,12 +2059,6 @@ parameters:
 			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
 
 		-
-			message: '#^Offset ''url'' on array\{url\: string, url_hd\: string\|null, url_svg\: string\|null, url_icon\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
 			message: '#^Parameter \#1 \$array \(list\<array\{id\: non\-empty\-string\|null, title\: string, url\: string, category\: string, platform\: string\|null, popularityRank\: int\|null\}\>\) of array_values is already a list, call has no effect\.$#'
 			identifier: arrayValues.list
 			count: 1
@@ -2177,24 +2159,6 @@ parameters:
 			identifier: property.notFound
 			count: 2
 			path: app/Services/Segments/SegmentResolver.php
-
-		-
-			message: '#^Offset ''type'' on array\{type\: string, mediaId\?\: string\|null, ref\?\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/Site/ContentSelectionService.php
-
-		-
-			message: '#^Parameter \#1 \$array \(list\<array\{type\: string, mediaId\?\: string\|null, ref\?\: string\|null\}\>\) of array_values is already a list, call has no effect\.$#'
-			identifier: arrayValues.list
-			count: 1
-			path: app/Services/Site/ContentSelectionService.php
-
-		-
-			message: '#^Strict comparison using \=\=\= between string and null will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 1
-			path: app/Services/Site/ContentSelectionService.php
 
 		-
 			message: '#^Offset ''handle_location'' on array\{display_name\: string, icon_key\: string, placeholder\: string, handle_pattern\: string, url_template\: string, host_allowlist\: array\<int, string\>, url_path_extractor\: string, default_category\: string, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'

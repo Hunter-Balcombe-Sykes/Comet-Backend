@@ -86,8 +86,9 @@ class SiteMedia extends BaseModel
      * the composite unique index site_media_design_singleton_purpose_uq (migration
      * 20260701210000) already enforces one live row per (site, purpose) across the
      * WHOLE design pool, and uploads flow through uploadSingleton's replace-on-upload
-     * path — so it rides the same allowlist and reaches the public payload as
-     * siteImages.placeholder, rather than a separate list shape.
+     * path — so it rides the same allowlist as a singleton purpose rather than
+     * a separate list shape. (Its `siteImages` wire projection died with slice 7
+     * unit E; the upload lane and the singleton rule are unchanged.)
      *
      * Enforced at the DB by the composite partial unique index
      * site_media_design_singleton_purpose_uq and the app-side replace in

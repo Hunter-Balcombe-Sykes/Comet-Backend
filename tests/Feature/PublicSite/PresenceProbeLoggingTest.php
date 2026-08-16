@@ -98,21 +98,3 @@ it('threads two distinct probe labels when two different probes fault in the sam
         expect($ctx['user_id'])->toBe($pro->id);
     }
 });
-
-it('tags a curated-gallery probe failure distinctly from the presentPageIds probes', function () {
-    $pro = createTenant('probe-curated');
-    setupContentTables(); // pool presence probes (P4) need the pool tables
-    // Deliberately no setupContentSelectionTable() — ContentSelection::query() faults.
-
-    Log::spy();
-
-    $result = app(SitepageDataResolverService::class)->buildCuratedGalleryData($pro->site);
-
-    expect($result)->toBe([]);
-    Log::shouldHaveReceived('warning')
-        ->once()
-        ->withArgs(fn (string $message, array $ctx) => $message === 'sitepage.presence_probe_failed'
-            && $ctx['probe'] === 'curated_gallery_resolve'
-            && $ctx['site_id'] === $pro->site->id
-            && $ctx['user_id'] === $pro->id);
-});
