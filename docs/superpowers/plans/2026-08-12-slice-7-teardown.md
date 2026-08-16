@@ -718,6 +718,60 @@ Nothing here starts until Phases 1–5 are merged, deployed and live-verified on
 - [ ] **Step 4: Take the docblock's URL-volume derivation from 900 back to 600 per host** (§23.7).
 - [ ] **Step 5: Test, commit.**
 
+### Task 26a: BLOCKER — `site.public_site_payload` is a VIEW over three drop-list tables
+
+**Found 2026-08-17 by running the `pg_depend` check early. Named by neither the
+spec nor this plan — it is exactly what the kickoff meant by "pg_depend will
+tell you what the table list will not."**
+
+`site.public_site_payload` is a live VIEW (`pg_class.relkind = 'v'`) whose
+`services` key selects from **`site.services`, `site.service_category_assignments`
+and `site.service_categories`** — all three on the drop list:
+
+```sql
+'services', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+     'id', sv.id, 'title', sv.title, …, 'category', COALESCE(sc.title,'Services')))
+   FROM site.services sv
+     LEFT JOIN LATERAL (SELECT c.title, c.sort_order
+        FROM site.service_category_assignments a
+        JOIN site.service_categories c ON c.id = a.service_category_id AND c.deleted_at IS NULL
+        WHERE a.service_id = sv.id ORDER BY c.sort_order, lower(c.title) LIMIT 1) sc ON true
+   WHERE sv.user_id = p.id AND sv.source IS NULL AND sv.is_active = true
+     AND sv.deleted_at IS NULL), '[]'::jsonb)
+```
+
+`sv.source IS NULL` — so it publishes the **owner-authored** services only (18
+live on dev); the Fresha half is already excluded.
+
+**Why this is not a footnote.** The view is backed by
+`app/Models/Views/PublicSitePayload.php` and read by `SyncSubdomainToKvJob`,
+which CLAUDE.md names as the **ONLY writer of `SUBDOMAIN_KV`** — the payload the
+Cloudflare Worker serves for every `<handle>.partna.au` sitepage. So this is not
+an API key; it is the live render payload.
+
+A bare `DROP TABLE site.services` will **fail** on the view dependency. A
+`DROP … CASCADE` will **silently drop the view**, taking `PublicSitePayload` and
+every KV write with it.
+
+- [ ] **Step 1: Recreate the view with `services` sourced from `content.*`**, as
+      its own migration, BEFORE any DROP. Keep the emitted JSON shape identical —
+      the owner services live authoritatively in `content.items` kind `service` on
+      the manual source (slice 3a), with categories as `content.collections` kind
+      `service_category`, so the data is all present and the coverage gate is green
+      for it.
+- [ ] **Step 2: Do NOT simply retire the `services` key.** That would drop
+      services off the rendered sitepage, not merely off an API response, and the
+      2026-08-14 frontend-rebuild override covers the API wire — it was not a
+      ruling about the KV render payload.
+- [ ] **Step 3: Re-check the same view for the OTHER drop-list tables** before
+      dropping them. It also builds `gallery` from `site.site_media` pool
+      `gallery`; that table survives the teardown, but unit 6 retires the pool
+      conceptually, so state whether the key stays.
+- [ ] **Step 4: Verify no OTHER view, matview, rule or trigger depends on the ten**
+      — the FK check came back clean (zero inbound foreign keys from outside the
+      drop set), so this view was the only surprise, but re-run both queries at
+      DROP time rather than trusting this record.
+
 ### Task 26: Check `pg_depend` before writing a single DROP
 
 - [ ] **Step 1:** For each of the ten tables, query `pg_depend` for FK dependents, views, triggers and RLS policies. The table list will not tell you what the catalog will.
