@@ -705,10 +705,34 @@ Nothing here starts until Phases 1–5 are merged, deployed and live-verified on
 
 `site.shop_brands` is a live write target, not inert. `upsertStore()` takes the model as its identity anchor, so dropping the table under it breaks every subsequent shop write.
 
-- [ ] **Step 1: Failing test** — `upsertStore()` writes with no `site.shop_brands` row present.
-- [ ] **Step 2–4:** run, implement (identity anchor becomes `content.storefronts.brand_id` + the provider store id), run.
-- [ ] **Step 5: Remove `ShopController`'s three direct writes.**
-- [ ] **Step 6: Commit.**
+- [x] **Step 1: Failing test** — `upsertStore()` writes with no `site.shop_brands` row present. `tests/Feature/Shop/ShopStoreRecordWriterTest.php` (helpers prefixed `ssrw*`), five cases including a `DB::listen()` assertion that the write issues no query naming `shop_brands`.
+- [x] **Step 2–4:** run, implement, run. `upsertStore()` / `collectionIdFor()` / `isCurated()` now take `App\Services\Shop\StoreRecord` — a readonly DTO whose identity is `(provider, externalRef)`, both `content.storefronts` columns. `App\Services\Shop\` carries no reference to `site.shop_brands` at all; the model→DTO adapter is `ShopBrand::toStoreRecord()`, on the doomed model, so Task 27 step 5 deletes it with the class. `isCurated()` takes the owner id explicitly (it used to reach through `$brand->connection`).
+- [ ] **Step 5: Remove `ShopController`'s three direct writes. BLOCKED — not separable, see below.**
+
+  The three writes cannot be removed while `ShopConnections::brands()/brand()` still resolve a store by reading `site.shop_brands`: drop the writes and every store minted after the deploy is invisible to `connectStatus()`, `updateBrand()`, `removeBrand()`, `setProducts()` and `removeProduct()`, which all 404 on the miss. That is the opposite of "observable API behaviour identical". The writes and the reads are one unit of work.
+
+  **What the DROP actually needs** (every live `site.shop_brands` / `site.shop_products` touch left in `app/`, verified 2026-08-17):
+
+  | File | Touch | Why it 42P01s |
+  |---|---|---|
+  | `ShopConnections::brands()`, `::brand()` | `ShopBrand::query()->whereIn('connection_id', …)` | every store lookup in the controller |
+  | `ShopController::addBrand` | `new ShopBrand(...)->save()`, `->touch()` | the identity/lifecycle write, plus the stale-pending clock `connectStatus()` reads |
+  | `ShopController::addProduct` | `ShopBrand::firstOrCreate` | the reserved individual bucket |
+  | `ShopController::removeBrand`, `::forget`, `::removeProduct` | `$brand->delete()`, `ShopBrand::whereIn(...)->delete()`, four `ShopProduct::...->delete()` | teardown |
+  | `ShopController::brandMap()` | `$this->shop->brands($user)->with('products')` | the `catalog()` re-warm endpoint's only read |
+  | `ShopFetch::fetch()` | `$connection->shopBrands()` | the scheduled 6-hourly resync |
+  | `ShopCatalog::syncLatest()` | `ShopBrand` type hint, `$brand->loadMissing('products')`, `toBrandArray()` | both the scheduled and the manual sync |
+  | `ShopBrandConnectJob` | `ShopBrand::find/whereKey(...)->update()` — keyed on the `site.shop_brands` uuid PK | the whole deferred-connect settle |
+  | `ProcessShopBrandLogoJob` | same uuid key + `ShopBrand::whereKey(...)->update()` | the processed logo marks |
+  | `ShopBrandProfiler::forRow()` | `ShopBrand` type hint | called by the connect job |
+  | `ShopProductSeeder`, `StoreBrandSeeder`, `BrandAssetPipeline`, `StoreBrandProfiler` | `ShopBrand::firstOrCreate` / `updateOrCreate` / type hints | the commerce-probe and pre-account seeding lane |
+  | `IntegrationConnection::shopBrands()`, `ShopProduct::brand()` | relations | |
+  | `ShopBackfiller`, `PseudoPlatformRetirer` | read the legacy tables by design | deleted by Task 27 step 5 anyway |
+
+  `ShopContentReader::brandMap()` already reconstructs the exact `toBrandArray()` shape from `content.*`, and `content.storefronts` already carries every column that matters (`connect_status`, `connect_error`, `currency`, `discount_code`, `referral_query`, `fetch_mode`, `is_individual`, `products_curated_at`, the four logo/favicon URLs) with `name`/`position` on the parent collection — so the re-home is mechanical, not a design problem. Its cost is the two jobs' identity (the `site.shop_brands` uuid PK has no `content.*` twin; the collection id is the natural replacement) plus **43 test files / 316 references** whose fixtures mint `ShopBrand` rows. `style_analysis`, `selection_mode` and `link_mode` are already dead columns — nothing in `app/` reads them.
+
+  **Recommendation: schedule this as its own task before Task 27, not as a step here.** Removing only the four `site.shop_products` deletes buys nothing on its own — `removeBrand()` still calls `$brand->delete()` two lines later, so the endpoint 42P01s regardless.
+- [x] **Step 6: Commit.**
 
 ### Task 25: `CloudflarePurgeService::purgeHandle()`
 

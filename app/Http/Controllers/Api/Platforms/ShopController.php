@@ -442,7 +442,7 @@ class ShopController extends ApiController
             // upsertStore() call, mirroring this one). This is what makes
             // the Task 7 hybridBrandMap() merge droppable: brands()/
             // brandProducts()/selection() now always find a row.
-            $this->content->upsertStore($brandRow->fresh(), (string) $user->id);
+            $this->content->upsertStore($brandRow->fresh()->toStoreRecord(), (string) $user->id);
 
             // The connection's payload is a static marker (FOUND-25) — the
             // observer's payload-dirty gate won't fire for a brand add after the
@@ -631,7 +631,7 @@ class ShopController extends ApiController
             // Task 8: mirror onto content.* so the dashboard read endpoints
             // (bare ShopContentReader calls now, no legacy fallback) see
             // this edit immediately.
-            $collectionId = $this->content->upsertStore($brand->fresh(), (string) $user->id);
+            $collectionId = $this->content->upsertStore($brand->fresh()->toStoreRecord(), (string) $user->id);
             if (($validated['selectionMode'] ?? null) === 'latest') {
                 // #SEM-1 opt-back-in, content.* side: upsertStore()'s own
                 // conflict clause deliberately COALESCEs products_curated_at
@@ -760,7 +760,7 @@ class ShopController extends ApiController
             // it), so a brand that never synced into content.* is a
             // no-op here. NEVER a hard delete of content.items — see
             // ShopContentWriter::retireStore()'s own docblock.
-            $collectionId = $this->content->collectionIdFor($brand, (string) $user->id);
+            $collectionId = $this->content->collectionIdFor($brand->toStoreRecord(), (string) $user->id);
             if ($collectionId !== null) {
                 $this->content->retireStore((string) $user->id, $collectionId);
             }
@@ -921,7 +921,7 @@ class ShopController extends ApiController
             // replaces the old delete+reinsert into site.shop_products
             // entirely — that table is written by nothing from this endpoint
             // now (Step 1/Step 5 of the Task 8 plan).
-            $collectionId = $this->content->upsertStore($brand, (string) $user->id);
+            $collectionId = $this->content->upsertStore($brand->toStoreRecord(), (string) $user->id);
             $this->content->syncStore((string) $user->id, $collectionId, $selected->all(), $brand->currency);
 
             // #SEM-1: products_curated_at is what ShopFetch's ShopContentWriter::
@@ -1080,7 +1080,7 @@ class ShopController extends ApiController
             // pattern, already shipped) — newest first, de-duped by
             // productId, capped, reconstructed from content.* rather than
             // read off the now-unwritten site.shop_products rows.
-            $collectionId = $this->content->upsertStore($individual, (string) $user->id);
+            $collectionId = $this->content->upsertStore($individual->toStoreRecord(), (string) $user->id);
             $ordered = collect($this->content->currentCatalogue($collectionId))
                 ->reject(fn (array $p) => ($p['productId'] ?? null) === $productId)
                 ->prepend($product)
@@ -1116,7 +1116,7 @@ class ShopController extends ApiController
             // addProduct()'s currentCatalogue() read), sync it, and if
             // nothing's left, retire the collection the same way removeBrand()
             // does rather than leaving an empty content.storefronts row behind.
-            $collectionId = $this->content->upsertStore($individual, (string) $user->id);
+            $collectionId = $this->content->upsertStore($individual->toStoreRecord(), (string) $user->id);
             $remaining = collect($this->content->currentCatalogue($collectionId))
                 ->reject(fn (array $p) => ($p['productId'] ?? null) === $productId)
                 ->values();

@@ -66,7 +66,7 @@ final readonly class ShopFetch implements FetchStrategy
             ->where('is_individual', false)
             ->with(['connection', 'products'])
             ->get()
-            ->reject(fn ($b) => $content->isCurated($b));
+            ->reject(fn ($b) => $content->isCurated($b->toStoreRecord(), (string) $connection->user_id));
 
         if ($latestBrands->isEmpty()) {
             throw new FetchNotModifiedException('shop');

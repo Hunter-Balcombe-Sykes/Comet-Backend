@@ -67,7 +67,7 @@ function spBrand(User $user, string $connectionId, ?string $connectStatus = null
         'position' => 0,
     ]);
 
-    return app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    return app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 }
 
 /** The anchor row ALONE — a brand connected before this slice deployed and

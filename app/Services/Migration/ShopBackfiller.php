@@ -75,7 +75,7 @@ class ShopBackfiller
                     continue;
                 }
 
-                $collectionId = $this->stores->upsertStore($brand, (string) $ownerId);
+                $collectionId = $this->stores->upsertStore($brand->toStoreRecord(), (string) $ownerId);
                 $result['stores']++;
 
                 foreach ($brand->products as $product) {

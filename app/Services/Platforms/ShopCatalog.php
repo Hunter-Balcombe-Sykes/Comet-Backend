@@ -192,7 +192,7 @@ class ShopCatalog
      */
     private function storeCollectionId(ShopBrand $brand): string
     {
-        return $this->content()->upsertStore($brand, (string) $brand->connection->user_id);
+        return $this->content()->upsertStore($brand->toStoreRecord(), (string) $brand->connection->user_id);
     }
 
     /** Real ShopContentWriter, or the container's when constructed without one (see the constructor note). */

@@ -157,11 +157,11 @@ it('upserts the same store twice against real Postgres without SQLSTATE 42702', 
     // brand-new row with nothing to conflict with, which is exactly why all
     // 9 real stores failed on their first-ever backfill rather than only on
     // a resync.
-    $first = $writer->upsertStore($brand, $userId);
+    $first = $writer->upsertStore($brand->toStoreRecord(), $userId);
 
     // The SECOND call is the genuine ON CONFLICT DO UPDATE path: same
     // provider+external_ref, so collectionIdFor() finds the existing row.
-    $second = $writer->upsertStore($brand, $userId);
+    $second = $writer->upsertStore($brand->toStoreRecord(), $userId);
 
     expect($second)->toBe($first)
         ->and(DB::connection('pgsql')->table('content.storefronts')->where('collection_id', $first)->count())->toBe(1);
@@ -171,7 +171,7 @@ it('keeps an already-stamped products_curated_at when the incoming value is null
     $userId = shopUpsertConflictTestUser();
     $brand = shopUpsertConflictTestBrand('store-2'); // products_curated_at null
     $writer = app(ShopContentWriter::class);
-    $collectionId = $writer->upsertStore($brand, $userId);
+    $collectionId = $writer->upsertStore($brand->toStoreRecord(), $userId);
 
     // Simulate Task 8 having stamped the content-side column directly,
     // independent of the (in this test, still-null) legacy column the
@@ -185,7 +185,7 @@ it('keeps an already-stamped products_curated_at when the incoming value is null
     // COALESCE arguments the wrong way round (or losing the qualification
     // that made the statement runnable at all) reinstates exactly the sync-
     // clobbers-curation bug this column was written to prevent.
-    $writer->upsertStore($brand, $userId);
+    $writer->upsertStore($brand->toStoreRecord(), $userId);
 
     $after = DB::connection('pgsql')->table('content.storefronts')->where('collection_id', $collectionId)->value('products_curated_at');
     expect($after)->not->toBeNull();
@@ -195,7 +195,7 @@ it('fills a null products_curated_at from a non-null incoming value', function (
     $userId = shopUpsertConflictTestUser();
     $brand = shopUpsertConflictTestBrand('store-3'); // products_curated_at null
     $writer = app(ShopContentWriter::class);
-    $collectionId = $writer->upsertStore($brand, $userId);
+    $collectionId = $writer->upsertStore($brand->toStoreRecord(), $userId);
 
     expect(DB::connection('pgsql')->table('content.storefronts')->where('collection_id', $collectionId)->value('products_curated_at'))
         ->toBeNull();
@@ -203,7 +203,7 @@ it('fills a null products_curated_at from a non-null incoming value', function (
     // The row has never recorded a curation event — the incoming value must
     // be taken this time.
     $brand->products_curated_at = now();
-    $writer->upsertStore($brand, $userId);
+    $writer->upsertStore($brand->toStoreRecord(), $userId);
 
     expect(DB::connection('pgsql')->table('content.storefronts')->where('collection_id', $collectionId)->value('products_curated_at'))
         ->not->toBeNull();

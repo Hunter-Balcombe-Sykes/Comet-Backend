@@ -680,8 +680,8 @@ it('T13: the public payload carries no brand at all and never exposes connectSta
     // exactly as production would have them — so the empty payload asserted
     // below is a retirement rather than an unwritten fixture.
     $writer = app(ShopContentWriter::class);
-    $writer->upsertStore($pending, (string) $user->id);
-    $failedCollectionId = $writer->upsertStore($failed, (string) $user->id);
+    $writer->upsertStore($pending->toStoreRecord(), (string) $user->id);
+    $failedCollectionId = $writer->upsertStore($failed->toStoreRecord(), (string) $user->id);
     $writer->syncStore((string) $user->id, $failedCollectionId, [[
         'productId' => 'p1', 'title' => 'Still usable', 'url' => 'https://fail.example.com/p1',
         'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
@@ -773,7 +773,7 @@ it('T20: a failed brand is retained, still returns products, and re-POSTing its 
     // needs the content.* row a real deferred connect would already have
     // (ShopBrandConnectJob::markTerminal() upserts one on every 'failed'
     // transition; see that job's own docblock).
-    app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));

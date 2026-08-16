@@ -148,7 +148,7 @@ it('rolls back the collections write when the storefronts write fails', function
     // logo_url is a real, nullable column upsertStore() writes on every call.
     DB::connection('pgsql')->statement('ALTER TABLE content.storefronts DROP COLUMN logo_url');
 
-    expect(fn () => app(ShopContentWriter::class)->upsertStore($brand, $userId))
+    expect(fn () => app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), $userId))
         ->toThrow(QueryException::class);
 
     // The incident's actual failure mode: without the transaction, this
@@ -167,12 +167,12 @@ it('leaves both tables untouched, not just collections, on the same failure', fu
     $userId = atomicityTestUser();
     $goodBrand = atomicityTestBrand('store-atomic-good');
     $writer = app(ShopContentWriter::class);
-    $goodCollectionId = $writer->upsertStore($goodBrand, $userId);
+    $goodCollectionId = $writer->upsertStore($goodBrand->toStoreRecord(), $userId);
 
     DB::connection('pgsql')->statement('ALTER TABLE content.storefronts DROP COLUMN logo_url');
 
     $badBrand = atomicityTestBrand('store-atomic-bad');
-    expect(fn () => $writer->upsertStore($badBrand, $userId))
+    expect(fn () => $writer->upsertStore($badBrand->toStoreRecord(), $userId))
         ->toThrow(QueryException::class);
 
     expect(DB::connection('pgsql')->table('content.collections')->count())->toBe(1)

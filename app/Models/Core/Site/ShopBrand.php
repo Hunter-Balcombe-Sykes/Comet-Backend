@@ -3,6 +3,7 @@
 namespace App\Models\Core\Site;
 
 use App\Models\BaseModel;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -114,6 +115,39 @@ class ShopBrand extends BaseModel
     public function products(): HasMany
     {
         return $this->hasMany(ShopProduct::class, 'brand_id')->orderBy('position');
+    }
+
+    /**
+     * Slice 7 Task 24: this row as the data ShopContentWriter writes.
+     *
+     * The adapter lives HERE, on the doomed model, rather than as a
+     * `StoreRecord::fromBrand()` — so `App\Services\Shop\` carries no
+     * reference to `site.shop_brands` at all, and dropping the table is a
+     * matter of deleting this class (Task 27, step 5) plus its remaining
+     * callers, not of untangling the writer again.
+     */
+    public function toStoreRecord(): StoreRecord
+    {
+        return new StoreRecord(
+            externalRef: (string) $this->brand_id,
+            provider: (string) $this->provider,
+            name: $this->name,
+            position: (int) $this->position,
+            url: $this->url,
+            sourceUrl: $this->source_url,
+            currency: $this->currency,
+            discountCode: $this->discount_code,
+            referralQuery: (string) ($this->referral_query ?? ''),
+            isIndividual: (bool) $this->is_individual,
+            fetchMode: $this->fetch_mode,
+            connectStatus: $this->connect_status,
+            connectError: $this->connect_error,
+            logoUrl: $this->logo,
+            faviconUrl: $this->favicon,
+            logoMarkUrl: $this->logo_mark_url,
+            logoMarkSvgUrl: $this->logo_mark_svg_url,
+            productsCuratedAt: $this->products_curated_at,
+        );
     }
 
     /**
