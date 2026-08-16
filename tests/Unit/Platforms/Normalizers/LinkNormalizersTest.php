@@ -230,12 +230,12 @@ it('Facebook returns an empty reserved username for a bare "/pages/" link with n
 
 it('Twitch normalizes a bare login, lowercased', function () {
     expect((new TwitchNormalizer)('SomeStreamer'))
-        ->toBe(['username' => 'somestreamer', 'url' => 'https://twitch.tv/somestreamer']);
+        ->toBe(['username' => 'somestreamer', 'url' => 'https://www.twitch.tv/somestreamer']);
 });
 
 it('Twitch normalizes a channel url and tolerates trailing junk', function () {
     expect((new TwitchNormalizer)('https://www.twitch.tv/Monstercat?tt_medium=share'))
-        ->toBe(['username' => 'monstercat', 'url' => 'https://twitch.tv/monstercat']);
+        ->toBe(['username' => 'monstercat', 'url' => 'https://www.twitch.tv/monstercat']);
 });
 
 it('Twitch rejects site chrome and an out-of-range login', function () {

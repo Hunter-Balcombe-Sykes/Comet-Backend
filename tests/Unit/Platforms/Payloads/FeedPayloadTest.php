@@ -3,8 +3,6 @@
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
-use App\Http\Resources\Platforms\StravaConnectionResource;
-use App\Http\Resources\Platforms\TwitchConnectionResource;
 use App\Http\Resources\Platforms\VimeoConnectionResource;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
@@ -81,13 +79,13 @@ dataset('feed_payloads', [
         'url' => 'https://x.bandcamp.com', 'artist' => 'X', 'name' => 'Album', 'thumbnail' => 't',
         'link' => 'l', 'latest' => ['id' => 1],
     ]],
-    'twitch' => [TwitchConnectionResource::class, [
-        'url' => 'https://www.twitch.tv/x', 'login' => 'x', 'name' => 'X', 'image' => 'i', 'description' => 'bio',
-    ]],
-    'strava' => [StravaConnectionResource::class, [
-        'url' => 'https://www.strava.com/clubs/x', 'name' => 'X', 'location' => 'Melbourne, Australia',
-        'image' => 'i', 'description' => 'd', 'members' => 4200,
-    ]],
+    // REMOVED: the 'twitch' and 'strava' dataset entries. Both platforms were
+    // demoted to link-only — Twitch/StravaConnectionResource are deleted and
+    // neither descriptor is registered with FeedPayload any more, so there is
+    // no feed payload of theirs left to prove equivalent. They now render via
+    // LinkConnectionResource ({username, url}), which is not FeedPayload-backed
+    // and so has no place in this dataset. 'bandcamp' above remains the
+    // refreshable-feed representative.
     'apple-music' => [AppleMusicConnectionResource::class, [
         'input' => 'in', 'name' => 'Album', 'thumbnail' => 't', 'releaseDate' => '2026-01-01', 'link' => 'l',
         'latest' => ['id' => 1],

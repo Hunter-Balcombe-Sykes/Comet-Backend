@@ -13,12 +13,14 @@ use App\Catalog\Surface;
 use App\Catalog\SurfaceBuilder;
 
 /**
- * Strava — clubs only (athlete profiles are login-walled, per
- * StravaClubScraper's own comment, so never modelled here). refreshEvery has
- * no dedicated config('partna.refresh.intervals.strava') key and no
- * ->refreshEvery() call in PRSP — an unlisted-fallback shape
- * (see sidecar AMBIGUOUS #1); encoded as the real 24h default rather than 0,
- * since StravaFetch genuinely refreshes it on a schedule.
+ * Strava — clubs only. Athlete profiles are login-walled and were never
+ * modelled; StravaNormalizer refuses an athlete URL rather than coercing it
+ * into a club link that would 404.
+ *
+ * refreshEvery is 0 as of the 2026-08-16 demotion (Phase 1.2). It used to
+ * encode a 24h default because StravaFetch refreshed clubs on a schedule;
+ * that fetch strategy and its scraper are deleted, so there is nothing to
+ * refresh and no interval to fall back to.
  */
 class Strava
 {
@@ -36,11 +38,10 @@ class Strava
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Community)
                 ->identifier(IdentifierKind::Slug)
-                ->refreshEvery(86400)
-                ->note('refresh interval falls back to refresh.default_ttl_seconds — no dedicated config key exists (D2#7 in the inventory)')
+                ->refreshEvery(0)
+                ->note('link-only since 2026-08-16 (Phase 1.2): UrlConnect + StravaNormalizer, no fetch, no refresh')
                 ->canonicalUrl('https://www.strava.com/clubs/{slug}')
                 ->connect('connect.strava.url.v1')
-                ->fetch('fetch.strava.scrape.v1')
                 ->detect(
                     Detector::url('strava.com')
                         ->path('#^/clubs/(?<slug>[A-Za-z0-9_-]+)/?$#')

@@ -124,7 +124,7 @@ it('twitch connect stores the normalized link, not a scraped card', function () 
         ->assertOk()
         ->assertExactJson([
             'username' => 'loserfruit',
-            'url' => 'https://twitch.tv/loserfruit',
+            'url' => 'https://www.twitch.tv/loserfruit',
         ]);
 });
 

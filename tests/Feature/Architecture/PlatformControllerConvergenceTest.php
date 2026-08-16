@@ -31,7 +31,6 @@ const BESPOKE_CONTROLLER_ALLOWLIST = [
     'DisplaySettingsController.php',  // display toggles, cross-platform (registry-driven)
     'ReservationsController.php',     // smart-detect category facade
     'ShopController.php',             // multi-brand picker
-    'SkoolController.php',            // single-selection; needs a payload DTO before migrating
     'SquareController.php',           // XOR-with-fresha guard on connect
 ];
 
@@ -63,7 +62,7 @@ it('requires every registry-routed platform without a bespoke controller to be f
             continue;
         }
         if ($descriptor->connectController() !== null) {
-            continue; // SingleSelection bespoke connect (skool, google-business)
+            continue; // SingleSelection bespoke connect (google-business)
         }
 
         expect($descriptor->connectStrategy())->not->toBeNull("{$key}: registry-routed with no ConnectStrategy");
