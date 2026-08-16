@@ -51,8 +51,10 @@ use Illuminate\Support\Carbon;
 // — display-only, null when unavailable (DoorDash exposes none). Per-item order
 // LINKS are still computed at read time from the live ordering entries
 // (MenuSource), never stored. Served both on the authenticated dashboard
-// (MenuController) AND publicly on the sitepage (PublicMenuController, gated on
-// last_fetched_at being set + the owner's Google Business menu display toggle).
+// (MenuController) AND publicly on the sitepage — since slice 7 Phase 3 Task 10
+// that public lane is `pools.menus` on GET /api/public/profiles/{handle}, not
+// the deleted /menu endpoint; it still gates on last_fetched_at being set +
+// the owner's Google Business menu display toggle.
 // Content isn't only scraped either — menu_categories.source_platform can be
 // 'scan' for items a user added by scanning a photo/PDF menu (MenuScanApplier);
 // those rows are exempt from MenuFetchJob's wholesale scrape rebuild.

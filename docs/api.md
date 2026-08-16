@@ -331,7 +331,6 @@ paths gate on it and some do not; there is no single rule, so check this table r
 |---|---|
 | `GET /api/public/profiles/{handle}` (`IndividualProfileController`) — the live `<handle>.partna.au` sitepage | No |
 | `GET /api/public/profiles/{handle}/integrations` and `/platforms` (`PublicIntegrationController`) | No |
-| `GET /api/public/profiles/{handle}/menu` (`PublicMenuController`) | No |
 | `SyncSubdomainToKvJob` (Cloudflare KV write) — gates on `isActive() \|\| isUnclaimed()` instead | No |
 | `PublicSiteResolver` (lead/enquiry/subscribe site lookup) | Yes |
 | `PublicDocumentDownloadController` | Yes |

@@ -458,11 +458,12 @@ class CacheKeyGenerator
 
     /**
      * Content-popularity ranks for a site (analytics.content_popularity_scores,
-     * grouped by content_type). Consumers: PoolResolver (shop product ranks —
-     * it took this read over from PublicIntegrationController when slice 5b
-     * Task 8 retired that controller's shop block) and PublicMenuController
-     * (menu category/item ranks) — both single-flight cache via
-     * CacheLockService::rememberLocked, matching
+     * grouped by content_type). Sole consumer since slice 7 Phase 3 Task 10:
+     * PoolResolver (shop product AND menu category/item ranks — it took the
+     * shop read over from PublicIntegrationController when slice 5b Task 8
+     * retired that controller's shop block, and the menu read is now the
+     * menus pool's, the /menu endpoint having been deleted). Single-flight
+     * cached via CacheLockService::rememberLocked, matching
      * IndividualProfileController's pattern (CCG-102). No mutation-driven
      * invalidation: ranks only change via the analytics:compute-popularity
      * schedule, so a TTL near that cadence bounds staleness on its own.

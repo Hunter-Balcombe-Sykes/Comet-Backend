@@ -74,13 +74,15 @@ class PoolResolver
 
     private const LIBRARY_LIMIT = 500;
 
-    // Mirrors PublicMenuController::POPULARITY_CACHE_TTL_SECONDS verbatim
-    // (CCG-102): the two read the SAME cache key, so a divergent TTL here
-    // would halve the value of a single-flight cache that exists because this
-    // read used to hit Postgres on every public request. Both track the
-    // analytics:compute-popularity cadence (routes/console.php, 15 minutes).
-    // PublicIntegrationController was the third holder of this constant until
-    // slice 5b Task 8 retired its shop block along with the read.
+    // CCG-102: this is now the SOLE holder of the constant, and the sole
+    // consumer of CacheKeyGenerator::sitePopularityRanks(). It exists because
+    // the read used to hit Postgres on every public request; the TTL tracks
+    // the analytics:compute-popularity cadence (routes/console.php, 15
+    // minutes), beyond which extra staleness buys nothing.
+    // PublicIntegrationController held it too until slice 5b Task 8 retired
+    // its shop block, and PublicMenuController until slice 7 Phase 3 Task 10
+    // deleted the /menu endpoint. Both read the SAME key, so any future
+    // second holder must copy this value verbatim rather than pick its own.
     private const POPULARITY_CACHE_TTL_SECONDS = 900;
 
     public function __construct(

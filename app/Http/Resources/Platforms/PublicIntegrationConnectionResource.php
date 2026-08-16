@@ -303,7 +303,7 @@ class PublicIntegrationConnectionResource extends ApiResource
      * Drop payload keys the owner's display toggles hide. WS-B2 moved the
      * suppression map into the shared DisplaySettingsFilter so the dashboard GB
      * card + the scheduled refresh gate on the exact same rules (menu stays a
-     * no-op here — it isn't in this allowlist; PublicMenuController gates it).
+     * no-op here — it isn't in this allowlist; the menus pool gates it).
      */
     private function applyDisplaySettings(string $platform, array $payload): array
     {

@@ -18,7 +18,6 @@ use App\Http\Controllers\Api\PublicSite\PublicEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
 use App\Http\Controllers\Api\PublicSite\PublicIntegrationController;
 use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
-use App\Http\Controllers\Api\PublicSite\PublicMenuController;
 use App\Http\Controllers\Api\PublicSite\PublicNotificationEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
@@ -197,10 +196,9 @@ Route::get('/public/profiles/{handle}/platforms', [PublicIntegrationController::
     ->where('handle', '[A-Za-z0-9-]+')
     ->middleware('throttle:public-profile');
 
-// Public menu — food menu (categories + items) for business profiles.
-Route::get('/public/profiles/{handle}/menu', [PublicMenuController::class, 'show'])
-    ->where('handle', '[A-Za-z0-9-]+')
-    ->middleware('throttle:public-profile');
+// The public menu endpoint (`/public/profiles/{handle}/menu`) was DELETED in
+// slice 7, Phase 3 Task 10 — `pools.menus` on `/public/profiles/{handle}`
+// replaces it (spec D2). Guard: tests/Feature/PublicSite/PublicMenuRouteRetiredTest.php.
 
 Route::post('/public/customers', [PublicCustomerLeadController::class, 'store'])
     ->middleware(['lead.log', 'throttle:leads', 'bot.token:lead']);
