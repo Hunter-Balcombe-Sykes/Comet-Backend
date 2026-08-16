@@ -19,17 +19,28 @@
 // contended on the pre-held lock at all.
 //
 // CACHE_STORE=array in phpunit.xml — a real in-process ArrayLock, not mocked.
+//
+// 2026-08-16 (slice 7 Phase 4): only the storeAccount half still locks.
+// storeStandalone() stopped writing a connection at all, so the lost-update
+// window it was fixed for no longer exists — see its case below, now inverted.
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\EventbriteScraper;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Slice 7 Phase 4: the standalone-event arm writes an `events` POOL item,
+    // so the content lane has to exist for the case that no longer locks.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
 
 function sessionA5User(string $h): User
@@ -83,7 +94,15 @@ it('returns 423 and writes no row when storeAccount contends on the eventbrite p
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'eventbrite')->count())->toBe(0);
 });
 
-it('returns 423 and writes no row when storeStandalone contends on the eventbrite platform lock', function () {
+// INVERTED 2026-08-16 (slice 7 Phase 4). storeStandalone() no longer writes a
+// connection row, so it correctly no longer takes the platform lock: the write
+// is an idempotent upsert on a URL-derived coord, which has no read-then-write
+// span to serialise. Holding the eventbrite key must therefore NOT block it.
+//
+// Kept rather than deleted, and asserted as a success: silently dropping the
+// case would leave the lock's disappearance unwitnessed, and a future
+// re-introduction of a connection write here would then pass unnoticed.
+it('does NOT contend on the eventbrite platform lock, because storeStandalone writes no connection', function () {
     $eventUrl = 'https://www.eventbrite.com/e/cool-show-123';
     $scraper = Mockery::mock(EventbriteScraper::class);
     $scraper->shouldReceive('normalizeEventUrl')->andReturn($eventUrl);
@@ -91,17 +110,21 @@ it('returns 423 and writes no row when storeStandalone contends on the eventbrit
     app()->instance(EventbriteScraper::class, $scraper);
 
     $user = sessionA5User('a5event');
+    // A pool item needs a section, which hangs off the site.
+    $site = new Site(['subdomain' => 'a5event', 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
 
     $lock = Cache::lock(CacheKeyGenerator::platformConnectionLock('eventbrite', (string) $user->id), 10);
     expect($lock->get())->toBeTrue();
 
     try {
-        actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $eventUrl])
-            ->assertStatus(423)
-            ->assertJson(['message' => 'Another change is still saving — please retry in a moment.']);
+        actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $eventUrl])->assertOk();
     } finally {
         $lock->release();
     }
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'eventbrite')->count())->toBe(0);
+    expect(DB::connection('pgsql')->table('content.items')
+        ->where('user_id', $user->id)->where('kind', 'event')->count())->toBe(1);
 });

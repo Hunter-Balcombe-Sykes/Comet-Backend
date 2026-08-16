@@ -229,10 +229,11 @@ it('DELIBERATELY VACUOUS — flag on: the EVENT branch is still a synchronous 20
     // what this case is about — that no DEFERRED CONNECT was scheduled.
     Queue::assertNotPushed(ConnectFetchJob::class);
 
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'eventbrite')->firstOrFail();
-    expect($row->resource_id)->toStartWith('event-');
-    expect($row->payload['kind'])->toBe('event');
-    expect($row->last_refresh_status)->toBe('ok');
+    // Slice 7 Phase 4: the EVENT branch writes a POOL item, not a connection —
+    // so there is no row to inspect. What this case pins is unchanged: the
+    // branch is synchronous and never enters the deferred-connect lane.
+    expect(IntegrationConnection::where('user_id', $user->id)->exists())->toBeFalse();
+    expect(app(ManualEventWriter::class)->cards($user->fresh()))->toHaveCount(1);
 });
 
 it('DELIBERATELY VACUOUS — flag on: the CUSTOM branch is still a synchronous 200 and pushes nothing', function () {
