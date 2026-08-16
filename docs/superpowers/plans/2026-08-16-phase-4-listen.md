@@ -65,6 +65,16 @@ Twitch's 4 `channel` items are already orphaned — Phase 1 de-sourced the platf
 
 Free lane, no Apify. This proves connector → projector → `content.items` end to end before any money is involved. Owner approved restoring the soft-deleted connection (2026-08-16).
 
+> **STATUS 2026-08-16 — RUN, AND IT LANDS NOTHING. See convergence-log F29.**
+>
+> Steps 1-4 were **dropped as duplication**, not skipped: `tests/Feature/Ingest/SourceProvisionerTest.php` already pins both behaviours this task proposed to test — `youtube_music` provisions only from a real UC channel id (line 471) and a trashed connection returns `retired` (line 360). All 42 of its tests pass. Writing them again would have added nothing.
+>
+> Steps 5-7 were executed. The connection is restored and the source is provisioned and healthy (`created 1`, `identifier=UC3AXBjLrXTrTpm4SwYdBYAQ`, `auto_sync=true`, `cost_units=1`), but the run returns `outcome=ok` with `records_seen=0`: `videos.xml` for that channel serves **200 with zero entries**. The connector's `empty_feed` guard fires correctly. **0 track items landed.**
+>
+> Do NOT "fix" this by pointing the connection at the artist's main YouTube channel. That was tried, landed 15 items, and every one was a livestream or visualiser typed as `track` — a false pass on this phase's own EXIT gate. It is fully reverted.
+>
+> **This task cannot complete without one genuine Topic-channel id that serves feed entries** (source it from a YouTube Music artist page's Songs shelf, never from YouTube search — search returns the main channel). Until then Phase 4's EXIT gate rests entirely on Tasks 3-7, the paid lane.
+
 **Files:**
 - Test: `tests/Feature/Ingest/YoutubeMusicProvisioningTest.php` (create)
 
