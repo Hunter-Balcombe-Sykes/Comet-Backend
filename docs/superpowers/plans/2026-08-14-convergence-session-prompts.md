@@ -354,6 +354,14 @@ for owner-level decisions, the spend cap, or gate contradictions.
 ## 6 — phase-6-pseudo-platforms
 
 ```
+NOTE FROM PHASE 4 (2026-08-16, spec §24). spotify and soundcloud are no longer
+keyless oEmbed — they are Apify-actor `track` producers at CostClass::Actor, and
+their ingest.sources MUST stay auto_sync=false. If you touch those surfaces, do
+not "helpfully" re-enable scheduling: SourceScheduler filters on auto_sync, and
+that flag is the only thing standing between a surface change and a billed run
+on every cadence. The `channel` kind is gone from KindRegistry (12 kinds now),
+its 9 rows deleted, and the DB CHECK deliberately left permissive (F9).
+
 Rename this session to phase-6-pseudo-platforms.
 
 Execute Phase 6 per docs/2026-08-14-convergence-phases.md §6 and scope §1.6/§W6. Serial,
@@ -397,6 +405,16 @@ for owner-level decisions, a connection with no home, or gate contradictions.
 ## 7 — slice-7-teardown
 
 ```
+NOTE FROM PHASE 4 (2026-08-16, spec §24). A PAID connector lane now exists
+(`music`, via MusicActorDriver). Two things this teardown inherits: its sources
+must stay auto_sync=false, and SourceProvisioner is now self-healing about that
+— it turns the flag off when a manifest becomes paid and corrects cost_units, so
+do not re-add a manual reconciliation for it. Also: content.source_items.item_id
+is SET NULL, not CASCADE — the only such FK among ~30 into content.items — so any
+teardown deleting items must delete source_items FIRST or it leaves orphans with
+a null item_id. Phase 4 paid for that once; content:retire-channel-kind encodes
+the correct order.
+
 Rename this session to slice-7-teardown.
 
 Execute docs/superpowers/plans/2026-08-12-slice-7-teardown-KICKOFF-PROMPT.md in full. Its
