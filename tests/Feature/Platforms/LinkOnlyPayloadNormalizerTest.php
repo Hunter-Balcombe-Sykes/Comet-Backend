@@ -47,7 +47,7 @@ it('derives username from the stored url and drops the unrefreshable decoration'
     expect($result['normalized'])->toBe(1)
         ->and(lopnPayload($c->id))->toBe([
             'username' => 'loserfruit',
-            'url' => 'https://twitch.tv/loserfruit',
+            'url' => 'https://www.twitch.tv/loserfruit',
         ]);
 });
 

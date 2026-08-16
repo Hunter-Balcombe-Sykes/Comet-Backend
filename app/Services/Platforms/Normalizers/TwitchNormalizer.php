@@ -39,6 +39,6 @@ class TwitchNormalizer
             return null;
         }
 
-        return ['username' => $candidate, 'url' => 'https://twitch.tv/'.$candidate];
+        return ['username' => $candidate, 'url' => 'https://www.twitch.tv/'.$candidate];
     }
 }

@@ -29,7 +29,7 @@ dataset('link_only', [
     // the same {username, url} pair as every other link-only platform.
     'skool' => ['skool', ['username' => 'community', 'url' => 'https://www.skool.com/community']],
     'strava' => ['strava', ['username' => 'Midday-Milers', 'url' => 'https://www.strava.com/clubs/Midday-Milers']],
-    'twitch' => ['twitch', ['username' => 'streamer', 'url' => 'https://twitch.tv/streamer']],
+    'twitch' => ['twitch', ['username' => 'streamer', 'url' => 'https://www.twitch.tv/streamer']],
 ]);
 
 it('freezes link-only selection contract', function (string $platform, array $stored) {

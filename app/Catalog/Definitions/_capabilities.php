@@ -6,10 +6,13 @@ use App\Services\Platforms\Normalizers\KickNormalizer;
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
 use App\Services\Platforms\Normalizers\MediumNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
+use App\Services\Platforms\Normalizers\SkoolNormalizer;
 use App\Services\Platforms\Normalizers\SnapchatNormalizer;
+use App\Services\Platforms\Normalizers\StravaNormalizer;
 use App\Services\Platforms\Normalizers\TelegramNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
+use App\Services\Platforms\Normalizers\TwitchNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
@@ -18,8 +21,6 @@ use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
 use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
-use App\Services\Platforms\Strategies\Connect\StravaConnect;
-use App\Services\Platforms\Strategies\Connect\TwitchConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Connect\VimeoConnect;
 use App\Services\Platforms\Strategies\Connect\YoutubeConnect;
@@ -33,9 +34,6 @@ use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
-use App\Services\Platforms\Strategies\Fetch\SkoolFetch;
-use App\Services\Platforms\Strategies\Fetch\StravaFetch;
-use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
@@ -56,6 +54,7 @@ return [
     'connect.linkedin.url.v1' => fn (): object => new UrlConnect(new LinkedinNormalizer),
     'connect.medium.url.v1' => fn (): object => new UrlConnect(new MediumNormalizer),
     'connect.reddit.url.v1' => fn (): object => new UrlConnect(new RedditNormalizer),
+    'connect.skool.url.v1' => fn (): object => new UrlConnect(new SkoolNormalizer),
     'connect.snapchat.url.v1' => fn (): object => new UrlConnect(new SnapchatNormalizer),
     'connect.telegram.url.v1' => fn (): object => new UrlConnect(new TelegramNormalizer),
     'connect.threads.url.v1' => fn (): object => new UrlConnect(new ThreadsNormalizer),
@@ -69,8 +68,8 @@ return [
     'connect.resdiary.url.v1' => [ResDiaryConnect::class, []],
     'connect.soundcloud.url.v1' => [SoundcloudConnect::class, []],
     'connect.spotify.url.v1' => [SpotifyConnect::class, []],
-    'connect.strava.url.v1' => [StravaConnect::class, []],
-    'connect.twitch.url.v1' => [TwitchConnect::class, []],
+    'connect.strava.url.v1' => fn (): object => new UrlConnect(new StravaNormalizer),
+    'connect.twitch.url.v1' => fn (): object => new UrlConnect(new TwitchNormalizer),
     'connect.vimeo.url.v1' => [VimeoConnect::class, []],
     'connect.youtube.url.v1' => [YoutubeConnect::class, []],
     'connect.youtube_music.url.v1' => [YoutubeMusicConnect::class, []],
@@ -84,7 +83,6 @@ return [
     'connect_fetch.fresha.scrape.v1' => [FreshaConnectFetch::class, []],
     'fetch.google_business.places.v1' => [GoogleBusinessFetch::class, []],
     'fetch.humanitix.scrape.v1' => [HumanitixFetch::class, []],
-    'fetch.skool.scrape.v1' => [SkoolFetch::class, []],
     'fetch.soundcloud.oembed.v1' => fn (): object => new OEmbedFetch(
         app(OEmbedService::class),
         fn (string $link): string => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link),
@@ -95,8 +93,6 @@ return [
         fn (string $link): string => 'https://open.spotify.com/oembed?url='.rawurlencode($link),
         'spotify',
     ),
-    'fetch.strava.scrape.v1' => [StravaFetch::class, []],
-    'fetch.twitch.scrape.v1' => [TwitchFetch::class, []],
     'fetch.vimeo.api.v1' => [VimeoFetch::class, []],
     'fetch.youtube.scrape.v1' => [YoutubeFetch::class, []],
     'fetch.youtube_music.scrape.v1' => [YoutubeMusicFetch::class, []],

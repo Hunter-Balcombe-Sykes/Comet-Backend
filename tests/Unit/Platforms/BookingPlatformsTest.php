@@ -3,7 +3,6 @@
 use App\Services\Cache\PlacesBudget;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\GoogleBusinessService;
-use App\Services\Platforms\StravaClubScraper;
 
 afterEach(function () {
     Mockery::close();
@@ -26,27 +25,13 @@ function bookingFetcherWith(array $routes): SafeUrlFetcher
 }
 
 // ── Strava ───────────────────────────────────────────────────────────────────
-
-it('strava normalizes club URLs and splits the og title into location and name', function () {
-    $html = '<meta property="og:title" content="San Francisco, California | The Strava Club"/>'
-        .'<meta property="og:image" content="https://cf.example/club.jpg"/>'
-        .'<meta property="og:description" content="A place to ride."/>'
-        .'<span>7,081,174 members</span>';
-    $scraper = new StravaClubScraper(bookingFetcherWith([
-        'strava.com/clubs/231407' => ['status' => 200, 'body' => $html, 'finalUrl' => 'x', 'contentType' => 'text/html'],
-    ]));
-
-    expect($scraper->normalizeUrl('https://strava.com/clubs/231407?tab=recent'))->toBe('https://www.strava.com/clubs/231407');
-    expect($scraper->normalizeUrl('https://strava.com/athletes/1'))->toBeNull();
-
-    $club = $scraper->fetchClub('https://www.strava.com/clubs/231407');
-    expect($club)->toMatchArray([
-        'name' => 'The Strava Club',
-        'location' => 'San Francisco, California',
-        'image' => 'https://cf.example/club.jpg',
-        'members' => 7081174,
-    ]);
-});
+//
+// REMOVED: 'strava normalizes club URLs and splits the og title into location
+// and name'. Strava was demoted to link-only and StravaClubScraper is deleted,
+// so the club card (og title split into location + name, member count, avatar)
+// is no longer scraped at all. Club-URL normalisation survives on
+// StravaNormalizer and is covered by
+// tests/Feature/Platforms/IntegrationsV4AdditionsTest.php.
 
 // ── Google Business ──────────────────────────────────────────────────────────
 
@@ -96,14 +81,6 @@ it('google business reads the canonical URL from an interstitial body', function
     expect($place['name'])->toBe('Mock Cafe');
 });
 
-it('strava upgrades the og avatar to the original rendition when it exists', function () {
-    $html = '<meta property="og:title" content="Melbourne, Victoria | On Run Club"/>'
-        .'<meta property="og:image" content="https://dgalywyr863hv.cloudfront.net/pictures/clubs/1/2/3/large.jpg"/>';
-    $scraper = new StravaClubScraper(bookingFetcherWith([
-        'strava.com/clubs/onrc' => ['status' => 200, 'body' => $html, 'finalUrl' => 'x', 'contentType' => 'text/html'],
-        'pictures/clubs/1/2/3/original.jpg' => ['status' => 200, 'body' => 'jpg', 'finalUrl' => 'x', 'contentType' => 'image/jpeg'],
-    ]));
-
-    $club = $scraper->fetchClub('https://www.strava.com/clubs/onrc');
-    expect($club['image'])->toBe('https://dgalywyr863hv.cloudfront.net/pictures/clubs/1/2/3/original.jpg');
-});
+// REMOVED: 'strava upgrades the og avatar to the original rendition when it
+// exists' — same demotion. Link-only Strava stores {username, url} only; there
+// is no avatar fetched, so no rendition to upgrade.

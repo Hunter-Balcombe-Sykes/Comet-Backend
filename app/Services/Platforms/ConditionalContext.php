@@ -32,8 +32,9 @@ use App\Models\Core\Site\IntegrationConnection;
 //      BEFORE the empty/null guard; `$cond?->applyTo($connection);` on success.
 // Ready candidates (all route through SafeUrlFetcher::tryFetch), deferred only to
 // bound this plan's blast radius — NOT because the upstream is unsuitable:
-//   • TwitchFetch (single HTML GET)                     — 1 call
-//   • StravaFetch (club page; ignore the optional image probe on a 304)
+//   (TwitchFetch and StravaFetch were listed here until 2026-08-16; both were
+//    deleted when Phase 1.2 demoted their platforms to link-only, so neither is
+//    a candidate for anything now.)
 //   • EventbriteFetch / HumanitixFetch — the standalone `kind==='event'` path only
 //     (the organiser/account path is multi-URL via fetchMany — NOT a candidate)
 //   • YoutubeFetch  — needs channelId cached first (today it resolves handle→id via
