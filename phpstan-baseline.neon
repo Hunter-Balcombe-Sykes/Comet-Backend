@@ -181,42 +181,6 @@ parameters:
 			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$delivery_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$delivery_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$pickup_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$pickup_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItemPlatform\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
 			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
@@ -1949,42 +1913,6 @@ parameters:
 			identifier: arrayValues.list
 			count: 1
 			path: app/Services/Platforms/MenuMerger.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$delivery_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$delivery_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$pickup_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$pickup_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItemPlatform\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
 
 		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
