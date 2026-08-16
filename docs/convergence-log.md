@@ -894,3 +894,35 @@ billed run is a deliberate flip-on/dispatch/flip-off. Each run was done that way
 and the flag restored immediately; the closing query above confirms none is left
 armed. The `music` effect settled `ok` at `cost_units = 50` — the Actor weight,
 not the free-era 1.
+
+### F33 — `channel` retired: 9 orphan rows gone, DB CHECK left permissive
+
+Phase 4's last step, run on dev 2026-08-16 after deploy. The dry run reported
+exactly the entry-gate figures (9/9/9), which is the reconciliation:
+
+```
+before          content.items kind=channel  9 · source_items  9 · f_channel  9
+after --apply   0 · 0 · 0   (Retired: 9 item(s), 9 source_item(s), 9 f_channel row(s))
+re-run          "Nothing to retire."        (idempotent)
+orphan source_items with null item_id       0
+```
+
+All nine were orphans by the time they were deleted: 4 twitch stranded when
+Phase 1 de-sourced the platform, and 4 spotify + 1 soundcloud superseded when
+both connectors became `track` producers earlier in this phase.
+
+**The DB CHECK domain is deliberately NOT narrowed** (F9). `KindRegistry` now
+declares 12 kinds while the DB still permits 14; `channel` is the second value
+the two sides disagree on, after `article`. That asymmetry is the design.
+
+Also cleared: **5 vestigial `listen` streams** (4 spotify, 1 soundcloud) with 6
+record_versions and 5 record_state rows. Their connectors no longer declare that
+stream name, so they had no projector line and could only ever have read as the
+"stream targets an item kind with no projector" bug case.
+
+Deletion order matters and is pinned by a test:
+`content.source_items.item_id` is `SET NULL`, not `CASCADE` — the only such FK
+among ~30 into `content.items` — so items must be deleted AFTER their
+source_items or the rows survive with a null item_id instead of going away.
+
+Dev logs clean for the window afterwards.
