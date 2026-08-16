@@ -7,9 +7,8 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ApplyMenuScanRequest;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\MenuItem;
 use App\Services\Accounts\AccountCapabilities;
-use App\Services\Platforms\MenuPayloadComposer;
+use App\Services\Platforms\MenuDashboardPayload;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Http\JsonResponse;
@@ -28,7 +27,9 @@ use Illuminate\Http\Request;
 // Task 10 deleted the standalone /menu endpoint — while this controller's
 // endpoints are the authenticated dashboard read/write surface. The full read
 // shape is composed by
-// MenuPayloadComposer (shared with MenuContentController).
+// MenuPayloadComposer, behind MenuDashboardPayload (shared with
+// MenuContentController), which re-asks the orphan/count questions of the
+// content lane the owner verbs now write.
 class MenuController extends ApiController
 {
     use ResolveCurrentUser;
@@ -36,7 +37,7 @@ class MenuController extends ApiController
     public function __construct(
         private readonly MenuSource $source,
         private readonly MenuScanApplier $scanApplier,
-        private readonly MenuPayloadComposer $composer,
+        private readonly MenuDashboardPayload $payload,
     ) {}
 
     // GET /api/platforms/menu/status — drives the integrations index card.
@@ -50,11 +51,16 @@ class MenuController extends ApiController
         // depended on one). Otherwise it's an orphaned scraped row whose links
         // were removed via a path that didn't clear the menu — guard against that
         // reading as connected when refresh() can't re-scrape it.
-        if ($this->source->resolveAll($user) === null && ! $this->composer->hasOwnerContent($menu)) {
+        //
+        // Slice 7 Task 6: both signals are asked of BOTH lanes now — the ten
+        // owner verbs write content.*, so an owner-built menu leaves
+        // site.menu_categories/menu_items empty and the legacy-only questions
+        // would report it as an orphan with zero dishes.
+        if ($this->source->resolveAll($user) === null && ! $this->payload->hasOwnerContent($user, $menu)) {
             return $this->success(['connected' => false, 'itemCount' => 0, 'source' => null, 'fetchStatus' => null]);
         }
 
-        $itemCount = $menu ? MenuItem::query()->where('menu_id', $menu->id)->count() : 0;
+        $itemCount = $this->payload->itemCount($user, $menu);
 
         return $this->success([
             'connected' => $itemCount > 0,
@@ -69,7 +75,7 @@ class MenuController extends ApiController
     {
         $user = $this->currentUser($request);
 
-        return $this->success($this->composer->dashboardPayload($user));
+        return $this->success($this->payload->for($user));
     }
 
     // POST /api/platforms/menu/refresh — re-scrape (forced).

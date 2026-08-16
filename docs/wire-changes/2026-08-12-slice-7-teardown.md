@@ -695,3 +695,65 @@ soft-deleting a legacy category) and by `->categories()->sync()` in both
 controllers' legacy `category_id` branches. Both hang off the `Service` /
 `ServiceCategory` models, which Task 27 Step 5 deletes with the tables; removing
 them here would change the legacy branches' behaviour ahead of their retirement.
+
+---
+
+## Phase 2 Task 6 — the ten owner menu verbs write `content.*`
+
+**Consuming repo: Partna-App** (the dashboard menu editor — `GET/POST/PATCH/DELETE
+/api/platforms/menu/*`). The public sitepage is unaffected: it has read
+`pools.menus` since Task 10 deleted the standalone endpoint.
+
+Endpoint set, request shapes, response shape and status codes are all unchanged.
+Four behavioural notes and one regression.
+
+### 1. `items[].isManual` is now always `false`
+
+`ManualMenuItems::toMenuItemModel()` reports `is_manual` as a flat `false` for
+every content-lane dish (its own documented, deliberate null — the projection
+never carried the column). Before this task an owner-authored dish reached the
+payload through the LEGACY fallback and so still reported `true`.
+
+The underlying signal is not lost — it moved to `content.manual_overrides`
+(below) — but nothing joins that table into the dashboard payload yet. The
+dashboard's only reader is the "this will no longer stay synced" warning, which
+now shows for a dish that is already detached: it warns too often, never too
+little. Re-teaching the read side is a `ManualMenuItems` change and is not owned
+by this task.
+
+### 2. `categories[].sourcePlatform` is `'manual'` or `null` — the three
+owner-side strings collapsed
+
+`'scan'` and `'website-scan'` no longer appear. `content.collections` has no
+source column, so the owner-side half of `site.menu_categories.source_platform`
+is carried by `is_user_created` and reports as `'manual'`; scraper-owned
+categories report `null`, as before.
+
+This RESTORES the key rather than removing it: Task 5 shipped a flat `null` for
+every content-lane category, which told the dashboard that a category the owner
+had just created was off-limits to edit.
+
+### 3. A dish's id no longer changes when it is renamed
+
+The write re-uses the dish's stored coord, so a rename updates the item in
+place. The legacy lane churned the uuid whenever the scrape re-inserted it.
+Dish-detail deep links built from this id are now stable across a rename.
+
+### 4. Creating a dish whose name matches an existing one UPDATES that dish
+
+The coord is `manual:menu:{menu_id}:{sha1(normalizeName(name))}` — one
+normalised name is one dish, menu-wide. Two dishes that differ only in
+punctuation or case can no longer coexist. Re-adding a dish the owner previously
+deleted restores it (id, slug and all) rather than minting a second row.
+
+### 5. `items[].links` and `pickupSource` / `deliverySource` stay null
+
+Unchanged from Task 5's manifest entry — the mapper never carried
+`dd_external_id`, so no per-dish deep link is derivable.
+
+### Not changed
+
+`id`, `name`, `description`, `image`, `images`, `rating`, `ratingCount`,
+`badges`, `basePrice`, `pickupPrice`, `deliveryPrice`, `currency`,
+`categoryIds`, `platforms[]`, and every category's `id` / `name`. Dish order is
+still the owner's `pool:menus` pin order.

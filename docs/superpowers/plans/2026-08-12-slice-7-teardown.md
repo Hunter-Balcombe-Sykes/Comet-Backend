@@ -417,32 +417,41 @@ git commit -am "feat(slice-7): MenuPayloadComposer reads content.*, payload byte
 | `source_platform='scan'` categories survive a rebuild | `menu_categories.source_platform` | `content.collections` — needs a facet or ref convention |
 | `EDITABLE_SOURCES` — scraper categories are off-limits to hand edits | controller const | unchanged const, applied against the new category source |
 
-- [ ] **Step 1: Decide and document the four homes above** in a comment block at the top of the controller, before writing code. A wrong choice here is the one that silently loses owner intent on the next scrape.
+**The four homes, as decided (Step 1). Recorded here as well as in the controller's own comment block, because Tasks 7 and 8 write the same lanes.**
 
-- [ ] **Step 2: Write failing tests for each of the four behaviours** in `ManualMenuContentTest.php`, asserting through the API, not the model.
+1. **`is_manual` → `content.manual_overrides`**, one row per column the owner authored (`f_text`/`headline` on every write; `f_text`/`body` when a description was sent). NOT `site.menus` — the spec claimed a column that table does not have. The table's own DDL comment says it "is what replaces is_manual flags", and slice 3b already derives Fresha's `is_manual` from it. The scrape must SKIP a dish whose item carries any row here.
+2. **`menus.suppressed_items` → unchanged**, on `site.menus`, keyed `normalizeName(category)|normalizeName(name)`. The one signal still coupling the two lanes across Phase 2.
+3. **`source_platform` → `content.collections.is_user_created`.** No source column exists and this phase writes no migrations, so `'manual'`/`'scan'`/`'website-scan'` collapse to `true` and `'uber-eats'`/`'doordash'`/NULL to `false` — the only question any reader asked. `ProjectionWriter::upsertCollections()` never writes the column on its UPDATE arm, so a re-listing scrape cannot take ownership back. `rebuildableCategoryIds()` (Task 7) excludes `is_user_created = true`.
+4. **`EDITABLE_SOURCES` → unchanged const**, applied via `categorySource()`: an owner-created collection reports `'manual'`, a scraper-owned one `null`.
 
-- [ ] **Step 3: Run them to confirm they fail**
+**Forced outside the controller** (all new files or registry entries; no frozen file touched): `app/Services/Content/MenuCollections.php` (the `kind='menu_category'` read/write seam — a sibling of `ServiceCollections`, not a subclass: menu memberships are multi and travel with the projection, and `external_ref` is mandatory here), and `app/Services/Platforms/MenuDashboardPayload.php` (`hasOwnerContent()` + `status()`'s item count re-asked of the content lane, plus the `sourcePlatform` refill Task 5 recorded as a loss). Both belong on `MenuPayloadComposer` once Phase 5 deletes the legacy arms.
+
+- [x] **Step 1: Decide and document the four homes above** in a comment block at the top of the controller, before writing code. A wrong choice here is the one that silently loses owner intent on the next scrape.
+
+- [x] **Step 2: Write failing tests for each of the four behaviours** in `ManualMenuContentTest.php`, asserting through the API, not the model.
+
+- [x] **Step 3: Run them to confirm they fail**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/ManualMenuContentTest.php`
 
-- [ ] **Step 4: Cut `createItem`, `updateItem`, `deleteItem`, `bulkDeleteItems` onto the writer**
+- [x] **Step 4: Cut `createItem`, `updateItem`, `deleteItem`, `bulkDeleteItems` onto the writer**
 
 `deleteItem` calls `markRemoved()`, which frees the slug via `SLUGGED_KINDS`. `createItem`/`updateItem` call `write($userId, $coord, $projection)` where `$coord = $writer->coordFor($menuId, $name)`.
 
-- [ ] **Step 5: Cut `createCategory`, `updateCategory`, `deleteCategory`, `reorderCategories`, `reorderItems`**
+- [x] **Step 5: Cut `createCategory`, `updateCategory`, `deleteCategory`, `reorderCategories`, `reorderItems`**
 
 Categories become `content.collections` kind `menu_category`, keyed on `MenuProjectionMapper::categoryRef($label)`. **`position` on a collection is a seed** — written on insert, never updated by a scheduled run, because an owner can reorder (parent §19 / 3b). Owner reorder is a pin, not a position rewrite: use `pin()` with a sort key, exactly as `UserServiceController` does.
 
-- [ ] **Step 6: Run the full menu suite**
+- [x] **Step 6: Run the full menu suite**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/`
 Expected: PASS.
 
-- [ ] **Step 7: Invalidate all three cache lanes once per touched site**
+- [x] **Step 7: Invalidate all three cache lanes once per touched site**
 
 `touchAndRespond()` already exists as the single exit point — route `SiteCacheLanes::bust([$siteId])` through it. Assert an **exact** `content_revision` delta, not `> 0`: `writeManualItem()` bumps internally, so a `> 0` assertion passes with the lane deleted (3a shipped that trap).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git commit -am "feat(slice-7): MenuContentController's 10 verbs write content.*"

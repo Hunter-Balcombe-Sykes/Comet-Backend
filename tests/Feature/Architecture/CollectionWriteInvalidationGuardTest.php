@@ -59,6 +59,16 @@
  *            service-flavoured wrapper. migrateOrderPlatforms() contributes
  *            its site to the run's touched set instead of purging per row,
  *            which is what keeps a 318-dish backfill to one purge per site.
+ *            MenuCollections (slice 7 Task 6) is the same lane: it is the
+ *            declared single read/write for kind='menu_category' and, like
+ *            ServiceCollections, deliberately holds no site context and never
+ *            invalidates. Its ONLY caller is MenuContentController, whose ten
+ *            verbs all exit through touchAndRespond() → SiteCacheLanes::bust()
+ *            — the same three lanes, once per request per touched site. It is
+ *            NOT in the discharge test below because that test resolves the
+ *            ManualServiceWriter receiver specifically, and routing a menu
+ *            write through the service-flavoured wrapper to satisfy a guard
+ *            would be the tail wagging the dog.
  * READS    — the method only READS these two tables. It is listed because the
  *            scanner flags any method that names a guarded table AND issues
  *            some write terminal, and these write a DIFFERENT table.
@@ -85,6 +95,11 @@ const COLLECTION_WRITE_REGISTRY = [
     'ShopBackfiller::linkToCollection' => 'SHOP',
 
     'MenuBackfiller::migrateOrderPlatforms' => 'MENU',
+
+    'MenuCollections::ensure' => 'MENU',
+    'MenuCollections::rename' => 'MENU',
+    'MenuCollections::remove' => 'MENU',
+    'MenuCollections::reposition' => 'MENU',
 
     'ShopController::forget' => 'READS',
     'ProvisionShopPinsCommand::handle' => 'READS',
