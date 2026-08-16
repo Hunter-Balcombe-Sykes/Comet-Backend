@@ -23,7 +23,6 @@ beforeEach(function () {
     // IntegrationConnectionObserver::seedContentFromGoogle() fires on every
     // saved google-business connection — needs the table even though this
     // file never asserts on it.
-    setupContentSelectionTable();
     // Both controllers' applySync() ends by re-rendering synced(), which
     // folds in routing.source_intents (SyncFindingsBridge) — needed even on
     // the denial path this file exercises, since a 403 is thrown before

@@ -21,8 +21,9 @@ use Illuminate\Http\Request;
 // row per (site, purpose); re-uploading replaces. Free ratio — the pipeline
 // resizes preserving aspect, the display frame is the frontend's concern.
 // Reuses the gallery image pipeline (MediaUploadService::uploadSingleton → WebP
-// variants); the public sitepage reads these via the profile payload's
-// siteImages map.
+// variants). Slice 7 unit E deleted the profile payload's `siteImages` map, so
+// these rows currently have no public projection — the rebuilt pages app picks
+// one; the dashboard lane here is unaffected.
 class UserDesignMediaController extends ApiController
 {
     use ResolveCurrentSite;

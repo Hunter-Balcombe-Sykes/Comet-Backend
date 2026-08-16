@@ -29,7 +29,6 @@ use App\Models\Core\Notifications\NotificationReceipt;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Segments\UserSegmentMember;
 use App\Models\Core\Site\Block;
-use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\DesignKitRestyle;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\IntegrationConnection;
@@ -52,7 +51,6 @@ use App\Models\Moderation\ModerationCase;
 use App\Policies\CasePolicy;
 use App\Policies\ContentCollectionPolicy;
 use App\Policies\ContentItemPolicy;
-use App\Policies\ContentSelectionPolicy;
 use App\Policies\CustomerPolicy;
 use App\Policies\DecisionPolicy;
 use App\Policies\DesignKitRestylePolicy;
@@ -256,9 +254,6 @@ class AppServiceProvider extends ServiceProvider
         // FOUND-4: workplace card model. Owned via its parent Site so it maps
         // to the parent's policy.
         Gate::policy(Workplace::class, SitePolicy::class);
-        // Content Selection picks — dedicated policy (view/manage), ownership
-        // resolved via the parent Site.
-        Gate::policy(ContentSelection::class, ContentSelectionPolicy::class);
         // Surface model (plan §7): pages and sections carry site_id, so their
         // policy resolves ownership through a preloaded site relation.
         // section_items/section_groups are authorised via the parent section.

@@ -323,7 +323,6 @@ it('ships null stats on a pool that has no aggregates lane', function () {
 it('publishes the aggregates on the public profile payload', function () {
     // Provisioned here rather than in beforeEach, following EventsPoolTest —
     // only the payload-builder cases walk blocks and the design kit.
-    setupContentSelectionTable();
     setupBlocksTable();
     setupServicesTable();
     setupDesignKitsTable();
@@ -354,7 +353,6 @@ it('publishes the aggregates on the public profile payload', function () {
 // Absent, not null — the same contract `collections` keeps, so a pool with no
 // aggregates does not ship an empty badge object for the renderer to guard.
 it('omits the stats key entirely when there are no aggregates', function () {
-    setupContentSelectionTable();
     setupBlocksTable();
     setupServicesTable();
     setupDesignKitsTable();

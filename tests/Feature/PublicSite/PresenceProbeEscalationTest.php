@@ -242,7 +242,6 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
     setupSitesTable();
     setupBlocksTable();
     setupDesignKitsTable();
-    setupContentSelectionTable();
     setupSiteMediaTable();
     setupSubdomainAliasesTable();
     // Two UNRELATED resilience paths (SiteCacheService's public_site_payload

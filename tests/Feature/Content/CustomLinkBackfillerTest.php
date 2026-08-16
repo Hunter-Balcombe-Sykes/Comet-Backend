@@ -399,7 +399,6 @@ it('publishes the pool on the public profile payload', function () {
     // The payload builder reads far more than the pool lane (PoolLaneTest's
     // own public-wire test carries the same five).
     setupMediaTables();
-    setupContentSelectionTable();
     setupBlocksTable();
     setupServicesTable();
     setupDesignKitsTable();

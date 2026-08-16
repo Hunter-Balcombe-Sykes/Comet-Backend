@@ -14,7 +14,6 @@ beforeEach(function () {
     setupServicesTable();
     setupBlocksTable();
     setupDesignKitsTable();
-    setupContentSelectionTable();
     setupSiteMediaTable();
     setupSubdomainAliasesTable();
 });

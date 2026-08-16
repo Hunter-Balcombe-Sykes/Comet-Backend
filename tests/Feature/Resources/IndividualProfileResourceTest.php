@@ -29,19 +29,16 @@ it('emits exactly the documented top-level and profile-nested key set', function
     ]);
 
     // Every section populated (non-empty) so the object-coercion branches
-    // (designKit/publicConfig/siteImages) don't collapse to stdClass and mask
-    // a key that would only appear when non-empty.
+    // (designKit/publicConfig) don't collapse to stdClass and mask a key that
+    // would only appear when non-empty.
     $sections = [
         'site_id' => 'site-1',
         'design_kit' => ['color_accent' => '#ffffff'],
-        'design_media' => [['id' => 'm1']],
         'architecture_id' => 'staple',
         'public_config' => ['analyticsEndpoint' => 'https://analytics.example'],
         'page_order' => ['about'],
         'ranked_actions' => [['kind' => 'link', 'ref' => 'r1']],
         'ordering' => ['smartPageOrder' => true],
-        'gallery' => [['id' => 'g1']],
-        'curatedGallery' => [['id' => 'c1']],
         'links' => [['id' => 'l1']],
         'services' => [['id' => 's1']],
         'document' => ['title' => 'doc'],
@@ -49,21 +46,21 @@ it('emits exactly the documented top-level and profile-nested key set', function
         'contact' => ['email' => 'a@example.com'],
         'publicContact' => ['email' => 'a@example.com', 'phone' => null],
         'workplace' => ['name' => 'w1'],
-        'site_images' => ['logoFull' => ['url' => 'https://cdn.example.com/logo.webp']],
         'policies' => ['privacy' => ['mode' => 'auto'], 'terms' => ['mode' => 'auto']],
     ];
 
     $array = (new IndividualProfileResource($pro, $sections))->resolve(Request::create('/'));
 
+    // Slice 7 unit E deleted designMedia / siteImages / profile.gallery /
+    // profile.curatedGallery outright (owner ruling 2026-08-14).
     expect(array_keys($array))->toBe([
         'profile', 'pageOrder', 'popularity', 'rankedActions', 'ordering',
-        'designKit', 'designMedia', 'architectureId',
-        'publicConfig', 'siteImages', 'policies',
+        'designKit', 'architectureId', 'publicConfig', 'policies',
     ]);
 
     expect(array_keys($array['profile']))->toBe([
         'handle', 'displayName', 'accountType', 'site_id',
-        'gallery', 'curatedGallery', 'links', 'pools', 'services',
+        'links', 'pools', 'services',
         'document', 'newsletter', 'contact', 'publicContact', 'workplace',
     ]);
 
@@ -79,7 +76,7 @@ it('emits exactly the documented top-level and profile-nested key set', function
     expect($array['profile'] ?? [])->not->toHaveKey('primary_email');
 });
 
-it('coerces empty designKit/publicConfig/siteImages sections to an object, not an array, in JSON', function () {
+it('coerces empty designKit/publicConfig sections to an object, not an array, in JSON', function () {
     $pro = new User;
     $pro->setRawAttributes([
         'id' => 'pro-2',
@@ -88,15 +85,14 @@ it('coerces empty designKit/publicConfig/siteImages sections to an object, not a
         'account_type' => 'partna',
     ]);
 
-    // No design_kit/public_config/site_images keys supplied at all — the
-    // resource's own `?? []` defaults kick in, so this also proves the
-    // no-sections-given path shares the same key set as the fully-populated one.
+    // No design_kit/public_config keys supplied at all — the resource's own
+    // `?? []` defaults kick in, so this also proves the no-sections-given path
+    // shares the same key set as the fully-populated one.
     $array = (new IndividualProfileResource($pro, []))->resolve(Request::create('/'));
 
     expect(array_keys($array))->toBe([
         'profile', 'pageOrder', 'popularity', 'rankedActions', 'ordering',
-        'designKit', 'designMedia', 'architectureId',
-        'publicConfig', 'siteImages', 'policies',
+        'designKit', 'architectureId', 'publicConfig', 'policies',
     ]);
 
     // PHP's json_encode emits `{}` for stdClass and `[]` for an empty array —
@@ -104,7 +100,6 @@ it('coerces empty designKit/publicConfig/siteImages sections to an object, not a
     $json = json_encode($array);
     expect($json)->toContain('"designKit":{}');
     expect($json)->toContain('"publicConfig":{}');
-    expect($json)->toContain('"siteImages":{}');
     // The pools map serializes as an object even when no pool has a selection.
     expect($json)->toContain('"pools":{}');
 });

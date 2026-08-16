@@ -1468,10 +1468,12 @@ function setupMediaTables(): void
 /**
  * site.content_selection — ordered background-content picks (≤15) for a site.
  * Mirrors the applied Postgres schema (supabase/migrations/
- * 20260705150200_create_content_selection.sql). SQLite does NOT enforce the
- * position range / ref-shape CHECKs or the UNIQUE(site_id, position) index
- * beyond what's declared — that's fine; the service enforces shape in PHP and
- * the constraint semantics are exercised against real Postgres.
+ * 20260705150200_create_content_selection.sql).
+ *
+ * Slice 7 unit E retired every read/write path into this table; its ONLY
+ * remaining caller is ContentSelectionMigratorTest (the 1b carry-forward
+ * migrator, which reads the table via DB::table). Both go when phase 6 drops
+ * the table — do not wire new tests onto this.
  */
 function setupContentSelectionTable(): void
 {

@@ -287,7 +287,6 @@ it('keeps the event keys present and null on a non-event pool item', function ()
 
 it('ships the events pool selection on the public payload', function () {
     setupMediaTables();
-    setupContentSelectionTable();
     setupBlocksTable();
     setupServicesTable();
     setupDesignKitsTable();
