@@ -137,7 +137,11 @@ Order links in detail:
 
 ## STATUS as of 2026-08-16 (handoff)
 
-`feat/phase-6-pseudo-platforms`, NOT merged. `development` is untouched and green.
+**MERGED to `development` as `2e38cdb25`** — units 1–3 and the custom-link half
+of unit 4. Full suite green at merge: **8312 passed, 0 failed, 28676 assertions**.
+The remaining five write paths, the migration command and the retirement guard
+are NOT in it. This is a coherent intermediate state, not a half-broken one:
+`partna.custom_link` can no longer be written, the other five still can.
 
 **Green and committed**
 - `536989b5b` — Unit 1. Allowlist gap closed (36 catalog brands), coverage guard
@@ -147,40 +151,57 @@ Order links in detail:
   booking XOR + reservations single-slot moved onto `routing_class`,
   `write()` re-keyed onto `surface_key`. 2265 passed / 9040 assertions.
 
-**Unit 4, IN PROGRESS — working tree is RED. Do not merge.**
+**Unit 4 — custom-link half DONE, five paths remain**
 
-The custom-link half is built: `LinkPoolWriter`, `LinkPoolReader`,
-`EnrichPoolLinkJob` (ports the title enrichment the pool hand-add never had),
-`CustomLinksController` rewritten onto the pool with its JSON shape unchanged,
-`CustomLinkSeeder::writeCard()` redirected onto the same lane keeping its cap
-lock. PHPStan clean on all of it. 36 tests converted and passing across
-`CustomLinksControllerTest`, `CustomLinksPayloadTest`,
-`StravaAndCustomLinksContractTest`, `CustomLinkSeederLockTest`,
-`CustomLinkSeederPreviousWebsiteTest`, `LinkInBioScanJobTest`.
+Done and merged: `LinkPoolWriter`, `LinkPoolReader`, `EnrichPoolLinkJob` (ports
+the title enrichment the pool hand-add never had), `CustomLinksController` on the
+pool with its JSON unchanged and its per-user lock retained (the 20-link cap is
+still a read-then-write), `CustomLinkSeeder::writeCard()` on the same lane, and
+`RoutingController`'s Note branch keyed on write STATUS rather than a returned
+row. 11 test files converted.
 
-Still red, both for the same two reasons — the users have no `site` (a pool item
-needs a section, which hangs off the site), and the assertions read connection
-rows:
-- `tests/Feature/Platforms/CustomLinkSeederTest.php` — 4 cases.
-- `tests/Feature/Routing/RoutingEndpointTest.php` — ~5 cases. These also assert
-  the Note-link response shape, which came from the connection row; the endpoint
-  itself may need its 'busy'/423 branch revisited since `writeCard` still returns
-  that status but no row.
+**NOT started — the whole of what is left:**
 
-**Not started**
-- online-ordering, booking/reservations and events-custom write paths.
-- The shop split into one connection per store (owner ruling 4 / option B) — the
-  largest remaining piece, and it overlaps slice 7's scheduled rework of
-  `site.shop_brands`.
-- Unit 5 migration command; Unit 6 guard activation, capability audit, checkpoint.
+1. `online-ordering` → `partna.order_link`. Writers: `OnlineOrderingController::
+   addEntry` and `GoogleBusinessAutoSync`'s ordering seed. The controller is
+   platform-scoped via `ManagesIntegrationConnection`; it needs a routing-class
+   scope for reads, and its writes should delegate to `LinkRouter`, which already
+   writes per-brand and already enforces the single-store ruling. Watch
+   `SiteActionsService::pool()` — it keys ordering actions on
+   `connectionsByPlatform['online-ordering']`, so it must move to routing_class
+   or the public "Order online" actions vanish. Keep `resource_id` stable
+   (`order-<hash>`): action ids are `ordering:<resource_id>` and users store
+   preferences against them.
+2. `booking` / `reservations` custom fallbacks → links pool (ruling 2A).
+   `BookingController::detect`, `ReservationsController::detect`.
+3. `events-custom` → events pool. 0 live rows, so this is code-only.
+4. `shop` → one connection per store on `shopify.store` / `woocommerce.store`
+   (ruling 4 / option B). The largest piece: it rewires product refresh
+   (`ShopFetch` is driven off the single marker row, and 'shop' is in
+   `RegistryCoverageTest`'s frozen refreshable list), the add-store permission
+   chokepoint, and `AutoSyncSetting` keyed 'shop'. `GenericStorefrontProbe` also
+   writes `partna.storefront` and must be repointed. Overlaps slice 7's
+   scheduled rework of `site.shop_brands`.
+5. Unit 5 migration command for the 41 rows, per the disposition table above.
+6. Unit 6: turn on `IntegrationConnection`'s retirement guard (the const is
+   already declared — enable the throw in `booted()` ONLY after 1–4 land, or
+   every unmigrated caller throws; observed: 10 red), run the
+   `account-capability-audit` skill, add the `RoutingCapabilityGate`
+   routing_class test, checkpoint with live SQL into the parent spec.
 
-**Two behaviour changes already made that belong in the checkpoint**
+**Three behaviour changes already shipped that belong in the checkpoint**
 - A pool link publishes `favicon: null` and `logo: null`. Phase 3's ruling,
   restated — dashboard link cards lose their brand marks. Pinned by a test so it
   reads as a decision, not a regression.
 - A SITELESS user can no longer hold a custom link. The connection lane allowed
-  it; a pool item cannot exist without a section. `writeCard()` returns
-  `cap_full` for that case rather than failing silently.
+  it; a pool item needs a section, which hangs off the site. `writeCard()`
+  returns `cap_full` for that case.
+- A custom link's dashboard `id` is now a content item uuid, not `link-<hash>`.
+  The dashboard round-trips ids opaquely, but anything PARSING the prefix breaks.
+
+**Live defect fixed on the way** — `doordash`/`menulog`/`uber_eats`/`shopify`
+were publishing empty payloads and reporting `MissingPublicAllowlistException`
+on every public request (Nightwatch #436). Re-verify on dev after deploy.
 
 ## Exit criteria
 
