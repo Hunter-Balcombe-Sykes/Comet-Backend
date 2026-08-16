@@ -75,13 +75,25 @@ it('routes an effect to the driver that claims its (kind, name) and hands it the
         ->and($driver->seen->userId)->toBe('user-1');
 });
 
-it('still throws for a (kind, name) no driver claims', function () {
+it('throws EffectNotAttempted — and leaves NO row — for a (kind, name) no driver claims', function () {
     $io = ioWith(new BilledEffectDriverRegistry([
         recordingDriver('api', 'places.details', fn () => BilledEffectResult::answered([])),
     ]));
 
-    expect(fn () => $io->effect('actor', 'menu', ['url' => 'https://example.test']))
-        ->toThrow(RuntimeException::class, "No billed-effect driver is wired for kind 'actor'");
+    // EffectNotAttempted specifically, NOT the bare RuntimeException this used
+    // to raise. Asserting the parent would not have caught the difference —
+    // EffectNotAttempted IS a RuntimeException — yet the two mean opposite
+    // things to the ledger. A generic throw settles the digest `failed`, which
+    // locks this source+input for the whole freshness window even though there
+    // was no driver to have called a vendor with. That is what made slice 4's
+    // second menu run produce no new effect rows at all: wiring the driver
+    // afterwards changed nothing until the bucket rolled.
+    expect(fn () => $io->effect('actor', 'unwired', ['url' => 'https://example.test']))
+        ->toThrow(EffectNotAttempted::class, "No billed-effect driver is wired for kind 'actor'");
+
+    // The observable half of the contract: the claim is gone, so the very next
+    // run re-attempts instead of replaying a failure nothing performed.
+    expect(DB::table('ingest.effects')->count())->toBe(0);
 });
 
 it('refuses every billed effect when the kill switch is off, without touching the ledger', function () {

@@ -152,10 +152,19 @@ class HttpIo implements Io
         $driver = $this->drivers->for($kind, $name);
 
         if ($driver === null) {
-            // Unchanged in spirit from the pre-driver throw: a connector must not
-            // declare a billed effect nothing can perform, and staying loud is what
-            // stops such a declaration reading as free.
-            throw new \RuntimeException(
+            // Loud, as it has always been: a connector must not declare a billed
+            // effect nothing can perform, and staying loud is what stops such a
+            // declaration reading as free.
+            //
+            // EffectNotAttempted, NOT a bare RuntimeException. This is the one
+            // ending where provably NOTHING left the process — there is no driver
+            // to have called a vendor with. A generic throw settles the digest
+            // `failed`, which locks this source+input until the freshness bucket
+            // rolls, so wiring the missing driver would change nothing until the
+            // bucket expired; that is precisely the state EffectNotAttempted's
+            // contract exists to avoid, and it is what made slice 4's second menu
+            // run produce no new effect rows at all (spec §23.6).
+            throw new EffectNotAttempted(
                 "No billed-effect driver is wired for kind '{$kind}' (effect '{$name}'). ".
                 'A connector must not declare a billed effect it cannot perform.'
             );
