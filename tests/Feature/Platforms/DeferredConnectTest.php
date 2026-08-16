@@ -5,17 +5,19 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\Registry\PlatformRegistry;
-use App\Services\Platforms\StravaClubScraper;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 // Unit 11 W6 — wires the DeferredConnect seam (W4) + ConnectFetchJob (W5) behind
 // the rollout flag: config('partna.connect.deferred'), empty by default. Covers
-// the flag branch in ConnectResolver/GenericPlatformController::connect(), the
-// new GET .../connect/status poll endpoint, and the writeConnection() pending/
-// merge path W6 adds for strava (the one deferred platform whose multiAccount()
-// is false, so it never reached writeAccountConnection()'s W5 pending support).
+// the flag branch in ConnectResolver/GenericPlatformController::connect() and
+// the GET .../connect/status poll endpoint.
+//
+// It USED to also cover GenericPlatformController's writeConnection() pending/
+// merge branch via strava — see the note further down where those three cases
+// sat; strava's demotion to link-only removed the last registered platform of
+// that archetype.
 
 beforeEach(function () {
     setupUsersTable();
@@ -63,20 +65,33 @@ it('DELIBERATELY VACUOUS — flag off leaves spotify connect byte-identical (rol
     expect($row->last_refresh_status)->toBe('ok');
 });
 
-it('DELIBERATELY VACUOUS — flag off leaves every one of the 7 deferred platforms strategy-driven, not queue-driven', function () {
+it('DELIBERATELY VACUOUS — flag off leaves every one of the 5 deferred platforms strategy-driven, not queue-driven', function () {
     // Confirms the claim in the W6 report: with the flag off, ConnectResolver's
-    // ->deferred is false for all 7 registered deferred platforms, so
+    // ->deferred is false for all registered deferred platforms, so
     // GenericPlatformController::connect() never reaches connectDeferred() and
     // never touches the queue. Uses the real registry (not synthetic descriptors)
     // so a future accidental default flip anywhere in config wiring is caught.
+    //
+    // Was 7: twitch and strava dropped off this census when they were demoted
+    // to link-only (PD::linkOnly — no ConnectStrategy, so no ->deferredConnect()).
+    // The remaining five ARE the registry's whole deferred set; this list is a
+    // census, so it must shrink with the registry rather than assert survivors
+    // that no longer exist.
     config(['partna.connect.deferred' => []]);
 
     $registry = app(PlatformRegistry::class);
-    foreach (['spotify', 'bandcamp', 'twitch', 'strava', 'vimeo', 'youtube-music', 'youtube'] as $slug) {
+    foreach (['spotify', 'bandcamp', 'vimeo', 'youtube-music', 'youtube'] as $slug) {
         $descriptor = $registry->get($slug);
         expect($descriptor->supportsDeferredConnect())->toBeTrue("expected {$slug} to support deferral");
         expect(in_array($slug, config('partna.connect.deferred'), true))->toBeFalse("expected {$slug} NOT active by default");
     }
+
+    // ...and the list above really is the WHOLE set, so a platform quietly
+    // gaining (or losing) deferral fails here rather than drifting unnoticed.
+    $deferred = collect($registry->all())
+        ->filter(fn ($d) => $d->supportsDeferredConnect())
+        ->keys()->sort()->values()->all();
+    expect($deferred)->toBe(['bandcamp', 'spotify', 'vimeo', 'youtube', 'youtube-music']);
 });
 
 // ── Flag ON → 202 ────────────────────────────────────────────────────────────
@@ -264,101 +279,25 @@ it('stale pending (worker vanished > 5 minutes ago) reports failed, not pending 
         ->assertExactJson(['status' => 'pending']);
 });
 
-// ── Single-selection deferred platforms (the W5 gap this unit closes) ──────
-
-it('flag on: strava (single-selection, multiAccount() false) takes the pending path and MERGES on reconnect', function () {
-    config(['partna.connect.deferred' => ['strava']]);
-    $user = dcUser('stravamerge1');
-
-    // Seed an existing completed connection with fields identify() never derives.
-    IntegrationConnection::create([
-        'user_id' => $user->id,
-        'platform' => 'strava',
-        'resource_id' => 'strava',
-        'payload' => [
-            'url' => 'https://www.strava.com/clubs/oldclub',
-            'name' => 'Old Club',
-            'location' => 'Old City',
-            'image' => 'https://old.example/avatar.jpg',
-            'description' => 'Old description',
-            'members' => 999,
-        ],
-        'is_active' => true,
-        'last_refresh_status' => 'ok',
-        'last_refreshed_at' => now(),
-    ]);
-
-    Queue::fake();
-
-    // No StravaClubScraper mock needed: normalizeUrl() is pure (no network),
-    // and identify() never calls fetchClub() — that's the seam.
-    $response = actingAsUser($user)->postJson('/api/platforms/strava/connect', ['url' => 'newclub123'])
-        ->assertStatus(202)
-        ->assertJsonPath('status', 'pending')
-        ->assertJsonPath('url', 'https://www.strava.com/clubs/newclub123');
-
-    // No 'id' — strava's 200 shape never carried one either (see
-    // RegistryConnectCoverageTest / the plan §2e), so the 202 shape doesn't
-    // invent one.
-    expect($response->json())->not->toHaveKey('id');
-    expect($response->json('statusUrl'))->toBe(url('/api/platforms/strava/connect/status'));
-
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'strava')->first();
-    expect($row->resource_id)->toBe('strava'); // single default row, no acct- hash
-    expect($row->last_refresh_status)->toBe('pending');
-    expect($row->last_refreshed_at)->toBeNull();
-
-    // MERGE, not replace: identify()'s {url} landed, but the fields only
-    // resolve()/the job ever derive survive from the prior connection.
-    expect($row->payload['url'])->toBe('https://www.strava.com/clubs/newclub123');
-    expect($row->payload['name'])->toBe('Old Club');
-    expect($row->payload['location'])->toBe('Old City');
-    expect($row->payload['image'])->toBe('https://old.example/avatar.jpg');
-    expect($row->payload['description'])->toBe('Old description');
-    expect($row->payload['members'])->toBe(999);
-
-    // NOT an ordering proof — see the comment on the spotify case above; same
-    // Queue::fake() caveat applies here.
-    Queue::assertPushed(ConnectFetchJob::class, fn ($job) => $job->connectionId === $row->id && $job->platform === 'strava');
-});
-
-it('flag on: strava connect on a brand-new user (nothing to merge onto) stores the partial payload as-is', function () {
-    config(['partna.connect.deferred' => ['strava']]);
-    $user = dcUser('stravanew1');
-    Queue::fake();
-
-    actingAsUser($user)->postJson('/api/platforms/strava/connect', ['url' => 'brandnewclub'])
-        ->assertStatus(202)
-        ->assertJsonPath('status', 'pending')
-        ->assertJsonPath('url', 'https://www.strava.com/clubs/brandnewclub');
-
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'strava')->first();
-    expect($row->payload)->toBe([
-        'url' => 'https://www.strava.com/clubs/brandnewclub',
-    ]);
-});
-
-it('flag off: strava connect is unchanged — still a synchronous 200 with today\'s shape', function () {
-    // DELIBERATELY VACUOUS against current code (strava was never touched by
-    // W6's writeConnection($pending) change unless the flag names it) — the
-    // rollout-safety counterpart to the spotify one above, for the single-
-    // selection archetype specifically (the one W6 added NEW write-path code
-    // for). Proves that new code path is unreachable at the default flag value.
-    config(['partna.connect.deferred' => []]);
-    $user = dcUser('stravaoff1');
-
-    $this->mock(StravaClubScraper::class, function ($m) {
-        $m->shouldReceive('normalizeUrl')->andReturn('https://www.strava.com/clubs/validclub');
-        $m->shouldReceive('fetchClub')->andReturn(['name' => 'Valid Club', 'location' => null, 'image' => 'i', 'description' => null, 'members' => 10]);
-    });
-
-    Queue::fake();
-
-    actingAsUser($user)->postJson('/api/platforms/strava/connect', ['url' => 'validclub'])
-        ->assertOk()
-        ->assertJsonPath('name', 'Valid Club');
-
-    Queue::assertNothingPushed();
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'strava')->first();
-    expect($row->last_refresh_status)->toBe('ok');
-});
+// ── Single-selection deferred platforms (the W5 gap this unit closed) ──────
+//
+// REMOVED (twitch/skool/strava demotion to link-only): three cases lived here —
+//   1. 'flag on: strava (single-selection, multiAccount() false) takes the
+//      pending path and MERGES on reconnect'
+//   2. 'flag on: strava connect on a brand-new user … stores the partial payload as-is'
+//   3. 'flag off: strava connect is unchanged — still a synchronous 200'
+// They exercised GenericPlatformController's writeConnection(pending: true)
+// branch, and strava was chosen because it was the ONLY registered platform
+// that was both deferred-capable and single-selection. It is now
+// PD::linkOnly() — no ConnectStrategy, no ->deferredConnect() — and no
+// surviving platform has that shape (the five deferred platforms are all
+// multiAccount()), so there is nothing to re-point them to: driving them
+// through bandcamp/spotify would silently test writeAccountConnection()
+// instead, which the spotify cases above already cover. Deleted rather than
+// redirected under a stale name.
+//
+// NOTE for whoever owns the async-connect programme: this leaves
+// GenericPlatformController.php:168 (writeConnection pending) unreachable by
+// any registered platform, and SkoolController's identical branch unrouted.
+// The single-selection pending write itself stays covered on the bespoke path
+// by DarkMergeProofTest's fresha flag-on case.

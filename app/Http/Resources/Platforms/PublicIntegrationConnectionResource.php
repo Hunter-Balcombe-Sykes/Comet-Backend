@@ -122,9 +122,16 @@ class PublicIntegrationConnectionResource extends ApiResource
         'vimeo' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items'],
         // youtube-music: channelId (the re-fetch input) stays private.
         'youtube-music' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items'],
-        'twitch' => ['url', 'login', 'name', 'image', 'description'],
-        'skool' => ['url', 'name', 'image', 'description'],
-        'strava' => ['url', 'name', 'location', 'image', 'description', 'members'],
+        // 2026-08-16: demoted to link-only, finishing Phase 1.2. They published
+        // scraped card decoration — name, image, description, member counts —
+        // which nothing refreshes any more now the fetch strategies and
+        // scrapers are gone. Publishing a stale name forever is worse than
+        // publishing the link, so they take the same {username, url} contract
+        // as every other link-only platform above. Existing payloads are
+        // normalised to that shape by `platforms:backfill-link-payloads`.
+        'twitch' => ['username', 'url'],
+        'skool' => ['username', 'url'],
+        'strava' => ['username', 'url'],
         // google-business: placeId / phoneIntl / priceLevel / priceRange /
         // detailsFetchedAt stay private. photos now public for home bg.
         //

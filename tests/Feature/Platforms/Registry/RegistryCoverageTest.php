@@ -9,7 +9,6 @@ use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
-use App\Services\Platforms\Strategies\Fetch\StravaFetch;
 use App\Services\Platforms\Strategies\Refresh\NoRefresh;
 use App\Services\Platforms\Strategies\Refresh\ScheduledRefresh;
 
@@ -40,13 +39,15 @@ it('marks exactly the current REFRESHABLE platforms as refreshable', function ()
     sort($refreshable);
 
     // Frozen expectation (was PlatformRefresher::REFRESHABLE before Plan 6 deleted it).
-    // The 15 auto-content platforms the daily cron + manual refresh button re-pull.
+    // The 13 auto-content platforms the daily cron + manual refresh button re-pull.
     // 'shop' joined for latest-mode product selections (ShopFetch 304s when no
     // brand is in latest mode); 'fresha' joined for the service-menu refresh
     // (FreshaFetch 304s when nothing is selected or the menu is unchanged).
+    // 'twitch' and 'strava' left on demotion to link-only (Phase 1.2) — a link
+    // has no upstream content to re-pull.
     $expected = [
         'youtube', 'youtube-music', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
-        'bandcamp', 'spotify', 'soundcloud', 'vimeo', 'twitch', 'strava',
+        'bandcamp', 'spotify', 'soundcloud', 'vimeo',
         'google-business', 'shop', 'fresha',
     ];
     sort($expected);
@@ -83,12 +84,29 @@ it('does not register routes for the dormant mixcloud/tidal embeds', function ()
     expect($uris->contains(fn ($u) => str_contains($u, 'platforms/tidal')))->toBeFalse();
 });
 
-it('attaches the Plan-6 fetch strategies to strava, eventbrite and humanitix', function () {
+it('attaches the Plan-6 fetch strategies to eventbrite and humanitix', function () {
+    // Strava dropped from this trio on its Phase-1.2 demotion to link-only —
+    // the inverse (no fetch strategy at all) is now pinned by the test below.
     $registry = app(PlatformRegistry::class);
 
-    expect($registry->get('strava')->fetchStrategy())->toBeInstanceOf(StravaFetch::class);
     expect($registry->get('eventbrite')->fetchStrategy())->toBeInstanceOf(EventbriteFetch::class);
     expect($registry->get('humanitix')->fetchStrategy())->toBeInstanceOf(HumanitixFetch::class);
+});
+
+it('leaves the demoted skool/strava/twitch descriptors with no fetch strategy and no refresh', function () {
+    // Phase 1.2 demoted all three to link-only: connect is a pure normalizer,
+    // there is no upstream content to pull, and nothing may re-attach a fetch
+    // strategy without also re-deciding refreshability and route shape.
+    $registry = app(PlatformRegistry::class);
+
+    foreach (['skool', 'strava', 'twitch'] as $key) {
+        $d = $registry->get($key);
+        expect($d)->not->toBeNull($key);
+        expect($d->fetchStrategy())->toBeNull($key);
+        expect($d->connectFetchStrategy())->toBeNull($key);
+        expect($d->isRefreshable())->toBeFalse($key);
+        expect($d->refreshStrategy())->toBeInstanceOf(NoRefresh::class, $key);
+    }
 });
 
 it('attaches GoogleBusinessFetch and a verbatim GoogleBusinessPayload (Plan 5 read-path) to google-business', function () {
