@@ -5,63 +5,92 @@ namespace App\Services\Platforms\Actors;
 /**
  * automation-lab~spotify-scraper, in URL mode.
  *
- * Chosen over the actor that DOCUMENTS isrc because that one accepts keyword
- * searches only, and a connection's identity is its artist URL: anchoring on
- * the URL means the run can never return a different artist of the same name.
- * ISRC is read opportunistically here — if the build returns it, the Isrc
- * joining key starts working; if not, dedup falls back to title|artist, which
- * is the tier convergence-log F10 already planned for.
+ * SHAPE PINNED BY LIVE PROBE 2026-08-16 (convergence-log F29/F31), not by the
+ * actor's listing — which claims ISRC it does not deliver. In URL mode the
+ * dataset is ONE ARTIST object per input url, and the tracks hang off its
+ * `topTracks` array:
+ *
+ *   {name, url, imageUrl, monthlyListeners, genres, topTracks: [
+ *      {trackId, title, artists, duration, durationFormatted, playCount,
+ *       isExplicit, isPlayable, audioPreviewUrl} ], …}
+ *
+ * Three consequences, all deliberate:
+ *  - There is NO isrc on either Spotify actor (both probed). Spotify dedup
+ *    therefore rests on TitleRelease (title|artist), the corroborating tier
+ *    convergence-log F10 already planned for.
+ *  - There is no per-track url; it is derived from trackId, whose format is
+ *    Spotify's stable base-62 id.
+ *  - `topTracks` is the artist's TOP tracks, not their catalogue — about ten.
+ *    maxResults bounds the number of ARTISTS, so the track cap is applied here.
+ *
+ * Chosen over the search-mode alternative because the identifier is the
+ * connection's own artist URL: a keyword search can resolve to a different
+ * artist of the same name, which SourceProvisioner's docblock rules is worse
+ * than landing no row at all.
  */
 class SpotifyTracksAdapter implements MusicActorAdapter
 {
     public function input(string $identifier, int $maxTracks): array
     {
-        return ['mode' => 'urls', 'urls' => [$identifier], 'maxResults' => $maxTracks];
+        // maxResults counts ARTISTS here, so it stays 1 — one connection is one
+        // artist. The track cap is applied in tracks().
+        return ['mode' => 'urls', 'urls' => [$identifier], 'maxResults' => 1];
     }
 
     public function tracks(array $dataset): array
     {
         $out = [];
 
-        foreach ($dataset as $row) {
-            if (! is_array($row)) {
+        foreach ($dataset as $artist) {
+            if (! is_array($artist)) {
                 continue;
             }
 
-            $title = is_string($row['name'] ?? null) ? trim($row['name']) : '';
-            $url = is_string($row['url'] ?? null) ? trim($row['url']) : '';
+            foreach ((array) ($artist['topTracks'] ?? []) as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
 
-            // A row missing either is unusable: the projector rejects it anyway,
-            // and landing it would burn a coord on nothing.
-            if ($title === '' || $url === '') {
-                continue;
+                $title = is_string($row['title'] ?? null) ? trim($row['title']) : '';
+                $trackId = is_string($row['trackId'] ?? null) ? trim($row['trackId']) : '';
+
+                // Without an id there is no url to derive and no stable key.
+                if ($title === '' || $trackId === '') {
+                    continue;
+                }
+
+                $out[] = [
+                    'external_id' => $trackId,
+                    'title' => $title,
+                    'url' => 'https://open.spotify.com/track/'.$trackId,
+                    // A plain string on this actor, not a list of objects.
+                    'artist' => $this->artist($row['artists'] ?? null) ?? $this->artist($artist['name'] ?? null),
+                    // Neither Spotify actor returns one; see the class docblock.
+                    'isrc' => null,
+                    'duration_seconds' => $this->seconds($row['duration'] ?? null),
+                    // topTracks carries no release date, and the artist-level
+                    // image is not this track's artwork — emitting either would
+                    // be inventing data the vendor did not give us.
+                    'published' => null,
+                    'artwork' => null,
+                ];
             }
-
-            $out[] = [
-                'external_id' => (string) ($row['id'] ?? $url),
-                'title' => $title,
-                'url' => $url,
-                'artist' => $this->firstArtist($row['artists'] ?? null),
-                'isrc' => $this->isrc($row),
-                'duration_seconds' => $this->seconds($row['durationMs'] ?? null),
-                'published' => is_string($row['releaseDate'] ?? null) ? $row['releaseDate'] : null,
-                'artwork' => is_string($row['coverUrl'] ?? null) ? $row['coverUrl'] : null,
-            ];
         }
 
         return $out;
     }
 
-    private function firstArtist(mixed $artists): ?string
+    private function artist(mixed $value): ?string
     {
-        if (is_string($artists)) {
-            return trim($artists) !== '' ? trim($artists) : null;
+        if (is_string($value)) {
+            return trim($value) !== '' ? trim($value) : null;
         }
 
-        if (is_array($artists)) {
-            foreach ($artists as $artist) {
-                // Builds differ: a bare string list, or objects carrying `name`.
-                $name = is_array($artist) ? ($artist['name'] ?? null) : $artist;
+        // Defensive: a future build could switch to a list, as the search-mode
+        // sibling actor already does.
+        if (is_array($value)) {
+            foreach ($value as $entry) {
+                $name = is_array($entry) ? ($entry['name'] ?? null) : $entry;
                 if (is_string($name) && trim($name) !== '') {
                     return trim($name);
                 }
@@ -69,16 +98,6 @@ class SpotifyTracksAdapter implements MusicActorAdapter
         }
 
         return null;
-    }
-
-    /** Both shapes read, so an actor build change degrades to null, never to a wrong code. */
-    private function isrc(array $row): ?string
-    {
-        $isrc = $row['isrc'] ?? ($row['external_ids']['isrc'] ?? null);
-
-        // Upper-cased because KeyClass::Isrc is a JOINING key: two spellings of
-        // one code would fail to union the rows the key exists to union.
-        return is_string($isrc) && trim($isrc) !== '' ? strtoupper(trim($isrc)) : null;
     }
 
     private function seconds(mixed $ms): ?int

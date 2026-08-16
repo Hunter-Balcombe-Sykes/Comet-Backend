@@ -83,57 +83,68 @@ it('never spends on a platform it has no actor for', function () {
     Http::assertNothingSent();
 });
 
-it('normalizes a spotify dataset into tracks, carrying the isrc', function () {
-    Http::fake(['api.apify.com/*' => Http::response([
-        [
-            'id' => 't1',
-            'name' => 'The Funeral',
-            'url' => 'https://open.spotify.com/track/t1',
-            'artists' => ['Band of Horses'],
-            'durationMs' => 321000,
-            'isrc' => 'usum71234567',
-            'releaseDate' => '2006-03-21',
-            'coverUrl' => 'https://i.scdn.co/x.jpg',
+it('flattens a spotify artist object into its topTracks', function () {
+    // The real URL-mode shape, pinned by live probe (F31): ONE artist object,
+    // tracks hanging off topTracks — not a flat track list.
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'name' => 'Band of Horses',
+        'url' => 'https://open.spotify.com/artist/abc',
+        'topTracks' => [
+            ['trackId' => '5lRzWDEe7UuedU2QPsFg0K', 'title' => 'The Funeral',
+                'artists' => 'Band of Horses', 'duration' => 322173],
+            ['trackId' => '2xLMifQCjDGFmkHkpNLD9h', 'title' => 'Laredo',
+                'artists' => 'Band of Horses', 'duration' => 200000],
         ],
-    ], 201)]);
+    ]], 201)]);
 
     $result = app(MusicActorDriver::class)->run(musicCtx());
 
     expect($result->outcome)->toBe(BilledEffectOutcome::Answered)
-        ->and($result->data)->toHaveCount(1);
+        ->and($result->data)->toHaveCount(2);
 
     $track = $result->data[0];
-    expect($track['external_id'])->toBe('t1')
+    expect($track['external_id'])->toBe('5lRzWDEe7UuedU2QPsFg0K')
         ->and($track['title'])->toBe('The Funeral')
         ->and($track['artist'])->toBe('Band of Horses')
-        // Upper-cased: f_catalog.isrc feeds KeyClass::Isrc, and a joining key
-        // that disagrees on case would fail to union the very rows it exists for.
-        ->and($track['isrc'])->toBe('USUM71234567')
-        ->and($track['duration_seconds'])->toBe(321)
-        ->and($track['published'])->toBe('2006-03-21');
+        ->and($track['duration_seconds'])->toBe(322)
+        // Derived: topTracks carries no per-track url.
+        ->and($track['url'])->toBe('https://open.spotify.com/track/5lRzWDEe7UuedU2QPsFg0K');
 });
 
-it('reads a spotify isrc nested under external_ids too', function () {
-    Http::fake(['api.apify.com/*' => Http::response([
-        ['id' => 't2', 'name' => 'Laredo', 'url' => 'https://open.spotify.com/track/t2',
-            'external_ids' => ['isrc' => 'USUM71600002']],
-    ], 201)]);
+it('emits no isrc for spotify, because neither actor returns one', function () {
+    // Probed live 2026-08-16: the listing claims ISRC, the dataset has none.
+    // Spotify dedup therefore rests on TitleRelease, per F10.
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'name' => 'Band of Horses',
+        'topTracks' => [['trackId' => 't1', 'title' => 'The Funeral', 'artists' => 'Band of Horses']],
+    ]], 201)]);
 
-    $result = app(MusicActorDriver::class)->run(musicCtx());
-
-    expect($result->data[0]['isrc'])->toBe('USUM71600002');
+    expect(app(MusicActorDriver::class)->run(musicCtx())->data[0]['isrc'])->toBeNull();
 });
 
-it('normalizes a soundcloud dataset, taking the artist off the nested user', function () {
+it('falls back to the artist-level name when a spotify track omits artists', function () {
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'name' => 'Band of Horses',
+        'topTracks' => [['trackId' => 't1', 'title' => 'The Funeral']],
+    ]], 201)]);
+
+    expect(app(MusicActorDriver::class)->run(musicCtx())->data[0]['artist'])->toBe('Band of Horses');
+});
+
+it('normalizes soundcloud tracks and skips the profile row that rides with them', function () {
+    // The real userUrl shape (F31): a flat list whose FIRST row is the profile.
+    // Projecting it would land the artist themselves as a track.
     Http::fake(['api.apify.com/*' => Http::response([
+        ['type' => 'user', 'id' => 4803918, 'username' => 'Flume', 'url' => 'https://soundcloud.com/flume'],
         [
-            'id' => 's1',
-            'title' => 'Never Be Like You',
-            'url' => 'https://soundcloud.com/flume/never-be-like-you',
-            'user' => ['username' => 'Flume'],
-            'duration' => 236000,
-            'isrc' => 'AUUM71600001',
-            'releaseDate' => '2016-01-21',
+            'type' => 'track',
+            'id' => 242136202,
+            'title' => 'All Of The Worlds',
+            'url' => 'https://soundcloud.com/flume/all-of-the-worlds',
+            'userName' => 'Flume',
+            'duration' => 125780,
+            'isrc' => 'us38y2548239',
+            'releaseDate' => '2025-08-22T00:00:00Z',
             'artworkUrl' => 'https://i1.sndcdn.com/x.jpg',
         ],
     ], 201)]);
@@ -143,19 +154,42 @@ it('normalizes a soundcloud dataset, taking the artist off the nested user', fun
         'identifier' => 'https://soundcloud.com/flume',
     ]));
 
+    expect($result->data)->toHaveCount(1);
+
     $track = $result->data[0];
-    expect($track['title'])->toBe('Never Be Like You')
+    expect($track['external_id'])->toBe('242136202')
+        ->and($track['title'])->toBe('All Of The Worlds')
+        // Flat userName, not a nested user object.
         ->and($track['artist'])->toBe('Flume')
-        ->and($track['isrc'])->toBe('AUUM71600001')
-        ->and($track['duration_seconds'])->toBe(236);
+        // Upper-cased: KeyClass::Isrc is a JOINING key, so two spellings of one
+        // code would fail to union the very rows the key exists for.
+        ->and($track['isrc'])->toBe('US38Y2548239')
+        ->and($track['duration_seconds'])->toBe(126)
+        ->and($track['published'])->toBe('2025-08-22T00:00:00Z');
+});
+
+it('sends soundcloud plain-string startUrls, because objects return zero rows', function () {
+    Http::fake(['api.apify.com/*' => Http::response([], 201)]);
+
+    app(MusicActorDriver::class)->run(musicCtx([
+        'platform' => 'soundcloud',
+        'identifier' => 'https://soundcloud.com/flume',
+    ]));
+
+    // Passing Apify's usual [{url: …}] objects here runs fine and lands NOTHING
+    // — a silent empty rather than an error, so only a test keeps it honest.
+    Http::assertSent(fn ($request) => $request['startUrls'] === ['https://soundcloud.com/flume']);
 });
 
 it('drops a dataset row with no usable title or url rather than landing it titleless', function () {
-    Http::fake(['api.apify.com/*' => Http::response([
-        ['id' => 'ok', 'name' => 'Real Track', 'url' => 'https://open.spotify.com/track/ok'],
-        ['id' => 'no-title', 'url' => 'https://open.spotify.com/track/x'],
-        ['id' => 'no-url', 'name' => 'Titled But Unreachable'],
-    ], 201)]);
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'name' => 'Band of Horses',
+        'topTracks' => [
+            ['trackId' => 'ok', 'title' => 'Real Track'],
+            ['trackId' => 'no-title'],
+            ['title' => 'Titled But Unkeyed'],
+        ],
+    ]], 201)]);
 
     $result = app(MusicActorDriver::class)->run(musicCtx());
 
@@ -204,6 +238,11 @@ it('sends the artist URL to the actor in url mode, never a name search', functio
     Http::assertSent(function ($request) {
         return str_contains($request->url(), 'automation-lab~spotify-scraper')
             && $request['mode'] === 'urls'
-            && $request['urls'] === ['https://open.spotify.com/artist/abc'];
+            && $request['urls'] === ['https://open.spotify.com/artist/abc']
+            // The token must NOT be in the body: Apify would treat it as actor
+            // input and the run would be unauthenticated, which a pay-per-event
+            // actor rejects as an x402 PAYMENT error rather than a 401 (F31).
+            && ! isset($request['token'])
+            && $request->hasHeader('Authorization');
     });
 });

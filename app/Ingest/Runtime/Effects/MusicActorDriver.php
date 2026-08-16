@@ -64,10 +64,18 @@ final class MusicActorDriver implements BilledEffectDriver
             throw new EffectNotAttempted("Apify daily cap reached for actor 'music-{$platform}'");
         }
 
-        $response = Http::timeout((int) config('partna.limits.apify.run_sync_timeout_seconds'))
+        // Bearer, NOT a `token` key in the body. Apify accepts the token as a
+        // header or a QUERY param; putting it in the JSON body makes it part of
+        // the ACTOR INPUT and leaves the call unauthenticated, which a
+        // pay-per-event actor rejects with an x402 payment error rather than a
+        // 401 — so the symptom reads as a billing failure and sends you to the
+        // wrong place entirely. InstagramScraper has always used withToken();
+        // this matches it.
+        $response = Http::withToken($token)
+            ->timeout((int) config('partna.limits.apify.run_sync_timeout_seconds'))
             ->post(
                 'https://api.apify.com/v2/acts/'.$config['actor'].'/run-sync-get-dataset-items',
-                $adapter->input($identifier, (int) ($config['max_tracks'] ?? 50)) + ['token' => $token],
+                $adapter->input($identifier, (int) ($config['max_tracks'] ?? 50)),
             );
 
         if (! $response->successful()) {

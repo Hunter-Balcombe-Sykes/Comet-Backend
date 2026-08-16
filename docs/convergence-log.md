@@ -698,7 +698,19 @@ JSON **array of facet NAMES**, not a facet→value object. Reading
 and reads as "the projector dropped the artist". The values live in the
 per-facet tables (`content.f_authored` etc.); join those.
 
-### F30 — Apify refuses EVERY pay-per-event actor account-wide (x402). Not a budget problem
+### F30 — WRONG DIAGNOSIS, kept for the lesson. Apify was fine; our call was unauthenticated
+
+> **RETRACTED 2026-08-16, same session.** Everything below is accurate about the
+> SYMPTOMS and wrong about the CAUSE. The Apify account was never broken: the
+> probes put the token in the POST **body**, where Apify reads it as actor input
+> rather than as authentication, so every call was unauthenticated. See F31.
+>
+> The reasoning error is worth keeping. The "control test" that made this look
+> account-wide — running the known-good Instagram actor — was constructed the
+> **same wrong way** as the thing it was controlling for. A control built with
+> the same defect as the experiment confirms the defect, not the hypothesis. The
+> account/token/plan evidence gathered below was all real and all irrelevant,
+> which is what made the wrong conclusion feel well-supported.
 
 Phase 4's paid lane is blocked, and **not by spend**. Probing the chosen Spotify
 actor returned `HTTP 402` before any work happened:
@@ -749,3 +761,76 @@ it is worth checking before the pilot.
 **What is NOT blocked.** Writing the connectors, adapters, projectors and their
 tests needs no live actor: everything is `Http::fake()`. Only Phase 4's live
 proof (its Task 7) waits on this.
+
+### F31 — The music actors: auth in the header, and the two real dataset shapes
+
+Supersedes F30. Probed live 2026-08-16 against the `partna` Apify account
+(STARTER, `isPaying: true`, US$26.18 of US$29 remaining). Total probe spend was
+a few cents.
+
+**The auth bug, which cost the most time.** Apify accepts its token as a
+`?token=` query param or an `Authorization: Bearer` header — **not** as a key in
+the JSON body. Passing `['token' => …]` in the POST body makes it part of the
+ACTOR INPUT and leaves the run unauthenticated. A pay-per-event actor rejects
+that with:
+
+```
+402  x402-payment-required / agentic-payment-info-retrieval-error
+     "X402: Failed to retrieve payment information."
+```
+
+which reads as a **billing** failure, not an auth failure — and sends you to the
+Apify billing console instead of to your own request. `InstagramScraper` has
+always used `Http::withToken()`, which is why the live Instagram lane never hit
+this. `MusicActorDriver` now matches it, pinned by a test asserting the token is
+absent from the body and an `Authorization` header is present.
+
+**Spotify — `automation-lab~spotify-scraper`, mode `urls`.** The dataset is ONE
+ARTIST object per input url; tracks hang off `topTracks`:
+
+```
+{name, url, imageUrl, monthlyListeners, followers, genres, biography,
+ topTracks: [{trackId, title, artists, duration, durationFormatted,
+              playCount, isExplicit, isPlayable, audioPreviewUrl}], …}
+```
+
+- `artists` is a plain STRING here, not a list of objects.
+- There is **no per-track url** — derived as `open.spotify.com/track/{trackId}`.
+- There is **no release date and no per-track artwork**. The artist-level
+  `imageUrl` is not the track's cover and is deliberately not emitted as one.
+- `maxResults` bounds ARTISTS, not tracks, so it stays 1 and the track cap is
+  applied in the adapter.
+- `topTracks` is the artist's ~10 TOP tracks, **not their catalogue**. Worth
+  knowing before anyone reads a Spotify track count as completeness.
+
+**Spotify has no ISRC — from either actor.** The `hipersoft~spotify-scraper`
+alternative was probed too, precisely because its listing advertises ISRC. It
+returns flat, well-formed track rows — `{type, id, name, artists, album,
+albumId, durationMs, explicit, image, url}` — and **no `isrc` field at all**.
+So F10's ISRC question is settled negatively for Spotify: dedup there rests on
+`TitleRelease` (title|artist), the corroborating tier. The listing's claim does
+not survive contact with the dataset, which is the whole reason the plan
+required a probe rather than a reading.
+
+`automation-lab` was chosen anyway, and the tie-break is identity, not fields:
+it anchors on the connection's own artist URL, while `hipersoft` accepts only
+keyword searches, which can resolve to a different artist of the same name —
+`SourceProvisioner`'s own docblock rules that worse than landing no row.
+
+**SoundCloud — `automation-lab~soundcloud-scraper`, mode `userUrl`.** The best
+result of the phase: it **does** return a real `isrc` (verified: `US38Y2548239`),
+giving `KeyClass::Isrc` its first producer since the column was created.
+
+```
+[{type:"user",  …},
+ {type:"track", id, title, url, artworkUrl, genre, tagList, duration,
+                releaseDate, createdAt, userName, userUrl, isrc, …}, …]
+```
+
+Two input details each cost a probe:
+- `startUrls` takes **plain strings**. Passing Apify's usual `[{url: …}]`
+  objects returns `201` with **zero rows** — a silent empty, not an error.
+- The artist is a flat `userName`, not a nested user object.
+
+And the profile row rides in the same list as the tracks, told apart by `type`.
+Projecting it unfiltered would land the artist themselves as a track.
