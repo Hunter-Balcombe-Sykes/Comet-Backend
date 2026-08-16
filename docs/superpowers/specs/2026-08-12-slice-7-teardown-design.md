@@ -323,15 +323,43 @@ one exists it needs a null-safe path, and that *is* code.
 
 Last, and only after A–J are live-verified on dev.
 
+**OWNER RULING 2026-08-17 — nine tables, not ten. `site.shop_brands` is
+deferred to its own follow-up.**
+
+Sized before deciding. `site.shop_brands` has a materially bigger tail than any
+other table on the list: **17 production files still read or write it**, and the
+blocker is not the writer (Task 24 re-homed `ShopContentWriter` onto a
+`content.*`-only identity) but the READ lane —
+`ShopConnections::brands()`/`brand()` is a live `ShopBrand::query()`, and five
+`ShopController` endpoints resolve stores through it. Remove the writes alone and
+every store minted after the deploy 404s on `connectStatus`, `updateBrand`,
+`removeBrand`, `setProducts` and `removeProduct`. The writes and the reads are
+one unit; Task 24 correctly refused to split them.
+
+The parent spec already sanctions this: *"slice 7 **may be split** if the
+frontend lags, dropping the commerce tables first and the media lane later"*
+(§7). Same principle, different seam.
+
 Children before parents, raw SQL under `supabase/migrations/`, one concern per
 file, `CONCURRENTLY` at most once per file:
 
 ```
 site.menu_item_categories, site.menu_item_platforms, site.menu_items,
 site.menu_categories, site.service_category_assignments, site.services,
-site.service_categories, site.shop_products, site.shop_brands,
-site.content_selection
+site.service_categories, site.shop_products, site.content_selection
 ```
+
+**`site.shop_brands` is NOT dropped by this slice.** Its follow-up plan must
+re-home, in one unit: `ShopConnections` (2 sites), `ShopController` (7),
+`ShopBrandConnectJob` (4), `ProcessShopBrandLogoJob` (2), `ShopCatalog` (2),
+`ShopBrandProfiler`, `ShopProductSeeder`, `StoreBrandSeeder` (5),
+`StoreBrandProfiler` (2), `BrandAssetPipeline`. The two jobs are the only real
+design question — they key on the `site.shop_brands` uuid PK, which has no
+`content.*` twin; the collection id is the natural replacement.
+`ShopContentReader::brandMap()` already rebuilds the exact `toBrandArray()`
+shape, and `content.storefronts` already carries every column that matters, so
+the rest is mechanical. `style_analysis`, `selection_mode` and `link_mode` are
+dead — nothing in `app/` reads them.
 
 Check `pg_depend` for FK dependents, views, triggers and RLS policies on each —
 the table list will not tell you what the catalog will.

@@ -790,7 +790,7 @@ Children before parents, one concern per file:
 20260817000600_drop_site_services.sql
 20260817000700_drop_site_service_categories.sql
 20260817000800_drop_site_shop_products.sql
-20260817000900_drop_site_shop_brands.sql
+# NOTE: site.shop_brands is DEFERRED (owner ruling 2026-08-17) — see spec Unit K
 20260817001000_drop_site_content_selection.sql
 20260817001100_delete_legacy_event_item_slugs.sql
 ```
