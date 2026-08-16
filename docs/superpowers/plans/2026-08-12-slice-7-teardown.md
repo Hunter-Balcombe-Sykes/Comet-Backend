@@ -521,7 +521,9 @@ Spec D3: keep the blob, change its source. §19.2 already proved the round-trip 
 
 - [ ] **Step 1: Characterisation test** — snapshot `compose()`'s output from legacy rows, then assert equality when composed from `content.*` with the legacy rows truncated.
 - [ ] **Step 2: Run it; confirm it fails.**
-- [ ] **Step 3: Repoint `compose()` at `ManualServiceItems::publicList()`.**
+- [ ] **Step 3: Repoint `compose()` at `App\Services\Content\FreshaServiceItems::selectionServices()`.**
+
+  **Corrected 2026-08-16 — the plan originally named `ManualServiceItems::publicList()` and that was wrong on three counts**, any one fatal: it returns the seven legacy *dashboard* keys, not the nine *vendor* keys the blob ships; it filters `content.sources.kind = 'manual'` while Fresha lands under `kind = 'connection'`, so it would publish the wrong list entirely; and routing the write through `ManualServiceWriter::write()` would put Fresha services on the manual source, which `ServiceTwoSurfaceTest` pins shut in both directions. `FreshaServiceItems::selectionServices()` shipped with 3b, already produces the blob shape from `content.*`, and is what spec D3 actually describes. `markRemoved()` IS still safe to reuse — it is kind-agnostic and touches only `content.items`; it is `write()` that leaks.
 - [ ] **Step 4: Repoint `sync()`** — it stops writing `site.services` and writes `content.*` via `ManualServiceWriter`. Preserve `is_manual` (owner edit detaches from sync), `deleted_origin='user'` suppression (a deleted service never returns) and `deleted_origin='sync'` restore-on-return. The first two map to `items.removed_at` + curation state; the third to `source_items.removed_at`.
 - [ ] **Step 5: Re-check `ManagesIntegrationConnection`'s advisory-lock timeouts** (`:396-450`). Narrow rather than delete — each docblock says what it guards.
 - [ ] **Step 6: Run** `./vendor/bin/pest tests/Feature/Platforms/ tests/Feature/Api/` **and** `composer test:pg`.
