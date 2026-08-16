@@ -20,7 +20,9 @@ Order:
 1. `phase-1-lean-out` (includes the doc-hygiene pass)
 2. `phase-2-identity-keys`
 3. `custom-links-pool`
-4. `slice-4-menus` (includes Phase 5's live menu proof)
+4. `slice-4-menus` (Phase 5's live proof BLOCKED — see 4b)
+4b. `menu-actor-driver` (added 2026-08-16 — wires the missing billed-effect
+    driver and finishes Phase 5's proof)
 5. `phase-4-listen`
 6. `phase-6-pseudo-platforms`
 7. `slice-7-teardown`
@@ -210,6 +212,102 @@ plan inside this session before implementation, then proceed; (b) the two deferr
 questions (where site.menus dining modes and menu_platform_links land; standalone-event
 permalinks) STOP for the owner with a concrete recommendation. Serial, dev only, prod out
 of scope.
+```
+
+---
+
+## 4b — menu-actor-driver (added 2026-08-16, unblocks Phase 5's proof)
+
+```
+Rename this session to menu-actor-driver.
+
+Wire the billed-effect driver the three menu connectors need, then finish Phase 5's
+live proof, which slice 4 could not (spec §23.6). Serial, dev only, prod out of scope.
+
+THE PROBLEM, already diagnosed — do not re-derive it. UberEatsMenuConnector,
+DoordashMenuConnector and SquareMenuConnector each call
+$io->effect('actor', 'menu', ['actor' => <actor id>, 'input' => [...]]).
+BilledEffectDriverRegistry is an explicit, ordered list in AppServiceProvider
+(~:123) holding exactly PlacesDetailsDriver and InstagramActorDriver. Nothing
+supports ('actor','menu'), so every run dies in
+App\Ingest\Runtime\HttpIo::runBilledEffect() (:158) with "No billed-effect driver
+is wired for kind 'actor'". Verified by running it twice on dev, 2026-08-16.
+
+BUILD IT BY REUSE, not from scratch. MenuApifyScraper::attemptScrape() (private,
+:428) already does the raw POST to
+https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items and already
+encodes behaviour that cost real debugging — keep ALL of it:
+  - MAX_ATTEMPTS 4. These actors are WAF-protected and return empty on a large
+    fraction of runs for a perfectly valid store. A one-shot driver will look
+    broken at random.
+  - run-sync-get-dataset-items returns 201, and ->ok() only accepts 200.
+  - 4xx (unknown store, actor not rented) is a HARD error; 5xx is retryable.
+  - ApifyBudget::tryClaim('menu') is claimed per REAL actor run, at the billed
+    call site — not once per driver call.
+Extract a public raw-runner from it (returning the vendor's own dataset items)
+and have the driver pass the connector's `actor` and `input` straight through.
+Do NOT route through MenuApifyScraper::fetch(): that maps to the legacy
+{store, categories} shape via the per-platform drivers, and the connectors do
+their OWN mapping (MenuRecords::flatten) on the RAW dataset. The driver returns
+raw items, exactly as InstagramActorDriver returns [$result->profile].
+
+MONEY SEMANTICS — copy InstagramActorDriver's, they are the worked example:
+  - EffectNotAttempted  => nothing left the process. EffectLedger DELETES the
+    claim, so the digest is free to retry. Use it for: missing Apify token,
+    unresolvable actor id, budget cap reached.
+  - BilledEffectResult::noAnswer => a request went out and did not answer. The
+    row STAYS settled and the digest is inert until the freshness bucket rolls.
+  - BilledEffectResult::answered(null) => the vendor positively said "nothing
+    here" (e.g. a 4xx unknown store). Settling ok stops re-billing a dead store
+    every run.
+Getting these three wrong is how a config typo locks every store for a week, or
+how a dead store gets re-billed forever.
+
+FOLD IN THIS DEFECT, found while diagnosing. HttpIo's "no driver wired" throw is
+a bare RuntimeException, so the ledger stamps the digest `failed` and SETTLES it —
+locking that source+input until the freshness bucket rolls, even though no
+request ever left the process. That is precisely EffectNotAttempted's contract
+("nothing was charged, so nothing needs protecting from a re-run"). An unwired
+driver should release the claim, not burn the digest. Fix it, and pin it with a
+test.
+
+THE TRAP THAT WILL WASTE YOUR FIRST TEST RUN. Dev already holds two settled
+`failed` rows in ingest.effects (cost_tag 'menu', claimed 2026-08-15 23:42:15)
+from slice 4's attempts. Charge-once-by-digest means the same source+input will
+be REFUSED rather than re-attempted — the second run I did produced no new rows
+at all. After wiring the driver, clear those two rows (or wait out the freshness
+bucket) or your first run will silently do nothing and read as a broken driver.
+
+DEV STATE, left ready by slice 4 — verify, do not assume:
+  - ingest.sources holds uber_eats / doordash / square for showcase-eats
+    (user 68a5efcd-2ba6-432b-9a92-61015c4d688e), auto_sync=false. SourceScheduler
+    filters auto_sync=true, so nothing runs them on a schedule; run them with
+    RunSourceJob::dispatchSync(<source id>).
+  - uber_eats and doordash point at REAL stores (Universal Restaurant, Doc Pizza).
+    square still holds a placeholder — there is no real Square store on dev, so
+    leave it or find one; do not spend on 'some-store'.
+  - Their menu streams read health='unavailable', consecutive_failures=2.
+  - MenuItemProjector is at version 2 and already emits the `collections` its
+    identity keys need — do not add mapping it already has.
+
+SPEND: US$18 cap for this and Phase 4 combined. Apify sat at US$2.81 of a US$29
+monthly ceiling on 2026-08-16 — re-check before spending
+(GET https://api.apify.com/v2/users/me/limits, token in the dev env). Exceeding
+the cap is a STOP, not a spend. A first real run should cost ~US$1-3.
+
+EXIT: composer test green, plus tests/Postgres/ if you touch ProjectionWriter.
+Then Phase 5's gate, which is the point of this session:
+content.source_items kind='menu_item' from a CONNECTOR source > 0, AND the menus
+pool returning those items on the wire off dev-api.partna.au. Inspect every
+content.item_merges row individually — slice 4 produced zero because no dish on
+dev was sold on two platforms, so THIS is where cross-platform identity gets its
+first real exercise and where §8.3's hard-delete of uncurated losers first bites.
+Checkpoint with live SQL into the parent spec, and correct §23.6 + prompt 4 to
+say the driver landed.
+
+Autonomy: implement → test → merge to development → deploy dev without sign-off.
+Stop ONLY for: the spend cap, an owner-level product decision, a gate
+contradiction, or anything touching auth/prod.
 ```
 
 ---
