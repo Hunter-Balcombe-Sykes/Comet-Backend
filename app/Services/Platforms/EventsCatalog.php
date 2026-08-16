@@ -470,11 +470,12 @@ class EventsCatalog
      * BEFORE is carried across by StandaloneEventBackfiller, on the same coord
      * and through the same mapper, so the two cannot drift.
      *
-     * No connection lock and no per-platform cap any more, for the reasons
-     * storeCustom() already gave: neither applies to a pool item. The write is
-     * an idempotent upsert on a deterministic coord, so there is no
-     * read-then-write span to serialise, and the pool's cap is the section's.
-     * The retired MAX_EVENTS 422 is named in the wire manifest.
+     * The LOCK is gone — contention is moot for an idempotent upsert on a
+     * deterministic coord, which has no read-then-write span to serialise.
+     * The CAP is not: idempotency stops duplicates of the same event, not an
+     * unbounded number of different ones, so it moved onto the pool with the
+     * write rather than being retired. See ManualEventWriter::MAX_STANDALONE_EVENTS
+     * for what it counts now and why per-platform had to become per-owner.
      *
      * The coord basis is the scraped `link`, NOT the normalised input URL: the
      * connection's own `event-<hex>` resource_id derives from `link` too
@@ -490,6 +491,10 @@ class EventsCatalog
 
         if ($url === '') {
             return $this->fail('That event has no link we can save.', 422);
+        }
+
+        if ($this->manualEvents->wouldExceedCap($user, $url)) {
+            return $this->fail('You can add up to '.ManualEventWriter::MAX_STANDALONE_EVENTS.' individual events.', 422);
         }
 
         $written = $this->manualEvents->addStandalone($user, $url, $event);

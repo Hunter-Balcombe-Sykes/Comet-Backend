@@ -9,6 +9,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualEventWriter;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\EventsPayload;
 use App\Services\Platforms\Payloads\EventsAccountPayload;
@@ -36,8 +37,6 @@ abstract class EventsPlatformController extends ApiController
     use DefersBespokeConnect;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
-
-    private const MAX_STANDALONE_EVENTS = 10;
 
     public function __construct(protected readonly FetchBudget $budget) {}
 
@@ -229,22 +228,44 @@ abstract class EventsPlatformController extends ApiController
             return $this->error('Could not load that '.$this->platformLabel().' event.', 422);
         }
 
+        // Slice 7 Phase 4: this writes a `content.items` row in the `events`
+        // pool, not a `resource_kind='event'` connection. It is the SAME lane
+        // EventsCatalog's card path and StandaloneEventBackfiller use, on the
+        // same URL-derived coord, so an event added here and one added there
+        // are one item.
+        //
+        // Repointed for the ordering law, not for tidiness: the standalone
+        // payload on the public integrations wire is empty now, so leaving
+        // this arm writing a connection would have made every event added
+        // through it publicly invisible with no error.
+        //
+        // No lock any more. It guarded a read-then-write on
+        // site.platform_connections that no longer happens; an idempotent
+        // upsert on a deterministic coord has no such span. The CAP survives —
+        // see ManualEventWriter::MAX_STANDALONE_EVENTS — and its check is now
+        // unserialised, which is a deliberate trade named in that docblock.
         $payload = EventsPayload::standalonePayload($event);
-        $rid = 'event-'.$payload['id'];
+        $url = trim((string) (StandaloneEventPayload::fromArray($payload)->event()['link'] ?? ''));
 
-        // PWL-4: races removeEvent() (already locked) + ScheduledRefresh on the
-        // same platform+user key. fetchSingleEvent() above is the scrape — it
-        // stays OUTSIDE the lock; only the cap-check + write is wrapped.
-        return $this->withConnectionLock($user, function () use ($user, $payload, $rid): JsonResponse {
-            if ($this->eventRows($user)->firstWhere('resource_id', $rid) === null
-                && $this->eventRows($user)->count() >= self::MAX_STANDALONE_EVENTS) {
-                return $this->error('You can add up to '.self::MAX_STANDALONE_EVENTS.' individual events.', 422);
-            }
+        if ($url === '') {
+            return $this->error('That '.$this->platformLabel().' event has no link we can save.', 422);
+        }
 
-            $this->writeConnection($user, $payload, $rid, resourceKind: 'event');
+        $writer = app(ManualEventWriter::class);
 
-            return $this->success(['selection' => $this->selectionData($user)]);
-        });
+        if ($writer->wouldExceedCap($user, $url)) {
+            return $this->error('You can add up to '.ManualEventWriter::MAX_STANDALONE_EVENTS.' individual events.', 422);
+        }
+
+        // A pool item needs a section, which hangs off the site. The connection
+        // lane allowed a siteless owner to hold a standalone event; the pool
+        // does not, and a 422 is the honest answer rather than a 200 that
+        // stores nothing.
+        if ($writer->addStandalone($user, $url, StandaloneEventPayload::fromArray($payload)->event()) === null) {
+            return $this->error('Add your site before saving events.', 422);
+        }
+
+        return $this->success(['selection' => $this->selectionData($user)]);
     }
 
     // DELETE /api/platforms/{platform}/events/{id} — remove ONE event. A
@@ -254,7 +275,19 @@ abstract class EventsPlatformController extends ApiController
     {
         $user = $this->currentUser($request);
 
+        // Pool first (slice 7 Phase 4): every standalone event added since the
+        // repoint is a content item, and its id is a uuid. remove() verifies
+        // ownership itself and returns false for someone else's, so trying it
+        // first is safe. The two id shapes cannot collide — one is a uuid, the
+        // other a hex behind an 'event-' prefix.
+        if (app(ManualEventWriter::class)->remove($user, $id)) {
+            return $this->success(['selection' => $this->selectionData($user)]);
+        }
+
         return $this->withConnectionLock($user, function () use ($user, $id): JsonResponse {
+            // Legacy arm: a standalone row written before the repoint, or by
+            // the scan seeder, which still keeps its connection. Both are gone
+            // in Phase 6 with the table.
             $standalone = $this->eventRows($user)->firstWhere('resource_id', 'event-'.$id);
             if ($standalone) {
                 $this->forgetConnection($user, $standalone->resource_id);
@@ -372,6 +405,18 @@ abstract class EventsPlatformController extends ApiController
      * Account events (tagged with their account) + standalone events, elapsed
      * dropped at read time, soonest first.
      *
+     * Slice 7 Phase 4: the standalone half is read from the `events` POOL, and
+     * a connection row whose canonical URL already has a pool card is skipped
+     * so a dual-written scan seed is never listed twice. Two consequences,
+     * both accepted:
+     *
+     *  - the pool has no platform, so this per-platform endpoint now lists the
+     *    owner's hand-added and other-platform standalone events too. The
+     *    unified Tickets & Events card already merged across platforms; this
+     *    legacy surface now agrees with it rather than showing a subset.
+     *  - it must list them, not omit them: the add verb's own response IS this
+     *    shape, so an event missing from here reads as an add that did nothing.
+     *
      * @return list<array<string,mixed>>
      */
     protected function mergedEvents(User $user): array
@@ -384,8 +429,43 @@ abstract class EventsPlatformController extends ApiController
             }
         }
 
+        $cards = app(ManualEventWriter::class)->cards($user);
+
+        /** @var array<string, true> canonicalised URLs the pool already publishes */
+        $pooled = [];
+        foreach ($cards as $card) {
+            if (is_string($card['url']) && $card['url'] !== '') {
+                $pooled[strtolower(trim($card['url']))] = true;
+            }
+        }
+
         foreach ($this->eventRows($user) as $row) {
-            $events[] = [...StandaloneEventPayload::fromArray($row->payload)->event(), 'source' => 'custom'];
+            $event = StandaloneEventPayload::fromArray($row->payload)->event();
+            $link = is_string($event['link'] ?? null) ? strtolower(trim($event['link'])) : '';
+            if ($link !== '' && isset($pooled[$link])) {
+                continue;
+            }
+
+            $events[] = [...$event, 'source' => 'custom'];
+        }
+
+        foreach ($cards as $card) {
+            $events[] = [
+                'id' => $card['id'],
+                'name' => $card['name'],
+                'description' => $card['description'],
+                'link' => $card['url'],
+                'venue' => $card['venue'],
+                'location' => $card['location'],
+                'startDate' => $card['startDate'],
+                'endDate' => $card['endDate'],
+                'startsAt' => $card['startDate'],
+                'endsAt' => $card['endDate'],
+                'priceMin' => $card['priceMin'],
+                'currency' => $card['currency'],
+                'soldOut' => false,
+                'source' => 'custom',
+            ];
         }
 
         $events = $this->dropElapsed($events);

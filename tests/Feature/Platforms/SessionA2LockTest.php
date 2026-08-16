@@ -19,16 +19,23 @@
 // time, not mocked. That wall-clock cost per test IS the proof.
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Slice 7 Phase 4: addStandaloneEvent() writes an `events` POOL item, so
+    // the content lane has to exist for the case that no longer locks.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
 
 function sessionA2User(string $h): User
@@ -173,8 +180,22 @@ it('eventbrite connect (writeAccountConnection write in addAccount) is blocked b
     expect($existing->fresh()->payload['organiser'])->toBe('Original Organiser');
 });
 
-it('eventbrite addEvent (writeConnection write in addStandaloneEvent) is blocked by a held platform lock and no row is created', function () {
+// INVERTED 2026-08-16 (slice 7 Phase 4), for the same reason as its twin in
+// SessionA5LockTest. addStandaloneEvent() no longer writes
+// site.platform_connections at all — it writes a content item on a
+// deterministic, URL-derived coord — so the lost-update window PWL-4 wrapped it
+// for does not exist, and holding the eventbrite key must NOT block it.
+//
+// Kept as a success assertion rather than deleted: removing the case would
+// leave the lock's disappearance unwitnessed, and a future re-introduction of a
+// connection write on this path would then slip through silently.
+it('eventbrite addEvent does NOT contend on the platform lock, because it writes no connection', function () {
     $user = sessionA2User('eblock2');
+    $site = new Site(['subdomain' => 'eblock2', 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+    $user = $user->refresh();
+
     $eventUrl = 'https://www.eventbrite.com/e/some-event';
 
     $this->mock(EventbriteScraper::class, function ($m) use ($eventUrl) {
@@ -189,7 +210,7 @@ it('eventbrite addEvent (writeConnection write in addStandaloneEvent) is blocked
 
     try {
         actingAsUser($user)->postJson('/api/platforms/eventbrite/events', ['url' => $eventUrl])
-            ->assertStatus(423);
+            ->assertOk();
     } finally {
         $lock->release();
     }
@@ -200,6 +221,9 @@ it('eventbrite addEvent (writeConnection write in addStandaloneEvent) is blocked
             ->where('resource_kind', 'event')
             ->exists()
     )->toBeFalse();
+
+    expect(DB::connection('pgsql')->table('content.items')
+        ->where('user_id', $user->id)->where('kind', 'event')->count())->toBe(1);
 });
 
 it('eventbrite removeAccount (forgetConnection write) is blocked by a held platform lock and the account survives', function () {

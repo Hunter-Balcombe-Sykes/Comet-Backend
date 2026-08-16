@@ -13,6 +13,7 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\EventbriteScraper;
+use App\Services\Platforms\EventsSeeder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -25,7 +26,17 @@ beforeEach(function () {
     setupSectionsTables(); // also creates site.platform_connections
 });
 
-it('adding a standalone event stamps resource_kind = event', function () {
+// REPOINTED 2026-08-16 (slice 7 Phase 4). The INTERACTIVE add verbs — the
+// Tickets & Events card and POST /platforms/{platform}/events — stopped writing
+// a connection at all: a standalone event is a content item in the events pool
+// now, so there is no resource_kind for them to stamp. That half is asserted as
+// its absence in StandaloneEventPoolLaneTest.
+//
+// EventsSeeder (the link-scan / signup lane) still writes the row, deliberately
+// — the synced-modal finding lane resolves against connections — so it is now
+// the writer this FOUND-34 column assertion covers. The column and its
+// str_starts_with-replacing filter are still live; only the caller moved.
+it('seeding a standalone event stamps resource_kind = event', function () {
     $url = 'https://www.eventbrite.com/e/cool-show-123';
     $scraper = Mockery::mock(EventbriteScraper::class);
     $scraper->shouldReceive('normalizeEventUrl')->andReturn($url);
@@ -38,8 +49,7 @@ it('adding a standalone event stamps resource_kind = event', function () {
 
     $user = createTenant('rk-event');
 
-    actingAsUser($user)->postJson('/api/platforms/eventbrite/events', ['url' => $url])
-        ->assertOk();
+    expect(app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $url))->toStartWith('event-');
 
     $row = IntegrationConnection::query()
         ->where('user_id', $user->id)

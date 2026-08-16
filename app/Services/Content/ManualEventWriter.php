@@ -41,6 +41,31 @@ class ManualEventWriter
 {
     public const POOL = 'events';
 
+    /**
+     * How many events one owner may hand-add or add-by-URL.
+     *
+     * PRESERVED across the move onto the pool, not retired: idempotency on a
+     * deterministic coord stops duplicates of the SAME event, and does nothing
+     * about an unbounded number of DIFFERENT ones. That is what this limits,
+     * and relaxing it is a product decision rather than a consequence of
+     * changing where the row is stored.
+     *
+     * Two collapses were forced by the destination, and both TIGHTEN — never
+     * loosen — which is the safe direction for an abuse-surface control:
+     *
+     *  1. PER-PLATFORM → PER-OWNER. `EventsCatalog::MAX_EVENTS` and
+     *     `EventsPlatformController::MAX_STANDALONE_EVENTS` were both 10 per
+     *     platform, so an owner could hold 20 across eventbrite + humanitix.
+     *     A pool item carries no platform, so per-owner is the only form the
+     *     limit can take here.
+     *  2. It now counts every owner-authored event in the pool, including
+     *     hand-added link cards, which were uncapped before. The pool keeps no
+     *     marker for which lane wrote an item — that indistinguishability is
+     *     the point of converging them — so the count cannot be narrowed
+     *     without reintroducing one.
+     */
+    public const MAX_STANDALONE_EVENTS = 10;
+
     public function __construct(
         private readonly ProjectionWriter $writer,
         private readonly PoolSectionProvisioner $sections,
@@ -215,6 +240,68 @@ class ManualEventWriter
         SiteCacheLanes::bust([(string) $site->id]);
 
         return ['id' => $itemId, 'name' => $headline];
+    }
+
+    /**
+     * Live `event`-kind items on this owner's OWN manual source.
+     *
+     * Scoped to the manual source deliberately. The events pool also carries
+     * items the Eventbrite/Humanitix connectors project from a connected
+     * ORGANISER, and counting those against the cap would let one organiser
+     * with thirty upcoming events block every hand-add — a limit on what the
+     * owner typed must not be spent by what a connector fetched.
+     *
+     * Not `cards()`: that is pin-scoped, so an EXCLUDED event (the owner hid
+     * it) would stop counting and quietly raise the ceiling.
+     */
+    public function ownedEventCount(User $user): int
+    {
+        return DB::connection('pgsql')->table('content.items as i')
+            ->join('content.source_items as csi', 'csi.item_id', '=', 'i.id')
+            ->join('content.sources as cs', function ($join) {
+                $join->on('cs.id', '=', 'csi.source_id')->where('cs.kind', '=', 'manual');
+            })
+            ->where('i.user_id', (string) $user->id)
+            ->where('i.kind', 'event')
+            ->whereNull('i.removed_at')
+            ->distinct()
+            ->count('i.id');
+    }
+
+    /**
+     * Would adding this URL push the owner past the cap?
+     *
+     * False when the URL already resolves to one of their live items: the
+     * legacy cap only ever fired for a NEW event, so a re-add — which is an
+     * UPDATE on a stable coord, and is how a refreshed event re-lands — must
+     * keep working at the ceiling. Losing that would make every re-add fail
+     * the moment an owner filled their tenth slot.
+     *
+     * Read-then-write, with no lock: the legacy per-platform lock went with
+     * the connection write it protected, so two exactly-simultaneous adds can
+     * both pass here and land an eleventh event. A soft ceiling on
+     * owner-authored cards is not a control worth taking a cross-lane lock
+     * for; the same window has existed on the hand-add arm since convergence
+     * Phase 6.
+     */
+    public function wouldExceedCap(User $user, string $url): bool
+    {
+        if ($this->ownedEventCount($user) < self::MAX_STANDALONE_EVENTS) {
+            return false;
+        }
+
+        $held = DB::connection('pgsql')->table('content.items as i')
+            ->join('content.source_items as csi', 'csi.item_id', '=', 'i.id')
+            ->join('content.sources as cs', function ($join) {
+                $join->on('cs.id', '=', 'csi.source_id')->where('cs.kind', '=', 'manual');
+            })
+            ->where('i.user_id', (string) $user->id)
+            ->where('i.kind', 'event')
+            ->whereNull('i.removed_at')
+            ->where('csi.coord', self::coordFor(trim($url)))
+            ->exists();
+
+        return ! $held;
     }
 
     /**
