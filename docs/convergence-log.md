@@ -570,3 +570,267 @@ collapse to ONE coord. Without the dedupe those two rows would write the same
 coord twice in one run and count as two links, making the coverage gate
 unreconcilable. The test reproduces it with the whitespace pair rather than an
 impossible exact-duplicate pair.
+
+### F29 — `youtube_music` works; the stored channel id was dead (RESOLVED same day)
+
+> **RESOLUTION (2026-08-16, later the same session).** The hypothesis this
+> finding opened with — that Topic channels may not serve `videos.xml` at all —
+> is **disproven**. A confirmed Topic channel serves the feed normally, so the
+> connector's premise is CORRECT and only dev's stored id was bad. The original
+> analysis is kept below unedited because the *method* that produced the wrong
+> answer is the reusable part. Resolution detail at the end.
+
+Phase 4's §4 calls `youtube_music` "the only real `track` producer" and the
+connector's own docblock states the premise plainly: "an artist's YT Music
+presence is their auto-generated '- Topic' channel, whose uploads feed IS the
+release list — read via the same keyless channel RSS". **Tested live on
+2026-08-16, that premise did not hold for the only channel dev has.**
+
+Dev's single `youtube_music.channel` connection was soft-deleted, which is why
+0 track items existed: `SourceProvisioner::sync()` returns `retired` for a
+trashed connection and never creates a row. Restoring it (owner-approved) and
+provisioning worked — `created 1`, `auto_sync=true`, `cost_units=1` — and the
+run came back `outcome=ok` with **`records_seen=0`** and the connector's
+`empty_feed` Note.
+
+The feed itself is the reason, and it is not a connector bug:
+
+```
+GET https://www.youtube.com/feeds/videos.xml?channel_id=UC3AXBjLrXTrTpm4SwYdBYAQ
+→ HTTP 200, 720 bytes, <title>King Gizzard &amp; The Lizard Wizard</title>, 0 <entry> elements
+```
+
+That id is the one the legacy connect flow stored, and its connection payload
+url is `music.youtube.com/channel/UC3AXBjLrXTrTpm4SwYdBYAQ` — i.e. a genuine
+YouTube **Music** channel id. Controls prove the endpoint itself is healthy:
+`UC_x5XG1OV2P6uZZ5FSM9Ttw` and `UCk0fGHsCEzGig-rSzkfCjMw` both return 15
+entries.
+
+**A wrong turn worth recording, because it is the trap here.** Searching
+YouTube for "<artist> - Topic" and taking the first `channelId` returns the
+artist's MAIN channel, not the Topic channel — verified by parsing
+`ytInitialData`: the owner runs for a Tame Impala track search yield
+`UCdI8MAC5HoPJSJ4zrgDDI-Q  Tame Impala`, with no `- Topic` channel present at
+all. Pointing the dev connection at King Gizzard's main channel
+(`UCNiyS8zr2RIddszLwtoyUow`) duly landed 15 records → 15 `track` items — but
+they were festival livestreams and visualisers ("…Presents Field of Vision Live
+- Day 2"), i.e. **videos mis-typed as tracks**. They would have satisfied
+Phase 4's "track rows exist on dev" gate as a false pass. Reverted in full:
+records deleted, `source_items` deleted BEFORE `items` (that FK is `SET NULL`,
+not `CASCADE`, so the other order leaves orphans), identifier restored.
+`content.items` is back to 1068 with 0 tracks and 0 orphaned source_items.
+
+Note `ingest:project --rebuild` did **not** retire the items when its records
+were gone — it reported `0 record(s) into 0 item(s), 0 retired` and left all 15
+standing. `--rebuild` re-derives; it does not reconcile away items whose
+records no longer exist. Anything relying on it as a teardown needs the row
+deletion done explicitly, exactly as slice 6 found for its purge path.
+
+**Consequence for Phase 4.** Until a Topic-channel id is produced that actually
+serves `videos.xml` entries, the free half of Phase 4 lands nothing, and the
+phase's EXIT gate rests entirely on the paid Spotify/SoundCloud actors. Two
+possibilities remain open and are NOT distinguished by the evidence above:
+either (a) YT Music/Topic channels do not serve the uploads RSS at all, in
+which case `YoutubeMusicConnector` is unusable as written and §4's "only real
+track producer" claim is wrong; or (b) this particular id is stale/dead and a
+correct Topic id would work. Deciding between them needs one genuine Topic
+channel id — obtainable from a YouTube Music artist page's "Songs" shelf, not
+from YouTube search.
+
+The connection and its source are LEFT PROVISIONED (free, `auto_sync=true`).
+Each scheduled run costs nothing and files an `empty_feed` Note with no
+coverage claim, so nothing is tombstoned while this stays open.
+
+#### F29 resolution — how to get a Topic channel id, and the proof
+
+**Topic channels DO serve `videos.xml`.** Verified against a channel confirmed
+to be one by construction rather than by name-matching:
+
+```
+UCIxs9iTyfD_m4wN2eeZ0B5w  "bootleg gizzard - Topic"   → 15 entries, 21148 bytes
+UC3AXBjLrXTrTpm4SwYdBYAQ  dev's stored id             →  0 entries,   719 bytes
+UC_x5XG1OV2P6uZZ5FSM9Ttw  control, regular channel    → 15 entries, 25132 bytes
+```
+
+Its entry titles are clean song names — `Cyboogie (Live in Berlin '25)`,
+`Murder of the Universe (Live in Berlin '25)` — i.e. exactly the shape the
+`track` kind wants. `YoutubeMusicConnector` is sound as written; §4's "the only
+real `track` producer" claim stands.
+
+**The reliable way to obtain a Topic channel id** (the part worth reusing):
+never search for `"<artist> - Topic"` — YouTube resolves that to the artist's
+Official Artist Channel and the Topic channel is not surfaced. Instead identify
+an **art track** and read the channel id off its watch page:
+
+1. Search for an album cut (not a single — singles return official videos).
+2. Fetch each result's watch page and keep the first whose body contains
+   `Provided to YouTube by` — that string only appears on distributor-delivered
+   art tracks, so it identifies a Topic channel by construction.
+3. Read `"channelId":"UC…"` and `"ownerChannelName"` off that page. The owner
+   name ends in `- Topic`, which is the confirmation.
+
+**Live result on dev.** Repointing the connection at the verified Topic id and
+re-running landed 15 records → **15 `track` items**, the first tracks that have
+ever existed on dev:
+
+```
+f_authored on tracks   15      (creator = "bootleg gizzard")
+f_published on tracks  15
+identity keys: platform_object 15, canonical_url 15  (joining)
+               title_release   15, title_only     15 (corroborating)
+               title_loose     10                    (evidential)
+```
+
+`title_release` is the one that matters for Phase 4's dedup gate: it is
+title|artist, so it only populates because `f_authored.creator` does. **No
+`isrc` key** — the YT Music RSS carries none, exactly as F10 predicted, which
+is precisely why the paid Spotify/SoundCloud actors are the phase's other half.
+
+**Count reconciliation.** `content.items` 1068 → 1084 is +16, not +15. The
+extra is NOT this work: a `video` item created at 00:30:09, one minute BEFORE
+the track projection at 00:31:14, landed by dev's own scheduler. Same class of
+interference slice 4 recorded with its stray podcast episode — worth stating
+rather than letting a +16 read as an unexplained surplus.
+
+**A phantom defect worth not chasing twice.** `content.items.facets_cache` is a
+JSON **array of facet NAMES**, not a facet→value object. Reading
+`facets_cache->'f_authored'->>'creator'` therefore returns null for every row
+and reads as "the projector dropped the artist". The values live in the
+per-facet tables (`content.f_authored` etc.); join those.
+
+### F30 — WRONG DIAGNOSIS, kept for the lesson. Apify was fine; our call was unauthenticated
+
+> **RETRACTED 2026-08-16, same session.** Everything below is accurate about the
+> SYMPTOMS and wrong about the CAUSE. The Apify account was never broken: the
+> probes put the token in the POST **body**, where Apify reads it as actor input
+> rather than as authentication, so every call was unauthenticated. See F31.
+>
+> The reasoning error is worth keeping. The "control test" that made this look
+> account-wide — running the known-good Instagram actor — was constructed the
+> **same wrong way** as the thing it was controlling for. A control built with
+> the same defect as the experiment confirms the defect, not the hypothesis. The
+> account/token/plan evidence gathered below was all real and all irrelevant,
+> which is what made the wrong conclusion feel well-supported.
+
+Phase 4's paid lane is blocked, and **not by spend**. Probing the chosen Spotify
+actor returned `HTTP 402` before any work happened:
+
+```
+automation-lab~spotify-scraper  → 402  agentic-payment-info-retrieval-error
+                                       "X402: Failed to retrieve payment information."
+apify~instagram-profile-scraper → 402  x402-payment-required
+```
+
+The second line is the important one. `apify~instagram-profile-scraper` is the
+actor the **live Instagram lane** uses — pre-account site generation, the
+connect flow, `InstagramScraper::fetchProfileResult()`. It fails identically.
+So this is **account-wide, not actor-specific**, and it is not about which
+actor we picked.
+
+Ruled out, with evidence:
+- **Not the budget.** Read first-hand off `/v2/users/me/limits`:
+  `maxMonthlyUsageUsd 29`, `current.monthlyUsageUsd 2.809…`, cycle
+  2026-07-27 → 2026-08-26. US$26.19 remains. (Recorded because the programme
+  forbids citing another slice's checkpoint — this figure is measured here, and
+  it happens to agree with slice 4's.)
+- **Not the token.** The same token authenticates `/v2/users/me/limits` and
+  `/v2/acts/{id}` metadata calls fine. Only *running* a PPE actor is refused.
+- **Not the pricing model by itself.** Four of the five actors checked are
+  `PAY_PER_EVENT`, including the Instagram one that worked on 2026-08-12.
+
+**When it started.** `ingest.effects` on dev shows the last successful Apify
+effect as `instagram` / `ok` on **2026-08-12**; `places.details` still succeeded
+2026-08-14 but that is Google, not Apify. So the break landed after 12 Aug. The
+two `menu` / `failed` rows on 2026-08-15 are slice 4's separate missing-driver
+blocker (§23.6), not this.
+
+**Owner action required — this is not fixable from the codebase.** Check the
+Apify account's payment method / plan state at console.apify.com/billing. The
+x402 family of errors is Apify's agentic-payment path reporting it cannot
+retrieve payment information for the account, which is what an expired or
+detached card looks like from the API side.
+
+**Blast radius beyond Phase 4.** Any product flow that scrapes Instagram is
+affected while this holds: pre-account site generation (`GeneratePreAccountSiteJob`
+→ `InstagramConnectionSeeder`), the Instagram connect path, and Instagram
+auto-sync. Nothing here was verified against the production environment — that
+is out of scope for this session and no tool call named it — but the same actor
+and the same failure mode would apply wherever the credential is equivalent, so
+it is worth checking before the pilot.
+
+**What is NOT blocked.** Writing the connectors, adapters, projectors and their
+tests needs no live actor: everything is `Http::fake()`. Only Phase 4's live
+proof (its Task 7) waits on this.
+
+### F31 — The music actors: auth in the header, and the two real dataset shapes
+
+Supersedes F30. Probed live 2026-08-16 against the `partna` Apify account
+(STARTER, `isPaying: true`, US$26.18 of US$29 remaining). Total probe spend was
+a few cents.
+
+**The auth bug, which cost the most time.** Apify accepts its token as a
+`?token=` query param or an `Authorization: Bearer` header — **not** as a key in
+the JSON body. Passing `['token' => …]` in the POST body makes it part of the
+ACTOR INPUT and leaves the run unauthenticated. A pay-per-event actor rejects
+that with:
+
+```
+402  x402-payment-required / agentic-payment-info-retrieval-error
+     "X402: Failed to retrieve payment information."
+```
+
+which reads as a **billing** failure, not an auth failure — and sends you to the
+Apify billing console instead of to your own request. `InstagramScraper` has
+always used `Http::withToken()`, which is why the live Instagram lane never hit
+this. `MusicActorDriver` now matches it, pinned by a test asserting the token is
+absent from the body and an `Authorization` header is present.
+
+**Spotify — `automation-lab~spotify-scraper`, mode `urls`.** The dataset is ONE
+ARTIST object per input url; tracks hang off `topTracks`:
+
+```
+{name, url, imageUrl, monthlyListeners, followers, genres, biography,
+ topTracks: [{trackId, title, artists, duration, durationFormatted,
+              playCount, isExplicit, isPlayable, audioPreviewUrl}], …}
+```
+
+- `artists` is a plain STRING here, not a list of objects.
+- There is **no per-track url** — derived as `open.spotify.com/track/{trackId}`.
+- There is **no release date and no per-track artwork**. The artist-level
+  `imageUrl` is not the track's cover and is deliberately not emitted as one.
+- `maxResults` bounds ARTISTS, not tracks, so it stays 1 and the track cap is
+  applied in the adapter.
+- `topTracks` is the artist's ~10 TOP tracks, **not their catalogue**. Worth
+  knowing before anyone reads a Spotify track count as completeness.
+
+**Spotify has no ISRC — from either actor.** The `hipersoft~spotify-scraper`
+alternative was probed too, precisely because its listing advertises ISRC. It
+returns flat, well-formed track rows — `{type, id, name, artists, album,
+albumId, durationMs, explicit, image, url}` — and **no `isrc` field at all**.
+So F10's ISRC question is settled negatively for Spotify: dedup there rests on
+`TitleRelease` (title|artist), the corroborating tier. The listing's claim does
+not survive contact with the dataset, which is the whole reason the plan
+required a probe rather than a reading.
+
+`automation-lab` was chosen anyway, and the tie-break is identity, not fields:
+it anchors on the connection's own artist URL, while `hipersoft` accepts only
+keyword searches, which can resolve to a different artist of the same name —
+`SourceProvisioner`'s own docblock rules that worse than landing no row.
+
+**SoundCloud — `automation-lab~soundcloud-scraper`, mode `userUrl`.** The best
+result of the phase: it **does** return a real `isrc` (verified: `US38Y2548239`),
+giving `KeyClass::Isrc` its first producer since the column was created.
+
+```
+[{type:"user",  …},
+ {type:"track", id, title, url, artworkUrl, genre, tagList, duration,
+                releaseDate, createdAt, userName, userUrl, isrc, …}, …]
+```
+
+Two input details each cost a probe:
+- `startUrls` takes **plain strings**. Passing Apify's usual `[{url: …}]`
+  objects returns `201` with **zero rows** — a silent empty, not an error.
+- The artist is a flat `userName`, not a nested user object.
+
+And the profile row rides in the same list as the tracks, told apart by `type`.
+Projecting it unfiltered would land the artist themselves as a track.

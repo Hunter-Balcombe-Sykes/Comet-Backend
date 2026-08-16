@@ -11,8 +11,8 @@ use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Connectors\GoogleBusinessConnector;
 use App\Ingest\Connectors\HumanitixConnector;
 use App\Ingest\Connectors\InstagramConnector;
-use App\Ingest\Connectors\SoundcloudConnector;
-use App\Ingest\Connectors\SpotifyOembedConnector;
+use App\Ingest\Connectors\SoundcloudTracksConnector;
+use App\Ingest\Connectors\SpotifyTracksConnector;
 use App\Ingest\Connectors\SquareMenuConnector;
 use App\Ingest\Connectors\UberEatsMenuConnector;
 use App\Ingest\Connectors\VimeoConnector;
@@ -52,8 +52,8 @@ final class ConnectorRegistry
         'google_business' => GoogleBusinessConnector::class,
         'humanitix' => HumanitixConnector::class,
         'instagram' => InstagramConnector::class,
-        'soundcloud' => SoundcloudConnector::class,
-        'spotify' => SpotifyOembedConnector::class,
+        'soundcloud' => SoundcloudTracksConnector::class,
+        'spotify' => SpotifyTracksConnector::class,
         'square' => SquareMenuConnector::class,
         'uber_eats' => UberEatsMenuConnector::class,
         'vimeo' => VimeoConnector::class,

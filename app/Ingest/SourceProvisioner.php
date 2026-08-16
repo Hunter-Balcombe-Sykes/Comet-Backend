@@ -76,7 +76,7 @@ class SourceProvisioner
         $existing = DB::table('ingest.sources')
             ->where('connection_id', $connection->id)
             ->where('source_key', $sourceKey)
-            ->first(['id', 'identifier', 'auto_sync', 'selection_ref']);
+            ->first(['id', 'identifier', 'auto_sync', 'selection_ref', 'cost_units']);
 
         if ($existing === null) {
             DB::table('ingest.sources')->insert([
@@ -116,6 +116,21 @@ class SourceProvisioner
         }
         if (! $existing->auto_sync && self::schedulable($manifest)) {
             $update['auto_sync'] = true;
+        }
+        // ...and OFF again when a connector has BECOME paid. Phase 4 flipped
+        // spotify/soundcloud from keyless oEmbed to Apify actors; without this
+        // their free-era rows would have kept auto-dispatching a now-billed
+        // connector on the scheduler's cadence. The seam that makes a connector
+        // paid has to be the seam that stops it auto-running, because nothing
+        // else looks at cost class again after the row is created.
+        if ($existing->auto_sync && ! self::schedulable($manifest)) {
+            $update['auto_sync'] = false;
+        }
+        // cost_units was written once at insert and never revisited, so a
+        // connector that changed cost class kept charging the scheduler its OLD
+        // weight — a paid actor budgeted as if it were free RSS.
+        if ((int) $existing->cost_units !== $manifest->cost->budgetWeight()) {
+            $update['cost_units'] = $manifest->cost->budgetWeight();
         }
         DB::table('ingest.sources')->where('id', $existing->id)->update($update);
 

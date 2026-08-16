@@ -1,5 +1,6 @@
 <?php
 
+use App\Ingest\Manifest\CostClass;
 use App\Ingest\SourceProvisioner;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\DB;
@@ -673,4 +674,55 @@ it('accepts several --connector values at once', function () {
     expect(ingestSourceFor($square))->not->toBeNull()
         ->and(ingestSourceFor($fresha))->not->toBeNull()
         ->and(ingestSourceFor($youtube))->toBeNull();
+});
+
+// ── Cost class changes (convergence Phase 4) ────────────────────────────────
+
+it('turns auto_sync OFF when its connector has become paid, and corrects the weight', function () {
+    // Phase 4 flipped spotify from a keyless oEmbed (Free) to an Apify actor
+    // (Actor). Rows provisioned in the free era carry auto_sync=true and
+    // cost_units=1, and nothing used to turn either back down — so the
+    // scheduler would have kept dispatching a now-BILLED connector, charged at
+    // the free weight. The seam that makes a connector paid has to be the seam
+    // that stops it auto-running.
+    $connection = makeConnection(provisionerUser(), [
+        'platform' => 'spotify',
+        'payload' => ['url' => 'https://open.spotify.com/artist/5INjqkS1o8h1imAzPqGZBb'],
+    ]);
+
+    // Simulate the free-era row this connection would have had.
+    DB::table('ingest.sources')
+        ->where('connection_id', $connection->id)
+        ->update(['auto_sync' => true, 'cost_units' => 1]);
+
+    app(SourceProvisioner::class)->sync($connection->fresh());
+
+    $row = ingestSourceFor($connection);
+    expect((bool) $row->auto_sync)->toBeFalse()
+        ->and((int) $row->cost_units)->toBe(CostClass::Actor->budgetWeight());
+});
+
+it('provisions a paid connector unscheduled from the start', function () {
+    $connection = makeConnection(provisionerUser(), [
+        'platform' => 'soundcloud',
+        'payload' => ['url' => 'https://soundcloud.com/flume'],
+    ]);
+
+    $row = ingestSourceFor($connection);
+    expect((bool) $row->auto_sync)->toBeFalse()
+        ->and((int) $row->cost_units)->toBe(CostClass::Actor->budgetWeight());
+});
+
+it('leaves a free connector scheduled and does not churn its weight', function () {
+    $connection = makeConnection(provisionerUser(), [
+        'platform' => 'bandcamp',
+        'payload' => ['url' => 'https://artist.bandcamp.com'],
+    ]);
+
+    $before = ingestSourceFor($connection);
+    expect(app(SourceProvisioner::class)->sync($connection->fresh())['status'])->toBe('unchanged');
+
+    $row = ingestSourceFor($connection);
+    expect((bool) $row->auto_sync)->toBeTrue()
+        ->and((int) $row->cost_units)->toBe((int) $before->cost_units);
 });

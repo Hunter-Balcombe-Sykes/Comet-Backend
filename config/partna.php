@@ -9,6 +9,8 @@ use App\Mail\Notifications\PolicyUpdateMail;
 use App\Mail\Notifications\ProfileTaskMail;
 use App\Services\Platforms\Actors\ApifyProfileScraperAdapter;
 use App\Services\Platforms\Actors\FigueProfileScraperAdapter;
+use App\Services\Platforms\Actors\SoundcloudTracksAdapter;
+use App\Services\Platforms\Actors\SpotifyTracksAdapter;
 use App\Services\Platforms\DoorDashMenuDriver;
 use App\Services\Platforms\SquareMenuDriver;
 use App\Services\Platforms\UberEatsMenuDriver;
@@ -310,6 +312,12 @@ return [
                 'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 200),
                 'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 300),
                 'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 300),
+                // Convergence Phase 4. These MUST exist: tryClaim() defaults an
+                // unregistered actor's cap to 0, which denies every claim, so a
+                // missing entry here reads as "the connector lands nothing"
+                // rather than as a configuration error.
+                'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 50),
+                'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 50),
             ],
 
             // CFG-9: HTTP client timeout for Apify run-sync-get-dataset-items calls, which block
@@ -864,6 +872,31 @@ return [
             'url_path_extractor' => '#^/([a-zA-Z0-9_-]{3,25})/?$#',
             'handle_location' => 'path',
             'default_category' => 'streaming',
+        ],
+    ],
+
+    // Music-scraping platform registry (convergence Phase 4) — the same
+    // registry shape as 'menu' below. ONE entry per platform whose track
+    // catalogue we scrape; adding a platform = one entry here + one
+    // MusicActorAdapter class + a `music-<key>` cap in limits.apify.actors.
+    //
+    // Actor ids were chosen by live probe, not by an actor's marketing copy:
+    // the Spotify actor that DOCUMENTS isrc accepts keyword searches only,
+    // which cannot be anchored to a connection's artist URL and so risks
+    // landing a different artist's catalogue. URL-anchored identity beats a
+    // stronger dedup key where the two conflict (convergence-log F29).
+    'music' => [
+        'platforms' => [
+            'spotify' => [
+                'actor' => env('PARTNA_SPOTIFY_ACTOR', 'automation-lab~spotify-scraper'),
+                'adapter' => SpotifyTracksAdapter::class,
+                'max_tracks' => (int) env('PARTNA_SPOTIFY_MAX_TRACKS', 50),
+            ],
+            'soundcloud' => [
+                'actor' => env('PARTNA_SOUNDCLOUD_ACTOR', 'automation-lab~soundcloud-scraper'),
+                'adapter' => SoundcloudTracksAdapter::class,
+                'max_tracks' => (int) env('PARTNA_SOUNDCLOUD_MAX_TRACKS', 50),
+            ],
         ],
     ],
 

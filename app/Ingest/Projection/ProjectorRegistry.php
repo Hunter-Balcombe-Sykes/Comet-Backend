@@ -40,11 +40,13 @@ final class ProjectorRegistry
             'reviews' => GoogleBusinessReviewProjector::class,
             'media' => GoogleBusinessMediaProjector::class,
         ],
-        // spotify/soundcloud still produce `channel` — they are the kind's
-        // last producers, and Phase 4 converts them to `track`. The kind (and
-        // its facet rows) retires there, not here.
-        'soundcloud' => ['listen' => SoundcloudChannelProjector::class],
-        'spotify' => ['listen' => SpotifyChannelProjector::class],
+        // Phase 4 converted both off the retired `channel` kind: the oEmbed
+        // `listen` streams (one entity, no list) became actor-backed `tracks`
+        // streams. Dev may still hold `listen` stream rows from before that —
+        // they have no projector line by design and are cleaned up with the
+        // channel items themselves.
+        'soundcloud' => ['tracks' => SoundcloudTrackProjector::class],
+        'spotify' => ['tracks' => SpotifyTrackProjector::class],
         'square' => ['menu' => MenuItemProjector::class],
         'uber_eats' => ['menu' => MenuItemProjector::class],
         'vimeo' => ['watch' => VimeoVideoProjector::class],

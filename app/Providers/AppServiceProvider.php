@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Http\Middleware\Throttle\FailOpenThrottleRequests;
 use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
 use App\Ingest\Runtime\Effects\InstagramActorDriver;
+use App\Ingest\Runtime\Effects\MusicActorDriver;
 use App\Ingest\Runtime\Effects\PlacesDetailsDriver;
 use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
@@ -117,12 +118,14 @@ class AppServiceProvider extends ServiceProvider
 
         // Ordered, explicit driver list rather than a discovery scan: this decides
         // which (kind, name) pairs may spend money, so it should be a list someone
-        // has to edit deliberately. `actor` alone is ambiguous — the three menu
-        // connectors declare it too and have no driver, which is why they keep
-        // hitting HttpIo's throw.
+        // has to edit deliberately. `actor` alone is ambiguous — it is shared by
+        // Instagram, the music connectors and the three MENU connectors, and the
+        // menu ones still have no driver, which is why they keep hitting HttpIo's
+        // throw (established by running it, spec §23.6).
         $this->app->singleton(BilledEffectDriverRegistry::class, fn ($app) => new BilledEffectDriverRegistry([
             $app->make(PlacesDetailsDriver::class),
             $app->make(InstagramActorDriver::class),
+            $app->make(MusicActorDriver::class),
         ]));
 
         // Singleton so the request-scoped $requestCache memo actually persists

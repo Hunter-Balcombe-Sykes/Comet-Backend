@@ -55,6 +55,7 @@ use Tests\Support\Architecture\OutboundHttpScanner;
 const OUTBOUND_HTTP_ALLOWLIST = [
     // ── Pattern A — ConstantEndpoint ────────────────────────────────────────
     'app/Http/Middleware/Auth/VerifySupabaseJwt.php' => ['A', '$jwksUrl built from config(supabase.*)'],
+    'app/Ingest/Runtime/Effects/MusicActorDriver.php' => ['A', 'Apify actor endpoint from config; the artist URL is POST body, not target'],
     'app/Services/Auth/SupabaseAdminService.php' => ['A', 'Supabase admin base from config'],
     'app/Services/BotProtection/Providers/HCaptchaProvider.php' => ['A', 'hcaptcha.com verify endpoint'],
     'app/Services/BotProtection/Providers/TurnstileProvider.php' => ['A', 'Cloudflare Turnstile verify endpoint'],
