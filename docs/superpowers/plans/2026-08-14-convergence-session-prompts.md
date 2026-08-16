@@ -25,8 +25,12 @@ Order:
     driver and finishes Phase 5's proof. GATED ON F30: Apify refuses every
     pay-per-event actor account-wide until an owner fixes the payment method)
 5. `phase-4-listen`
-6. `phase-6-pseudo-platforms`
+6. `phase-6-pseudo-platforms` (PARTIAL — finish in 6b)
+6b. `phase-6-finish` (added 2026-08-16 — the five remaining write paths, the
+    shop split, the migration command, the guard and the checkpoint)
 7. `slice-7-teardown`
+7b. `programme-review` (added 2026-08-16 — whole-programme verification gate;
+    phase-8-docs may not start until it reports PASS)
 8. `phase-8-docs`
 
 ---
@@ -376,7 +380,7 @@ for owner-level decisions, the spend cap, or gate contradictions.
 
 ---
 
-## 6 — phase-6-pseudo-platforms
+## 6 — phase-6-pseudo-platforms ⚠️ PARTIAL 2026-08-16 — units 1-3 + custom links merged (`2e38cdb25`); finish in 6b
 
 ```
 NOTE FROM PHASE 4 (2026-08-16, spec §24). spotify and soundcloud are no longer
@@ -427,6 +431,79 @@ for owner-level decisions, a connection with no home, or gate contradictions.
 
 ---
 
+## 6b — phase-6-finish (added 2026-08-16)
+
+```
+Rename this session to phase-6-finish.
+
+Finish convergence Phase 6. Prompt 6 ran on 2026-08-16 and merged roughly a
+third of it to `development` as `2e38cdb25` / `5575adf95`; the rest is yours.
+Serial, dev only, prod out of scope.
+
+READ FIRST, in this order — they carry the owner rulings and the measured state,
+and re-deriving them costs a day:
+  1. docs/superpowers/plans/2026-08-16-phase-6-pseudo-platforms-plan.md
+     — its STATUS section is the handoff. Four owner rulings taken 2026-08-16,
+       the full 41-row disposition table with each destination verified live,
+       and a numbered list of what remains with the trap for each.
+  2. The parent spec's §22 (custom links pool) and §23 (slice 4) for context.
+
+ALREADY DONE — do not redo:
+- The public-allowlist gap is closed and a live defect fixed with it
+  (doordash/menulog/uber_eats/shopify were publishing EMPTY payloads and
+  reporting MissingPublicAllowlistException on every public request,
+  Nightwatch #436). The coverage guard now iterates CATALOG surfaces, not just
+  the frozen 78 registry keys.
+- Classification and routing are per-brand. The booking XOR and the reservations
+  single-slot clear now key on `routing_class`.
+- Custom links are `custom_links` POOL items end to end — LinkPoolWriter /
+  LinkPoolReader / EnrichPoolLinkJob, CustomLinksController and
+  CustomLinkSeeder both on that lane. `partna.custom_link` is closed.
+
+WORK — the remaining five write paths, then the data:
+1. online-ordering, booking, reservations, events-custom stop writing partna.*.
+   Unbranded/no-home rows go to the links pool with their provider label
+   (owner ruling 2A) — LinkPoolWriter is already built for exactly this.
+2. The shop marker splits into ONE CONNECTION PER STORE on shopify.store /
+   woocommerce.store (owner ruling 4 / option B). Largest piece; overlaps
+   slice 7's scheduled rework of site.shop_brands.
+3. A migration command for the 41 rows per the disposition table. Idempotent,
+   --dry-run, coverage gate derived twice (the house pattern — once in PHP with
+   the app's own hash, once in SQL with pgcrypto).
+4. THEN enable IntegrationConnection's retirement guard. The const
+   RETIRED_SURFACES is already declared and the throw deliberately deferred:
+   turning it on before the paths above land only makes every unmigrated caller
+   throw. Observed cost of getting this order wrong: 10 red tests.
+5. account-capability-audit skill over everything touched; a test pinning that
+   RoutingCapabilityGate keys on routing_class; checkpoint with live SQL into
+   the parent spec.
+
+TRAPS, each already paid for once:
+- SiteActionsService::pool() keys ordering actions on
+  connectionsByPlatform['online-ordering']. Move ordering to brand surfaces
+  without moving that and the public "Order online" actions vanish silently.
+- Keep ordering resource_id stable (`order-<hash>`): action ids are
+  `ordering:<resource_id>` and users store preferences against them.
+- LegacyPlatformMap and PlatformRegistry are FROZEN at 78 slugs
+  (CatalogLegacyMapTest pins the map pair-for-pair to the 20260727110001
+  backfill CASE). New brands are CATALOG-ONLY. Writers pass the SURFACE KEY.
+- A pool item needs a section, which hangs off the SITE. A siteless fixture
+  user silently gets nothing — this is why ~11 test files needed sites.
+- Cross-file test helper names collide at load time and fatal the run.
+- `platform` is a GENERATED column; never match a surface key against it.
+
+Autonomy: implement → test → merge to development → deploy dev without sign-off.
+Stop ONLY for owner-level decisions, a connection with no home, or gate
+contradictions. The four rulings in the plan doc are already given — do not
+re-ask them.
+
+EXIT: no write path can create a partna.* connection (guarded by a test); all 41
+migrated per the disposition table; nine CI jobs green; checkpoint with live SQL
+into the parent spec.
+```
+
+---
+
 ## 7 — slice-7-teardown
 
 ```
@@ -464,6 +541,78 @@ docs/2026-08-05-platforms-as-sources.md saying what is actually true.
 
 Autonomy: within the gates, proceed to merge + deploy dev without sign-off. Every gate is
 a hard stop; anything that contradicts one is STOP AND RAISE, never an edit.
+```
+
+---
+
+## 7b — programme-review
+
+```
+Rename this session to programme-review.
+
+You are the whole-programme verification gate for the Content Pool Convergence
+programme. Run AFTER slice-7-teardown, BEFORE phase-8-docs. Serial, dev only, prod out
+of scope. This session writes no feature code: it verifies, audits and files findings.
+Fixes follow scripts/audit/fix-flow.md in their own sessions — the only in-place fixes
+permitted here are the opportunistic-P3 rule from CLAUDE.md.
+
+1. CHECKPOINT RE-VERIFICATION (rule zero — trust nothing, cite nothing). For every
+   checkpoint in the parent spec — §12–§19, slice 6's inline §7 block, and every section
+   the later sessions added (§20+, incl. slices 4/4b, custom-links, phases 4/6, slice 7)
+   — re-run the checkpoint's live SQL on dev and confirm each claim still holds. An
+   assertion that no longer holds reopens its owning slice: STOP and raise; do not patch
+   it here and do not tick anything.
+
+2. LEGACY-ZERO SWEEP. Grep app/, routes/, config/, tests/ for any surviving reader of
+   every retired store and lane: site.menu_items, site.services, site.shop_products,
+   site.content_selection, site.themes, settings.design.*, profile_fields, the four
+   retired review wire keys, designMedia/gallery/siteImages, the demoted connectors
+   (twitch/skool/strava/gumroad/substack), the article and channel kinds. A green suite
+   is not evidence — read the grep hits. Then the inverse (invariant #2): every kind in
+   KindRegistry must have a live writer, a pool (or a recorded exemption like document),
+   and a wire read path.
+
+3. ALL TEST LANES, LOCALLY — CI is not your test runner, and composer test alone proves
+   little here: composer test (serial, on purpose); pest --parallel --processes=4;
+   composer test:pg (tests/Postgres/ — ProjectionWriter changed repeatedly this
+   programme); composer test:schema (applied-schema lane — pins the architecture
+   constraints composer test never sees); the authz lane WITH Postgres up ("31 skipped"
+   reads green but tests nothing).
+
+4. AUDIT PIPELINE — never hand-write findings: scripts/audit/audit.sh --bundle pre-merge
+   --changed-since <the commit immediately before slice 0 merged; derive it from the
+   parent spec §13 baseline>. If that delta exceeds ~100K tokens, split into targeted
+   runs per scripts/audit/campaigns.md (pools/resolver, ingest/projection, migration
+   commands, wire resources, the 301 slug lane) — narrow runs find more than sweeps.
+   Never run two audit.sh at once.
+
+5. CODE + SECURITY REVIEW: /code-review high over the programme's cumulative diff for
+   correctness; /security-review over the new public surface (pools wire, custom_links,
+   source_stats, content.item_slugs 301 lane, the storefront/order-platform cards).
+   Verify the paid-connector guardrails specifically: every CostClass::Actor source is
+   auto_sync=false, and nothing re-enables scheduling on a paid surface.
+
+6. LIVE SURFACE: cloud env:logs partna development --minutes 30; Nightwatch scan for
+   anything first-seen since the programme's first merge; spot-check the public wire for
+   2–3 real handles — pools present and populated, legacy keys absent, migrated menu
+   slugs 301-ing, pools.reviews.stats serving.
+
+7. WIRE MANIFESTS vs REALITY: verify every docs/wire-changes/ manifest against actual
+   wire output. These are the frontend rebuild's input — a manifest that misdescribes
+   the wire is a P1 finding, not a docs nit.
+
+8. KNOWN OPEN ITEMS — confirm each is still recorded, not silently lost: 4b/Phase 5's
+   menu-actor proof if still F30-blocked (Apify payment); LEGAL-2; the RLS
+   accepted-posture revisit; Google aggregates cadence; prod reconciliation deferred;
+   the two slice-4 product questions if still open.
+
+DELIVERABLE: the audit output folder(s) with CONSOLIDATED.md, plus a review record in
+the parent spec ending in ONE of: PASS — phase-8-docs may run; or BLOCKED — a named
+list of findings each assigned to its owning slice/session. Do not archive, do not tick
+other slices' boxes, do not fix what you find (file it).
+
+Autonomy: verification, audits and filed findings without sign-off. Any reopened
+checkpoint, any auth/money finding, any P0: STOP for the owner.
 ```
 
 ---
