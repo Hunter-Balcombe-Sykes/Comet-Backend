@@ -4,15 +4,35 @@ Kickoff: `2026-08-12-slice-7-teardown-KICKOFF-PROMPT.md`, process step 1.
 Parent spec: `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md`.
 Run against **dev** (`glncumufgaqcmqhzwrxm`) on 2026-08-16. Production not touched.
 
-**VERDICT: gate 1 (coverage) PASSES. The teardown is BLOCKED anyway.**
+**VERDICT: gate 1 (coverage) PASSES. The slice is unblocked and is XL, not M.**
 
-Two live write lanes into tables on the drop list were never repointed by their
-owning slices. Per the kickoff's divergence table — *"Something still reads a
-table you are about to drop → **STOP.** The owning slice repoints it"* — this is
-a hard stop, not an edit and not a scope extension for slice 7 to absorb.
+No `DROP` has been written, no migration authored, no backup taken. Nothing has
+been executed beyond read-only verification.
 
-No `DROP` has been written, no migration authored, no backup taken. Nothing in
-this slice has been executed beyond read-only verification.
+> **Correction, same day.** The first version of this report called the slice
+> BLOCKED, on the grounds that two live write lanes into drop-list tables had
+> never been repointed and that the kickoff's divergence table therefore made
+> them a stop for their owning slices. **That was wrong**, and it was wrong
+> because this report was written from the kickoff's unit list and slice 4's
+> design-doc §14 ("Out of scope: dropping any legacy table … the menu tables
+> stay") without checking the wire manifests. The manifests assign both lanes to
+> slice 7 in as many words:
+>
+> - Slice 4, `wire-changes/2026-08-12-slice-4-menus.md` §6: *"Both lanes run side
+>   by side until **slice 7 retires the legacy one**"* — naming
+>   `GET /api/public/profiles/{handle}/menu` and `GET /platforms/menu`.
+> - Slice 3a, `wire-changes/2026-08-13-slice-3a-services.md` "Not dropped":
+>   *"that is slice 7. **Both the Fresha half's reads/writes** and
+>   `PurgeSoftDeleted`'s purge … continue against the live table."*
+>
+> Nothing is unowned, so the divergence table does not fire. The findings below
+> stand as **scope**, not blockers — and they matter, because the kickoff's unit
+> list names only `ShopContentWriter` and `CloudflarePurgeService` as repointing
+> work and therefore materially understates the slice.
+>
+> The lesson for whoever reads this next: **a slice's design doc says what that
+> slice did; its wire manifest says who inherits what it left.** For "who owns
+> this leftover", the manifest is the authority.
 
 ---
 
@@ -141,14 +161,16 @@ content.item_slugs  365
 
 ---
 
-## 2. Gate 3 — "nothing still reads the legacy tables". **FAILS on two lanes.**
+## 2. Gate 3 — "nothing still reads the legacy tables". Two lanes still do, and both are THIS SLICE'S WORK.
 
 The kickoff's entry gate item 3 is *"Nothing still reads the legacy tables —
-grep the codebase; a green suite is not evidence."* It does not hold. Neither
-finding is a stale comment or a dead code path; both were confirmed against
-`routes/` and `php artisan route:list`.
+grep the codebase; a green suite is not evidence."* Two lanes still do. Both
+were deferred here in writing (see the correction at the top), so neither is a
+stop — but both are write-lane cutovers, and **the DROP is the last step of each,
+not the whole of it**. Confirmed against `routes/` and `php artisan route:list`,
+not comments.
 
-### 2.1 STOP — the entire legacy menu lane was never repointed. Owner: slice 4.
+### 2.1 The legacy menu lane — 14 routes, two background writers, no dual-write
 
 Slice 4 migrated menu **data** into `content.*` and stood the pool up beside the
 legacy wire. Its own spec §14 says so explicitly: *"Dropping any legacy table.
@@ -190,11 +212,12 @@ command that reads `site.menu_items`. Drop the table and 288 of the 318 dishes
 (all but Phase 5's 30 DoorDash items) have **no writer at all** — `pools.menus`
 freezes permanently at its 2026-08-15 snapshot while the owner's dashboard 500s.
 
-Repointing this is a slice, not a unit: a public wire change with its own
-manifest, an owner-authoring surface, a scrape lane and a scan lane. It is
-slice 4's to do, and slice 4 declared it out of scope.
+**So the ordering is forced: the `content.*` write paths land FIRST, the DROP
+last.** This is a unit in its own right — a public wire change with its own
+manifest, an owner-authoring surface, a scrape lane and a scan lane — and the
+kickoff's §9 unit list does not contain it.
 
-### 2.2 STOP — `site.services` is still the live Fresha write target. Owner: slice 3b.
+### 2.2 `site.services` is still the live Fresha write target
 
 `App\Services\Platforms\FreshaServiceProjector` (the **legacy** projector, not
 `App\Ingest\Projection\FreshaServiceProjector`) writes `site.services` rows with
@@ -212,10 +235,12 @@ The blob it composes is **on the public wire**:
 `PublicIntegrationConnectionResource:111` allowlists `'fresha' => ['url',
 'selection']`.
 
-Slice 3b cut the service **read** surfaces (18 owner routes, 2 staff
-controllers) onto `content.*`. It did not retire this writer, and its carry-over
-list to slice 7 does not name it. Dropping `site.services` breaks Fresha
-connect, refresh, selection-save, and the public booking blob.
+Slice 3a/3b cut the service **read** surfaces (18 owner routes, 2 staff
+controllers) onto `content.*` and left this writer live **on purpose** — 3a's
+manifest says the Fresha half's reads/writes "continue against the live table"
+until slice 7. Same ordering rule as the menu lane: `payload.selection` must be
+composed from `content.*` (or the blob retired) **before** the DROP, or Fresha
+connect, refresh, selection-save and the public booking blob all break.
 
 ### 2.3 In scope, but larger than the kickoff states
 
@@ -236,8 +261,8 @@ Not stops — recording them so the scope is not rediscovered mid-teardown.
 - **The standalone-events four-step is entirely undone.** Dev carries **2 live
   standalone `event` rows** (`eventbrite`, `resource_kind='event'`,
   `deleted_at IS NULL`) — the same 2 slice 2 measured. None of §7's four steps
-  has been started. The kickoff assigns them to this slice, so this is scope,
-  not a stop, but it is slice-sized work sitting inside a slice sized "M".
+  has been started. The kickoff assigns them to this slice — slice-sized work
+  sitting inside a slice sized "M".
 
 ### 2.4 What is genuinely clear
 
@@ -255,24 +280,37 @@ Not stops — recording them so the scope is not rediscovered mid-teardown.
 
 ---
 
-## 3. What this slice did NOT do
+## 3. State at the end of this report
 
-No spec, no plan, no worktree, no migration, no backup, no code change. Step 1
-of the kickoff's process is a stop, and it stopped. The `pg_dump` gate is not
-worth spending against a teardown that cannot proceed.
+No spec, no plan, no worktree, no migration, no backup, no code change — step 1
+of the kickoff's process is a stop for sign-off, and it stopped there. The
+`pg_dump` gate has not been spent, correctly: it should be taken against the
+schema as it stands immediately before the first DROP, which is now several
+units away.
 
-## 4. What unblocks it
+## 4. The unit list the kickoff is missing
 
-Two slices reopen. Neither is slice 7's to write:
+The kickoff's §9 gives units 1–6 and names two repointing jobs
+(`ShopContentWriter`, `CloudflarePurgeService`). The gate found four more, and
+two of them are cutovers rather than tidy-ups. Ordering is not cosmetic — **every
+`content.*` write path lands before the DROP that removes its legacy twin**, or
+the pool freezes with no writer:
 
-1. **Slice 4 (menus)** — move the 14 routes, `MenuFetchJob` and
-   `MenuScanApplier` onto `content.*`, with a wire manifest for the public
-   `/menu` endpoint.
-2. **Slice 3b (services)** — retire `App\Services\Platforms\FreshaServiceProjector`,
-   composing `payload.selection` from `content.*` instead, or retire the blob.
+| # | Unit | Size | Why it must precede its DROP |
+|---|---|---|---|
+| A | Menu write lane → `content.*` — 10 owner routes, `MenuController`, `MenuFetchJob`, `MenuScanApplier` | **L** | `content:backfill-menus` is the only writer of 288 of the 318 dishes and it reads the dropped table |
+| B | Public `/menu` endpoint → `content.*` | **M** | Public wire; needs its own manifest |
+| C | Fresha `payload.selection` composed from `content.*`, or retired | **M** | Public wire (`PublicIntegrationConnectionResource:111`); breaks connect/refresh/save otherwise |
+| D | Standalone events four-step (parent §7) | **M** | Step 3 is a breaking wire change; steps 1–2 stop it being data loss |
+| E | `site.content_selection` — 4 owner routes retired or repointed to `pool:media` | **S** | Live write target; grows the dropped set on every re-curate |
+| F | Legacy assignment sync on both reorder verbs | **S** | Small; same shape as 3b's handed-over staff `index` merge |
 
-Then slice 7 re-runs this entry gate from scratch — including §1, because these
-figures will be stale by then — and proceeds to the backup and the DROPs.
+Then units 1–6 as the kickoff has them, backup, and the DROPs last.
+
+**This is why the slice is XL.** Not because the gate failed — it passed — but
+because "retire the legacy lane" was deferred here five separate times, by four
+slices, each correctly and each in one line of its own manifest.
 
 Reference figures above are 2026-08-16 dev. They are a snapshot, not a licence
-to skip re-derivation. Invariant #5 applies to this document too.
+to skip re-derivation, and they will be stale by the time the DROPs run.
+Invariant #5 applies to this document too.

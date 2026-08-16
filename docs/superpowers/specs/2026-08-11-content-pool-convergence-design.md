@@ -565,24 +565,22 @@ split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 | 5a | Shop data move → `content.*` | L | **Merged** — checkpoint §16 | — |
 | 5b | Shop pool + public render | M | **Merged** — checkpoint §18 | — |
 | 6 | Reviews → `content.*` | M | **Merged, CLOSED, live-verified** — checkpoint inline in §7 (commit `e82890b1e`) | — |
-| 7 | Legacy teardown | M | **BLOCKED at its entry gate, 2026-08-16** — coverage green, two live write lanes unrepointed. Report: `plans/2026-08-16-slice-7-entry-gate-report.md` | **4** (whole legacy menu lane: 14 routes + `MenuFetchJob` + `MenuScanApplier`, no dual-write) **and 3b** (`Services\Platforms\FreshaServiceProjector` still writes `site.services` and composes the public booking blob); **+ standalone events**; frontend gate overridden by owner ruling 2026-08-14 (rebuild, not repair — see convergence-log F17) |
+| 7 | Legacy teardown | ~~M~~ **XL** | Entry gate run 2026-08-16 — **coverage green**, re-scoped to XL. Report: `plans/2026-08-16-slice-7-entry-gate-report.md` | — (unblocked; the menu and Fresha write lanes are this slice's own work, deferred here in writing by slices 4 and 3a) **+ standalone events**; frontend gate overridden by owner ruling 2026-08-14 (rebuild, not repair — see convergence-log F17) |
 
 Everything except 7 is merged with a checkpoint on record (§12–§19, §23 and §25;
-slice 6's is inline in §7). ~~**Slice 4 landed 2026-08-16 — 7 is unblocked**~~,
-with the carry-overs in §23.10.
+slice 6's is inline in §7). **Slice 4 landed 2026-08-16 — 7 is unblocked**, with
+the carry-overs in §23.10.
 
-**Corrected 2026-08-16 by slice 7's entry gate: 7 is NOT unblocked.** Slice 4
-landing made the menu *data* available in `content.*`; it did not move a single
-menu read or write path off the legacy tables, and said so in its own §14 ("the
-menu tables stay"). Fourteen live routes — including the public
-`GET /api/public/profiles/{handle}/menu` — plus `MenuFetchJob` and
-`MenuScanApplier` still read and write `site.menu_items` and its three children,
-with **no dual-write to `content.*` anywhere**. Separately,
-`App\Services\Platforms\FreshaServiceProjector` is still the live writer of
-`site.services` and composes the `fresha.selection` blob that
-`PublicIntegrationConnectionResource` puts on the public wire. The teardown's
-coverage gate passes; its "nothing still reads the legacy tables" gate does not.
-Full evidence: `docs/superpowers/plans/2026-08-16-slice-7-entry-gate-report.md`. §23.6's open question — the unwired menu actor driver
+**Sharpened 2026-08-16 by slice 7's entry gate — "unblocked" is true, "M" is
+not.** Slice 4 landing made the menu *data* available in `content.*`; it moved no
+menu read or write path off the legacy tables, and deferred that explicitly to
+this slice (its wire manifest §6: *"Both lanes run side by side until slice 7
+retires the legacy one"*). Slice 3a deferred the Fresha half of services the same
+way (*"that is slice 7. Both the Fresha half's reads/writes … continue against
+the live table"*). So nothing is unowned and nothing is blocked — but slice 7
+carries **two write-lane cutovers plus the standalone-events four-step**, none of
+which the "M" estimate or the kickoff's unit list accounts for. See §7 slice 7
+and `docs/superpowers/plans/2026-08-16-slice-7-entry-gate-report.md`. §23.6's open question — the unwired menu actor driver
 — was closed the same day (§25); what carries forward from it is narrower and
 needs an owner call, not code: cross-platform menu identity and §8.3's
 hard-delete of uncurated losers are **still unexercised**, because only one of
@@ -1187,26 +1185,31 @@ Nightwatch: no new exceptions since the deploy (most recent open issue last seen
 ### Slice 7 — Legacy teardown · M
 Drop the ten tables in §1.4. Re-home the orphaned observers and policies (§9).
 
-> **BLOCKED at the entry gate, 2026-08-16 — read this before planning.** The
-> §8.4 coverage gate is **green**, re-derived live and not cited (report:
-> `plans/2026-08-16-slice-7-entry-gate-report.md`). The blocker is the *other*
-> entry-gate item: two live write lanes into drop-list tables were never
-> repointed, and per the kickoff's divergence table that is a stop for the
-> owning slice, not scope for this one.
+> **Re-scoped 2026-08-16 by its own entry gate: this is XL, not M.** The §8.4
+> coverage gate is **green**, re-derived live and not cited (report:
+> `plans/2026-08-16-slice-7-entry-gate-report.md`). What the "M" estimate missed
+> is that **two whole write lanes were deferred into this slice in writing**, and
+> retiring them is not deletion — it is building their `content.*` replacements:
 >
-> 1. **Menus (slice 4's).** 14 live routes — including the public
->    `GET /api/public/profiles/{handle}/menu` — plus `MenuFetchJob` and
->    `MenuScanApplier` read and write the four menu tables with **zero**
->    `content.*` dual-write. The only ongoing writer of the 318 migrated
->    `menu_item` coords is `content:backfill-menus`, which reads the table being
->    dropped; after a DROP, 288 of the 318 dishes have no writer at all.
-> 2. **Fresha services (slice 3b's).** `App\Services\Platforms\FreshaServiceProjector`
->    still writes `site.services` and composes `payload.selection`, which
->    `PublicIntegrationConnectionResource:111` ships on the public wire.
+> 1. **The legacy menu lane.** Slice 4's wire manifest §6: *"Both lanes run side
+>    by side until slice 7 retires the legacy one."* That is 14 live routes —
+>    including the public `GET /api/public/profiles/{handle}/menu` — plus
+>    `MenuFetchJob` (the scrape lane) and `MenuScanApplier`, none of which
+>    dual-writes to `content.*` today. **The trap:** the only ongoing writer of
+>    the 318 migrated `menu_item` coords is `content:backfill-menus`, which reads
+>    the table being dropped. Drop first and 288 of 318 dishes have no writer at
+>    all — `pools.menus` freezes while the dashboard 500s. The owner-authoring
+>    and scrape paths must land on `content.*` **before** the DROP, not with it.
+> 2. **The Fresha half of services.** Slice 3a's wire manifest: *"that is slice 7.
+>    Both the Fresha half's reads/writes … continue against the live table."*
+>    `App\Services\Platforms\FreshaServiceProjector` writes `site.services` and
+>    composes `payload.selection`, which `PublicIntegrationConnectionResource:111`
+>    ships on the public wire. Same rule: compose from `content.*` first.
 >
-> The size estimate above ("M") assumed both lanes were already repointed. They
-> are not, and this slice is also carrying the standalone-events four-step
-> below, which is itself slice-sized. Re-estimate before scheduling.
+> Add the standalone-events four-step below, which is itself slice-sized, and the
+> four `site.content_selection` owner routes (§1.4), and the unit list in the
+> kickoff — which names only `ShopContentWriter` and `CloudflarePurgeService` as
+> repointing work — is materially incomplete. Re-estimate before scheduling.
 
 **Gate:** the §8.4 coverage gate green on dev for every migrated type. Irreversible
 in practice — Supabase is Pro since 2026-08-14 (daily backups), but the `pg_dump`
