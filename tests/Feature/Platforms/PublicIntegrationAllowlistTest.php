@@ -392,7 +392,7 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
     expect($platforms['vimeo'][0]['payload'])->not->toHaveKey('highlights');
 });
 
-it('publishes nothing for a retired events ACCOUNT row but keeps the standalone one', function () {
+it('publishes nothing for a retired events row, ACCOUNT or STANDALONE', function () {
     $user = allowlistUser('allowevents');
 
     $enriched = [
@@ -414,11 +414,11 @@ it('publishes nothing for a retired events ACCOUNT row but keeps the standalone 
         'link' => 'https://www.eventbrite.com/e/warehouse-rave-tickets-123',
     ];
 
-    // Slice 2 Task 9 retired the ACCOUNT half of this lane: its upcoming[]
-    // used to pass through whole, and the same events now reach the wire via
-    // profile.pools.events with more detail. The STANDALONE row is kept —
-    // it has no ingest connector, so it lands no content item and the pool
-    // cannot represent it at all.
+    // Slice 2 Task 9 retired the ACCOUNT half of this lane; slice 7 Phase 4
+    // retired the STANDALONE half. Both kinds now publish `[]`, and every
+    // event reaches the wire through profile.pools.events instead — the
+    // standalone ones because StandaloneEventBackfiller carried them onto
+    // content.* and EventsCatalog::storeStandalone() lands new ones there.
     IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'eventbrite',
@@ -452,20 +452,10 @@ it('publishes nothing for a retired events ACCOUNT row but keeps the standalone 
     // are different mechanisms and only one is doing the work now.
     expect($platforms['eventbrite'][0]['payload'])->not->toHaveKey('hiddenEventIds');
 
-    // The standalone row still carries its enriched top-level keys...
-    $standalone = $platforms['humanitix'][0]['payload'];
-    expect($standalone)->toMatchArray([
-        'kind' => 'event',
-        'description' => 'All-night warehouse party.',
-        'startsAt' => '2026-09-05T21:00:00+10:00',
-        'priceMin' => 20.0,
-        'currency' => 'AUD',
-        'soldOut' => false,
-        'venue' => 'The Depot',
-    ]);
-    // ...minus slug/aliases, whose annotation went with the lane.
-    expect($standalone)->not->toHaveKey('slug');
-    expect($standalone)->not->toHaveKey('aliases');
+    // The standalone row publishes nothing either, as of slice 7 Phase 4 —
+    // every one of its seventeen enriched top-level keys is gone from this
+    // surface, not a filtered subset of them.
+    expect($platforms['humanitix'][0]['payload'])->toBe([]);
 });
 
 it('keeps the stored bandcamp releases grid and stale highlights off the public wire', function () {

@@ -63,12 +63,19 @@ it('publishes nothing for an events account row', function () {
     expect($payload)->toBe([]);
 });
 
-// The ONE part of the lane that is NOT retired. A standalone row has no
-// ingest connector (ConnectorRegistry::MAP holds eventbrite/humanitix only,
-// and SourceProvisioner provisions from an ORGANISER url), so it lands no
-// content.items and has no pool representation. Emptying its allowlist too
-// would make the whole add-an-event-by-URL feature publicly inert.
-it('keeps publishing a standalone event row, which the pool cannot represent', function () {
+// RETIRED 2026-08-16 (slice 7 Phase 4 — parent §7 step 3). Slice 2 left this
+// arm publishing because a standalone row has no ingest connector
+// (ConnectorRegistry::MAP holds organiser-level eventbrite/humanitix only) and
+// so had no pool representation at all. Slice 0b's manual write lane gave it
+// one: StandaloneEventBackfiller carries every existing row onto content.* and
+// EventsCatalog::storeStandalone() lands every new one there, so
+// `profile.pools.events` now serves these events with the occurrence, place
+// and price facets this flat payload could not carry — plus slug/aliases from
+// content.item_slugs.
+//
+// This is the LAST reader of the legacy events wire. Nothing on
+// /integrations publishes an event any more, for any row kind.
+it('publishes nothing for a standalone event row', function () {
     $user = retiredLaneUser('evstandalone1');
 
     IntegrationConnection::create([
@@ -84,17 +91,10 @@ it('keeps publishing a standalone event row, which the pool cannot represent', f
         ->assertOk()
         ->json('data.platforms.humanitix.0.payload');
 
-    expect($payload['kind'])->toBe('event');
-    expect($payload['name'])->toBe('Comedy Gala');
-    expect($payload['venue'])->toBe('The Depot');
-    // slug/aliases are GONE even here: the annotation that wrote them went
-    // with the lane, and a standalone event has no content item to carry a
-    // content.item_slugs row.
-    expect($payload)->not->toHaveKey('slug');
-    expect($payload)->not->toHaveKey('aliases');
+    expect($payload)->toBe([]);
 });
 
-it('keeps publishing a standalone events-custom row', function () {
+it('publishes nothing for a standalone eventbrite row either', function () {
     $user = retiredLaneUser('evstandalone2');
 
     IntegrationConnection::create([
@@ -110,8 +110,13 @@ it('keeps publishing a standalone events-custom row', function () {
         ->assertOk()
         ->json('data.platforms.eventbrite.0.payload');
 
-    expect($payload['name'])->toBe('Launch Party');
+    expect($payload)->toBe([]);
 });
+
+// The third member of the retired trio, `events-custom`, has no case of its
+// own: IntegrationConnection::RETIRED_SURFACES refuses the write, so a fixture
+// for it cannot exist. Its allowlist entry is `[]` alongside the other two and
+// the standalone branch that could have overridden it is gone.
 
 // hiddenEventIds was ALWAYS private, and must stay private now that the
 // payload is empty rather than filtered — the two are different mechanisms

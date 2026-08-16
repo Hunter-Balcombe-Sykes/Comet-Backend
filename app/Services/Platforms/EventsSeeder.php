@@ -5,6 +5,8 @@ namespace App\Services\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Content\ManualEventWriter;
+use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -29,7 +31,17 @@ class EventsSeeder
     /** Mirrors ManagesIntegrationConnection::maxAccounts() — keep in lockstep. */
     private const MAX_ACCOUNTS = 5;
 
-    /** Mirrors EventsPlatformController::MAX_STANDALONE_EVENTS — keep in lockstep. */
+    /**
+     * The scan lane's OWN cap, per platform, on CONNECTION rows — deliberately
+     * still this and not ManualEventWriter::MAX_STANDALONE_EVENTS.
+     *
+     * The two govern different things and always did: this bounds what an
+     * automatic scan may seed per platform, that bounds what an owner may add
+     * by hand. Slice 7 Phase 4 left the pool half of seedStandalone() UNCAPPED
+     * for exactly that reason — every row this seeder wrote used to publish, so
+     * capping the item while still writing the connection would resurrect the
+     * invisible-event bug this phase exists to fix.
+     */
     private const MAX_STANDALONE_EVENTS = 10;
 
     private const PLATFORMS = ['eventbrite', 'humanitix'];
@@ -115,6 +127,28 @@ class EventsSeeder
      * Seed one STANDALONE event row from a scanned event-page link. Returns the
      * resource_id written (or of the row that already held this event), null
      * when nothing was written. See seedAccount() for why it is the id.
+     *
+     * Slice 7 Phase 4 made this a DUAL WRITE: the connection row below, plus a
+     * `content.items` row in the `events` pool through the same
+     * ManualEventWriter lane the two interactive add verbs now use. The item is
+     * what PUBLISHES — the standalone payload on the public integrations wire
+     * is empty as of this phase, so seeding only the connection would land an
+     * event nobody can see.
+     *
+     * The connection is KEPT rather than repointed, unlike those two verbs,
+     * because it is what the synced-modal finding lane resolves against:
+     * shapeFinding() in BOTH InstagramController and GoogleBusinessController
+     * looks a seeded finding up by `platform|resourceId` over connection rows
+     * and derives its status from `last_refresh_status`, dropping anything it
+     * cannot match. Teaching that lane to resolve a pool item is its own piece
+     * of work in the scan surface, and doing it here would silently remove
+     * every scanned event from the modal.
+     *
+     * Not a lane that can disagree: the connection publishes `[]` either way,
+     * so it is dashboard-and-scan bookkeeping now — exactly what an events
+     * ACCOUNT row became in slice 2. Both selection readers skip a connection
+     * row whose canonical URL already has a pool card, so the pair is never
+     * listed twice.
      */
     public function seedStandalone(User $user, string $platform, string $url): ?string
     {
@@ -143,7 +177,7 @@ class EventsSeeder
             return null;
         }
 
-        return $this->locked($platform, $user, function () use ($user, $platform, $rid, $payload): ?string {
+        $written = $this->locked($platform, $user, function () use ($user, $platform, $rid, $payload): ?string {
             $events = $this->liveRows($user, $platform)
                 ->filter(fn (IntegrationConnection $r) => $r->resource_kind === 'event');
 
@@ -169,6 +203,32 @@ class EventsSeeder
 
             return $rid;
         });
+
+        if ($written === null) {
+            return null;
+        }
+
+        // The publishing half, OUTSIDE the connection lock: it writes
+        // content.*, not site.platform_connections, so holding a
+        // platform-connection key across it would serialise two unrelated
+        // stores. Best-effort for the same reason the whole seeder is — a
+        // scan seed must never throw into its caller — and a siteless owner
+        // simply has nowhere to pin a pool item, which is an ordinary outcome
+        // here rather than a failure.
+        try {
+            app(ManualEventWriter::class)->addStandalone(
+                $user,
+                $canonical,
+                StandaloneEventPayload::fromArray($payload)->event(),
+            );
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('events_seeder.pool_write_failed', [
+                'user_id' => (string) $user->id, 'platform' => $platform, 'error' => $e->getMessage(),
+            ]);
+        }
+
+        return $written;
     }
 
     /** @return Collection<int, IntegrationConnection> */

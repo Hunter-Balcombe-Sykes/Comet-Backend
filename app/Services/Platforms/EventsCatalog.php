@@ -52,8 +52,6 @@ class EventsCatalog
 
     private const MAX_ACCOUNTS = 5;   // per platform (mirrors ManagesIntegrationConnection::maxAccounts)
 
-    private const MAX_EVENTS = 10;    // per platform (mirrors EventsPlatformController::MAX_STANDALONE_EVENTS)
-
     // Manual order lives in site settings rather than on connection rows:
     // account-derived events share ONE connection row, so per-row sort_order
     // can never order the merged list. The settings key holds the full desired
@@ -115,7 +113,7 @@ class EventsCatalog
                         return $this->fail("Couldn't load that {$label} event.", 422);
                     }
 
-                    return $this->storeStandalone($user, $provider, EventsPayload::standalonePayload($event));
+                    return $this->storeStandalone($user, EventsPayload::standalonePayload($event));
                 }
 
                 // Else an organiser/host account → connect it (events auto-refresh).
@@ -203,7 +201,29 @@ class EventsCatalog
             }
         }
 
-        // Standalone events: eventbrite/humanitix singles + custom cards.
+        // Convergence Phase 6 (hand-added) and slice 7 Phase 4 (standalone):
+        // both now live in the `events` pool. Read first, because the
+        // connection loop below has to know which URLs they cover.
+        $cards = $this->manualEvents->cards($user);
+
+        /** @var array<string, true> canonicalised URLs the pool already publishes */
+        $pooled = [];
+        foreach ($cards as $card) {
+            if (is_string($card['url']) && $card['url'] !== '') {
+                $pooled[strtolower(trim($card['url']))] = true;
+            }
+        }
+
+        // Standalone events: eventbrite/humanitix singles + custom cards that
+        // have NOT been carried to the pool yet.
+        //
+        // The skip is what keeps a migrated event off this list twice. It is
+        // keyed on the canonical URL rather than deleting the connection row,
+        // because the legacy rows stay live until Phase 6 drops the table
+        // (parent's ordering law), and because it keeps an event added through
+        // the per-platform `POST /platforms/{platform}/events` verb visible
+        // here until the backfill next runs — that verb still writes a
+        // connection and is Phase 6's to retire.
         foreach ($allPlatforms as $platform) {
             $platformRows = $byPlatform->get($platform, collect());
             $rows = $platformRows->filter(
@@ -212,9 +232,15 @@ class EventsCatalog
 
             foreach ($rows as $row) {
                 $standalone = StandaloneEventPayload::fromArray($row->payload);
+                $event = $standalone->event();
+                $link = is_string($event['link'] ?? null) ? strtolower(trim($event['link'])) : '';
+                if ($link !== '' && isset($pooled[$link])) {
+                    continue;
+                }
+
                 $id = $standalone->id();
                 $events[] = [
-                    ...$standalone->event(),
+                    ...$event,
                     'platform' => $platform,
                     'source' => $platform === self::CUSTOM_PLATFORM ? 'link' : 'standalone',
                     'removePath' => $platform === self::CUSTOM_PLATFORM
@@ -224,29 +250,28 @@ class EventsCatalog
             }
         }
 
-        // Convergence Phase 6: hand-added events live in the `events` pool now.
-        // The loop above still reads CUSTOM_PLATFORM because rows written before
-        // the move are live until the retirement command runs — an owner must
-        // not watch their event disappear between deploy and migration.
-        //
         // Same wire shape, same `source: 'link'`, same removePath contract; only
         // the id changed (a content item uuid, not `event-<hash>`). The dashboard
         // round-trips ids opaquely, so that is invisible to it.
-        foreach ($this->manualEvents->cards($user) as $card) {
+        //
+        // The dated half comes from the item's facets now: a MIGRATED standalone
+        // event carries its real venue/dates/price, a hand-added one carries
+        // nulls exactly as it always did.
+        foreach ($cards as $card) {
             $events[] = [
                 'id' => $card['id'],
                 'name' => $card['name'],
                 'description' => $card['description'],
                 'link' => $card['url'],
-                'venue' => null,
-                'location' => null,
-                'startDate' => null,
-                'endDate' => null,
-                'startsAt' => null,
-                'endsAt' => null,
+                'venue' => $card['venue'],
+                'location' => $card['location'],
+                'startDate' => $card['startDate'],
+                'endDate' => $card['endDate'],
+                'startsAt' => $card['startDate'],
+                'endsAt' => $card['endDate'],
                 'price' => null,
-                'priceMin' => null,
-                'currency' => null,
+                'priceMin' => $card['priceMin'],
+                'currency' => $card['currency'],
                 'availability' => null,
                 'soldOut' => false,
                 'image' => null,
@@ -434,40 +459,60 @@ class EventsCatalog
         });
     }
 
-    // PWL-13: same duplicate-writer race as storeAccount() above, against
-    // EventsPlatformController::addStandaloneEvent()/removeEvent() (locked) and
-    // ScheduledRefresh. fetchEvent already ran upstream in addByUrl(); storeCustom()
-    // does its own fetch (linkCard->snapshotOrMinimal) before calling in here, so
-    // this method's body is DB-only same as storeAccount's.
-    private function storeStandalone(User $user, string $platform, array $payload): array
+    /**
+     * Slice 7 Phase 4 / parent §7 step 2: a standalone event is a
+     * `content.items` row of kind `event` in the `events` pool, not a
+     * `resource_kind='event'` connection.
+     *
+     * This is the step that stops step 3 — emptying the standalone payload on
+     * the public integrations wire — being a data-loss event. Every event added
+     * from here on lands where the pool can publish it; every event added
+     * BEFORE is carried across by StandaloneEventBackfiller, on the same coord
+     * and through the same mapper, so the two cannot drift.
+     *
+     * The LOCK is gone — contention is moot for an idempotent upsert on a
+     * deterministic coord, which has no read-then-write span to serialise.
+     * The CAP is not: idempotency stops duplicates of the same event, not an
+     * unbounded number of different ones, so it moved onto the pool with the
+     * write rather than being retired. See ManualEventWriter::MAX_STANDALONE_EVENTS
+     * for what it counts now and why per-platform had to become per-owner.
+     *
+     * The coord basis is the scraped `link`, NOT the normalised input URL: the
+     * connection's own `event-<hex>` resource_id derives from `link` too
+     * (EventsPayload::id), so a migrated row and a re-added one land on one
+     * item.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function storeStandalone(User $user, array $payload): array
     {
-        return $this->withPlatformLock($user, $platform, function () use ($user, $platform, $payload): array {
-            $rid = 'event-'.$payload['id'];
-            $exists = IntegrationConnection::query()
-                ->where('user_id', $user->id)->where('platform', $platform)->where('resource_id', $rid)
-                ->exists();
+        $event = StandaloneEventPayload::fromArray($payload)->event();
+        $url = trim((string) ($event['link'] ?? ''));
 
-            if (! $exists && $this->eventRows($user, $platform)->count() >= self::MAX_EVENTS) {
-                return $this->fail('You can add up to '.self::MAX_EVENTS.' individual events per platform.', 422);
-            }
+        if ($url === '') {
+            return $this->fail('That event has no link we can save.', 422);
+        }
 
-            // Covers both the direct-event path and the events-custom fallback
-            // (storeCustom below also routes through here) — both are 'event-*' rows.
-            $this->writeRow($user, $platform, $rid, $payload, resourceKind: 'event');
+        if ($this->manualEvents->wouldExceedCap($user, $url)) {
+            return $this->fail('You can add up to '.ManualEventWriter::MAX_STANDALONE_EVENTS.' individual events.', 422);
+        }
 
-            return ['ok' => true, 'selection' => $this->selection($user)];
-        });
+        $written = $this->manualEvents->addStandalone($user, $url, $event);
+        if ($written === null) {
+            return $this->fail('Add your site before saving events.', 422);
+        }
+
+        return ['ok' => true, 'selection' => $this->selection($user)];
     }
 
     /**
      * Convergence Phase 6: a hand-added event is a `content.items` row of kind
      * `event` in the `events` pool, not a `partna.manual_event` connection.
      *
-     * Not routed through storeStandalone(): that writes a connection, takes a
-     * per-platform connection lock and enforces a per-platform MAX_EVENTS cap,
-     * none of which apply to a pool item. The pool's own cap is the section's,
-     * and the write is an idempotent upsert on a deterministic coord, so there
-     * is no read-then-write span to serialise.
+     * Kept separate from storeStandalone() even now that both write the pool:
+     * this arm is a LINK the owner called an event and has no dates, prices or
+     * venue to project, so its thin projection is a different mapping — not a
+     * degenerate case of the scraped one.
      *
      * `image` is deliberately dropped. Phase 3 declined to mint
      * content.media_assets for third-party image URLs (LinkPoolWriter's
@@ -606,13 +651,6 @@ class EventsCatalog
         return $this->rowsFor($user, $platform)->filter(
             fn (IntegrationConnection $r) => $r->resource_kind !== 'event'
                 && $r->resource_kind !== 'link',
-        )->values();
-    }
-
-    private function eventRows(User $user, string $platform)
-    {
-        return $this->rowsFor($user, $platform)->filter(
-            fn (IntegrationConnection $r) => $r->resource_kind === 'event',
         )->values();
     }
 

@@ -29,23 +29,10 @@ class PublicIntegrationConnectionResource extends ApiResource
      * current public contract — i.e. exactly what each platform stores today,
      * minus internal keys (e.g. Instagram's `_folder`, added by CONS-21).
      */
-    /** The platforms whose rows can be a standalone event. */
-    private const EVENT_PLATFORMS = ['eventbrite', 'humanitix', 'events-custom'];
-
-    /**
-     * What a STANDALONE event row publishes. The payload IS the event here, so
-     * every key is top-level and must be listed individually — unlike an
-     * account row, whose nested upcoming[]/next objects used to pass through
-     * whole. `slug`/`aliases` are gone: the annotation that stamped them was
-     * removed with the lane, so listing them would allowlist keys nothing
-     * writes. A standalone event has no content item and therefore no
-     * content.item_slugs row to serve one from either.
-     */
-    private const STANDALONE_EVENT_KEYS = [
-        'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate',
-        'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency',
-        'availability', 'soldOut', 'image', 'link',
-    ];
+    // EVENT_PLATFORMS + STANDALONE_EVENT_KEYS were deleted with the standalone
+    // branch of filterPayload() (slice 7 Phase 4, parent §7 step 3). Standalone
+    // events reach the wire through `profile.pools.events` now, bounded by
+    // PoolResolver::ITEM_KEYS rather than by a per-platform key list here.
 
     private const ALLOWLIST = [
         'instagram' => ['username', 'fullName', 'profilePicUrl', 'businessCategory', 'followersCount', 'postsCount', 'mode', 'images', 'videoUrl', 'videoPoster', 'imagesDropped'],
@@ -70,8 +57,10 @@ class PublicIntegrationConnectionResource extends ApiResource
         // Owners who hid events keep them hidden: the hides were carried into
         // section_items excludes by content:migrate-hidden-events.
         //
-        // ACCOUNT rows only. Standalone (resource_kind='event') rows keep
-        // publishing via STANDALONE_EVENT_KEYS below — see filterPayload().
+        // 2026-08-16 (slice 7 Phase 4): this now covers BOTH row kinds. The
+        // standalone exception in filterPayload() is gone — those events are
+        // content.items in the events pool now, so nothing on this wire
+        // publishes an event any more.
         'eventbrite' => [],
         'humanitix' => [],
         'events-custom' => [],
@@ -333,25 +322,18 @@ class PublicIntegrationConnectionResource extends ApiResource
 
         $allowed = self::ALLOWLIST[$platform] ?? null;
 
-        // Standalone event rows are the ONE part of the events lane the pool
-        // cannot replace yet, so they keep publishing (slice 2 Task 9).
+        // The standalone-event exception that used to sit here is GONE (slice 7
+        // Phase 4). Slice 2 kept it because a standalone row had no connector
+        // and so no pool representation — emptying it would have made
+        // add-an-event-by-URL publicly inert rather than migrating it. Slice
+        // 0b's manual write lane closed that gap: StandaloneEventBackfiller
+        // carried the existing rows onto content.* and
+        // EventsCatalog::storeStandalone() lands every new one there, so BOTH
+        // row kinds now fall through to the platform's empty allowlist and
+        // events reach the wire only through `profile.pools.events`.
         //
-        // An account row is an organiser feed: the ingest connectors fetch the
-        // same events into content.items, so profile.pools.events serves them
-        // with more detail and the row's own payload can go dark. A standalone
-        // row — resource_kind 'event', one event added by URL from the Tickets
-        // & Events card — has NO connector (ConnectorRegistry::MAP holds only
-        // eventbrite/humanitix, and SourceProvisioner only provisions from an
-        // organiser URL), so it lands no content item and has no pool
-        // representation at all. Emptying its allowlist too would have made the
-        // whole add-an-event-by-URL feature publicly inert (2 active rows on
-        // dev at the time of writing).
-        //
-        // Remove this branch when the manual write lane (slice 0b) lands these
-        // as content.items — then the pool covers them and the exception ends.
-        if (in_array($platform, self::EVENT_PLATFORMS, true) && $this->resource_kind === 'event') {
-            $allowed = self::STANDALONE_EVENT_KEYS;
-        }
+        // Do not reinstate a per-row exception here: two event shapes on one
+        // wire can only disagree.
 
         if ($allowed === null) {
             // A new platform shipped without an allowlist entry — fail CLOSED to

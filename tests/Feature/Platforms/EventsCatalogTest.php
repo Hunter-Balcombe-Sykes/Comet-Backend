@@ -65,14 +65,29 @@ it('adds a single event when an Eventbrite EVENT url is pasted', function () {
     app()->instance(EventbriteScraper::class, $scraper);
     $user = eventsUser('ev1');
 
+    // Slice 7 Phase 4: a standalone event is an `events` POOL item, so it
+    // reports the pool lane's `events-custom` / `link` attribution — the same
+    // shape a hand-added event already used. The dashboard round-trips id and
+    // removePath opaquely, so the scraping platform is no longer distinguished
+    // and does not need to be: a pool item has no platform.
     actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $url])
         ->assertOk()
         ->assertJsonPath('selection.events.0.name', 'Cool Show')
-        ->assertJsonPath('selection.events.0.platform', 'eventbrite');
+        ->assertJsonPath('selection.events.0.platform', 'events-custom')
+        ->assertJsonPath('selection.events.0.source', 'link')
+        // The dated half survives the move — the point of projecting the scrape
+        // onto facets rather than storing a bare link.
+        ->assertJsonPath('selection.events.0.venue', 'The Venue')
+        ->assertJsonPath('selection.events.0.location', 'Melbourne')
+        ->assertJsonPath('selection.events.0.startDate', '2099-01-01T10:00:00+10:00');
 
-    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'eventbrite')->firstOrFail();
-    expect($row->resource_id)->toStartWith('event-');
-    expect($row->payload['kind'])->toBe('event');
+    // No connection at all: this is what stops the retired standalone payload
+    // on /integrations being a data-loss event.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+
+    $item = DB::connection('pgsql')->table('content.items')->where('user_id', $user->id)->first();
+    expect($item->kind)->toBe('event')
+        ->and($item->headline_cache)->toBe('Cool Show');
 });
 
 it('connects an organiser account when an Eventbrite ORG url is pasted', function () {
@@ -110,17 +125,27 @@ it('adds the single event (not the host) when a Humanitix EVENT url is pasted', 
 
     actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $url])
         ->assertOk()
-        ->assertJsonPath('selection.events.0.platform', 'humanitix');
+        ->assertJsonPath('selection.events.0.link', $url);
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'humanitix')->where('resource_id', 'like', 'event-%')->exists())->toBeTrue();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('resource_id', 'like', 'acct-%')->exists())->toBeFalse();
+    // What this case pins is event-first routing, not the storage lane: no
+    // `acct-` row means resolveHostUrl was never reached. The event itself is
+    // a pool item now, so there is no `event-` row to look for.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $user->id)->where('kind', 'event')->count())->toBe(1);
 });
 
-// End-to-end proof that IntegrationConnectionObserver::saved() actually reaches
-// EventSlugSync through the real HTTP -> EventsCatalog -> writeRow -> observer
-// chain (not just the isolated EventSlugSync/ItemSlugAllocator unit tests).
-it('mints an item_slugs row for a pasted single event', function () {
-    setupItemSlugsTable();
+// THE PERMALINK LANE, post-slice-7. A pasted single event used to get its slug
+// from site.item_slugs, via IntegrationConnectionObserver::saved() →
+// EventSlugSync, keyed on the payload's hex id. There is no connection to
+// observe any more: the slug is minted by
+// ProjectionWriter::refreshItemCaches() into content.item_slugs, keyed on the
+// item id, because `event` is in ContentItemSlugAllocator::SLUGGED_KINDS.
+//
+// Both allocators derive their base identically (Str::slug, 80-char
+// word-boundary truncate), so the slug STRING is unchanged — which is what
+// lets slice 7 delete the 11 legacy site.item_slugs event rows in Phase 6
+// without copying any of them across.
+it('mints a content.item_slugs permalink for a pasted single event', function () {
     $url = 'https://www.eventbrite.com/e/cool-show-123';
     $scraper = Mockery::mock(EventbriteScraper::class);
     $scraper->shouldReceive('normalizeEventUrl')->andReturn($url);
@@ -130,13 +155,13 @@ it('mints an item_slugs row for a pasted single event', function () {
 
     actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $url])->assertOk();
 
-    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'eventbrite')->firstOrFail();
-    $hex = $row->payload['id'];
-
-    $slug = DB::connection('pgsql')->table('site.item_slugs')
-        ->where('user_id', $user->id)->where('item_type', 'event')
-        ->where('item_key', $hex)->where('is_current', 1)->value('slug');
+    $slug = DB::connection('pgsql')->table('content.item_slugs')
+        ->where('user_id', $user->id)->where('is_current', true)->value('slug');
     expect($slug)->toBe('cool-show');
+
+    // And nothing lands in the legacy registry any more.
+    expect(DB::connection('pgsql')->table('site.item_slugs')
+        ->where('user_id', $user->id)->where('item_type', 'event')->count())->toBe(0);
 });
 
 it('mints item_slugs rows for every event in an organiser account payload', function () {
@@ -232,9 +257,13 @@ it('aggregates eventbrite + humanitix + custom into one selection', function () 
 
     $events = actingAsUser($user)->getJson('/api/platforms/events/selection')->assertOk()->json('selection.events');
     expect($events)->toHaveCount(2);
-    // Dated eventbrite event sorts before the dateless custom card.
-    expect($events[0]['platform'])->toBe('eventbrite');
-    expect($events[1]['platform'])->toBe('events-custom');
+    // Both are pool items now, so both report the pool lane's attribution.
+    // The ORDER is what still separates them: the dated eventbrite event sorts
+    // before the dateless custom card, and it only can because the scraped
+    // startDate survived the projection onto f_occurrence.
+    expect(array_column($events, 'name'))->toBe(['Cool Show', 'Party']);
+    expect($events[0]['startDate'])->toBe('2099-03-01T10:00:00+10:00');
+    expect($events[1]['startDate'])->toBeNull();
 });
 
 // ── Manual reorder (PUT /api/platforms/events/order) ─────────────────────────

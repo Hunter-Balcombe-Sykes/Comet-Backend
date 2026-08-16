@@ -557,20 +557,20 @@ Same shape as Task 9: suites, PHPStan, Pint, merge, deploy, live-verify on dev, 
 
 Parent §7's four-step. Dev carries **2 live** `resource_kind='event'` connections. Coord `manual:{sha1(url)}` per §1.7's one-coord-per-URL rule.
 
-- [ ] **Step 1: Failing test** — a standalone `event` connection lands one `content.items` row of kind `event`, idempotent across two runs.
-- [ ] **Step 2: Run; confirm it fails.**
-- [ ] **Step 3: Implement** on `ProjectionWriter::writeManualItem()`. Idempotent, re-runnable, production code under `app/Services/Migration/` (parent invariant #4).
-- [ ] **Step 4: Repoint the Tickets & Events card's add-an-event verb** at the same lane, so new standalone events land as content items rather than connection payloads.
-- [ ] **Step 5: Run; dry-run then run against dev; paste counts.**
-- [ ] **Step 6: Commit.**
+- [x] **Step 1: Failing test** — a standalone `event` connection lands one `content.items` row of kind `event`, idempotent across two runs. (`tests/Feature/Content/StandaloneEventBackfillTest.php`, 16 cases, `sev*` helpers.)
+- [x] **Step 2: Run; confirm it fails.** Failed on the missing class, after a first run that failed on the fixture (`platform` is a GENERATED column).
+- [x] **Step 3: Implement** on `ProjectionWriter::writeManualItem()`. `StandaloneEventBackfiller` + `content:backfill-standalone-events`. Coord `manual:{sha1(strtolower(trim(link)))}` = `ManualEventWriter::coordFor()`. Active rows PINNED (the legacy wire published a standalone event regardless of its dates; `upcoming_occurrence` alone would drop dev's 2024-start row), inactive EXCLUDED, first write wins.
+- [x] **Step 4: Repoint EVERY add-an-event verb**, not just the card's. Three live paths wrote `resource_kind='event'`, not one: `EventsCatalog::storeStandalone()` (repointed), `EventsPlatformController::addStandaloneEvent()` (repointed — it called `writeConnection()` directly and never flowed through the first), and `EventsSeeder::seedStandalone()` (DUAL WRITE — the connection is kept because the synced-modal finding lane resolves against it in two controllers). All three share one projection mapper with the backfiller. Both selection readers skip a connection row whose URL already has a pool card. The per-platform cap is preserved on `ManualEventWriter::MAX_STANDALONE_EVENTS`, counting the owner's own manual-source event items.
+- [x] **Step 5: Run; dry-run against dev; counts pasted.** 2 would-backfill, 0 duplicate url, 0 skipped (no url), 0 skipped (no site), 0 already curated, 0 failed. **The real backfill has NOT been run.**
+- [x] **Step 6: Commit.**
 
 ### Task 15: Standalone events, steps 3–4
 
-- [ ] **Step 1: Failing test** — `GET /api/public/profiles/{handle}/integrations` emits an empty payload for a standalone `event` row.
-- [ ] **Step 2: Run; confirm it fails.**
-- [ ] **Step 3: Empty the standalone payload** in `EventsCatalog` / `PublicIntegrationConnectionResource`. **Breaking wire change — record it in the manifest.**
-- [ ] **Step 4: Decide standalone-event permalinks.** The 11 legacy `item_type='event'` rows in `site.item_slugs` are deleted in Phase 6 either way; decide whether `content.item_slugs` adopts them and say which.
-- [ ] **Step 5: Run the suite; commit.**
+- [x] **Step 1: Failing test** — `LegacyEventsLaneRetiredTest` inverted: the two "keeps publishing a standalone…" cases become "publishes nothing…".
+- [x] **Step 2: Run; confirm it fails.** Failed on the full 5-key payload, as expected.
+- [x] **Step 3: Empty the standalone payload.** `PublicIntegrationConnectionResource::EVENT_PLATFORMS` + `::STANDALONE_EVENT_KEYS` deleted with the `filterPayload()` branch. All 17 keys named in `docs/wire-changes/2026-08-12-slice-7-teardown.md`.
+- [x] **Step 4: Standalone-event permalinks — DECIDED: `content.item_slugs` RE-MINTS them; nothing is adopted or copied, and Phase 6 deletes all 11 legacy rows as planned.** `event` is already in `ContentItemSlugAllocator::SLUGGED_KINDS`, both allocators derive their base identically (`Str::slug`, 80-char word-boundary truncate), and the pool slugs from the same `name`. Verified against dev: `nerve-melbourne-2026` and `hobart-mens-hair-workshop-at-simondoylehair-at-development-au` both reproduce byte-for-byte and neither is squatted in `content.item_slugs`. This also closes two of slice 2's three "permalinks stop resolving" regressions. Reasoning in full in the manifest.
+- [x] **Step 5: Run the suite; commit.** Full suite green (8360 passed / 2 skipped), `composer test:pg` green (205 passed / 2 skipped), PHPStan clean, Pint clean.
 
 ### Task 16: Retire `site.content_selection`
 
