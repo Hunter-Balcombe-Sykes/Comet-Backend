@@ -44,8 +44,16 @@ it('routes no Fresha service through the owner-authored price mapper', function 
     // mints no offer at all. The Fresha trap was the opposite shape: legacy
     // rows stored a real 0 to mean "unknown". A menu writer that ever starts
     // defaulting a null price to 0 reintroduces it.
+    //
+    // MenuScanApplier.php added by slice 7 Task 8, same deliberate look: it
+    // calls ManualMenuWriter::projectionFor(), i.e. MenuProjectionMapper, never
+    // the service mapper. Its own price handling keeps the Fresha shape out —
+    // an absent scan price stays null (`$item['price'] ?? null`) rather than
+    // becoming 0, so it mints no offer at all; a 0 there is an OCR-read "free",
+    // which is the hand-entered case the 'free' qualifier is FOR.
     expect($callers)->toEqualCanonicalizing([
         'ManualMenuWriter.php',
+        'MenuScanApplier.php',
         'ManualServiceWriter.php',
         'ServiceBackfiller.php',
         'UserServiceController.php',

@@ -2,17 +2,20 @@
 
 use App\Jobs\Platforms\WebsiteMenuHtmlScanJob;
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\MenuCategory;
-use App\Models\Core\Site\MenuItem;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualMenuItems;
 use App\Services\Platforms\MenuAiExtractor;
 use App\Services\Platforms\MenuScanApplier;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupItemSlugsTable();
+    setupContentTables();
+    Queue::fake();
 });
 
 function wmhsjUser(string $h, string $accountType = 'business', string $sector = 'restaurant'): User
@@ -41,10 +44,16 @@ it('structures and applies an already-extracted HTML menu text, tagged website-s
         ->handle(app(MenuAiExtractor::class), app(MenuScanApplier::class));
 
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    $item = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Negroni')->firstOrFail();
-    expect($item->description)->toBe('Gin, Campari, vermouth.');
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->firstOrFail()->source_platform)->toBe('website-scan');
-    expect($menu->content_source)->toBe('website-scan');
+    $items = app(ManualMenuItems::class);
+    $row = $items->rows((string) $user->id)->firstWhere('headline', 'Negroni');
+
+    expect($row)->not->toBeNull()
+        ->and($row->description)->toBe('Gin, Campari, vermouth.')
+        // The 'website-scan' tag now lives in the category's external_ref
+        // namespace, which is what keeps it out of a scraped rebuild's reach.
+        ->and((string) $items->categories((string) $user->id)[0]->external_ref)
+        ->toBe(MenuScanApplier::categoryRefFor('website-scan', 'Cocktails'))
+        ->and($menu->content_source)->toBe('website-scan');
 
     // No OCR step for this path — text is already plain, never touches Mistral.
     Http::assertNotSent(fn ($request) => str_contains($request->url(), 'api.mistral.ai'));

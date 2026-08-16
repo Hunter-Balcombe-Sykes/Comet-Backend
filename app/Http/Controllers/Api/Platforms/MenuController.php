@@ -8,7 +8,9 @@ use App\Http\Requests\Platforms\ApplyMenuScanRequest;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\MenuItem;
+use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Content\ManualMenuItems;
 use App\Services\Platforms\MenuPayloadComposer;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
@@ -54,7 +56,7 @@ class MenuController extends ApiController
             return $this->success(['connected' => false, 'itemCount' => 0, 'source' => null, 'fetchStatus' => null]);
         }
 
-        $itemCount = $menu ? MenuItem::query()->where('menu_id', $menu->id)->count() : 0;
+        $itemCount = $menu ? $this->itemCount($user) : 0;
 
         return $this->success([
             'connected' => $itemCount > 0,
@@ -62,6 +64,29 @@ class MenuController extends ApiController
             'source' => $menu?->content_source,
             'fetchStatus' => $menu?->fetch_status,
         ]);
+    }
+
+    /**
+     * How many dishes the dashboard will actually render — the SAME
+     * content-lane-with-legacy-fallback gate MenuPayloadComposer::categories()
+     * applies, so `itemCount` can never disagree with the payload beside it.
+     *
+     * The gate reads the removed rows on purpose: an owner who deleted their
+     * way down to an empty content menu must not fall back to the legacy
+     * count and see every deleted dish reappear in the card's tally.
+     */
+    private function itemCount(User $user): int
+    {
+        $rows = app(ManualMenuItems::class)
+            ->rows((string) $user->id, includeRemoved: true);
+
+        if ($rows->isEmpty()) {
+            return MenuItem::query()
+                ->whereIn('menu_id', Menu::query()->where('user_id', $user->id)->select('id'))
+                ->count();
+        }
+
+        return $rows->filter(fn (object $row) => $row->removed_at === null)->count();
     }
 
     // GET /api/platforms/menu — the full menu + computed order links.

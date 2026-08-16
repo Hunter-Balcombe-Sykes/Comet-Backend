@@ -8,8 +8,10 @@ use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualMenuItems;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
+use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -731,9 +733,14 @@ it('does not resurrect a suppressed dish through the automatic scan reapply', fu
 
     // The reapply itself still ran — the non-suppressed scan-only dish landed
     // under a scan category — proving only the suppressed dish was dropped.
-    $lemonade = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Lemonade')->first();
+    // Since slice 7 Task 8 the reapply writes content.*, so the scan category
+    // is a content.collections row in the `menu:scan:*` ref namespace.
+    $items = app(ManualMenuItems::class);
+    $lemonade = $items->rows((string) $user->id)->firstWhere('headline', 'Lemonade');
     expect($lemonade)->not->toBeNull();
-    expect($lemonade->categories->first()->source_platform)->toBe('scan');
+    $categories = $items->categories((string) $user->id)->keyBy('id');
+    expect((string) $categories[$lemonade->category_ids[0]]->external_ref)
+        ->toBe(MenuScanApplier::categoryRefFor('scan', 'Beverages'));
 
     // The suppression record survives for future rebuilds.
     $menu->refresh();

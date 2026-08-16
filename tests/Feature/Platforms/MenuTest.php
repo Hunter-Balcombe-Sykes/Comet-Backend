@@ -10,14 +10,15 @@ use App\Models\Core\Site\MenuPlatformLink;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Content\ManualMenuItems;
+use App\Services\Content\ManualMenuWriter;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
+use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
-use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -149,6 +150,61 @@ function seedMenu(User $user, array $menuAttrs, array $categories): Menu
     }
 
     return $menu;
+}
+
+/**
+ * seedMenu()'s content-lane twin, for the tests whose WRITER has already moved
+ * (slice 7 Task 8: MenuScanApplier). Lands each dish through the projection
+ * mapper, exactly as MenuFetchJob's persist will once Task 7 lands, so its
+ * categories carry the plain `menu:<slug>` refs that make them scraper-owned.
+ */
+function seedContentMenu(User $user, array $menuAttrs, array $categories): Menu
+{
+    $menu = Menu::create(array_merge([
+        'user_id' => $user->id,
+        'content_source' => 'uber-eats',
+        'currency' => 'AUD',
+        'fetch_status' => 'ok',
+    ], $menuAttrs));
+
+    $writer = app(ManualMenuWriter::class);
+
+    foreach ($categories as $ci => $category) {
+        foreach (($category['items'] ?? []) as $item) {
+            $platforms = $item['platforms'] ?? [];
+            unset($item['platforms']);
+            $writer->write(
+                (string) $user->id,
+                $writer->coordFor((string) $menu->id, (string) $item['name']),
+                $writer->projectionFor(
+                    (object) $item,
+                    [['id' => (string) Str::uuid(), 'name' => $category['name'], 'position' => $ci]],
+                    array_map(fn (array $p) => (object) [
+                        'platform' => $p['platform'],
+                        'pickup_price' => $p['pickupPrice'] ?? null,
+                        'pickup_url' => $p['pickupUrl'] ?? null,
+                        'delivery_price' => $p['deliveryPrice'] ?? null,
+                        'delivery_url' => $p['deliveryUrl'] ?? null,
+                    ], $platforms),
+                    $menu,
+                ),
+            );
+        }
+    }
+
+    return $menu;
+}
+
+/** Every content-lane dish for an owner, keyed by headline. */
+function menuContentRows(User $user)
+{
+    return app(ManualMenuItems::class)->rows((string) $user->id)->keyBy('headline');
+}
+
+/** The owner's content-lane menu categories, keyed by label. */
+function menuContentCategories(User $user)
+{
+    return app(ManualMenuItems::class)->categories((string) $user->id)->keyBy('label');
 }
 
 // ── Source resolution (Uber Eats > DoorDash > none) ───────────────────
@@ -1022,14 +1078,15 @@ it('creates a menu row via scan apply when the user has none yet', function () {
     expect($menu->fetch_status)->toBe('ok');
     expect($menu->last_fetched_at)->not->toBeNull();
 
-    $category = MenuCategory::query()->where('menu_id', $menu->id)->firstOrFail();
-    expect($category->name)->toBe('Pizzas');
-    expect($category->source_platform)->toBe('scan');
+    // The 'scan' tag lives in the category's external_ref namespace since slice
+    // 7 Task 8 — content.collections carries no source column.
+    $category = menuContentCategories($user)['Pizzas'];
+    expect((string) $category->external_ref)->toBe(MenuScanApplier::categoryRefFor('scan', 'Pizzas'));
 
-    $item = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
-    expect($item->name)->toBe('Margherita Pizza');
+    $item = menuContentRows($user)['Margherita Pizza'];
     expect($item->description)->toBe('Classic.');
     expect((float) $item->base_price)->toBe(14.5);
+    expect($item->category_ids)->toBe([(string) $category->id]);
 });
 
 it('scan apply carries dietary markers through validation onto the created item badges', function () {
@@ -1046,8 +1103,7 @@ it('scan apply carries dietary markers through validation onto the created item 
         ]],
     ])->assertOk();
 
-    $item = MenuItem::query()->where('name', 'Falafel Bowl')->firstOrFail();
-    $labels = array_map(fn ($b) => $b['text'] ?? null, (array) $item->badges);
+    $labels = array_map(fn ($b) => $b['text'] ?? null, (array) menuContentRows($user)['Falafel Bowl']->badges);
     expect($labels)->toContain('Vegan');
     expect($labels)->toContain('Gluten free');
 });
@@ -1059,16 +1115,16 @@ it('defaults new scan items with no category to a "Menu" category', function () 
         'items' => [['name' => 'Mystery Dish', 'description' => null, 'price' => null, 'category' => null]],
     ])->assertOk()->assertExactJson(['updated' => 0, 'added' => 1]);
 
-    $menuId = Menu::query()->where('user_id', $user->id)->value('id');
-    $category = MenuCategory::query()->where('menu_id', $menuId)->firstOrFail();
-    expect($category->name)->toBe('Menu');
-    expect($category->source_platform)->toBe('scan');
-    expect($category->items()->firstOrFail()->base_price)->toBeNull();
+    $category = menuContentCategories($user)['Menu'];
+    expect((string) $category->external_ref)->toBe(MenuScanApplier::categoryRefFor('scan', 'Menu'));
+    $item = menuContentRows($user)['Mystery Dish'];
+    expect($item->base_price)->toBeNull();
+    expect($item->category_ids)->toBe([(string) $category->id]);
 });
 
 it('updates an existing item by case-insensitive trimmed name match without nulling missing fields', function () {
     $user = menuUser('scan3');
-    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+    seedContentMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Mains', 'items' => [['name' => 'Chicken Parma', 'description' => 'Original.', 'base_price' => 18.0]]],
     ]);
 
@@ -1078,16 +1134,16 @@ it('updates an existing item by case-insensitive trimmed name match without null
     ])->assertOk();
 
     expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
-    $item = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
-    expect($item->name)->toBe('Chicken Parma');        // display name untouched
+    $item = menuContentRows($user)['Chicken Parma'];
+    expect($item->headline)->toBe('Chicken Parma');     // display name untouched
     expect($item->description)->toBe('Original.');      // NOT null'd out — scan omitted it
-    expect((float) $item->base_price)->toBe(19.5);       // price updated
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->count())->toBe(1); // no new category
+    expect((float) $item->base_price)->toBe(19.5);      // price updated
+    expect(menuContentCategories($user))->toHaveCount(1); // no new category
 });
 
 it('updates description when the scan provides it and leaves price alone when the scan omits it', function () {
     $user = menuUser('scan4');
-    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+    seedContentMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Mains', 'items' => [['name' => 'Butter Chicken', 'description' => 'Old desc.', 'base_price' => 20.0]]],
     ]);
 
@@ -1095,14 +1151,14 @@ it('updates description when the scan provides it and leaves price alone when th
         'items' => [['name' => 'Butter Chicken', 'description' => 'Creamy tomato curry.', 'price' => null, 'category' => null]],
     ])->assertOk()->assertExactJson(['updated' => 1, 'added' => 0]);
 
-    $item = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
+    $item = menuContentRows($user)['Butter Chicken'];
     expect($item->description)->toBe('Creamy tomato curry.');
     expect((float) $item->base_price)->toBe(20.0); // untouched — scan omitted price
 });
 
 it('reports mixed updated/added counts for a batch with both matches and new items', function () {
     $user = menuUser('scan5');
-    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+    seedContentMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Mains', 'items' => [['name' => 'Burger', 'base_price' => 15.0]]],
     ]);
 
@@ -1115,11 +1171,12 @@ it('reports mixed updated/added counts for a batch with both matches and new ite
     ])->assertOk();
 
     expect($res->json())->toBe(['updated' => 1, 'added' => 2]);
-    expect(MenuItem::query()->where('menu_id', $menu->id)->count())->toBe(3);
+    expect(menuContentRows($user))->toHaveCount(3);
     // Both new items land in the SAME new "Sides" scan category, not two.
-    $sides = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Sides')->firstOrFail();
-    expect($sides->source_platform)->toBe('scan');
-    expect($sides->items()->count())->toBe(2);
+    $sides = menuContentCategories($user)['Sides'];
+    expect((string) $sides->external_ref)->toBe(MenuScanApplier::categoryRefFor('scan', 'Sides'));
+    expect(menuContentRows($user)->filter(fn ($r) => in_array((string) $sides->id, $r->category_ids, true)))
+        ->toHaveCount(2);
 });
 
 // ── BE3: multi-category name matching (one name = one dish, menu-wide) ──
@@ -1132,32 +1189,36 @@ it('reports mixed updated/added counts for a batch with both matches and new ite
 
 it('updates the single multi-category dish in place and never shadows a same-named scraped category', function () {
     $user = menuUser('scan15');
-    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
-        ['name' => 'Starters', 'items' => [['name' => 'Garlic Bread', 'base_price' => 8.0]]],
-        ['name' => 'Sides', 'items' => []],
-    ]);
-    // The one Garlic Bread row is listed under BOTH sections.
-    $garlic = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
-    $sidesCat = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Sides')->firstOrFail();
-    $garlic->categories()->attach($sidesCat->id, ['position' => 0]);
+    // The one Garlic Bread dish is listed under BOTH scraped sections.
+    $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'currency' => 'AUD', 'fetch_status' => 'ok']);
+    $writer = app(ManualMenuWriter::class);
+    $writer->write((string) $user->id, $writer->coordFor((string) $menu->id, 'Garlic Bread'), $writer->projectionFor(
+        (object) ['name' => 'Garlic Bread', 'base_price' => 8.0],
+        [
+            ['id' => (string) Str::uuid(), 'name' => 'Starters', 'position' => 0],
+            ['id' => (string) Str::uuid(), 'name' => 'Sides', 'position' => 1],
+        ],
+        [],
+        $menu,
+    ));
 
     $res = actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
         'items' => [['name' => 'Garlic Bread', 'description' => 'Toasted, buttery.', 'price' => 6.5, 'category' => 'sides']],
     ])->assertOk();
 
     expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
-    $garlic->refresh();
+    $garlic = menuContentRows($user)['Garlic Bread'];
     expect((float) $garlic->base_price)->toBe(6.5);
     expect($garlic->description)->toBe('Toasted, buttery.');
     // 'sides' was already covered by the scraped "Sides" membership — no
     // scan-owned duplicate category may appear.
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->count())->toBe(2);
-    expect($garlic->categories()->count())->toBe(2);
+    expect(menuContentCategories($user))->toHaveCount(2);
+    expect($garlic->category_ids)->toHaveCount(2);
 });
 
 it('attaches the scan category to a matched dish that is not listed under it yet', function () {
     $user = menuUser('scan16');
-    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+    seedContentMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Starters', 'items' => [['name' => 'Garlic Bread', 'base_price' => 8.0]]],
     ]);
 
@@ -1167,18 +1228,20 @@ it('attaches the scan category to a matched dish that is not listed under it yet
 
     // One row still — the scan grew its memberships instead of duplicating it.
     expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
-    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Garlic Bread')->count())->toBe(1);
+    expect(menuContentRows($user))->toHaveCount(1);
 
-    $garlic = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
+    $garlic = menuContentRows($user)['Garlic Bread'];
+    $labels = menuContentCategories($user)->keyBy('id');
     expect((float) $garlic->base_price)->toBe(7.0);
-    expect($garlic->categories->pluck('name')->sort()->values()->all())->toBe(['Dinner', 'Starters']);
-    $dinner = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Dinner')->firstOrFail();
-    expect($dinner->source_platform)->toBe('scan');
+    expect(collect($garlic->category_ids)->map(fn ($id) => (string) $labels[$id]->label)->sort()->values()->all())
+        ->toBe(['Dinner', 'Starters']);
+    expect((string) menuContentCategories($user)['Dinner']->external_ref)
+        ->toBe(MenuScanApplier::categoryRefFor('scan', 'Dinner'));
 });
 
 it('still updates by name alone when exactly one item shares that name and the scan supplies no category (pinned existing behavior)', function () {
     $user = menuUser('scan17');
-    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+    seedContentMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Mains', 'items' => [['name' => 'Caesar Salad', 'base_price' => 12.0]]],
     ]);
 
@@ -1187,7 +1250,7 @@ it('still updates by name alone when exactly one item shares that name and the s
     ])->assertOk();
 
     expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
-    $item = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
+    $item = menuContentRows($user)['Caesar Salad'];
     expect((float) $item->base_price)->toBe(13.0);
     expect($item->description)->toBe('With anchovies.');
 });
@@ -1243,11 +1306,12 @@ it('scan apply accepts boundary-legal prices — zero and just under the cap', f
     ])->assertOk();
 
     expect($res->json())->toBe(['updated' => 0, 'added' => 2]);
-    $menuId = Menu::query()->where('user_id', $user->id)->value('id');
-    $free = MenuItem::query()->where('menu_id', $menuId)->where('name', 'Free Tasting')->firstOrFail();
-    expect((float) $free->base_price)->toBe(0.0);
-    $banquet = MenuItem::query()->where('menu_id', $menuId)->where('name', 'Banquet Buyout')->firstOrFail();
-    expect((float) $banquet->base_price)->toBe(99999.99);
+    $rows = menuContentRows($user);
+    // A hand-entered zero projects to a `free` qualifier, which reads back as
+    // 0.0 rather than null (ManualMenuItems::amount) — the same distinction the
+    // nullable legacy column carried.
+    expect((float) $rows['Free Tasting']->base_price)->toBe(0.0);
+    expect((float) $rows['Banquet Buyout']->base_price)->toBe(99999.99);
 });
 
 // ── BE3: refresh-survival — scan content must outlive a scraper rebuild ──
@@ -1267,8 +1331,11 @@ it('preserves scan-sourced categories and items across a forced scraper rebuild 
         'items' => [['name' => 'Special Lasagna', 'description' => 'Family recipe.', 'price' => 22.0, 'category' => 'Specials']],
     ])->assertOk();
 
-    $scanCategory = MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'scan')->firstOrFail();
-    $scanItem = $scanCategory->items()->firstOrFail();
+    // Since slice 7 Task 8 the scan writes content.*, so its survival is
+    // structural rather than a source_platform filter: nothing the scrape
+    // rebuilds can reach the `menu:scan:*` external_ref namespace.
+    $scanCategory = menuContentCategories($user)['Specials'];
+    expect((string) $scanCategory->external_ref)->toBe(MenuScanApplier::categoryRefFor('scan', 'Specials'));
 
     // A forced scraper refresh returns entirely different scraped content.
     $this->mock(MenuApifyScraper::class, function ($m) {
@@ -1284,10 +1351,10 @@ it('preserves scan-sourced categories and items across a forced scraper rebuild 
     expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'New Scraped Dish')->exists())->toBeTrue();
 
     // ...but the scan-sourced category + item survived, untouched.
-    expect(MenuCategory::query()->where('id', $scanCategory->id)->exists())->toBeTrue();
-    $scanItem->refresh();
-    expect($scanItem->name)->toBe('Special Lasagna');
+    expect(menuContentCategories($user)->has('Specials'))->toBeTrue();
+    $scanItem = menuContentRows($user)['Special Lasagna'];
     expect((float) $scanItem->base_price)->toBe(22.0);
+    expect($scanItem->category_ids)->toBe([(string) $scanCategory->id]);
 });
 
 it('preserves scan-sourced content when the user disconnects their only ordering platform', function () {
@@ -1300,7 +1367,7 @@ it('preserves scan-sourced content when the user disconnects their only ordering
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
         'items' => [['name' => 'Scanned Special', 'description' => null, 'price' => 12.0, 'category' => 'Specials']],
     ])->assertOk();
-    $scanItem = MenuItem::query()->where('name', 'Scanned Special')->firstOrFail();
+    expect(menuContentRows($user)->has('Scanned Special'))->toBeTrue();
 
     // Remove the only ordering link — MenuFetchJob now dispatches with no
     // resolvable source at all (resolveAll() returns null).
@@ -1310,7 +1377,7 @@ it('preserves scan-sourced content when the user disconnects their only ordering
 
     // Scraped content is gone, but the scan item + the menu row itself survive.
     expect(MenuItem::query()->where('name', 'Scraped Dish')->exists())->toBeFalse();
-    expect(MenuItem::query()->where('id', $scanItem->id)->exists())->toBeTrue();
+    expect(menuContentRows($user)->has('Scanned Special'))->toBeTrue();
     $menu->refresh();
     expect($menu->trashed())->toBeFalse();
     expect($menu->content_source)->toBe('scan');
@@ -1361,7 +1428,7 @@ it('re-scrapes after a disconnect + reconnect to the same store — a stale plat
 
     // Scraped content + the stale platformLinks row are gone; scan content survives.
     expect(MenuItem::query()->where('name', 'Original Scraped Dish')->exists())->toBeFalse();
-    expect(MenuItem::query()->where('name', 'Scanned Special')->exists())->toBeTrue();
+    expect(menuContentRows($user)->has('Scanned Special'))->toBeTrue();
     expect(MenuPlatformLink::query()->where('menu_id', $menu->id)->where('platform', 'uber-eats')->exists())->toBeFalse();
 
     // Reconnect the SAME store — must force a real re-scrape, not a silent skip.
@@ -1430,7 +1497,11 @@ it('serves an explicit platforms:[] (not an omitted key) for a scanned item on a
     // A real, connected Uber Eats link — links.orderUrl will be non-null,
     // which is the exact bait a legacy-fallback bug would wrongly serve.
     ordering($user, 'https://www.ubereats.com/store/scanseam', null, '2026-06-17 10:00:00');
-    seedMenu($user, ['content_source' => 'uber-eats'], [
+    // The scraped sibling is seeded in the CONTENT lane: MenuPayloadComposer
+    // reads content.* whenever it holds anything for the owner (Task 5's gate),
+    // and the scan below puts something there — so a legacy-only scraped dish
+    // would simply be invisible to this assertion rather than exercising it.
+    seedContentMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Mains', 'items' => [[
             'name' => 'Scraped Dish', 'base_price' => 10.0,
             'platforms' => [
@@ -1637,68 +1708,65 @@ it('leaves a manual dish item_slugs row untouched across a scraper rebuild', fun
     expect(menuSlugRow($user, $fresh->id)?->slug)->toBe('new-scraped-dish');
 });
 
-// ── the collision surface Unit 5 opened: MenuScanApplier runs INSIDE a
-// transaction. Every scraped dish now owns an item_slugs row, so a scan item
-// whose name misses MenuScanApplier::normalize() (lowercase + trim only) but
-// whose Str::slug() collides with an existing row hits the allocator's retry
-// path with the scan's transaction open. Pre-fix that INSERT raised, which on
-// Postgres aborts the whole transaction (25P02) — every later statement in the
-// apply fails and the enrichment rolls back (a 500 on this endpoint, a
-// swallowed-and-logged no-op inside MenuFetchJob). SQLite aborts only the
-// statement, so this test can only prove the enrichment lands and the slug
-// resolves; it cannot reproduce the Postgres abort.
+// ── the collision surface Unit 5 opened, restated for the content lane ──
+// A scan dish whose name is a DIFFERENT dish by the coord's normaliser but
+// whose Str::slug() collides with an existing dish's slug hits the allocator's
+// retry path. Slice 7 Task 8 moved both halves: the slugs are
+// content.item_slugs (ContentItemSlugAllocator, minted by
+// ProjectionWriter::refreshItemCaches) and the apply no longer opens a
+// transaction of its own — writeManualItem() manages its own boundaries and
+// ProjectionWriter's docblock forbids nesting it. What still has to hold is
+// that the collision resolves and every LATER item in the batch still lands.
+
+/** The live content.item_slugs row (id + slug) for a content item, or null. */
+function menuContentSlugRow(User $user, string $itemId): ?object
+{
+    return DB::connection('pgsql')->table('content.item_slugs')
+        ->where('user_id', $user->id)->where('item_id', $itemId)->where('is_current', 1)
+        ->first(['id', 'slug']);
+}
 
 it('commits a scan apply whose new dish collides with an existing slug base', function () {
     $user = menuUser('scanslugclash');
 
     // "Café Latte" holds the `cafe-latte` slug (Str::slug transliterates the
-    // accent away), but MenuScanApplier's matcher compares raw lowercased
-    // names — "café latte" ≠ "cafe latte" — so the scan item below is a NEW
-    // dish that wants an already-taken base.
-    seedMenu($user, ['content_source' => 'uber-eats'], [
+    // accent away), but the coord normalises accents to a SPACE — "caf latte"
+    // ≠ "cafe latte" — so the scan item below is a NEW dish that wants an
+    // already-taken base.
+    seedContentMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Drinks', 'items' => [['name' => 'Café Latte', 'base_price' => 5.0]]],
     ]);
-    $existing = MenuItem::query()->where('name', 'Café Latte')->firstOrFail();
-    $existingRow = menuSlugRow($user, $existing->id);
+    $existing = menuContentRows($user)['Café Latte'];
+    $existingRow = menuContentSlugRow($user, (string) $existing->id);
     expect($existingRow?->slug)->toBe('cafe-latte');
-
-    $levels = [];
-    Event::listen(TransactionBeginning::class, function (TransactionBeginning $e) use (&$levels) {
-        $levels[] = $e->connection->transactionLevel();
-    });
 
     $res = actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
         'items' => [
             ['name' => 'Cafe Latte', 'description' => 'House blend.', 'price' => 5.5, 'category' => 'Specials'],
-            // A SECOND item processed after the colliding one — on Postgres an
-            // aborted transaction fails every later statement, so this landing
-            // is the part that proves the transaction survived the collision.
+            // A SECOND item processed after the colliding one — its landing is
+            // what proves the collision did not take the rest of the batch
+            // down with it.
             ['name' => 'Blueberry Muffin', 'description' => null, 'price' => 4.0, 'category' => 'Specials'],
         ],
     ])->assertOk();
 
     expect($res->json())->toBe(['updated' => 0, 'added' => 2]);
 
-    $minted = MenuItem::query()->where('name', 'Cafe Latte')->firstOrFail();
+    $rows = menuContentRows($user);
+    $minted = $rows['Cafe Latte'];
     expect($minted->description)->toBe('House blend.');
-    expect(menuSlugRow($user, $minted->id)?->slug)->toBe('cafe-latte-2');
+    expect(menuContentSlugRow($user, (string) $minted->id)?->slug)->toBe('cafe-latte-2');
 
-    // The pivot attach runs AFTER the colliding MenuItem::create in the same
-    // transaction — its category membership landing is the second proof.
-    $scanCategory = MenuCategory::query()->where('name', 'Specials')->where('source_platform', 'scan')->firstOrFail();
-    expect($minted->categories()->pluck('site.menu_categories.id')->all())->toBe([(string) $scanCategory->id]);
+    // The membership write runs after the colliding mint — its landing is the
+    // second proof.
+    $scanCategory = menuContentCategories($user)['Specials'];
+    expect((string) $scanCategory->external_ref)->toBe(MenuScanApplier::categoryRefFor('scan', 'Specials'));
+    expect($minted->category_ids)->toBe([(string) $scanCategory->id]);
 
-    $muffin = MenuItem::query()->where('name', 'Blueberry Muffin')->firstOrFail();
-    expect(menuSlugRow($user, $muffin->id)?->slug)->toBe('blueberry-muffin');
+    expect(menuContentSlugRow($user, (string) $rows['Blueberry Muffin']->id)?->slug)->toBe('blueberry-muffin');
 
     // The incumbent keeps its row and its bare base — the newcomer took -2.
-    $existingAfter = menuSlugRow($user, $existing->id);
+    $existingAfter = menuContentSlugRow($user, (string) $existing->id);
     expect($existingAfter->id)->toBe($existingRow->id);
     expect($existingAfter->slug)->toBe('cafe-latte');
-
-    // The one assertion here that DOES fail pre-fix on SQLite: each mint ran at
-    // transaction level 2 — nested inside MenuScanApplier's own level-1
-    // transaction, i.e. behind a SAVEPOINT. Everything above passes either way,
-    // because SQLite aborts only the failed statement.
-    expect(array_count_values($levels)[2] ?? 0)->toBe(2);
 });

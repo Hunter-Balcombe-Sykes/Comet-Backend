@@ -8,12 +8,11 @@ use App\Jobs\Platforms\WebsiteMenuHtmlScanJob;
 use App\Jobs\Platforms\WebsiteMenuPdfScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\MenuCategory;
-use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Cache\ApifyBudget;
+use App\Services\Content\ManualMenuItems;
 use App\Services\Design\LogoAutoGrabber;
 use App\Services\Http\MetadataParser;
 use App\Services\Http\SafeUrlFetcher;
@@ -59,6 +58,10 @@ beforeEach(function () {
     setupDesignKitsTable();
     setupNotificationsTable();
     setupSiteMediaTable();
+    // Slice 7 Task 8: the menu half of this scan lands in content.* through
+    // MenuScanApplier → ManualMenuWriter, not in site.menu_items.
+    setupItemSlugsTable();
+    setupContentTables();
 });
 
 function spwcjUser(string $handle, string $accountType = 'business', string $sector = 'restaurant'): array
@@ -125,8 +128,10 @@ it('creates menu items tagged website-scan for a food-Business account', functio
     $menu = Menu::query()->where('user_id', $user->id)->first();
     expect($menu)->not->toBeNull();
     expect($menu->content_source)->toBe('website-scan');
-    $category = MenuCategory::query()->where('menu_id', $menu->id)->first();
-    expect($category->source_platform)->toBe('website-scan');
+    // The 'website-scan' tag lives in the category's external_ref namespace now
+    // (MenuScanApplier::categoryRefFor), not in a source_platform column.
+    expect((string) app(ManualMenuItems::class)->categories((string) $user->id)[0]->external_ref)
+        ->toBe(MenuScanApplier::categoryRefFor('website-scan', 'Mains'));
 });
 
 it('does not attempt menu extraction for a non-food-capable account', function () {
@@ -284,8 +289,8 @@ it('applies items directly from the Squarespace fast-path without dispatching an
 
     spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
 
-    $item = MenuItem::query()->whereHas('menu', fn ($q) => $q->where('user_id', $user->id))->first();
-    expect($item)->not->toBeNull()->and($item->name)->toBe('House made kimchi');
+    $row = app(ManualMenuItems::class)->rows((string) $user->id)->first();
+    expect($row)->not->toBeNull()->and($row->headline)->toBe('House made kimchi');
     Queue::assertNotPushed(WebsiteMenuHtmlScanJob::class);
 });
 
