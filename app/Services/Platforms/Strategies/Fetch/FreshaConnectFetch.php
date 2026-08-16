@@ -155,18 +155,16 @@ final readonly class FreshaConnectFetch implements FetchStrategy
      * CacheKeyGenerator::bookingXorLock — NOT the per-platform key
      * (ConnectFetchJob takes that one for its own write, sequentially after
      * this returns) — because forget() / BookingController::clearBooking()
-     * take the SAME booking-XOR lock for their delete, and
-     * FreshaServiceProjector::sync() explicitly resurrects any service row
-     * tombstoned with deleted_origin!=='user'. Without this lock, a
-     * disconnect landing between the scrape and the projection would have
-     * its service teardown undone by this job.
+     * take the SAME booking-XOR lock for their delete. The lock is still
+     * mandatory: the closure re-checks that the connection row survived the
+     * scrape and re-asserts the Square XOR, and a disconnect landing between
+     * the scrape and the write would otherwise be resurrected by
+     * writeConnection()'s updateOrCreate.
      *
-     * TTL 30s (not withConnectionLock's 10s): the closure holds this lock
-     * across sync()'s DB transaction, which itself now bounds its own
-     * pg_advisory_xact_lock (services:{user_id}) via AdvisoryLock (U2) rather
-     * than waiting forever — sized to stay under ConnectFetchJob's 45s timeout
-     * backstop. block(5) matches every other booking-XOR caller. A timeout on
-     * either lock (this one or the inner services one) resolves the same way:
+     * TTL 10s (was 30): the 30 was sized for sync()'s DB transaction and its
+     * inner pg_advisory_xact_lock (services:{user_id}), both of which slice 7
+     * D3a removed — sync() is now a content.* read. block(5) matches every
+     * other booking-XOR caller, and a timeout still resolves the same way:
      * caught below and folded into the job's terminal path.
      */
     private function fetchStorewide(IntegrationConnection $connection, string $url, array $payload, bool $auto = false): array
@@ -219,11 +217,11 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         }
 
         try {
-            $projected = Cache::lock(CacheKeyGenerator::bookingXorLock((string) $user->id), 30)
+            $projected = Cache::lock(CacheKeyGenerator::bookingXorLock((string) $user->id), 10)
                 ->block(5, function () use ($connection, $user, $menu, $url, $auto) {
                     // A concurrent forget()/clearBooking() may have soft-deleted
                     // this row while the scrape above was in flight — that
-                    // teardown must win, not get resurrected by sync() below.
+                    // teardown must win, not get resurrected by the write below.
                     if (IntegrationConnection::find($connection->id) === null) {
                         throw new FetchUnavailableException('fresha_disconnected', FetchUnavailableException::GENERIC_USER_MESSAGE);
                     }

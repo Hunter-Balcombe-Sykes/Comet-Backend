@@ -1885,12 +1885,6 @@ parameters:
 			path: app/Services/Platforms/FreshaServiceProjector.php
 
 		-
-			message: '#^Using nullsafe property access "\?\-\>title" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Services/Platforms/FreshaServiceProjector.php
-
-		-
 			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1

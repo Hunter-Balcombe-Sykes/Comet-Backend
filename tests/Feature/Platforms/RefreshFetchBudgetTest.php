@@ -233,6 +233,26 @@ it('a healthy refresh well inside the budget stays byte-identical', function () 
     config(['partna.http_fetch.refresh_budget_seconds' => 90]);
 
     $user = createTenant('rfb4');
+    // Slice 7 D3a: the refreshed selection is composed from content.* (the
+    // Fresha connection lane), so the price this asserts comes from
+    // content.offers and not from the scrape. Without the pool row the menu
+    // composes empty and there is no [0] to read.
+    $sourceId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $user->id, 'kind' => 'connection', 'connection_id' => null,
+        'label' => 'Fresha', 'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $itemId = addItem($user->id, 'service', 'Cut');
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId, 'coord' => 'fresha:store:s:1',
+        'record_key' => 's:1', 'item_id' => $itemId, 'kind' => 'service', 'projector_version' => 1,
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    DB::table('content.offers')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'channel' => 'fresha', 'qualifier' => 'exact', 'amount_minor' => 5500,
+        'currency' => null, 'updated_at' => now(),
+    ]);
     $this->mock(FreshaScraper::class, function ($m) {
         $m->shouldReceive('fetchLocation')->once()->andReturn(['name' => 'Acme Cuts']);
         $m->shouldReceive('extractServices')->once()->andReturn([

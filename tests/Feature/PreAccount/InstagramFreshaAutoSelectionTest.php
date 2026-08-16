@@ -15,6 +15,9 @@ beforeEach(function () {
     setupServicesTable();
     setupServiceCategoriesTable();
     setupIntegrationConnectionsTable();
+    // Slice 7 D3a: FreshaAutoSelector composes the selection through
+    // FreshaServiceProjector, which reads the Fresha menu from content.*.
+    setupContentTables();
     shimPgAdvisoryLockForSqlite();
     Http::fake();
 });

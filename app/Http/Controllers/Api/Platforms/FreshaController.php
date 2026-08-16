@@ -114,36 +114,35 @@ class FreshaController extends ApiController
         // bookingXor outer, platform inner — never the reverse (see
         // ManagesIntegrationConnection::withCrossPlatformLock's docblock).
         //
-        // U1 review fix: TTL 30 (not the 10s default) — the storewide branch
-        // below runs FreshaServiceProjector::sync() (Postgres advisory lock +
-        // projection) INSIDE this closure, which can plausibly exceed 10s; a
-        // lock that expires mid-write would let a concurrent Square connect
-        // in and produce the exact XOR violation this lock exists to prevent.
-        // Matches FreshaConnectFetch.php's identical projection (CA-W7).
+        // U1 raised this to TTL 30 because the storewide branch below ran
+        // FreshaServiceProjector::sync() (Postgres advisory lock + a row per
+        // scraped service) INSIDE this closure. Slice 7 D3a removed those
+        // writes — sync() is now a content.* read and takes no advisory lock —
+        // so this is back on the 10s default every other caller uses. The lock
+        // itself is unchanged and still mandatory: it is what re-asserts the
+        // Square XOR against a concurrent Square connect.
         return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $url, $menu): JsonResponse {
             if ($this->hasConflictingConnection($user, Platform::Square->value)) {
                 return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
             }
 
-            // Whole-branch review fix: 30s (not withConnectionLock's 10s
-            // default) — this closure's storewide branch runs
-            // FreshaServiceProjector::sync() (the same projection the OUTER
-            // bookingXorLock above was raised to 30s for), so the same
-            // overrun risk applies one level down. Left at 10, an expiry
-            // mid-projection would let ConnectFetchJob / ScheduledRefresh /
-            // saveSelection — all keyed on this 'fresha' platform lock alone
-            // — in behind it, reopening PWL-5. See
-            // ManagesIntegrationConnection::withConnectionLock's docblock.
+            // Back on the 10s default for the same reason the outer lock is
+            // (D3a): the projection this closure used to run is now a read.
+            // The lock STAYS — dropping it would reopen PWL-5 for
+            // saveSelection / setServiceVisibility / ConnectFetchJob /
+            // ScheduledRefresh, all of which key on this 'fresha' platform
+            // lock alone. See ManagesIntegrationConnection::withConnectionLock.
             return $this->withConnectionLock($user, function () use ($user, $url, $menu): JsonResponse {
                 // Business Partna accounts book storewide — no team-member picker. Finalise
                 // the selection here so connect() completes setup in one step; the dashboard
                 // sees mode='storewide' and skips the picker. Capability-gated so the
                 // account_type read stays inside AccountCapabilities.
                 if (AccountCapabilities::for($user)->can_book_storewide) {
-                    // Project the scrape into site.services rows (deduped by serviceId;
-                    // owner edits + suppressions honoured) and store the EFFECTIVE list
-                    // in the public selection; the raw scrape lands at payload.raw
-                    // (private — the public allowlist ships only url+selection).
+                    // Compose the EFFECTIVE list from content.* (deduped by
+                    // serviceId; suppressions and departures honoured) into the
+                    // public selection; the raw scrape lands at payload.raw
+                    // (private — the public allowlist ships only url+selection),
+                    // where its remaining job is the vendor's menu ORDER.
                     $projected = $this->projector->sync($user, $menu['services']);
                     $selection = [
                         'url' => $url,
@@ -182,8 +181,8 @@ class FreshaController extends ApiController
                 ]);
 
                 return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
-            }, 30);
-        }, 30);
+            });
+        });
     }
 
     /**
@@ -480,10 +479,11 @@ class FreshaController extends ApiController
         // reverse; see ManagesIntegrationConnection::withCrossPlatformLock's
         // lock-ordering docblock (reversing it is the one cycle the branch
         // confirmed does not exist). The ~20s scrape above stays OUTSIDE both
-        // locks, same discipline as connect(). TTL 30s on BOTH locks: this
-        // closure runs FreshaServiceProjector::sync() (services advisory lock +
-        // projection) inside, the identical overrun risk connect()'s storewide
-        // branch raised both of its locks to 30s for.
+        // locks, same discipline as connect(). Both locks were on TTL 30s for
+        // the projection this closure used to run inside them; slice 7 D3a made
+        // that a content.* read, so both are back on the 10s default. Neither
+        // lock is optional — the span they cover (existence re-check → compose
+        // → write) is unchanged.
         return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $url, $location, $employee, $services): JsonResponse {
             // Re-assert the Square XOR under the lock forget()/clearBooking()/
             // SquareController::connect() all serialise on — a Square that
@@ -498,17 +498,19 @@ class FreshaController extends ApiController
                 // longer sufficient alone): a forget() landing during the
                 // unlocked scrape soft-deletes this row before either lock is
                 // taken. writeConnection() below is an updateOrCreate, so
-                // without this it would resurrect the row (and projector->sync()
-                // the tombstoned deleted_origin='sync' service rows). Mirrored
-                // from FreshaConnectFetch.php's identical re-check.
+                // without this it would resurrect the connection row. (It used
+                // to resurrect the tombstoned deleted_origin='sync' service rows
+                // too; sync() no longer writes those, but the connection-row
+                // half is reason enough on its own.) Mirrored from
+                // FreshaConnectFetch.php's identical re-check.
                 if ($this->connectionFor($user) === null) {
                     return $this->error('No Fresha URL saved yet. Save one first.', 404);
                 }
 
                 // Preserve previously hidden services, dropping ids that no longer exist
-                // in the refreshed menu so the hidden list never drifts stale. The kept
-                // list seeds is_active on first-time projections; projected rows then
-                // own the hidden state (compose() re-derives the list from is_active).
+                // in the refreshed menu so the hidden list never drifts stale. D3a: the
+                // kept list IS the record now — it rides on the blob, and compose() only
+                // prunes it further to ids still live in content.*.
                 $serviceIds = array_map(static fn (array $s): string => (string) $s['serviceId'], $services);
                 $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
                 $hidden = array_values(array_filter(
@@ -532,8 +534,8 @@ class FreshaController extends ApiController
                 ]);
 
                 return $this->success((new FreshaSelectionResource($selection, (string) $user->id))->resolve());
-            }, 30);
-        }, 30);
+            });
+        });
     }
 
     // GET /api/platforms/fresha/employee-services?employeeId=X — the per-employee
@@ -615,20 +617,17 @@ class FreshaController extends ApiController
                 $hidden = array_values(array_filter($hidden, static fn ($id): bool => $id !== $validated['serviceId']));
             }
 
-            // The projection owns the hidden state: flip is_active on the row
-            // and let compose() re-derive hiddenServiceIds. Legacy connections
-            // (no payload.raw yet — the projection marker) fall through to the
-            // verbatim hidden-list write below, exactly as before.
+            // Slice 7 D3a: the BLOB owns the hidden state. It used to live on
+            // site.services.is_active with compose() re-deriving the list from
+            // it; content.* has no is_active, so the list computed above IS the
+            // record and compose() only prunes it to ids that are still live.
+            // Legacy connections (no payload.raw yet — the projection marker)
+            // fall through to the verbatim hidden-list write below, exactly as
+            // before.
             $storedPayload = $this->readConnection($user) ?? [];
             $rawServices = $storedPayload['raw']['services'] ?? null;
             if (is_array($rawServices)) {
-                Service::query()
-                    ->where('user_id', $user->id)
-                    ->where('source', 'fresha')
-                    ->where('external_id', $validated['serviceId'])
-                    ->update(['is_active' => ! $validated['hidden']]);
-
-                $composed = $this->projector->compose($user, $rawServices);
+                $composed = $this->projector->compose($user, $rawServices, $hidden);
                 $inner = [
                     ...$selection->toArray(),
                     'services' => $composed['services'],

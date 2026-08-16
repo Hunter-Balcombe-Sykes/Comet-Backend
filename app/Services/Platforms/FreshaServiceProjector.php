@@ -4,49 +4,66 @@ namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\Service;
-use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
+use App\Services\Content\FreshaServiceItems;
 use App\Services\Platforms\Registry\Platform;
-use App\Services\Site\AdvisoryLock;
-use Illuminate\Support\Facades\DB;
 
-// Projects Fresha's scraped service menu into REAL site.services rows and
-// composes the public booking blob back FROM those projections — the bridge
-// that makes Fresha services behave like menu items (editable, revertible,
-// deduped) without changing the public CDN contract.
+// Composes the public Fresha booking blob (`payload.selection`) from content.*.
 //
-// Data model:
-//   • payload.raw.services   — the deduped raw scrape (PRIVATE: the public
-//                              resource allowlists only url+selection). The
-//                              revert source, and the compose() input.
-//   • site.services rows     — source='fresha', external_id=serviceId. The
-//                              editable truth. is_manual=TRUE marks an owner
-//                              edit ("sync broken"): sync() never overwrites
-//                              such a row; revert() re-projects it from raw.
-//                              is_active mirrors the public hidden toggle.
-//   • payload.selection      — {services, hiddenServiceIds} COMPOSED from the
-//                              projections: a synced row contributes its raw
-//                              entry verbatim; a detached row contributes the
-//                              serialized owner version. Ships to the public
-//                              CDN exactly as before (partna-pages unchanged).
+// SLICE 7 (spec D3 + owner ruling D3a, 2026-08-16). This class used to WRITE
+// `site.services` rows and compose the blob back out of them. It no longer
+// writes anything: `site.services` is dropped in phase 6, and the Fresha
+// service menu already lives in content.* under a `kind = 'connection'`
+// source, landed by the ingest connector (slice 3b).
 //
-// Suppression: deleting a projected row soft-deletes it with
-// deleted_origin='user' — sync() skips re-creating that serviceId forever
-// (PurgeSoftDeleted excludes these rows). A service that disappears from
-// Fresha soft-deletes with deleted_origin='sync' and restores when it returns.
-// Detached (is_manual) rows are OWNER content: they survive a Fresha removal
-// and keep serializing into the blob.
+// Data model now:
+//   • payload.raw.services  — the deduped raw scrape (PRIVATE: the public
+//                             resource allowlists only url+selection). Its
+//                             remaining jobs are the VENDOR'S MENU ORDER and
+//                             revert()'s source. It is no longer the value
+//                             source for the blob.
+//   • content.*             — the truth for a service's EXISTENCE and its
+//                             VALUES. Read through FreshaServiceItems, which
+//                             is 3b's already-shipped reproduction of this
+//                             exact nine-key shape and is what the dashboard
+//                             (FreshaSelectionResource) already renders.
+//   • payload.selection     — {…, services, hiddenServiceIds}. services[] is
+//                             composed here; hiddenServiceIds RIDES ON THE
+//                             BLOB (see compose()).
+//
+// Read FreshaServiceItems (`kind = 'connection'`), never ManualServiceItems
+// (`kind = 'manual'`). The two-surface rule is structural, not stylistic: a
+// Fresha service must never reach the public services section and an
+// owner-authored service must never reach the booking surface. Pinned both
+// ways by tests/Feature/Content/ServiceTwoSurfaceTest.php.
+//
+// Suppression and departure keep their meanings, re-expressed:
+//   • the owner deletes a service → `content.items.removed_at`, which
+//     ProjectionWriter NEVER clears on reappearance, so a later scrape
+//     re-offering it cannot resurrect it;
+//   • the service leaves Fresha  → `content.source_items.removed_at`, which
+//     IS cleared on reappearance, so it restores when it returns.
+// That asymmetry is the whole difference between the two, and it is why an
+// owner deletion must never be recorded on source_items.
+//
+// RETIRED by D3a: owner-edited Fresha services ("sync broken" / is_manual).
+// An owner's edited PRICE has no representation in content.* — content.offers
+// is a set-union COLLECTION and FacetRegistry excludes collections from
+// content.manual_overrides by design — so the blob can no longer serve one.
+// Measured before the ruling: all 61 live `site.services WHERE source='fresha'`
+// rows carry is_manual = false and none carries a non-null non-zero
+// price_cents, so the feature was never used. Title/description/duration
+// overrides are unaffected: those are singleton facets, they keep working
+// through content.manual_overrides, and both surfaces now agree on price.
+// Do NOT build an offers override lane to bring this back.
 //
 // Dedup: Fresha lists a service once per category it appears in — the same
 // serviceId can occur several times in one scrape. dedupe() collapses to the
-// FIRST occurrence (its category label wins, matching the menu convention).
-//
-// Legacy connections (created before this projector) carry no payload.raw —
-// every consumer here no-ops for them until their next refresh / reconnect /
-// selection save populates projections + raw. Until then the stored blob
-// behaves exactly as before.
+// FIRST occurrence, which is what fixes the vendor's menu order in place.
 class FreshaServiceProjector
 {
+    public function __construct(private readonly FreshaServiceItems $items) {}
+
     /**
      * Collapse duplicate serviceIds (first occurrence wins) and drop malformed
      * entries. The scrape's order is preserved — it's Fresha's own menu order,
@@ -78,207 +95,109 @@ class FreshaServiceProjector
     }
 
     /**
-     * Every category label a serviceId is listed under, in scrape order —
-     * a duplicate listing means ONE service in SEVERAL categories, so the
-     * projection unions the labels into memberships.
+     * Dedupe a fresh scrape and compose the effective blob from content.*.
      *
-     * @param  array<int, mixed>  $services  the pre-dedup scrape
-     * @return array<string, list<string>> serviceId => unique labels
-     */
-    private function categoryLabelsByServiceId(array $services): array
-    {
-        $labels = [];
-        foreach ($services as $entry) {
-            if (! is_array($entry)) {
-                continue;
-            }
-            $sid = (string) ($entry['serviceId'] ?? '');
-            $label = is_string($entry['category'] ?? null) ? trim((string) $entry['category']) : '';
-            if ($sid === '' || $label === '') {
-                continue;
-            }
-            if (! in_array($label, $labels[$sid] ?? [], true)) {
-                $labels[$sid][] = $label;
-            }
-        }
-
-        return $labels;
-    }
-
-    /**
-     * Upsert projections from a fresh scrape, then compose the effective blob.
+     * D3a: this writes NOTHING. It used to upsert one `site.services` row per
+     * scraped service inside a Postgres transaction guarded by the
+     * `services:{user_id}` advisory lock; the ingest connector now lands those
+     * services in content.* and this call is a pure read. The advisory lock
+     * went with the writes — the lock existed to serialise `sort_order`
+     * appends against the global `services_user_sort_order_uq` partial unique,
+     * and there is no append left to serialise. Callers that widened their own
+     * lock TTLs to cover this call have been narrowed back to the 10s default
+     * (FreshaController::connect()/saveSelection(),
+     * FreshaConnectFetch::fetchStorewide()).
      *
      * @param  array<int, mixed>  $rawServices  the scrape output (pre-dedup ok)
      * @param  list<mixed>  $previouslyHidden  hiddenServiceIds from the stored
-     *                                         selection — seeds is_active on rows
-     *                                         projected for the FIRST time (a
-     *                                         legacy connection's curation carries
-     *                                         over); existing rows keep their own
-     *                                         is_active.
+     *                                         selection. Passed straight to
+     *                                         compose(), which prunes it — the
+     *                                         hidden list rides on the blob now
+     *                                         (content.* has no is_active).
      * @return array{services: list<array<string, mixed>>, hiddenServiceIds: list<string>, raw: list<array<string, mixed>>}
      */
     public function sync(User $user, array $rawServices, array $previouslyHidden = []): array
     {
         $raw = $this->dedupe($rawServices);
-        $labelsById = $this->categoryLabelsByServiceId($rawServices);
-        $hiddenSet = array_flip(array_values(array_filter($previouslyHidden, 'is_string')));
 
-        DB::connection('pgsql')->transaction(function () use ($user, $raw, $labelsById, $hiddenSet) {
-            // Same advisory key as InsertWithSortOrder's manual-service create —
-            // the global (user_id, sort_order) partial unique means every
-            // sort_order append must serialize behind one lock.
-            //
-            // U2: tightened to a 5s bound with a typed exception (previously
-            // relied only on DatabaseServiceProvider's session-level `SET
-            // lock_timeout` — a real but unreliable ~10s ceiling that could be
-            // lost on a reconnect and, on timeout, surfaced as a raw uncaught
-            // SQLSTATE 55P03 rather than something callable code could catch)
-            // — this transaction now also runs inside ConnectFetchJob, which
-            // must never block an interactive dashboard edit indefinitely. A
-            // timeout throws AdvisoryLockTimeoutException; FreshaConnectFetch::
-            // fetchStorewide() folds that into ConnectFetchJob's terminal path,
-            // and ManagesIntegrationConnection::withConnectionLock() folds it
-            // into the same 423 every other interactive platform-connection
-            // write returns on contention.
-            AdvisoryLock::acquire("services:{$user->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
-
-            $existing = Service::withTrashed()
-                ->where('user_id', $user->id)
-                ->where('source', 'fresha')
-                ->get()
-                ->keyBy(fn (Service $s) => (string) $s->external_id);
-
-            $max = Service::query()
-                ->where('user_id', $user->id)
-                ->whereNull('deleted_at')
-                ->max('sort_order');
-            $next = is_null($max) ? 0 : ((int) $max + 1);
-
-            $seen = [];
-            foreach ($raw as $entry) {
-                $sid = (string) $entry['serviceId'];
-                $seen[$sid] = true;
-                $row = $existing->get($sid);
-
-                $categoryIds = $this->resolveCategoryIds($user, $labelsById[$sid] ?? []);
-
-                if ($row === null) {
-                    // SEC-1: relation ->create() sets user_id via the FK (not
-                    // mass-assignable).
-                    $created = $user->services()->create([
-                        'source' => 'fresha',
-                        'external_id' => $sid,
-                        'is_manual' => false,
-                        'is_active' => ! isset($hiddenSet[$sid]),
-                        'sort_order' => $next++,
-                        ...$this->rawAttributes($user, $entry),
-                    ]);
-                    $created->categories()->sync($categoryIds);
-
-                    continue;
-                }
-
-                if ($row->trashed()) {
-                    // The owner deleted this service — suppressed, never resurrected.
-                    if ($row->deleted_origin === 'user') {
-                        continue;
-                    }
-                    // Departed-then-returned: restore with fresh fields and a fresh
-                    // sort slot (its old slot may have been reclaimed — the partial
-                    // unique index only covers live rows).
-                    $row->forceFill([
-                        ...$this->rawAttributes($user, $entry),
-                        'is_manual' => false,
-                        'sort_order' => $next++,
-                        'deleted_origin' => null,
-                        'deleted_at' => null,
-                    ])->save();
-                    $row->categories()->sync($categoryIds);
-
-                    continue;
-                }
-
-                // Detached (owner-edited) rows are owner content — never overwritten
-                // (fields OR memberships: the owner may have re-categorised it).
-                if ($row->is_manual) {
-                    continue;
-                }
-
-                $row->forceFill($this->rawAttributes($user, $entry))->save();
-                $row->categories()->sync($categoryIds);
-            }
-
-            // Departed: live synced rows whose serviceId vanished from the scrape.
-            // Detached rows survive (owner content).
-            foreach ($existing as $sid => $row) {
-                if (isset($seen[$sid]) || $row->trashed() || $row->is_manual) {
-                    continue;
-                }
-                $row->deleted_origin = 'sync';
-                $row->saveQuietly();
-                $row->delete();
-            }
-        });
-
-        return [...$this->compose($user, $raw), 'raw' => $raw];
+        return [...$this->compose($user, $raw, $previouslyHidden), 'raw' => $raw];
     }
 
     /**
-     * The effective blob pieces from the CURRENT projections — no upserts.
-     * A synced row contributes its raw entry verbatim (byte-stable public
-     * payload); a detached row contributes the serialized owner version;
-     * a suppressed/deleted serviceId contributes nothing. Detached rows whose
-     * service left Fresha entirely append at the end.
+     * The effective blob pieces, read live from content.*.
      *
-     * @param  array<int, mixed>  $rawServices  the stored payload.raw services
+     * Each entry is FreshaServiceItems' nine-key reproduction — the same shape,
+     * from the same read, that the dashboard has rendered since 3b. The stored
+     * `payload.raw` no longer supplies VALUES, only ORDER: an item listed in it
+     * takes that position (Fresha's own menu order), and a live item the stored
+     * scrape has not caught up with appends after them rather than waiting for
+     * the next refresh to become visible.
+     *
+     * Existence is content.*'s answer alone, which is what carries suppression
+     * and departure across the cutover: an owner-deleted service has
+     * `content.items.removed_at` set and an absent one has
+     * `content.source_items.removed_at` set, and FreshaServiceItems filters on
+     * both, so neither reaches the blob. The difference between them lives in
+     * ProjectionWriter (it clears the second on reappearance and never the
+     * first), not here.
+     *
+     * @param  array<int, mixed>  $rawServices  the stored payload.raw services — ORDER only
+     * @param  list<mixed>  $hidden  the stored selection's own hiddenServiceIds.
+     *                               There is no is_active in content.*, so this
+     *                               is carried on the blob (where
+     *                               FreshaSelectionResource already reads it)
+     *                               and merely PRUNED here to ids that are still
+     *                               live — the same "never drift stale" rule
+     *                               FreshaFetch applies to it.
      * @return array{services: list<array<string, mixed>>, hiddenServiceIds: list<string>}
      */
-    public function compose(User $user, array $rawServices): array
+    public function compose(User $user, array $rawServices, array $hidden = []): array
     {
-        $raw = $this->dedupe($rawServices);
-
-        $rows = Service::query()
-            ->where('user_id', $user->id)
-            ->where('source', 'fresha')
-            ->with('categories:id,title')
-            ->get()
-            ->keyBy(fn (Service $s) => (string) $s->external_id);
+        $live = [];
+        foreach ($this->items->selectionServices((string) $user->id) as $entry) {
+            $sid = (string) ($entry['serviceId'] ?? '');
+            if ($sid !== '' && ! isset($live[$sid])) {
+                $live[$sid] = $entry;
+            }
+        }
 
         $services = [];
-        $inRaw = [];
-        foreach ($raw as $entry) {
+        $seen = [];
+        foreach ($this->dedupe($rawServices) as $entry) {
             $sid = (string) $entry['serviceId'];
-            $inRaw[$sid] = true;
-            $row = $rows->get($sid);
-            if ($row === null) {
-                continue; // suppressed or deleted — gone from the public list too
+            if (! isset($live[$sid]) || isset($seen[$sid])) {
+                continue;
             }
-            $services[] = $row->is_manual ? $this->serialize($row, $entry) : $entry;
+            $seen[$sid] = true;
+            $services[] = $live[$sid];
         }
-        foreach ($rows as $sid => $row) {
-            if (! isset($inRaw[$sid]) && $row->is_manual) {
-                // Owner-edited row whose service left Fresha — still the owner's
-                // content, still listed.
-                $services[] = $this->serialize($row, null);
+        foreach ($live as $sid => $entry) {
+            if (! isset($seen[$sid])) {
+                $services[] = $entry;
             }
         }
 
-        $hidden = $rows
-            ->filter(fn (Service $s) => ! $s->is_active)
-            ->map(fn (Service $s) => (string) $s->external_id)
-            ->values()
-            ->all();
+        $hiddenIds = [];
+        foreach ($hidden as $id) {
+            if (is_string($id) && isset($live[$id]) && ! in_array($id, $hiddenIds, true)) {
+                $hiddenIds[] = $id;
+            }
+        }
 
-        return ['services' => $services, 'hiddenServiceIds' => $hidden];
+        return ['services' => $services, 'hiddenServiceIds' => $hiddenIds];
     }
 
     /**
-     * Recompose selection.services / hiddenServiceIds on the stored Fresha
-     * connection from the current projections — called after any owner write
-     * to a projected row (edit / delete / restore / revert / visibility).
-     * No-ops for legacy connections (no payload.raw yet) and when nothing
-     * changed. Saving the model fires IntegrationConnectionObserver's public
-     * edge purge.
+     * Recompose selection.services on the stored Fresha connection from
+     * content.* — called after any owner write that could change what the
+     * booking menu shows. No-ops for legacy connections (no payload.raw yet)
+     * and when nothing changed. Saving the model fires
+     * IntegrationConnectionObserver's public edge purge.
+     *
+     * The stored hiddenServiceIds is fed back in rather than re-derived: it is
+     * the owner's own curation and content.* has no is_active to derive it
+     * from. compose() prunes it to ids that are still live, so a service the
+     * owner hid and then deleted does not leave a dangling id behind.
      */
     public function refreshBlob(User $user): void
     {
@@ -297,7 +216,9 @@ class FreshaServiceProjector
             return;
         }
 
-        $composed = $this->compose($user, $rawServices);
+        $storedHidden = is_array($selection['hiddenServiceIds'] ?? null) ? $selection['hiddenServiceIds'] : [];
+
+        $composed = $this->compose($user, $rawServices, $storedHidden);
         $inner = [
             ...$selection,
             'services' => $composed['services'],
@@ -312,9 +233,19 @@ class FreshaServiceProjector
     }
 
     /**
-     * Re-project one detached row from the stored raw scrape ("revert to
-     * synced"). Returns false when the connection carries no raw entry for it
-     * (the service no longer exists on Fresha — nothing to revert to).
+     * Re-project one LEGACY `site.services` row from the stored raw scrape
+     * ("revert to synced"). Returns false when the connection carries no raw
+     * entry for it (the service no longer exists on Fresha — nothing to revert
+     * to).
+     *
+     * This is the ONLY method here that still touches `site.services`, and it
+     * exists solely for `UserServiceController::resync()`/`resyncBulk()`'s §C2
+     * legacy branch — the rows this class stopped creating under D3a. Every one
+     * of the 61 live rows carries `is_manual = false`, so both call sites
+     * already short-circuit before reaching it. It goes with the table in phase
+     * 6; nothing new should call it. The content.* half of resync (deleting
+     * `content.manual_overrides`) is unaffected and still works for
+     * title/description/duration.
      */
     public function revert(User $user, Service $service): bool
     {
@@ -377,79 +308,6 @@ class FreshaServiceProjector
         ];
     }
 
-    /**
-     * The blob-shaped entry for a DETACHED row — same keys the scraper emits,
-     * so partna-pages renders owner edits with zero changes. $rawEntry (when
-     * the service still exists on Fresha) fills the fields a Service row
-     * doesn't model (hasVariants, and duration/category fallbacks).
-     *
-     * @param  array<string, mixed>|null  $rawEntry
-     * @return array<string, mixed>
-     */
-    private function serialize(Service $row, ?array $rawEntry): array
-    {
-        return [
-            'serviceId' => (string) $row->external_id,
-            'name' => (string) $row->title,
-            'duration' => $this->formatDuration($row->duration_minutes) ?? ($rawEntry['duration'] ?? null),
-            'description' => $row->description,
-            'price' => $this->formatPrice((int) $row->price_cents, (string) $row->currency_code),
-            'priceValue' => round(((int) $row->price_cents) / 100, 2),
-            'currency' => (string) $row->currency_code,
-            'category' => $row->categories->first()?->title ?? ($rawEntry['category'] ?? null),
-            'hasVariants' => (bool) ($rawEntry['hasVariants'] ?? false),
-        ];
-    }
-
-    /**
-     * find-or-create the user's ServiceCategory rows for a set of Fresha
-     * category labels (matched live, case-insensitive) — the MEMBERSHIP ids a
-     * projected service syncs to. A TRASHED same-title category means the
-     * owner deleted it — never resurrected; that label contributes nothing.
-     *
-     * @param  list<string>  $labels
-     * @return list<string>
-     */
-    private function resolveCategoryIds(User $user, array $labels): array
-    {
-        $ids = [];
-        foreach ($labels as $label) {
-            $title = trim((string) $label);
-            if ($title === '') {
-                continue;
-            }
-            $needle = mb_strtolower($title);
-
-            $live = ServiceCategory::query()
-                ->where('user_id', $user->id)
-                ->get(['id', 'title'])
-                ->first(fn (ServiceCategory $c) => mb_strtolower(trim((string) $c->title)) === $needle);
-            if ($live !== null) {
-                $ids[] = (string) $live->id;
-
-                continue;
-            }
-
-            $trashedExists = ServiceCategory::onlyTrashed()
-                ->where('user_id', $user->id)
-                ->get(['id', 'title'])
-                ->contains(fn (ServiceCategory $c) => mb_strtolower(trim((string) $c->title)) === $needle);
-            if ($trashedExists) {
-                continue;
-            }
-
-            $max = ServiceCategory::query()->where('user_id', $user->id)->max('sort_order');
-            // SEC-1: relation ->create() sets user_id via the FK (not mass-assignable).
-            $ids[] = (string) $user->serviceCategories()->create([
-                'title' => $title,
-                'sort_order' => is_null($max) ? 0 : ((int) $max + 1),
-                'source' => 'fresha',
-            ])->id;
-        }
-
-        return array_values(array_unique($ids));
-    }
-
     /** "1h 15min" / "45min" / "2h" → minutes; null when unparsable. */
     public function parseDuration(mixed $display): ?int
     {
@@ -465,33 +323,5 @@ class FreshaServiceProjector
         }
 
         return $minutes > 0 ? $minutes : null;
-    }
-
-    /** minutes → "1h 15min" / "45min" / "2h"; null passthrough. */
-    public function formatDuration(?int $minutes): ?string
-    {
-        if ($minutes === null || $minutes <= 0) {
-            return null;
-        }
-        $h = intdiv($minutes, 60);
-        $m = $minutes % 60;
-        if ($h > 0 && $m > 0) {
-            return "{$h}h {$m}min";
-        }
-
-        return $h > 0 ? "{$h}h" : "{$m}min";
-    }
-
-    /** cents + ISO code → Fresha-style display price ("A$65", "A$42.50"). */
-    public function formatPrice(int $cents, string $currencyCode): string
-    {
-        $symbols = ['AUD' => 'A$', 'NZD' => 'NZ$', 'USD' => '$', 'GBP' => '£', 'EUR' => '€'];
-        $code = strtoupper($currencyCode);
-        $amount = $cents / 100;
-        $formatted = $amount == floor($amount)
-            ? number_format($amount, 0)
-            : number_format($amount, 2);
-
-        return isset($symbols[$code]) ? $symbols[$code].$formatted : "{$code} {$formatted}";
     }
 }
