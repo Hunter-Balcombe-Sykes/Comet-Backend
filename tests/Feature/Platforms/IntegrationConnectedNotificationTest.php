@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\ConnectFetchJob;
 /** @phpstan-ignore-all */
 
 // End-to-end wiring of the integration-connected bell notice at every emit point:
@@ -7,7 +8,6 @@
 // and the three paths that bypass the trait but are still user-initiated —
 // InstagramConnectJob, EnrichLinkCardJob and EventsCatalog::writeRow.
 
-use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
@@ -21,6 +21,7 @@ use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\SkoolScraper;
+use App\Services\Shop\ShopConnections;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -374,6 +375,6 @@ it('does not notify when removeBrand runs with no shop connection', function () 
 
     actingAsUser($user)->deleteJson('/api/platforms/shop/brands/brand-x')->assertStatus(404);
 
-    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->exists())->toBeFalse();
+    expect(IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->exists())->toBeFalse();
     expect(icwRows($user))->toHaveCount(0);
 });

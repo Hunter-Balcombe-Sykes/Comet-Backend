@@ -9,6 +9,7 @@ use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -95,11 +96,11 @@ it('addBrand + setProducts persist the relational marker and child rows, not a J
     actingAsUser($user)->putJson('/api/platforms/shop/brands/rel-brand/selection', ['productIds' => ['p1', 'p2']])
         ->assertOk();
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
     // The row itself is now just the lifecycle/authorization anchor.
     expect($conn->payload)->toBe(['storage' => 'relational']);
 
-    $brand = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'rel-brand')->firstOrFail();
+    $brand = ShopBrand::where('brand_id', 'rel-brand')->firstOrFail();
     expect($brand->provider)->toBe('shopify');
     // Task 8: setProducts() writes the selection to content.* only —
     // site.shop_products is no longer touched (see the Task 8 report).
@@ -164,8 +165,8 @@ it('re-adding a brand after forget creates a fresh row with no orphaned products
         ->assertOk()
         ->assertJsonPath('id', 'again-brand');
 
-    $active = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
-    $brand = ShopBrand::where('connection_id', $active->id)->where('brand_id', 'again-brand')->firstOrFail();
+    $active = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
+    $brand = ShopBrand::where('brand_id', 'again-brand')->firstOrFail();
     expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(0);
 });
 
@@ -189,8 +190,8 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
             ->assertOk();
     }
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
-    $individual = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'individual')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
+    $individual = ShopBrand::where('brand_id', 'individual')->firstOrFail();
     expect($individual->is_individual)->toBeTrue();
     // Task 8: addProduct() writes content.* only — site.shop_products is no
     // longer touched (mirrors ShopProductSeeder::seed(), the already-shipped
@@ -224,8 +225,8 @@ it('removeProduct drops the individual bucket once it has no products left', fun
 
     actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => 'https://example.com/only'])->assertOk();
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
-    $individual = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'individual')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
+    $individual = ShopBrand::where('brand_id', 'individual')->firstOrFail();
 
     actingAsUser($user)->deleteJson('/api/platforms/shop/products/only')
         ->assertOk()
@@ -273,8 +274,10 @@ it('publishes an empty shop payload even after a real connect + selection throug
     $res = $this->getJson('/api/public/profiles/pubshop/platforms');
     $res->assertOk();
 
-    // The envelope survives; the contents are gone.
-    $row = $res->json('data.platforms.shop.0');
+    // The envelope survives; the contents are gone. Convergence Phase 6: the
+    // store's anchor is a shopify.store row now, so it groups under the BRAND
+    // key rather than the retired 'shop' pseudo-key.
+    $row = $res->json('data.platforms.shopify.0');
     expect($row)->toHaveKeys(['resourceId', 'payload', 'lastRefreshedAt'])
         ->and($row['payload'])->toBe([]);
 
@@ -284,8 +287,15 @@ it('publishes an empty shop payload even after a real connect + selection throug
     expect(DB::table('content.f_catalog')->where('sku', 'p1')->exists())->toBeTrue();
 
     // Nothing the old contract carried rides anywhere in the body.
+    //
+    // 'pub-brand' is NOT asserted absent any more, and the change is named
+    // rather than quietly dropped: convergence Phase 6 gives each store its own
+    // connection keyed by its brand id, so that id is now the row's
+    // `resourceId` — envelope, not payload. It is the store's own public
+    // identifier (Shopify serves it from the storefront's meta.json), the
+    // payload below is still `[]`, and every field the retired contract
+    // actually leaked is still asserted gone.
     $body = $res->getContent();
-    expect($body)->not->toContain('pub-brand');
     expect($body)->not->toContain('Pub Store');
     expect($body)->not->toContain('SAVE10');
     expect($body)->not->toContain('Mug');
@@ -603,7 +613,7 @@ it('a hand-picked selection survives a scheduled ShopFetch run while the global 
     actingAsUser($user)->putJson('/api/platforms/shop/brands/modes-brand/selection', ['productIds' => ['p1']])
         ->assertOk();
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
     // Task 8: setProducts() stamps content.storefronts.products_curated_at
     // directly now — isCurated() (what ShopFetch actually calls) reads that
     // column first, not the legacy site.shop_brands one setProducts() no
@@ -622,7 +632,7 @@ it('a non-curated brand still syncs to the newest products on a scheduled ShopFe
     $user = shopStorageUser('sem1b');
     modesBrandFor($user);
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
     $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
     expect($brand->products_curated_at)->toBeNull();
 
@@ -663,7 +673,7 @@ it('selectionMode=latest clears products_curated_at, opting the brand back into 
     // skipped) now that products_curated_at is null again — a curated brand
     // would have thrown FetchNotModifiedException instead (see the sibling
     // "survives a scheduled ShopFetch run" test above).
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
     $result = app(ShopFetch::class)->fetch($conn->fresh());
     expect($result)->toBe(['storage' => 'relational']);
 });

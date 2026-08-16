@@ -10,6 +10,7 @@ use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\SkoolScraper;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ShopConnections;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -60,10 +61,10 @@ it('detects a WooCommerce store from the URL alone and stores its provider', fun
         ->assertJsonPath('provider', 'woocommerce')
         ->assertJsonPath('name', 'Organic Shop');
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->first();
     expect($conn)->not->toBeNull();
     // FOUND-25: brands live in site.shop_brands now, not the connection payload.
-    expect(ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'store-example')->value('provider'))
+    expect(ShopBrand::where('brand_id', 'store-example')->value('provider'))
         ->toBe('woocommerce');
 });
 

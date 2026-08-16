@@ -14,6 +14,7 @@ use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\SquarespaceScraper;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\PublicSite\SitepageDataResolverService;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -541,7 +542,7 @@ it('T7: pasting the same store URL twice while deferred updates the ONE row, not
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://t7.example.com'])->assertStatus(202);
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://t7.example.com'])->assertStatus(202);
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
     expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(1);
 });
 
@@ -595,8 +596,8 @@ it('T11: re-adding an already-settled brand while deferred does not blank its pr
         'url' => 'https://t11.example.com', 'discountCode' => 'SAVE15',
     ])->assertOk();
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
-    $brand = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 't11-brand')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
+    $brand = ShopBrand::where('brand_id', 't11-brand')->firstOrFail();
     $brand->update(['selection_mode' => 'latest']);
     ShopProduct::create(['brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1', 'title' => 'Existing']]);
 
@@ -795,8 +796,12 @@ it('T20: a failed brand is retained, still returns products, and re-POSTing its 
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://t20.example.com'])
         ->assertStatus(202);
 
-    expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(1);
-    $brand = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 't20-brand')->firstOrFail();
+    // Convergence Phase 6: the retried store lands on its OWN anchor, not the
+    // pre-made marker $conn — so the count that matters is the user's, not one
+    // connection's. Still exactly one row: a retry updates in place.
+    expect(ShopBrand::whereIn('connection_id',
+        IntegrationConnection::where('user_id', $user->id)->pluck('id'))->count())->toBe(1);
+    $brand = ShopBrand::where('brand_id', 't20-brand')->firstOrFail();
     expect($brand->connect_status)->toBe('pending');
 });
 

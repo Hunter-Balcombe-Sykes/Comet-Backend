@@ -62,7 +62,11 @@ class PlatformRefresher
         $seconds = (float) config('partna.http_fetch.refresh_budget_seconds', 90);
 
         return $this->budget->ensureOpen($seconds, function () use ($connection) {
-            $descriptor = $this->registry->get($connection->platform);
+            // forConnection(), not get($platform): convergence Phase 6 put every
+            // store on a catalog-only brand surface, and the registry is frozen
+            // so those can never carry a descriptor of their own. See
+            // PlatformRegistry::forConnection().
+            $descriptor = $this->registry->forConnection($connection);
             $strategy = $descriptor?->refreshStrategy();
 
             // Unknown or non-refreshable platform — mirrors the old match()'s default

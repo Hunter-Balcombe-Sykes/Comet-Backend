@@ -26,6 +26,7 @@ use App\Catalog\Definitions\Eventbrite;
 use App\Catalog\Definitions\Facebook;
 use App\Catalog\Definitions\Fresha;
 use App\Catalog\Definitions\Genbook;
+use App\Catalog\Definitions\GenericStore;
 use App\Catalog\Definitions\Github;
 use App\Catalog\Definitions\Gitlab;
 use App\Catalog\Definitions\Glossgenius;
@@ -142,6 +143,7 @@ return [
     Glossgenius::class,
     GoogleBusiness::class,
     Grubhub::class,
+    GenericStore::class,
     Gumroad::class,
     Humanitix::class,
     Hungrypanda::class,

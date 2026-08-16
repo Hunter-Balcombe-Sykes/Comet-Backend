@@ -82,6 +82,16 @@ class ShopBrand extends BaseModel
     // migration's CHECK by ConstraintVocabularyLockstepTest.
     public const CONNECT_STATUSES = ['pending', 'failed'];
 
+    /**
+     * The reserved brand id for individually-added products — a bucket, not a
+     * connected store, so it never occupies a store slot. Lifted off
+     * ShopController (where it was a private const) in convergence Phase 6:
+     * ShopConnections needs it to route that bucket to its own anchor
+     * (`partna.manual_product`), and two copies of a reserved id is how the two
+     * lanes would drift apart.
+     */
+    public const INDIVIDUAL_BRAND_ID = 'individual';
+
     protected $casts = [
         'is_individual' => 'boolean',
         'position' => 'integer',

@@ -8,6 +8,7 @@ use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
+use App\Services\Shop\ShopConnections;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -248,8 +249,11 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://f.example.com'])
         ->assertStatus(422);
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first();
-    expect($conn)->not->toBeNull();
-    // FOUND-25: brands live in site.shop_brands now, not the connection payload.
-    expect(ShopBrand::where('connection_id', $conn->id)->where('is_individual', false)->count())->toBe(5);
+    // FOUND-25: brands live in site.shop_brands, not the connection payload.
+    // Convergence Phase 6: and each of the five stores carries its OWN
+    // connection, so the count spans the family rather than one marker row.
+    $connectionIds = IntegrationConnection::where('user_id', $user->id)
+        ->whereIn('surface_key', ShopConnections::surfaces())->pluck('id');
+    expect($connectionIds)->toHaveCount(5);
+    expect(ShopBrand::whereIn('connection_id', $connectionIds)->where('is_individual', false)->count())->toBe(5);
 });

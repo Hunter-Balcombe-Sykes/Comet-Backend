@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
@@ -27,18 +28,13 @@ use Illuminate\Support\Facades\Log;
 // bucket anchor until slice 7 retires it.
 class ShopProductSeeder
 {
-    /** Mirrors ShopController::INDIVIDUAL_BRAND_ID — keep in lockstep. */
-    private const INDIVIDUAL_BRAND_ID = 'individual';
-
     /** Mirrors ShopController::MAX_INDIVIDUAL_PRODUCTS — keep in lockstep. */
     private const MAX_INDIVIDUAL_PRODUCTS = 20;
-
-    /** Mirrors ShopController::MARKER (FOUND-25 relational storage anchor). */
-    private const MARKER = ['storage' => 'relational'];
 
     public function __construct(
         private readonly IntegrationConnectionCacheRefresher $refresher,
         private readonly ShopContentWriter $content,
+        private readonly ShopConnections $shop,
     ) {}
 
     /**
@@ -48,11 +44,18 @@ class ShopProductSeeder
     {
         // Tombstone parity with ShopBrandSeeder: an explicitly-removed shop
         // connection is never resurrected by a scan.
+        //
+        // Convergence Phase 6: matched across the whole shop family, not the
+        // retired 'shop' slug. A user who disconnected their shop after the
+        // split has tombstoned per-store rows and no 'shop' row at all, so the
+        // old match found neither the tombstone nor a live row — and the guard
+        // silently stopped guarding.
+        $surfaces = [...ShopConnections::surfaces(), ShopConnections::LEGACY_SURFACE];
         $wasDisconnected = IntegrationConnection::onlyTrashed()
-            ->where('user_id', $user->id)->where('platform', 'shop')
+            ->where('user_id', $user->id)->whereIn('surface_key', $surfaces)
             ->exists();
         $hasLive = IntegrationConnection::query()
-            ->where('user_id', $user->id)->where('platform', 'shop')
+            ->where('user_id', $user->id)->whereIn('surface_key', $surfaces)
             ->exists();
         if ($wasDisconnected && ! $hasLive) {
             return false;
@@ -61,21 +64,15 @@ class ShopProductSeeder
         $key = CacheKeyGenerator::platformConnectionLock('shop', (string) $user->id);
         try {
             $written = Cache::lock($key, 10)->block(5, function () use ($user, $product): bool {
-                $connection = IntegrationConnection::updateOrCreate(
-                    ['user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop'],
-                    [
-                        'payload' => self::MARKER,
-                        'is_active' => true,
-                        'last_refreshed_at' => now(),
-                        'last_refresh_status' => 'ok',
-                        'last_refresh_error' => null,
-                        'consecutive_failures' => 0,
-                    ],
-                );
+                // The individual-products bucket is not a store, so it anchors
+                // on `partna.manual_product` — hidden, dormant and explicitly
+                // NOT retired (§16 names it "the manual product add-path"),
+                // which is exactly this case. `partna.storefront` is retired.
+                $connection = $this->shop->individualAnchor($user);
 
-                $maxPosition = ShopBrand::where('connection_id', $connection->id)->max('position');
+                $maxPosition = $this->shop->brands($user)->max('position');
                 $individual = ShopBrand::firstOrCreate(
-                    ['connection_id' => $connection->id, 'brand_id' => self::INDIVIDUAL_BRAND_ID],
+                    ['connection_id' => $connection->id, 'brand_id' => ShopBrand::INDIVIDUAL_BRAND_ID],
                     [
                         'provider' => ShopProviderDetector::PROVIDER_GENERIC,
                         'url' => '',

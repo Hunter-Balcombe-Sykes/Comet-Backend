@@ -281,6 +281,10 @@ class PublicIntegrationConnectionResource extends ApiResource
         'squarespace' => [],
         'bigcartel' => [],
         'stan' => [],
+        // generic.store — the storefront whose platform has no name (Phase 6's
+        // per-store split needed a home for it). Same `[]` as every other
+        // storefront brand: products reach the wire through `profile.pools.shop`.
+        'generic' => [],
         // partna.manual_product is the dormant manual product add-path (§16);
         // it has no public shape of its own for the same reason as the above.
         'partna' => [],

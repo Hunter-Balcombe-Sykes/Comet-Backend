@@ -63,6 +63,33 @@ class RefreshIntegrationConnectionsCommand extends Command
                     ->limit($cap)
                     ->get(['id', 'platform'])
             );
+
+            // Catalog-only brands that inherit THIS descriptor through their
+            // routing class (PlatformRegistry::forConnection). Convergence
+            // Phase 6 split the shop marker into one connection per store, and
+            // those sit on `shopify.store` / `woocommerce.store` / … whose
+            // `platform` column is the brand prefix — none of which is a
+            // registry key, because the registry is frozen at 78. Without this
+            // arm the loop above selects nothing and scheduled product refresh
+            // stops with no error anywhere.
+            //
+            // The `platform` NOT IN guard stops a row being selected twice when
+            // a family's own slug is also registered (shop's is), which would
+            // otherwise dispatch two refreshes for one connection.
+            $family = array_search($platform, PlatformRegistry::FAMILY_DESCRIPTOR, true);
+            if ($family === false) {
+                continue;
+            }
+
+            $candidates = $candidates->merge(
+                IntegrationConnection::query()
+                    ->where('routing_class', $family)
+                    ->whereNotIn('platform', array_keys($registry->refreshable()))
+                    ->dueForRefresh($cutoff, $maxFailures)
+                    ->orderByRaw('last_refreshed_at ASC NULLS FIRST')
+                    ->limit($cap)
+                    ->get(['id', 'platform'])
+            );
         }
 
         // Phase 2: dispatch with a single run-global stagger index so the spread is
