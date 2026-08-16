@@ -33,29 +33,32 @@ class CloudflarePurgeService
     //              (page + SWR shadow) + 3 root urls (base/, base, root
     //              shadow)                                              =  39 / host
     //   products : ->limit(100) x 2 (page + shadow)                     = 200 / host
-    //   menu     : ->limit(150) on EACH of three lanes — the legacy dish
-    //              uuid, the content item id, and the item's current slug —
-    //              deduped into one set, x 2                            = 900 / host
-    //              Slice 4 (2026-08-15) took this from 300 to 900 while BOTH
-    //              menu wires are live: purging one lane leaves the other's
-    //              pages stale for the full 24h TTL. Slice 7 removes the
-    //              legacy third with site.menu_items, taking it to 600.
-    //   events   : ->limit(30) connection rows, each contributing up to
-    //              5 events (EventbriteFetch/HumanitixFetch -> *Scraper
-    //              ::fetchEvents() default $limit=5) into one deduped id
-    //              set, final set capped at 100 by array_slice(...,0,100),
-    //              x 2                                                  = 200 / host
+    //   menu     : ->limit(150) on EACH of two lanes — the content item id
+    //              and the item's current slug — deduped into one set, x 2
+    //                                                                   = 600 / host
+    //              Slice 4 (2026-08-15) took this to 900 for a THIRD lane
+    //              (the legacy site.menu_items uuid) while both menu wires
+    //              were live. Slice 7 dropped that table, and with it the
+    //              third lane: back to 600, exactly as §23.7 predicted.
+    //   events   : ->limit(100) on EACH of the same two lanes (content item
+    //              id + current slug), deduped, x 2                     = 400 / host
+    //              Was 200 while events addressed by provider hex id off
+    //              site.platform_connections.payload; that wire is retired
+    //              (PublicIntegrationConnectionResource ships [] for
+    //              eventbrite/humanitix/events-custom) and the pool serves
+    //              the same two forms menu items do — so events cost the
+    //              same per item as dishes, on half the item cap.
     //   -------------------------------------------------------------------------
-    //   (39+200+900+200) x 2 hosts (canonical + optional custom domain)
-    //   + 3 API urls (profile + integrations + platforms)              = 2,681 URLs
-    //   chunked at 30/request (Cloudflare's `files` limit)              =    90 chunks
-    //                                                                       (89 gaps)
+    //   (39+200+600+400) x 2 hosts (canonical + optional custom domain)
+    //   + 3 API urls (profile + integrations + platforms)              = 2,481 URLs
+    //   chunked at 30/request (Cloudflare's `files` limit)              =    83 chunks
+    //                                                                       (82 gaps)
     //
     // The PACING BUDGET below is why that growth is safe on the sleep side and
     // is exactly the case it was written for: guaranteed sleep stays capped at
     // 2s however many chunks there are. The HTTP round trips are the side that
     // scales, and they were already named as the dominant remaining risk — a
-    // max-volume purge is now ~90 sequential blocking calls rather than ~50,
+    // max-volume purge is now ~83 sequential blocking calls rather than ~50,
     // so raising CloudflareCachePurgeJob::$timeout is a stronger follow-up
     // recommendation than it was, not a new one.
     //
@@ -272,57 +275,30 @@ class CloudflarePurgeService
             // OBS-101: this lookup failing silently degrades to page-only purges
             // (stale PDPs) with zero signal — must reach Nightwatch, not just a
             // log line the default 'warning' log_level filters out (config/nightwatch.php).
-            report($e);
+            // Deduped through the trait for the same reason the menu lane is:
+            // CloudflareCachePurgeJob self-dispatches three delayed follow-ups
+            // (partna.cache.purge_followup_schedule), so ONE site save ran this
+            // catch four times and a save-storm read as an infrastructure
+            // outage rather than the single broken query it is.
+            self::escalateIfSustained($e, 'cloudflare_purge_products');
             Log::warning('CloudflarePurgeService: product-handle lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
             $productHandles = [];
         }
 
-        // Menu item detail pages (`/menu/<uuid>`, route added 2026-07-17) —
+        // Menu item detail pages (`/menu/<id|slug>`, route added 2026-07-17) —
         // same per-URL edge-key staleness the products fix closed; same
         // bounded, never-break-the-purge pattern.
         //
-        // Slice 4: dishes live in content.* now, so this reads BOTH lanes and
-        // purges the union. It cannot read only one of them while both are
-        // live — the legacy menu wire still serves `/menu/<legacy uuid>` until
-        // slice 7 retires it, and the pool serves the content item id and its
-        // slug. Purging one lane would leave the other's pages stale at the
-        // edge for the full 24h TTL, which is the exact regression the
-        // products fix (5a C2) closed on the shop side. Slice 7 drops the
-        // legacy half of this union with the tables.
+        // Slice 4 read a THIRD lane here — the legacy `site.menu_items` uuid —
+        // because the legacy menu wire still served `/menu/<legacy uuid>`
+        // alongside the pool. Slice 7 dropped that table and that wire, so the
+        // union is back to the two forms the pool actually publishes.
         try {
-            $limit = (int) config('partna.cloudflare_purge.menu_items_limit', 150);
-
-            $legacyIds = DB::connection('pgsql')->table('site.menu_items as mi')
-                ->join('site.menus as m', 'm.id', '=', 'mi.menu_id')
-                ->join('core.users as u', 'u.id', '=', 'm.user_id')
-                ->where('u.handle_lc', $h)
-                ->limit($limit)
-                ->pluck('mi.id')
-                ->all();
-
-            // The content item id AND its current slug: the pool payload
-            // carries both, and which one the sitepage builds its href from is
-            // the frontend's choice, not this service's to assume.
-            $contentIds = DB::connection('pgsql')->table('content.items as i')
-                ->join('core.users as u', 'u.id', '=', 'i.user_id')
-                ->where('u.handle_lc', $h)
-                ->where('i.kind', 'menu_item')
-                ->whereNull('i.removed_at')
-                ->limit($limit)
-                ->pluck('i.id')
-                ->all();
-
-            $slugs = DB::connection('pgsql')->table('content.item_slugs as s')
-                ->join('content.items as i', 'i.id', '=', 's.item_id')
-                ->join('core.users as u', 'u.id', '=', 'i.user_id')
-                ->where('u.handle_lc', $h)
-                ->where('i.kind', 'menu_item')
-                ->where('s.is_current', true)
-                ->limit($limit)
-                ->pluck('s.slug')
-                ->all();
-
-            $menuItemIds = array_values(array_unique([...$legacyIds, ...$contentIds, ...$slugs]));
+            $menuItemIds = $this->addressableItemSegments(
+                $h,
+                'menu_item',
+                (int) config('partna.cloudflare_purge.menu_items_limit', 150),
+            );
         } catch (\Throwable $e) {
             // OBS-101: this lookup failing silently degrades to page-only
             // purges with zero signal. The raw report() this replaces was
@@ -336,48 +312,30 @@ class CloudflarePurgeService
             $menuItemIds = [];
         }
 
-        // Event detail pages (`/events/<id>`) — ids live inside the event
-        // connections' payload JSON (standalone kind:'event' rows are the
-        // event; account rows carry next/upcoming lists). Enumerated since
-        // 2026-07-17 (reversing the earlier age-out-via-TTL call): the pages
-        // now render refreshable enriched fields (description/venue/times),
-        // so 24h of staleness after a refresh reads as a bug, not decay.
+        // Event detail pages (`/events/<id|slug>`). Enumerated since 2026-07-17
+        // (reversing the earlier age-out-via-TTL call): the pages render
+        // refreshable enriched fields (description/venue/times), so 24h of
+        // staleness after a refresh reads as a bug, not decay.
+        //
+        // Slice 7: this read the provider hex ids out of
+        // site.platform_connections.payload, because that wire addressed
+        // events. It no longer does — PublicIntegrationConnectionResource
+        // ships [] for eventbrite/humanitix/events-custom (pinned by
+        // LegacyEventsLaneRetiredTest) and `pools.events` serves the content
+        // item id plus its current slug, exactly as the menu pool does. Left
+        // unrepointed this purged hex-id URLs nothing serves while every real
+        // event page sat stale for the full 24h TTL.
         try {
-            $eventPayloads = DB::connection('pgsql')->table('site.platform_connections as c')
-                ->join('core.users as u', 'u.id', '=', 'c.user_id')
-                ->where('u.handle_lc', $h)
-                ->whereIn('c.platform', ['eventbrite', 'humanitix', 'events-custom'])
-                ->whereNull('c.deleted_at')
-                ->limit((int) config('partna.cloudflare_purge.event_connections_limit', 30))
-                ->pluck('c.payload')
-                ->all();
-
-            $eventIdSet = [];
-            foreach ($eventPayloads as $rawPayload) {
-                $payload = is_array($rawPayload) ? $rawPayload : json_decode((string) $rawPayload, true);
-                if (! is_array($payload)) {
-                    continue;
-                }
-                $next = $payload['next'] ?? null;
-                $candidates = [
-                    $payload,
-                    ...(is_array($next) ? [$next] : []),
-                    ...array_values(array_filter((array) ($payload['upcoming'] ?? []), 'is_array')),
-                ];
-                foreach ($candidates as $event) {
-                    $id = $event['id'] ?? null;
-                    // Path-safe ids only — these become purge URL segments.
-                    if (is_string($id) && preg_match('/^[A-Za-z0-9_-]{1,64}$/', $id) === 1) {
-                        $eventIdSet[$id] = true;
-                    }
-                }
-            }
-            $eventIds = array_slice(array_keys($eventIdSet), 0, (int) config('partna.cloudflare_purge.event_ids_limit', 100));
+            $eventIds = $this->addressableItemSegments(
+                $h,
+                'event',
+                (int) config('partna.cloudflare_purge.event_ids_limit', 100),
+            );
         } catch (\Throwable $e) {
-            // OBS-101: same bug as the product-handle catch above — bump to
-            // warning + report() so a stale-event-page regression pages instead
-            // of vanishing into a log level Nightwatch never reads.
-            report($e);
+            // OBS-101: same bug as the product-handle catch above, and deduped
+            // for the same reason — four purge runs per site save turned one
+            // broken query into four Nightwatch reports.
+            self::escalateIfSustained($e, 'cloudflare_purge_events');
             Log::warning('CloudflarePurgeService: event-id lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
             $eventIds = [];
         }
@@ -401,15 +359,22 @@ class CloudflarePurgeService
                 $urls[] = "{$base}/products/{$encodedProductHandle}";
                 $urls[] = "{$base}/_swr-shadow/products/{$encodedProductHandle}";
             }
-            // Each menu item detail page + its shadow.
+            // Each menu item detail page + its shadow. SEC-1: uuids and
+            // ContentItemSlugAllocator slugs are already URL-safe, so
+            // rawurlencode() leaves every valid value byte-for-byte unchanged
+            // — it is here for the malformed/legacy one, same as $encodedHandle.
+            // Replaces the regex allowlist the event lane used to need when its
+            // segments came from third-party payloads.
             foreach ($menuItemIds as $menuItemId) {
-                $urls[] = "{$base}/menu/{$menuItemId}";
-                $urls[] = "{$base}/_swr-shadow/menu/{$menuItemId}";
+                $segment = rawurlencode((string) $menuItemId);
+                $urls[] = "{$base}/menu/{$segment}";
+                $urls[] = "{$base}/_swr-shadow/menu/{$segment}";
             }
             // Each event detail page + its shadow.
             foreach ($eventIds as $eventId) {
-                $urls[] = "{$base}/events/{$eventId}";
-                $urls[] = "{$base}/_swr-shadow/events/{$eventId}";
+                $segment = rawurlencode((string) $eventId);
+                $urls[] = "{$base}/events/{$segment}";
+                $urls[] = "{$base}/_swr-shadow/events/{$segment}";
             }
         }
 
@@ -451,6 +416,49 @@ class CloudflarePurgeService
         }
 
         $this->purgeUrls($urls);
+    }
+
+    /**
+     * Every addressable form of one pool kind's live items for a handle — the
+     * content item id AND its current slug. The pool payload carries both and
+     * which one the sitepage builds its href from is the frontend's choice,
+     * not this service's to assume; purging one form leaves the other stale at
+     * the edge for the full 24h TTL, which is the regression 5a's C2 closed on
+     * the shop side.
+     *
+     * $limit bounds EACH lane, not the union: the two lanes are two forms of
+     * the same <=$limit items, so the segment ceiling is 2 x $limit. Capping
+     * the union instead would purge an item's id and not its slug once a
+     * catalog crossed the line — the exact half-purge this exists to prevent.
+     *
+     * Aliases (retired slugs, which 301) are deliberately NOT enumerated: the
+     * set is unbounded per item and a 301 carries no stale body.
+     *
+     * @return list<string>
+     */
+    private function addressableItemSegments(string $handleLc, string $kind, int $limit): array
+    {
+        $contentIds = DB::connection('pgsql')->table('content.items as i')
+            ->join('core.users as u', 'u.id', '=', 'i.user_id')
+            ->where('u.handle_lc', $handleLc)
+            ->where('i.kind', $kind)
+            ->whereNull('i.removed_at')
+            ->limit($limit)
+            ->pluck('i.id')
+            ->all();
+
+        $slugs = DB::connection('pgsql')->table('content.item_slugs as s')
+            ->join('content.items as i', 'i.id', '=', 's.item_id')
+            ->join('core.users as u', 'u.id', '=', 'i.user_id')
+            ->where('u.handle_lc', $handleLc)
+            ->where('i.kind', $kind)
+            ->whereNull('i.removed_at')
+            ->where('s.is_current', true)
+            ->limit($limit)
+            ->pluck('s.slug')
+            ->all();
+
+        return array_values(array_unique([...$contentIds, ...$slugs]));
     }
 
     private function url(): string

@@ -319,24 +319,24 @@ it('caps TOTAL pacing time so a large purge cannot re-inflate guaranteed sleep p
     Http::fake(['*' => Http::response(['success' => true], 200)]);
 
     // Realistic worst case for one purgeHandle() call (see the docblock on
-    // CHUNK_PACING_MICROSECONDS): 39 subpage urls + 200 product + 300 menu +
-    // 200 event urls per host x 2 hosts (canonical + custom domain) + 3 API
-    // urls = 1,481 -> chunked at 30 -> 50 chunks -> 49 POTENTIAL inter-chunk
+    // CHUNK_PACING_MICROSECONDS): 39 subpage urls + 200 product + 600 menu +
+    // 400 event urls per host x 2 hosts (canonical + custom domain) + 3 API
+    // urls = 2,481 -> chunked at 30 -> 83 chunks -> 82 POTENTIAL inter-chunk
     // gaps. Pin the pacing budget so a future limit increase (more products,
     // more menu items, more events) can't silently re-blow the guaranteed-sleep
     // contribution to CloudflareCachePurgeJob's 15s timeout in lockstep with
     // chunk count — this must fail if someone raises a limit (or removes the
     // budget) without revisiting pacing.
-    $urls = array_map(fn ($i) => "https://h.partna.au/p{$i}", range(1, 1480));
+    $urls = array_map(fn ($i) => "https://h.partna.au/p{$i}", range(1, 2481));
 
     $service = purgeServiceWithPaceSpy();
     $service->purgeUrls($urls);
 
-    expect(Http::recorded())->toHaveCount(50) // ceil(1480 / 30)
-        // 49 gaps exist, but the budget caps REAL sleeps at
+    expect(Http::recorded())->toHaveCount(83) // ceil(2481 / 30)
+        // 82 gaps exist, but the budget caps REAL sleeps at
         // floor(2_000_000us budget / 50_000us per pace) = 40.
         ->and($service->paceCalls)->toBe(40)
-        ->and($service->paceCalls)->toBeLessThan(49);
+        ->and($service->paceCalls)->toBeLessThan(82);
 });
 
 it('does not pace a single-chunk purge (no gap to pace between)', function () {
@@ -351,9 +351,9 @@ it('does not pace a single-chunk purge (no gap to pace between)', function () {
     expect($service->paceCalls)->toBe(0);
 });
 
-it('reports and warns (not silently debug-logs) when the product/menu/event enrichment lookups fail (OBS-101)', function () {
+it('warns and escalates (not silently debug-logs) when the product/menu/event enrichment lookups fail (OBS-101)', function () {
     // Deliberately skip setupSitesTable() — the schemas are ATTACHed (empty) but
-    // none of content.collection_items / site.menu_items / core.users exist,
+    // none of content.collection_items / content.items / core.users exist,
     // so all three DB::table(...) lookups inside purgeHandle()
     // throw "no such table". Proves: (a) each is now reported to Nightwatch at
     // 'warning' — not the previous 'debug', invisible under the default
@@ -374,15 +374,17 @@ it('reports and warns (not silently debug-logs) when the product/menu/event enri
     // The page-only purge still fired despite all 3 enrichment lookups failing.
     Http::assertSent(fn ($req) => $req->method() === 'POST');
 
-    // TWO, not three, since slice 4: the menu lane now escalates through
-    // EscalatesRepeatedFaults instead of calling report() raw. Its raw report
-    // was un-deduped while CloudflareCachePurgeJob self-dispatches three
-    // delayed follow-ups, so ONE site save reported the same fault four times.
+    // ZERO on a single occurrence, since slice 7: all three lanes now escalate
+    // through EscalatesRepeatedFaults instead of calling report() raw. A raw
+    // report is un-deduped while CloudflareCachePurgeJob self-dispatches three
+    // delayed follow-ups, so ONE site save reported the same fault four times
+    // per raw lane — up to 8 with two raw lanes and a custom domain, which
+    // reads as an infrastructure outage rather than one broken query.
     // The warning still fires every time — the log line is the per-occurrence
     // record; report() is the pager, and a pager that fires four times per
     // save for one broken query is noise, not signal. The next test proves a
-    // SUSTAINED menu fault still reaches Nightwatch.
-    Exceptions::assertReportedCount(2);
+    // SUSTAINED fault still reaches Nightwatch.
+    Exceptions::assertReportedCount(0);
     // Total warning-level call count, independent of args matching below —
     // catches a regression that fires the right count but wrong message/level.
     Log::shouldHaveReceived('warning')->times(3);
@@ -400,7 +402,7 @@ it('reports and warns (not silently debug-logs) when the product/menu/event enri
     );
 });
 
-it('escalates a SUSTAINED menu-item lookup failure to Nightwatch', function () {
+it('escalates a SUSTAINED enrichment lookup failure to Nightwatch, once per lane', function () {
     // The other half of the dedupe: quieting the per-occurrence report is only
     // acceptable if a real, ongoing breakage still pages someone. The trait
     // reports the FAULT_THRESHOLD-th fault inside a 10-minute window, so a
@@ -419,10 +421,11 @@ it('escalates a SUSTAINED menu-item lookup failure to Nightwatch', function () {
         $service->purgeHandle('nouser');
     }
 
-    // 5 runs x 2 always-reporting lanes (product, event) = 10, plus exactly ONE
-    // from the menu lane on the 5th fault. A menu lane that had silently
-    // stopped reporting altogether would land on 10.
-    Exceptions::assertReportedCount(11);
+    // Exactly THREE — one per lane (product, menu, event), each on its own
+    // 5th fault. Each lane counts under its own label, so they neither merge
+    // into one report nor re-fire on faults 6+. A lane that had silently
+    // stopped reporting altogether would land on 2.
+    Exceptions::assertReportedCount(3);
 });
 
 /**
@@ -524,11 +527,12 @@ it('percent-encodes the handle and product handle before they land in a purge UR
     expect($files)->not->toContain('https://jane%20doe.partna.au/products/foo/bar');
 });
 
-it('builds dish purge targets from BOTH menu lanes while both are live (slice 4)', function () {
-    // The legacy menu wire still serves /menu/<legacy uuid> until slice 7
-    // retires it, and the pool serves the content item id and its slug.
-    // Purging one lane would leave the other's pages stale at the edge for the
-    // full 24h TTL — the exact regression 5a's C2 closed on the shop side.
+it('builds dish purge targets from BOTH addressable pool forms (id + current slug)', function () {
+    // The pool serves the content item id and its current slug, and which one
+    // the sitepage builds its href from is the frontend's choice. Purging one
+    // form would leave the other stale at the edge for the full 24h TTL — the
+    // exact regression 5a's C2 closed on the shop side. Slice 4's THIRD lane
+    // (the site.menu_items uuid) went with the table in slice 7.
     setupUsersTable();
     setupSitesTable();
     setupContentTables();
@@ -545,14 +549,6 @@ it('builds dish purge targets from BOTH menu lanes while both are live (slice 4)
         'display_name' => 'Dishy', 'first_name' => 'Dishy', 'account_type' => 'business',
         'status' => 'active', 'auth_user_id' => 'auth-menu', 'primary_email' => 'dishy@example.com',
     ]);
-    $db->table('site.menus')->insert([
-        'id' => 'm-1', 'user_id' => 'u-menu', 'fetch_status' => 'ok',
-        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
-    ]);
-    $db->table('site.menu_items')->insert([
-        'id' => 'legacy-dish-1', 'menu_id' => 'm-1', 'name' => 'Iced Latte', 'is_manual' => 0,
-        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
-    ]);
     $db->table('content.items')->insert([
         'id' => 'content-dish-1', 'user_id' => 'u-menu', 'kind' => 'menu_item',
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
@@ -566,15 +562,75 @@ it('builds dish purge targets from BOTH menu lanes while both are live (slice 4)
     (new CloudflarePurgeService)->purgeHandle('dishy');
 
     expect(cfRecordedFiles())->toContain(
-        'https://dishy.partna.au/menu/legacy-dish-1',
         'https://dishy.partna.au/menu/content-dish-1',
         'https://dishy.partna.au/menu/iced-latte',
+        'https://dishy.partna.au/_swr-shadow/menu/iced-latte',
     );
+});
+
+it('builds event purge targets from the pool, not the retired connection payload', function () {
+    // Slice 7: /events/<id> is addressed by content item id + current slug,
+    // the same two forms menu items use. This lane used to harvest provider
+    // hex ids out of site.platform_connections.payload — a wire
+    // PublicIntegrationConnectionResource now ships empty. Left unrepointed it
+    // purged URLs nothing serves while every real event page sat stale.
+    setupUsersTable();
+    setupSitesTable();
+    setupContentTables();
+    attachTestSchemas();
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', '');
+    Config::set('partna.public_domain', 'partna.au');
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+
+    $db = DB::connection('pgsql');
+    $db->table('core.users')->insert([
+        'id' => 'u-ev', 'handle' => 'gigs', 'handle_lc' => 'gigs',
+        'display_name' => 'Gigs', 'first_name' => 'Gigs', 'account_type' => 'business',
+        'status' => 'active', 'auth_user_id' => 'auth-ev', 'primary_email' => 'gigs@example.com',
+    ]);
+    // A live event, and a removed one whose page is gone — the removed item
+    // must not spend a slot on either of its forms.
+    $db->table('content.items')->insert([
+        'id' => 'ev-live', 'user_id' => 'u-ev', 'kind' => 'event', 'removed_at' => null,
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+        'first_seen_at' => now()->toDateTimeString(), 'last_seen_at' => now()->toDateTimeString(),
+    ]);
+    $db->table('content.items')->insert([
+        'id' => 'ev-gone', 'user_id' => 'u-ev', 'kind' => 'event',
+        'removed_at' => now()->toDateTimeString(),
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+        'first_seen_at' => now()->toDateTimeString(), 'last_seen_at' => now()->toDateTimeString(),
+    ]);
+    $db->table('content.item_slugs')->insert([
+        [
+            'id' => 'es-1', 'user_id' => 'u-ev', 'item_id' => 'ev-live',
+            'slug' => 'nerve-melbourne-2026', 'is_current' => true, 'created_at' => now()->toDateTimeString(),
+        ],
+        [
+            'id' => 'es-2', 'user_id' => 'u-ev', 'item_id' => 'ev-gone',
+            'slug' => 'cancelled-show', 'is_current' => true, 'created_at' => now()->toDateTimeString(),
+        ],
+    ]);
+
+    (new CloudflarePurgeService)->purgeHandle('gigs');
+
+    $files = cfRecordedFiles();
+    expect($files)->toContain(
+        'https://gigs.partna.au/events/ev-live',
+        'https://gigs.partna.au/events/nerve-melbourne-2026',
+        'https://gigs.partna.au/_swr-shadow/events/nerve-melbourne-2026',
+    );
+    // One needle per call — toContain is variadic and `not` means "not ALL".
+    expect($files)->not->toContain('https://gigs.partna.au/events/ev-gone');
+    expect($files)->not->toContain('https://gigs.partna.au/events/cancelled-show');
 });
 
 it('leaves a removed dish out of the purge set', function () {
     // A removed item's page is gone, and its slug has been freed for reuse —
-    // purging it would spend one of the 150 slots on a URL that 404s.
+    // purging it would spend one of the 150 slots on a URL that 404s. Both
+    // lanes filter on removed_at, so neither form of a removed item lands.
     setupUsersTable();
     setupSitesTable();
     setupContentTables();
