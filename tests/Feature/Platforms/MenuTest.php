@@ -28,6 +28,11 @@ beforeEach(function () {
     // table their best-effort try/catch swallows a "no such table" and any slug
     // assertion below would silently pass against nothing.
     setupItemSlugsTable();
+    // Slice 7 Task 5: MenuPayloadComposer reads content.* for the dishes and
+    // only falls back to site.menu_* when that lane holds nothing for the
+    // owner. The tables have to EXIST for the fallback to be reachable — the
+    // scrape still writes site.menu_* until Task 7 moves it.
+    setupContentTables();
 });
 
 // Business + food sector: Menu is a food-business-only capability (2026-07-15
