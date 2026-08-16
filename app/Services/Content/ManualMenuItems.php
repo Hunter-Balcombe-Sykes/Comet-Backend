@@ -492,8 +492,19 @@ class ManualMenuItems
     }
 
     /**
-     * The per-membership display position — `site.menu_item_categories.position`
-     * before the cutover, and what orders dishes WITHIN a category.
+     * The item's ordinal within its OWN collection list — NOT a display
+     * position, and specifically NOT `site.menu_item_categories.position`.
+     *
+     * Corrected slice 7 Task 5, verified on dev: the legacy column spans 0..32
+     * (33 distinct values over 402 rows) while `content.collection_items`
+     * carries only 0/1/2 for `menu_category`, 348 of 402 at 0. ProjectionWriter
+     * ::projectStream() writes it as a counter over the projection's own
+     * collection array, so a dish in one category is always 0 and the vendor's
+     * rank within a category is not in this table at all.
+     *
+     * Dish ORDER lives in the `pool:menus` pins (site.section_items.sort_key),
+     * which ProvisionMenuPinsCommand seeded from the legacy order for exactly
+     * this reason; MenuPayloadComposer::pinOrder() is the reader.
      *
      * @param  list<\stdClass>  $categories
      * @return array<string, int>

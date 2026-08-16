@@ -6,9 +6,12 @@ use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
+use App\Models\Core\Site\SectionItem;
 use App\Models\Core\User\User;
 use App\Services\Content\ManualMenuItems;
+use App\Site\Pools\PoolRegistry;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 // Composes the authenticated dashboard menu payload (store fields + categories +
 // computed order links) from a user's relational menu. Extracted from
@@ -162,17 +165,18 @@ class MenuPayloadComposer
     /**
      * Categories → items, read from content.*.
      *
-     * Five legacy signals have no projection target and come back honest rather
+     * Dish ORDER comes from the pool:menus PINS, not from the projection:
+     * content.collection_items.position is the ordinal of the COLLECTION within
+     * an item's collection list (ProjectionWriter::projectStream), not a dish's
+     * rank within a category — ProvisionMenuPinsCommand's docblock says the
+     * same and is why it seeded site.section_items.sort_key from the legacy
+     * order in slice 4. See pinOrder() / sortByPins().
+     *
+     * Four legacy signals have no projection target and come back honest rather
      * than guessed. `isManual`, `pickupSource` and `deliverySource` are
-     * ManualMenuItems' own documented nulls; the two this method owns are:
-     *  - `sourcePlatform`: content.collections carries no source column, so the
-     *    dashboard's sync-detach warning has nothing to key off yet (Task 6).
-     *  - dish ORDER inside a category: content.collection_items.position is the
-     *    ordinal of the COLLECTION within an item's collection list
-     *    (ProjectionWriter::projectStream), NOT the dish's display position, so
-     *    site.menu_item_categories.position did not survive. The order here is
-     *    ManualMenuItems::rows()' own — stable, alphabetical by headline — and
-     *    an owner's real order belongs in section_items pins (ManualPoolWriter::pin).
+     * ManualMenuItems' own documented nulls; the one this method owns is
+     * `sourcePlatform` — content.collections carries no source column, so the
+     * dashboard's sync-detach warning has nothing to key off yet (Task 6).
      *
      * `links` follows from ManualMenuItems' null dd_external_id: the mapper
      * never carried the DoorDash item id, so MenuItemDeepLinks has nothing to
@@ -209,6 +213,8 @@ class MenuPayloadComposer
             }
         }
 
+        $pins = $this->pinOrder($userId);
+
         $out = [];
         foreach ($categories as $category) {
             $categoryId = (string) $category->id;
@@ -222,12 +228,69 @@ class MenuPayloadComposer
                         $categoryIdsByItem[$itemId] ?? [$categoryId],
                         $storeUrls,
                     ),
-                    $itemIdsByCategory[$categoryId] ?? [],
+                    $this->sortByPins($itemIdsByCategory[$categoryId] ?? [], $pins),
                 ),
             ];
         }
 
         return $out;
+    }
+
+    /**
+     * item id => sort_key on this owner's `pool:menus` section — the owner's
+     * arrangement, which ProvisionMenuPinsCommand seeded in slice 4 from
+     * site.menu_categories.position + site.menu_item_categories.position, and
+     * which a drag on the pool page has written since. That command exists
+     * BECAUSE content.collection_items.position cannot answer this question,
+     * so reading the pins is what carries the vendor's menu order across the
+     * teardown rather than losing it to an alphabetical fallback.
+     *
+     * Scoped through site.sites.user_id, not by section key alone: sort_key is
+     * dense 1-based PER SECTION, so the same value means a different rank on
+     * every site and is only comparable within one.
+     *
+     * A plain read — never provisioner->ensure(), which INSERTs a page and a
+     * section. Composing a payload must not create rows.
+     *
+     * @return array<string, float>
+     */
+    private function pinOrder(string $userId): array
+    {
+        return DB::connection('pgsql')->table('site.section_items as si')
+            ->join('site.sections as s', 's.id', '=', 'si.section_id')
+            ->join('site.sites as st', 'st.id', '=', 's.site_id')
+            ->where('st.user_id', $userId)
+            ->where('s.key', PoolRegistry::sectionKey('menus'))
+            ->where('si.state', SectionItem::STATE_PINNED)
+            ->whereNotNull('si.sort_key')
+            ->pluck('si.sort_key', 'si.item_id')
+            ->map(fn ($sortKey) => (float) $sortKey)
+            ->all();
+    }
+
+    /**
+     * The owner's arrangement applied to one category's dishes. Pinned first in
+     * sort_key order, then anything unpinned in the order it arrived — the same
+     * pins-then-the-rest concatenation PoolResolver::resolve() performs, so the
+     * dashboard and the public pool agree about what "the owner's order" means.
+     *
+     * $itemIds arrives in ManualMenuItems::rows()' own order (alphabetical by
+     * headline), which is what an unpinned dish falls back to.
+     *
+     * @param  list<string>  $itemIds
+     * @param  array<string, float>  $pins
+     * @return list<string>
+     */
+    private function sortByPins(array $itemIds, array $pins): array
+    {
+        $ranked = [];
+        foreach ($itemIds as $index => $itemId) {
+            $ranked[] = [isset($pins[$itemId]) ? 0 : 1, $pins[$itemId] ?? 0.0, $index, $itemId];
+        }
+
+        usort($ranked, fn (array $a, array $b) => [$a[0], $a[1], $a[2]] <=> [$b[0], $b[1], $b[2]]);
+
+        return array_column($ranked, 3);
     }
 
     /**

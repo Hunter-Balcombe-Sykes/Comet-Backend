@@ -3,6 +3,7 @@
 use App\Models\Core\User\User;
 use App\Services\Migration\MenuBackfiller;
 use App\Services\Platforms\MenuPayloadComposer;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
@@ -17,7 +18,9 @@ use Illuminate\Support\Facades\Queue;
 //   - uuids, because content.items/collections mint their own (mpcCanonical),
 //   - the enumerated, documented losses (mpcKnownLosses) — each one has its own
 //     test below stating WHY it is gone.
-// Everything else must match key for key, value for value.
+// Everything else must match key for key, value for value, ORDER INCLUDED: dish
+// order is carried by the pool:menus pins, so every fixture here seeds dishes
+// out of alphabetical sequence and an ordering regression fails the oracle.
 
 beforeEach(function () {
     setupUsersTable();
@@ -36,6 +39,20 @@ function mpcCompose(string $userId): array
     $composer = app(MenuPayloadComposer::class);
 
     return $composer->compose($user, $composer->load($user));
+}
+
+/**
+ * The slice-4 cutover, both halves, in the order the checkpoint ran them:
+ * MenuBackfiller lands the dishes as content items, then
+ * content:provision-menu-pins seeds the owner's arrangement as pool:menus pins
+ * (site.section_items.sort_key), read from site.menu_categories.position +
+ * site.menu_item_categories.position. Running only the first half would leave
+ * the order behind and is exactly the mistake this file must not encode.
+ */
+function mpcBackfillToContent(): void
+{
+    app(MenuBackfiller::class)->run();
+    Artisan::call('content:provision-menu-pins');
 }
 
 /** The legacy dish tables gone — the composer must not be reading them. */
@@ -132,10 +149,10 @@ function mpcDoorDashDeepLink(string $menuId): void
 }
 
 it('composes the same payload from content.* as it did from the legacy tables', function () {
-    // Dish names are alphabetical on purpose: within-category ORDER does not
-    // survive the projection (its own test below), so this case isolates the
-    // field-by-field fold from the ordering loss.
-    [$userId, , $menuId] = seedMenuWithDishes(['Croissant', 'Iced Latte'], categories: ['Drinks'], platforms: ['uber_eats']);
+    // Dish names are REVERSE alphabetical on purpose: order is carried by the
+    // pool:menus pins, so an ordering regression has to fail this test too, not
+    // only the dedicated one below.
+    [$userId, , $menuId] = seedMenuWithDishes(['Iced Latte', 'Croissant'], categories: ['Drinks'], platforms: ['uber_eats']);
     // dd_external_id + a DoorDash store link on purpose: without them the
     // oracle's `links` key is null on BOTH sides and the deep-link loss would
     // pass unnoticed. 31 of dev's 318 dishes carry one.
@@ -144,7 +161,7 @@ it('composes the same payload from content.* as it did from the legacy tables', 
     expect($legacy['categories'][0]['items'][0]['links'])
         ->toBe(['doordash' => 'https://www.doordash.com/store/x/?event_type=item_click&item_id=dd-123']);
 
-    app(MenuBackfiller::class)->run();
+    mpcBackfillToContent();
     mpcTruncateLegacyDishes();
 
     expect(mpcCanonical(mpcCompose($userId)))->toEqual(mpcKnownLosses($legacy));
@@ -153,7 +170,7 @@ it('composes the same payload from content.* as it did from the legacy tables', 
 it('reads the dishes from content.* and not from the legacy tables', function () {
     [$userId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks'], platforms: ['uber_eats']);
 
-    app(MenuBackfiller::class)->run();
+    mpcBackfillToContent();
     mpcTruncateLegacyDishes();
 
     $payload = mpcCompose($userId);
@@ -168,7 +185,7 @@ it('keeps the store fields on site.menus, which survives the teardown', function
     // compose()'s first ten keys read the per-menu bookkeeping row directly —
     // only categories move. A regression here means load() was repointed too.
     [$userId] = seedMenuWithDishes(['Iced Latte']);
-    app(MenuBackfiller::class)->run();
+    mpcBackfillToContent();
     mpcTruncateLegacyDishes();
 
     $payload = mpcCompose($userId);
@@ -182,7 +199,7 @@ it('carries a dish listed under two categories into both, with the full membersh
     [$userId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks', 'Coffee'], platforms: []);
     $legacy = mpcCanonical(mpcCompose($userId));
 
-    app(MenuBackfiller::class)->run();
+    mpcBackfillToContent();
     mpcTruncateLegacyDishes();
 
     $content = mpcCanonical(mpcCompose($userId));
@@ -197,7 +214,7 @@ it('rebuilds the per-platform availability list from the projected offers', func
     [$userId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks'], platforms: ['uber_eats']);
     $legacy = mpcCanonical(mpcCompose($userId));
 
-    app(MenuBackfiller::class)->run();
+    mpcBackfillToContent();
     mpcTruncateLegacyDishes();
 
     expect(mpcCanonical(mpcCompose($userId))['categories'][0]['items'][0]['platforms'])
@@ -222,7 +239,7 @@ it('never falls back once the owner has deleted their way down to an empty conte
     // deleted their last dish would drop back to the legacy tables and watch
     // every dish they deleted reappear.
     [$userId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks'], platforms: ['uber_eats']);
-    app(MenuBackfiller::class)->run();
+    mpcBackfillToContent();
     DB::connection('pgsql')->table('content.items')
         ->where('kind', 'menu_item')
         ->update(['removed_at' => now()->toDateTimeString()]);
@@ -243,7 +260,7 @@ it('never falls back once the owner has deleted their way down to an empty conte
 
 it('loses the category sourcePlatform, which content.collections has no column for', function () {
     [$userId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks']);
-    app(MenuBackfiller::class)->run();
+    mpcBackfillToContent();
     mpcTruncateLegacyDishes();
 
     expect(mpcCompose($userId)['categories'][0]['sourcePlatform'])->toBeNull();
@@ -270,7 +287,7 @@ it('loses isManual, pickupSource, deliverySource and the per-dish deep link', fu
         ->and($legacyItem['links'])
         ->toBe(['doordash' => 'https://www.doordash.com/store/x/?event_type=item_click&item_id=dd-123']);
 
-    app(MenuBackfiller::class)->run();
+    mpcBackfillToContent();
     mpcTruncateLegacyDishes();
 
     $item = mpcCompose($userId)['categories'][0]['items'][0];
@@ -286,7 +303,7 @@ it('loses the badge type code and the vendor badge order', function () {
     DB::connection('pgsql')->table('site.menu_items')->where('menu_id', $menuId)
         ->update(['badges' => json_encode([['text' => 'Vegan', 'type' => 'diet_1'], ['text' => 'Popular', 'type' => 'most_liked_1']])]);
 
-    app(MenuBackfiller::class)->run();
+    mpcBackfillToContent();
     mpcTruncateLegacyDishes();
 
     // content.item_tags carries one classification column and tag_type already
@@ -296,22 +313,45 @@ it('loses the badge type code and the vendor badge order', function () {
         ->toBe([['text' => 'Popular'], ['text' => 'Vegan']]);
 });
 
-it('loses the within-category dish order, which collection_items.position does not carry', function () {
-    // THE finding of this task. site.menu_item_categories.position ordered the
-    // dishes inside a category; content.collection_items.position is the
-    // ordinal of the COLLECTION within the item's collection list
-    // (ProjectionWriter::projectStream), so every dish in a one-category menu
-    // holds position 0 and the vendor's menu order is unrecoverable. The
-    // content path falls back to the reader's stable alphabetical order —
-    // Task 6 must land the owner's order as section_items pins.
+// ── The order that is NOT lost ──────────────────────────────────────────────
+
+it('keeps the within-category dish order, carried by the pool:menus pins', function () {
+    // content.collection_items.position cannot answer this — it is a dish's
+    // ordinal within its OWN collection list, so every dish in a one-category
+    // menu holds 0 (dev: 348 of 402 rows at 0, against 33 distinct values on
+    // site.menu_item_categories.position). ProvisionMenuPinsCommand exists for
+    // exactly that reason and seeded site.section_items.sort_key from the
+    // legacy order in slice 4, so the arrangement survives the teardown.
+    //
+    // Seeded in reverse alphabetical order deliberately: sorting by name would
+    // produce the opposite list and this test would fail.
     [$userId] = seedMenuWithDishes(['Zucchini Fries', 'Apple Pie'], categories: ['Drinks'], platforms: []);
 
     expect(collect(mpcCompose($userId)['categories'][0]['items'])->pluck('name')->all())
         ->toBe(['Zucchini Fries', 'Apple Pie']);
 
-    app(MenuBackfiller::class)->run();
+    mpcBackfillToContent();
     mpcTruncateLegacyDishes();
 
     expect(collect(mpcCompose($userId)['categories'][0]['items'])->pluck('name')->all())
-        ->toBe(['Apple Pie', 'Zucchini Fries']);
+        ->toBe(['Zucchini Fries', 'Apple Pie']);
+});
+
+it('trails an unpinned dish behind the arrangement instead of interleaving it', function () {
+    // A dish landed after the pins were seeded holds no sort_key. Pins first,
+    // then the rest — the same concatenation PoolResolver::resolve() performs,
+    // so the dashboard and the public pool agree on what the owner's order is.
+    //
+    // Apple Pie loses its pin, so the expected list is neither the seeded order
+    // nor alphabetical — only pins-then-the-rest produces it.
+    [$userId] = seedMenuWithDishes(['Apple Pie', 'Zucchini Fries'], categories: ['Drinks'], platforms: []);
+    mpcBackfillToContent();
+    DB::connection('pgsql')->table('site.section_items')
+        ->whereIn('item_id', function ($q) {
+            $q->from('content.items')->select('id')->where('headline_cache', 'Apple Pie');
+        })->delete();
+    mpcTruncateLegacyDishes();
+
+    expect(collect(mpcCompose($userId)['categories'][0]['items'])->pluck('name')->all())
+        ->toBe(['Zucchini Fries', 'Apple Pie']);
 });
