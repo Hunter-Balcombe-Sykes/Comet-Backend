@@ -22,6 +22,19 @@ Phase 5's 30 `menu_item` rows came through it.
 
 ## Owner rulings taken 2026-08-16 (recorded before execution)
 
+> **A fifth ruling was taken AFTER execution, on a case rulings 1–4 did not
+> reach — see parent spec §26.6.** A booking link Google harvests from the
+> merchant's OWN domain matches no brand, and the first cut dropped it, emptying
+> a Book button that a test in this repo explicitly protects. It now lands on
+> `direct.book`. Ordering and reservations in the same position go to the links
+> pool (2A extended to the harvest). The asymmetry is deliberate: a business's
+> own booking page is a normal way to book; an unrecognised ordering link is
+> nearly always a marketplace redirector.
+>
+> The plan's coverage check — "every host **the harvester classifies** already
+> has a catalog surface, 18/18 booking" — could not have caught this, because
+> the case is a URL the harvester classifies as nothing at all.
+
 1. **Ordering surfaces stay single-store.** Ollies' second Uber Eats store
    (`doc-pizza-…-carlton`) becomes a links-pool item. No `multiAccount()`, no
    change to the `order:{platform}` collection natural key.
