@@ -772,20 +772,19 @@ class DataExportPayloadBuilder
     }
 
     /**
-     * Slice 3a cutover: owner-authored services (source IS NULL) moved to
-     * content.* (spec §3.1) — ManualServiceWriter never writes back to
-     * site.services once a row is in the manual lane
-     * (UserServiceController::update()), so reading site.services for them
-     * here would export PRE-EDIT values forever after the first dashboard
-     * edit post-cutover. ManualServiceItems is the ONE shared content.* read
-     * (also used by the public renderer and the dashboard controller) —
-     * reused via exportRows() rather than a fourth copy of its join.
+     * Slice 3a moved owner-authored services to content.*; slice 7 Task 18
+     * moves the connector half too, because `site.services`,
+     * `site.service_categories` and `site.service_category_assignments` are
+     * all dropped in that slice's final phase. Both halves now read
+     * content.*: the OWNER lane via ManualServiceItems::exportRows() (the ONE
+     * shared manual read, also used by the public renderer and the dashboard
+     * controller), the CONNECTOR lane via streamConnectorServices() below.
      *
-     * Fresha-projected rows (source = 'fresha') are UNCHANGED by this slice
-     * and still stream straight off site.services — 3b's problem, not this
-     * task's (see the task brief's "what is and isn't migrated").
-     *
-     * PRIV-2: explicit allow-list, equal to the table's current full column set.
+     * The section KEY does not move with the store. The 2026-08-05 precedent
+     * is that DSAR allowlists keep their legacy keys so a payload exported
+     * before the cutover stays disclosable under the same name; deleting
+     * `services` or `service_categories` would be a disclosure regression
+     * dressed as a cleanup.
      */
     private function streamServices(string $userId, ?string $siteId): Generator
     {
@@ -796,52 +795,203 @@ class DataExportPayloadBuilder
         $site = $siteId !== null ? (new Site)->forceFill(['id' => $siteId]) : null;
 
         yield from $manual->exportRows($userId, $site);
-
-        // Multi-category (20260721180000): the single category_id column (and
-        // the legacy dead `category` text) are gone — memberships stream via
-        // the category_ids aggregate below. source/is_manual/external_id are
-        // the Fresha-projection provenance (20260721150000).
-        yield from $this->lazyRows(
-            DB::connection('pgsql')
-                ->table('site.services')
-                ->select([
-                    'id', 'user_id', 'title', 'description', 'price_cents',
-                    'currency_code', 'duration_minutes', 'is_active', 'sort_order',
-                    'source', 'is_manual', 'external_id',
-                    'deleted_origin', 'created_at', 'updated_at', 'deleted_at',
-                ])
-                ->where('user_id', $userId)
-                // Owner-authored rows (source IS NULL) are now read above,
-                // through content.* — the site.services row for them is a
-                // stale, unread duplicate left behind by ServiceBackfiller
-                // (it never deletes the legacy row it backfills).
-                ->whereNotNull('source'),
-            transform: function (object $row): array {
-                $out = (array) $row;
-                $out['category_ids'] = DB::connection('pgsql')
-                    ->table('site.service_category_assignments')
-                    ->select(['service_category_id'])
-                    ->where('service_id', $row->id)
-                    ->pluck('service_category_id')
-                    ->map(fn ($id) => (string) $id)
-                    ->all();
-
-                return $out;
-            },
-        );
+        yield from $this->streamConnectorServices($userId);
     }
 
     /**
-     * PRIV-2: explicit allow-list, equal to the table's current full column set.
+     * Connector-projected services (Fresha today — nothing else lands a
+     * `kind = 'service'` item through a connection source), in the same legacy
+     * `site.services` row shape the owner lane emits. Removed items are KEPT
+     * and surface as `deleted_at`, matching exportRows()' rule that Article 15
+     * covers data still held, not just live data.
+     *
+     * Three legacy columns have no content.* equivalent and are emitted as
+     * their honest null/default rather than a guessed value — the same
+     * never-fabricate rule exportRows() follows for an excluded row's
+     * sort_key:
+     *   - `sort_order` — the legacy lane's own append counter; content.* keeps
+     *     connector ordering in the vendor's projection, not a stored integer.
+     *   - `deleted_origin` — the legacy 'user'/'sync' soft-delete provenance,
+     *     which the projector maintained on the row it is losing.
+     *   - `is_active` — was the public hidden toggle. That state lives in the
+     *     connection payload's `selection`, which IS disclosed in full in the
+     *     `integrations` section (DsarPayloadFilter's `fresha` allowlist), so
+     *     it is re-derived here as "the item is still held", not withheld.
+     *
+     * Facets are read through ManualServiceItems::facets() (public, source-id
+     * scoped, kind-agnostic) rather than a second copy of its three lookups —
+     * the same reuse FreshaServiceItems makes. facets() takes ONE source id,
+     * so rows are grouped by source first: a user has at most one live Fresha
+     * connection today, but the grouping means a second connector source is a
+     * correct extra iteration rather than a silently mis-priced row.
+     *
+     * No ->distinct(), for FreshaServiceItems::rows()' reason rather than
+     * "there is no LEFT JOIN so nothing fans out" (which is false): record_key
+     * rides in the select list, so two source_items on one item are two
+     * genuinely different rows a whole-row DISTINCT would not collapse. What
+     * keeps this one-row-per-service is the data — one live connection per
+     * user, and source_items unique on (source_id, coord). An item carrying
+     * BOTH a manual and a connection source_item would likewise appear once
+     * here and once from exportRows(); `content.item_merges` is empty and
+     * cross-kind folding is refused upstream, so that shape does not exist
+     * today. Neither is a leak if it ever does — a duplicate row, not a
+     * foreign one.
+     */
+    private function streamConnectorServices(string $userId): Generator
+    {
+        // Unaliased table names throughout: DataExportCoverageTest's T1/T2
+        // guards match a table() call by regex on the bare schema-qualified
+        // name, so an "as x" alias makes the call invisible to them and its
+        // column list would go unchecked against the real schema.
+        $rows = DB::connection('pgsql')->table('content.items')
+            ->join('content.source_items', 'content.source_items.item_id', '=', 'content.items.id')
+            ->join('content.sources', 'content.sources.id', '=', 'content.source_items.source_id')
+            ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
+            ->select([
+                'content.items.id', 'content.items.headline_cache', 'content.items.removed_at',
+                'content.items.created_at', 'content.items.updated_at',
+                'content.source_items.source_id', 'content.source_items.record_key',
+                'site.platform_connections.platform',
+            ])
+            ->where('content.items.user_id', $userId)
+            ->where('content.items.kind', 'service')
+            ->where('content.sources.kind', 'connection')
+            ->whereNull('content.source_items.removed_at')
+            ->orderBy('content.items.first_seen_at')
+            ->orderBy('content.source_items.id')
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return;
+        }
+
+        $manual = app(ManualServiceItems::class);
+
+        foreach ($rows->groupBy('source_id') as $sourceId => $group) {
+            $itemIds = $group->pluck('id')->all();
+            $facets = $manual->facets($itemIds, (string) $sourceId);
+            $categories = $this->connectorServiceCategoryIds($itemIds, (string) $sourceId);
+
+            foreach ($group as $row) {
+                $offer = $facets['offers']->get($row->id);
+                // Mirrors ManualServiceItems::priceOf(): a 'free' offer carries
+                // no price and no currency, and 'AUD' is the legacy column's
+                // own default for a row with no offer at all.
+                $isFree = $offer !== null && $offer->qualifier === 'free';
+                $seconds = $facets['durations'][$row->id] ?? null;
+
+                yield [
+                    'id' => (string) $row->id,
+                    'user_id' => $userId,
+                    'title' => (string) ($row->headline_cache ?? ''),
+                    'description' => $facets['descriptions'][$row->id] ?? null,
+                    'price_cents' => $offer === null || $isFree ? 0 : (int) $offer->amount_minor,
+                    'currency_code' => $offer === null || $isFree ? 'AUD' : (string) $offer->currency,
+                    'duration_minutes' => $seconds === null ? null : (int) ((int) $seconds / 60),
+                    'is_active' => $row->removed_at === null,
+                    'sort_order' => null,
+                    'source' => $row->platform === null ? null : (string) $row->platform,
+                    'is_manual' => false,
+                    'external_id' => $row->record_key === null ? null : (string) $row->record_key,
+                    'deleted_origin' => null,
+                    'created_at' => $row->created_at,
+                    'updated_at' => $row->updated_at,
+                    'deleted_at' => $row->removed_at,
+                    'category_ids' => $categories[(string) $row->id] ?? [],
+                ];
+            }
+        }
+    }
+
+    /**
+     * The connector lane's replacement for site.service_category_assignments:
+     * `content.collection_items` scoped to THIS connector source, in position
+     * order. Source-scoped rather than kind-scoped because a connection's own
+     * memberships are exactly the ones written under its source id — the same
+     * predicate FreshaServiceItems::categories() reads on.
+     *
+     * @param  list<string>  $itemIds
+     * @return array<string, list<string>> item_id => collection ids
+     */
+    private function connectorServiceCategoryIds(array $itemIds, string $sourceId): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $out = [];
+        $rows = DB::connection('pgsql')->table('content.collection_items')
+            ->select(['item_id', 'collection_id'])
+            ->whereIn('item_id', $itemIds)
+            ->where('source_id', $sourceId)
+            ->orderBy('position')
+            ->get();
+
+        foreach ($rows as $row) {
+            $out[(string) $row->item_id][] = (string) $row->collection_id;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Slice 7 Task 18: service categories re-sourced from
+     * `content.collections` (kind = 'service_category'), mapped back onto the
+     * legacy `site.service_categories` column names — label→title,
+     * position→sort_order, removed_at→deleted_at, is_user_created→source. That
+     * mapping is not invented here: it is the one
+     * `ServiceCategoryResource::fromCollectionRow()` already ships on the
+     * owner-facing wire, and the two must not drift.
+     *
+     * Removed rows are NOT filtered. ServiceCollections::list() drops empty
+     * machine-derived collections for RENDER purposes; a DSAR is the opposite
+     * question — a category the owner deleted is still held data.
+     *
+     * PRIV-2: explicit allow-list. `external_ref` (the vendor's own category
+     * key) is deliberately NOT selected: the legacy shape this section retains
+     * has no slot for it, and the provenance it encodes is already disclosed
+     * as `source`.
      */
     private function streamServiceCategories(string $userId): Generator
     {
         return $this->lazyRows(
             DB::connection('pgsql')
-                ->table('site.service_categories')
-                ->select(['id', 'user_id', 'title', 'sort_order', 'source', 'created_at', 'updated_at', 'deleted_at'])
+                ->table('content.collections')
+                ->select(['id', 'user_id', 'label', 'position', 'is_user_created', 'removed_at', 'created_at', 'updated_at'])
                 ->where('user_id', $userId)
+                ->where('kind', 'service_category')
+                ->orderBy('position'),
+            transform: fn (object $row): array => [
+                'id' => (string) $row->id,
+                'user_id' => (string) $row->user_id,
+                'title' => (string) $row->label,
+                'sort_order' => (int) $row->position,
+                // false = the projector created it from a vendor category,
+                // which today only ever means Fresha; true = the owner did, so
+                // no source. Normalised rather than compared loosely —
+                // PDO_PGSQL hands a boolean column back as the strings "t"/"f",
+                // so `=== false` on the raw value would call every Fresha
+                // category owner-made on real Postgres and never on SQLite.
+                'source' => $this->isTrue($row->is_user_created) ? null : 'fresha',
+                'created_at' => $row->created_at,
+                'updated_at' => $row->updated_at,
+                'deleted_at' => $row->removed_at,
+            ],
         );
+    }
+
+    /** Driver-independent truthiness for a boolean column read through the query builder. */
+    private function isTrue(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_int($value)) {
+            return $value === 1;
+        }
+
+        return in_array(mb_strtolower((string) $value), ['1', 't', 'true'], true);
     }
 
     private function streamEnquiries(string $userId): Generator
