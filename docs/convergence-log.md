@@ -570,3 +570,66 @@ collapse to ONE coord. Without the dedupe those two rows would write the same
 coord twice in one run and count as two links, making the coverage gate
 unreconcilable. The test reproduces it with the whitespace pair rather than an
 impossible exact-duplicate pair.
+
+### F29 — `youtube_music` is probably NOT a `track` producer; its feed is empty
+
+Phase 4's §4 calls `youtube_music` "the only real `track` producer" and the
+connector's own docblock states the premise plainly: "an artist's YT Music
+presence is their auto-generated '- Topic' channel, whose uploads feed IS the
+release list — read via the same keyless channel RSS". **Tested live on
+2026-08-16, that premise did not hold for the only channel dev has.**
+
+Dev's single `youtube_music.channel` connection was soft-deleted, which is why
+0 track items existed: `SourceProvisioner::sync()` returns `retired` for a
+trashed connection and never creates a row. Restoring it (owner-approved) and
+provisioning worked — `created 1`, `auto_sync=true`, `cost_units=1` — and the
+run came back `outcome=ok` with **`records_seen=0`** and the connector's
+`empty_feed` Note.
+
+The feed itself is the reason, and it is not a connector bug:
+
+```
+GET https://www.youtube.com/feeds/videos.xml?channel_id=UC3AXBjLrXTrTpm4SwYdBYAQ
+→ HTTP 200, 720 bytes, <title>King Gizzard &amp; The Lizard Wizard</title>, 0 <entry> elements
+```
+
+That id is the one the legacy connect flow stored, and its connection payload
+url is `music.youtube.com/channel/UC3AXBjLrXTrTpm4SwYdBYAQ` — i.e. a genuine
+YouTube **Music** channel id. Controls prove the endpoint itself is healthy:
+`UC_x5XG1OV2P6uZZ5FSM9Ttw` and `UCk0fGHsCEzGig-rSzkfCjMw` both return 15
+entries.
+
+**A wrong turn worth recording, because it is the trap here.** Searching
+YouTube for "<artist> - Topic" and taking the first `channelId` returns the
+artist's MAIN channel, not the Topic channel — verified by parsing
+`ytInitialData`: the owner runs for a Tame Impala track search yield
+`UCdI8MAC5HoPJSJ4zrgDDI-Q  Tame Impala`, with no `- Topic` channel present at
+all. Pointing the dev connection at King Gizzard's main channel
+(`UCNiyS8zr2RIddszLwtoyUow`) duly landed 15 records → 15 `track` items — but
+they were festival livestreams and visualisers ("…Presents Field of Vision Live
+- Day 2"), i.e. **videos mis-typed as tracks**. They would have satisfied
+Phase 4's "track rows exist on dev" gate as a false pass. Reverted in full:
+records deleted, `source_items` deleted BEFORE `items` (that FK is `SET NULL`,
+not `CASCADE`, so the other order leaves orphans), identifier restored.
+`content.items` is back to 1068 with 0 tracks and 0 orphaned source_items.
+
+Note `ingest:project --rebuild` did **not** retire the items when its records
+were gone — it reported `0 record(s) into 0 item(s), 0 retired` and left all 15
+standing. `--rebuild` re-derives; it does not reconcile away items whose
+records no longer exist. Anything relying on it as a teardown needs the row
+deletion done explicitly, exactly as slice 6 found for its purge path.
+
+**Consequence for Phase 4.** Until a Topic-channel id is produced that actually
+serves `videos.xml` entries, the free half of Phase 4 lands nothing, and the
+phase's EXIT gate rests entirely on the paid Spotify/SoundCloud actors. Two
+possibilities remain open and are NOT distinguished by the evidence above:
+either (a) YT Music/Topic channels do not serve the uploads RSS at all, in
+which case `YoutubeMusicConnector` is unusable as written and §4's "only real
+track producer" claim is wrong; or (b) this particular id is stale/dead and a
+correct Topic id would work. Deciding between them needs one genuine Topic
+channel id — obtainable from a YouTube Music artist page's "Songs" shelf, not
+from YouTube search.
+
+The connection and its source are LEFT PROVISIONED (free, `auto_sync=true`).
+Each scheduled run costs nothing and files an `empty_feed` Note with no
+coverage claim, so nothing is tombstoned while this stays open.
