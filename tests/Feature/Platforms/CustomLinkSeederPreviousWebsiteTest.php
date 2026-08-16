@@ -11,7 +11,6 @@
 // link-adds go through CustomLinksController::addLink(), which doesn't touch
 // this class, so a user can still add their old site by hand if they want.
 
-use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\CustomLinkSeeder;

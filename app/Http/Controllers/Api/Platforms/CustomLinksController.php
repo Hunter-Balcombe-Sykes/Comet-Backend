@@ -8,13 +8,16 @@ use App\Http\Requests\Platforms\AddCustomLinkRequest;
 use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Core\User\User;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Content\LinkPoolReader;
 use App\Services\Content\LinkPoolWriter;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\RouteContext;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 // Arbitrary user-attached URLs rendered as a Links section on the sitepage.
 //
@@ -35,10 +38,12 @@ use Illuminate\Http\Request;
 //     round-trips whatever ids this endpoint hands it, so the change is opaque
 //     to it — but anything that PARSED the old prefix would break.
 //
-// ManagesIntegrationConnection is gone from this class: with no connection row
-// there is no per-platform lock to take, and the pool write is a single
-// idempotent upsert on a deterministic coord rather than a read-mutate-write
-// cycle, so the lost-update hazard that lock existed for cannot arise.
+// ManagesIntegrationConnection is gone from this class — there is no connection
+// row for it to manage — but its LOCK is not. The pool write itself is an
+// idempotent upsert on a deterministic coord and needs no serialising; the
+// 20-link CAP is still a read-then-write, and two concurrent adds could both
+// observe 19. Same key CustomLinkSeeder takes, so the two writers still exclude
+// each other, and the 423 contract the dashboard already handles is preserved.
 class CustomLinksController extends ApiController
 {
     use ResolveCurrentUser;
@@ -51,6 +56,22 @@ class CustomLinksController extends ApiController
         private readonly LinkPoolWriter $writer,
         private readonly LinkPoolReader $reader,
     ) {}
+
+    /**
+     * Serialise a read→mutate→write cycle behind the per-user custom-link lock,
+     * answering 423 when another mutation holds it past the block timeout.
+     * Byte-identical semantics to ManagesIntegrationConnection::withConnectionLock,
+     * which this class used before the pool move.
+     */
+    private function withLinkLock(User $user, callable $fn): JsonResponse
+    {
+        try {
+            return Cache::lock(CacheKeyGenerator::platformConnectionLock('custom', (string) $user->id), 10)
+                ->block(3, $fn);
+        } catch (LockTimeoutException) {
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
+    }
 
     // GET /api/platforms/custom/links — every attached link, in pin order.
     public function links(Request $request): JsonResponse
@@ -94,24 +115,38 @@ class CustomLinksController extends ApiController
         }
 
         // outcome === 'custom' or 'skipped' — this really is a link.
-        $existing = collect($this->reader->cards($user))
-            ->first(fn (array $card) => is_string($card['url']) && $this->scraper->normalizeUrl($card['url']) === $url);
-
-        if ($existing === null && count($this->reader->cards($user)) >= self::MAX_LINKS) {
-            return $this->error('You can add up to '.self::MAX_LINKS.' links.', 422);
-        }
-
         // The item exists the moment this returns — the pool write is
         // synchronous, unlike the connection lane's pending card. The title is
         // the URL host until EnrichPoolLinkJob upgrades it off-thread.
-        $itemId = $this->writer->add($user, $url);
-        EnrichPoolLinkJob::dispatch((string) $user->id, $url)->afterCommit();
+        //
+        // The cap check above is deliberately re-run INSIDE the lock: checking
+        // it outside would be the same read-then-write race the lock exists for.
+        $itemId = null;
+        $response = $this->withLinkLock($user, function () use ($user, $url, &$itemId) {
+            $cards = $this->reader->cards($user);
+            $known = collect($cards)->contains(
+                fn (array $card) => is_string($card['url']) && $this->scraper->normalizeUrl($card['url']) === $url,
+            );
+            if (! $known && count($cards) >= self::MAX_LINKS) {
+                return $this->error('You can add up to '.self::MAX_LINKS.' links.', 422);
+            }
 
-        return $this->success([
-            'status' => 'pending',
-            'link' => collect($this->linksData($user))->firstWhere('id', $itemId),
-            'statusUrl' => url("/api/platforms/custom/links/{$itemId}/status"),
-        ], 202);
+            $itemId = $this->writer->add($user, $url);
+
+            return $this->success([
+                'status' => 'pending',
+                'link' => collect($this->linksData($user))->firstWhere('id', $itemId),
+                'statusUrl' => url("/api/platforms/custom/links/{$itemId}/status"),
+            ], 202);
+        });
+
+        // Outside the lock: under QUEUE_CONNECTION=sync a dispatch runs INLINE,
+        // and holding the 10s lock across it is the hazard PWL-D2 documents.
+        if ($response->getStatusCode() === 202) {
+            EnrichPoolLinkJob::dispatch((string) $user->id, $url)->afterCommit();
+        }
+
+        return $response;
     }
 
     // GET /api/platforms/custom/links/{id}/status — poll title enrichment.
@@ -141,21 +176,23 @@ class CustomLinksController extends ApiController
             'ids.*' => ['string'],
         ])['ids'];
 
-        $known = array_column($this->reader->cards($user), 'id');
-        foreach ($ids as $id) {
-            if (! in_array($id, $known, true)) {
-                return $this->error('Link not found.', 404);
+        return $this->withLinkLock($user, function () use ($user, $ids) {
+            $known = array_column($this->reader->cards($user), 'id');
+            foreach ($ids as $id) {
+                if (! in_array($id, $known, true)) {
+                    return $this->error('Link not found.', 404);
+                }
             }
-        }
 
-        // Pin order IS the public order — sort_key is the column PoolResolver
-        // reads — so the dashboard, the payload and the sitepage cannot disagree.
-        // The connection lane needed an explicit $site->touch() here because a
-        // pure sort_order shuffle fired no observer; SiteCacheLanes::bust() inside
-        // reorder() covers all three lanes.
-        $this->reader->reorder($user, $ids);
+            // Pin order IS the public order — sort_key is the column PoolResolver
+            // reads — so the dashboard, the payload and the sitepage cannot disagree.
+            // The connection lane needed an explicit $site->touch() here because a
+            // pure sort_order shuffle fired no observer; SiteCacheLanes::bust() inside
+            // reorder() covers all three lanes.
+            $this->reader->reorder($user, $ids);
 
-        return $this->success(['links' => $this->linksData($user)]);
+            return $this->success(['links' => $this->linksData($user)]);
+        });
     }
 
     // DELETE /api/platforms/custom/links/{id} — remove one link.
@@ -163,20 +200,25 @@ class CustomLinksController extends ApiController
     {
         $user = $this->currentUser($request);
 
-        if (! $this->reader->remove($user, $id)) {
-            return $this->error('Link not found.', 404);
-        }
+        return $this->withLinkLock($user, function () use ($user, $id) {
+            if (! $this->reader->remove($user, $id)) {
+                return $this->error('Link not found.', 404);
+            }
 
-        return $this->success(['links' => $this->linksData($user)]);
+            return $this->success(['links' => $this->linksData($user)]);
+        });
     }
 
     // DELETE /api/platforms/custom — remove every link.
     public function forget(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $this->reader->removeAll($user);
 
-        return $this->success(['links' => []]);
+        return $this->withLinkLock($user, function () use ($user) {
+            $this->reader->removeAll($user);
+
+            return $this->success(['links' => []]);
+        });
     }
 
     // ── internals ────────────────────────────────────────────────

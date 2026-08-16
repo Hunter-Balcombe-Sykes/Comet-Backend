@@ -2,7 +2,9 @@
 
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
@@ -27,6 +29,10 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Phase 6: custom links live in the custom_links POOL.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
     setupNotificationsTable();
     // A Fresha link auto-dispatches ConnectFetchJob, and QUEUE_CONNECTION=sync
     // runs it INLINE — without this the seed below scrapes fresha.com for real.
@@ -48,6 +54,13 @@ function igParitySeed(array $bioLinks, string $accountType = 'business'): User
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$handle}@example.com",
     ]);
+
+    // Phase 6: an unrecognised bio link lands in the custom_links POOL, and a
+    // pool item needs a section, which hangs off the site.
+    $site = new Site(['subdomain' => $handle, 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+    $user->refresh();
 
     $connection = IntegrationConnection::create([
         'user_id' => $user->id,
@@ -92,7 +105,7 @@ it('gives the second booking link of a bio a card, exactly as the unroll does', 
     ]);
 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(1);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1);
 });
 
 it('gives the second social link of a bio a card too', function () {
@@ -102,7 +115,7 @@ it('gives the second social link of a bio a card too', function () {
     ]);
 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'youtube'])->exists())->toBeTrue();
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(1);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1);
 });
 
 it('spends ONE probe budget across both passes, not one each', function () {
@@ -227,5 +240,5 @@ it('writes no card for a bio link already synced to the same url', function () {
     igParityReseed($user, ['https://www.fresha.com/a/venue-1']);
 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->count())->toBe(1);
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(0);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 });

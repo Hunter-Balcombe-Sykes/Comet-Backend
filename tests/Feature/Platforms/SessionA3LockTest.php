@@ -33,6 +33,10 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Phase 6: custom links live in the custom_links POOL.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
 
 function sessionA3User(string $h): User

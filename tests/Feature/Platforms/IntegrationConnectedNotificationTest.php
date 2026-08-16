@@ -11,7 +11,9 @@ use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\InstagramConnectionSeeder;
@@ -26,6 +28,10 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Phase 6: custom links live in the custom_links POOL.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
     setupNotificationsTable();
 
     DB::connection('pgsql')->statement(
@@ -36,7 +42,7 @@ beforeEach(function () {
 
 function icwUser(string $handle): User
 {
-    return User::create([
+    $user = User::create([
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
@@ -47,6 +53,14 @@ function icwUser(string $handle): User
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$handle}@example.com",
     ]);
+
+    // Phase 6: the custom-link case below writes a pool item, which needs a
+    // section, which hangs off the site.
+    $site = new Site(['subdomain' => $handle, 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+
+    return $user->refresh();
 }
 
 function icwRows(User $user)
@@ -313,29 +327,23 @@ it('notifies once EnrichLinkCardJob completes a resource_kind-NULL card', functi
 });
 
 it('does not notify when a seeded custom link completes enrichment', function () {
-    // CustomLinkSeeder is the pre-account / auto-sync writer; its rows carry
-    // resource_kind 'link', which the notifier drops. That guard is the ONLY
-    // thing keeping this at zero — the row below reaches 'ok' like any other.
+    // CustomLinkSeeder is the pre-account / auto-sync writer. It used to write a
+    // connection with resource_kind 'link', and the notifier's guard on that kind
+    // was the ONLY thing keeping this at zero. Convergence Phase 6 removed the
+    // row entirely — a seeded link is a custom_links POOL item — so the
+    // guarantee now holds for a stronger reason: the notifier fires on connection
+    // writes, and there is no longer a connection to fire on.
     $user = icwUser('icw10');
 
-    // Without this the seeder's own EnrichLinkCardJob::dispatch()->afterCommit()
-    // runs inline on the sync driver with the REAL scraper (outbound HTTP).
+    // Without this the seeder's own enrichment dispatch runs inline on the sync
+    // driver with the REAL scraper (outbound HTTP).
     Queue::fake();
     // seedCustom(), not seed(): seed() is the routing gateway now and an
-    // unclassified URL there becomes a commerce probe returning null, no row.
-    // This test is about the enrichment notification on a custom-link row.
-    $row = app(CustomLinkSeeder::class)->seedCustom($user, 'https://example.com');
-    expect($row)->not->toBeNull();
-    expect($row->resource_kind)->toBe('link');
+    // unclassified URL there becomes a commerce probe, writing nothing.
+    app(CustomLinkSeeder::class)->seedCustom($user, 'https://example.com');
 
-    $this->mock(LinkCardScraper::class, fn ($m) => $m->shouldReceive('snapshot')->once()->andReturn([
-        'url' => 'https://example.com', 'name' => 'Example', 'description' => null,
-        'favicon' => null, 'logo' => null,
-    ]));
-
-    app()->call([new EnrichLinkCardJob($user->id, 'custom', $row->resource_id, 'https://example.com'), 'handle']);
-
-    expect($row->fresh()->last_refresh_status)->toBe('ok');
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1)
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(0);
     expect(icwRows($user))->toHaveCount(0);
 });
 

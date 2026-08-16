@@ -1,8 +1,9 @@
 <?php
 
 use App\Jobs\Platforms\CommerceProbeJob;
-use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\RouteContext;
 use Illuminate\Support\Facades\Queue;
@@ -18,12 +19,30 @@ use Illuminate\Support\Facades\Queue;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Phase 6: custom links live in the custom_links POOL.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
     setupNotificationsTable();
 });
 
+/**
+ * Phase 6: an unclassified link becomes a custom_links POOL item, and a pool
+ * item needs a section, which hangs off the site.
+ */
+function probeBudgetPoolUser(array $attrs = []): User
+{
+    $user = User::factory()->create($attrs);
+    $site = new Site(['subdomain' => 'pu'.substr((string) $user->id, 0, 8), 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+
+    return $user->refresh();
+}
+
 it('spends no probe on a recognised marketplace or creator-commerce link', function () {
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'partna']);
+    $user = probeBudgetPoolUser(['account_type' => 'partna']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -43,27 +62,27 @@ it('spends no probe on a recognised marketplace or creator-commerce link', funct
     expect($ctx->probesUsed())->toBe(0);
 
     // Nothing vanishes — each is still a link card.
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(5);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(5);
 });
 
 it('gives each marketplace link its own card instead of skipping the second', function () {
     // An influencer legitimately has several LTK links. First-link-per-platform
     // is a rule about CONNECTIONS; these are cards, so it must not apply.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'partna']);
+    $user = probeBudgetPoolUser(['account_type' => 'partna']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
     $seeder->seed($user, 'https://www.liketoknow.it/creator/post-one', $ctx);
     $seeder->seed($user, 'https://www.liketoknow.it/creator/post-two', $ctx);
 
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->count())->toBe(2);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(2);
     expect($ctx->probesUsed())->toBe(0);
 });
 
 it('leaves the whole budget for real websites sitting behind marketplace links', function () {
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'partna']);
+    $user = probeBudgetPoolUser(['account_type' => 'partna']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -85,7 +104,7 @@ it('leaves the whole budget for real websites sitting behind marketplace links',
 
 it('does not charge the budget for a url no probe could ever fetch', function () {
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'partna']);
+    $user = probeBudgetPoolUser(['account_type' => 'partna']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -107,7 +126,7 @@ it('does not charge the budget for a url no probe could ever fetch', function ()
 
 it('reports the ineligible count in the run summary', function () {
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'partna']);
+    $user = probeBudgetPoolUser(['account_type' => 'partna']);
     $ctx = new RouteContext;
 
     app(CustomLinkSeeder::class)->seed($user, 'https://bit.ly/3xamPle', $ctx);
@@ -125,7 +144,7 @@ it('still enforces the cap — the pre-filter must never loosen the bound', func
     // say-so is an amplification vector aimed at someone else's server. A
     // filter that skips work must not become a filter that grants extra work.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'partna']);
+    $user = probeBudgetPoolUser(['account_type' => 'partna']);
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
@@ -150,7 +169,7 @@ it('does not let a trailing dot or bracketed ipv6 walk past the pre-filter', fun
     // Both resolve identically to the form the filter checks, and both slip a
     // naive suffix/IP comparison — SafeUrlFetcher normalises for this reason.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'partna']);
+    $user = probeBudgetPoolUser(['account_type' => 'partna']);
     $ctx = new RouteContext;
 
     app(CustomLinkSeeder::class)->seed($user, $url, $ctx);
@@ -167,7 +186,7 @@ it('still probes an ordinary website on a port or with a long path', function (s
     // The fail-open direction: anything the filter cannot positively
     // disqualify keeps the behaviour it has today.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'partna']);
+    $user = probeBudgetPoolUser(['account_type' => 'partna']);
     $ctx = new RouteContext;
 
     app(CustomLinkSeeder::class)->seed($user, $url, $ctx);
@@ -183,7 +202,7 @@ it('still probes an ordinary website', function () {
     // Guard against the pre-filter over-reaching: the whole point is that a
     // plausible storefront still gets its probe.
     Queue::fake();
-    $user = User::factory()->create(['account_type' => 'partna']);
+    $user = probeBudgetPoolUser(['account_type' => 'partna']);
     $ctx = new RouteContext;
 
     app(CustomLinkSeeder::class)->seed($user, 'https://herownlabel.example/', $ctx);

@@ -11,13 +11,18 @@
  */
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\EventbriteScraper;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
     setupUsersTable();
-    setupSitesTable(); // also creates site.platform_connections
+    setupSitesTable();
+    // Phase 6: custom links live in the custom_links POOL.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables(); // also creates site.platform_connections
 });
 
 it('adding a standalone event stamps resource_kind = event', function () {
@@ -45,7 +50,12 @@ it('adding a standalone event stamps resource_kind = event', function () {
     expect($row->resource_kind)->toBe('event');
 });
 
-it('adding a custom link stamps resource_kind = link', function () {
+// Convergence Phase 6 retired this behaviour rather than changing it: a custom
+// link is no longer a connection at all, so there is no resource_kind to stamp.
+// Kept as the inverse assertion — the column's OTHER writers (events, booking
+// and reservation link cards) are covered by the cases around it, and this one
+// now guards against a custom link quietly coming BACK as a connection row.
+it('adding a custom link writes no connection row at all', function () {
     Queue::fake();
     Http::fake();
 
@@ -54,13 +64,8 @@ it('adding a custom link stamps resource_kind = link', function () {
     actingAsUser($user)->postJson('/api/platforms/custom/links', ['url' => 'https://www.example.com/x'])
         ->assertStatus(202);
 
-    $row = IntegrationConnection::query()
-        ->where('user_id', $user->id)
-        ->where('platform', 'custom')
-        ->firstOrFail();
-
-    expect($row->resource_id)->toStartWith('link-');
-    expect($row->resource_kind)->toBe('link');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(0)
+        ->and(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1);
 });
 
 it('connecting an organiser account leaves resource_kind NULL', function () {
