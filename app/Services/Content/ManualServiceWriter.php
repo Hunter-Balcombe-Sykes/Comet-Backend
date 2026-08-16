@@ -29,6 +29,12 @@ class ManualServiceWriter
         private readonly ProjectionWriter $writer,
         private readonly PoolSectionProvisioner $sections,
         private readonly ContentItemSlugAllocator $slugs,
+        // Slice 7 unit A: the ONE pool-specific value in this class. Every
+        // other method — the projection write, pin/exclude, removal, slug
+        // bookkeeping — is kind-agnostic already (freeSlug guards on
+        // SLUGGED_KINDS, not on a kind literal), which is why ManualMenuWriter
+        // subclasses this rather than copying 150 lines that would drift.
+        private readonly string $pool = 'services',
     ) {}
 
     /** Land one item through the slice-0b manual lane. Idempotent on $coord. */
@@ -139,7 +145,7 @@ class ManualServiceWriter
 
     private function curationRow(Site $site, string $itemId): SectionItem
     {
-        $section = $this->sections->ensure($site, 'services');
+        $section = $this->sections->ensure($site, $this->pool);
 
         $row = SectionItem::query()
             ->where('section_id', $section->id)
