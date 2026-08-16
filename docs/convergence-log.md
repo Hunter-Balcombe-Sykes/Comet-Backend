@@ -698,7 +698,7 @@ JSON **array of facet NAMES**, not a facet→value object. Reading
 and reads as "the projector dropped the artist". The values live in the
 per-facet tables (`content.f_authored` etc.); join those.
 
-### F30 — Apify refuses EVERY pay-per-event actor account-wide (x402). Not a budget問題
+### F30 — Apify refuses EVERY pay-per-event actor account-wide (x402). Not a budget problem
 
 Phase 4's paid lane is blocked, and **not by spend**. Probing the chosen Spotify
 actor returned `HTTP 402` before any work happened:
