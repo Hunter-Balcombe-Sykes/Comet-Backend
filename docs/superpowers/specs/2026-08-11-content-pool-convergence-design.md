@@ -4233,11 +4233,38 @@ Exercising them needs a second live menu for one store, which needs either a
 residential-proxy or alternate Uber Eats actor (a spend decision), or a real
 Square store on dev to replace the placeholder. Both are owner calls, not tasks.
 
+**Uber Eats is blocked PLATFORM-WIDE, not store-by-store — settled 2026-08-16.**
+The first run only proved Universal Restaurant failed, which left open the
+cheaper possibility of one dead store. It is not that. Every Uber Eats URL on
+dev was probed directly:
+
+| store | menuItems | bodyLength | landed on |
+|---|---|---|---|
+| universal-restaurant | 0 | 40226 | `def.uber.com/en/challenge` |
+| the-broken-oven-pizza-bar | 0 | 40226 | `def.uber.com/en/challenge` |
+| hungry-jacks-smith-street | 0 | 40226 | `def.uber.com/en/challenge` |
+| st-ali | 0 | 40226 | `def.uber.com/en/challenge` |
+
+**4/4, and `bodyLength` is byte-identical across four different stores.** That
+is the tell: real per-store outcomes vary in size, so an identical body means
+the request is walled *before* Uber resolves which store was asked for. Hungry
+Jack's is a national chain certainly trading, which rules out "these stores are
+closed". The actor is healthy (5,621 runs, rebuilt 2026-08-08), so what is
+blocked is the actor + this account + Apify's default **datacenter** proxies.
+
+Not tested, and what a spend would buy: residential proxies on the same actor,
+or a different Uber Eats actor. **The cheaper path to the merge proof does not
+involve Uber Eats at all** — a real Square store URL costs nothing and Square
+does not defend its ordering pages this way. Prefer that unless Uber Eats
+coverage is wanted for its own sake.
+
 ### 25.7 Spend
 
-US$0.0761 for the whole phase — 5 billed menu runs plus 3 probes — against the
-US$18 cap. Apify sits at **US$3.0817 of US$29**. Menu actor runs measured at
-~1.1c each, so the 4-attempt ceiling costs ~4.5c for a store that never answers.
+US$0.1391 for the whole phase against the US$18 cap — US$0.0761 for the driver
+work (5 billed menu runs plus 3 probes), then US$0.063 for the platform-wide
+Uber Eats diagnosis above. Apify sits at **US$3.1447 of US$29**. Menu actor runs
+measured at ~1.1c each, so the 4-attempt ceiling costs ~4.5c for a store that
+never answers.
 
 ---
 
