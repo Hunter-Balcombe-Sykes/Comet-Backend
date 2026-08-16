@@ -6,7 +6,6 @@
 // endpoint builds its shape from CardPayload without going through a Resource
 // class. Neither had an exact-shape snapshot before this test.
 
-use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Content\LinkPoolWriter;
 use Illuminate\Support\Facades\DB;
@@ -37,73 +36,6 @@ function stravaCustomUser(string $h): User
 }
 
 // ── Strava /selection ─────────────────────────────────────────────────────────
-
-it('strava selection freezes the exact 6-key shape and strips unknown stored keys', function () {
-    $user = stravaCustomUser('stsel1');
-    IntegrationConnection::create([
-        'user_id' => $user->id,
-        'platform' => 'strava',
-        'resource_id' => 'strava',
-        'payload' => [
-            'url' => 'https://www.strava.com/clubs/fade-lab',
-            'name' => 'Fade Lab Running Club',
-            'location' => 'Melbourne, Australia',
-            'image' => 'https://dgalywyr863hv.cloudfront.net/pictures/clubs/1234/logo.jpg',
-            'description' => 'The best running club in Melbourne.',
-            'members' => 142,
-            // Internal key outside the StravaConnectionResource allowlist:
-            '_internal' => 'leak',
-        ],
-        'is_active' => true,
-        'last_refresh_status' => 'ok',
-    ]);
-
-    $selection = actingAsUser($user)->getJson('/api/platforms/strava/selection')
-        ->assertOk()
-        ->json('selection');
-
-    // StravaConnectionResource emits exactly {url, name, location, image, description, members}.
-    expect($selection)->toEqual([
-        'url' => 'https://www.strava.com/clubs/fade-lab',
-        'name' => 'Fade Lab Running Club',
-        'location' => 'Melbourne, Australia',
-        'image' => 'https://dgalywyr863hv.cloudfront.net/pictures/clubs/1234/logo.jpg',
-        'description' => 'The best running club in Melbourne.',
-        'members' => 142,
-    ]);
-
-    expect($selection)->not->toHaveKey('_internal', "'_internal' must not appear in the selection");
-});
-
-it('strava selection emits nulls for absent optional fields', function () {
-    $user = stravaCustomUser('stsel2');
-    IntegrationConnection::create([
-        'user_id' => $user->id,
-        'platform' => 'strava',
-        'resource_id' => 'strava',
-        'payload' => [
-            'url' => 'https://www.strava.com/clubs/fade-lab',
-            'name' => 'Fade Lab Running Club',
-            // location, image, description, members absent → resource defaults to null.
-        ],
-        'is_active' => true,
-        'last_refresh_status' => 'ok',
-    ]);
-
-    $selection = actingAsUser($user)->getJson('/api/platforms/strava/selection')
-        ->assertOk()
-        ->json('selection');
-
-    // All optional fields fall back to null; key set must still be exactly 6.
-    expect($selection)->toEqual([
-        'url' => 'https://www.strava.com/clubs/fade-lab',
-        'name' => 'Fade Lab Running Club',
-        'location' => null,
-        'image' => null,
-        'description' => null,
-        'members' => null,
-    ]);
-});
 
 // ── Custom links GET /api/platforms/custom/links ──────────────────────────────
 
@@ -183,3 +115,10 @@ it('custom/links emits nulls for absent optional fields and unseeded ranks', fun
             'popularityRank' => null,
         ]]]);
 });
+
+// The two strava cases were removed 2026-08-16: they froze the 6-key card
+// selection shape (name/location/image/description/members/url) that the
+// platform stopped producing when Phase 1.2 demoted it to link-only. Strava now
+// publishes {username, url} like every other link-only platform, which
+// PublicAllowlistCoverageTest and the link-only contract tests already cover.
+// The custom/links half of this file is unaffected.

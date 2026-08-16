@@ -94,8 +94,13 @@ it('rejects refreshing a platform that has nothing to pull', function () {
     actingAsUser(dv2User('refx'))->postJson('/api/platforms/tiktok/refresh')->assertStatus(422);
 });
 
+// Re-pointed off strava 2026-08-16: it was only ever standing in for "a
+// refreshable platform", and Phase 1.2's demotion made it link-only (a
+// link-only platform 422s on /refresh, which the test above already covers via
+// tiktok). bandcamp is the closest surviving match — refreshable, FeedPayload,
+// MultiAccount routes.
 it('404s when nothing is connected to refresh', function () {
-    actingAsUser(dv2User('refn'))->postJson('/api/platforms/strava/refresh')->assertStatus(404);
+    actingAsUser(dv2User('refn'))->postJson('/api/platforms/bandcamp/refresh')->assertStatus(404);
 });
 
 it('refreshes a connected platform then cools down', function () {
@@ -103,11 +108,11 @@ it('refreshes a connected platform then cools down', function () {
 
     $user = dv2User('refp');
     $connection = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava',
-        'payload' => ['name' => 'A Club'], 'is_active' => true,
+        'user_id' => $user->id, 'platform' => 'bandcamp', 'resource_id' => 'bandcamp',
+        'payload' => ['name' => 'A Band'], 'is_active' => true,
     ]);
 
-    actingAsUser($user)->postJson('/api/platforms/strava/refresh')
+    actingAsUser($user)->postJson('/api/platforms/bandcamp/refresh')
         ->assertStatus(202)
         ->assertJsonPath('status', 'pending')
         ->assertJsonPath('refreshed', 1)
@@ -115,12 +120,12 @@ it('refreshes a connected platform then cools down', function () {
 
     Queue::assertPushed(RefreshConnectionJob::class, function (RefreshConnectionJob $job) use ($connection) {
         return $job->connectionId === $connection->id
-            && $job->platform === 'strava'
+            && $job->platform === 'bandcamp'
             && $job->manual === true;
     });
 
     // Immediate second hit is rate-limited by the per-user+platform cooldown.
-    actingAsUser($user)->postJson('/api/platforms/strava/refresh')
+    actingAsUser($user)->postJson('/api/platforms/bandcamp/refresh')
         ->assertStatus(429);
 });
 
