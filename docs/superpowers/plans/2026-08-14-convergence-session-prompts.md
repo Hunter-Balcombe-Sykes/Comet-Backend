@@ -25,9 +25,9 @@ Order:
     driver and finishes Phase 5's proof. GATED ON F30: Apify refuses every
     pay-per-event actor account-wide until an owner fixes the payment method)
 5. `phase-4-listen`
-6. `phase-6-pseudo-platforms` (PARTIAL — finish in 6b)
-6b. `phase-6-finish` (added 2026-08-16 — the five remaining write paths, the
-    shop split, the migration command, the guard and the checkpoint)
+6. `phase-6-pseudo-platforms` (PARTIAL — finished in 6b)
+6b. `phase-6-finish` ✅ DONE 2026-08-16 — checkpoint §26. 0 live partna.*
+    connections remain; the guard refuses new ones.
 7. `slice-7-teardown`
 7b. `programme-review` (added 2026-08-16 — whole-programme verification gate;
     phase-8-docs may not start until it reports PASS)
@@ -431,7 +431,7 @@ for owner-level decisions, a connection with no home, or gate contradictions.
 
 ---
 
-## 6b — phase-6-finish (added 2026-08-16)
+## 6b — phase-6-finish ✅ DONE 2026-08-16 — merged `0b8c4e7dd`, checkpoint §26
 
 ```
 Rename this session to phase-6-finish.

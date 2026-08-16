@@ -95,7 +95,7 @@ Order links in detail:
 
 ## Units
 
-- [ ] **1 — Close the public-allowlist gap and promote the three brands.**
+- [x] **1 — Close the public-allowlist gap and promote the three brands.**
 
   **`LegacyPlatformMap` and `PlatformRegistry` are FROZEN at 78 slugs and must
   not gain entries.** `CatalogLegacyMapTest::matches the backfill migration CASE
@@ -119,23 +119,36 @@ Order links in detail:
   prefix, on the existing CardPayload key set; widen the coverage test to
   iterate catalog brands so the gap cannot reopen; drop `notConnectable()` from
   `uber_eats.order` and `menulog.order`.
-- [ ] **2 — Per-brand classification.** `WebsiteLinkHarvester` gains
+- [x] **2 — Per-brand classification.** `WebsiteLinkHarvester` gains
   `ORDERING_PLATFORM`; `BOOKING_PLATFORM` / `RESERVATION_PLATFORM` shared values
   flip to per-brand slugs. `bopple.app` added to `ORDERING_HOSTS`.
-- [ ] **3 — LinkRouter drops the shared-key seeders.** `seedOnlineOrdering`,
+- [x] **3 — LinkRouter drops the shared-key seeders.** `seedOnlineOrdering`,
   `seedReservation` and `seedBooking`'s shared-key arm write the brand surface.
   `Platform` enum loses `Custom` / `Booking` / `Reservations` / `OnlineOrdering`.
-- [ ] **4 — Close the six write paths.** Custom links and custom events mint pool
+- [x] **4 — Close the six write paths.** Custom links and custom events mint pool
   items instead of connections; booking/reservations custom fallbacks go to the
   links pool; ordering writes a brand connection; shop writes one connection per
   store.
-- [ ] **5 — Migration command** (`content:retire-pseudo-platforms`), idempotent,
+- [x] **5 — Migration command** (`content:retire-pseudo-platforms`), idempotent,
   `--dry-run`, coverage gate derived twice.
-- [ ] **6 — Tests, capability audit, checkpoint.** Includes a test pinning
+- [x] **6 — Tests, capability audit, checkpoint.** Includes a test pinning
   `RoutingCapabilityGate`'s routing_class keying, and the
   `account-capability-audit` skill against everything touched.
 
-## STATUS as of 2026-08-16 (handoff)
+## STATUS — COMPLETE 2026-08-16
+
+**Phase 6 is done.** Prompt 6b landed the remaining five write paths, the shop
+split, the migration command and the guard; merged as `0b8c4e7dd`, deployed to
+dev, migration run. **0 live `partna.*` connections remain**, both derivations
+of the coverage gate agreeing.
+
+Checkpoint with the live SQL, the two departures from the disposition table, the
+five defects found on the way and what slice 7 inherits: parent spec **§26**.
+
+All six units ticked below. What follows is the handoff written at the units
+1–3 merge, kept as the record of the state 6b inherited.
+
+## STATUS as of 2026-08-16 (handoff at the units 1-3 merge)
 
 **MERGED to `development` as `2e38cdb25`** — units 1–3 and the custom-link half
 of unit 4. Full suite green at merge: **8312 passed, 0 failed, 28676 assertions**.

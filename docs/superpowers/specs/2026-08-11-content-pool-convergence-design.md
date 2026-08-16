@@ -4193,3 +4193,253 @@ Square store on dev to replace the placeholder. Both are owner calls, not tasks.
 US$0.0761 for the whole phase — 5 billed menu runs plus 3 probes — against the
 US$18 cap. Apify sits at **US$3.0817 of US$29**. Menu actor runs measured at
 ~1.1c each, so the 4-attempt ceiling costs ~4.5c for a store that never answers.
+
+---
+
+## 26. Phase 6 checkpoint — the pseudo-platforms are retired
+
+Executed 2026-08-16, dev only. Prompt 6 landed units 1–3 and the custom-link
+half of unit 4 (`2e38cdb25`); prompt 6b landed the remaining five write paths,
+the shop split, the migration command and the guard. Merged as `0b8c4e7dd`,
+deployed to dev, and every figure below read back off `glncumufgaqcmqhzwrxm` or
+`dev-api.partna.au` after the run.
+
+**The phase's claim, and it is now enforced rather than asserted:** no write path
+can create a `partna.*` connection. `IntegrationConnection::booted()` refuses the
+six retired surfaces on CREATE, on the surface key and on the legacy slug alike,
+and `RetiredSurfaceGuardTest` covers each of the six.
+
+### 26.1 The run
+
+```
+$ php artisan content:retire-pseudo-platforms --dry-run
+Live pseudo-platform connections before:
+  partna.storefront        6
+  partna.reserve_link      2
+  partna.custom_link      23
+  partna.order_link       10
+  TOTAL                   41
+
+[dry-run] would be: repointed 8, pooled 4, retired 33, shop brands repointed 9
+                    | skipped: no url 0, no site 0 | already done 0
+
+$ php artisan content:retire-pseudo-platforms
+repointed 7, pooled 5, retired 34, shop brands repointed 9
+  | skipped: no url 0, no site 0 | already done 0
+
+Coverage gate — derived twice, independently:
+  PHP (model layer)  live partna.* connections: 0
+  SQL (database)     live partna.* connections: 0
+0 live pseudo-platform connections remain.
+```
+
+**The dry run and the real run disagree by one row, and that is correct rather
+than a defect.** A dry run writes nothing, so its occupied-brand check sees the
+entry state for every row; the real run sees each repoint as it happens. ollies
+held two Uber Eats stores, so the second one necessarily becomes a links-pool
+item under owner ruling 1 — a fact only a writing run can observe. Anyone
+reading a dry run as a promise of the exact split will be off by the number of
+same-brand collisions; it is a lower bound on `pooled`, not an equality.
+
+### 26.2 Exit state on dev
+
+```sql
+live partna.* connections        0     (was 41)
+orphaned shop_brands             0     (rows whose connection was soft-deleted)
+content.items kind=link live    28     (23 from Phase 3 + the 5 newly pooled)
+shopify.store connections        9     8 with a brand + 1 pre-existing placeholder
+woocommerce.store connections    1     1 brand
+```
+
+Ordering, after the move — seven rows on the brands their hosts name:
+
+```
+broken-oven      uber_eats.order    order-e259ab1c2e94de86
+errols           ordermate.order    order-c4e0d3a65c8da276
+fable-sevenrun   uber_eats.order    order-29d3f05f10f6c685
+fred-sarson      uber_eats.order    order-7cebc5fa406f030c
+ollies           bopple.order       order-7c10a96d51e71517
+ollies           doordash.order     order-e0b93dc9123870b5
+ollies           uber_eats.order    order-e529070a67ad23f5
+```
+
+The shop split, per store rather than per user — ollies' five stores are five
+connections where they were one marker row:
+
+```
+ollies   shopify.store      75102060779        (abovetheground.co)
+ollies   shopify.store      11461296187        (natalieanne.com)
+ollies   shopify.store      11044168           (allbirds.com)
+ollies   shopify.store      10233455           (culturekings.com.au)
+ollies   woocommerce.store  fearnoevil-com-au  (fearnoevil.com.au)
+```
+
+### 26.3 Two departures from the plan's disposition table, both recorded rather
+### than forced
+
+1. **broken-oven's `square.site` link went to the POOL, not `square.order`.** The
+   table predicted the brand surface. `WebsiteLinkHarvester` classifies
+   `*.square.site` as **booking** ("Square" → Square Appointments), not ordering,
+   and the retirer refuses to write an ordering row onto a booking surface. The
+   link is preserved with its provider label, so nothing is lost.
+
+   **This is a real classification defect, and it is NOT this phase's to fix:**
+   `*.square.site` is Square ONLINE (a storefront), while Square Appointments
+   lives at `squareup.com/appointments`. Today a pasted Square Online store link
+   routes to the booking slot. Named here so whoever splits that host has the
+   evidence, and so the one-row shortfall is not mistaken for a migration bug.
+
+2. **ollies' two Uber Eats stores swapped which one won the slot.** The table
+   predicted `universal-restaurant` keeps the connection and `doc-pizza` becomes
+   a link; the command orders by `created_at`, so `doc-pizza` won and
+   `universal-restaurant` pooled. Both satisfy ruling 1 — one store per brand,
+   the second is a link — and nothing distinguishes them but arrival order.
+
+### 26.4 The wire, read back off `dev-api.partna.au`
+
+`GET /api/public/profiles/ollies` → 200 in 217ms.
+
+```
+rankedActions                     36
+  ordering:order-e0b93dc9123870b5   (doordash)
+  ordering:order-7c10a96d51e71517   (bopple)
+  ordering:order-e529070a67ad23f5   (uber_eats)
+  custom:<…>                      14
+profile.pools                     custom_links, events, listen, media, menus,
+                                  services, shop, watch
+profile.pools.custom_links.items  14
+profile.pools.shop.items          33
+```
+
+**The ordering action ids are byte-identical to what they were before the
+migration**, which is the trap the plan flagged: owners store display
+preferences against `ordering:<resource_id>`, so the surface moved and the
+resource id did not.
+
+### 26.5 Five defects found by doing the work, none of which the plan named
+
+Each shipped as its own commit with its own reasoning; listed here because every
+one was silent — no test, log or alarm would have surfaced it.
+
+1. **Scheduled product refresh would have stopped.** Selection is registry-driven
+   (`refreshable()` → `where('platform', $key)`), and `shopify`/`woocommerce`
+   are not registry keys — the registry is frozen at 78 and `RegistryCoverageTest`
+   chains it to `LegacyPlatformMap`. `PlatformRefresher`'s unknown-platform arm
+   *records a failure* rather than throwing, so nothing would have paged.
+   `PlatformRegistry::forConnection()` lets a catalog-only brand inherit its
+   family's descriptor; the cron gained the matching selection arm.
+2. **`routing_class = 'shop'` is wider than ShopController's family.** It also
+   covers `gumroad.store`, `stan.store` and `bandcamp` — separate platforms with
+   their own controllers. Scoping `DELETE /api/platforms/shop` on the class would
+   have soft-deleted a user's Gumroad connection. `ShopConnections` scopes an
+   explicit surface list and says why. Ordering, booking and reservations
+   legitimately DO scope on their class; shop is the exception.
+3. **`AutoSyncSetting` keyed `'shop'`**, which after the split matched no row:
+   `set()` wrote nothing and `isOn()` fell through to its "no rows means ON"
+   default, so an owner's *off* silently read back as *on*.
+4. **`brandMap()` read off one connection**, so the catalog re-warm endpoint would
+   have 404'd every store but the first.
+5. **`ShopController::addProduct` lost its staff-takedown check** — it reached
+   `assertPlatformAvailable()` for free through `writeConnection()`, and
+   `ShopConnections` deliberately does not gate. Found by the
+   `account-capability-audit` skill; every other touched path passed.
+
+Turning the guard on also surfaced two write paths the plan had not listed:
+`GoogleBusinessAutoSync`'s **booking** and **reservation** fallbacks still wrote
+the shared keys.
+
+### 26.6 A ruling extended, and the extension named
+
+Owner ruling 2A ("a row with no working brand home becomes a links-pool item")
+governs the 41 rows and the manual write paths. It is **deliberately not applied
+inside `GoogleBusinessAutoSync`**, which skips-and-logs instead:
+
+- ordering connections are dashboard-only; a links-pool item is **public**;
+- the Google harvest is automatic, so pooling would publish a link the owner
+  never chose;
+- the synced modal's undo is per-CONNECTION, so there would be nothing there to
+  take it back with.
+
+Dropping a link we cannot type is recoverable — the owner pastes it, and
+`BookingController::detect` sends exactly that URL to the pool under 2A.
+Publishing one unasked is not. Logged as
+`platforms.google_business.{ordering,booking,reservation}_unroutable` so the rate
+is visible; if it is not ~zero the answer is a catalog detector for the host, not
+a policy change. **Raised for the owner rather than assumed settled.**
+
+### 26.7 Behaviour changes, stated rather than discovered later
+
+- **A gap the merged half had already opened, closed here.** `SiteActionsService`
+  built the `custom:` action family only from `partna.custom_link` connections,
+  so a link added after Phase 6 moved that write path rendered on the sitepage
+  and produced **no action** — and this migration would have taken the remaining
+  23 with it. It now reads the pool too. `LinkPoolReader::cardsForSite()` is the
+  non-provisioning read, because `cards()` creates a section as a side-effect and
+  this runs on every public render.
+- **The connect bell names the brand**: "Booksy connected", not "Booking connected".
+- **A stranded pending link-card row now counts toward the refresh backlog alarm.**
+  The old exclusion existed because custom links were never refreshed; they are
+  pool items now, and the rows carrying 'pending' today are ordering/booking/
+  reservation cards whose `EnrichLinkCardJob` can die — exactly the fault the
+  alarm is for. `scopeStrandedPending`'s `platform != 'custom'` arm is vestigial;
+  slice 7 can drop it.
+- **A hand-added event's `id` is a content item uuid**, not `event-<hash>`, and a
+  **siteless owner can no longer hold one** — a pool item needs a section, which
+  hangs off the site. Answered 422 rather than written nowhere.
+- **A store's brand id is now its connection's public `resourceId`** (envelope,
+  not payload). It is the store's own public identifier — Shopify serves it from
+  the storefront's `meta.json` — and the payload stays `[]`.
+
+### 26.8 One new catalog surface — `generic.store`
+
+A session decision, flagged for the owner. `ShopProviderDetector` resolves five
+providers; four have catalog surfaces, and the connect endpoint advertises the
+fifth ("pages with standard product markup") as supported, so refusing it would
+be a product regression.
+
+**It is not `partna.storefront` renamed.** That surface held EVERY storefront —
+five Shopify stores and a WooCommerce one behind one row, which is the whole
+defect. This one holds only stores whose platform genuinely has no name: **zero
+on dev**, where all 9 brands are shopify (8) or woocommerce (1). Hidden,
+notConnectable, and deliberately detector-less — a detector claims "this host IS
+this brand", and the defining property here is that no host pattern identifies it.
+
+### 26.9 Lanes
+
+```
+Feature       5800 passed, 1 skipped   (21,021 assertions)
+Unit          2537 passed, 1 skipped   ( 7,744 assertions)
+Postgres       207 passed              (   959 assertions)
+Applied-schema 196 passed, 1 skipped   (   558 assertions) — every migration from zero
+Authorization   31 passed              ( 1,045 assertions)
+PHPStan        clean          Pint clean
+checkpoint:scan  21 passed, 0 failed, 4 warnings (all pre-existing local-env)
+```
+
+The three gated lanes were run locally against a throwaway `postgres:16` — the
+local `.env` DB_HOST is a dead ref, and `psql` is not installed on this machine,
+so `scripts/db/apply-migrations.sh` was driven through a shim that proxies into
+the container.
+
+Dev logs, 12 minutes around the run: no exceptions, no failures, every
+`CloudflareCachePurgeJob` and `WarmPublicSiteCacheJob` DONE. One warning —
+`cloudflare.purge.url_volume_high` (fable-sevenrun, 941 vs 900), which §23.7
+records as predicted and deliberately left alone until slice 7 removes the
+legacy third.
+
+### 26.10 What slice 7 inherits
+
+- `Platform` enum still carries `Custom` / `Booking` / `Reservations` /
+  `OnlineOrdering`. They are lock keys and family names now, not surfaces —
+  droppable once nothing keys a lock on them.
+- `IntegrationConnection::scopeStrandedPending`'s `platform != 'custom'` arm is
+  vestigial (§26.7).
+- `LegacyPlatformMap`'s six pseudo entries must STAY: `CatalogLegacyMapTest` pins
+  the map pair-for-pair to the 20260727110001 backfill CASE, and the map is what
+  lets a pre-migration row still read correctly.
+- `showcase-eats` holds a `shopify.store` placeholder with 0 brands, created
+  2026-07-27 by unit 1's promotion — not this migration's, and harmless.
+- The `*.square.site` classification defect (§26.3).
+- `ShopConnections::LEGACY_SURFACE` and `EventsCatalog`'s dual-lane reads exist
+  only for the deploy→migration window, which has now closed on dev. Both can go
+  once prod is reconciled.
