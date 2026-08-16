@@ -12,8 +12,6 @@ use App\Ingest\Projection\MenuItemProjector;
 use App\Ingest\Projection\ProjectorRegistry;
 use App\Ingest\Projection\RecordView;
 use App\Ingest\Projection\SchemaOrgEventProjector;
-use App\Ingest\Projection\SoundcloudChannelProjector;
-use App\Ingest\Projection\SpotifyChannelProjector;
 use App\Ingest\Projection\VimeoVideoProjector;
 use App\Ingest\Projection\YoutubeMusicTrackProjector;
 use App\Ingest\Projection\YoutubeVideoProjector;
@@ -134,22 +132,6 @@ it('projects an itunes podcast episode with the show as creator', function () {
         ->and($projected['headline'])->toBe('Some Episode')
         ->and($projected['facets']['f_authored']['creator'])->toBe('The Daily')
         ->and($projected['facets']['f_text']['body'])->toBe('About things.');
-});
-
-it('projects a spotify oembed into a channel keyed by the entity path from the record key', function () {
-    $projected = (new SpotifyChannelProjector)->project(new RecordView(
-        ['title' => 'Monstercat', 'thumbnail_url' => 'https://i.scdn.co/image/x', 'html' => '<iframe/>', 'provider_name' => 'Spotify'],
-        key: 'artist/4gzpq5DPGxSnKTe4SA8HAU',
-    ));
-
-    expect($projected['kind'])->toBe('channel')
-        ->and($projected['facets']['f_embed'])->toBe(['provider' => 'spotify', 'embed_key' => 'artist/4gzpq5DPGxSnKTe4SA8HAU'])
-        ->and($projected['facets']['f_link']['url'])->toBe('https://open.spotify.com/artist/4gzpq5DPGxSnKTe4SA8HAU')
-        ->and($projected['media'][0]['role'])->toBe('avatar');
-});
-
-it('projects nothing for a spotify record with no entity key — identity lives in the key', function () {
-    expect((new SpotifyChannelProjector)->project(new RecordView(['title' => 'Ghost'])))->toBeNull();
 });
 
 it('projects vimeo and youtube entries into videos with embeds and duration where known', function () {
@@ -329,20 +311,4 @@ it('emits no offer for a priceless menu item rather than a zero', function () {
 
     expect($projected['offers'])->toBe([])
         ->and($projected['media'])->toBe([]);
-});
-
-it('projects a soundcloud oembed into a channel whose embed key is the parsed player src', function () {
-    $projected = (new SoundcloudChannelProjector)->project(new RecordView([
-        'title' => 'Forss', 'url' => 'https://soundcloud.com/forss',
-        'thumbnail_url' => 'https://i1.sndcdn.com/avatars-000001-t500x500.jpg',
-        'embed_url' => 'https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Fusers%2F2',
-        'author_name' => 'Forss',
-    ]));
-
-    expect($projected['kind'])->toBe('channel')
-        ->and($projected['headline'])->toBe('Forss')
-        ->and($projected['facets']['f_embed']['provider'])->toBe('soundcloud')
-        ->and($projected['facets']['f_embed']['embed_key'])->toBe('https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Fusers%2F2')
-        ->and($projected['facets']['f_channel']['avatar_url'])->toBe('https://i1.sndcdn.com/avatars-000001-t500x500.jpg')
-        ->and($projected['media'][0]['role'])->toBe('avatar');
 });

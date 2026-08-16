@@ -6,7 +6,7 @@ use App\Ingest\ConnectorRegistry;
 use App\Ingest\Manifest\SourceProfile;
 
 /**
- * The 13 closed item kinds and what the dashboard may do with each.
+ * The 12 closed item kinds and what the dashboard may do with each.
  *
  * This docblock used to call itself "the wire behind `GET /api/content/kinds`
  * (plan §6/§16)". **There is no such route** — verified 2026-08-14 against
@@ -26,7 +26,10 @@ use App\Ingest\Manifest\SourceProfile;
  * forces is disproportionate churn that risks leaving
  * ContentKindDomainParityTest reading as authoritative when it no longer is.
  * `article` was retired from here on 2026-08-14 with its producer (Substack)
- * and is the first value the two sides disagree on.
+ * and is the first value the two sides disagree on. `channel` is the second,
+ * retired 2026-08-16 in convergence Phase 4 once its last producers — the
+ * Spotify and SoundCloud oEmbed connectors, which could resolve one entity but
+ * never list anything — became actor-backed `track` producers.
  *
  * The curation flags are DERIVED, not declared twice: each kind names the
  * SourceProfile that governs it, and {@see SourceProfile::isPinnable()} /
@@ -57,8 +60,6 @@ final class KindRegistry
             'facets' => ['f_text', 'f_link', 'f_published', 'f_embed', 'f_authored', 'f_catalog', 'item_media', 'offers']],
         'episode' => ['label' => 'Episode', 'plural' => 'Episodes', 'profile' => SourceProfile::Feed,
             'facets' => ['f_text', 'f_link', 'f_duration', 'f_published', 'f_embed', 'f_playable', 'item_media']],
-        'channel' => ['label' => 'Channel', 'plural' => 'Channels', 'profile' => SourceProfile::Identity,
-            'facets' => ['f_text', 'f_link', 'f_embed', 'f_channel', 'item_media']],
         'service' => ['label' => 'Service', 'plural' => 'Services', 'profile' => SourceProfile::Catalogue,
             'facets' => ['f_text', 'f_link', 'f_duration', 'offers', 'f_action', 'item_media']],
         'menu_item' => ['label' => 'Menu item', 'plural' => 'Menu', 'profile' => SourceProfile::Catalogue,
