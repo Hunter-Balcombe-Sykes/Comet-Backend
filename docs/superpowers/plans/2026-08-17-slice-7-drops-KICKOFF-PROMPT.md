@@ -42,7 +42,19 @@ and the close-out. On branch `feat/slice-7-teardown`, merged and green:
 | `ShopContentWriter` off the `ShopBrand` model | done |
 | `CloudflarePurgeService`, `legacyIdsFor()`, gallery guard | done |
 
-Final state of that work, verified on `feat/slice-7-teardown` at `7ea2762b1`:
+**The branch is pushed: `origin/feat/slice-7-teardown`** (51 commits ahead of
+`origin/development`). It is NOT merged to `development` and dev is NOT deployed —
+that is step 8, after the drops. Start by taking your own worktree off the pushed
+branch:
+
+```bash
+git fetch origin
+git worktree add .worktrees/slice-7-drops -b feat/slice-7-drops origin/feat/slice-7-teardown
+cp -a <main>/vendor .worktrees/slice-7-drops/vendor     # a REAL vendor, never a symlink
+ln -sf <main>/.env .worktrees/slice-7-drops/.env
+```
+
+Final state of that work, verified at `7ea2762b1`:
 
 ```
 pest --parallel   8422 passed / 2 skipped / 0 failed
