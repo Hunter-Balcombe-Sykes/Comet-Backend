@@ -32,6 +32,10 @@ beforeEach(function () {
     // MenuFetchJob + MenuItemObserver write site.item_slugs best-effort — without
     // the table their try/catch swallows a "no such table" and masks slug bugs.
     setupItemSlugsTable();
+    // Slice 7 Task 5: MenuPayloadComposer reads content.* for the dishes and
+    // only falls back to site.menu_* when that lane holds nothing for the
+    // owner — the tables have to EXIST for the fallback to be reachable.
+    setupContentTables();
     DB::connection('pgsql')->statement(
         'CREATE UNIQUE INDEX IF NOT EXISTS notifications.notifications_dedupe_key_per_pro_uq
          ON notifications (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL'

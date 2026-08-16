@@ -20,6 +20,11 @@ beforeEach(function () {
     // MenuItemObserver + MenuFetchJob write site.item_slugs best-effort — with
     // no table they swallow "no such table" and mask real slug regressions.
     setupItemSlugsTable();
+    // Slice 7 Task 5: MenuPayloadComposer reads content.* for the dishes and
+    // only falls back to site.menu_* when that lane holds nothing for the
+    // owner. The tables have to EXIST for the fallback to be reachable — these
+    // writes still land in site.menu_* until Task 6 moves them.
+    setupContentTables();
 });
 
 // Menu is a food-business capability (can_use_menu requires isBusiness() &&

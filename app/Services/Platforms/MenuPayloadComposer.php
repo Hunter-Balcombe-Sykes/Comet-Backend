@@ -7,16 +7,33 @@ use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualMenuItems;
+use Illuminate\Support\Collection;
 
 // Composes the authenticated dashboard menu payload (store fields + categories +
 // computed order links) from a user's relational menu. Extracted from
 // MenuController so the manual-content write endpoints (MenuContentController)
 // return the EXACT same shape the dashboard reads after a write, without
 // duplicating the composition. Read-only — never mutates the menu.
+//
+// Slice 7 Task 5: the DISHES now come from content.* via ManualMenuItems, which
+// is MenuProjectionMapper run backwards. `site.menus` is NOT part of the
+// teardown — it stays the per-menu bookkeeping row (last_fetched_at,
+// dining_modes, suppressed_items, scan_items) — so load(), hasOwnerContent()
+// and compose()'s store fields still read it.
+//
+// The legacy read is kept as a FALLBACK for an owner the content lane holds
+// nothing for, live or removed. Phase 2 moves the four write paths one task at
+// a time (Tasks 6-8), so between them a menu can exist only in site.menu_*, and
+// a hard cutover here would blank those dashboards. Phase 5 deletes the
+// fallback with the tables. The gate counts removed items on purpose: an owner
+// who deleted their way down to an empty menu must not drop back to the legacy
+// rows and watch every deleted dish reappear.
 class MenuPayloadComposer
 {
     public function __construct(
         private readonly MenuSource $source,
+        private readonly ManualMenuItems $items,
     ) {}
 
     /**
@@ -98,7 +115,7 @@ class MenuPayloadComposer
             'deliveryPlatform' => $menu?->delivery_platform,
             'fetchStatus' => $menu?->fetch_status,
             'diningModes' => $menu?->dining_modes,
-            'categories' => $this->categories($menu),
+            'categories' => $this->categories($user, $menu),
             'links' => $this->source->links($user),
         ];
     }
@@ -116,15 +133,112 @@ class MenuPayloadComposer
      *
      * @return list<array{id:string, name:string, sourcePlatform:?string, items:list<array<string,mixed>>}>
      */
-    private function categories(?Menu $menu): array
+    private function categories(User $user, ?Menu $menu): array
     {
         if ($menu === null) {
             return [];
         }
 
-        // slug => normalized store_url — base for each item's per-platform deep link.
+        // slug => normalized store_url — base for each item's per-platform deep
+        // link. Still site.menu_platform_links: the store link is menu-level
+        // bookkeeping, not a dish, and only dishes moved in this task.
         $storeUrls = $menu->platformLinks->pluck('store_url', 'platform')->all();
 
+        // includeRemoved is the fallback GATE, not a display choice — see the
+        // class docblock. The live set is filtered back out immediately below.
+        $rows = $this->items->rows((string) $user->id, includeRemoved: true);
+
+        if ($rows->isEmpty()) {
+            return $this->legacyCategories($menu, $storeUrls);
+        }
+
+        return $this->contentCategories(
+            (string) $user->id,
+            $rows->filter(fn (object $row) => $row->removed_at === null)->values(),
+            $storeUrls,
+        );
+    }
+
+    /**
+     * Categories → items, read from content.*.
+     *
+     * Five legacy signals have no projection target and come back honest rather
+     * than guessed. `isManual`, `pickupSource` and `deliverySource` are
+     * ManualMenuItems' own documented nulls; the two this method owns are:
+     *  - `sourcePlatform`: content.collections carries no source column, so the
+     *    dashboard's sync-detach warning has nothing to key off yet (Task 6).
+     *  - dish ORDER inside a category: content.collection_items.position is the
+     *    ordinal of the COLLECTION within an item's collection list
+     *    (ProjectionWriter::projectStream), NOT the dish's display position, so
+     *    site.menu_item_categories.position did not survive. The order here is
+     *    ManualMenuItems::rows()' own — stable, alphabetical by headline — and
+     *    an owner's real order belongs in section_items pins (ManualPoolWriter::pin).
+     *
+     * `links` follows from ManualMenuItems' null dd_external_id: the mapper
+     * never carried the DoorDash item id, so MenuItemDeepLinks has nothing to
+     * build from and every dish's deep link is null here. 31 of dev's 318
+     * dishes hold one — recovering it is a MenuProjectionMapper addition
+     * (f_catalog.sku / variant_ref are already projection-supported) plus a
+     * `content:backfill-menus` re-run, both outside this task.
+     *
+     * @param  Collection<int, \stdClass>  $rows
+     * @param  array<string, string|null>  $storeUrls
+     * @return list<array{id:string, name:string, sourcePlatform:?string, items:list<array<string,mixed>>}>
+     */
+    private function contentCategories(string $userId, Collection $rows, array $storeUrls): array
+    {
+        $models = [];
+        $itemIdsByCategory = [];
+        foreach ($rows as $row) {
+            $itemId = (string) $row->id;
+            $models[$itemId] = $this->items->toMenuItemModel($row);
+            foreach ($row->category_ids as $categoryId) {
+                $itemIdsByCategory[(string) $categoryId][] = $itemId;
+            }
+        }
+
+        $categories = $this->items->categories($userId);
+
+        // Built by walking the categories in menu order, exactly as the legacy
+        // path does — a dish's categoryIds must read in the order its
+        // categories appear, not in membership-insert order.
+        $categoryIdsByItem = [];
+        foreach ($categories as $category) {
+            foreach ($itemIdsByCategory[(string) $category->id] ?? [] as $itemId) {
+                $categoryIdsByItem[$itemId][] = (string) $category->id;
+            }
+        }
+
+        $out = [];
+        foreach ($categories as $category) {
+            $categoryId = (string) $category->id;
+            $out[] = [
+                'id' => $categoryId,
+                'name' => (string) $category->label,
+                'sourcePlatform' => null,
+                'items' => array_map(
+                    fn (string $itemId) => $this->item(
+                        $models[$itemId],
+                        $categoryIdsByItem[$itemId] ?? [$categoryId],
+                        $storeUrls,
+                    ),
+                    $itemIdsByCategory[$categoryId] ?? [],
+                ),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The pre-cutover read, kept for an owner with no content-lane menu at all.
+     * Deleted in Phase 5 along with site.menu_categories / menu_items.
+     *
+     * @param  array<string, string|null>  $storeUrls
+     * @return list<array{id:string, name:string, sourcePlatform:?string, items:list<array<string,mixed>>}>
+     */
+    private function legacyCategories(Menu $menu, array $storeUrls): array
+    {
         // item id => every category id it's a member of. A dish in several
         // categories appears under EACH of them below (sharing its id) — this
         // map lets the dashboard's flat items view dedupe by id and render/edit
@@ -136,7 +250,7 @@ class MenuPayloadComposer
             }
         }
 
-        return $menu->categories->map(fn ($category) => [
+        return $menu->categories->map(fn (MenuCategory $category) => [
             // Stable persisted id — addresses PATCH/DELETE /menu/categories/{id}
             // and is the value an item write sends as category_id.
             'id' => (string) $category->id,
@@ -144,37 +258,56 @@ class MenuPayloadComposer
             // Drives the dashboard's "this will no longer stay synced" warning —
             // only 'manual'/'scan' categories are owner-editable (MenuContentController::EDITABLE_SOURCES).
             'sourcePlatform' => $category->source_platform,
-            'items' => $category->items->map(fn (MenuItem $item) => [
-                // Stable persisted id — mirrors PublicMenuController's `id` field.
-                // Partna-Frontend's menu-item-detail URLs read THIS endpoint's id.
-                'id' => (string) $item->id,
-                'name' => $item->name,
-                'description' => $item->description,
-                'image' => $item->image_url,
-                // Full image set, hero first — mirrors PublicMenuController's `images`.
-                'images' => $item->images,
-                'rating' => $item->rating,
-                'ratingCount' => $item->rating_count,
-                'badges' => $item->badges,
-                'basePrice' => $item->base_price,
-                'pickupPrice' => $item->pickup_price,
-                'pickupSource' => $item->pickup_source,
-                'deliveryPrice' => $item->delivery_price,
-                'deliverySource' => $item->delivery_source,
-                'currency' => $item->currency,
-                // Owner-authored marker — skips the sync-detach warning (an
-                // already-manual item has nothing left to detach from).
-                'isManual' => $item->is_manual,
-                // Every category this dish belongs to — lets the flat view dedupe
-                // (same id under several categories) and drives the multi-select
-                // category editor + category filter. Includes THIS category.
-                'categoryIds' => $categoryIdsByItem[(string) $item->id] ?? [(string) $category->id],
-                'platforms' => $this->platforms($item),
-                // Per-item deep links ({doordash?: url}) — mirrors PublicMenuController
-                // exactly; null when nothing item-level is derivable (see MenuItemDeepLinks).
-                'links' => MenuItemDeepLinks::forItem($item->dd_external_id, $storeUrls) ?: null,
-            ])->all(),
+            'items' => $category->items->map(fn (MenuItem $item) => $this->item(
+                $item,
+                $categoryIdsByItem[(string) $item->id] ?? [(string) $category->id],
+                $storeUrls,
+            ))->all(),
         ])->all();
+    }
+
+    /**
+     * One dish, shaped for the dashboard grid. Shared by both reads on purpose:
+     * the cutover's whole contract is that the payload does not change, and one
+     * shape function is what makes that true by construction rather than by two
+     * lists someone has to keep in step.
+     *
+     * @param  list<string>  $categoryIds
+     * @param  array<string, string|null>  $storeUrls
+     * @return array<string, mixed>
+     */
+    private function item(MenuItem $item, array $categoryIds, array $storeUrls): array
+    {
+        return [
+            // Stable persisted id — mirrors PublicMenuController's `id` field.
+            // Partna-Frontend's menu-item-detail URLs read THIS endpoint's id.
+            'id' => (string) $item->id,
+            'name' => $item->name,
+            'description' => $item->description,
+            'image' => $item->image_url,
+            // Full image set, hero first — mirrors PublicMenuController's `images`.
+            'images' => $item->images,
+            'rating' => $item->rating,
+            'ratingCount' => $item->rating_count,
+            'badges' => $item->badges,
+            'basePrice' => $item->base_price,
+            'pickupPrice' => $item->pickup_price,
+            'pickupSource' => $item->pickup_source,
+            'deliveryPrice' => $item->delivery_price,
+            'deliverySource' => $item->delivery_source,
+            'currency' => $item->currency,
+            // Owner-authored marker — skips the sync-detach warning (an
+            // already-manual item has nothing left to detach from).
+            'isManual' => $item->is_manual,
+            // Every category this dish belongs to — lets the flat view dedupe
+            // (same id under several categories) and drives the multi-select
+            // category editor + category filter. Includes THIS category.
+            'categoryIds' => $categoryIds,
+            'platforms' => $this->platforms($item),
+            // Per-item deep links ({doordash?: url}) — mirrors PublicMenuController
+            // exactly; null when nothing item-level is derivable (see MenuItemDeepLinks).
+            'links' => MenuItemDeepLinks::forItem($item->dd_external_id, $storeUrls) ?: null,
+        ];
     }
 
     /**
