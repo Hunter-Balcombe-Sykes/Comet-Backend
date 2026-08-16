@@ -571,7 +571,14 @@ coord twice in one run and count as two links, making the coverage gate
 unreconcilable. The test reproduces it with the whitespace pair rather than an
 impossible exact-duplicate pair.
 
-### F29 — `youtube_music` is probably NOT a `track` producer; its feed is empty
+### F29 — `youtube_music` works; the stored channel id was dead (RESOLVED same day)
+
+> **RESOLUTION (2026-08-16, later the same session).** The hypothesis this
+> finding opened with — that Topic channels may not serve `videos.xml` at all —
+> is **disproven**. A confirmed Topic channel serves the feed normally, so the
+> connector's premise is CORRECT and only dev's stored id was bad. The original
+> analysis is kept below unedited because the *method* that produced the wrong
+> answer is the reusable part. Resolution detail at the end.
 
 Phase 4's §4 calls `youtube_music` "the only real `track` producer" and the
 connector's own docblock states the premise plainly: "an artist's YT Music
@@ -633,3 +640,60 @@ from YouTube search.
 The connection and its source are LEFT PROVISIONED (free, `auto_sync=true`).
 Each scheduled run costs nothing and files an `empty_feed` Note with no
 coverage claim, so nothing is tombstoned while this stays open.
+
+#### F29 resolution — how to get a Topic channel id, and the proof
+
+**Topic channels DO serve `videos.xml`.** Verified against a channel confirmed
+to be one by construction rather than by name-matching:
+
+```
+UCIxs9iTyfD_m4wN2eeZ0B5w  "bootleg gizzard - Topic"   → 15 entries, 21148 bytes
+UC3AXBjLrXTrTpm4SwYdBYAQ  dev's stored id             →  0 entries,   719 bytes
+UC_x5XG1OV2P6uZZ5FSM9Ttw  control, regular channel    → 15 entries, 25132 bytes
+```
+
+Its entry titles are clean song names — `Cyboogie (Live in Berlin '25)`,
+`Murder of the Universe (Live in Berlin '25)` — i.e. exactly the shape the
+`track` kind wants. `YoutubeMusicConnector` is sound as written; §4's "the only
+real `track` producer" claim stands.
+
+**The reliable way to obtain a Topic channel id** (the part worth reusing):
+never search for `"<artist> - Topic"` — YouTube resolves that to the artist's
+Official Artist Channel and the Topic channel is not surfaced. Instead identify
+an **art track** and read the channel id off its watch page:
+
+1. Search for an album cut (not a single — singles return official videos).
+2. Fetch each result's watch page and keep the first whose body contains
+   `Provided to YouTube by` — that string only appears on distributor-delivered
+   art tracks, so it identifies a Topic channel by construction.
+3. Read `"channelId":"UC…"` and `"ownerChannelName"` off that page. The owner
+   name ends in `- Topic`, which is the confirmation.
+
+**Live result on dev.** Repointing the connection at the verified Topic id and
+re-running landed 15 records → **15 `track` items**, the first tracks that have
+ever existed on dev:
+
+```
+f_authored on tracks   15      (creator = "bootleg gizzard")
+f_published on tracks  15
+identity keys: platform_object 15, canonical_url 15  (joining)
+               title_release   15, title_only     15 (corroborating)
+               title_loose     10                    (evidential)
+```
+
+`title_release` is the one that matters for Phase 4's dedup gate: it is
+title|artist, so it only populates because `f_authored.creator` does. **No
+`isrc` key** — the YT Music RSS carries none, exactly as F10 predicted, which
+is precisely why the paid Spotify/SoundCloud actors are the phase's other half.
+
+**Count reconciliation.** `content.items` 1068 → 1084 is +16, not +15. The
+extra is NOT this work: a `video` item created at 00:30:09, one minute BEFORE
+the track projection at 00:31:14, landed by dev's own scheduler. Same class of
+interference slice 4 recorded with its stray podcast episode — worth stating
+rather than letting a +16 read as an unexplained surplus.
+
+**A phantom defect worth not chasing twice.** `content.items.facets_cache` is a
+JSON **array of facet NAMES**, not a facet→value object. Reading
+`facets_cache->'f_authored'->>'creator'` therefore returns null for every row
+and reads as "the projector dropped the artist". The values live in the
+per-facet tables (`content.f_authored` etc.); join those.
