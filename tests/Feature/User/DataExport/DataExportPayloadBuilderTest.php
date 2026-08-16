@@ -1808,10 +1808,10 @@ it('#PRIV-13 exports no evidence row belonging to another user', function () {
 // onward that made the export silently disclose PRE-EDIT values. These
 // tests cover: a brand-new service (never had a site.services row at all),
 // a post-cutover edit to an already-backfilled one (site.services keeps the
-// OLD values forever), legacy-id continuity for a backfilled-but-unedited
-// row, and the dedup trap in recovering that legacy id (content.source_items
-// is unique on (source_id, coord), not item_id — a merged item can carry two
-// manual coords, and a naive coord lookup would export it twice).
+// OLD values forever), the exported id for a backfilled row, and the dedup
+// trap in the coord join (content.source_items is unique on (source_id,
+// coord), not item_id — a merged item carries two manual coords and fans
+// into two joined rows without rows()'s ->distinct()).
 //
 // ManualServiceWriter/ProjectionWriter issue raw DB::table() calls with no
 // explicit connection (unlike DataExportPayloadBuilder itself, which always
@@ -1899,7 +1899,7 @@ it('reflects a post-cutover edit to an already-backfilled owner service, not the
     // with the same coord the backfill used and the same production writer
     // the controller calls.
     $writer = app(ManualServiceWriter::class);
-    $writer->write($pro->id, 'manual:'.$serviceId, $writer->projectionFor((object) [
+    $itemId = $writer->write($pro->id, 'manual:'.$serviceId, $writer->projectionFor((object) [
         'title' => 'New Title',
         'description' => 'New description.',
         'price_cents' => 9900,
@@ -1915,10 +1915,10 @@ it('reflects a post-cutover edit to an already-backfilled owner service, not the
 
     expect($payload)->toHaveKey('services');
 
-    // The exported id is the ORIGINAL site.services.id, not the content.*
-    // item id — legacy-id continuity across the cutover (see
-    // ManualServiceItems::exportRows()'s docblock).
-    $row = collect($payload['services'])->firstWhere('id', $serviceId);
+    // Slice 7 Phase 6: the exported id is the content.* item id. The legacy-id
+    // recovery went with site.services, the only oracle that could confirm a
+    // coord uuid really was a legacy id (see exportRows()'s docblock).
+    $row = collect($payload['services'])->firstWhere('id', $itemId);
     expect($row)->not->toBeNull();
     expect($row['title'])->toBe('New Title');
     expect($row['description'])->toBe('New description.');
@@ -2141,7 +2141,13 @@ it('exports service_categories from content.collections, with site.service_categ
     expect($rows->firstWhere('id', $removedCategoryId)['deleted_at'])->not->toBeNull();
 });
 
-it('exports the ORIGINAL site.services.id for a backfilled-but-unedited owner service', function () {
+it('exports the content.items.id — NOT the legacy coord uuid — for a backfilled owner service', function () {
+    // Slice 7 Phase 6: the legacy-id recovery is gone with site.services, the
+    // only oracle that could tell a backfilled coord (manual:{legacy id}) from
+    // a store()-minted one (manual:{Str::uuid()}). Trusting coord shape alone
+    // would have disclosed a random uuid as a service's identifier. Every id
+    // in the export is now a real content.items.id, which is what the rest of
+    // the platform addresses the row by.
     config(['database.default' => 'pgsql']);
     $pro = seedProForPayload((string) Str::uuid());
     $siteId = (string) Str::uuid();
@@ -2156,16 +2162,20 @@ it('exports the ORIGINAL site.services.id for a backfilled-but-unedited owner se
     $serviceId = ownerService($pro->id, ['title' => 'Consultation']);
     app(ServiceBackfiller::class)->run();
 
+    $itemId = (string) DB::connection('pgsql')->table('content.source_items')
+        ->where('coord', 'manual:'.$serviceId)->value('item_id');
+    expect($itemId)->not->toBe('');
+
     $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
 
-    // Untouched since the backfill — same id a pre-cutover export would have
-    // disclosed, proving the id doesn't drift just from content.* existing.
     $row = collect($payload['services'])->firstWhere('title', 'Consultation');
     expect($row)->not->toBeNull();
-    expect($row['id'])->toBe($serviceId);
+    expect($row['id'])->toBe($itemId);
+    // The legacy uuid is no longer emitted as the row's identifier.
+    expect($row['id'])->not->toBe($serviceId);
 });
 
-it('an item carrying two manual coords (a merge shape) exports exactly once, using the earliest coord', function () {
+it('an item carrying two manual coords (a merge shape) exports exactly once', function () {
     $pro = seedProForPayload((string) Str::uuid());
     $siteId = (string) Str::uuid();
 
@@ -2194,13 +2204,13 @@ it('an item carrying two manual coords (a merge shape) exports exactly once, usi
         'created_at' => $now->toDateTimeString(), 'updated_at' => $now->toDateTimeString(),
     ]);
 
-    // A candidate coord uuid is only trusted as a legacy id if a
-    // site.services row for it actually exists (ManualServiceItems::
-    // legacyIdsFor()'s cross-check — store()'s own coord minting has the
-    // identical manual:<uuid> shape with no backing row, so shape alone
-    // can't tell them apart). Two real legacy rows is also the realistic
-    // shape of a merge: two previously-separate backfilled services folded
-    // into one item.
+    // Two real legacy rows is the realistic shape of a merge: two
+    // previously-separate backfilled services folded into one item. The
+    // export no longer recovers either uuid as the row's id (slice 7 Phase 6
+    // retired that with site.services), but the DEDUP this test exists for
+    // is unaffected — baseQuery() joins content.source_items, so two coords
+    // fan the item into two joined rows and only rows()'s ->distinct()
+    // collapses them back to one.
     DB::connection('pgsql')->table('site.services')->insert([
         [
             'id' => $olderServiceId, 'user_id' => $pro->id, 'title' => 'Merged Service (older)',
@@ -2235,7 +2245,8 @@ it('an item carrying two manual coords (a merge shape) exports exactly once, usi
 
     $rows = collect($payload['services'])->where('title', 'Merged Service')->values();
     expect($rows)->toHaveCount(1);
-    // Earliest first_seen_at wins — deterministic, not the second coord's id.
-    expect($rows->first()['id'])->toBe($olderServiceId);
+    // The content item id, once — neither coord's uuid reaches the payload.
+    expect($rows->first()['id'])->toBe($itemId);
+    expect($rows->first()['id'])->not->toBe($olderServiceId);
     expect($rows->first()['id'])->not->toBe($newerServiceId);
 });

@@ -78,6 +78,79 @@ it('keeps cover→poster→gallery role priority for thumbnail, independent of p
         ->and($item['frames'][0]['url'])->toBe('https://cdn.example.com/gallery.jpg');
 });
 
+// ── The webp-variant invariant (negative case) ──────────────────────────────
+// CLAUDE.md names three invariants scripts/launch-check/k6/seed.sql hard-codes,
+// one being "a media item needs a matching site.media_variants (webp) row or
+// its URL resolves empty". Its negative-case guard lived in two gallery-engine
+// tests that slice 7 unit E deleted with the legacy gallery lane. These two
+// re-arm it on the surviving pool lane: an upload-backed asset (site_media_id
+// set, no storage_path, no source_url) with no webp variant row is
+// unresolvable, and MediaUrlResolver omits it from its result entirely
+// (resolveOne() returns null).
+
+it('filters an upload-backed frame with no webp variant out of the media payload', function () {
+    [$pro, $siteId] = poolTenant();
+    $sourceId = poolSource($pro->id, null);
+    $itemId = poolItem($pro->id, $sourceId, 'media', 'Half processed', '2026-08-01T00:00:00Z');
+
+    // Servable: an upload WITH its optimized webp rendition.
+    $readyMediaId = (string) Str::uuid();
+    DB::table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(), 'media_id' => $readyMediaId,
+        'variant_key' => 'optimized', 'artifact_type' => 'webp', 'disk' => 'media',
+        'path' => "variants/{$readyMediaId}/optimized.webp", 'mime' => 'image/webp',
+        'width' => 1200, 'height' => 800, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $ready = frameAsset($pro->id, ['site_media_id' => $readyMediaId]);
+
+    // Unservable: an upload with NO media_variants row at all. Given the
+    // `cover` role at position 0, so it would win BOTH the positional
+    // frames[0] slot and the cover→poster→gallery thumbnail priority if it
+    // resolved — a filter that silently kept it would be obvious below.
+    $pendingMediaId = (string) Str::uuid();
+    $pending = frameAsset($pro->id, ['site_media_id' => $pendingMediaId]);
+
+    frameRow($itemId, $sourceId, $pending, 'cover', 0, 'still processing');
+    frameRow($itemId, $sourceId, $ready, 'gallery', 1, 'ready');
+
+    $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'media');
+    $item = collect($out['library'])->firstWhere('id', $itemId);
+
+    // Exactly one frame survives, and it is the variant-backed one — not an
+    // entry with an empty url, and not a null placeholder.
+    expect($item['frames'])->toHaveCount(1)
+        ->and($item['frames'][0]['role'])->toBe('gallery')
+        ->and($item['frames'][0]['alt'])->toBe('ready')
+        ->and($item['frames'][0]['url'])->toContain('optimized')
+        // Thumbnail falls THROUGH the unresolvable cover to the servable
+        // gallery frame — role priority loses to unresolvability.
+        ->and($item['thumbnail'])->toBe($item['frames'][0]['url']);
+
+    // Nothing anywhere in the payload references the variant-less upload.
+    expect(json_encode($out, JSON_THROW_ON_ERROR))->not->toContain($pendingMediaId);
+});
+
+it('ships an empty gallery, not a broken one, when every frame lacks a webp variant', function () {
+    // The all-unresolvable case. The ITEM is deliberately NOT dropped from the
+    // payload — MediaUrlResolver's contract is "unrenderable assets degrade to
+    // an empty gallery, not broken images", and the item still carries a
+    // headline the sitepage can render. Pinned here so the difference between
+    // frame-level filtering and item-level filtering stays a decision.
+    [$pro, $siteId] = poolTenant();
+    $sourceId = poolSource($pro->id, null);
+    $itemId = poolItem($pro->id, $sourceId, 'media', 'All pending', '2026-08-01T00:00:00Z');
+
+    $asset = frameAsset($pro->id, ['site_media_id' => (string) Str::uuid()]);
+    frameRow($itemId, $sourceId, $asset, 'cover', 0);
+
+    $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'media');
+    $item = collect($out['library'])->firstWhere('id', $itemId);
+
+    expect($item)->not->toBeNull()
+        ->and($item['frames'])->toBe([])
+        ->and($item['thumbnail'])->toBeNull();
+});
+
 it('resolves an upload-backed frame through the variant pipeline', function () {
     [$pro, $siteId] = poolTenant();
     $sourceId = poolSource($pro->id, null);

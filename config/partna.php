@@ -2442,7 +2442,9 @@ return [
     'cloudflare_purge' => [
         'products_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_PRODUCTS_LIMIT', 100),
         'menu_items_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_MENU_ITEMS_LIMIT', 150),
-        'event_connections_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_EVENT_CONNECTIONS_LIMIT', 30),
+        // Slice 7: `event_connections_limit` retired with the connection-payload
+        // lookup — events address by content item id + slug now, so the item cap
+        // below is the only knob. Each of the two lanes takes it independently.
         'event_ids_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_EVENT_IDS_LIMIT', 100),
     ],
 
