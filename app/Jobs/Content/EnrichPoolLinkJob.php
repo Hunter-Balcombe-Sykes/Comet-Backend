@@ -11,6 +11,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * The pool-lane counterpart of EnrichLinkCardJob (JOB-1).
@@ -91,5 +93,21 @@ class EnrichPoolLinkJob implements ShouldBeUnique, ShouldQueue
         }
 
         $writer->add($user, $this->url, $name, (string) ($snapshot['description'] ?? ''));
+    }
+
+    /**
+     * A permanently failed enrichment is not a user-facing failure: the item is
+     * already in the pool, titled with its host, and usable. Recorded so a run of
+     * these shows up rather than being swallowed — the same posture
+     * EnrichLinkCardJob takes on the connection lane.
+     */
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('content.enrich_pool_link.failed', [
+            'user_id' => $this->userId,
+            'url' => $this->url,
+            'error' => $e->getMessage(),
+        ]);
     }
 }
