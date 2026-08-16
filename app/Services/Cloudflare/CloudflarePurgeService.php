@@ -189,12 +189,13 @@ class CloudflarePurgeService
      *     the Worker serves the shadow and refreshes in the background, so without
      *     purging it the first post-mutation visitor still sees stale content.
      *   • Backend API subrequests (`<app.url>/api/public/profiles/<handle>` plus
-     *     `/integrations`, its `/platforms` legacy alias, and `/menu`), which the
-     *     Astro Worker edge-caches (`cacheTtl: 300`) — stale for up to 5 min
+     *     `/integrations` and its `/platforms` legacy alias), which the Astro
+     *     Worker edge-caches (`cacheTtl: 300`) — stale for up to 5 min
      *     otherwise, re-rendering old HTML even after the page keys are evicted.
-     *     All four must be listed: `/integrations` and `/platforms` are the same
+     *     All three must be listed: `/integrations` and `/platforms` are the same
      *     controller behind two routes, and purging one alone leaves the other
-     *     serving the pre-mutation payload.
+     *     serving the pre-mutation payload. `/menu` was a fourth until slice 7
+     *     Phase 3 Task 10 deleted the endpoint (see the emit site below).
      *
      * A custom domain (Cloudflare for SaaS) adds the same set under its own host.
      * All sit in one Cloudflare zone; purgeUrls chunks them to the 30-URL limit.
