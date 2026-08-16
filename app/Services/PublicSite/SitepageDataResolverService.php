@@ -249,8 +249,8 @@ class SitepageDataResolverService
                 // GB-derived pages below (menu + reviews). A section switched OFF
                 // must also drop its page from the nav/pageOrder — else B2.2 strips
                 // the section's data but the page still advertises itself and renders
-                // empty. Absent/true = shown, explicit false hides — same read as
-                // PublicMenuController. first() (not value()) so the array cast applies.
+                // empty. Absent/true = shown, explicit false hides — same read the
+                // menus pool runs. first() (not value()) so the array cast applies.
                 //
                 // LIFE-1: default is `false`, NOT `null` — a legitimate "no active
                 // GB connection" already reads as null via first()'s own miss, so a

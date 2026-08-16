@@ -554,3 +554,87 @@ the menu lane still uses the table. Dropping it is Phase 6.
 
 The Eventbrite/Humanitix scrapers, `EventsPayload`, `ProviderDetector`, the
 daily refresh, and the whole ORGANISER lane are untouched.
+
+---
+
+## `GET /api/public/profiles/{handle}/menu` — DELETED (Task 10, unit B)
+
+**Consuming repos: partna-monorepo** (`@partnaau/design-system` — the sitepage
+menu page and its per-dish detail pages, which fetched this endpoint as an Astro
+subrequest). **Partna-App is unaffected** — the dashboard reads
+`/api/platforms/menu`, a different controller, untouched here.
+
+**BREAKING, by design.** The endpoint is gone from the router. It does not 410,
+it does not serve an empty payload, and it is not aliased anywhere: a request to
+it now falls through to Laravel's catch-all 404 exactly as an unrouted path
+does. `PublicMenuController` and its route are deleted.
+
+### What replaces it
+
+`pools.menus` on `GET /api/public/profiles/{handle}` — already live, already
+composed by `MenuPayloadComposer` off the same `site.menus` rows. It is a
+superset, not a port:
+
+| Old `/menu` | `pools.menus` |
+|---|---|
+| `data.storeName`, `data.currency` | on the pool |
+| `data.categories[]` (categories only) | `collections[]` — categories **and** ordering-platform store cards |
+| `categories[].items[]` | `items[]`, referenced by collection |
+| `items[].links` (`{doordash?}`) | same shape, same builder (`MenuItemDeepLinks`) |
+| `items[].slug` / `aliases` | permalinks with **301 aliases** the legacy lane never served |
+| — | `diningModes` |
+
+`MenuItemDeepLinks` is **not** deleted despite the spec listing it under this
+unit: `MenuPayloadComposer:175` calls it to build the pool's own per-item
+`links`, so it is shared, not legacy-only. The spec's assumption that it was
+single-use predates the pool composer.
+
+### Keys that died
+
+Every key below existed **only** on this endpoint's envelope. Each one is
+either reproduced by `pools.menus` under a different path (above) or was
+internal bookkeeping the pool never needed:
+
+`data.storeName`, `data.currency`, `data.categories[].name`,
+`data.categories[].id`, `data.categories[].popularityRank`,
+`data.categories[].items[].{id, slug, aliases, name, description, imageUrl,
+images, price, pickupPrice, deliveryPrice, currency, rating, ratingCount,
+badges, platforms[], links, popularityRank}`.
+
+### Sitepage reads break — and that is the ruling, not an oversight
+
+Under the **2026-08-14 owner ruling** the sitepage frontend is REBUILT, not
+repaired. There is no compatibility window and no deprecation period on this
+endpoint, because the consumer that would need one is itself being replaced.
+Spec decision D2 rejected repointing for exactly this reason: a repoint would
+have stood up a second read path with no consumer.
+
+### Cloudflare purge set shrank by one URL
+
+`CloudflarePurgeService::purgeHandle()` no longer emits
+`{api}/api/public/profiles/{handle}/menu`. The per-dish **page** URLs on the
+site host (`{handle}.partna.au/menu/<slug>`) are unchanged — those are sitepage
+routes, not this API endpoint, and they now render from `pools.menus` on the
+profile URL, which was already the first entry in the purge set. Max-volume
+purge estimate moves 2,682 → 2,681 URLs; the per-handle set moves from 4 API
+URLs to 3.
+
+### Not changed
+
+`site.menus`, `site.menu_categories`, `site.menu_items`,
+`site.menu_platform_links` and `site.item_slugs` are all untouched — the
+dashboard lane and `pools.menus` both still read them.
+
+`/api/platforms/menu` (the authenticated dashboard surface) is untouched, as is
+the Google Business `menu` display toggle: the pool runs the same gate the
+deleted controller did, via `SitepageDataResolverService`.
+
+`ItemSlugAllocator::lookupCurrent()` survives the deletion but now has **zero
+`app/` callers** — the pool lane uses `ContentItemSlugAllocator::lookupCurrent()`
+instead. Only `tests/Unit/Services/Site/ItemSlugAllocatorTest.php` still
+exercises it. Retiring it belongs to the unit that retires the legacy menu
+writer, not here.
+
+**Guard:** `tests/Feature/PublicSite/PublicMenuRouteRetiredTest.php` — pins the
+404, pins that no `api/public/**/menu` route is registered at all, and pins that
+`site.menus` survived.

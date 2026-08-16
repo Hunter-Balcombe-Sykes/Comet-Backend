@@ -106,7 +106,9 @@ it('purgeHandle purges root + every deep-link sub-page + shadows + API', functio
     // `/platforms` is the legacy alias onto the SAME controller — purging one and
     // not the other left the alias serving a pre-mutation payload.
     expect($files)->toContain('https://dev-api.partna.au/api/public/profiles/mixed-case/platforms');
-    expect($files)->toContain('https://dev-api.partna.au/api/public/profiles/mixed-case/menu');
+    // `/menu` is NOT purged — the endpoint was deleted in slice 7 Phase 3 Task 10
+    // (spec D2); menus reach the wire through `pools.menus` on the profile URL.
+    expect($files)->not->toContain('https://dev-api.partna.au/api/public/profiles/mixed-case/menu');
     // every sub-page + its shadow; 'home' is the root, never a sub-page
     foreach (cfDeepLinkSubPages() as $page) {
         expect($files)->toContain("{$base}/{$page}", "{$base}/_swr-shadow/{$page}");
@@ -115,8 +117,8 @@ it('purgeHandle purges root + every deep-link sub-page + shadows + API', functio
     // them", so a two-needle negation passes the moment either is absent.
     expect($files)->not->toContain("{$base}/home")
         ->and($files)->not->toContain("{$base}/_swr-shadow/home");
-    // exact size: 3 root + 2 per sub-page + 4 API (profile + integrations + platforms + menu)
-    expect($files)->toHaveCount(3 + 2 * count(cfDeepLinkSubPages()) + 4);
+    // exact size: 3 root + 2 per sub-page + 3 API (profile + integrations + platforms)
+    expect($files)->toHaveCount(3 + 2 * count(cfDeepLinkSubPages()) + 3);
 });
 
 it('purgeHandle also busts the custom domain edge cache when one is given', function () {
@@ -138,12 +140,13 @@ it('purgeHandle also busts the custom domain edge cache when one is given', func
         'https://dev-api.partna.au/api/public/profiles/jane',
         'https://dev-api.partna.au/api/public/profiles/jane/integrations',
         'https://dev-api.partna.au/api/public/profiles/jane/platforms',
-        'https://dev-api.partna.au/api/public/profiles/jane/menu',
     );
+    // `/menu` died with its endpoint (slice 7 Phase 3 Task 10, spec D2).
+    expect($files)->not->toContain('https://dev-api.partna.au/api/public/profiles/jane/menu');
     // The API subrequests are keyed on the backend host, so they are emitted ONCE
     // no matter how many site hosts are purged — a custom domain must not double them.
-    // two hosts -> 2 x (3 root + 2 per sub-page) + 4 API (profile + integrations + platforms + menu)
-    expect($files)->toHaveCount(2 * (3 + 2 * count(cfDeepLinkSubPages())) + 4);
+    // two hosts -> 2 x (3 root + 2 per sub-page) + 3 API (profile + integrations + platforms)
+    expect($files)->toHaveCount(2 * (3 + 2 * count(cfDeepLinkSubPages())) + 3);
 });
 
 it('purgeHandle strips trailing slash on app.url before composing API URL', function () {
@@ -239,7 +242,7 @@ it('logs a volume-warning when purgeHandle enumerates more URLs than the configu
 
     (new CloudflarePurgeService)->purgeHandle('bigcatalog');
 
-    $expectedCount = 3 + 2 * count(cfDeepLinkSubPages()) + 4;
+    $expectedCount = 3 + 2 * count(cfDeepLinkSubPages()) + 3;
     Log::shouldHaveReceived('warning')->times(1);
     Log::shouldHaveReceived('warning')->withArgs(
         fn (string $msg, array $ctx) => $msg === 'cloudflare.purge.url_volume_high'
@@ -317,8 +320,8 @@ it('caps TOTAL pacing time so a large purge cannot re-inflate guaranteed sleep p
 
     // Realistic worst case for one purgeHandle() call (see the docblock on
     // CHUNK_PACING_MICROSECONDS): 39 subpage urls + 200 product + 300 menu +
-    // 200 event urls per host x 2 hosts (canonical + custom domain) + 4 API
-    // urls = 1,482 -> chunked at 30 -> 50 chunks -> 49 POTENTIAL inter-chunk
+    // 200 event urls per host x 2 hosts (canonical + custom domain) + 3 API
+    // urls = 1,481 -> chunked at 30 -> 50 chunks -> 49 POTENTIAL inter-chunk
     // gaps. Pin the pacing budget so a future limit increase (more products,
     // more menu items, more events) can't silently re-blow the guaranteed-sleep
     // contribution to CloudflareCachePurgeJob's 15s timeout in lockstep with

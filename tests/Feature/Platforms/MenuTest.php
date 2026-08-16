@@ -633,8 +633,8 @@ it('returns the full menu with per-mode prices and computed order links', functi
     expect($res->json('categories.0.sourcePlatform'))->toBe('uber-eats');
     $item = $res->json('categories.0.items.0');
     expect($item['name'])->toBe('Margherita');
-    // Stable persisted id (fix-round P1) — mirrors PublicMenuController's
-    // `id` field; Partna-Frontend's menu-item-detail URLs key off THIS
+    // Stable persisted id (fix-round P1) — mirrors the `id` field the menus
+    // pool emits; Partna-Frontend's menu-item-detail URLs key off THIS
     // endpoint's id, not the public sitepage payload's.
     $dbItem = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Margherita')->firstOrFail();
     expect($item['id'])->toBe((string) $dbItem->id);

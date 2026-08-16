@@ -43,7 +43,7 @@
  *     no PHP-side status gate of its own.
  *
  *   - IndividualProfileController / IndividualProfilePayloadBuilder /
- *     SitepageDataResolverService / QrCodeController / PublicMenuController
+ *     SitepageDataResolverService / QrCodeController
  *     — none gate on `User.status` at all (they resolve purely on handle/site
  *     existence + `is_published`), so there is nothing to widen or leave.
  *

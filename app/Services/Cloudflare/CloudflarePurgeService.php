@@ -47,7 +47,7 @@ class CloudflarePurgeService
     //              x 2                                                  = 200 / host
     //   -------------------------------------------------------------------------
     //   (39+200+900+200) x 2 hosts (canonical + optional custom domain)
-    //   + 4 API urls (profile + integrations + platforms + menu)       = 2,682 URLs
+    //   + 3 API urls (profile + integrations + platforms)              = 2,681 URLs
     //   chunked at 30/request (Cloudflare's `files` limit)              =    90 chunks
     //                                                                       (89 gaps)
     //
@@ -432,10 +432,10 @@ class CloudflarePurgeService
             // stripped) stayed retractable on one path and not the other. Both
             // aliases must die together or neither is actually purged.
             $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}/platforms";
-            // The menu subrequest (`PublicMenuController`). The per-item detail
-            // pages above are purged on the site host; this is the API wire they
-            // render from, and it was missing for the same reason `/platforms` was.
-            $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}/menu";
+            // The `/menu` subrequest is NOT purged: that endpoint was deleted in
+            // slice 7 Phase 3 Task 10 (spec D2). The per-item detail pages above
+            // still purge on the site host, and the API wire they now render
+            // from is `pools.menus` on the profile URL already listed first.
         }
 
         // cache-edge-reconcile/LIFE-1 residual: surface a catalog approaching the

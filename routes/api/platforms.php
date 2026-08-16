@@ -230,7 +230,9 @@ $registerIntegrationRoutes = function (string $base): void {
     // (independent of any scrape — see MenuScanApplier); /categories + /items
     // are owner-authored (manual) content management (MenuContentController).
     // No connect step for the scrape side; /refresh re-scrapes. Authenticated
-    // dashboard surface — the menu is ALSO served publicly, via PublicMenuController.
+    // dashboard surface — the menu is ALSO served publicly, via `pools.menus`
+    // on GET /api/public/profiles/{handle} (the standalone /menu endpoint was
+    // deleted in slice 7 Phase 3 Task 10).
     Route::prefix("{$base}/menu")
         ->middleware($middleware)
         ->group(function () {

@@ -24,7 +24,7 @@ final class DisplaySettingsFilter
      * toggle key => the payload keys it removes when switched off. `menu` is
      * included for the dashboard/refresh paths; on the public integrations
      * resource it is a harmless no-op (menu isn't in that allowlist — it ships
-     * via the separate PublicMenuController, which runs its own menu gate).
+     * via `pools.menus` on the profile payload, which runs its own menu gate).
      *
      * @var array<string, array<string, list<string>>>
      */

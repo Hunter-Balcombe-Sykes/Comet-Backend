@@ -536,7 +536,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // What parts of a platform's synced content the owner can hide from
             // the sitepage. Read by DisplaySettingsController (settings UI +
             // PATCH validation) and PublicIntegrationConnectionResource /
-            // PublicMenuController (payload suppression). Absent key = shown.
+            // PoolResolver's menus pool (payload suppression). Absent key = shown.
             $r->get('google-business')->displayToggles([
                 ['key' => 'reviews', 'label' => 'Reviews', 'description' => 'Your Google rating and recent reviews.'],
                 ['key' => 'hours', 'label' => 'Opening hours', 'description' => 'Your weekly opening hours.'],

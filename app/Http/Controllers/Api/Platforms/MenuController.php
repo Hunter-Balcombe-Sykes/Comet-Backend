@@ -23,9 +23,11 @@ use Illuminate\Http\Request;
 // POST /scan/apply applies AI-extracted items from a user-uploaded menu
 // photo/PDF via MenuScanApplier, independent of any scrape. Owner-authored
 // (manual) content — add/edit/delete a dish by hand — lives in
-// MenuContentController. The menu itself IS also served publicly — see
-// PublicMenuController — this controller's endpoints are the authenticated
-// dashboard read/write surface. The full read shape is composed by
+// MenuContentController. The menu itself IS also served publicly — through
+// `pools.menus` on GET /api/public/profiles/{handle} since slice 7 Phase 3
+// Task 10 deleted the standalone /menu endpoint — while this controller's
+// endpoints are the authenticated dashboard read/write surface. The full read
+// shape is composed by
 // MenuPayloadComposer (shared with MenuContentController).
 class MenuController extends ApiController
 {
