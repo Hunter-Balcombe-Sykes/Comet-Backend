@@ -6,6 +6,7 @@ use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Site\Documents\SiteCacheLanes;
+use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
 
@@ -41,11 +42,45 @@ class LinkPoolReader
 
         $section = $this->sections->ensure($site, LinkPoolWriter::POOL);
 
+        return $this->cardsInSection((string) $section->id);
+    }
+
+    /**
+     * The same cards, for a READ path that must not write. `cards()` provisions
+     * the section as a side-effect of reading (PoolSectionProvisioner's
+     * on-demand design), which is right for a dashboard GET and wrong for
+     * SiteActionsService — that runs on every public profile render, and would
+     * insert a page + section row for every site that has never held a link.
+     *
+     * Returns [] when the section does not exist yet, which is the honest answer:
+     * no section means no pins means no links.
+     *
+     * @return list<array{id: string, url: ?string, name: ?string, description: ?string, favicon: null, logo: null}>
+     */
+    public function cardsForSite(?Site $site): array
+    {
+        if (! $site instanceof Site) {
+            return [];
+        }
+
+        $sectionId = DB::connection('pgsql')->table('site.sections')
+            ->where('site_id', $site->id)
+            ->where('key', PoolRegistry::sectionKey(LinkPoolWriter::POOL))
+            ->value('id');
+
+        return $sectionId === null ? [] : $this->cardsInSection((string) $sectionId);
+    }
+
+    /**
+     * @return list<array{id: string, url: ?string, name: ?string, description: ?string, favicon: null, logo: null}>
+     */
+    private function cardsInSection(string $sectionId): array
+    {
         return DB::connection('pgsql')->table('site.section_items as si')
             ->join('content.items as i', 'i.id', '=', 'si.item_id')
             ->leftJoin('content.f_link as fl', 'fl.item_id', '=', 'i.id')
             ->leftJoin('content.f_text as ft', 'ft.item_id', '=', 'i.id')
-            ->where('si.section_id', $section->id)
+            ->where('si.section_id', $sectionId)
             ->where('si.state', SectionItem::STATE_PINNED)
             ->where('i.kind', 'link')
             ->whereNull('i.removed_at')

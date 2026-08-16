@@ -70,7 +70,7 @@ it('does not dispatch cleanup for a non-Instagram platform on delete', function 
     $user = r2CleanupUser('r2del3');
     $conn = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'shop',
+        'platform' => 'shopify.store',
         'resource_id' => 'shop',
         'payload' => ['_folder' => 'platforms/instagram/should-be-ignored'],
         'is_active' => true,

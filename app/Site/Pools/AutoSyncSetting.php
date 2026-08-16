@@ -24,11 +24,25 @@ class AutoSyncSetting
 {
     public const KEY = 'auto_sync_latest';
 
-    public static function isOn(string $userId, string $platform): bool
+    /**
+     * $platform is a legacy platform slug, or a LIST of catalog surface keys.
+     *
+     * Convergence Phase 6 forced the second form: shop's setting is site-wide
+     * and used to hang off the one `partna.storefront` marker, which no longer
+     * exists — every store carries its own connection on a brand surface now.
+     * Matched on `platform` the read found nothing, fell through to its
+     * "no rows means ON" default, and the owner's "off" silently read back as
+     * on. Same shape on the write: set() matched nothing and wrote nothing.
+     *
+     * @param  string|list<string>  $platform
+     */
+    public static function isOn(string $userId, string|array $platform): bool
     {
         $rows = DB::connection('pgsql')->table('site.platform_connections')
             ->where('user_id', $userId)
-            ->where('platform', $platform)
+            ->when(is_array($platform),
+                fn ($q) => $q->whereIn('surface_key', $platform),
+                fn ($q) => $q->where('platform', $platform))
             ->whereNull('deleted_at')
             ->where('is_active', true)
             ->pluck('display_settings');
@@ -47,11 +61,14 @@ class AutoSyncSetting
         return false;
     }
 
-    public static function set(string $userId, string $platform, bool $on): void
+    /** @param  string|list<string>  $platform  see isOn() */
+    public static function set(string $userId, string|array $platform, bool $on): void
     {
         $rows = DB::connection('pgsql')->table('site.platform_connections')
             ->where('user_id', $userId)
-            ->where('platform', $platform)
+            ->when(is_array($platform),
+                fn ($q) => $q->whereIn('surface_key', $platform),
+                fn ($q) => $q->where('platform', $platform))
             ->whereNull('deleted_at')
             ->get(['id', 'display_settings']);
 

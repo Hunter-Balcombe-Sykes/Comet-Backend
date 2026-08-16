@@ -664,7 +664,7 @@ function makeShopBrand(array $attrs = [], bool $withSite = false): array
 
     $connection = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'shop',
+        'platform' => 'shopify.store',
         'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'],
         'is_active' => true,

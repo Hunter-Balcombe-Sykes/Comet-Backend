@@ -25,15 +25,15 @@ it("returns a handle's platform connections grouped by platform", function () {
     // behaviour of the grouping query, which needs a platform whose payload is
     // read verbatim. Shop's payload is FOUND-25 relational now (built from
     // shopBrands, not this row's payload), so it can't stand in for that anymore.
-    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'custom', 'resource_id' => 'b1', 'payload' => ['name' => 'Store A']]);
-    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'custom', 'resource_id' => 'b2', 'payload' => ['name' => 'Store B'], 'sort_order' => 1]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'uber_eats.order', 'resource_id' => 'b1', 'payload' => ['name' => 'Store A']]);
+    IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'uber_eats.order', 'resource_id' => 'b2', 'payload' => ['name' => 'Store B'], 'sort_order' => 1]);
     IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'org1', 'payload' => ['organiser' => 'Acme']]);
 
     $res = $this->getJson('/api/public/profiles/jane/platforms');
 
     $res->assertOk();
-    expect($res->json('data.platforms.custom'))->toHaveCount(2);
-    expect($res->json('data.platforms.custom.0.payload.name'))->toBe('Store A'); // sort_order 0 first
+    expect($res->json('data.platforms.uber_eats'))->toHaveCount(2);
+    expect($res->json('data.platforms.uber_eats.0.payload.name'))->toBe('Store A'); // sort_order 0 first
     // The grouping is what this asserts, not the payload: eventbrite's public
     // allowlist emptied when slice 2 Task 9 retired the legacy events lane, so
     // the row still groups under its platform key but carries nothing.

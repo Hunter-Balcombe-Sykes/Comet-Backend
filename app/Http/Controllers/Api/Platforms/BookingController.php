@@ -2,20 +2,24 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Content\LinkPoolWriter;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\ProviderDetector;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -23,11 +27,26 @@ use Illuminate\Http\Request;
 // we detect the provider and tell the dashboard which existing flow to run:
 //   - fresha  → the team-member picker (frontend calls POST /fresha/connect then /selection)
 //   - square  → store the booking link  (frontend calls POST /square/connect)
-//   - custom  → an unrecognised link, stored here as a branded card
-// Known providers keep storing under their own platform keys (fresha/square);
-// this 'booking' row holds ONLY the custom fallback. Single-slot: the dashboard
-// offers no add affordance once any booking provider is connected, so /detect
-// is only reached from an empty state in normal use.
+//   - custom  → everything else, stored here as a branded card
+// Single-slot: the dashboard offers no add affordance once any booking provider
+// is connected, so /detect is only reached from an empty state in normal use.
+//
+// Convergence Phase 6: the "custom" fallback is no longer one shared
+// `partna.booking_link` row. It resolves in two steps:
+//
+//   1. The link is classified against the catalog. Every booking host the
+//      harvester knows has its own surface (18/18, verified 2026-08-16), so a
+//      Booksy or Treatwell link becomes a `booksy.book` / `treatwell.book`
+//      connection — visible to ingest, and to any later per-brand feature.
+//   2. Only a link that matches NOTHING becomes a links-pool item under owner
+//      ruling 2A. It is preserved with its provider label rather than written
+//      to a surface nothing can read; the response says where it went, and the
+//      booking slot stays honestly empty because nothing is connected.
+//
+// The wire is unchanged for (1) — still `provider: 'custom'`, still
+// `next: 'custom-saved'`. Brand identity lives in surface_key now, which is the
+// point of the phase; the dashboard's only branching values remain the two rich
+// flows it actually implements.
 class BookingController extends ApiController
 {
     use ManagesIntegrationConnection;
@@ -36,11 +55,20 @@ class BookingController extends ApiController
     public function __construct(
         private readonly ProviderDetector $detector,
         private readonly LinkCardScraper $scraper,
+        private readonly WebsiteLinkHarvester $harvester,
+        private readonly LinkPoolWriter $pool,
     ) {}
 
+    // The FAMILY key — the lock and FeatureAvailability only. Rows carry brand
+    // surfaces; reads scope on routingClass() below.
     protected function platform(): string
     {
-        return Platform::Booking->value;
+        return 'booking';
+    }
+
+    protected function routingClass(): ?string
+    {
+        return 'booking';
     }
 
     // POST /api/platforms/booking/detect — detect the provider for a pasted URL.
@@ -69,12 +97,17 @@ class BookingController extends ApiController
             return $this->success(['provider' => 'square', 'next' => 'square-connect', 'selection' => null]);
         }
 
-        // Unknown → custom fallback. Minimal card now; enrich off-thread (JOB-1).
+        // Neither rich flow → the card path. Minimal card now; enrich
+        // off-thread (JOB-1).
         $url = $this->scraper->normalizeUrl($validated['url']);
         if (! $url) {
             return $this->error('Enter a valid link (https://...).', 422);
         }
         $meta = $this->scraper->minimalCard($url);
+
+        // Classified OUTSIDE the lock — it is a pure host match, and the lock
+        // exists for the clear-then-write span below, not for this.
+        $surface = $this->bookingSurfaceFor($url);
 
         // Cross-platform XOR lock (not the per-platform withConnectionLock) —
         // clearBooking() below can delete fresha/square rows, which a
@@ -82,22 +115,44 @@ class BookingController extends ApiController
         // controllers. The EnrichLinkCardJob dispatch is deliberately OUTSIDE
         // the lock: under QUEUE_CONNECTION=sync it runs inline and can take
         // seconds, which would hold the lock far past its 10s TTL (rule #1).
-        $response = $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $meta) {
+        $rid = null;
+        $response = $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $url, $meta, $surface, &$rid) {
             $this->clearBooking($user);   // single-slot
+
+            if ($surface === null) {
+                // Owner ruling 2A: no brand home, so it is preserved as a link
+                // rather than written to a retired surface. The booking slot
+                // stays empty because nothing IS connected — reporting a
+                // connection here would be the dashboard's one signal lying.
+                $this->pool->add($user, $url, $meta['name'] ?? null, $meta['description'] ?? null);
+
+                return $this->success([
+                    'provider' => 'custom',
+                    'next' => 'link-saved',
+                    'routedTo' => ['pool' => LinkPoolWriter::POOL],
+                    'selection' => null,
+                ], 202);
+            }
+
+            $rid = $this->brandResourceId($surface);
             $payload = ['provider' => 'custom', 'source' => 'manual', ...$meta];
-            $this->writePendingLinkCard($user, $payload);
+            $this->writeBrandCard($user, $surface, $rid, $payload);
 
             return $this->success([
                 'provider' => 'custom',
                 'next' => 'custom-saved',
                 'status' => 'pending',
-                'selection' => $this->shapeCustom($payload),
+                'selection' => $this->shapeCustom(CardPayload::fromArray($payload)),
                 'statusUrl' => url('/api/platforms/booking/detect/status'),
             ], 202);
         });
 
         if ($response->getStatusCode() === 202) {
-            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $this->defaultResourceId(), $url)->afterCommit();
+            if ($rid === null) {
+                EnrichPoolLinkJob::dispatch((string) $user->id, $url)->afterCommit();
+            } else {
+                EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $rid, $url, $surface)->afterCommit();
+            }
         }
 
         return $response;
@@ -108,8 +163,16 @@ class BookingController extends ApiController
     {
         $user = $this->currentUser($request);
 
-        return $this->linkCardStatusResponse($user, $this->defaultResourceId(), fn () => [
-            'selection' => $this->shapeCustom($this->readConnection($user) ?? []),
+        // The row's resource id is the BRAND's now, not the fixed 'booking'
+        // default, so it has to be looked up rather than assumed. Single-slot
+        // makes "the one card row" unambiguous.
+        $row = $this->cardRow($user);
+        if ($row === null) {
+            return $this->error('Link not found.', 404);
+        }
+
+        return $this->linkCardStatusResponse($user, (string) $row->resource_id, fn () => [
+            'selection' => $this->shapeCustom(CardPayload::fromArray($row->fresh()?->payload)),
         ]);
     }
 
@@ -174,10 +237,16 @@ class BookingController extends ApiController
             ];
         }
 
-        $custom = CardPayload::fromArray($this->readConnection($user));
-        if ($custom->provider() === 'custom') {
+        $row = $this->cardRow($user);
+        if ($row !== null) {
+            $custom = CardPayload::fromArray($row->payload);
+
             return [
                 'connected' => true,
+                // Still 'custom' on the wire even though the row now knows its
+                // brand: the dashboard branches on exactly two values (fresha,
+                // square) and treats everything else as one card. Reporting
+                // 'booksy' here would be a new vocabulary it has no handler for.
                 'provider' => 'custom',
                 'name' => $custom->name(),
                 'url' => $custom->url(),
@@ -186,6 +255,44 @@ class BookingController extends ApiController
         }
 
         return ['connected' => false, 'provider' => null, 'name' => null, 'url' => null, 'setup' => null];
+    }
+
+    /**
+     * The single booking CARD row — any booking-class connection that is not one
+     * of the two rich provider flows (which statusFor checks first, and which
+     * carry a selection rather than a card).
+     *
+     * Keyed on routing_class for the same reason
+     * ReservationsController::clearReservations is: before Phase 6 every
+     * non-Fresha/Square booking brand shared the retired 'booking' key, so a
+     * fixed resource id was enough to find it. Now each carries its own surface,
+     * and a slug list would silently under-cover every brand added later.
+     */
+    private function cardRow(User $user): ?IntegrationConnection
+    {
+        return $user->integrationConnections()
+            ->where('routing_class', 'booking')
+            ->whereNotIn('platform', [Platform::Fresha->value, Platform::Square->value])
+            ->orderBy('created_at')
+            ->first();
+    }
+
+    /**
+     * The catalog surface a pasted booking URL belongs to, or null when nothing
+     * recognises it. Only a 'booking' classification counts — a URL that
+     * classifies as something else entirely (a social profile pasted into the
+     * booking box) has no booking home either, and belongs in the pool.
+     */
+    private function bookingSurfaceFor(string $url): ?string
+    {
+        $classified = $this->harvester->classify($url);
+        if ($classified === null || $classified['category'] !== 'booking') {
+            return null;
+        }
+
+        $platform = $classified['platform'];
+
+        return LegacyPlatformMap::surfaceFor($platform) ?? $platform;
     }
 
     /**
@@ -210,26 +317,38 @@ class BookingController extends ApiController
         ];
     }
 
-    /** Remove every booking-family connection (the single-slot guarantee). */
+    /**
+     * Remove every booking-family connection (the single-slot guarantee).
+     *
+     * Convergence Phase 6: keyed on routing_class, which subsumes all three arms
+     * the old version enumerated (fresha, square, and the retired shared
+     * 'booking' key) AND every brand that has split off since. The old list
+     * could only stay correct by being edited every time a booking brand was
+     * added — the exact drift ReservationsController::clearReservations already
+     * moved off, for the same reason.
+     */
     private function clearBooking(User $user): void
     {
-        foreach ([Platform::Fresha->value, Platform::Square->value] as $providerPlatform) {
-            foreach ($user->integrationConnections()->where('platform', $providerPlatform)->get() as $row) {
-                $row->delete();   // soft-delete; observer purges the sitepage cache
-            }
+        foreach ($user->integrationConnections()->where('routing_class', 'booking')->get() as $row) {
+            $row->delete();   // soft-delete; observer purges the sitepage cache
         }
-        $this->forgetConnection($user);   // the custom 'booking' row, if any
     }
 
-    /** @return array{provider:string, url:?string, name:?string, favicon:?string, logo:?string} */
-    private function shapeCustom(array $payload): array
+    /**
+     * DTO-mediated, not a raw array read: NoUntypedPayloadAccessTest names this
+     * file as a migrated read path, and detectStatus now reads a row it looked
+     * up rather than a payload the caller already had in hand.
+     *
+     * @return array{provider:string, url:?string, name:?string, favicon:?string, logo:?string}
+     */
+    private function shapeCustom(CardPayload $payload): array
     {
         return [
             'provider' => 'custom',
-            'url' => $payload['url'] ?? null,
-            'name' => $payload['name'] ?? null,
-            'favicon' => $payload['favicon'] ?? null,
-            'logo' => $payload['logo'] ?? null,
+            'url' => $payload->url(),
+            'name' => $payload->name(),
+            'favicon' => $payload->favicon(),
+            'logo' => $payload->logo(),
         ];
     }
 }

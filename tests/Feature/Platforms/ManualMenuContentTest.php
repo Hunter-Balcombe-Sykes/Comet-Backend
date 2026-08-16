@@ -89,7 +89,7 @@ function mmcOrdering(User $user, string $url = 'https://www.ubereats.com/store/x
 
     return IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'online-ordering',
+        'platform' => 'uber_eats.order',
         'resource_id' => $rid,
         'payload' => ['id' => $rid, 'provider' => 'custom', 'url' => $url, 'name' => 'Order', 'source' => 'manual'],
         'is_active' => true,

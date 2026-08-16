@@ -73,7 +73,7 @@ function msfnOrdering(User $user): IntegrationConnection
 
     return IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'online-ordering',
+        'platform' => 'uber_eats.order',
         'resource_id' => $rid,
         'payload' => ['id' => $rid, 'provider' => 'custom', 'url' => 'https://www.ubereats.com/store/x', 'name' => 'Order', 'source' => 'manual'],
         'is_active' => true,

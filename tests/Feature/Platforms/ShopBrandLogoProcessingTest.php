@@ -70,7 +70,7 @@ function logoJobBrand(User $user, array $overrides = []): ShopBrand
 {
     $connection = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'shop', 'resource_id' => 'shop',
+        'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'],
         'is_active' => true,
     ]);

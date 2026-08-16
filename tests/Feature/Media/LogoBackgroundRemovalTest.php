@@ -20,6 +20,9 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // SiteActionsService reads the `custom_links` pool for the `custom:`
+    // action family (convergence Phase 6), so site.sections must exist.
+    setupSectionsTables();
     setupMediaTables();
     setupContentSelectionTable(); // payload's designMedia resolves the selection
     setupBlocksTable();

@@ -9,6 +9,7 @@ use App\Services\Platforms\SkoolScraper;
 use App\Services\Platforms\StravaClubScraper;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
+use App\Services\Shop\ShopConnections;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -229,8 +230,8 @@ it('connects a WAF-blocked WooCommerce store via the client-assisted payload', f
     $res->assertJsonPath('provider', 'woocommerce')
         ->assertJsonPath('name', 'FEAR NO EVIL');
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first();
-    $brand = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'fearnoevil-example')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->first();
+    $brand = ShopBrand::where('brand_id', 'fearnoevil-example')->firstOrFail();
     expect($brand->fetch_mode)->toBe('client');
     expect($brand->url)->toBe('https://fearnoevil.example');
 

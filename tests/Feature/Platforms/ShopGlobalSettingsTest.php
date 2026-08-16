@@ -13,6 +13,7 @@ use App\Services\Platforms\SquarespaceScraper;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Support\Facades\Bus;
@@ -73,7 +74,7 @@ it('PATCH shop settings persists linkMode + autoLatest to the site row', functio
     // 2026-08-05: autoLatest persists on the store connection's own
     // display_settings — a store must exist to carry it.
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true,
     ]);
 
@@ -88,7 +89,7 @@ it('PATCH shop settings persists linkMode + autoLatest to the site row', functio
     expect($row->shop_link_mode)->toBe('product');
     // 2026-08-05: auto-latest lives on the store connection's own sparse
     // display_settings now (one toggle grammar) — the site column is gone.
-    expect(AutoSyncSetting::isOn((string) $user->id, 'shop'))->toBeFalse();
+    expect(AutoSyncSetting::isOn((string) $user->id, ShopConnections::surfaces()))->toBeFalse();
 });
 
 it('PATCH shop settings applies only the field present (partial update)', function () {
@@ -113,7 +114,7 @@ it('PATCH shop settings purges the sitepage edge cache when a shop is connected'
     // A shop connection must exist for the explicit refresh to fire (the marker
     // payload never goes dirty on its own — see ShopController::updateSettings).
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
@@ -137,7 +138,7 @@ it('the legacy /shopify alias prefix is gone', function () {
 function shopFetchConnection(User $user, bool $autoLatest): IntegrationConnection
 {
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
         // 2026-08-05: the auto-latest gate reads the connection's own sparse
         // display_settings (absent = ON) — the site column is gone.

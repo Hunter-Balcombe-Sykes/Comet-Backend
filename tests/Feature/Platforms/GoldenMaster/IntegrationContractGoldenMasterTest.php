@@ -471,7 +471,7 @@ it('freezes the shop brands list contract', function () {
     // FOUND-25: brands are relational site.shop_brands rows now — fixed
     // columns mean there's no stray key to leak, but ShopBrandResource must
     // still shape the row into exactly this contract.
-    $conn = gmSeed($user, 'shop', ['storage' => 'relational']);
+    $conn = gmSeed($user, 'shopify.store', ['storage' => 'relational']);
     $brand = ShopBrand::create([
         'connection_id' => $conn->id, 'brand_id' => 'brand-1', 'provider' => 'shopify',
         'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',

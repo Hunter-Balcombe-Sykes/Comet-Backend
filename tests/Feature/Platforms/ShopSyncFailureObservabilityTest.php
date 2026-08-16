@@ -64,7 +64,7 @@ function shopSyncUser(string $h): User
 function shopSyncBrand(User $user, string $brandId): ShopBrand
 {
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
@@ -105,7 +105,7 @@ it('ShopFetch throws FetchNotModifiedException when every brand is reachable but
 it('ShopFetch publishes when at least one brand synced despite another failing', function () {
     $user = shopSyncUser('ssf3');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     ShopBrand::create([

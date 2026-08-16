@@ -147,13 +147,20 @@ class OnboardingSuggestions
      * 'custom' is deliberately absent — a custom-link ask is generic and never
      * blocked by existing links.
      *
+     * Matched against a set holding BOTH each connection's platform slug and its
+     * routing_class, so the four multi-brand families below can name the class
+     * and stop enumerating slugs. Convergence Phase 6 is what forced it: a
+     * booking or ordering link no longer shares one key, and an enumerated list
+     * silently under-covers every brand added after it was written — the user is
+     * then asked to connect something they already have.
+     *
      * @var array<string, list<string>>
      */
     private const CONNECTED_FAMILIES = [
-        'booking' => ['fresha', 'square', 'booking'],
-        'reservations' => ['opentable', 'resdiary', 'nowbookit', 'reservations'],
-        'online-ordering' => ['online-ordering'],
-        'events' => ['eventbrite', 'humanitix', 'events-custom'],
+        'booking' => ['booking'],
+        'reservations' => ['reservations'],
+        'online-ordering' => ['ordering'],
+        'events' => ['events'],
         'linkedin' => ['linkedin'], 'strava' => ['strava'],
         'spotify' => ['spotify'], 'soundcloud' => ['soundcloud'], 'vimeo' => ['vimeo'],
         'youtube' => ['youtube'], 'tiktok' => ['tiktok'], 'x' => ['x'],
@@ -171,10 +178,17 @@ class OnboardingSuggestions
         $isBusiness = $caps->google_business_full_sync;
         $sector = is_string($user->sector) && $user->sector !== '' ? $user->sector : null;
 
+        // Platform slugs AND routing classes in one set — see CONNECTED_FAMILIES.
+        // A class and a slug can share a string ('booking' is both), which is
+        // harmless here: both spellings mean the same connection is present.
         $connected = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('is_active', true)
-            ->pluck('platform')
+            ->get(['platform', 'routing_class'])
+            ->flatMap(fn (IntegrationConnection $row) => array_filter([
+                (string) $row->platform,
+                (string) $row->routing_class,
+            ]))
             ->unique()
             ->flip()
             ->all();

@@ -151,6 +151,9 @@ function setupDeadStoreProfileSchema(): void
     setupServiceCategoriesTable();
     setupServicesTable();
     setupContentSelectionTable();
+    // SiteActionsService reads the `custom_links` pool for the `custom:`
+    // action family (convergence Phase 6), so site.sections must exist.
+    setupSectionsTables();
 
     // Shared helper, not a local CREATE TABLE: NoLocalCanonicalTableDdlTest and
     // DuplicateStandInDdlGuardTest both reject a bespoke copy, because

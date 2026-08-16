@@ -107,7 +107,7 @@ it('keeps a vanished event slug when another connection still claims that event 
     ]);
     // The SAME event, also pasted by hand as a standalone events-custom row.
     // EventsPayload::id() is sha1(link)-derived, so the id genuinely matches.
-    esrEventRow($this->pro, 'events-custom', 'e2hexbbbbbbbbbbb', 'Comedy Gala');
+    esrEventRow($this->pro, 'eventbrite', 'e2hexbbbbbbbbbbb', 'Comedy Gala');
 
     esrRefresh($account, [['id' => 'e1hexaaaaaaaaaaa', 'name' => 'Trivia Night', 'link' => 'https://x/1']]);
 
@@ -122,7 +122,7 @@ it('keeps a vanished event slug when the sibling connection claiming it is INACT
     ]);
     // Hidden from the sitepage, but NOT gone — re-activating it must not
     // resurrect a dead URL, so its slugs have to survive.
-    esrEventRow($this->pro, 'events-custom', 'e2hexbbbbbbbbbbb', 'Comedy Gala', isActive: false);
+    esrEventRow($this->pro, 'eventbrite', 'e2hexbbbbbbbbbbb', 'Comedy Gala', isActive: false);
 
     esrRefresh($account, [['id' => 'e1hexaaaaaaaaaaa', 'name' => 'Trivia Night', 'link' => 'https://x/1']]);
 
@@ -197,7 +197,7 @@ it('keeps the ids a surviving sibling still claims when a connection is disconne
         ['id' => 'e1hexaaaaaaaaaaa', 'name' => 'Trivia Night', 'link' => 'https://x/1'],
         ['id' => 'e2hexbbbbbbbbbbb', 'name' => 'Comedy Gala', 'link' => 'https://x/2'],
     ]);
-    esrEventRow($this->pro, 'events-custom', 'e2hexbbbbbbbbbbb', 'Comedy Gala');
+    esrEventRow($this->pro, 'eventbrite', 'e2hexbbbbbbbbbbb', 'Comedy Gala');
 
     $account->delete();
 

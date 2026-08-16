@@ -16,6 +16,7 @@ use App\Http\Requests\Platforms\UpdateShopSettingsRequest;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\Site;
@@ -35,6 +36,7 @@ use App\Services\Platforms\ShopProviderDetector;
 use App\Services\Platforms\StrandedPendingWindow;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentReader;
 use App\Services\Shop\ShopContentWriter;
 use App\Site\Documents\BuildState;
@@ -59,15 +61,32 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 // identity/lifecycle anchor this controller still writes (and which the
 // not-yet-repointed public read path still reads); site.shop_products is
 // no longer written at all — the deletes below only clear pre-deploy rows.
-// Slice 7 drops both. The single 'shop'
-// IntegrationConnection row is just the lifecycle/authorization anchor, its
-// payload a static MARKER. Every mutating
-// method still writes that marker via writeConnection() so the create/update
-// ability keeps firing off the same chokepoint. Because the marker never
-// changes, IntegrationConnectionObserver's payload-dirty gate only fires on
-// the FIRST connect — every mutating method below explicitly invokes
-// IntegrationConnectionCacheRefresher once so brand/product edits still purge
-// the sitepage edge cache and re-resolve design presets.
+// Slice 7 drops both.
+//
+// Convergence Phase 6 (owner ruling 4): there is no longer a single 'shop'
+// marker row. Each connected store carries its OWN connection on its real
+// brand surface — shopify.store / woocommerce.store / squarespace.store /
+// bigcartel.store, or generic.store for a storefront whose platform has no
+// name — keyed by the brand id, and `partna.storefront` is retired. The
+// individually-added products bucket, which is not a store, anchors on
+// `partna.manual_product` (hidden, dormant, explicitly NOT retired).
+//
+// That is scope §1.6's whole complaint answered: five Shopify stores and a
+// WooCommerce one used to sit behind one pseudo-platform row, so ingest could
+// not tell them apart and no per-brand feature could reach them.
+//
+// Consequences that shape the code below:
+//   - No read may scope on one connection id. Every brand lookup goes through
+//     ShopConnections::brands()/brand(), which span the user's whole shop
+//     family — including a pre-migration marker row, so reads stay correct
+//     between this deploy and the retirement command.
+//   - The payload is still a static MARKER, so IntegrationConnectionObserver's
+//     payload-dirty gate still only fires on first connect; every mutating
+//     method below still invokes IntegrationConnectionCacheRefresher once so
+//     brand/product edits purge the sitepage edge cache and re-resolve presets.
+//   - Scheduled product refresh had to learn about it: those surfaces are
+//     catalog-only, so they carry no PlatformRegistry descriptor. See
+//     PlatformRegistry::forConnection().
 //
 // Product selection is decoupled from connect: adding a brand stores it with
 // zero products; the picker (GET .../products + PUT .../selection) runs any time.
@@ -84,20 +103,11 @@ class ShopController extends ApiController
 
     private const MAX_BRANDS = 5;
 
-    // Reserved brand bucket holding individually-added products (not tied to a
-    // connected store). Doesn't count against MAX_BRANDS.
-    private const INDIVIDUAL_BRAND_ID = 'individual';
-
     private const MAX_INDIVIDUAL_PRODUCTS = 20;
 
     // How long the picker-warmed product catalog stays cached, so a PUT
     // /selection right after the picker opened reuses it instead of re-scraping.
     private const CATALOG_TTL_MINUTES = 10;
-
-    // The connection row's payload shrinks to this marker (FOUND-25) — brand
-    // data lives relationally now; the row itself is purely the lifecycle/
-    // authorization anchor.
-    private const MARKER = ['storage' => 'relational'];
 
     // W9 §3a/§7 R1: the only three providers whose brandProfileFor() actually
     // performs HTTP beyond detection. bigcartel/generic/client-assisted already
@@ -132,11 +142,68 @@ class ShopController extends ApiController
         private readonly ContentPopularityReader $popularity,
         private readonly ShopContentReader $contentReader,
         private readonly ShopContentWriter $content,
+        private readonly ShopConnections $shop,
     ) {}
 
+    // The FAMILY key: the per-user lock and FeatureAvailability only. Rows carry
+    // per-store brand surfaces, and reads scope on ShopConnections' explicit
+    // surface list — NOT on routingClass(), because `shop` as a routing class
+    // also covers gumroad/stan/bandcamp, which are separate platforms with
+    // their own controllers. See ShopConnections::connectionIds().
     protected function platform(): string
     {
         return 'shop';
+    }
+
+    /**
+     * Purge the sitepage cache after a shop mutation.
+     *
+     * The anchor payload is a static marker, so
+     * IntegrationConnectionObserver's payload-dirty gate never fires for shop
+     * and every mutating method has always had to invoke the refresher
+     * explicitly. It used to pass THE marker row; with one connection per store
+     * there is no single row to pass, and after a removeBrand()/removeProduct()
+     * that emptied the shop there may be none at all.
+     *
+     * The refresher's work is per-USER (it resolves that owner's subdomain and
+     * purges their edge cache), so any of their shop connections is an
+     * equivalent argument. When none survives, the delete that emptied the shop
+     * already fired the observer's own purge, so nothing is lost — which is why
+     * this does not manufacture a row to pass.
+     */
+    private function refreshShopCache(User $user): void
+    {
+        $connection = $this->shop->connections($user)->first();
+
+        if ($connection !== null) {
+            $this->refresher->refresh($connection);
+        }
+
+        $this->bumpSiteCache($user);
+    }
+
+    /**
+     * Find-or-create the connection anchoring ONE store, then gate it exactly as
+     * writeConnection() did the marker — the create/update ability and the
+     * staff-takedown check both still fire, on the same family key.
+     */
+    private function shopAnchor(User $user, ?string $provider, string $brandId): IntegrationConnection
+    {
+        $this->assertPlatformAvailable($user);
+
+        $surface = ShopConnections::surfaceFor($provider);
+        $existing = $user->integrationConnections()
+            ->where('surface_key', $surface)->where('resource_id', $brandId)->first();
+
+        $this->authorizeForUser(
+            $user,
+            $existing ? 'update' : 'create',
+            $existing ?? new IntegrationConnection([
+                'user_id' => $user->id, 'platform' => $surface, 'resource_id' => $brandId,
+            ]),
+        );
+
+        return $this->shop->anchor($user, $provider, $brandId);
     }
 
     // GET /api/platforms/shop/brands — all connected brands. Task 7 served
@@ -262,20 +329,27 @@ class ShopController extends ApiController
         // against this same per-user platform lock.
         $brandRow = null;
         $lockResponse = $this->withConnectionLock($user, function () use ($user, $detected, $brand, $detectedProducts, $id, $deferred, $validated, &$brandRow): JsonResponse {
-            $connection = $this->writeConnection($user, self::MARKER);
-
-            $existing = ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first();
+            // Convergence Phase 6 (owner ruling 4): the cap and the position are
+            // resolved across the user's WHOLE shop family before the anchor is
+            // minted, because minting first would leave an empty connection
+            // behind on the 422 — a store slot occupied by nothing.
+            $existing = $this->shop->brand($user, $id);
             // The reserved individual-products bucket doesn't occupy a store slot.
-            $storeCount = ShopBrand::where('connection_id', $connection->id)->where('is_individual', false)->count();
+            $storeCount = $this->shop->brands($user)->where('is_individual', false)->count();
             if (! $existing && $storeCount >= self::MAX_BRANDS) {
                 return $this->error('You can connect up to '.self::MAX_BRANDS.' stores.', 422);
             }
+
+            // One connection per STORE, on its real brand surface, keyed by the
+            // brand id. `partna.storefront` — one marker row for every store a
+            // user had — is retired.
+            $connection = $this->shopAnchor($user, $detected['provider'], $id);
 
             $discount = array_key_exists('discountCode', $validated)
                 ? trim((string) $validated['discountCode'])
                 : ($existing?->discount_code ?? '');
 
-            $maxPosition = ShopBrand::where('connection_id', $connection->id)->max('position');
+            $maxPosition = $this->shop->brands($user)->max('position');
             $position = $existing?->position ?? (($maxPosition === null ? -1 : $maxPosition) + 1);
 
             $values = [
@@ -323,10 +397,15 @@ class ShopController extends ApiController
                 $values['connect_error'] = null;
             }
 
-            $brandRow = ShopBrand::updateOrCreate(
-                ['connection_id' => $connection->id, 'brand_id' => $id],
-                $values,
-            );
+            // Keyed off the row we already resolved, not a fresh updateOrCreate
+            // on (connection_id, brand_id): a re-add of a store whose row still
+            // hangs off the pre-migration `partna.storefront` marker would match
+            // nothing on the new anchor and CREATE A SECOND ROW for one store.
+            // Repointing in place is also what migrates it — a re-add settles a
+            // legacy row onto its brand surface without waiting for the command.
+            $brandRow = $existing ?? new ShopBrand(['brand_id' => $id]);
+            $brandRow->connection_id = $connection->id;
+            $brandRow->fill($values)->save();
 
             if ($deferred) {
                 // P1 review fix: force-refresh the staleness clock on every
@@ -432,8 +511,10 @@ class ShopController extends ApiController
     public function connectStatus(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        $connection = $this->connectionFor($user);
-        $brand = $connection ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first() : null;
+        // Convergence Phase 6: brands are resolved across the user's whole shop
+        // family, not off one marker connection. brands() scopes on the user's
+        // own connections, so another owner's brand is still never visible.
+        $brand = $this->shop->brand($user, $id);
 
         if (! $brand) {
             return $this->error('Brand not found.', 404);
@@ -518,8 +599,7 @@ class ShopController extends ApiController
         $validated = $request->validated();
 
         return $this->withConnectionLock($user, function () use ($user, $id, $validated) {
-            $connection = $this->connectionFor($user);
-            $brand = $connection ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first() : null;
+            $brand = $this->shop->brand($user, $id);
             if (! $brand) {
                 return $this->error('Brand not found.', 404);
             }
@@ -578,9 +658,7 @@ class ShopController extends ApiController
                 }
             }
 
-            $connection = $this->writeConnection($user, self::MARKER);
-            $this->refresher->refresh($connection);
-            $this->bumpSiteCache($user);
+            $this->refreshShopCache($user);
 
             $payload = (new ShopBrandResource(
                 $this->contentReader->brandMap($user)[$id] ?? $brand->fresh('products')->toBrandArray()
@@ -664,40 +742,51 @@ class ShopController extends ApiController
         $user = $this->currentUser($request);
 
         return $this->withConnectionLock($user, function () use ($user, $id) {
-            // No shop connected → nothing to remove. Previously this fell through to
-            // writeConnection() below, which RECREATED the marker row at status 'ok'
-            // — a delete that resurrected the connection (and, since the trait's
-            // emit point fires on wasRecentlyCreated, rang "Shop connected" on it).
-            // removeProduct (below) already 404s on the same condition.
-            $connection = $this->connectionFor($user);
-            if (! $connection) {
+            // No such brand → 404. The old version gated on the marker
+            // connection existing, because a miss there fell through to
+            // writeConnection() and RECREATED the marker at status 'ok' — a
+            // delete that resurrected the connection and rang "Shop connected"
+            // on it. Convergence Phase 6 removes the shape of that bug rather
+            // than guarding it: there is no shared marker to resurrect, and
+            // nothing below this line mints a connection.
+            $brand = $this->shop->brand($user, $id);
+            if (! $brand) {
                 return $this->error('Brand not found.', 404);
             }
 
-            $brand = ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first();
-            if ($brand) {
-                // Task 8: retire this store's items and drop its content.*
-                // row BEFORE the legacy delete below — collectionIdFor() is
-                // read-only (never mints a row just to immediately delete
-                // it), so a brand that never synced into content.* is a
-                // no-op here. NEVER a hard delete of content.items — see
-                // ShopContentWriter::retireStore()'s own docblock.
-                $collectionId = $this->content->collectionIdFor($brand, (string) $user->id);
-                if ($collectionId !== null) {
-                    $this->content->retireStore((string) $user->id, $collectionId);
-                }
-
-                // Explicit child delete (not just relying on the DB's ON DELETE
-                // CASCADE) — mirrors MenuFetchJob's pattern elsewhere in this
-                // codebase, and keeps this deterministic on SQLite in tests,
-                // which doesn't enforce FK cascade.
-                ShopProduct::where('brand_id', $brand->id)->delete();
-                $brand->delete();
+            // Task 8: retire this store's items and drop its content.*
+            // row BEFORE the legacy delete below — collectionIdFor() is
+            // read-only (never mints a row just to immediately delete
+            // it), so a brand that never synced into content.* is a
+            // no-op here. NEVER a hard delete of content.items — see
+            // ShopContentWriter::retireStore()'s own docblock.
+            $collectionId = $this->content->collectionIdFor($brand, (string) $user->id);
+            if ($collectionId !== null) {
+                $this->content->retireStore((string) $user->id, $collectionId);
             }
 
-            $connection = $this->writeConnection($user, self::MARKER);
-            $this->refresher->refresh($connection);
-            $this->bumpSiteCache($user);
+            // Explicit child delete (not just relying on the DB's ON DELETE
+            // CASCADE) — mirrors MenuFetchJob's pattern elsewhere in this
+            // codebase, and keeps this deterministic on SQLite in tests,
+            // which doesn't enforce FK cascade.
+            ShopProduct::where('brand_id', $brand->id)->delete();
+            $anchorId = (string) $brand->connection_id;
+            $brand->delete();
+
+            // Convergence Phase 6: the store's OWN anchor goes with it. One
+            // connection per store means a surviving anchor is an empty store —
+            // it would keep the surface reading as connected on the dashboard,
+            // keep being selected by the refresh cron, and (since the anchor's
+            // resource_id is the brand id) collide with a later re-add.
+            // Guarded on the anchor holding nothing else, so the shared
+            // individual-products bucket is never dragged out by a store delete.
+            $anchor = $this->shop->connections($user)->firstWhere('id', $anchorId);
+            if ($anchor !== null && ! ShopBrand::where('connection_id', $anchorId)->exists()) {
+                $this->authorizeForUser($user, 'delete', $anchor);
+                $anchor->delete();
+            }
+
+            $this->refreshShopCache($user);
 
             return $this->success(['brands' => ShopBrandResource::collection($this->allBrands($user))->resolve()]);
         });
@@ -789,10 +878,7 @@ class ShopController extends ApiController
         // exactly the delete-between-read-and-write race this split closes.
         // This read exists only to produce the 404 and to give providerProducts()
         // a brand shape to dispatch on.
-        $connection = $this->connectionFor($user);
-        $brand = $connection
-            ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->with('products')->first()
-            : null;
+        $brand = $this->shop->brands($user)->where('brand_id', $id)->with('products')->first();
         if (! $brand) {
             return $this->error('Brand not found.', 404);
         }
@@ -806,10 +892,7 @@ class ShopController extends ApiController
 
         return $this->withConnectionLock($user, function () use ($user, $id, $validated, $catalog) {
             // Authoritative re-read — the pre-lock $brand above may be stale.
-            $connection = $this->connectionFor($user);
-            $brand = $connection
-                ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->with('products')->first()
-                : null;
+            $brand = $this->shop->brands($user)->where('brand_id', $id)->with('products')->first();
             if (! $brand) {
                 return $this->error('Brand not found.', 404);
             }
@@ -855,9 +938,7 @@ class ShopController extends ApiController
             DB::table('content.storefronts')->where('collection_id', $collectionId)
                 ->update(['products_curated_at' => now(), 'updated_at' => now()]);
 
-            $connection = $this->writeConnection($user, self::MARKER);
-            $this->refresher->refresh($connection);
-            $this->bumpSiteCache($user);
+            $this->refreshShopCache($user);
             // Invalidate the picker catalog so a subsequent GET re-scrapes the
             // store instead of serving the pre-selection snapshot for up to 10 min.
             Cache::forget($this->catalogKey($id));
@@ -898,11 +979,11 @@ class ShopController extends ApiController
             // hanging off the tombstoned connection row (they'd otherwise orphan
             // until the 30-day hard-delete purge). Explicit child delete (not just
             // the DB's ON DELETE CASCADE) — see removeBrand() for why.
-            $connection = $this->connectionFor($user);
-            if ($connection) {
-                $brandIds = ShopBrand::where('connection_id', $connection->id)->pluck('id');
+            $connectionIds = $this->shop->connectionIds($user);
+            if ($connectionIds !== []) {
+                $brandIds = ShopBrand::whereIn('connection_id', $connectionIds)->pluck('id');
                 ShopProduct::whereIn('brand_id', $brandIds)->delete();
-                ShopBrand::where('connection_id', $connection->id)->delete();
+                ShopBrand::whereIn('connection_id', $connectionIds)->delete();
             }
 
             // Task 8: retire every content.* storefront this user has — not
@@ -917,11 +998,17 @@ class ShopController extends ApiController
                 $this->content->retireStore((string) $user->id, (string) $collectionId);
             }
 
-            // forgetConnection() soft-deletes the connection row, which fires the
-            // observer's deleted() → unconditional cache refresh — so unlike the
-            // other mutations (which only touch child rows) no explicit refresh is
-            // needed here.
-            $this->forgetConnection($user);
+            // Every store's anchor, not one marker. NOT forgetAllConnections():
+            // that scopes on platform()/routingClass(), and `shop` as a routing
+            // class also covers gumroad/stan/bandcamp — separate platforms with
+            // their own controllers, which this endpoint must never touch. Each
+            // delete fires the observer's deleted() → unconditional cache
+            // refresh, so unlike the other mutations (which only touch child
+            // rows) no explicit refresh is needed here.
+            foreach ($this->shop->connections($user) as $anchor) {
+                $this->authorizeForUser($user, 'delete', $anchor);
+                $anchor->delete();
+            }
             $this->bumpSiteCache($user);
 
             return $this->success(['brands' => []]);
@@ -959,11 +1046,22 @@ class ShopController extends ApiController
         }
 
         return $this->withConnectionLock($user, function () use ($user, $product) {
-            $connection = $this->writeConnection($user, self::MARKER);
+            // The individual-products bucket is not a store, so it does not get
+            // a store surface: its anchor is `partna.manual_product`, hidden,
+            // dormant and explicitly NOT retired (§16 names it "the manual
+            // product add-path"). That reservation is exactly this case.
+            //
+            // The OV-A availability assert is explicit here because
+            // ShopConnections is a storage helper and does not gate (see its
+            // anchor() docblock). This path used to reach it for free through
+            // writeConnection(); losing it silently would have let a staff
+            // takedown of the shop integration still accept a product add.
+            $this->assertPlatformAvailable($user);
+            $connection = $this->shop->individualAnchor($user);
 
-            $maxPosition = ShopBrand::where('connection_id', $connection->id)->max('position');
+            $maxPosition = $this->shop->brands($user)->max('position');
             $individual = ShopBrand::firstOrCreate(
-                ['connection_id' => $connection->id, 'brand_id' => self::INDIVIDUAL_BRAND_ID],
+                ['connection_id' => $connection->id, 'brand_id' => ShopBrand::INDIVIDUAL_BRAND_ID],
                 [
                     'provider' => ShopProviderDetector::PROVIDER_GENERIC,
                     'url' => '',
@@ -995,7 +1093,7 @@ class ShopController extends ApiController
             $this->bumpSiteCache($user);
 
             return $this->success((new ShopBrandResource(
-                $this->contentReader->brandMap($user)[self::INDIVIDUAL_BRAND_ID] ?? $individual->fresh('products')->toBrandArray()
+                $this->contentReader->brandMap($user)[ShopBrand::INDIVIDUAL_BRAND_ID] ?? $individual->fresh('products')->toBrandArray()
             ))->resolve());
         });
     }
@@ -1007,10 +1105,7 @@ class ShopController extends ApiController
         $user = $this->currentUser($request);
 
         return $this->withConnectionLock($user, function () use ($user, $productId) {
-            $connection = $this->connectionFor($user);
-            $individual = $connection
-                ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', self::INDIVIDUAL_BRAND_ID)->first()
-                : null;
+            $individual = $this->shop->brand($user, ShopBrand::INDIVIDUAL_BRAND_ID);
             if (! $individual) {
                 return $this->error('Product not found.', 404);
             }
@@ -1046,9 +1141,7 @@ class ShopController extends ApiController
                 ShopProduct::where('brand_id', $individual->id)->delete();
                 $individual->delete();
             }
-            $connection = $this->writeConnection($user, self::MARKER);
-            $this->refresher->refresh($connection);
-            $this->bumpSiteCache($user);
+            $this->refreshShopCache($user);
 
             return $this->success(['brands' => ShopBrandResource::collection($this->allBrands($user))->resolve()]);
         });
@@ -1091,7 +1184,7 @@ class ShopController extends ApiController
             // 2026-08-05: auto-latest lives on the store connections' own
             // display_settings now (one toggle grammar); still site-wide in
             // effect because the setter writes every store connection.
-            AutoSyncSetting::set((string) $user->id, 'shop', (bool) $validated['autoLatest']);
+            AutoSyncSetting::set((string) $user->id, [...ShopConnections::surfaces(), ShopConnections::LEGACY_SURFACE], (bool) $validated['autoLatest']);
         }
 
         // Propagate the new public linkMode to the CDN — the shop connection's
@@ -1117,7 +1210,7 @@ class ShopController extends ApiController
     {
         return [
             'linkMode' => $site->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE,
-            'autoLatest' => AutoSyncSetting::isOn((string) $site->user_id, 'shop'),
+            'autoLatest' => AutoSyncSetting::isOn((string) $site->user_id, [...ShopConnections::surfaces(), ShopConnections::LEGACY_SURFACE]),
         ];
     }
 
@@ -1184,18 +1277,18 @@ class ShopController extends ApiController
      */
     private function brandMap(User $user): array
     {
-        $connection = $this->connectionFor($user);
-        if (! $connection) {
-            return [];
-        }
-
-        // Fix round 3, Finding 4: hoisted OUT of the map closure below —
-        // this used to be called PER BRAND, an N+1 on a path GET /selection
-        // (a public-feeding endpoint) shares. One value for the whole map,
-        // same as ShopContentReader::brandMap()'s own ranks parameter.
+        // Convergence Phase 6: across the user's whole shop family. Read off
+        // one connection this returned exactly ONE store per user — the one
+        // whose anchor happened to be found — so the catalog re-warm endpoint
+        // 404'd every store but that one.
+        //
+        // Fix round 3, Finding 4: $ranks is hoisted OUT of the map closure
+        // below — it used to be called PER BRAND, an N+1 on a path GET
+        // /selection (a public-feeding endpoint) shares. One value for the
+        // whole map, same as ShopContentReader::brandMap()'s own ranks parameter.
         $ranks = $this->productRanksFor($user);
 
-        return $connection->shopBrands()->with('products')->get()
+        return $this->shop->brands($user)->with('products')->get()
             ->keyBy('brand_id')
             ->map(fn (ShopBrand $b) => $b->toBrandArray($ranks))
             ->all();

@@ -89,7 +89,7 @@ it('publishes an empty payload for a shop connection — no brand fields at all'
     // (source_url/fetch_mode/is_individual/position). None reach the wire now.
     $conn = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'shop',
+        'platform' => 'shopify.store',
         'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'],
         'is_active' => true,
@@ -112,7 +112,7 @@ it('publishes an empty payload for a shop connection — no brand fields at all'
 
     // The envelope survives (a consumer iterating `platforms` sees no shape
     // change) — only the payload emptied.
-    $row = $response->json('data.platforms.shop.0');
+    $row = $response->json('data.platforms.shopify.0');
     expect($row)->toHaveKeys(['resourceId', 'payload', 'lastRefreshedAt'])
         ->and($row['payload'])->toBe([]);
 
@@ -136,7 +136,7 @@ it('keeps each product gallery, per-variant image and variantId OFF the /integra
     $user = allowlistUser('allowvimg');
 
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create([
@@ -159,7 +159,7 @@ it('keeps each product gallery, per-variant image and variantId OFF the /integra
 
     $response = $this->getJson('/api/public/profiles/allowvimg/integrations')->assertOk();
 
-    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
+    expect($response->json('data.platforms.shopify.0.payload'))->toBe([]);
 
     // The product landed in content.* (so this can't pass on an empty
     // fixture), and none of the render material rides the legacy wire.
@@ -184,7 +184,7 @@ it('publishes no shop product at all on the public wire, unvetted keys included 
     $user = allowlistUser('allowprodfilter');
 
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create([
@@ -211,7 +211,7 @@ it('publishes no shop product at all on the public wire, unvetted keys included 
 
     $response = $this->getJson('/api/public/profiles/allowprodfilter/integrations')->assertOk();
 
-    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
+    expect($response->json('data.platforms.shopify.0.payload'))->toBe([]);
 
     // Belt-and-suspenders (the fresha teamMenu idiom): prove the sensitive data
     // doesn't ride anywhere ELSE in the body, not merely inside one key.
@@ -241,7 +241,7 @@ it('publishes not one former SHOP_PRODUCT_ALLOWLIST key on this wire (#API-1)', 
     $user = allowlistUser('allowprodkeys');
 
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create([
@@ -270,7 +270,7 @@ it('publishes not one former SHOP_PRODUCT_ALLOWLIST key on this wire (#API-1)', 
 
     $response = $this->getJson('/api/public/profiles/allowprodkeys/integrations')->assertOk();
 
-    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
+    expect($response->json('data.platforms.shopify.0.payload'))->toBe([]);
 
     // Every one of the 15 keys the old allowlist named is absent from the whole
     // body — asserted against the body text, not one JSON path, so a key
@@ -312,7 +312,7 @@ it('keeps the GLOBAL shop link mode off this wire — the pool composes the URL 
         'updated_at' => now(),
     ]);
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     // Two brands whose STORED per-brand link_mode is 'product' — the global must
@@ -328,7 +328,7 @@ it('keeps the GLOBAL shop link mode off this wire — the pool composes the URL 
 
     $response = $this->getJson('/api/public/profiles/allowshop/integrations')->assertOk();
 
-    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
+    expect($response->json('data.platforms.shopify.0.payload'))->toBe([]);
     expect($response->getContent())->not->toContain('linkMode');
     expect($response->getContent())->not->toContain('checkout');
     // Both stores really exist — the empty payload is the retirement, not an
@@ -585,7 +585,7 @@ it('exposes shared-key booking/reservations publicly with ONLY url + provider', 
 
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'reservations',
+        'platform' => 'sevenrooms.reserve',
         'resource_id' => 'reservations',
         'payload' => ['provider' => 'custom', 'url' => 'https://example.com/book', 'name' => 'Book', 'source' => 'manual'],
         'is_active' => true,
@@ -593,7 +593,7 @@ it('exposes shared-key booking/reservations publicly with ONLY url + provider', 
     ]);
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'booking',
+        'platform' => 'booksy.book',
         'resource_id' => 'booking',
         'payload' => ['provider' => 'custom', 'url' => 'https://example.com/appt', 'name' => 'Appointments', 'source' => 'manual'],
         'is_active' => true,
@@ -615,26 +615,33 @@ it('exposes shared-key booking/reservations publicly with ONLY url + provider', 
 
     // Both now reach the wire — the sitepage renders a card per provider.
     // Key order follows the stored payload, which lists provider first.
-    expect($platforms['reservations'][0]['payload'])
-        ->toBe(['provider' => 'custom', 'url' => 'https://example.com/book']);
-    expect($platforms['booking'][0]['payload'])
-        ->toBe(['provider' => 'custom', 'url' => 'https://example.com/appt']);
-    // `name` and `source` were in both stored payloads and must NOT ship — the
-    // allowlist, not the query, is the exposure gate now.
-    expect($platforms['booking'][0]['payload'])->not->toHaveKey('name');
-    expect($platforms['booking'][0]['payload'])->not->toHaveKey('source');
+    //
+    // Convergence Phase 6: these cards sit on their BRAND surfaces, so they are
+    // grouped under the brand key and take the brand allowlist — which carries
+    // `name`, where the retired shared keys did not. That is the point of the
+    // brand entries: the sitepage can label the card with the provider's name.
+    expect($platforms['sevenrooms'][0]['payload'])
+        ->toBe(['provider' => 'custom', 'url' => 'https://example.com/book', 'name' => 'Book']);
+    expect($platforms['booksy'][0]['payload'])
+        ->toBe(['provider' => 'custom', 'url' => 'https://example.com/appt', 'name' => 'Appointments']);
+    // `source` was in both stored payloads and must NOT ship — the allowlist,
+    // not the query, is the exposure gate. `name` DOES ship now: these cards
+    // moved onto brand surfaces, whose allowlist entries carry it so the
+    // sitepage can label the card with the provider's name (see above).
+    expect($platforms['booksy'][0]['payload'])->not->toHaveKey('source');
+    expect($platforms['sevenrooms'][0]['payload'])->not->toHaveKey('source');
     // The public platform still ships untouched.
     expect($platforms['facebook'][0]['payload']['url'])->toBe('https://facebook.com/me');
 });
 
-it('exposes online-ordering entries publicly (2026-07-23 actions rebuild) with only url/name/favicon/logo — id/provider/source/data stay private', function () {
+it('exposes ordering entries publicly under their BRAND key with only url/name/favicon/logo/provider — id/source/data stay private', function () {
     $user = allowlistUser('allow-ordering');
 
     // One row per store link (OnlineOrderingController::addEntry's real
     // storage shape — resource_id 'order-<hash>', flat CardPayload).
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'online-ordering',
+        'platform' => 'uber_eats.order',
         'resource_id' => 'order-abc123',
         'payload' => [
             'id' => 'order-abc123',
@@ -652,7 +659,11 @@ it('exposes online-ordering entries publicly (2026-07-23 actions rebuild) with o
 
     $payload = $this->getJson('/api/public/profiles/allow-ordering/integrations')
         ->assertOk()
-        ->json('data.platforms.online-ordering.0.payload');
+        // Convergence Phase 6: an ordering row is grouped under its brand
+        // ('uber_eats'), not the retired 'online-ordering' pseudo-key. The
+        // key SET is unchanged — the brand entries were added to ALLOWLIST
+        // with exactly the shape the shared key had.
+        ->json('data.platforms.uber_eats.0.payload');
 
     // `provider` joined this allowlist on 2026-07-25 so the sitepage can label a
     // shared-key ordering card ("Order with {provider}") — same widening booking

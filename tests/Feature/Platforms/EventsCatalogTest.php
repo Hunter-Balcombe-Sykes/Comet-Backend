@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualEventWriter;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\LinkCardScraper;
@@ -16,11 +18,17 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupItemSlugsTable();
+    // Convergence Phase 6: a hand-added event is an `events` POOL item, so
+    // these cases need the content lane.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
 
 function eventsUser(string $h): User
 {
-    return User::create([
+    $user = User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
@@ -29,6 +37,15 @@ function eventsUser(string $h): User
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
+
+    // A hand-added event is a pool item, and a pool item needs a section, which
+    // hangs off the SITE. The connection lane allowed a siteless owner to hold
+    // one; the pool does not.
+    $site = new Site(['subdomain' => $h, 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+
+    return $user->refresh();
 }
 
 function sampleEvent(string $link, string $start = '2099-01-01T10:00:00+10:00'): array
@@ -161,9 +178,20 @@ it('stores a non-platform link as a custom event', function () {
         ->assertJsonPath('selection.events.0.platform', 'events-custom')
         ->assertJsonPath('selection.events.0.link', $url);
 
-    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'events-custom')->firstOrFail();
-    expect($row->payload['kind'])->toBe('event');
-    expect($row->payload['image'])->toBe('https://example.com/logo.png');
+    // Convergence Phase 6: stored as an `events` POOL item of kind `event`, not
+    // a `partna.manual_event` connection. `image` is deliberately NOT carried —
+    // Phase 3 declined to mint content.media_assets for third-party image URLs
+    // and this lane inherits that ruling, so a hand-added event has no artwork.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)
+        ->where('surface_key', 'partna.manual_event')->exists())->toBeFalse();
+
+    $cards = app(ManualEventWriter::class)->cards($user->fresh());
+    expect($cards)->toHaveCount(1);
+    expect($cards[0]['name'])->toBe('My Event');
+    expect($cards[0]['url'])->toBe($url);
+
+    $item = DB::connection('pgsql')->table('content.items')->where('id', $cards[0]['id'])->first();
+    expect($item->kind)->toBe('event');
 });
 
 it('removes a custom event via the custom delete endpoint', function () {
@@ -211,20 +239,15 @@ it('aggregates eventbrite + humanitix + custom into one selection', function () 
 
 // ── Manual reorder (PUT /api/platforms/events/order) ─────────────────────────
 
+/**
+ * Kept as a distinct name so the reorder cases still SAY they need a site.
+ * eventsUser() provisions one for every user now — convergence Phase 6 made a
+ * site a hard requirement for a hand-added event (it is a pool item, and a pool
+ * item needs a section), so the two helpers converged.
+ */
 function eventsUserWithSite(string $h): User
 {
-    $user = eventsUser($h);
-    DB::connection('pgsql')->table('site.sites')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $user->id,
-        'subdomain' => $h,
-        'is_published' => 1,
-        'settings' => json_encode([]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    return $user->fresh();
+    return eventsUser($h);
 }
 
 it('persists a manual event order and serves it ahead of date order', function () {
@@ -274,7 +297,17 @@ it('keeps unlisted events after the manually ordered ones', function () {
 });
 
 it('rejects a reorder without a site', function () {
-    $user = eventsUser('evnosite');
+    // Built by hand, not via eventsUser(): that provisions a site now, and this
+    // case is specifically about an owner who has none.
+    $user = User::create([
+        'handle' => 'evnosite',
+        'handle_lc' => 'evnosite',
+        'display_name' => 'Evnosite',
+        'first_name' => 'Evnosite',
+        'account_type' => 'business',
+        'auth_user_id' => (string) Str::uuid(),
+        'primary_email' => 'evnosite@example.com',
+    ]);
 
     actingAsUser($user)->putJson('/api/platforms/events/order', ['ids' => ['event-x']])
         ->assertStatus(404);
@@ -353,10 +386,10 @@ it('never removes another user\'s custom event', function () {
     // The half that matters more: a 404 with the delete APPLIED is the worst
     // outcome available, and it is exactly what an ownership check placed after
     // the mutation produces. B's row must still be there.
-    expect(IntegrationConnection::query()
-        ->where('user_id', $b->id)
-        ->where('platform', 'events-custom')
-        ->exists())->toBeTrue();
+    // Convergence Phase 6: B's hand-added event is an `events` POOL item now,
+    // so its survival is asserted against the pool, not a connection row.
+    expect(app(ManualEventWriter::class)->cards($b->fresh()))
+        ->toHaveCount(1);
 
     $bEvents = actingAsUser($b)->getJson('/api/platforms/events/selection')->assertOk()->json('selection.events');
     expect(array_column($bEvents, 'id'))->toBe([$bId]);

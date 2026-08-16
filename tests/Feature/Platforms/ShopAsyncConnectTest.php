@@ -14,6 +14,7 @@ use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\SquarespaceScraper;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\PublicSite\SitepageDataResolverService;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -541,7 +542,7 @@ it('T7: pasting the same store URL twice while deferred updates the ONE row, not
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://t7.example.com'])->assertStatus(202);
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://t7.example.com'])->assertStatus(202);
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
     expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(1);
 });
 
@@ -595,8 +596,8 @@ it('T11: re-adding an already-settled brand while deferred does not blank its pr
         'url' => 'https://t11.example.com', 'discountCode' => 'SAVE15',
     ])->assertOk();
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
-    $brand = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 't11-brand')->firstOrFail();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
+    $brand = ShopBrand::where('brand_id', 't11-brand')->firstOrFail();
     $brand->update(['selection_mode' => 'latest']);
     ShopProduct::create(['brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1', 'title' => 'Existing']]);
 
@@ -660,7 +661,7 @@ it('T12: a settled brands GET /brands body carries no connectStatus/connectError
 it('T13: the public payload carries no brand at all and never exposes connectStatus', function () {
     $user = shopAsyncUserWithSite('t13pub');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
@@ -688,7 +689,7 @@ it('T13: the public payload carries no brand at all and never exposes connectSta
 
     $response = $this->getJson('/api/public/profiles/t13pub/platforms')->assertOk();
 
-    expect($response->json('data.platforms.shop.0.payload'))->toBe([]);
+    expect($response->json('data.platforms.shopify.0.payload'))->toBe([]);
 
     // Neither brand ships, and — the durable half of T13 — no connect-state
     // bookkeeping rides anywhere in the body.
@@ -709,7 +710,7 @@ it('T13: the public payload carries no brand at all and never exposes connectSta
 it('T14: presentPageIds still excludes Shop when the only brand is pending (zero products)', function () {
     $pro = createTenant('t14-pending-page');
     $conn = IntegrationConnection::create([
-        'user_id' => $pro->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $pro->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     ShopBrand::create([
@@ -728,7 +729,7 @@ it('T14: presentPageIds still excludes Shop when the only brand is pending (zero
 it('T19: a pending row stale for 6 minutes polls failed synthetically, without writing the row', function () {
     $user = shopAsyncUser('t19stale');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create([
@@ -758,7 +759,7 @@ it('T19: a pending row stale for 6 minutes polls failed synthetically, without w
 it('T20: a failed brand is retained, still returns products, and re-POSTing its URL retries onto the same row', function () {
     $user = shopAsyncUser('t20retry');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $brand = ShopBrand::create([
@@ -795,8 +796,12 @@ it('T20: a failed brand is retained, still returns products, and re-POSTing its 
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://t20.example.com'])
         ->assertStatus(202);
 
-    expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(1);
-    $brand = ShopBrand::where('connection_id', $conn->id)->where('brand_id', 't20-brand')->firstOrFail();
+    // Convergence Phase 6: the retried store lands on its OWN anchor, not the
+    // pre-made marker $conn — so the count that matters is the user's, not one
+    // connection's. Still exactly one row: a retry updates in place.
+    expect(ShopBrand::whereIn('connection_id',
+        IntegrationConnection::where('user_id', $user->id)->pluck('id'))->count())->toBe(1);
+    $brand = ShopBrand::where('brand_id', 't20-brand')->firstOrFail();
     expect($brand->connect_status)->toBe('pending');
 });
 
@@ -936,7 +941,7 @@ it('T21: poll 404s for an unknown brand id and for another users brand, never 40
     $owner = shopAsyncUser('t21owner');
     $stranger = shopAsyncUser('t21stranger');
     $conn = IntegrationConnection::create([
-        'user_id' => $owner->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $owner->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'owner-brand', 'provider' => 'shopify', 'url' => 'https://o.example', 'position' => 0]);
@@ -955,7 +960,7 @@ it('T21: poll 404s for an unknown brand id and for another users brand, never 40
 it('T22: the poll route answers under /shop and the old /shopify alias 404s', function () {
     $user = shopAsyncUser('t22');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'dual-brand', 'provider' => 'shopify', 'url' => 'https://d.example', 'position' => 0]);

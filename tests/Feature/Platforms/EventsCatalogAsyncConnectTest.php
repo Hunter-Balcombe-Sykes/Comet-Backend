@@ -2,8 +2,10 @@
 
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Content\ManualEventWriter;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\LinkCardScraper;
@@ -29,11 +31,16 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupItemSlugsTable();
+    // Convergence Phase 6: the custom branch writes an `events` POOL item.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
 
 function catalogAsyncUser(string $h): User
 {
-    return User::create([
+    $user = User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
@@ -42,6 +49,13 @@ function catalogAsyncUser(string $h): User
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
+
+    // A hand-added event is a pool item, which needs a section off the site.
+    $site = new Site(['subdomain' => $h, 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+
+    return $user->refresh();
 }
 
 function catalogAsyncAcctId(string $url): string
@@ -103,7 +117,11 @@ it('DELIBERATELY VACUOUS — flag off leaves all three events/add branches byte-
         ->assertOk()
         ->assertJsonPath('selection.events.0.platform', 'events-custom');
 
-    Queue::assertNothingPushed();
+    // ConnectFetchJob specifically, not assertNothingPushed(): convergence
+    // Phase 6 made the custom branch a POOL write, and a pool write fires the
+    // three cache lanes (purge / warm / KV). Those are correct and unrelated to
+    // what this case is about — that no DEFERRED CONNECT was scheduled.
+    Queue::assertNotPushed(ConnectFetchJob::class);
     expect(IntegrationConnection::query()->pluck('last_refresh_status')->unique()->all())->toBe(['ok']);
 });
 
@@ -205,7 +223,11 @@ it('DELIBERATELY VACUOUS — flag on: the EVENT branch is still a synchronous 20
         ->assertOk()
         ->assertJsonPath('selection.events.0.name', 'Cool Show');
 
-    Queue::assertNothingPushed();
+    // ConnectFetchJob specifically, not assertNothingPushed(): convergence
+    // Phase 6 made the custom branch a POOL write, and a pool write fires the
+    // three cache lanes (purge / warm / KV). Those are correct and unrelated to
+    // what this case is about — that no DEFERRED CONNECT was scheduled.
+    Queue::assertNotPushed(ConnectFetchJob::class);
 
     $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'eventbrite')->firstOrFail();
     expect($row->resource_id)->toStartWith('event-');
@@ -229,11 +251,18 @@ it('DELIBERATELY VACUOUS — flag on: the CUSTOM branch is still a synchronous 2
         ->assertOk()
         ->assertJsonPath('selection.events.0.platform', 'events-custom');
 
-    Queue::assertNothingPushed();
+    // ConnectFetchJob specifically, not assertNothingPushed(): convergence
+    // Phase 6 made the custom branch a POOL write, and a pool write fires the
+    // three cache lanes (purge / warm / KV). Those are correct and unrelated to
+    // what this case is about — that no DEFERRED CONNECT was scheduled.
+    Queue::assertNotPushed(ConnectFetchJob::class);
 
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'events-custom')->firstOrFail();
-    expect($row->payload['kind'])->toBe('event');
-    expect($row->last_refresh_status)->toBe('ok');
+    // Convergence Phase 6: no connection at all — the custom branch writes an
+    // `events` POOL item. What this case pins is unchanged: the branch is
+    // synchronous and never enters the deferred-connect lane.
+    expect(IntegrationConnection::where('user_id', $user->id)
+        ->where('surface_key', 'partna.manual_event')->exists())->toBeFalse();
+    expect(app(ManualEventWriter::class)->cards($user->fresh()))->toHaveCount(1);
 });
 
 // ── Cap + lock stay synchronous ──────────────────────────────────────────────

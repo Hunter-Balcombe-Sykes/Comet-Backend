@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
@@ -14,6 +15,7 @@ use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 // Seeds Reservations / Online-ordering / Social connections from a Google
@@ -37,6 +39,16 @@ class GoogleBusinessAutoSync
 
     private const MAX_ORDERING = 10;
 
+    /**
+     * The ordering FAMILY key — the seed lock's key, and nothing else. Ordering
+     * rows themselves moved to per-brand surfaces in convergence Phase 6, but the
+     * read-then-write span this lock protects still covers the whole family, so
+     * the key must stay family-wide (and byte-identical to what
+     * OnlineOrderingController::platform() takes, or the two stop excluding
+     * each other).
+     */
+    private const ORDERING_FAMILY = 'online-ordering';
+
     private const RESERVATION_PLATFORMS = [
         Platform::OpenTable->value, Platform::Resdiary->value, Platform::Nowbookit->value, Platform::Reservations->value,
     ];
@@ -50,6 +62,7 @@ class GoogleBusinessAutoSync
         private readonly ProviderDetector $detector,
         private readonly ApifyBudget $apifyBudget,
         private readonly FacebookNormalizer $facebookNormalizer,
+        private readonly LinkRouter $linkRouter,
     ) {}
 
     /**
@@ -144,7 +157,7 @@ class GoogleBusinessAutoSync
     {
         try {
             // Pure — no DB — so it stays outside the lock below.
-            $write = $this->resolveReservationWrite($enrichment, $businessName);
+            $write = $this->resolveReservationWrite($userId, $enrichment, $businessName);
             if ($write === null) {
                 return [];
             }
@@ -185,7 +198,7 @@ class GoogleBusinessAutoSync
      *
      * @return array{platform:string, resourceId:string, payload:array<string,mixed>}|null
      */
-    private function resolveReservationWrite(array $enrichment, ?string $businessName): ?array
+    private function resolveReservationWrite(string $userId, array $enrichment, ?string $businessName): ?array
     {
         $reservation = data_get($enrichment, 'reservation');
         if (! is_array($reservation)) {
@@ -227,7 +240,20 @@ class GoogleBusinessAutoSync
             return null;
         }
 
-        return ['platform' => Platform::Reservations->value, 'resourceId' => Platform::Reservations->value, 'payload' => [
+        // Convergence Phase 6: the shared 'reservations' pseudo-key is retired,
+        // so the brand is resolved from the host. A link matching NO reservation
+        // brand is skipped rather than pooled — same call as the ordering arm
+        // above: this is a background harvest, and a pool link is public.
+        $surface = $this->brandSurfaceFor($url, 'reservations');
+        if ($surface === null) {
+            Log::info('platforms.google_business.reservation_unroutable', [
+                'user_id' => $userId, 'host' => parse_url($url, PHP_URL_HOST),
+            ]);
+
+            return null;
+        }
+
+        return ['platform' => $surface, 'resourceId' => LegacyPlatformMap::legacyFor($surface), 'payload' => [
             'provider' => 'custom', 'url' => $url,
             'name' => $this->clean(data_get($reservation, 'provider')) ?? $businessName,
             'favicon' => null, 'logo' => null, 'source' => 'google-business',
@@ -252,7 +278,7 @@ class GoogleBusinessAutoSync
     {
         try {
             // Pure — no DB — so it stays outside the lock below.
-            $write = $this->resolveBookingWrite($enrichment, $businessName);
+            $write = $this->resolveBookingWrite($userId, $enrichment, $businessName);
             if ($write === null) {
                 return [];
             }
@@ -311,7 +337,7 @@ class GoogleBusinessAutoSync
      *
      * @return array{platform:string, resourceId:string, payload:array<string,mixed>}|null
      */
-    private function resolveBookingWrite(array $enrichment, ?string $businessName): ?array
+    private function resolveBookingWrite(string $userId, array $enrichment, ?string $businessName): ?array
     {
         $links = data_get($enrichment, 'booking');
         $url = is_array($links) ? $this->safeUrl($links[0] ?? null) : null;
@@ -336,10 +362,38 @@ class GoogleBusinessAutoSync
             ]];
         }
 
-        return ['platform' => Platform::Booking->value, 'resourceId' => Platform::Booking->value, 'payload' => [
+        // Convergence Phase 6 — see the reservation arm for the same reasoning.
+        $surface = $this->brandSurfaceFor($url, 'booking');
+        if ($surface === null) {
+            Log::info('platforms.google_business.booking_unroutable', [
+                'user_id' => $userId, 'host' => parse_url($url, PHP_URL_HOST),
+            ]);
+
+            return null;
+        }
+
+        return ['platform' => $surface, 'resourceId' => LegacyPlatformMap::legacyFor($surface), 'payload' => [
             'provider' => 'custom', 'url' => $url, 'name' => $businessName,
             'favicon' => null, 'logo' => null, 'source' => 'google-business',
         ]];
+    }
+
+    /**
+     * The catalog surface a harvested URL belongs to within one routing
+     * category, or null when nothing recognises it. Identical in shape to
+     * BookingController::bookingSurfaceFor / ReservationsController::
+     * reservationSurfaceFor — the same question, asked from the harvest side.
+     */
+    private function brandSurfaceFor(string $url, string $category): ?string
+    {
+        $classified = app(WebsiteLinkHarvester::class)->classify($url);
+        if ($classified === null || $classified['category'] !== $category) {
+            return null;
+        }
+
+        $platform = $classified['platform'];
+
+        return LegacyPlatformMap::surfaceFor($platform) ?? $platform;
     }
 
     // ── workplace ─────────────────────────────────────────────────
@@ -443,16 +497,23 @@ class GoogleBusinessAutoSync
             // every store in this batch was a dupe (mirrors the pre-lock
             // unconditional dispatch for that case).
             $ran = false;
-            $findings = $this->withPlatformSeedLock($userId, Platform::OnlineOrdering->value, function () use ($userId, $stores, &$ran) {
+            $findings = $this->withPlatformSeedLock($userId, self::ORDERING_FAMILY, function () use ($userId, $stores, &$ran) {
                 $ran = true;
                 $findings = [];
 
                 // Eager-load all existing ordering rows once. Without this, hasStoreKey
                 // and count() both query the table on every iteration of $stores, turning
                 // an N-store enrichment into 2N+1 round-trips.
+                //
+                // Convergence Phase 6: scoped on routing_class, because these rows
+                // now sit on per-brand surfaces (uber_eats.order, doordash.order,
+                // …). Left on the retired 'online-ordering' slug this read would
+                // return nothing, the only-if-empty guard below would never fire,
+                // and every Google enrichment would re-seed stores the user
+                // already has.
                 $existingOrdering = IntegrationConnection::query()
                     ->where('user_id', $userId)
-                    ->where('platform', Platform::OnlineOrdering->value)
+                    ->where('routing_class', 'ordering')
                     ->get();
                 $existingCount = $existingOrdering->count();
                 // Key by storeKey for O(1) duplicate detection.
@@ -484,7 +545,49 @@ class GoogleBusinessAutoSync
                     $pickupUrl = $this->modeUrl($group, 'pickup');
                     $deliveryUrl = $this->modeUrl($group, 'delivery');
 
-                    $this->write($userId, Platform::OnlineOrdering->value, $rid, [
+                    // Convergence Phase 6: LinkRouter decides the brand surface
+                    // and refuses a second store for a brand this user already
+                    // has (owner ruling 1). It writes its own auto-seeded card
+                    // first; the Google card below replaces it, because only this
+                    // path knows the fees/time/pickup/delivery metadata Google
+                    // gave us — none of which the router can see.
+                    $user = User::find($userId);
+                    $routed = $user === null
+                        ? null
+                        : $this->linkRouter->routeOrdering($user, $repUrl);
+
+                    if ($routed === null || $routed->outcome !== 'seeded') {
+                        // No brand home, and this is a BACKGROUND harvest — so it
+                        // is skipped rather than pooled, which is where this path
+                        // deliberately parts company with
+                        // OnlineOrderingController::addEntry.
+                        //
+                        // Owner ruling 2A ("a row with no working brand home
+                        // becomes a links-pool item") is about rows a PERSON asked
+                        // for: the 41 being migrated, and the manual add path.
+                        // Applying it here would publish a link the owner never
+                        // chose — ordering connections are dashboard-only, a pool
+                        // link renders on the public sitepage, and the synced
+                        // modal's undo affordance is per-CONNECTION, so there
+                        // would be nothing there to take it back with. Dropping a
+                        // link we cannot type is recoverable (the owner pastes it);
+                        // publishing one unasked is not.
+                        //
+                        // Logged rather than silent so the rate of these is
+                        // visible — if it is not ~zero, the answer is a catalog
+                        // detector for the host, not a policy change here.
+                        Log::info('platforms.google_business.ordering_unroutable', [
+                            'user_id' => $userId,
+                            'host' => parse_url($repUrl, PHP_URL_HOST),
+                        ]);
+
+                        continue;
+                    }
+
+                    $surface = $routed->platform;
+                    $rid = $routed->resourceId;
+
+                    $this->write($userId, $surface, $rid, [
                         'id' => $rid,
                         'provider' => 'custom',
                         'url' => $repUrl,
@@ -506,8 +609,10 @@ class GoogleBusinessAutoSync
                     $existingCount++;
                     $existingStoreKeys[$storeKey] = true;
                     // Online-ordering is multi-entry — every new store is just added (no
-                    // conflict concept), so each is a 'seeded' finding.
-                    $findings[] = $this->seededFinding(Platform::OnlineOrdering->value, $rid, 'online-ordering', $name ?? 'Order online', $repUrl);
+                    // conflict concept), so each is a 'seeded' finding. The finding's
+                    // `platform` is the BRAND surface now; its category stays
+                    // 'online-ordering', which is what the modal keys its copy on.
+                    $findings[] = $this->seededFinding($surface, $rid, 'online-ordering', $name ?? 'Order online', $repUrl);
                 }
 
                 return $findings;

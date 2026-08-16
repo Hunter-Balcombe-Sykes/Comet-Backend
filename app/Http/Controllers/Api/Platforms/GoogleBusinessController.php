@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Exceptions\Platforms\PlacesBudgetExhaustedException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
@@ -242,11 +243,20 @@ class GoogleBusinessController extends ApiController
         $gb = $user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->first();
         $findings = GoogleBusinessPayload::fromArray($gb?->payload)->syncFindings();
 
-        // Pre-load all connections keyed by "platform|resource_id" so shapeFinding
-        // can look up each seeded row in O(1) instead of issuing a DB query per finding.
+        // Pre-load all connections keyed by "surface_key|resource_id" so
+        // shapeFinding can look up each seeded row in O(1) instead of issuing a
+        // DB query per finding.
+        //
+        // Convergence Phase 6: keyed on surface_key, not the legacy `platform`
+        // column. A finding's `platform` is now whatever the writer passed —
+        // a legacy slug for older findings, a brand surface for ordering ones —
+        // and surface_key is the one spelling both resolve to
+        // (LegacyPlatformMap::surfaceFor, exactly as BuildsAutoSyncFindings::write
+        // does on the way in). Left on `platform`, every ordering finding failed
+        // its lookup and was silently dropped from the modal.
         $connections = $user->integrationConnections()
             ->get()
-            ->keyBy(fn ($r) => $r->platform.'|'.$r->resource_id);
+            ->keyBy(fn ($r) => $r->surface_key.'|'.$r->resource_id);
 
         $synced = collect($findings)
             ->map(fn ($f) => is_array($f) ? $this->shapeFinding($user, $f, $connections) : null)
@@ -379,7 +389,7 @@ class GoogleBusinessController extends ApiController
         // Use the pre-loaded collection keyed by "platform|resource_id" to avoid a
         // DB query per finding.
         $resourceId = (string) ($finding['resourceId'] ?? '');
-        $row = $connections->get($platform.'|'.$resourceId);
+        $row = $connections->get((LegacyPlatformMap::surfaceFor($platform) ?? $platform).'|'.$resourceId);
         if ($row === null) {
             return null;
         }
@@ -390,7 +400,13 @@ class GoogleBusinessController extends ApiController
             'label' => $label,
             'status' => $row->last_refresh_status === 'pending' ? 'syncing' : 'synced',
             'foundUrl' => $foundUrl,
-            'removePath' => $platform === Platform::OnlineOrdering->value
+            // Convergence Phase 6: keyed on the finding's CATEGORY, not its
+            // platform. Ordering findings now carry a brand surface
+            // ('uber_eats.order'), so the old identity test against the retired
+            // pseudo-slug never matched and every ordering finding's undo pointed
+            // at '/platforms/uber_eats.order' — a route that does not exist. The
+            // category is what survived the surface split unchanged.
+            'removePath' => $category === 'online-ordering'
                 ? '/platforms/online-ordering/entries/'.$row->resource_id
                 : '/platforms/'.$platform,
         ];

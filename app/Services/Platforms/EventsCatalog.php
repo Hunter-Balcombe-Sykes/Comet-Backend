@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Content\ManualEventWriter;
 use App\Services\Notifications\Dispatchers\IntegrationNotifier;
 use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\StandaloneEventPayload;
@@ -22,10 +23,18 @@ use Illuminate\Support\Facades\DB;
 //                    a Humanitix event link adds THAT event, not its whole host);
 //  - an ACCOUNT    → the organiser/host is connected so its upcoming events
 //    (organiser)     auto-refresh daily via the existing PlatformRefresher;
-//  - anything else → a snapshot "custom" event card stored under the
-//                    `events-custom` platform (one-shot, never refreshed — same
-//                    contract as custom links), so it still renders alongside real
-//                    events on the sitepage Events section.
+//  - anything else → a hand-added event in the `events` POOL, so it still
+//                    renders alongside real events on the sitepage Events section.
+//
+// Convergence Phase 6 moved that last arm off the `partna.manual_event`
+// connection surface and onto content.* (ManualEventWriter), for the same reason
+// custom links moved in Phase 3: a pseudo-platform row is invisible to ingest,
+// to identity resolution and to every pool feature. Code-only — the surface held
+// 0 live rows on dev when the path moved. Two consequences worth naming:
+//   - a hand-added event's `id` is a content item uuid now, not `event-<hash>`;
+//   - a SITELESS user can no longer hold one. A pool item needs a section, which
+//     hangs off the site. The connection lane allowed it; the pool does not, and
+//     that is the pool's model rather than a regression to paper over.
 //
 // The Eventbrite/Humanitix scrapers, EventsPayload, the daily refresh, and the
 // public allowlist are reused verbatim; this service only adds the detect/route
@@ -33,6 +42,12 @@ use Illuminate\Support\Facades\DB;
 // The existing per-platform controllers are untouched.
 class EventsCatalog
 {
+    /**
+     * The retired pseudo-platform. Convergence Phase 6 stopped writing it, and
+     * IntegrationConnection::RETIRED_SURFACES refuses new rows. Kept ONLY as the
+     * read key for pre-migration rows in selection(), so an owner whose custom
+     * event predates the move still sees it until the retirement command runs.
+     */
     private const CUSTOM_PLATFORM = 'events-custom';
 
     private const MAX_ACCOUNTS = 5;   // per platform (mirrors ManagesIntegrationConnection::maxAccounts)
@@ -55,6 +70,7 @@ class EventsCatalog
         private readonly HumanitixScraper $humanitix,
         private readonly LinkCardScraper $linkCard,
         private readonly ProviderDetector $detector,
+        private readonly ManualEventWriter $manualEvents,
     ) {
         // Build the per-provider callable map in the constructor so test mocks
         // bound before instantiation are captured by the closures correctly.
@@ -208,6 +224,38 @@ class EventsCatalog
             }
         }
 
+        // Convergence Phase 6: hand-added events live in the `events` pool now.
+        // The loop above still reads CUSTOM_PLATFORM because rows written before
+        // the move are live until the retirement command runs — an owner must
+        // not watch their event disappear between deploy and migration.
+        //
+        // Same wire shape, same `source: 'link'`, same removePath contract; only
+        // the id changed (a content item uuid, not `event-<hash>`). The dashboard
+        // round-trips ids opaquely, so that is invisible to it.
+        foreach ($this->manualEvents->cards($user) as $card) {
+            $events[] = [
+                'id' => $card['id'],
+                'name' => $card['name'],
+                'description' => $card['description'],
+                'link' => $card['url'],
+                'venue' => null,
+                'location' => null,
+                'startDate' => null,
+                'endDate' => null,
+                'startsAt' => null,
+                'endsAt' => null,
+                'price' => null,
+                'priceMin' => null,
+                'currency' => null,
+                'availability' => null,
+                'soldOut' => false,
+                'image' => null,
+                'platform' => self::CUSTOM_PLATFORM,
+                'source' => 'link',
+                'removePath' => "/platforms/events/custom/{$card['id']}",
+            ];
+        }
+
         if ($accounts === [] && $events === []) {
             return null;
         }
@@ -281,9 +329,21 @@ class EventsCatalog
         return $index;
     }
 
-    /** Remove one custom (events-custom) event by its id. */
+    /**
+     * Remove one hand-added event by its id.
+     *
+     * Tries the POOL first (where every new one lives since convergence Phase 6)
+     * and falls back to the legacy connection. Both arms stay reachable until
+     * the retirement command has run: an owner with a pre-migration event must
+     * still be able to delete it, and the two id shapes cannot collide — one is
+     * a uuid, the other a `<hash>` behind an `event-` prefix.
+     */
     public function removeCustom(User $user, string $id): array
     {
+        if ($this->manualEvents->remove($user, $id)) {
+            return ['ok' => true, 'selection' => $this->selection($user)];
+        }
+
         $row = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('platform', self::CUSTOM_PLATFORM)
@@ -399,6 +459,21 @@ class EventsCatalog
         });
     }
 
+    /**
+     * Convergence Phase 6: a hand-added event is a `content.items` row of kind
+     * `event` in the `events` pool, not a `partna.manual_event` connection.
+     *
+     * Not routed through storeStandalone(): that writes a connection, takes a
+     * per-platform connection lock and enforces a per-platform MAX_EVENTS cap,
+     * none of which apply to a pool item. The pool's own cap is the section's,
+     * and the write is an idempotent upsert on a deterministic coord, so there
+     * is no read-then-write span to serialise.
+     *
+     * `image` is deliberately dropped. Phase 3 declined to mint
+     * content.media_assets for third-party image URLs (LinkPoolWriter's
+     * docblock), and this lane inherits that decision rather than reopening it —
+     * a hand-added event card carries no artwork.
+     */
     private function storeCustom(User $user, string $raw): array
     {
         $url = $this->linkCard->normalizeUrl($raw);
@@ -407,28 +482,13 @@ class EventsCatalog
         }
 
         $snap = $this->linkCard->snapshotOrMinimal($url);
-        $payload = EventsPayload::standalonePayload([
-            'name' => $snap['name'],
-            'venue' => null,
-            'location' => null,
-            'startDate' => null,
-            'endDate' => null,
-            // Enriched-event keys (2026-07-17) — shape parity with the scraped
-            // platforms so every event card carries the same field set. A custom
-            // link knows none of them; soldOut is the one bool (unknown = false).
-            'description' => $snap['description'] ?? null,
-            'startsAt' => null,
-            'endsAt' => null,
-            'price' => null,
-            'priceMin' => null,
-            'currency' => null,
-            'availability' => null,
-            'soldOut' => false,
-            'image' => $snap['logo'] ?? $snap['favicon'],
-            'link' => $snap['url'],
-        ]);
 
-        return $this->storeStandalone($user, self::CUSTOM_PLATFORM, $payload);
+        $written = $this->manualEvents->add($user, $url, $snap['name'] ?? null, $snap['description'] ?? null);
+        if ($written === null) {
+            return $this->fail('Add your site before saving events.', 422);
+        }
+
+        return ['ok' => true, 'selection' => $this->selection($user)];
     }
 
     /**

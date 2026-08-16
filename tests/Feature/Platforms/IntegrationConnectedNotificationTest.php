@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\ConnectFetchJob;
 /** @phpstan-ignore-all */
 
 // End-to-end wiring of the integration-connected bell notice at every emit point:
@@ -7,7 +8,6 @@
 // and the three paths that bypass the trait but are still user-initiated —
 // InstagramConnectJob, EnrichLinkCardJob and EventsCatalog::writeRow.
 
-use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
@@ -21,6 +21,7 @@ use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\SkoolScraper;
+use App\Services\Shop\ShopConnections;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -307,8 +308,10 @@ it('notifies once EnrichLinkCardJob completes a resource_kind-NULL card', functi
 
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'booking',
-        'resource_id' => 'booking',
+        'platform' => 'booksy.book',
+        // The brand prefix — what ManagesIntegrationConnection::brandResourceId()
+        // produces for a single-slot brand since convergence Phase 6.
+        'resource_id' => 'booksy',
         'payload' => ['provider' => 'custom', 'url' => 'https://book.example'],
         'is_active' => true,
         'last_refresh_status' => 'pending',
@@ -319,11 +322,15 @@ it('notifies once EnrichLinkCardJob completes a resource_kind-NULL card', functi
         'favicon' => null, 'logo' => null,
     ]));
 
-    app()->call([new EnrichLinkCardJob($user->id, 'booking', 'booking', 'https://book.example'), 'handle']);
+    app()->call([new EnrichLinkCardJob($user->id, 'booking', 'booksy', 'https://book.example', 'booksy.book'), 'handle']);
 
     $rows = icwRows($user);
     expect($rows)->toHaveCount(1);
-    expect($rows->first()->title)->toContain('Booking');
+    // "Booksy connected", not "Booking connected" — convergence Phase 6 put the
+    // card on the BRAND's surface, so the bell names the brand the owner
+    // actually connected instead of the retired category bucket. A better
+    // notice, and a consequence of the move rather than a regression.
+    expect($rows->first()->title)->toContain('Booksy');
 });
 
 it('does not notify when a seeded custom link completes enrichment', function () {
@@ -374,6 +381,6 @@ it('does not notify when removeBrand runs with no shop connection', function () 
 
     actingAsUser($user)->deleteJson('/api/platforms/shop/brands/brand-x')->assertStatus(404);
 
-    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->exists())->toBeFalse();
+    expect(IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->exists())->toBeFalse();
     expect(icwRows($user))->toHaveCount(0);
 });

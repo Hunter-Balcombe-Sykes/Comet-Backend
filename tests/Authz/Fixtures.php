@@ -327,7 +327,11 @@ final class Fixtures
             $connection->resource_id = 'authz-fixture-resource';
             $connection->surface_key = 'authz';
             $connection->routing_class = 'profile';
-            $connection->platform = 'custom';
+            // Convergence Phase 6: 'custom' resolves to the retired
+            // partna.custom_link surface, which can no longer be created. Any
+            // live surface serves this fixture's purpose — it exists to give
+            // setPrimary a REAL row to resolve, not to test a platform.
+            $connection->platform = 'uber_eats.order';
             $connection->user()->associate($user);
             $connection->save();
         }

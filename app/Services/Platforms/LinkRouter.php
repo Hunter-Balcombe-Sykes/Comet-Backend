@@ -132,6 +132,43 @@ class LinkRouter
         }
     }
 
+    /**
+     * Route ONE url through the ordering arm only, for a caller that already
+     * knows it is handling an ordering link and has run its own capability gate
+     * (OnlineOrderingController::addEntry, GoogleBusinessAutoSync's ordering
+     * seed). Convergence Phase 6.
+     *
+     * Deliberately not route(): that classifies freely, so an Instagram URL
+     * pasted into the ordering box would be SEEDED as a social connection before
+     * this caller could object — and a write already made cannot be taken back.
+     * Here anything that is not an ordering brand answers custom(), and the
+     * caller sends it to the links pool under owner ruling 2A.
+     *
+     * The gate is the CALLER's: both entry points already ran
+     * AccountCapabilities::can_use_online_ordering, and re-deriving it here
+     * through gateAllows() would be a second, differently-shaped answer to a
+     * question the capability set already owns (Decision 6).
+     */
+    public function routeOrdering(User $user, string $url): RouteResult
+    {
+        if ($user->isPendingDeletion()) {
+            return RouteResult::custom();
+        }
+
+        $classified = $this->harvester->classify($url);
+        if ($classified === null || $classified['category'] !== 'online-ordering') {
+            return RouteResult::custom();
+        }
+
+        try {
+            return $this->seedOnlineOrdering($user, $classified['platform'], $url, $classified);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return RouteResult::custom();
+        }
+    }
+
     private function routeUnclassified(User $user, string $url, RouteContext $ctx): RouteResult
     {
         if (! $ctx->consumeProbeFor($url)) {

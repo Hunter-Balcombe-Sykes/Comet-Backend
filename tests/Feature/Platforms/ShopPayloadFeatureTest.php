@@ -37,7 +37,7 @@ it('shop updateBrand preserves other brands fields verbatim', function () {
     // internal fields (fetch_mode, source_url) the product dispatch depends on.
     // Updating brand-2's discount must not touch brand-1's row at all.
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
@@ -68,7 +68,7 @@ it('shop updateBrand preserves other brands fields verbatim', function () {
 it('shop selection returns the compat flat view of the first brand with products', function () {
     $user = shopPayloadUser('shp2');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
@@ -133,7 +133,7 @@ it('shop selection surfaces a seeded popularityRank keyed by product handle', fu
         'updated_at' => now(),
     ]);
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
@@ -168,7 +168,7 @@ it('shop selection surfaces a seeded popularityRank keyed by product handle', fu
 it('shop selection is null when no brand has products', function () {
     $user = shopPayloadUser('shp3');
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
@@ -203,7 +203,7 @@ it('calls analytics.content_popularity_scores at most once per brand-map build, 
         'created_at' => now(), 'updated_at' => now(),
     ]);
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     foreach (['b1', 'b2', 'b3', 'b4'] as $i => $brandId) {

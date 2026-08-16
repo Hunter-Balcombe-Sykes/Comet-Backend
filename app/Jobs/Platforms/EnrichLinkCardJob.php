@@ -37,11 +37,27 @@ class EnrichLinkCardJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 300;
 
+    /**
+     * $surfaceKey (convergence Phase 6): which ROW to enrich, when the family
+     * spans brand surfaces and `platform` alone no longer identifies it. An
+     * ordering link now lands on `uber_eats.order` / `doordash.order` / …, whose
+     * generated `platform` column is the brand prefix, not the family key — so
+     * the old platform match would find nothing and the card would never be
+     * upgraded past its minimal state.
+     *
+     * $platform stays the FAMILY key and keeps its two original jobs: the
+     * per-user lock (which must be the same key the controller's read→merge→write
+     * cycle takes, and that cycle spans the whole family) and uniqueId. Which row
+     * and which lock are genuinely different questions once one family holds
+     * several surfaces, so they get separate arguments rather than one overloaded
+     * one. Null keeps every pre-Phase-6 caller byte-identical.
+     */
     public function __construct(
         public string $userId,
         public string $platform,
         public string $resourceId,
         public string $url,
+        public ?string $surfaceKey = null,
     ) {
         $this->onQueue(config('partna.queues.scraping'));
     }
@@ -53,11 +69,7 @@ class EnrichLinkCardJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(LinkCardScraper $scraper): void
     {
-        $row = IntegrationConnection::query()
-            ->where('user_id', $this->userId)
-            ->where('platform', $this->platform)
-            ->where('resource_id', $this->resourceId)
-            ->first();
+        $row = $this->row();
 
         if ($row === null) {
             return; // removed between dispatch and run
@@ -78,11 +90,7 @@ class EnrichLinkCardJob implements ShouldBeUnique, ShouldQueue
         try {
             Cache::lock(CacheKeyGenerator::platformConnectionLock($this->platform, $this->userId), 10)
                 ->block(5, function () use ($snapshot) {
-                    $row = IntegrationConnection::query()
-                        ->where('user_id', $this->userId)
-                        ->where('platform', $this->platform)
-                        ->where('resource_id', $this->resourceId)
-                        ->first();
+                    $row = $this->row();
 
                     if ($row === null) {
                         return; // removed while the scrape was in flight
@@ -118,6 +126,18 @@ class EnrichLinkCardJob implements ShouldBeUnique, ShouldQueue
                 'resource_id' => $this->resourceId,
             ]);
         }
+    }
+
+    /** The row this job enriches — by surface key when the caller resolved one, else the legacy platform slug. */
+    private function row(): ?IntegrationConnection
+    {
+        $query = IntegrationConnection::query()
+            ->where('user_id', $this->userId)
+            ->where('resource_id', $this->resourceId);
+
+        return $this->surfaceKey !== null
+            ? $query->where('surface_key', $this->surfaceKey)->first()
+            : $query->where('platform', $this->platform)->first();
     }
 
     public function failed(Throwable $e): void

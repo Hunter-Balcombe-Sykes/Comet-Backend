@@ -48,10 +48,10 @@ it('skips the write and logs a lock-timeout warning when the platform-connection
     Exceptions::fake();
     Log::spy();
     $user = elcUser('elclock');
-    $key = "platforms:custom:lock:{$user->id}"; // hard-coded, matching BookingXorLockTest precedent
+    $key = "platforms:online-ordering:lock:{$user->id}"; // hard-coded, matching BookingXorLockTest precedent
 
     $row = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'custom', 'resource_id' => 'link-abc',
+        'user_id' => $user->id, 'platform' => 'uber_eats.order', 'resource_id' => 'link-abc',
         'payload' => ['kind' => 'link', 'url' => 'https://x.com', 'name' => 'x.com', 'favicon' => 'g', 'logo' => null, 'description' => null],
         'last_refresh_status' => 'pending',
     ]);
@@ -74,7 +74,7 @@ it('skips the write and logs a lock-timeout warning when the platform-connection
     try {
         // Blocks up to 5s before giving up — this test is slow by design, not
         // flaky; do not "fix" it by shortening the wait.
-        (new EnrichLinkCardJob((string) $user->id, 'custom', 'link-abc', 'https://x.com'))
+        (new EnrichLinkCardJob((string) $user->id, 'online-ordering', 'link-abc', 'https://x.com', 'uber_eats.order'))
             ->handle(app(LinkCardScraper::class));
     } finally {
         $held->release();
@@ -93,7 +93,7 @@ it('skips the write and logs a lock-timeout warning when the platform-connection
         ->once()
         ->withArgs(fn (string $message, array $context) => $message === 'platforms.enrich_link_card.lock_timeout'
             && ($context['user_id'] ?? null) === (string) $user->id
-            && ($context['platform'] ?? null) === 'custom'
+            && ($context['platform'] ?? null) === 'online-ordering'
             && ($context['resource_id'] ?? null) === 'link-abc');
     Exceptions::assertReported(LockTimeoutException::class);
 });
@@ -101,7 +101,7 @@ it('skips the write and logs a lock-timeout warning when the platform-connection
 it('writes the upgraded card normally when the lock is free', function () {
     $user = elcUser('elcfree');
     $row = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'custom', 'resource_id' => 'link-abc',
+        'user_id' => $user->id, 'platform' => 'uber_eats.order', 'resource_id' => 'link-abc',
         'payload' => ['kind' => 'link', 'url' => 'https://x.com', 'name' => 'x.com', 'favicon' => 'g', 'logo' => null, 'description' => null],
         'last_refresh_status' => 'pending',
     ]);
@@ -113,7 +113,7 @@ it('writes the upgraded card normally when the lock is free', function () {
         ]);
     });
 
-    (new EnrichLinkCardJob((string) $user->id, 'custom', 'link-abc', 'https://x.com'))
+    (new EnrichLinkCardJob((string) $user->id, 'online-ordering', 'link-abc', 'https://x.com', 'uber_eats.order'))
         ->handle(app(LinkCardScraper::class));
 
     $row->refresh();

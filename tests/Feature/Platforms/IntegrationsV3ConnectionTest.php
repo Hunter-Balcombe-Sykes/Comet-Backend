@@ -11,6 +11,7 @@ use App\Services\Platforms\StravaClubScraper;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ShopConnections;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -65,10 +66,10 @@ it('detects a Squarespace store and stores its provider + products source', func
         ->assertJsonPath('provider', 'squarespace')
         ->assertJsonPath('name', 'Hester Store');
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->first();
+    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->first();
     // The discovered products-collection URL is kept privately for refreshes.
     // FOUND-25: brands live in site.shop_brands now, not the connection payload.
-    expect(ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'hester-example')->value('source_url'))
+    expect(ShopBrand::where('brand_id', 'hester-example')->value('source_url'))
         ->toBe('https://hester.example/shop');
 });
 

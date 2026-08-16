@@ -45,19 +45,19 @@ it('returns sync metadata per platform in one call', function () {
 it('keeps the most recently refreshed row per platform', function () {
     $user = integrationsMetaUser('multirow');
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'store-old',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'store-old',
         'payload' => ['name' => 'Old'], 'is_active' => true,
         'last_refreshed_at' => now()->subDays(3), 'last_refresh_status' => 'error',
     ]);
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'store-new',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'store-new',
         'payload' => ['name' => 'New'], 'is_active' => true,
         'last_refreshed_at' => now()->subHour(), 'last_refresh_status' => 'ok',
     ]);
 
     actingAsUser($user)->getJson('/api/platforms/meta')
         ->assertOk()
-        ->assertJsonPath('platforms.shop.last_refresh_status', 'ok');
+        ->assertJsonPath('platforms.shopify.last_refresh_status', 'ok');
 });
 
 // SEM-1: two never-refreshed connections on the same multi-account platform
