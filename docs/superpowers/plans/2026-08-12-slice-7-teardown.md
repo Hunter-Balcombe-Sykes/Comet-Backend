@@ -834,7 +834,18 @@ Children before parents, one concern per file:
   `legacy_id` facet at backfill time. Decide deliberately — the cross-check
   exists to stop a fabricated legacy id reaching a disclosure payload.
 
-- [ ] **Step 5: Delete the ten models, the four migration services and their commands, and `BackfillClaimedGoogleBusinessReviewsCommand`** (owner ruling 2026-08-14).
+- [ ] **Step 4b: `LegacyServiceSortOrder` — same 42P01 exposure, found 2026-08-17.**
+
+  `app/Services/Site/LegacyServiceSortOrder.php:139` runs
+  `Service::query()->where('id', $legacyId)->where('user_id', $userId)->exists()`
+  — another integrity-oracle read of `site.services`, the same shape as
+  `legacyIdsFor()`. It is reached live from `UserServiceController` at `:890` and
+  `:1160` (`renumber()`), so after the DROP both service-reorder paths 42P01.
+  Its own docblock says the class dies with `site.services`, but it was NOT in
+  the deletion list below. Delete the class and both call sites together, or the
+  reorder verbs break.
+
+- [ ] **Step 5: Delete the nine dropped tables' models, the four migration services and their commands, and `BackfillClaimedGoogleBusinessReviewsCommand`** (owner ruling 2026-08-14). **`ShopBrand` is NOT deleted** — `site.shop_brands` is deferred (owner ruling 2026-08-17).
 - [ ] **Step 5: Run the full suite, `composer test:pg`, `composer test:schema`, PHPStan, Pint.**
 - [ ] **Step 6: Commit.**
 
