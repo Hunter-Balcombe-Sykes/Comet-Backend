@@ -152,8 +152,28 @@ had. The 2026-08-14 owner override says the sitepage frontend is rebuilt, not
 repaired, so there is no compatibility to preserve and repointing would build a
 second read path nobody will consume.
 
-`PublicMenuController`, `MenuItemDeepLinks` and the legacy-lane half of
-`ItemSlugAllocator` go with it. Its own wire manifest records the deletion.
+`PublicMenuController` goes with it, and its own wire manifest records the
+deletion.
+
+**Corrected 2026-08-16, on doing it: `MenuItemDeepLinks` STAYS.** This section
+listed it for deletion on the assumption it was single-use. It is not —
+`MenuPayloadComposer:175` calls `MenuItemDeepLinks::forItem()` on the surviving
+lane. The assumption predates the pool composer.
+
+**And it left a live defect behind it**, found by cross-checking this unit
+against the menu read side: `forItem()` takes `dd_external_id`, which
+`ManualMenuItems:116` hardcodes to `null` because `MenuProjectionMapper` never
+carried the field. So repointing `MenuPayloadComposer` at `content.*` silently
+drops the DoorDash deep link from **31 of 318** dev dishes. Unit A owns the
+resolution: recover the id from the `doordash:` coord (covers the ingest lane
+only), carry it as an item ref and re-run the backfill (covers both, needs a
+shared-mapper change), or accept the loss as a recorded wire change. Not a
+silent null either way.
+
+`ItemSlugAllocator::lookupCurrent()` is left in place with **zero `app/`
+callers** after this deletion — the pool lane uses
+`ContentItemSlugAllocator::lookupCurrent()`. Retiring it belongs to the
+legacy-menu-writer unit, not here.
 
 ### Unit C — Fresha `payload.selection` off `site.services` · M
 
