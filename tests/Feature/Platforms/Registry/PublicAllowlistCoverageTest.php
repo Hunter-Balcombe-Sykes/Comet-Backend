@@ -15,6 +15,7 @@
 // removal is precisely the case this guard was written to catch, and it caught
 // it: an empty `'shop' => []` entry is what keeps it green.
 
+use App\Catalog\CompiledCatalog;
 use App\Exceptions\Platforms\MissingPublicAllowlistException;
 use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
@@ -55,6 +56,49 @@ it('never reports MissingPublicAllowlistException for a currently-registered pla
         .'MissingPublicAllowlistException to Nightwatch on every request. '
         ."Add `'<key>' => [...public payload keys...]` to that const, or `'<key>' => []` if the "
         .'platform is deliberately dashboard-only (as booking/reservations are): '
+        .implode(', ', $missing));
+});
+
+// Convergence Phase 6. The test above iterates PlatformRegistry::keys(), and
+// that set is FROZEN: CatalogLegacyMapTest pins LegacyPlatformMap to the
+// 20260727110001 backfill CASE pair-for-pair, and RegistryCoverageTest chains
+// the registry to the same 78 slugs. So every brand added after P1 —
+// uber_eats, doordash, menulog, shopify, deliveroo, … — is CATALOG-ONLY and was
+// structurally outside the guard's reach, while still being perfectly writable
+// (IntegrationConnection's saving guard defers to CompiledCatalog).
+//
+// The gap was live, not hypothetical: showcase-eats published doordash, menulog,
+// uber_eats and shopify as EMPTY payloads on dev-api.partna.au and reported
+// MissingPublicAllowlistException on every public request (Nightwatch #436).
+//
+// `platform` is deliberately set to the SURFACE key here rather than the brand:
+// that is the production write path (setPlatformAttribute accepts a surface key
+// verbatim), so the accessor derives the legacy slug exactly as a real row does.
+// Deriving the expected slug in the test instead would let the two drift.
+it('never reports MissingPublicAllowlistException for a catalog surface', function () {
+    $fake = Exceptions::fake();
+
+    foreach (array_keys(CompiledCatalog::surfaces()) as $surfaceKey) {
+        $carrier = new IntegrationConnection([
+            'platform' => $surfaceKey,
+            'resource_id' => $surfaceKey,
+            'payload' => ['__probe' => 'x'],
+        ]);
+
+        (new PublicIntegrationConnectionResource($carrier))->toArray(request());
+    }
+
+    $missing = collect($fake->reported())
+        ->filter(fn ($e) => $e instanceof MissingPublicAllowlistException)
+        ->map(fn (MissingPublicAllowlistException $e) => $e->platform)
+        ->unique()
+        ->values()
+        ->all();
+
+    expect($missing)->toBe([], 'Catalog brand(s) have no PublicIntegrationConnectionResource::ALLOWLIST entry — '
+        .'a connection on their surface renders EMPTY on every public sitepage and reports '
+        .'MissingPublicAllowlistException to Nightwatch on every request. Add an entry keyed by the '
+        .'BRAND prefix (not the surface key), or `=> []` if the brand is deliberately dashboard-only: '
         .implode(', ', $missing));
 });
 

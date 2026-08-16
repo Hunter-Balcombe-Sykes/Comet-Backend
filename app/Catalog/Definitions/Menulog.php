@@ -34,7 +34,11 @@ class Menulog
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
+                // Connectable since convergence Phase 6 — see UberEats for the
+                // rationale. Menulog has no menu scraper of its own in
+                // config('partna.menu.platforms'), so this is a link-only
+                // ordering brand today; the promotion is about giving the link
+                // a real home, not about declaring scrape behaviour.
                 ->detect(
                     Detector::url('menulog.com.au')->strength(EvidenceStrength::ProfileLink),
                 )
