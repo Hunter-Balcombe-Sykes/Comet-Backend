@@ -834,3 +834,63 @@ Two input details each cost a probe:
 
 And the profile row rides in the same list as the tracks, told apart by `type`.
 Projecting it unfiltered would land the artist themselves as a track.
+
+### F32 — Phase 4 live on dev: 75 tracks from three platforms, and why 0 merged
+
+Ran 2026-08-16 against dev after deploying. **Total Apify spend for the entire
+phase, probes included: US$0.196** (2.8094 → 3.0056 of 29), against a self-imposed
+US$5 ceiling and the programme's US$18.
+
+```
+content.items kind='track'          75   (was 0 at entry)
+  soundcloud                        50   50 with isrc
+  youtube_music                     15    0 with isrc
+  spotify                           10    0 with isrc
+content.f_catalog isrc NOT NULL     50   (was 0 — no producer had ever existed)
+orphan source_items                  0
+paid sources with auto_sync=true     0
+```
+
+Identity keys on tracks, all newly derivable:
+
+```
+joining        platform_object 75 · canonical_url 75 · isrc 50
+corroborating  title_release 75 · title_only 67 · title_duration 60
+evidential     title_loose 50
+```
+
+**F10's two dead keys are alive.** `Isrc` had no producer in the entire codebase;
+SoundCloud's actor supplies it. `TitleDuration` was track-scoped with zero track
+items to scope over; it now has 60.
+
+**`content.item_merges` is 0, and that is CORRECT — established, not assumed.**
+The obvious explanation (three different artists) was removed as a variable: one
+Spotify demo connection was repointed at Flume, whose SoundCloud profile the same
+user (`broken-oven`) already holds, so the same artist ran on both platforms.
+Still 0 merges and 0 `identity_candidates`, and a direct query confirms **no key
+value is shared across platforms at all**. Two independent reasons:
+
+1. **The catalogues genuinely differ.** Spotify serves an artist's RELEASED top
+   tracks ("Never Be Like You", "Say It", "Drop The Game"); the same artist's
+   SoundCloud holds demos and stems ("All There 1.9 [2019 Export Wav]",
+   "Chalk 1.3.3 [2017 Export Wav]", "Go (Otik Remix)"). There is almost no title
+   overlap by construction — these platforms host different things.
+2. **The artist strings disagree even where a title matches.** Spotify's
+   `artists` is a COMBINED credit — `"Flume, kai"` — while SoundCloud's is the
+   uploader alone, `"Flume"`. `TitleRelease` is title|artist, so it cannot match
+   across the two even for an identical title.
+
+**Consequence worth carrying forward.** For music, ISRC is not merely the
+*better* joining key — it is the ONLY one that can bridge Spotify and SoundCloud,
+and Spotify supplies none (verified on both candidate actors, F31). Cross-platform
+track dedup is therefore structurally out of reach on this pair until a Spotify
+source with ISRC exists. Anyone reading "0 merges" as a bug should read this
+first. The youtube_music source sits on a DIFFERENT user (`ollies`), so it can
+never merge with the other two regardless — merges resolve within a user.
+
+**Spend guard verified in the live path.** `SourceScheduler` filters
+`auto_sync = true`, and every paid source is provisioned `auto_sync = false`, so a
+billed run is a deliberate flip-on/dispatch/flip-off. Each run was done that way
+and the flag restored immediately; the closing query above confirms none is left
+armed. The `music` effect settled `ok` at `cost_units = 50` — the Actor weight,
+not the free-era 1.
