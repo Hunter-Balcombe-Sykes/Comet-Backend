@@ -3915,3 +3915,75 @@ nothing. CLAUDE.md's own list of the harness's three hard-coded invariants is
 gallery-max-6, the `media_variants` webp row, and the analytics `Origin`
 header — none of them menu-related. The kickoff generalised from that list.
 Corrected in the kickoff in place.
+
+---
+
+## 24. Phase 4 checkpoint — listen sourcing, and the retirement of `channel`
+
+Executed 2026-08-16, dev only. Detail and the wrong turns live in
+convergence-log **F29–F33**; this section is the settled result with its live SQL.
+
+### Entry gate, re-derived (not cited)
+
+`content.items` kind=`track` **0** · kind=`channel` **9** (spotify 4, twitch 4,
+soundcloud 1) · `content.f_channel` **9** · `ingest.sources` for `youtube_music`
+**0** · `content.f_catalog.isrc` **0**.
+
+### Exit, live
+
+```
+content.items kind='track'          75      soundcloud 50 · youtube_music 15 · spotify 10
+content.f_catalog isrc NOT NULL     50      (0 before — the column had never had a producer)
+content.items kind='channel'         0      f_channel 0 · source_items 0 · orphans 0
+KindRegistry                        12 kinds, `channel` absent
+suite                               8282 passed, PHPStan clean
+Apify spend, whole phase             US$0.196   (2.8094 → 3.0056 of 29)
+```
+
+Identity keys on tracks: joining `platform_object` 75, `canonical_url` 75,
+**`isrc` 50**; corroborating `title_release` 75, `title_only` 67,
+**`title_duration` 60**; evidential `title_loose` 50. **Both of F10's dead keys
+now have producers.**
+
+### What changed structurally
+
+`youtube_music` needed no code — connector and projector already existed and are
+free keyless RSS; it needed a live connection, and its stored channel id was dead
+(F29). Spotify and SoundCloud could not produce tracks by construction: both were
+keyless oEmbed resolving ONE entity to `channel`, which is why the kind existed at
+all. Both are now Apify-actor-backed `track` producers behind a new
+`MusicActorDriver` — the billed-effect driver slice 4 found missing for menus
+(§23.6), in scope here because a connector may not declare an effect nothing can
+perform.
+
+### Three things the next slice should not rediscover
+
+1. **`item_merges` is 0 and that is correct.** Proven, not assumed: a Spotify demo
+   connection was repointed at an artist the same user already had on SoundCloud,
+   and still nothing merged, because no key value is shared across the platforms.
+   Spotify serves *released* top tracks while SoundCloud holds demos and stems, and
+   Spotify credits combined artists (`"Flume, kai"`) where SoundCloud credits the
+   uploader (`"Flume"`), so `TitleRelease` cannot match either. **ISRC is the only
+   key that could bridge them, and neither Spotify actor returns one** — including
+   the one whose listing advertises it. Cross-platform track dedup is out of reach
+   on this pair until a Spotify source with ISRC exists.
+2. **Paid sources must never auto-sync.** `SourceScheduler` filters
+   `auto_sync = true`; `SourceProvisioner` now turns it OFF when a connector has
+   become paid and keeps `cost_units` in step with the manifest — it previously
+   only ever turned it ON and wrote the weight once at insert, so the free-era rows
+   would have kept dispatching a billed actor at weight 1. A billed run is a
+   deliberate flip-on → dispatch → flip-off.
+3. **Apify auth goes in the header.** A token passed in the POST body is read as
+   actor input, leaving the run unauthenticated — which a pay-per-event actor
+   reports as an **x402 payment error**, not a 401. That symptom sends you to the
+   billing console instead of your own request; it cost this phase a wrong finding
+   (F30, retracted in place).
+
+### Carried forward, unexercised
+
+The DB CHECK domain stays permissive by design (F9): `KindRegistry` declares 12
+kinds, the DB still permits 14, and `channel` is the second value they disagree on
+after `article`. `youtube_music` sits on a different user (`ollies`) from the two
+paid sources (`broken-oven`), so it can never merge with them — merges resolve
+within a user. Spotify's `topTracks` is ~10 TOP tracks, not a catalogue: a Spotify
+track count is not a completeness measure.
