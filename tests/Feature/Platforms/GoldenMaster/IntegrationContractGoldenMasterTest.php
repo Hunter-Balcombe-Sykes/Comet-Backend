@@ -480,7 +480,7 @@ it('freezes the shop brands list contract', function () {
     // Task 8: brands() now reads ShopContentReader with no legacy fallback
     // (hybridBrandMap() is gone) — land this fixture in content.* the same
     // way a real addBrand() connect would.
-    app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     actingAsUser($user)->getJson('/api/platforms/shop/brands')
         ->assertOk()

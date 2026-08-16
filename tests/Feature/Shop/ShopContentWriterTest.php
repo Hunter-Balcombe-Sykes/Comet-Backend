@@ -54,7 +54,7 @@ it('reuses an orphaned collection with no storefronts partner rather than mintin
         'updated_at' => now(),
     ]);
 
-    $collectionId = app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    $collectionId = app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     expect($collectionId)->toBe($orphanId)
         ->and(DB::table('content.collections')->count())->toBe(1)
@@ -122,7 +122,7 @@ it('does not retire an item still live in another storefront of the same user', 
     // two of this user's stores listing the same URL resolve to ONE
     // content.items row. Store A dropping it must not remove it from B.
     [$user, $brandA] = makeShopBrand();
-    $collectionA = app(ShopContentWriter::class)->upsertStore($brandA, (string) $user->id);
+    $collectionA = app(ShopContentWriter::class)->upsertStore($brandA->toStoreRecord(), (string) $user->id);
 
     $connectionB = IntegrationConnection::create([
         'user_id' => $user->id,
@@ -145,7 +145,7 @@ it('does not retire an item still live in another storefront of the same user', 
         'is_individual' => false,
         'position' => 0,
     ]);
-    $collectionB = app(ShopContentWriter::class)->upsertStore($brandB, (string) $user->id);
+    $collectionB = app(ShopContentWriter::class)->upsertStore($brandB->toStoreRecord(), (string) $user->id);
 
     $shared = ['url' => 'https://s.test/shared', 'title' => 'Shared', 'price' => '5.00'];
     app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionA, [$shared], 'AUD');
@@ -229,20 +229,20 @@ it('syncLatest still returns null for a reachable but empty store', function () 
 
 // ── Task 6: ShopContentWriter::isCurated() ─────────────────────────────────
 
-it('isCurated reads the live ShopBrand column, not a content.storefronts snapshot', function () {
+it('isCurated reads the record-carried curation stamp, not a content.storefronts snapshot', function () {
     // #SEM-1: a brand curated via ShopController::setProducts() (which sets
     // this column directly and does not touch content.storefronts) must read
     // as curated immediately — even before any sync/backfill has ever run for
     // it, i.e. before a content.collections/storefronts row even exists.
     [$user, $brand] = makeShopBrand(['products_curated_at' => now()]);
 
-    expect(app(ShopContentWriter::class)->isCurated($brand))->toBeTrue();
+    expect(app(ShopContentWriter::class)->isCurated($brand->toStoreRecord(), (string) $user->id))->toBeTrue();
 });
 
 it('isCurated is false for a brand with no curation on record', function () {
     [$user, $brand] = makeShopBrand();
 
-    expect(app(ShopContentWriter::class)->isCurated($brand))->toBeFalse();
+    expect(app(ShopContentWriter::class)->isCurated($brand->toStoreRecord(), (string) $user->id))->toBeFalse();
 });
 
 // ── Task 6 fix round 1, Finding 2: content.storefronts.products_curated_at
@@ -250,7 +250,7 @@ it('isCurated is false for a brand with no curation on record', function () {
 
 it('upsertStore never clobbers an already-stamped content.storefronts.products_curated_at', function () {
     [$user, $brand] = makeShopBrand();
-    $collectionId = app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    $collectionId = app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     // Simulate Task 8 having stamped the content-side column directly,
     // independent of the (in this test, still-null) legacy column.
@@ -260,7 +260,7 @@ it('upsertStore never clobbers an already-stamped content.storefronts.products_c
 
     // A routine resync calls upsertStore() again for the same brand — this
     // must NOT reset the content-side stamp back to the frozen legacy null.
-    app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     expect(DB::table('content.storefronts')->where('collection_id', $collectionId)->value('products_curated_at'))
         ->not->toBeNull();
@@ -268,12 +268,12 @@ it('upsertStore never clobbers an already-stamped content.storefronts.products_c
 
 it('isCurated returns true from the storefront value alone, with the legacy column null', function () {
     [$user, $brand] = makeShopBrand();
-    $collectionId = app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    $collectionId = app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
     DB::table('content.storefronts')->where('collection_id', $collectionId)
         ->update(['products_curated_at' => now()]);
 
     expect($brand->products_curated_at)->toBeNull()
-        ->and(app(ShopContentWriter::class)->isCurated($brand))->toBeTrue();
+        ->and(app(ShopContentWriter::class)->isCurated($brand->toStoreRecord(), (string) $user->id))->toBeTrue();
 });
 
 // ── Fix round 3, Finding 1 (CRITICAL): createdAt must be reformatted, not
@@ -430,8 +430,8 @@ it('gives two stores urlless products that share a product id their own items, t
     ]);
 
     $writer = app(ShopContentWriter::class);
-    $collectionA = $writer->upsertStore($brandA, (string) $user->id);
-    $collectionB = $writer->upsertStore($brandB, (string) $user->id);
+    $collectionA = $writer->upsertStore($brandA->toStoreRecord(), (string) $user->id);
+    $collectionB = $writer->upsertStore($brandB->toStoreRecord(), (string) $user->id);
 
     // Same provider product id, two different stores — the exact collision.
     $writer->syncStore((string) $user->id, $collectionA, [

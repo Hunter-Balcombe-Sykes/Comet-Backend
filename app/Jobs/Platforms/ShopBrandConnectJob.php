@@ -207,7 +207,7 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         // deferred connect would settle on the legacy row but stay stuck at
         // connect_status='pending'/nameless on the content.*-only read
         // endpoints until the brand's next scheduled sync.
-        $content->upsertStore($brand->fresh(), (string) $connection->user_id);
+        $content->upsertStore($brand->fresh()->toStoreRecord(), (string) $connection->user_id);
         self::bumpSiteCache((string) $connection->user_id);
 
         // The settle just stored the fetched favicon/logo — kick off the
@@ -274,7 +274,7 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         // (BelongsTo respects SoftDeletes) — skip rather than resolve a
         // user id that doesn't exist.
         if ($updated && $brand->connection !== null) {
-            $content->upsertStore($brand->fresh(), (string) $brand->connection->user_id);
+            $content->upsertStore($brand->fresh()->toStoreRecord(), (string) $brand->connection->user_id);
             self::bumpSiteCache((string) $brand->connection->user_id);
             // Final review F4: lane 3. A pending→failed transition FLIPS the
             // brand onto the public wire — PublicIntegrationConnectionResource

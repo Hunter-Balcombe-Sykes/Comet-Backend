@@ -134,7 +134,7 @@ class ProcessShopBrandLogoJob implements ShouldQueue
         // unchanged by this write.
         $connection = $brand->connection;
         if ($connection !== null) {
-            $content->upsertStore($brand->fresh(), (string) $connection->user_id);
+            $content->upsertStore($brand->fresh()->toStoreRecord(), (string) $connection->user_id);
         }
     }
 

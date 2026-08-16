@@ -22,7 +22,7 @@ beforeEach(function () {
 function allowlistStore(ShopBrand $brand, string $userId, array $products = []): void
 {
     $writer = app(ShopContentWriter::class);
-    $collectionId = $writer->upsertStore($brand, $userId);
+    $collectionId = $writer->upsertStore($brand->toStoreRecord(), $userId);
     if ($products !== []) {
         $writer->syncStore($userId, $collectionId, $products, $brand->currency);
     }

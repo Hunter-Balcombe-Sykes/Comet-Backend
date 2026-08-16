@@ -96,7 +96,7 @@ class ShopProductSeeder
                 // FIRST call wrote, and syncStore()'s retire-absent would
                 // silently drop it. Newest first, de-duped by productId,
                 // capped — byte-for-byte the addProduct() ordering contract.
-                $collectionId = $this->content->upsertStore($individual, (string) $user->id);
+                $collectionId = $this->content->upsertStore($individual->toStoreRecord(), (string) $user->id);
                 $ordered = collect($this->content->currentCatalogue($collectionId))
                     ->reject(fn (array $p) => ($p['productId'] ?? null) === $productId)
                     ->prepend($product)

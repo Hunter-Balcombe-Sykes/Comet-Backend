@@ -175,7 +175,7 @@ it('returns the coded store_catalog_blocked 422 when a connected store 429s its 
     // Task 8: brandProducts() now reads ShopContentReader with no legacy
     // fallback (hybridBrandMap() is gone) — land this fixture in content.*
     // the same way a real addBrand() connect would.
-    app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     fakeShopFetcher([
         '/products.json' => [429, 'Too Many Requests'],

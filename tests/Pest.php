@@ -748,7 +748,7 @@ function makeStoreCollection(int $withProducts = 0): array
 
     [$user, $brand] = makeShopBrand();
 
-    $collectionId = app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    $collectionId = app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     for ($i = 0; $i < $withProducts; $i++) {
         $product = makeShopProduct($brand, ['position' => $i]);

@@ -349,7 +349,7 @@ it('makes ZERO popularity reads on the public platforms endpoint and publishes n
     $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'cache-brand', 'provider' => 'shopify', 'url' => 'https://cache.example.com', 'position' => 0]);
     // The fixture lands through the same writer addBrand()/setProducts() use,
     // so a re-added shop block would have real data to publish and re-rank.
-    $collectionId = app(ShopContentWriter::class)->upsertStore($brand, (string) $user->id);
+    $collectionId = app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
     app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [[
         'productId' => 'p1', 'handle' => 'mug', 'title' => 'Mug', 'url' => 'https://cache.example.com/p1',
         'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
