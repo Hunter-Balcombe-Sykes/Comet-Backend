@@ -35,9 +35,23 @@ use Throwable;
  * FOUR THINGS MENUS NEED THAT MUSIC DID NOT, carried across from the legacy
  * lane's MenuApifyScraper::attemptScrape():
  *
- *   1. Retries. These actors scrape WAF-protected pages and return an EMPTY
- *      dataset on a large fraction of runs for a perfectly valid, open store.
- *      A one-shot driver looks broken at random.
+ *   1. Retries. These actors scrape bot-protected pages and come back with no
+ *      menu on a large fraction of runs for a perfectly valid, open store. A
+ *      one-shot driver looks broken at random.
+ *
+ *      "No menu" is NOT the same as "no dataset row", and that distinction
+ *      cost the first live Phase 5 run. Uber Eats answered 201 with ONE row
+ *      carrying every expected key, `menuItems: []`, `hasMenu: false` and
+ *      `message: "warning: menu not found."` — because `loadedUrl` was
+ *      `def.uber.com/en/challenge`, its bot wall, not the store. A predicate
+ *      that only tests `$dataset === []` reads that as an answer and settles
+ *      "this restaurant has no menu" for the whole freshness window. The
+ *      legacy lane avoided it only because attemptScrape() mapped the payload
+ *      itself and retried on `categories === []`; a driver that does not map
+ *      cannot see inside the row. So the connector declares `expect` — the
+ *      key(s) its own mapping reads — and the driver treats a run whose
+ *      declared payload is missing or empty as a retryable miss. The vendor's
+ *      field names stay with the connector that owns them.
  *   2. run-sync-get-dataset-items answers 201, so success is successful(), not
  *      ok() — ok() accepts 200 alone and would reject every good run.
  *   3. A 4xx is hard (do not retry); a 5xx is Apify infra and is retryable.
@@ -102,6 +116,15 @@ final class MenuActorDriver implements BilledEffectDriver
             );
         }
 
+        // Dotted paths into a dataset row, any one of which carrying a
+        // non-empty array means the run actually found a menu. Optional: an
+        // effect that declares none keeps the plain "any non-empty dataset is
+        // an answer" rule.
+        $expect = array_values(array_filter(
+            (array) ($ctx->input['expect'] ?? []),
+            static fn ($path) => is_string($path) && $path !== '',
+        ));
+
         $attempts = max(1, (int) config('partna.menu.actor_attempts'));
         $timeout = (int) config('partna.menu.actor_attempt_timeout_seconds');
         $lastReason = "menu actor '{$actor}' returned nothing on {$attempts} attempts";
@@ -122,7 +145,7 @@ final class MenuActorDriver implements BilledEffectDriver
                 );
             }
 
-            $outcome = $this->attempt($actor, $token, $input, $timeout, $attempt, $ctx);
+            $outcome = $this->attempt($actor, $token, $input, $expect, $timeout, $attempt, $ctx);
 
             if ($outcome instanceof BilledEffectResult) {
                 return $outcome;
@@ -143,11 +166,13 @@ final class MenuActorDriver implements BilledEffectDriver
      * final, or a string reason when it is retryable.
      *
      * @param  array<string, mixed>  $input
+     * @param  list<string>  $expect
      */
     private function attempt(
         string $actor,
         string $token,
         array $input,
+        array $expect,
         int $timeout,
         int $attempt,
         BilledEffectContext $ctx,
@@ -197,10 +222,26 @@ final class MenuActorDriver implements BilledEffectDriver
         $dataset = $response->json();
 
         if (! is_array($dataset) || $dataset === []) {
-            // The WAF case (see the class docblock). Retryable, never an answer.
+            // The bot-wall case (see the class docblock). Retryable, never an answer.
             $this->log('menu.actor.empty', $ctx, $attempt, []);
 
             return "menu actor '{$actor}' returned an empty dataset on attempt {$attempt}";
+        }
+
+        // A row that arrived but carries no menu is the SAME miss as no row at
+        // all — the actor reached a bot challenge instead of the store. Only
+        // the connector knows where its menu lives, so it says so via `expect`.
+        if ($expect !== [] && ! $this->carriesPayload($dataset, $expect)) {
+            $this->log('menu.actor.no_payload', $ctx, $attempt, [
+                'rows' => count($dataset),
+                'expect' => $expect,
+                // The actor's own diagnosis when it offers one — this is what
+                // named def.uber.com as the real destination.
+                'message' => is_array($dataset[0] ?? null) ? ($dataset[0]['message'] ?? null) : null,
+                'loaded_url' => is_array($dataset[0] ?? null) ? ($dataset[0]['loadedUrl'] ?? null) : null,
+            ]);
+
+            return "menu actor '{$actor}' returned {$expect[0]}-less rows on attempt {$attempt}";
         }
 
         $this->log('menu.actor.ok', $ctx, $attempt, [
@@ -211,6 +252,38 @@ final class MenuActorDriver implements BilledEffectDriver
         ]);
 
         return BilledEffectResult::answered($dataset);
+    }
+
+    /**
+     * Does any row carry a non-empty array at any of the declared paths?
+     *
+     * @param  list<mixed>  $dataset
+     * @param  list<string>  $paths  dotted, e.g. 'menu.categories'
+     */
+    private function carriesPayload(array $dataset, array $paths): bool
+    {
+        foreach ($dataset as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            foreach ($paths as $path) {
+                $value = $row;
+                foreach (explode('.', $path) as $segment) {
+                    if (! is_array($value) || ! array_key_exists($segment, $value)) {
+                        $value = null;
+                        break;
+                    }
+                    $value = $value[$segment];
+                }
+
+                if (is_array($value) && $value !== []) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

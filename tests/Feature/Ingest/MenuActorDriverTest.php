@@ -166,6 +166,79 @@ it('reports no answer — never an empty answer — when every attempt comes bac
     expect($result->outcome)->toBe(BilledEffectOutcome::NoAnswer);
 });
 
+// ── A row that arrived but carries no menu is the same miss as no row ────────
+
+/**
+ * The REAL Uber Eats bot-wall row, from the first live Phase 5 run
+ * (2026-08-16). Every expected key is present and menuItems is empty, because
+ * loadedUrl was def.uber.com's challenge page rather than the store.
+ */
+function uberBotWallRow(): array
+{
+    return [[
+        'menuItems' => [],
+        'hasMenu' => false,
+        'statusCode' => 200,
+        'title' => null,
+        'storeUuid' => null,
+        'bodyLength' => 40226,
+        'message' => 'warning: menu not found.',
+        'loadedUrl' => 'https://def.uber.com/en/challenge?from_service=d2ViLWVhdHMtdjI%3D',
+    ]];
+}
+
+it('retries a fully-keyed row whose declared payload is empty, not just an empty dataset', function () {
+    $responses = Http::sequence()
+        ->push(uberBotWallRow(), 201)
+        ->push(menuDataset(), 201);
+    Http::fake(['api.apify.com/*' => $responses]);
+
+    $result = app(MenuActorDriver::class)->run(menuCtx(['expect' => ['menuItems']]));
+
+    expect($result->outcome)->toBe(BilledEffectOutcome::Answered);
+    Http::assertSentCount(2);
+});
+
+it('reports no answer when every attempt hits the bot wall, so it is never cached as "no menu"', function () {
+    Http::fake(['api.apify.com/*' => Http::response(uberBotWallRow(), 201)]);
+
+    $result = app(MenuActorDriver::class)->run(menuCtx(['expect' => ['menuItems']]));
+
+    // Answered([]) here would settle "this restaurant has no menu" for the whole
+    // freshness window off a bot challenge — the exact failure BilledEffectOutcome
+    // exists to prevent. This is what the first live Phase 5 run did before the
+    // predicate moved inside the row.
+    expect($result->outcome)->toBe(BilledEffectOutcome::NoAnswer);
+    Http::assertSentCount(4);
+});
+
+it('accepts any one of several declared paths, for a vendor that moves its menu', function () {
+    // Square's categories() reads menu.categories OR a top-level categories.
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'restaurantName' => 'Anseo',
+        'categories' => [['name' => 'Coffee', 'items' => [['name' => 'Flat White', 'price' => '4.50']]]],
+    ]], 201)]);
+
+    $result = app(MenuActorDriver::class)->run(menuCtx([
+        'actor' => 'menus-r-us~restaurant-menu-scraper',
+        'input' => ['mode' => 'url', 'url' => 'https://anseo.square.site'],
+        'expect' => ['menu.categories', 'categories'],
+    ]));
+
+    expect($result->outcome)->toBe(BilledEffectOutcome::Answered);
+    Http::assertSentCount(1);
+});
+
+it('treats an effect that declares no expectation exactly as before', function () {
+    // Backwards compatible: without `expect`, any non-empty dataset answers.
+    Http::fake(['api.apify.com/*' => Http::response(uberBotWallRow(), 201)]);
+
+    $result = app(MenuActorDriver::class)->run(menuCtx());
+
+    expect($result->outcome)->toBe(BilledEffectOutcome::Answered);
+    Http::assertSentCount(1);
+});
+
 it('retries a 5xx and answers when Apify recovers', function () {
     $responses = Http::sequence()
         ->push('upstream exploded', 502)

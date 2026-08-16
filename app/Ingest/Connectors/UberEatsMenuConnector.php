@@ -58,6 +58,12 @@ class UberEatsMenuConnector implements Connector
         $effect = $io->effect('actor', 'menu', [
             'actor' => (string) config('partna.menu.platforms.uber-eats.actor'),
             'input' => ['startUrls' => [['url' => $storeUrl]]],
+            // Where THIS connector's mapping reads its menu from, so the driver
+            // can tell a real answer from a bot wall without knowing the shape.
+            // Uber Eats answers 201 with one fully-keyed row and an empty
+            // menuItems when it lands on def.uber.com's challenge page instead
+            // of the store — settling that as "no menu" would cache the wall.
+            'expect' => ['menuItems'],
         ]);
 
         if (($effect['status'] ?? null) !== 'ok') {
