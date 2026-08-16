@@ -697,3 +697,55 @@ JSON **array of facet NAMES**, not a facet→value object. Reading
 `facets_cache->'f_authored'->>'creator'` therefore returns null for every row
 and reads as "the projector dropped the artist". The values live in the
 per-facet tables (`content.f_authored` etc.); join those.
+
+### F30 — Apify refuses EVERY pay-per-event actor account-wide (x402). Not a budget問題
+
+Phase 4's paid lane is blocked, and **not by spend**. Probing the chosen Spotify
+actor returned `HTTP 402` before any work happened:
+
+```
+automation-lab~spotify-scraper  → 402  agentic-payment-info-retrieval-error
+                                       "X402: Failed to retrieve payment information."
+apify~instagram-profile-scraper → 402  x402-payment-required
+```
+
+The second line is the important one. `apify~instagram-profile-scraper` is the
+actor the **live Instagram lane** uses — pre-account site generation, the
+connect flow, `InstagramScraper::fetchProfileResult()`. It fails identically.
+So this is **account-wide, not actor-specific**, and it is not about which
+actor we picked.
+
+Ruled out, with evidence:
+- **Not the budget.** Read first-hand off `/v2/users/me/limits`:
+  `maxMonthlyUsageUsd 29`, `current.monthlyUsageUsd 2.809…`, cycle
+  2026-07-27 → 2026-08-26. US$26.19 remains. (Recorded because the programme
+  forbids citing another slice's checkpoint — this figure is measured here, and
+  it happens to agree with slice 4's.)
+- **Not the token.** The same token authenticates `/v2/users/me/limits` and
+  `/v2/acts/{id}` metadata calls fine. Only *running* a PPE actor is refused.
+- **Not the pricing model by itself.** Four of the five actors checked are
+  `PAY_PER_EVENT`, including the Instagram one that worked on 2026-08-12.
+
+**When it started.** `ingest.effects` on dev shows the last successful Apify
+effect as `instagram` / `ok` on **2026-08-12**; `places.details` still succeeded
+2026-08-14 but that is Google, not Apify. So the break landed after 12 Aug. The
+two `menu` / `failed` rows on 2026-08-15 are slice 4's separate missing-driver
+blocker (§23.6), not this.
+
+**Owner action required — this is not fixable from the codebase.** Check the
+Apify account's payment method / plan state at console.apify.com/billing. The
+x402 family of errors is Apify's agentic-payment path reporting it cannot
+retrieve payment information for the account, which is what an expired or
+detached card looks like from the API side.
+
+**Blast radius beyond Phase 4.** Any product flow that scrapes Instagram is
+affected while this holds: pre-account site generation (`GeneratePreAccountSiteJob`
+→ `InstagramConnectionSeeder`), the Instagram connect path, and Instagram
+auto-sync. Nothing here was verified against the production environment — that
+is out of scope for this session and no tool call named it — but the same actor
+and the same failure mode would apply wherever the credential is equivalent, so
+it is worth checking before the pilot.
+
+**What is NOT blocked.** Writing the connectors, adapters, projectors and their
+tests needs no live actor: everything is `Http::fake()`. Only Phase 4's live
+proof (its Task 7) waits on this.
