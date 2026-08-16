@@ -86,10 +86,10 @@ function gbApifyItem(): array
         // Every platform, both pickup + delivery, link in orderUrl (url is null).
         'orderOnline' => [
             'pickUps' => [
-                ['name' => 'UberEats', 'url' => null, 'orderUrl' => 'https://ubereats.example/fadelab?mode=pickup', 'pickUpTime' => 'Ready in 10–25 min', 'pickUpFees' => 'No fee'],
+                ['name' => 'UberEats', 'url' => null, 'orderUrl' => 'https://www.ubereats.com/au/store/fadelab/abc?mode=pickup', 'pickUpTime' => 'Ready in 10–25 min', 'pickUpFees' => 'No fee'],
             ],
             'deliveries' => [
-                ['name' => 'DoorDash', 'url' => null, 'orderUrl' => 'https://doordash.example/fadelab', 'deliveryTime' => '30–45 min', 'deliveryFees' => '$5.99'],
+                ['name' => 'DoorDash', 'url' => null, 'orderUrl' => 'https://www.doordash.com/store/fadelab-123', 'deliveryTime' => '30–45 min', 'deliveryFees' => '$5.99'],
                 ['name' => 'Sketchy', 'orderUrl' => 'javascript:alert(1)'],   // dropped by safeUrl
             ],
         ],
@@ -250,10 +250,10 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     expect($ot['source'])->toBe('google-business');
 
     // Ordering → one online-ordering row per provider, carrying the metadata.
-    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->get();
+    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->get();
     expect($orders)->toHaveCount(2);              // UberEats pickup + DoorDash delivery; javascript: dropped
     $uber = $orders->first(fn ($r) => ($r->payload['name'] ?? null) === 'UberEats')->payload;
-    expect($uber['url'])->toBe('https://ubereats.example/fadelab?mode=pickup');
+    expect($uber['url'])->toBe('https://www.ubereats.com/au/store/fadelab/abc?mode=pickup');
     expect($uber['source'])->toBe('google-business');
     expect($uber['data'])->toMatchArray(['type' => 'pickup', 'time' => 'Ready in 10–25 min', 'fees' => 'No fee', 'sourcePlatform' => 'UberEats']);
 
@@ -292,7 +292,7 @@ it('consolidates same-store pickup and delivery ordering providers into one row'
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, $enrichment, 'Ollies');
 
-    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->get();
+    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->get();
     expect($orders)->toHaveCount(2);  // UE (pickup+delivery collapsed) + DoorDash
 
     $uber = $orders->first(fn ($r) => ($r->payload['name'] ?? null) === 'UberEats')->payload;
@@ -310,7 +310,7 @@ it('does not re-seed an ordering store the user already has (only-if-empty per s
 
     // The user already has the Uber Eats store (added manually, pickup variant).
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'online-ordering', 'resource_id' => 'order-existing',
+        'user_id' => $user->id, 'platform' => 'uber_eats.order', 'resource_id' => 'order-existing',
         'payload' => ['id' => 'order-existing', 'provider' => 'custom', 'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP', 'name' => 'Mine', 'source' => 'manual'],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
@@ -322,7 +322,7 @@ it('does not re-seed an ordering store the user already has (only-if-empty per s
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, $enrichment, 'Ollies');
 
     // Same store → not re-seeded; the user's manual row is the only one.
-    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->get();
+    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->get();
     expect($orders)->toHaveCount(1);
     expect($orders->first()->payload['name'])->toBe('Mine');
 });
@@ -479,7 +479,7 @@ it('only-if-empty: never overwrites a reservation or social the user already set
     expect($fb['source'])->toBe('manual');
 
     // The empty slots (ordering) still seed.
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->count())->toBe(2);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->count())->toBe(2);
 });
 
 it('seeds a legacy /pages/ Facebook link with the extracted Page name, not "pages" (G4-4)', function () {

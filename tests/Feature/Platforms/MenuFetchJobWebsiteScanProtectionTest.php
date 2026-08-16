@@ -44,7 +44,7 @@ function mfjwspOrdering(User $user): IntegrationConnection
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
 
     return IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'online-ordering', 'resource_id' => $rid,
+        'user_id' => $user->id, 'platform' => 'uber_eats.order', 'resource_id' => $rid,
         'payload' => ['id' => $rid, 'provider' => 'custom', 'url' => $url, 'name' => 'Order', 'source' => 'manual'],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);

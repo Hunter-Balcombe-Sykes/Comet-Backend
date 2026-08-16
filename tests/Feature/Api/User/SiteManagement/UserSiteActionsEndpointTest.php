@@ -17,6 +17,9 @@ beforeEach(function () {
     setupItemViewsTable();
     setupActionEventsTable();
     setupContentPopularityScoresTable();
+    // SiteActionsService reads the `custom_links` pool for the `custom:`
+    // action family (convergence Phase 6), so site.sections must exist.
+    setupSectionsTables();
 });
 
 it('returns pool, rankedActions and ordering for the authed professional', function () {

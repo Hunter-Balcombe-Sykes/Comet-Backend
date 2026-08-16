@@ -176,7 +176,7 @@ it('a food (restaurant) business GB connect seeds reservations + ordering but no
     ], 'Ollies');
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeTrue();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeTrue();
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeFalse();
 });
@@ -194,7 +194,7 @@ it('a non-food (barbershop) business GB connect seeds booking but not reservatio
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeFalse();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeFalse();
 });
 
 it('a null-sector business GB connect defaults to booking-only (not-food default)', function () {

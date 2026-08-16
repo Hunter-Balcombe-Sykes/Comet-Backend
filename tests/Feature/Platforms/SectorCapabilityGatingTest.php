@@ -62,7 +62,7 @@ it('allows menu refresh for a food (restaurant) business', function () {
     Queue::fake();
     $user = gateUser('gate-menu-3', 'business', 'restaurant');
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'online-ordering', 'resource_id' => 'order-1',
+        'user_id' => $user->id, 'platform' => 'uber_eats.order', 'resource_id' => 'order-1',
         'payload' => ['url' => 'https://www.ubereats.com/store/x', 'provider' => 'custom', 'source' => 'manual'],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);

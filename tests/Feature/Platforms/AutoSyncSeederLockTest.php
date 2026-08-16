@@ -156,7 +156,7 @@ it('a concurrent holder of the online-ordering platform lock makes seedOrdering 
         $held->release();
     }
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeFalse();
     Bus::assertNotDispatched(MenuFetchJob::class); // dropped seed → nothing changed → nothing to re-derive
     Log::shouldHaveReceived('warning')
         ->once()
@@ -177,7 +177,7 @@ it('seedOrdering still dispatches MenuFetchJob when the lock is free (contention
         'Ollies',
     );
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeTrue();
     Bus::assertDispatched(MenuFetchJob::class, fn ($job) => $job->userId === (string) $user->id);
 });
 

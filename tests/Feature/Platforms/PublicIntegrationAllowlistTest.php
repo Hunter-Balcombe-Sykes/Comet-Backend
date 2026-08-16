@@ -627,14 +627,14 @@ it('exposes shared-key booking/reservations publicly with ONLY url + provider', 
     expect($platforms['facebook'][0]['payload']['url'])->toBe('https://facebook.com/me');
 });
 
-it('exposes online-ordering entries publicly (2026-07-23 actions rebuild) with only url/name/favicon/logo — id/provider/source/data stay private', function () {
+it('exposes ordering entries publicly under their BRAND key with only url/name/favicon/logo/provider — id/source/data stay private', function () {
     $user = allowlistUser('allow-ordering');
 
     // One row per store link (OnlineOrderingController::addEntry's real
     // storage shape — resource_id 'order-<hash>', flat CardPayload).
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'online-ordering',
+        'platform' => 'uber_eats.order',
         'resource_id' => 'order-abc123',
         'payload' => [
             'id' => 'order-abc123',
@@ -652,7 +652,11 @@ it('exposes online-ordering entries publicly (2026-07-23 actions rebuild) with o
 
     $payload = $this->getJson('/api/public/profiles/allow-ordering/integrations')
         ->assertOk()
-        ->json('data.platforms.online-ordering.0.payload');
+        // Convergence Phase 6: an ordering row is grouped under its brand
+        // ('uber_eats'), not the retired 'online-ordering' pseudo-key. The
+        // key SET is unchanged — the brand entries were added to ALLOWLIST
+        // with exactly the shape the shared key had.
+        ->json('data.platforms.uber_eats.0.payload');
 
     // `provider` joined this allowlist on 2026-07-25 so the sitepage can label a
     // shared-key ordering card ("Order with {provider}") — same widening booking

@@ -41,7 +41,11 @@ class FoodContentProbe
         $hasOrderingConnection = DB::connection($connection)
             ->table('site.platform_connections')
             ->where('user_id', $userId)
-            ->where('platform', 'online-ordering')
+            // Convergence Phase 6: routing_class, not the retired 'online-ordering'
+            // slug. Ordering rows carry per-brand surfaces now, so the old match
+            // would report "no ordering connection" for every food business that
+            // has one — and this probe is what keeps their Menu page live.
+            ->where('routing_class', 'ordering')
             // Raw builder, not IntegrationConnection::query() — it doesn't get
             // the model's SoftDeletes global scope, so both filters are explicit.
             ->where('is_active', true)

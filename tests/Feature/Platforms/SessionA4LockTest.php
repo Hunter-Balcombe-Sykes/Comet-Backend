@@ -83,7 +83,7 @@ it('online-ordering addEntry is blocked by a held platform lock and dispatches n
     // must never fire either job.
     Queue::assertNotPushed(EnrichLinkCardJob::class);
     Queue::assertNotPushed(MenuFetchJob::class);
-    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'online-ordering')->count())->toBe(0);
+    expect(IntegrationConnection::where('user_id', $user->id)->where('routing_class', 'ordering')->count())->toBe(0);
 });
 
 it('online-ordering addEntry dispatches EnrichLinkCardJob + MenuFetchJob exactly once after the lock releases on success', function () {
@@ -111,7 +111,7 @@ it('online-ordering addEntry never dispatches on the 422 MAX_ENTRIES cap', funct
         $url = "https://www.ubereats.com/store/cap-{$i}";
         IntegrationConnection::create([
             'user_id' => $user->id,
-            'platform' => 'online-ordering',
+            'platform' => 'uber_eats.order',
             'resource_id' => 'order-'.substr(sha1(strtolower($url)), 0, 16),
             'payload' => ['url' => $url, 'provider' => 'custom', 'source' => 'manual'],
             'is_active' => true,

@@ -60,7 +60,7 @@ function ordering(User $user, string $url, ?string $type, string $at): Integrati
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
     $row = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'online-ordering',
+        'platform' => 'uber_eats.order',
         'resource_id' => $rid,
         'payload' => array_filter([
             'id' => $rid,
@@ -839,7 +839,7 @@ it('merges a second mode link for the same store into the existing entry on add'
     ])->assertStatus(202);
 
     // Still ONE row in the DB (no duplicate) and one consolidated entry.
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->count())->toBe(1);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->count())->toBe(1);
     expect($res->json('entries'))->toHaveCount(1);
     expect($res->json('entries.0.data.pickupUrl'))->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP');
     expect($res->json('entries.0.data.deliveryUrl'))->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
@@ -1299,7 +1299,7 @@ it('preserves scan-sourced content when the user disconnects their only ordering
 
     // Remove the only ordering link — MenuFetchJob now dispatches with no
     // resolvable source at all (resolveAll() returns null).
-    IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->delete();
+    IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->delete();
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
@@ -1351,7 +1351,7 @@ it('re-scrapes after a disconnect + reconnect to the same store — a stale plat
     ])->assertOk();
 
     // Disconnect the only ordering link.
-    IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->delete();
+    IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->delete();
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     // Scraped content + the stale platformLinks row are gone; scan content survives.
@@ -1601,7 +1601,7 @@ it('frees scraped dish slugs when the last ordering link is removed but keeps ma
     expect($manualRow?->slug)->toBe('house-special');
 
     // No ordering platform left at all → clearScrapedContent().
-    IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->delete();
+    IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->delete();
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     expect(menuSlugRowCount($user, $scraped->id))->toBe(0);

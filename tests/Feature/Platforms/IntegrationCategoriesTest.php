@@ -218,7 +218,11 @@ it('adds, lists and removes online-ordering entries', function () {
         ->assertJsonPath('entries.0.name', 'Uber Eats')
         ->assertJsonPath('entries.0.source', 'manual');
 
-    $id = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->firstOrFail()->resource_id;
+    // Convergence Phase 6: an Uber Eats link is an uber_eats.order row; the
+    // family is addressed by routing_class, and the endpoints are unchanged.
+    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->firstOrFail();
+    expect($row->surface_key)->toBe('uber_eats.order');
+    $id = $row->resource_id;
 
     actingAsUser($user)->getJson('/api/platforms/online-ordering/entries')
         ->assertOk()->assertJsonCount(1, 'entries');

@@ -8,6 +8,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\PublicSite\Actions\ActionVocabulary;
 use App\Support\UrlSafety;
@@ -68,6 +69,7 @@ class SiteActionsService
 
     public function __construct(
         private readonly SitepageDataResolverService $resolver,
+        private readonly LinkPoolReader $links,
     ) {}
 
     /**
@@ -102,13 +104,15 @@ class SiteActionsService
         $linkCreatedAt = $this->linkBlockCreatedAt($site);
 
         $connectionsByPlatform = [];
+        $connectionsByClass = [];
         foreach (
             IntegrationConnection::query()
                 ->where('user_id', $pro->id)
                 ->where('is_active', true)
-                ->get(['id', 'user_id', 'platform', 'resource_id', 'payload', 'created_at']) as $conn
+                ->get(['id', 'user_id', 'platform', 'surface_key', 'routing_class', 'resource_id', 'payload', 'created_at']) as $conn
         ) {
             $connectionsByPlatform[strtolower((string) $conn->platform)][] = $conn;
+            $connectionsByClass[(string) $conn->routing_class][] = $conn;
         }
 
         $out = [];
@@ -176,8 +180,16 @@ class SiteActionsService
             }
         }
 
+        // Convergence Phase 6: keyed on routing_class, not the retired
+        // 'online-ordering' pseudo-platform. Every ordering link now carries its
+        // own brand surface, whose generated `platform` column is the brand
+        // prefix ('uber_eats', 'doordash'), so the old slug lookup would return
+        // an empty list and every public "Order online" action would silently
+        // vanish. The action ids are unchanged — `ordering:<resource_id>`, with
+        // resource_id still 'order-<hash>' — because owners store display
+        // preferences against them.
         if ($caps->can_use_online_ordering) {
-            foreach ($connectionsByPlatform['online-ordering'] ?? [] as $conn) {
+            foreach ($connectionsByClass['ordering'] ?? [] as $conn) {
                 $payload = $this->connectionPayload($conn);
                 $url = $this->safeHref($payload['url'] ?? null);
                 if ($url === null) {
@@ -233,6 +245,30 @@ class SiteActionsService
                 'key' => (string) $conn->resource_id,
                 'label' => $name !== '' ? $name : $url,
                 'createdAt' => $conn->created_at,
+            ];
+        }
+        // Convergence Phase 6: and every link in the `custom_links` POOL, which
+        // is where a custom link is written now. The loop above still runs
+        // because the legacy `partna.custom_link` rows are live until the
+        // retirement migration soft-deletes them — but a link added since that
+        // write path moved has no connection at all, so without this it would
+        // render on the sitepage and produce no action. `??=` keeps the
+        // connection's key when both lanes hold the same URL, so an action id an
+        // owner already has a stored preference against does not change under
+        // them mid-migration.
+        //
+        // createdAt is null: a pool item's ordering is its PIN order, which the
+        // owner set, and inventing a timestamp here would let recency outrank it.
+        foreach ($this->links->cardsForSite($site) as $card) {
+            $url = $this->safeHref($card['url'] ?? null);
+            if ($url === null) {
+                continue;
+            }
+            $name = trim((string) ($card['name'] ?? ''));
+            $byUrl[$url] ??= [
+                'key' => (string) $card['id'],
+                'label' => $name !== '' ? $name : $url,
+                'createdAt' => null,
             ];
         }
         foreach ($byUrl as $url => $c) {

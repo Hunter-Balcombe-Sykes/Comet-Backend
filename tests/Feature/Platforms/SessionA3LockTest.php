@@ -161,7 +161,7 @@ it('online-ordering removeEntry (forgetConnection write) is blocked by a held pl
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
     $row = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'online-ordering',
+        'platform' => 'uber_eats.order',
         'resource_id' => $rid,
         'payload' => ['url' => $url, 'provider' => 'custom', 'source' => 'manual'],
         'is_active' => true,
@@ -193,7 +193,7 @@ it('online-ordering removeEntry dispatches MenuFetchJob exactly once after the l
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'online-ordering',
+        'platform' => 'uber_eats.order',
         'resource_id' => $rid,
         'payload' => ['url' => $url, 'provider' => 'custom', 'source' => 'manual'],
         'is_active' => true,
@@ -215,7 +215,7 @@ it('online-ordering forget (forgetAllConnections write) is blocked by a held pla
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
     $row = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'online-ordering',
+        'platform' => 'uber_eats.order',
         'resource_id' => $rid,
         'payload' => ['url' => $url, 'provider' => 'custom', 'source' => 'manual'],
         'is_active' => true,
@@ -245,7 +245,7 @@ it('online-ordering forget dispatches MenuFetchJob exactly once after the lock r
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'online-ordering',
+        'platform' => 'uber_eats.order',
         'resource_id' => $rid,
         'payload' => ['url' => $url, 'provider' => 'custom', 'source' => 'manual'],
         'is_active' => true,

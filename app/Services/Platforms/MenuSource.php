@@ -237,9 +237,14 @@ class MenuSource
         $userId = (string) ($user instanceof User ? $user->id : $user);
 
         if (! isset($this->entriesCache[$userId])) {
+            // Convergence Phase 6: routing_class, not the retired 'online-ordering'
+            // slug — ordering rows carry per-brand surfaces now, so a slug match
+            // finds none and every menu derived from an ordering link would go
+            // empty. The mapping below is unaffected: it reads the payload URL and
+            // re-derives the scraper platform from the HOST, never from this column.
             $this->entriesCache[$userId] = IntegrationConnection::query()
                 ->where('user_id', $userId)
-                ->where('platform', Platform::OnlineOrdering->value)
+                ->where('routing_class', 'ordering')
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->get()
