@@ -174,9 +174,13 @@ it('DELIBERATELY VACUOUS — flag off leaves a storewide fresha connect byte-ide
     expect(array_keys($row->payload))->toBe(['url', 'selection', 'raw']);
 });
 
-it('DELIBERATELY VACUOUS — flag off still projects services synchronously for storewide', function () {
+it('DELIBERATELY VACUOUS — flag off still composes the storewide menu synchronously', function () {
     config(['partna.connect.deferred' => []]);
     $user = freshaStorewideUser('swoff2');
+    // Slice 7 D3a: the synchronous branch composes the selection from
+    // content.* instead of projecting into site.services, so the pool row is
+    // what makes the menu non-empty.
+    landFreshaStorewideContentService($user->id);
 
     $this->mock(FreshaScraper::class, function ($m) {
         $m->shouldReceive('stripLocale')->once()->andReturnUsing(fn ($u) => $u);
@@ -186,7 +190,10 @@ it('DELIBERATELY VACUOUS — flag off still projects services synchronously for 
     actingAsUser($user)->postJson('/api/platforms/fresha/connect', ['url' => 'https://www.fresha.com/a/ollies-salon'])
         ->assertOk();
 
-    expect(Service::where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(1);
+    // D3a: no site.services rows are written any more — pinned as a zero so a
+    // reintroduced write fails here rather than passing unnoticed.
+    expect(Service::where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(0);
+    expect(app(FreshaServiceProjector::class)->compose($user, [freshaStorewideService()])['services'])->toHaveCount(1);
 });
 
 it('DELIBERATELY VACUOUS — fresha is still not registered as a deferredConnect descriptor', function () {
@@ -401,8 +408,9 @@ it('flag on: the pending row itself 409s a subsequent Square connect', function 
 
 // ── Job / strategy behaviour — handle() called directly, no sync driver ────
 
-it('job success: the storewide strategy projects services, writes the selection, flips to ok, and fires the purge', function () {
+it('job success: the storewide strategy composes the menu, writes the selection, flips to ok, and fires the purge', function () {
     $user = freshaStorewideUser('swjob1');
+    landFreshaStorewideContentService($user->id);
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => (string) Str::uuid(), 'user_id' => $user->id, 'subdomain' => 'swjob1',
     ]);
@@ -433,7 +441,9 @@ it('job success: the storewide strategy projects services, writes the selection,
     expect($fresh->payload['selection']['services'])->not->toBeEmpty();
     expect($fresh->payload['raw']['services'])->not->toBeEmpty();
     expect($fresh->payload)->not->toHaveKey('connectPendingAt');
-    expect(Service::where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(1);
+    // D3a: the selection above is composed from the landed content.* row; the
+    // job writes no site.services rows of its own.
+    expect(Service::where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(0);
 
     // Proves the write was NOT saveQuietly()'d — a first content fill must
     // trigger the edge-cache purge.

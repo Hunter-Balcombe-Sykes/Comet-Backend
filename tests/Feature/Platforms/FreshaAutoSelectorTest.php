@@ -9,6 +9,9 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupServicesTable();
+    // Slice 7 D3a: FreshaServiceProjector::compose() reads the Fresha service
+    // menu from content.* (FreshaServiceItems) instead of site.services.
+    setupContentTables();
     setupServiceCategoriesTable();
     shimPgAdvisoryLockForSqlite();
 });
@@ -94,12 +97,17 @@ it('falls back to storewide when the employee menu comes back empty', function (
     expect($result['selection']['mode'])->toBe('storewide');
 });
 
-it('projects the chosen services into site.services', function () use ($canonical) {
+it('writes no site.services rows — the pool is the connector\'s to fill', function () use ($canonical) {
+    // Slice 7 D3a: the selector used to project the chosen menu into
+    // site.services via FreshaServiceProjector::sync(). Those rows are gone;
+    // the Fresha service menu lands in content.* through the ingest connector,
+    // and sync() only composes. Pinned as a zero rather than deleted so a
+    // reintroduced write is caught rather than silently accepted.
     $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser']);
 
     app(FreshaAutoSelector::class)->select($user, autoMenu(), $canonical);
 
-    expect(DB::table('services')->where('user_id', $user->id)->count())->toBe(1);
+    expect(DB::table('services')->where('user_id', $user->id)->count())->toBe(0);
 });
 
 it('carries the store name onto the selection', function () use ($canonical) {

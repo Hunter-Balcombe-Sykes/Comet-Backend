@@ -11,6 +11,9 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupServicesTable();
+    // Slice 7 D3a: FreshaServiceProjector::compose() reads the Fresha service
+    // menu from content.* (FreshaServiceItems) instead of site.services.
+    setupContentTables();
     setupServiceCategoriesTable();
     setupIntegrationConnectionsTable();
     shimPgAdvisoryLockForSqlite();

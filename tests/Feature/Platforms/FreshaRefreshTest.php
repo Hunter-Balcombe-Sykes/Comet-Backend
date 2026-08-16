@@ -10,16 +10,26 @@ use App\Services\Platforms\FreshaStaffMatcher;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 // FreshaFetch — the scheduled service-menu refresh, against a mocked scraper.
-// Since the projection rework (2026-07-21) fetch() also upserts site.services
-// rows and persists the raw scrape at payload.raw, so the connection needs a
-// real user + the services tables.
+// fetch() persists the raw scrape at payload.raw and composes the effective
+// selection, so the connection needs a real user.
+//
+// Slice 7 D3a: the composed selection comes from content.* (the Fresha
+// connection lane), NOT from the scrape and no longer from site.services — so
+// every case that asserts a non-empty selection must land the matching pool
+// rows via frrLand(). A scrape with no pool behind it composes to [], which is
+// 3b's documented "no content.* rows yet" behaviour reaching the public blob.
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupServicesTable();
+    // Slice 7 D3a: FreshaServiceProjector::compose() reads the Fresha service
+    // menu from content.* (FreshaServiceItems) instead of site.services.
+    setupContentTables();
     shimPgAdvisoryLockForSqlite();
 });
 
@@ -50,6 +60,42 @@ function freshaFetchWith(FreshaScraper $scraper): FreshaFetch
     );
 }
 
+/**
+ * Land one Fresha service into content.* the way the ingest connector would.
+ * `record_key` is the vendor serviceId, which is what FreshaServiceItems reads
+ * back out — and the price comes from content.offers, not from the scrape.
+ */
+function frrLand(User $user, string $serviceId, string $name, int $amountMinor): void
+{
+    $sourceId = DB::table('content.sources')
+        ->where('user_id', $user->id)->where('kind', 'connection')->value('id');
+
+    if ($sourceId === null) {
+        $sourceId = (string) Str::uuid();
+        DB::table('content.sources')->insert([
+            'id' => $sourceId, 'user_id' => $user->id, 'kind' => 'connection', 'connection_id' => null,
+            'label' => 'Fresha', 'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    $itemId = addItem($user->id, 'service', $name);
+
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => "fresha:store:{$serviceId}", 'record_key' => $serviceId,
+        'item_id' => $itemId, 'kind' => 'service', 'projector_version' => 1,
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    DB::table('content.offers')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'channel' => 'fresha', 'qualifier' => 'exact', 'amount_minor' => $amountMinor,
+        'currency' => null, 'updated_at' => now(),
+    ]);
+    DB::table('content.f_duration')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId, 'seconds' => 1800, 'updated_at' => now(),
+    ]);
+}
+
 function freshaService(string $id, string $name, ?string $price = '$50'): array
 {
     return [
@@ -68,6 +114,10 @@ it('304s when the connection has no saved selection', function () {
 
 it('refreshes a storewide selection from the location menu and prunes dead hidden ids', function () {
     $user = freshaRefreshUser('frr1');
+    // The pool the composed selection is read from. s:2 is deliberately NOT
+    // landed — it is the retired service whose hidden id must be pruned.
+    frrLand($user, 's:1', 'Cut', 5500);
+    frrLand($user, 's:3', 'New Fade', 5000);
     $scraper = Mockery::mock(FreshaScraper::class);
     $scraper->shouldReceive('fetchLocation')->once()->andReturn(['name' => 'Acme Cuts']);
     $scraper->shouldReceive('extractServices')->once()->andReturn([
@@ -102,12 +152,14 @@ it('refreshes a storewide selection from the location menu and prunes dead hidde
         // The deduped raw scrape persists privately alongside the selection.
         ->and(array_column($out['raw']['services'], 'serviceId'))->toBe(['s:1', 's:3']);
 
-    // Both scraped services projected into site.services rows.
-    expect(Service::query()->where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(2);
+    // D3a: the refresh writes NO site.services rows — the pool is the connector's
+    // to write and this lane only reads it.
+    expect(Service::query()->where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(0);
 });
 
 it('refreshes an employee selection via the booking GraphQL path', function () {
     $user = freshaRefreshUser('frr2');
+    frrLand($user, 's:1', 'Cut', 6000);
     $scraper = Mockery::mock(FreshaScraper::class);
     $scraper->shouldReceive('slugFromUrl')->once()->andReturn('acme');
     $scraper->shouldReceive('fetchEmployeeServices')->once()->with('acme', 'e1')->andReturn([
@@ -153,9 +205,12 @@ it('throws unavailable (never wipes) when the refreshed menu is empty', function
 it('304s when the refreshed menu is byte-identical on an already-projected connection', function () {
     $user = freshaRefreshUser('frr3');
     $services = [freshaService('s:1', 'Cut')];
-    // Pre-projected state: rows exist + payload.raw stored (the steady state
-    // every connection reaches after its first post-rework refresh).
-    app(FreshaServiceProjector::class)->sync($user, $services);
+    // Steady state: the pool carries the service and payload.raw is stored, so
+    // a re-scrape composes byte-identically and 304s. The stored selection has
+    // to hold the COMPOSED entries, not the scrape's — that is what the
+    // comparison is against.
+    frrLand($user, 's:1', 'Cut', 5000);
+    $composed = app(FreshaServiceProjector::class)->sync($user, $services);
 
     $scraper = Mockery::mock(FreshaScraper::class);
     $scraper->shouldReceive('fetchLocation')->once()->andReturn(['name' => 'Acme']);
@@ -164,7 +219,7 @@ it('304s when the refreshed menu is byte-identical on an already-projected conne
 
     $selection = [
         'url' => 'https://www.fresha.com/a/acme', 'storeName' => 'Acme', 'mode' => 'storewide',
-        'employee' => null, 'services' => $services, 'hiddenServiceIds' => [],
+        'employee' => null, 'services' => $composed['services'], 'hiddenServiceIds' => [],
     ];
 
     expect(fn () => freshaFetchWith($scraper)->fetch(freshaConn([
@@ -187,11 +242,11 @@ it('migrates a legacy (pre-projection) connection on first refresh even when the
     ];
 
     // No payload.raw yet — a pre-rework row. The refresh must WRITE (not 304)
-    // so projections + raw land, exactly once.
+    // so raw lands, exactly once.
     $out = freshaFetchWith($scraper)->fetch(freshaConn([
         'url' => 'https://www.fresha.com/a/acme', 'selection' => $selection,
     ], $user));
 
     expect(array_column($out['raw']['services'], 'serviceId'))->toBe(['s:1']);
-    expect(Service::query()->where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(1);
+    expect(Service::query()->where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(0);
 });

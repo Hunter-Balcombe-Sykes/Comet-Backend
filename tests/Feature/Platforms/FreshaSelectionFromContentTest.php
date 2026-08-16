@@ -1,40 +1,46 @@
 <?php
 
-// Slice 7 Task 11 (spec D3) — the CHARACTERISATION ORACLE for moving
-// `payload.selection` off `site.services`.
+// Slice 7 Task 11 (spec D3 + owner ruling D3a, 2026-08-16) — the Fresha
+// `payload.selection` blob composed from content.* instead of site.services.
 //
 // D3 keeps the blob on the public wire and changes only where it is composed
-// FROM. That makes byte-equality the acceptance criterion, and byte-equality
-// needs an oracle: this file snapshots `FreshaServiceProjector::compose()`'s
-// EXACT output for each of the four behaviours the cutover must carry across,
-// so a future content.*-backed compose() can be diffed against a recorded
-// fact rather than against someone's memory of one.
+// FROM, so this file's job is to pin the composed output EXACTLY — key order
+// included, as encoded JSON, because the stored blob ships to the CDN as JSON
+// and a reordered object is a diff to anyone byte-comparing it.
 //
-// Every expectation below describes TODAY (the `site.services` projection).
-// The cutover flips exactly one of them — `composes NOTHING once the legacy
-// rows are truncated` — and must leave the other five byte-identical. If a
-// cutover changes any other expectation here, it is a public wire change on a
-// booking surface and needs its own manifest entry, not a test edit.
+// Three of the four behaviours the legacy projection carried survive verbatim
+// and are asserted below against content.* fixtures:
+//   • `deleted_origin='user'` suppression → content.items.removed_at, which
+//     ProjectionWriter never clears, so a later scrape cannot resurrect it;
+//   • `deleted_origin='sync'` restore-on-return → content.source_items.removed_at,
+//     which IS cleared on reappearance;
+//   • first-occurrence dedup → the vendor's menu order, fixed in place.
 //
-// KNOWN BLOCKER, recorded here because this file is where it bites (full
-// write-up in the task report): an owner's edited PRICE has no representation
-// in `content.*`. `content.offers` is a set-union COLLECTION, and
-// FacetRegistry excludes collections from `content.manual_overrides` by
-// design ("no single value to override"). The `serializes the owner's edited
-// version` case below therefore cannot be reproduced from content.* as the
-// schema stands — `price` / `priceValue` would silently revert to the
-// vendor's numbers on the public booking blob.
+// The fourth — `is_manual`, the owner edit that detached a service from the
+// sync — is RETIRED by D3a. An owner's edited PRICE has no representation in
+// content.* (content.offers is a set-union collection; FacetRegistry excludes
+// collections from content.manual_overrides by design), all 61 live rows
+// carried is_manual = false, and none carried an owner price. The
+// 'a re-sync now moves the price' case below asserts the NEW behaviour rather
+// than deleting the old one. Title/description/duration overrides are
+// unaffected — those are singleton facets and keep working.
+//
+// The read is FreshaServiceItems (`kind = 'connection'`), NEVER
+// ManualServiceItems (`kind = 'manual'`): the two-surface rule is pinned in
+// both directions by tests/Feature/Content/ServiceTwoSurfaceTest.php, and the
+// last case here is this file's own guard on the same wall.
 
-use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualServiceItems;
 use App\Services\Platforms\FreshaServiceProjector;
+use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    setupServicesTable();
-    shimPgAdvisoryLockForSqlite();
+    setupContentTables();
 });
 
 /**
@@ -57,184 +63,255 @@ function fsfcRaw(string $id, string $name, ?string $category = null, mixed $pric
     ];
 }
 
-/** The one projected row for a serviceId, trashed rows included. */
-function fsfcRow(User $user, string $serviceId): Service
+/** The user's single `kind = 'connection'` content source — the Fresha lane. */
+function fsfcSource(string $userId): string
 {
-    return Service::withTrashed()
-        ->where('user_id', $user->id)
-        ->where('source', 'fresha')
-        ->where('external_id', $serviceId)
-        ->firstOrFail();
+    $id = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $id, 'user_id' => $userId, 'kind' => 'connection', 'connection_id' => null,
+        'label' => 'Fresha', 'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return $id;
 }
 
-it('composes the recorded oracle blob from a two-service scrape', function () {
+/**
+ * Land one Fresha service into content.* the way the ingest connector +
+ * ProjectionWriter would. `record_key` carries the vendor serviceId verbatim,
+ * which is what FreshaServiceItems reads back out as `serviceId`.
+ */
+function fsfcLand(string $userId, string $sourceId, string $serviceId, string $name, ?int $amountMinor = 5000, ?int $seconds = 2700, ?string $category = 'Hair'): string
+{
+    $itemId = addItem($userId, 'service', $name);
+    $now = now();
+
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => "fresha:store:{$serviceId}", 'record_key' => $serviceId,
+        'item_id' => $itemId, 'kind' => 'service', 'projector_version' => 1,
+        'first_seen_at' => $now, 'last_seen_at' => $now,
+    ]);
+
+    DB::table('content.offers')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'channel' => 'fresha', 'qualifier' => 'exact', 'amount_minor' => $amountMinor,
+        // Bare '$' is what Fresha emits — `currency` stays null rather than
+        // guessing AUD, matching the ingest projector's never-fabricate rule.
+        'currency' => null, 'updated_at' => $now,
+    ]);
+
+    if ($seconds !== null) {
+        DB::table('content.f_duration')->insert([
+            'item_id' => $itemId, 'source_id' => $sourceId, 'seconds' => $seconds, 'updated_at' => $now,
+        ]);
+    }
+
+    if ($category !== null) {
+        $collectionId = (string) Str::uuid();
+        DB::table('content.collections')->insert([
+            'id' => $collectionId, 'user_id' => $userId, 'parent_id' => null,
+            'label' => $category, 'kind' => 'service_category', 'external_ref' => $serviceId.'-cat',
+            'position' => 0, 'is_user_created' => 0, 'created_at' => $now, 'updated_at' => $now,
+        ]);
+        DB::table('content.collection_items')->insert([
+            'collection_id' => $collectionId, 'item_id' => $itemId,
+            'source_id' => $sourceId, 'position' => 0,
+        ]);
+    }
+
+    return $itemId;
+}
+
+/** The connector's own record of "this service is no longer on the menu". */
+function fsfcMarkAbsent(string $itemId): void
+{
+    DB::table('content.source_items')->where('item_id', $itemId)->update(['removed_at' => now()]);
+}
+
+/** The connector's record of "it came back" — cleared on reappearance, by design. */
+function fsfcMarkPresent(string $itemId): void
+{
+    DB::table('content.source_items')->where('item_id', $itemId)->update(['removed_at' => null]);
+}
+
+it('composes the blob from content.*, in the vendor menu order the raw scrape fixes', function () {
     $user = createTenant('fsfc1');
-    $raw = [fsfcRaw('s:1', 'Haircut', 'Hair', 65, '1h 15min'), fsfcRaw('s:2', 'Beard Trim', 'Hair', 27.5, '30min')];
+    $source = fsfcSource($user->id);
+    fsfcLand($user->id, $source, 's:1', 'Haircut', 6500, 4500, 'Hair');
+    fsfcLand($user->id, $source, 's:2', 'Beard Trim', 2750, 1800, 'Hair');
 
-    app(FreshaServiceProjector::class)->sync($user, $raw);
+    // The raw scrape supplies ORDER only — s:2 first here, and the composed
+    // blob follows it rather than content.*'s own first_seen_at ordering.
+    $raw = [fsfcRaw('s:2', 'Beard Trim'), fsfcRaw('s:1', 'Haircut')];
 
-    // THE ORACLE. A synced row contributes its raw entry VERBATIM — same keys,
-    // same key ORDER, same values, including Fresha's own 'A$65' display
-    // string and the 'AUD' currency code the scrape carried. Pinned as encoded
-    // JSON rather than a loose array so key order counts: the stored blob is
-    // shipped to the CDN as JSON and a reordered object is a diff to anyone
-    // byte-comparing it.
     expect(json_encode(app(FreshaServiceProjector::class)->compose($user, $raw)))->toBe(
         '{"services":['
-        .'{"serviceId":"s:1","name":"Haircut","duration":"1h 15min","description":null,"price":"A$65","priceValue":65,"currency":"AUD","category":"Hair","hasVariants":false},'
-        .'{"serviceId":"s:2","name":"Beard Trim","duration":"30min","description":null,"price":"A$27.5","priceValue":27.5,"currency":"AUD","category":"Hair","hasVariants":false}'
+        .'{"name":"Beard Trim","price":"$27.50","category":"Hair","currency":null,"duration":"30min","serviceId":"s:2","priceValue":27.5,"description":null,"hasVariants":false},'
+        .'{"name":"Haircut","price":"$65","category":"Hair","currency":null,"duration":"1h 15min","serviceId":"s:1","priceValue":65,"description":null,"hasVariants":false}'
         .'],"hiddenServiceIds":[]}'
     );
 });
 
-it('composes NOTHING once the legacy rows are truncated', function () {
+it('composes nothing when content.* holds no services, whatever the stored scrape says', function () {
     $user = createTenant('fsfc2');
-    $raw = [fsfcRaw('s:1', 'Haircut', 'Hair', 65)];
-    app(FreshaServiceProjector::class)->sync($user, $raw);
+    fsfcSource($user->id);
 
-    DB::connection('pgsql')->table('site.services')->delete();
-
-    // This is the ONE expectation the cutover flips. compose() reads
-    // site.services for existence, so with the table emptied every serviceId
-    // reads as "suppressed or deleted" and drops out of the blob. After the
-    // cutover this must return the oracle above instead, with content.* rows
-    // standing in for the truncated ones.
-    expect(app(FreshaServiceProjector::class)->compose($user, $raw))
+    // The blob is no longer self-sustaining: a populated payload.raw with an
+    // empty pool renders an empty menu. That is 3b's documented deploy window
+    // (an existing connection shows nothing until its connector has run),
+    // reaching the public blob now that it reads the same lane.
+    expect(app(FreshaServiceProjector::class)->compose($user, [fsfcRaw('s:1', 'Haircut')]))
         ->toBe(['services' => [], 'hiddenServiceIds' => []]);
 });
 
-it('serializes the owner-edited version and never lets a later sync overwrite it', function () {
+it('sync writes nothing and returns the deduped raw beside the composed blob', function () {
     $user = createTenant('fsfc3');
-    $projector = app(FreshaServiceProjector::class);
-    $raw = [fsfcRaw('s:1', 'Haircut', 'Hair', 65), fsfcRaw('s:2', 'Trim', 'Hair', 20)];
-    $projector->sync($user, $raw);
+    $source = fsfcSource($user->id);
+    fsfcLand($user->id, $source, 's:1', 'Haircut', 6500);
 
-    // An owner edit detaches the row from the sync (is_manual). The API path
-    // that sets this is covered next door in FreshaServiceProjectionTest; here
-    // the state is set directly so the assertion is about compose()'s contract
-    // and nothing else.
-    fsfcRow($user, 's:1')->forceFill(['title' => 'Signature Haircut', 'price_cents' => 8000, 'is_manual' => true])->save();
+    $before = DB::table('content.items')->count();
+
+    $result = app(FreshaServiceProjector::class)->sync($user, [
+        fsfcRaw('s:1', 'Haircut', 'Hair'),
+        fsfcRaw('s:1', 'Haircut', 'Packages'),
+    ]);
+
+    // D3a: no rows, no advisory lock, no transaction — sync() is a read that
+    // happens to also hand back the deduped scrape for payload.raw.
+    expect(DB::table('content.items')->count())->toBe($before);
+    expect(array_column($result['raw'], 'serviceId'))->toBe(['s:1']);
+    expect(array_column($result['services'], 'serviceId'))->toBe(['s:1']);
+});
+
+it('moves the price on a re-sync — owner price edits are retired (D3a)', function () {
+    $user = createTenant('fsfc4');
+    $source = fsfcSource($user->id);
+    $itemId = fsfcLand($user->id, $source, 's:1', 'Haircut', 6500);
+    $raw = [fsfcRaw('s:1', 'Haircut')];
+    $projector = app(FreshaServiceProjector::class);
+
+    expect($projector->compose($user, $raw)['services'][0]['price'])->toBe('$65');
+
+    // The connector re-prices the service. Under the legacy projection an owner
+    // edit (is_manual) would have frozen this at the owner's number; the blob
+    // now always speaks the vendor's, which is what makes it agree with the
+    // dashboard (FreshaSelectionResource has read this same lane since 3b).
+    DB::table('content.offers')->where('item_id', $itemId)->update(['amount_minor' => 8000]);
 
     $composed = $projector->compose($user, $raw);
-
-    // A DETACHED row contributes the SERIALIZED owner version — nine keys in
-    // serialize()'s own order, the price re-rendered from the owner's cents
-    // through formatPrice(), the currency read off the row's column. This is
-    // the case content.* cannot reproduce today: `price` and `priceValue` are
-    // owner-authored numbers with no overridable home (see the file header).
-    expect($composed['services'][0])->toBe([
-        'serviceId' => 's:1',
-        'name' => 'Signature Haircut',
-        'duration' => '45min',
-        'description' => null,
-        'price' => 'A$80',
-        'priceValue' => 80.0,
-        'currency' => 'AUD',
-        'category' => 'Hair',
-        'hasVariants' => false,
-    ]);
-    // ...while the untouched sibling still rides through verbatim.
-    expect($composed['services'][1])->toBe($raw[1]);
-
-    // A later scrape at a NEW price must not touch the detached row, and the
-    // blob must keep serving the owner's numbers.
-    $projector->sync($user, [fsfcRaw('s:1', 'Haircut', 'Hair', 70), fsfcRaw('s:2', 'Trim', 'Hair', 22)]);
-
-    expect(fsfcRow($user, 's:1')->price_cents)->toBe(8000);
-    expect(fsfcRow($user, 's:2')->price_cents)->toBe(2200);
-    expect($projector->compose($user, $raw)['services'][0]['price'])->toBe('A$80');
+    expect($composed['services'][0]['price'])->toBe('$80');
+    expect($composed['services'][0]['priceValue'])->toBe(80.0);
 });
 
-it('suppresses an owner-deleted service and never re-creates it on a later sync', function () {
-    $user = createTenant('fsfc4');
-    $projector = app(FreshaServiceProjector::class);
-    $raw = [fsfcRaw('s:1', 'Haircut', 'Hair', 65), fsfcRaw('s:2', 'Trim', 'Hair', 20)];
-    $projector->sync($user, $raw);
-
-    // The owner's delete — deleted_origin='user' is the suppression marker.
-    $row = fsfcRow($user, 's:1');
-    $row->deleted_origin = 'user';
-    $row->saveQuietly();
-    $row->delete();
-
-    expect(array_column($projector->compose($user, $raw)['services'], 'serviceId'))->toBe(['s:2']);
-
-    // The scrape still offers s:1. It must stay gone — from the row store AND
-    // from the blob. (Post-cutover this is content.items.removed_at, which
-    // ProjectionWriter never clears on reappearance. NEVER
-    // source_items.removed_at: that IS cleared on reappearance and would
-    // resurrect a service its owner deleted.)
-    $projector->sync($user, $raw);
-
-    expect(Service::query()->where('user_id', $user->id)->where('external_id', 's:1')->exists())->toBeFalse();
-    expect(array_column($projector->compose($user, $raw)['services'], 'serviceId'))->toBe(['s:2']);
-});
-
-it('soft-deletes a departed service with sync origin and restores it when it returns', function () {
+it('suppresses an owner-deleted service and a later scrape cannot bring it back', function () {
     $user = createTenant('fsfc5');
+    $source = fsfcSource($user->id);
+    $deleted = fsfcLand($user->id, $source, 's:1', 'Haircut', 6500);
+    fsfcLand($user->id, $source, 's:2', 'Trim', 2000);
+    $raw = [fsfcRaw('s:1', 'Haircut'), fsfcRaw('s:2', 'Trim')];
     $projector = app(FreshaServiceProjector::class);
-    $both = [fsfcRaw('s:1', 'Haircut', 'Hair', 65), fsfcRaw('s:2', 'Trim', 'Hair', 20)];
-    $projector->sync($user, $both);
 
-    // s:2 vanishes from Fresha. Connector ABSENCE, not an owner act — hence
-    // deleted_origin='sync' (post-cutover: content.source_items.removed_at).
-    $projector->sync($user, [$both[0]]);
+    // The owner's delete — content.items.removed_at, NEVER
+    // source_items.removed_at, which is cleared on reappearance and would
+    // resurrect a service its owner deleted.
+    DB::table('content.items')->where('id', $deleted)->update(['removed_at' => now()]);
 
-    expect(fsfcRow($user, 's:2')->trashed())->toBeTrue();
-    expect(fsfcRow($user, 's:2')->deleted_origin)->toBe('sync');
-    expect(array_column($projector->compose($user, $both)['services'], 'serviceId'))->toBe(['s:1']);
+    expect(array_column($projector->compose($user, $raw)['services'], 'serviceId'))->toBe(['s:2']);
 
-    // ...and comes back, at a new price. Absence-driven removal is REVERSIBLE;
-    // that is the whole difference from the owner-delete case above.
-    $projector->sync($user, [$both[0], fsfcRaw('s:2', 'Trim', 'Hair', 25)]);
+    // The scrape still offers s:1, and the connector still sees it present —
+    // the suppression holds because it is recorded on the item, not the
+    // source_item.
+    fsfcMarkPresent($deleted);
+    expect(array_column($projector->sync($user, $raw)['services'], 'serviceId'))->toBe(['s:2']);
+});
 
-    expect(fsfcRow($user, 's:2')->trashed())->toBeFalse();
-    expect(fsfcRow($user, 's:2')->deleted_origin)->toBeNull();
-    expect(fsfcRow($user, 's:2')->price_cents)->toBe(2500);
-    expect(array_column($projector->compose($user, $both)['services'], 'serviceId'))->toBe(['s:1', 's:2']);
+it('drops a departed service and restores it when it returns', function () {
+    $user = createTenant('fsfc6');
+    $source = fsfcSource($user->id);
+    fsfcLand($user->id, $source, 's:1', 'Haircut', 6500);
+    $departing = fsfcLand($user->id, $source, 's:2', 'Trim', 2000);
+    $raw = [fsfcRaw('s:1', 'Haircut'), fsfcRaw('s:2', 'Trim')];
+    $projector = app(FreshaServiceProjector::class);
+
+    // s:2 vanishes from Fresha — connector ABSENCE, not an owner act.
+    fsfcMarkAbsent($departing);
+    expect(array_column($projector->compose($user, $raw)['services'], 'serviceId'))->toBe(['s:1']);
+
+    // ...and comes back. Absence-driven removal is REVERSIBLE; that is the
+    // whole difference from the owner-delete case above.
+    fsfcMarkPresent($departing);
+    DB::table('content.offers')->where('item_id', $departing)->update(['amount_minor' => 2500]);
+
+    $composed = $projector->compose($user, $raw);
+    expect(array_column($composed['services'], 'serviceId'))->toBe(['s:1', 's:2']);
+    expect($composed['services'][1]['price'])->toBe('$25');
 });
 
 it('collapses a serviceId listed under several categories to its first occurrence', function () {
-    $user = createTenant('fsfc6');
-    $projector = app(FreshaServiceProjector::class);
+    $user = createTenant('fsfc7');
+    $source = fsfcSource($user->id);
+    fsfcLand($user->id, $source, 's:1', 'Haircut', 6500, 2700, 'Hair');
+    fsfcLand($user->id, $source, 's:2', 'Trim', 2000, 2700, 'Hair');
 
     // Fresha lists a service once per category it appears in — the same
     // serviceId arrives several times in one scrape.
-    $raw = [
-        fsfcRaw('s:1', 'Haircut', 'Hair', 65),
-        fsfcRaw('s:1', 'Haircut', 'Packages', 65),
-        fsfcRaw('s:2', 'Trim', 'Hair', 20),
-    ];
-    $projector->sync($user, $raw);
+    $composed = app(FreshaServiceProjector::class)->compose($user, [
+        fsfcRaw('s:1', 'Haircut', 'Hair'),
+        fsfcRaw('s:1', 'Haircut', 'Packages'),
+        fsfcRaw('s:2', 'Trim', 'Hair'),
+    ]);
 
-    $composed = $projector->compose($user, $raw);
-
-    // One entry per serviceId, and the FIRST occurrence's entry is the one
-    // that survives — its 'Hair' category label wins over 'Packages'.
     expect(array_column($composed['services'], 'serviceId'))->toBe(['s:1', 's:2']);
-    expect($composed['services'][0]['category'])->toBe('Hair');
-    expect($composed['services'][0])->toBe($raw[0]);
-
-    // The row store deduped too, while the duplicate LISTING still unions both
-    // labels into the row's memberships.
-    expect(Service::query()->where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(2);
-    expect(fsfcRow($user, 's:1')->categories->pluck('title')->sort()->values()->all())->toBe(['Hair', 'Packages']);
 });
 
-it('carries the hidden list on the blob, derived from the projections', function () {
-    $user = createTenant('fsfc7');
-    $projector = app(FreshaServiceProjector::class);
-    $raw = [fsfcRaw('s:1', 'Haircut', 'Hair', 65), fsfcRaw('s:2', 'Trim', 'Hair', 20)];
-    $projector->sync($user, $raw);
+it('appends a live service the stored scrape has not caught up with', function () {
+    $user = createTenant('fsfc8');
+    $source = fsfcSource($user->id);
+    fsfcLand($user->id, $source, 's:1', 'Haircut', 6500);
+    fsfcLand($user->id, $source, 's:2', 'New Service', 3000);
 
-    fsfcRow($user, 's:2')->forceFill(['is_active' => false])->save();
+    // content.* is the authority on WHICH services exist; payload.raw only
+    // orders the ones it knows. A service the connector landed since the last
+    // refresh appears at the end rather than staying invisible until the next
+    // scrape rewrites the blob.
+    expect(array_column(
+        app(FreshaServiceProjector::class)->compose($user, [fsfcRaw('s:1', 'Haircut')])['services'],
+        'serviceId',
+    ))->toBe(['s:1', 's:2']);
+});
 
-    $composed = $projector->compose($user, $raw);
+it('carries hiddenServiceIds on the blob and prunes ids that are no longer live', function () {
+    $user = createTenant('fsfc9');
+    $source = fsfcSource($user->id);
+    fsfcLand($user->id, $source, 's:1', 'Haircut', 6500);
+    $gone = fsfcLand($user->id, $source, 's:2', 'Trim', 2000);
+    $raw = [fsfcRaw('s:1', 'Haircut'), fsfcRaw('s:2', 'Trim')];
 
-    // hiddenServiceIds is a SIBLING key: a hidden service still appears in
-    // services[] and the consumer filters. Post-cutover the hidden list has no
-    // content.* home (there is no is_active there) — it has to ride on the
-    // blob, which is where FreshaSelectionResource already reads it from.
+    $composed = app(FreshaServiceProjector::class)->compose($user, $raw, ['s:2']);
+
+    // A sibling key, not a filter: a hidden service still appears in services[]
+    // and the consumer hides it. content.* has no is_active, so the list rides
+    // on the blob — where FreshaSelectionResource already reads it from.
     expect($composed['hiddenServiceIds'])->toBe(['s:2']);
     expect(array_column($composed['services'], 'serviceId'))->toBe(['s:1', 's:2']);
+
+    // Hide it, then delete it: the id must not linger as a dangling entry.
+    DB::table('content.items')->where('id', $gone)->update(['removed_at' => now()]);
+    expect(app(FreshaServiceProjector::class)->compose($user, $raw, ['s:2', 'never-existed'])['hiddenServiceIds'])->toBe([]);
+});
+
+it('keeps the booking blob and the public services section on opposite sides of the two-surface rule', function () {
+    $user = createTenant('fsfc10');
+    $source = fsfcSource($user->id);
+    fsfcLand($user->id, $source, 's:1', 'Haircut', 6500);
+    $raw = [fsfcRaw('s:1', 'Haircut')];
+
+    // The Fresha service reaches the booking blob...
+    expect(array_column(app(FreshaServiceProjector::class)->compose($user, $raw)['services'], 'serviceId'))->toBe(['s:1']);
+
+    // ...and NOT the public services section, which reads kind = 'manual'.
+    // Positive control on the other side: this class must not be able to pass
+    // by returning an empty list for everything.
+    expect(app(ManualServiceItems::class)->publicList($user->id, $user->site))->toBe([]);
+    expect(app(SitepageDataResolverService::class)->buildServicesData($user->site, (string) $user->id)['services'])->toBe([]);
 });
