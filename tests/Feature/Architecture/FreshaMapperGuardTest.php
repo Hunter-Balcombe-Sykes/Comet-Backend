@@ -32,7 +32,20 @@ it('routes no Fresha service through the owner-authored price mapper', function 
     // StaffServiceManagementController.php is a 3b-era caller for staff-
     // created (still owner-authored/manual) services, added since the task
     // brief was written.
+    // ManualMenuWriter.php added by slice 7, after the deliberate look this
+    // guard exists to force. It defines its OWN projectionFor(), delegating to
+    // MenuProjectionMapper — it does not reach the owner-authored service
+    // mapper, so the salon-menu-marked-free trap cannot be reached from it.
+    //
+    // The analogous menu question was asked rather than assumed: menus ARE
+    // scraped, and MenuProjectionMapper::offer() does map 0.0 -> 'free'. It is
+    // safe because offers() SKIPS a null amount (`if ($amount === null)
+    // continue`) instead of coercing it to zero, so an unpriced scraped dish
+    // mints no offer at all. The Fresha trap was the opposite shape: legacy
+    // rows stored a real 0 to mean "unknown". A menu writer that ever starts
+    // defaulting a null price to 0 reintroduces it.
     expect($callers)->toEqualCanonicalizing([
+        'ManualMenuWriter.php',
         'ManualServiceWriter.php',
         'ServiceBackfiller.php',
         'UserServiceController.php',

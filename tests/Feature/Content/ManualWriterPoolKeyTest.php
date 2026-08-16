@@ -3,7 +3,9 @@
 use App\Ingest\Projection\ProjectionWriter;
 use App\Models\Core\Site\Site;
 use App\Services\Content\ContentItemSlugAllocator;
+use App\Services\Content\ManualMenuWriter;
 use App\Services\Content\ManualServiceWriter;
+use App\Services\Platforms\MenuProjectionMapper;
 use App\Site\Pools\PoolSectionProvisioner;
 
 // Slice 7 unit A: the writer's ONLY pool-specific value is the section key it
@@ -30,17 +32,17 @@ it('provisions curation against the pool it was constructed with', function () {
         ->withArgs(fn ($site, $pool) => $pool === 'menus')
         ->andReturn((object) ['id' => '00000000-0000-4000-a000-0000000000bb']);
 
-    $writer = new ManualServiceWriter(
+    $writer = new ManualMenuWriter(
         app(ProjectionWriter::class),
         $sections,
         app(ContentItemSlugAllocator::class),
-        'menus',
+        app(MenuProjectionMapper::class),
     );
 
     $writer->pin(mwpkSite(), '00000000-0000-4000-a000-0000000000cc', 1.0);
 });
 
-it('defaults to services so every existing caller is unchanged', function () {
+it('pins services for the services writer, so every existing caller is unchanged', function () {
     $sections = Mockery::mock(PoolSectionProvisioner::class);
     $sections->shouldReceive('ensure')
         ->once()
