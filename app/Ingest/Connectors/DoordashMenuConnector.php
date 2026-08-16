@@ -68,6 +68,11 @@ class DoordashMenuConnector implements Connector
                 'address' => self::FALLBACK_ADDRESS,
                 'fetchReviews' => false,
             ],
+            // The key categories() reads — see UberEatsMenuConnector for why the
+            // driver needs telling. featured_items is deliberately not listed:
+            // it re-lists items already in the categories, so a payload with
+            // only that is still a menu this connector maps to nothing.
+            'expect' => ['menu_categories'],
         ]);
 
         if (($effect['status'] ?? null) !== 'ok') {

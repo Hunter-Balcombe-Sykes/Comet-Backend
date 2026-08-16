@@ -64,6 +64,9 @@ class SquareMenuConnector implements Connector
         $effect = $io->effect('actor', 'menu', [
             'actor' => (string) config('partna.menu.platforms.square.actor'),
             'input' => ['mode' => 'url', 'url' => $storeUrl, 'freshness' => 'med_cache'],
+            // Both places categories() looks, in the same order — see
+            // UberEatsMenuConnector for why the driver needs telling.
+            'expect' => ['menu.categories', 'categories'],
         ]);
 
         if (($effect['status'] ?? null) !== 'ok') {
