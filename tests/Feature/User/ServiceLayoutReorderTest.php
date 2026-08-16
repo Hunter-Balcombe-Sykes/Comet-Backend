@@ -72,7 +72,12 @@ it('reorders a layout across two categories that each hold a service without a 5
     expect([$serviceA->sort_order, $serviceB->sort_order])->toEqualCanonicalizing([0, 1]);
 });
 
-it('moves a service to a different category and persists the new category_id', function () {
+// Slice 7 Task 12 INVERTED the membership half of this case. reorderLayout()
+// no longer writes site.service_category_assignments at all — the pivot is
+// dropped in Phase 6 and the Fresha lane's categories are content.collections
+// now — so a payload that re-files a service persists ORDER only, and its
+// legacy membership stays exactly where it was.
+it('does NOT persist a re-filed category, and still renumbers sort_order globally', function () {
     $pro = createTenant('svc-layout-move');
 
     $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
@@ -83,7 +88,8 @@ it('moves a service to a different category and persists the new category_id', f
     $moves = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1, 'source' => 'fresha']);
     $resident = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 2, 'source' => 'fresha']);
 
-    // $moves leaves category A for category B, landing after $resident.
+    // $moves is asked to leave category A for category B, landing after
+    // $resident. Only the landing is honoured.
     $response = actingAsUser($pro)->postJson('/api/services/reorder-layout', [
         'categories' => [
             ['id' => $catA->id, 'service_ids' => [$stays->id]],
@@ -94,7 +100,14 @@ it('moves a service to a different category and persists the new category_id', f
     $response->assertOk();
 
     $moves->refresh();
-    expect($moves->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catB->id]);
+    // Membership unmoved: still catA, and catB gained nothing.
+    expect($moves->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catA->id]);
+    expect(DB::table('site.service_category_assignments')->where('service_category_id', $catB->id)->pluck('service_id')->all())
+        ->toBe([(string) $resident->id]);
+
+    // Order IS applied: $moves lands after $resident.
+    $resident->refresh();
+    expect($moves->sort_order)->toBeGreaterThan($resident->sort_order);
 
     // Every active service's sort_order is globally unique post-reorder.
     $sortOrders = Service::query()->where('user_id', $pro->id)->pluck('sort_order');

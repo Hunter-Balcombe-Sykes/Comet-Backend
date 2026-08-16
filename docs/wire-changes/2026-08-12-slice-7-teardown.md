@@ -638,3 +638,60 @@ writer, not here.
 **Guard:** `tests/Feature/PublicSite/PublicMenuRouteRetiredTest.php` — pins the
 404, pins that no `api/public/**/menu` route is registered at all, and pins that
 `site.menus` survived.
+
+## Phase 3 Task 12 — the services residuals (2026-08-16)
+
+Three code sites, one theme: `site.service_category_assignments` and
+`site.service_categories` both DROP in Phase 6, so the last writes to the first
+and the last *listing* read of the second are gone. The Fresha lane was cut over
+first — `FreshaServiceProjector` no longer writes `site.services`, Fresha
+services are `content.*` items under a `content.sources.kind='connection'`
+source, and their categories are `content.collections` of kind
+`service_category` — so both were maintaining a lane nothing reads back.
+
+### `POST /api/services/reorder-layout` and its staff twin
+
+`UserServiceController::reorderLayout()` and
+`StaffServiceManagementController::reorderLayout()` each carried a per-Fresha-
+service replace-set (pluck current → detach the diff → insert the diff) against
+`site.service_category_assignments`, sitting immediately beside the
+`ServiceCollections::reposition()` call that does the real `content.*` work.
+Both are deleted.
+
+**Behaviour change, deliberate:** a payload that re-files a Fresha service into a
+different `site.service_categories` block still returns 200 and still applies
+**order** (`site.services.sort_order`, `site.section_items.sort_key`,
+`content.collections.position`), but the legacy membership row does **not**
+move. Nothing reads that pivot for rendering any more. Validation is unchanged —
+the two 422 id-space guards, the categorised-vs-uncategorised check and the
+per-space coverage checks all still run, so `$membershipsByService` survives as
+validation input only.
+
+Pinned by `tests/Feature/Services/ServiceCategoryAssignmentRetirementTest.php`;
+`tests/Feature/User/ServiceLayoutReorderTest.php`'s "moves a service to a
+different category" case is inverted rather than deleted — it now asserts the
+membership stays put and the order still applies.
+
+### `GET /api/staff/professionals/{id}/service-categories`
+
+**BREAKING for the staff dashboard.** `index()` merged two id spaces —
+`content.collections` **and** `site.service_categories`. Slice 3b handed that
+merge over explicitly ("removing it is not optional cleanup: left in place it
+queries a dropped table"). The legacy half is gone: the list now returns
+`content.collections` rows only, so a professional's Fresha-era categories
+vanish from that staff list.
+
+Everything else in that controller is untouched. `show`, `update`, `destroy`,
+`restore` and `reorder` still resolve a legacy row **by id** — the by-id
+branches, and the seven routes' split across the two staff middleware groups
+(`index`/`show`/`restore` any role, the five write verbs under `staff.admin`),
+are exactly as they were. Only the listing stopped reading the table.
+
+### Residuals for Phase 6, deliberately left
+
+`site.service_category_assignments` is still written by
+`StaffServiceCategoryManagementController::destroyLegacy()` (a raw detach before
+soft-deleting a legacy category) and by `->categories()->sync()` in both
+controllers' legacy `category_id` branches. Both hang off the `Service` /
+`ServiceCategory` models, which Task 27 Step 5 deletes with the tables; removing
+them here would change the legacy branches' behaviour ahead of their retirement.

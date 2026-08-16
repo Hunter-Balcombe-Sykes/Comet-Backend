@@ -450,15 +450,14 @@ class StaffServiceManagementController extends ApiController
      *
      * Both category id spaces are accepted, because the grouped read above
      * emits both: a `site.service_categories` block orders that row's
-     * sort_order and syncs its Fresha memberships (unchanged), a
-     * `content.collections` block is repositioned through
+     * sort_order, a `content.collections` block is repositioned through
      * `ServiceCollections::reposition()`. A block's space also decides which
-     * services may sit in it — a Fresha service cannot hold a collection
-     * membership and an owner-authored one cannot hold a legacy pivot row, so
-     * a mismatch is a 422 rather than a silent membership drop.
+     * services may sit in it — a mismatch is a 422, not a silently accepted
+     * block whose membership the next read contradicts.
      *
-     * MEMBERSHIPS FOR OWNER-AUTHORED SERVICES ARE NOT WRITTEN HERE, only their
-     * ORDER — same stance as `UserServiceController::reorderLayout()`.
+     * NO MEMBERSHIPS ARE WRITTEN HERE, only ORDER — same stance as
+     * `UserServiceController::reorderLayout()`, and since slice 7 Task 12 that
+     * holds for the Fresha half too.
      * `PATCH /services/{id}` (staff) and `PATCH /services/{id}/category`
      * (owner) are the writers of `content.collection_items`; a layout endpoint
      * that also rewrote them would silently re-file a service any time a UI
@@ -601,31 +600,12 @@ class StaffServiceManagementController extends ApiController
                     $collections->reposition($professional->id, array_values(array_unique($orderedCollectionIds)));
                 }
 
-                // Fresha membership sync (replace-set semantics) — unchanged
-                // from the pre-cutover implementation, restricted to the
-                // Fresha subset.
-                foreach ($orderedServiceIds as $serviceId) {
-                    if (! isset($freshaSet[$serviceId])) {
-                        continue;
-                    }
-                    $target = array_values(array_unique($membershipsByService[$serviceId] ?? []));
-                    $current = DB::table('site.service_category_assignments')
-                        ->where('service_id', $serviceId)->pluck('service_category_id')->map(fn ($id) => (string) $id)->all();
-                    $toDetach = array_diff($current, $target);
-                    $toAttach = array_diff($target, $current);
-                    if ($toDetach !== []) {
-                        DB::table('site.service_category_assignments')
-                            ->where('service_id', $serviceId)->whereIn('service_category_id', $toDetach)->delete();
-                    }
-                    foreach ($toAttach as $categoryId) {
-                        DB::table('site.service_category_assignments')->insert([
-                            'service_id' => $serviceId,
-                            'service_category_id' => $categoryId,
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]);
-                    }
-                }
+                // Slice 7 Task 12: the Fresha membership replace-set against
+                // site.service_category_assignments is GONE, exactly as in the
+                // owner twin. The Fresha lane projects into content.* and its
+                // categories are content.collections, so reposition() above is
+                // the whole membership story; the pivot drops in Phase 6.
+                // $membershipsByService survives as validation input only.
 
                 $this->pinManualOrder($site, $writer, $manualRowsById, $orderedServiceIds);
                 app(LegacyServiceSortOrder::class)->renumber($professional->id, $orderedServiceIds);

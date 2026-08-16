@@ -534,12 +534,14 @@ Spec D3: keep the blob, change its source. §19.2 already proved the round-trip 
 **Files:**
 - Modify: `app/Http/Controllers/Api/User/SiteManagement/UserServiceController.php:1121-1134`, `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceManagementController.php:612-625`, `.../StaffServiceCategoryManagementController.php` (`index()`)
 
-- [ ] **Step 1: Failing test** — reorder with a Fresha service writes no `site.service_category_assignments` row.
-- [ ] **Step 2: Run; confirm it fails.**
-- [ ] **Step 3: Delete both hand-maintained assignment-sync blocks.** `collections->reposition()` beside them already does the `content.*` half.
-- [ ] **Step 4: Remove `StaffServiceCategoryManagementController::index()`'s two-id-space merge** — it queries `site.service_categories`, which Phase 6 drops. 3b handed this over explicitly.
-- [ ] **Step 5: Run** `./vendor/bin/pest tests/Feature/Api/`.
-- [ ] **Step 6: Commit.**
+- [x] **Step 1: Failing test** — 5 cases in `tests/Feature/Services/ServiceCategoryAssignmentRetirementTest.php` (`svcAsgnRetire*` helpers): owner and staff reorder-layout each write no pivot row for a newly-filed Fresha service AND leave a pre-existing row untouched when re-filing, plus the staff category index returns collection ids only.
+- [x] **Step 2: Run; confirm it fails.** 5 failed on the right causes — an inserted pivot row, a re-filed pivot row, and the legacy id present in the index.
+- [x] **Step 3: Delete both hand-maintained assignment-sync blocks.** Owner: the loop plus its now-dead `$orderedFreshaServiceIds` accumulator. Staff: the loop. `$membershipsByService` stays on both sides — it is validation input (the categorised-vs-uncategorised and coverage checks), not a write buffer. Both docblocks corrected: NO memberships are written by either twin now.
+- [x] **Step 4: Remove `StaffServiceCategoryManagementController::index()`'s two-id-space merge.** The `->concat($this->legacyCategories(...))` and the now-unreferenced `legacyCategories()` helper are gone. The by-id legacy branches (`show`/`update`/`destroy`/`restore`/`reorder`) and the seven routes' split across the two staff middleware groups are untouched.
+- [x] **Step 5: Run.** Full `./vendor/bin/pest --parallel` 8371 passed / 2 skipped (baseline 8366 + the 5 new). `composer test:pg` 207 passed / 959 assertions against a throwaway `postgres:16`. PHPStan `[OK] No errors`, no baseline entry made unmatched. Pint clean. Two existing cases inverted rather than deleted: `ServiceLayoutReorderTest`'s "moves a service to a different category" and `StaffServiceCategoryCutoverTest`'s "lists BOTH … halves". Wire manifest updated.
+- [x] **Step 6: Commit.**
+
+**Residual pivot writes left standing, deliberately.** `destroyLegacy()`'s raw detach in `StaffServiceCategoryManagementController` and `->categories()->sync()` in both controllers' legacy `category_id` branches still write `site.service_category_assignments`. They hang off the `Service`/`ServiceCategory` models that Task 27 Step 5 deletes with the tables; removing them here would change the legacy branches' behaviour ahead of their retirement. Same for the `belongsToMany` READS both grouped `index()` methods make through those relations.
 
 ### Task 13: Phase 3 gate
 

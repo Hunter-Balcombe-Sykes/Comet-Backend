@@ -911,22 +911,21 @@ class UserServiceController extends ApiController
      *
      * BOTH category id spaces are accepted, because the grouped read emits
      * both (C1): a `site.service_categories` block orders that row's
-     * sort_order and syncs its Fresha memberships, a `content.collections`
-     * block is repositioned through `ServiceCollections::reposition()`. This
+     * sort_order, a `content.collections` block is repositioned through
+     * `ServiceCollections::reposition()`. NO membership is written for either
+     * space — slice 7 Task 12 deleted the legacy pivot replace-set. This
      * mirrors `StaffServiceManagementController::reorderLayout()` method for
      * method — the two surfaces run one approach over one dataset, rather
      * than two implementations that agree until they don't.
      *
-     * A block's id space also decides which services may sit in it: a Fresha
-     * service cannot hold a collection membership and an owner-authored one
-     * cannot hold a legacy pivot row, so a mismatch is a 422 rather than a
-     * silent membership drop. (Pre-C1 a manual id was tolerated in any block
+     * A block's id space also decides which services may sit in it — a
+     * mismatch is a 422, not a silently accepted block whose membership the
+     * next read contradicts. (Pre-C1 a manual id was tolerated in any block
      * because the grouped read gave the frontend nowhere else to put it.
      * C1 gave it its own block, so the tolerance is now the bug.)
      *
-     * MEMBERSHIPS FOR OWNER-AUTHORED SERVICES ARE NOT WRITTEN HERE, only
-     * their ORDER — identical to the staff twin, deliberately.
-     * `PATCH /services/{id}/category` is the writer of
+     * NO MEMBERSHIPS ARE WRITTEN HERE, only ORDER — identical to the staff
+     * twin, deliberately. `PATCH /services/{id}/category` is the writer of
      * `content.collection_items`; a layout endpoint that also rewrote them
      * would silently re-file a service any time a UI round-tripped it
      * through a block of the other kind. See this method's entry in
@@ -1029,13 +1028,13 @@ class UserServiceController extends ApiController
                             abort(422, 'An owner-authored service cannot be filed under a Fresha-synced category.');
                         }
 
-                        // Manual ids never enter FRESHA's membership map
-                        // (site.service_category_assignments), whatever block
-                        // they were placed in — only first-occurrence order
-                        // matters for them here (tracked below). Their own
-                        // content.collection_items memberships are written by
-                        // PATCH /services/{id}/category, not here — same
-                        // stance as the staff twin, see the docblock.
+                        // Manual ids never enter the Fresha membership map,
+                        // whatever block they were placed in — only
+                        // first-occurrence order matters for them here
+                        // (tracked below). Their content.collection_items
+                        // memberships are written by PATCH
+                        // /services/{id}/category, not here — same stance as
+                        // the staff twin, see the docblock.
                         if ($isManual) {
                             $manualIdsSeen[$sid] = true;
 
@@ -1080,10 +1079,9 @@ class UserServiceController extends ApiController
 
                 // Apply category order + service order (both halves,
                 // flattened into ONE first-occurrence traversal — §NEW-C1/I1
-                // review round 2) + Fresha MEMBERSHIPS.
+                // review round 2).
                 $categorySort = 0;
                 $orderedAllServiceIds = [];
-                $orderedFreshaServiceIds = [];
 
                 foreach ($payload['categories'] as $catBlock) {
                     $catId = $catBlock['id'] ?? null;
@@ -1102,9 +1100,6 @@ class UserServiceController extends ApiController
                         if (! in_array($serviceId, $orderedAllServiceIds, true)) {
                             $orderedAllServiceIds[] = $serviceId;
                         }
-                        if (! isset($manualIdSet[$serviceId]) && ! in_array($serviceId, $orderedFreshaServiceIds, true)) {
-                            $orderedFreshaServiceIds[] = $serviceId;
-                        }
                     }
                 }
 
@@ -1112,29 +1107,13 @@ class UserServiceController extends ApiController
                     $collections->reposition($pro->id, array_values(array_unique($orderedCollectionIds)));
                 }
 
-                // Membership sync per FRESHA service (replace-set semantics)
-                // — unchanged from the pre-cutover implementation, restricted
-                // to the Fresha subset (manual ids carry no category concept
-                // at all, per the flattening comment above).
-                foreach ($orderedFreshaServiceIds as $serviceId) {
-                    $target = array_values(array_unique($membershipsByService[$serviceId] ?? []));
-                    $current = DB::table('site.service_category_assignments')
-                        ->where('service_id', $serviceId)->pluck('service_category_id')->map(fn ($id) => (string) $id)->all();
-                    $toDetach = array_diff($current, $target);
-                    $toAttach = array_diff($target, $current);
-                    if ($toDetach !== []) {
-                        DB::table('site.service_category_assignments')
-                            ->where('service_id', $serviceId)->whereIn('service_category_id', $toDetach)->delete();
-                    }
-                    foreach ($toAttach as $categoryId) {
-                        DB::table('site.service_category_assignments')->insert([
-                            'service_id' => $serviceId,
-                            'service_category_id' => $categoryId,
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]);
-                    }
-                }
+                // Slice 7 Task 12: the per-Fresha-service replace-set against
+                // site.service_category_assignments is GONE. The Fresha lane
+                // is projected into content.* now and its categories are
+                // content.collections, so reposition() above is the whole
+                // membership/order story; the pivot is dropped in Phase 6.
+                // $membershipsByService survives only as validation input
+                // (the categorised-vs-uncategorised and coverage checks).
 
                 // MANUAL service order → section_items.sort_key, keyed by
                 // $orderedAllServiceIds' own position (not a recompacted

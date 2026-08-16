@@ -30,9 +30,11 @@ use Illuminate\Support\Facades\Log;
  * `UserServiceCategoryController`. Categories are `content.collections` rows
  * of kind='service_category' now, reached through `ServiceCollections` — the
  * ONE read/write for them — with the untouched legacy
- * `site.service_categories` (Fresha) half still resolvable behind it, exactly
- * as `StaffServiceManagementController` keeps both service id spaces live for
- * the duration of the transition.
+ * `site.service_categories` (Fresha) half still resolvable BY ID behind it,
+ * exactly as `StaffServiceManagementController` keeps both service id spaces
+ * live for the duration of the transition. Slice 7 Task 12 took the legacy
+ * half back out of `index()` only — the by-id branches stay until Phase 6
+ * drops the table under them.
  *
  * The defect this closes was SILENT, which is what made it worse than an
  * error. Task 9 moved the owner's own `/service-categories` routes to
@@ -75,12 +77,11 @@ class StaffServiceCategoryManagementController extends ApiController
         $includeArchived = $request->boolean('include_archived');
         $onlyArchived = $request->boolean('only_archived');
 
-        // Two id spaces, both live during the transition: an owner-authored
-        // category is a content.collections row, a Fresha one is still a
-        // site.service_categories row that its site.services members point at.
-        // Listing only one of them is the same gap Task 9 left open here.
+        // ONE id space. Slice 3b listed a second, `site.service_categories`,
+        // because Fresha services were still filed there; slice 7 cut that lane
+        // over to content.* and Phase 6 DROPs the table, so reading it here
+        // would be a 500 with no owner-visible category behind it.
         $categories = $this->collectionRows($professional, $includeArchived, $onlyArchived)
-            ->concat($this->legacyCategories($professional, $includeArchived, $onlyArchived))
             // mirrors the user-facing cap (config default 200)
             ->take((int) config('partna.limits.pagination.service_categories_max', 200))
             ->values();
@@ -470,20 +471,6 @@ class StaffServiceCategoryManagementController extends ApiController
 
             return $row;
         })->values();
-    }
-
-    /** @return Collection<int, ServiceCategory> */
-    private function legacyCategories(User $professional, bool $includeArchived, bool $onlyArchived): Collection
-    {
-        $query = ServiceCategory::query()->where('user_id', $professional->id);
-
-        if ($onlyArchived) {
-            $query->onlyTrashed();
-        } elseif ($includeArchived) {
-            $query->withTrashed();
-        }
-
-        return $query->orderBy('sort_order')->orderBy('created_at')->get();
     }
 
     /** A legacy (Fresha) category row for this professional, or null — the 404-not-403 owner scope. */
