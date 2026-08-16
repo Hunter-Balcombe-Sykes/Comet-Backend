@@ -936,6 +936,22 @@ return [
         // be re-billed. Kept BELOW the menu:retry-unavailable cadence (15 min) so the
         // scheduled self-heal always sees a clear key on its next tick.
         'blocked_ttl_seconds' => (int) env('PARTNA_MENU_BLOCKED_TTL_SECONDS', 600),
+
+        // Convergence Phase 5 — MenuActorDriver's retry budget on the LEDGERED
+        // ('actor','menu') lane. Separate from the legacy scraper's own constants
+        // because the two lanes have different enclosing jobs.
+        //
+        // Retries are not optional here: these actors scrape WAF-protected pages
+        // and return an empty dataset on a large fraction of runs for a valid,
+        // open store. They also cannot be deferred to the scheduler — EffectLedger
+        // settles the digest, so a later RunSourceJob for the same source finds a
+        // settled row and never re-attempts until the freshness bucket rolls. The
+        // only retries the ledger permits are the ones inside this one call.
+        //
+        // attempts x attempt_timeout MUST stay under RunSourceJob::$timeout, or the
+        // worker is killed mid-billed-run: pinned by HorizonQueueCoverageTest.
+        'actor_attempts' => (int) env('PARTNA_MENU_ACTOR_ATTEMPTS', 4),
+        'actor_attempt_timeout_seconds' => (int) env('PARTNA_MENU_ACTOR_ATTEMPT_TIMEOUT_SECONDS', 60),
     ],
 
     // Unified actions system (2026-07-23 rebuild — fixed 26-action vocabulary,

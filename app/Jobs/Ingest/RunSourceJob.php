@@ -33,7 +33,21 @@ class RunSourceJob implements ShouldQueue
     use InteractsWithQueue;
     use Queueable;
 
-    public int $timeout = 120;
+    /**
+     * 300, raised from 120 for convergence Phase 5. MenuActorDriver retries a
+     * WAF-blocked menu actor up to partna.menu.actor_attempts times at
+     * actor_attempt_timeout_seconds each (4 x 60 = 240s), and those retries
+     * cannot be deferred to SourceScheduler: EffectLedger settles the digest,
+     * so the next scheduled run finds a settled row and never re-attempts
+     * until the freshness bucket rolls.
+     *
+     * Bounded on both sides, pinned by HorizonQueueCoverageTest: it must EXCEED
+     * the menu retry budget, and it must stay under the `redis` connection's
+     * retry_after (360) and supervisor-ingest's own worker timeout, or Redis
+     * re-hands a still-running job to a second worker and double-bills Apify
+     * (JOB-103).
+     */
+    public int $timeout = 300;
 
     public int $tries = 1;
 

@@ -3,6 +3,7 @@
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Jobs\Ingest\RunSourceJob;
 use App\Jobs\Notifications\SendStaffBroadcastEmailsJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
@@ -322,6 +323,40 @@ it('neither Instagram scrape job outruns the scraping lane that consumes it (JOB
     'connect' => fn () => new InstagramConnectJob('u', 'someuser', 'c'),
     'pre-account build' => fn () => new GeneratePreAccountSiteJob('b', 'instagram'),
 ]);
+
+// ── Menu actor retry budget vs the ingest lane (convergence Phase 5) ─────────
+//
+// Same shape as the Instagram pair above, and it exists for the same reason:
+// MenuActorDriver's retry budget is a config lever, and if the enclosing job
+// cannot absorb it the worker is killed mid-billed-run — a paid Apify run with
+// no result and a ledger row nobody settles.
+//
+// Menus need the retries more than Instagram does: these actors scrape
+// WAF-protected pages and return an EMPTY dataset for a valid, open store on a
+// large fraction of runs. And they cannot be deferred to SourceScheduler the
+// way a normal fetch retry is — EffectLedger settles the digest, so the next
+// scheduled run replays the settled row instead of re-attempting. The retries
+// inside one driver call are the only retries the ledger permits.
+it('RunSourceJob can absorb MenuActorDriver’s whole retry budget', function () {
+    $budget = (int) config('partna.menu.actor_attempts')
+        * (int) config('partna.menu.actor_attempt_timeout_seconds');
+
+    expect((new RunSourceJob('source-1'))->timeout)->toBeGreaterThan($budget);
+});
+
+// The other side of the same constraint: raising RunSourceJob's timeout to
+// satisfy the test above must not push it past the lane that consumes it, or
+// Redis re-queues a still-running connector and double-bills Apify (JOB-103).
+// supervisor-ingest's own worker timeout binds here too — a worker timeout
+// below the job's $timeout kills the job first, which is the same failure.
+it('RunSourceJob does not outrun the ingest lane that consumes it (JOB-103)', function () {
+    $job = new RunSourceJob('source-1');
+    $retryAfter = (int) config('queue.connections.redis.retry_after');
+    $supervisorTimeout = (int) config('horizon.defaults.supervisor-ingest.timeout');
+
+    expect($job->timeout)->toBeLessThan($retryAfter)
+        ->and($job->timeout)->toBeLessThanOrEqual($supervisorTimeout);
+});
 
 it('InstagramConnectJob is unique per connection to prevent double-billing Apify (LIFE-1)', function () {
     $job = new InstagramConnectJob('u', 'someuser', 'conn-123');

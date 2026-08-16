@@ -325,8 +325,10 @@ return [
         // so there is no cross-queue priority order to protect, and 'auto' lets
         // Horizon scale workers down to idle between dispatch bursts instead of
         // holding maxProcesses workers alive around the clock. 'redis'
-        // connection's retry_after=360 comfortably exceeds RunSourceJob's own
-        // $timeout=120 (JOB-103). memory=256 matches supervisor-1's tier: a
+        // connection's retry_after=360 still exceeds RunSourceJob's own
+        // $timeout=300 (JOB-103) — margin narrowed by the Phase 5 menu retry
+        // budget, so a further raise on either needs retry_after raised first.
+        // memory=256 matches supervisor-1's tier: a
         // connector run is an HTTP fetch plus regex/JSON parsing and a handful of
         // DB writes — the same rough weight class as that lane's mixed workload,
         // not the video tier.
@@ -334,7 +336,7 @@ return [
             'connection' => 'redis',
             'queue' => ['ingest'],
             'balance' => 'auto',
-            // 1, not 2: a 15-minute dispatcher with 120s jobs has no need of
+            // 1, not 2: a 15-minute dispatcher with 300s jobs has no need of
             // two concurrent workers at pilot scale, and every extra permitted
             // worker is heap this box does not have (see the ceiling note
             // below). Raise it WITH a resize, not before one.
@@ -345,7 +347,12 @@ return [
             // parsing and a few writes — nothing like the video tier.
             'memory' => 192,
             'tries' => 1,
-            'timeout' => 120,
+            // 300, raised from 120 alongside RunSourceJob::$timeout for the menu
+            // actor's retry budget (convergence Phase 5). A worker timeout below
+            // the job's own $timeout would kill the job first, mid-billed-run —
+            // so these two move together. Still under the connection's
+            // retry_after=360, which is the JOB-103 invariant.
+            'timeout' => 300,
             'nice' => 5,
         ],
     ],
