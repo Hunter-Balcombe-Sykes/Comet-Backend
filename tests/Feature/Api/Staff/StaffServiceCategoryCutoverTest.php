@@ -191,9 +191,13 @@ it('emits the owner-facing wire shape for a staff-created category', function ()
         ->assertJsonPath('category.user_id', $pro->id);
 });
 
-// ── index: both id spaces, as the grouped services list already merges them ──
+// ── index: ONE id space since slice 7 Task 12 ───────────────────────────────
+//
+// 3b listed both because Fresha services were still filed into
+// site.service_categories. Slice 7 cut that lane over to content.* and Phase 6
+// DROPs the table, so the merge is gone and index() reads collections only.
 
-it('lists BOTH the content.collections half and the legacy (Fresha) half', function () {
+it('lists the content.collections half ONLY, never the legacy (Fresha) half', function () {
     [$pro] = staffCatTenant();
 
     $collectionId = staffCatCreate(staffCatAdmin(), $pro, 'Owner Cat');
@@ -206,8 +210,11 @@ it('lists BOTH the content.collections half and the legacy (Fresha) half', funct
             ->json('categories')
     );
 
-    expect($rows->pluck('title'))->toContain('Owner Cat')->toContain('Fresha Cat');
-    expect($rows->pluck('id'))->toContain($collectionId)->toContain((string) $legacy->id);
+    // Exact lists, not toContain: the legacy id must be ABSENT, and a
+    // `not->toContain` reads as vacuous here next to an equality that says it.
+    expect($rows->pluck('title')->all())->toBe(['Owner Cat']);
+    expect($rows->pluck('id')->all())->toBe([$collectionId]);
+    expect(DB::table('site.service_categories')->where('id', $legacy->id)->exists())->toBeTrue();
 });
 
 it('filters archived categories out of the content half by default and back in on request', function () {
