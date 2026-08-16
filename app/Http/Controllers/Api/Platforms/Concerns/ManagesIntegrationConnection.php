@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms\Concerns;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
@@ -257,6 +258,68 @@ trait ManagesIntegrationConnection
             'last_refresh_error' => null,
             'consecutive_failures' => 0,
         ], $resourceId, resourceKind: $resourceKind);
+    }
+
+    /**
+     * Convergence Phase 6: the pending-link-card write for a family whose rows
+     * carry BRAND surfaces, so the caller — not platform() — names the surface.
+     *
+     * upsertConnection() cannot serve this: it keys its updateOrCreate on
+     * platform(), which for these families is now only a lock key, and matching
+     * a surface key against the generated `platform` column can never hit
+     * (BuildsAutoSyncFindings::write documents the same trap). Everything else is
+     * kept: FeatureAvailability, the create-vs-update ability, and the connect
+     * bell on a genuine insert.
+     *
+     * @param  array<string,mixed>  $payload
+     */
+    protected function writeBrandCard(User $user, string $surfaceKey, string $resourceId, array $payload): IntegrationConnection
+    {
+        $this->assertPlatformAvailable($user);
+
+        $existing = $user->integrationConnections()
+            ->where('surface_key', $surfaceKey)
+            ->where('resource_id', $resourceId)
+            ->first();
+
+        if ($existing) {
+            $this->authorizeForUser($user, 'update', $existing);
+        } else {
+            $this->authorizeForUser($user, 'create', new IntegrationConnection([
+                'user_id' => $user->id,
+                'platform' => $surfaceKey,
+                'resource_id' => $resourceId,
+            ]));
+        }
+
+        $connection = IntegrationConnection::updateOrCreate(
+            ['user_id' => $user->id, 'surface_key' => $surfaceKey, 'resource_id' => $resourceId],
+            [
+                'payload' => $payload,
+                'is_active' => true,
+                'last_refreshed_at' => null,
+                'last_refresh_status' => 'pending',
+                'last_refresh_error' => null,
+                'consecutive_failures' => 0,
+            ],
+        );
+
+        if ($connection->wasRecentlyCreated) {
+            app(IntegrationNotifier::class)->connected($connection);
+        }
+
+        return $connection;
+    }
+
+    /**
+     * The single-slot resource id for a brand — its brand prefix. Byte-identical
+     * to LinkRouter::brandResourceId(), and it has to be: the two write paths
+     * address the same slot, and a different shape here would let a link routed
+     * from a scrape and the same link pasted into the dashboard occupy two rows.
+     */
+    protected function brandResourceId(string $surfaceKey): string
+    {
+        return LegacyPlatformMap::legacyFor($surfaceKey);
     }
 
     /**

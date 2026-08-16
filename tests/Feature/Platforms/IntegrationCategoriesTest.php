@@ -126,7 +126,10 @@ it('falls back to a branded custom card for an unknown booking URL', function ()
         ->assertJsonPath('status', 'pending')
         ->assertJsonPath('selection.name', 'Calendly');
 
-    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->firstOrFail();
+    // Convergence Phase 6: Calendly has its own catalog surface, so the card is
+    // a calendly.book row — the wire above is unchanged.
+    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->firstOrFail();
+    expect($row->surface_key)->toBe('calendly.book');
     expect($row->payload['provider'])->toBe('custom');
     expect($row->payload['source'])->toBe('manual');
     expect($row->payload['url'])->toBe('https://calendly.com/me');
