@@ -313,15 +313,34 @@ class ManualServiceItems
      * going through the Eloquent model here would reformat the date columns
      * to a different string shape than the rest of the export.
      *
-     * `id` recovers the ORIGINAL site.services.id for a backfilled row
-     * (ServiceBackfiller's coord is `manual:{site.services.id}` — spec: "the
-     * legacy identifier survives site.services' drop in slice 7") rather
-     * than exposing the content.items.id every other consumer uses. A DSAR
-     * is the one artifact where continuity across the cutover matters: a
-     * subject who exports before and after must see the SAME service arrive
-     * under the SAME id, not a silently different one. A post-cutover
-     * create has no legacy id to recover, so it falls back to the item id —
-     * the correct, honest value for a row that never had a site.services row.
+     * `id` is the content.items.id — the same identifier every other consumer
+     * of this row uses.
+     *
+     * It used to recover the ORIGINAL site.services.id for a backfilled row
+     * out of ServiceBackfiller's `manual:{site.services.id}` coord, for
+     * cutover continuity: a subject who exported before and after would see
+     * the same service under the same id. That recovery needed an ORACLE,
+     * because coord SHAPE cannot tell a backfilled coord from a brand-new one
+     * — UserServiceController::store() and StaffServiceManagementController
+     * ::store() both mint `'manual:'.Str::uuid()`, syntactically identical to
+     * `'manual:'.$service->id`. The only ground truth was site.services
+     * itself, and slice 7 drops it.
+     *
+     * Trusting coord shape alone was the one option NOT taken. It would emit
+     * a store()-minted random uuid as a service's identifier — a value that
+     * resolves to no row in any system, disclosed to a subject as if it were
+     * the identifier we hold. Silent, permanent, and growing with every
+     * service created after the cutover. Accuracy in a disclosure payload
+     * (GDPR Art. 5(1)(d)) outranks a continuity promise, so the recovery went
+     * rather than the guarantee behind it.
+     *
+     * What that continuity promise was worth, measured rather than assumed:
+     * production carries no customer data (core.users = 0) and has not taken
+     * slice 7, so NO data subject has ever received a pre-cutover export.
+     * Dev's 21 manual service coords are all backfill-derived. The promise
+     * protected a population of zero. Restoring it later means recording a
+     * `legacy_id` facet from site.services BEFORE the drop — a content.*-side
+     * oracle — not re-reading a dropped table.
      *
      * @return list<array<string, mixed>>
      */
@@ -336,15 +355,14 @@ class ManualServiceItems
 
         $itemIds = $rows->pluck('id')->all();
         $facets = $this->facets($itemIds, $rows->first()->source_id);
-        $legacyIds = $this->legacyIdsFor($itemIds, $userId, $rows->first()->source_id);
         $collections = $this->collectionsFor($userId, $itemIds);
 
-        return $rows->map(function ($row) use ($userId, $facets, $legacyIds, $collections) {
+        return $rows->map(function ($row) use ($userId, $facets, $collections) {
             [$priceCents, $currencyCode] = $this->priceOf($row, $facets);
             $seconds = $facets['durations'][$row->id] ?? null;
 
             return [
-                'id' => $legacyIds[$row->id] ?? (string) $row->id,
+                'id' => (string) $row->id,
                 'user_id' => $userId,
                 'title' => (string) ($row->headline_cache ?? ''),
                 'description' => $facets['descriptions'][$row->id] ?? null,
@@ -375,80 +393,6 @@ class ManualServiceItems
                 ),
             ];
         })->values()->all();
-    }
-
-    /**
-     * The recoverable legacy site.services.id for each item, keyed by
-     * item_id — the coord half of ServiceBackfiller's `manual:{uuid}`
-     * scheme (see exportRows()'s docblock).
-     *
-     * Coord SHAPE alone cannot tell a backfilled row from a brand-new one:
-     * `UserServiceController::store()` mints `'manual:'.Str::uuid()` for a
-     * genuinely new item, which is syntactically identical to
-     * ServiceBackfiller's `'manual:'.$service->id` — both are just
-     * `manual:<uuid>`. The only ground truth for "this uuid IS a real
-     * site.services id" is site.services itself, so every regex-matched
-     * candidate is cross-checked against it below; an unmatched candidate
-     * (a store()-minted coord, whose uuid was never a services row) falls
-     * through to exportRows()'s `?? (string) $row->id` item-id fallback,
-     * same as a row with no manual: coord at all.
-     *
-     * content.source_items is unique on (source_id, coord), NOT on item_id
-     * — an identity merge can in principle land a second manual coord on an
-     * item that already had one. Without a tie-break this would return more
-     * than one legacy id candidate per item and, upstream in exportRows(),
-     * silently duplicate the exported row (the differing coord means a bare
-     * ->distinct() there does not collapse them). Earliest first_seen_at
-     * wins: deterministic, and it names the coord the item was FIRST landed
-     * under, which is the one a real subject would recognise as "the same
-     * service" across the cutover.
-     *
-     * @param  list<string>  $itemIds
-     * @return array<string, string> item_id => legacy site.services.id
-     */
-    private function legacyIdsFor(array $itemIds, string $userId, string $manualSourceId): array
-    {
-        if ($itemIds === []) {
-            return [];
-        }
-
-        $rows = DB::connection('pgsql')->table('content.source_items')
-            ->select(['item_id', 'coord'])
-            ->whereIn('item_id', $itemIds)
-            ->where('source_id', $manualSourceId)
-            ->whereNull('removed_at')
-            ->orderBy('first_seen_at')
-            ->orderBy('id')
-            ->get();
-
-        $candidates = [];
-        foreach ($rows as $row) {
-            // First (earliest) row per item_id wins — later duplicates for
-            // the same item are skipped, not overwritten.
-            if (array_key_exists($row->item_id, $candidates)) {
-                continue;
-            }
-
-            if (preg_match('/^manual:([0-9a-fA-F-]{36})$/', (string) $row->coord, $matches) === 1) {
-                $candidates[$row->item_id] = $matches[1];
-            }
-        }
-
-        if ($candidates === []) {
-            return [];
-        }
-
-        // Ground truth: a candidate uuid is only a real legacy id if a
-        // site.services row for THIS user actually carries it — regardless
-        // of that row's own soft-delete state (it still "exists" as a row).
-        $confirmed = DB::connection('pgsql')->table('site.services')
-            ->where('user_id', $userId)
-            ->whereIn('id', array_values($candidates))
-            ->pluck('id')
-            ->map(fn ($id) => (string) $id)
-            ->flip();
-
-        return array_filter($candidates, fn ($legacyId) => $confirmed->has($legacyId));
     }
 
     /**
