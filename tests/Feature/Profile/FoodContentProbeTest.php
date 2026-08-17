@@ -45,12 +45,14 @@ it('is false for a user with no food content at all', function () {
 
 it('is true when a menu carries items', function () {
     $user = probeUser();
-    $menuId = (string) Str::uuid();
-    DB::connection('pgsql')->table('site.menus')->insert([
-        'id' => $menuId, 'user_id' => $user->id, 'fetch_status' => 'ok',
-    ]);
-    DB::connection('pgsql')->table('site.menu_items')->insert([
-        'id' => (string) Str::uuid(), 'menu_id' => $menuId, 'name' => 'Laksa',
+    // Phase 6: the probe's site.menu_items clause went with the table. A dish
+    // is a content.items row of kind menu_item, which the probe already asked
+    // for alongside it — so this seeds the surviving lane.
+    DB::connection('pgsql')->table('content.items')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $user->id, 'kind' => 'menu_item',
+        'headline_cache' => 'Laksa',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
     ]);
 
     expect(app(FoodContentProbe::class)->existsFor($user))->toBeTrue();

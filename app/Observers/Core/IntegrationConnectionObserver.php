@@ -5,7 +5,6 @@ namespace App\Observers\Core;
 use App\Ingest\SourceProvisioner;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Services\Platforms\EventSlugSync;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
@@ -110,43 +109,13 @@ class IntegrationConnectionObserver
             $this->syncIdentityFromGoogle($connection);
         }
 
-        // Pretty-URL slugs for the events sitepage section (connect + every
-        // daily refresh land here). Best-effort — a failure here must never
-        // break the connection save; the pages app's raw-hex-id fallback still
-        // resolves the item until the next successful sync mints the slug.
-        if (in_array($connection->platform, EventSlugSync::PLATFORMS, true)
-            && ($connection->wasRecentlyCreated || $connection->wasChanged('payload'))) {
-            // Free the slugs of events that dropped OUT of the payload FIRST,
-            // before minting the new ones below. Order matters: a single
-            // payload write that drops one event and adds a DIFFERENT,
-            // identically-named event in the SAME write — the shape of a
-            // recurring weekly/monthly event, where each occurrence has a
-            // distinct link (hence a distinct id) but the same display name —
-            // must free the old occurrence's base slug before the new one is
-            // synced, or ensureCurrent() finds the base still squatted by the
-            // still-live sibling row and permanently mints a `-2` suffix.
-            // Gated on a real payload change ONLY. wasRecentlyCreated is
-            // deliberately not part of this gate — it is a STICKY per-instance
-            // flag Laravel never clears after the insert, so the
-            // create-a-placeholder-then-update-the-same-instance pattern the
-            // connect flows use would silently skip retirement forever. A
-            // genuine create can't retire anything regardless, and for the
-            // right reason: syncChanges() only runs inside performUpdate(), so
-            // wasChanged('payload') is false on a true create and this gate is
-            // never entered. (It would still be safe if it were:
-            // performInsert() never calls syncOriginal(), so on a SYNCHRONOUS
-            // create — no open transaction, see updated()'s note — this
-            // observer's callback fires before syncOriginal() runs,
-            // getOriginal('payload') is still null, and eventIds(null) parses
-            // to [], short-circuiting below; on the deferred/in-transaction
-            // path syncOriginal() has already run by the time the callback
-            // fires, so before == after instead.)
-            if ($connection->wasChanged('payload')) {
-                $this->retireVanishedEventSlugs($connection);
-            }
-
-            $this->syncEventSlugs($connection);
-        }
+        // The event-slug sync/retire block that stood here is GONE (slice 7
+        // Phase 6). It maintained site.item_slugs, whose LAST reader moved to
+        // content.item_slugs in slice 2 Task 9 — events reach the public wire
+        // through `profile.pools.events` and PoolResolver serves their
+        // slug/aliases from the content lane. The block was writing a registry
+        // nothing read; ContentItemSlugAllocator (SLUGGED_KINDS carries
+        // 'event') mints the live slugs off ProjectionWriter instead.
 
         // Ingest source provisioning (plan §4): a connect, a payload write
         // (deferred connects fill the identity keys AFTER the placeholder
@@ -185,161 +154,6 @@ class IntegrationConnectionObserver
         }
 
         app(IdentitySync::class)->applyFromGooglePayload($user, $payload->toArray());
-    }
-
-    /**
-     * Mint/reuse item_slugs for every event carried in this connection's
-     * payload (account row's `upcoming` list, or a standalone/custom row) —
-     * the same `resource_kind === 'event'` branch EventsPlatformController
-     * uses to tell the two row shapes apart (EventsPlatformController.php:318).
-     * Best-effort — a failure here must never break the connection save.
-     */
-    private function syncEventSlugs(IntegrationConnection $connection): void
-    {
-        try {
-            $events = EventSlugSync::extractEvents($connection->resource_kind, $connection->payload);
-            app(EventSlugSync::class)->syncEvents($connection->user_id, $events);
-        } catch (\Throwable $e) {
-            report($e);
-            Log::warning('IntegrationConnectionObserver event-slug sync failed', [
-                'platform_connection_id' => $connection->id,
-                'user_id' => $connection->user_id,
-                'message' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * Free the item_slugs of events this connection USED to carry and no longer
-     * does (an organiser refresh that dropped a finished show, or the owner
-     * hiding one — hiding prunes it from the payload). Without this, a retired
-     * event squats its slug forever: item_slugs_unique_slug is NON-partial, so
-     * next year's identically-named event lands on `-2` permanently.
-     *
-     * An id may be forgotten ONLY when all three hold:
-     *   1. it appears in THIS connection's pre-write payload;
-     *   2. it does NOT appear in this connection's post-write payload;
-     *   3. it does NOT appear in ANY other live connection of this user on an
-     *      events platform — REGARDLESS of is_active.
-     *
-     * (3) is not paranoia. site.item_slugs has no connection column, so the
-     * (user_id, item_type='event') scope spans every event connection the user
-     * owns, and EventsPayload::id() is sha1(link)-derived — the SAME event
-     * genuinely yields the SAME id under two connections (an eventbrite
-     * organiser row and a hand-pasted events-custom row, say). Diffing without
-     * (3) would wipe the siblings' slugs on every refresh. The rule is
-     * deliberately maximally inclusive: keeping a slug that could have been
-     * freed costs one squatted row, freeing one that is still live breaks a
-     * public URL.
-     *
-     * The ORIGINAL resource_kind drives the pre-write parse — extractEvents()
-     * branches on it, so applying the new kind to the old payload can mis-parse
-     * (and silently return zero ids, or the wrong ones).
-     *
-     * Every failure mode here is fail-SAFE: an unreadable/absent original
-     * parses to [] and returns early, so the worst case is a slug that stays
-     * squatted (one wasted row) rather than a live public URL going dead.
-     *
-     * Best-effort — a failure here must never break the connection save.
-     */
-    private function retireVanishedEventSlugs(IntegrationConnection $connection): void
-    {
-        try {
-            $before = EventSlugSync::eventIds(
-                $connection->getOriginal('resource_kind') ?? $connection->resource_kind,
-                $connection->getOriginal('payload'),
-            );
-            if ($before === []) {
-                return;
-            }
-
-            $after = EventSlugSync::eventIds($connection->resource_kind, $connection->payload);
-            $vanished = array_values(array_diff($before, $after));
-            if ($vanished === []) {
-                return;
-            }
-
-            $vanished = array_values(array_diff($vanished, $this->siblingEventIds($connection)));
-            if ($vanished === []) {
-                return;
-            }
-
-            app(EventSlugSync::class)->retireEvents($connection->user_id, $vanished);
-        } catch (\Throwable $e) {
-            report($e);
-            Log::warning('IntegrationConnectionObserver event-slug retirement failed', [
-                'platform_connection_id' => $connection->id,
-                'user_id' => $connection->user_id,
-                'message' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * Every event id still claimed by one of this user's OTHER event
-     * connections. Deliberately unfiltered by is_active — an inactive
-     * connection is hidden from the sitepage, not deleted, and its slugs must
-     * survive so re-activating it doesn't resurrect a dead URL. Soft-deleted
-     * rows ARE excluded (the default SoftDeletes scope): a disconnected
-     * connection has already given its ids up via deleted().
-     *
-     * @return list<string>
-     */
-    private function siblingEventIds(IntegrationConnection $connection): array
-    {
-        $ids = [];
-        $siblings = IntegrationConnection::query()
-            ->where('user_id', $connection->user_id)
-            ->whereIn('platform', EventSlugSync::PLATFORMS)
-            ->where('id', '!=', $connection->id)
-            ->get(['id', 'resource_kind', 'payload']);
-
-        foreach ($siblings as $sibling) {
-            foreach (EventSlugSync::eventIds($sibling->resource_kind, $sibling->payload) as $id) {
-                $ids[] = $id;
-            }
-        }
-
-        return array_values(array_unique($ids));
-    }
-
-    /**
-     * Disconnecting an event connection frees the slugs of every event it
-     * carried, minus any the user's remaining connections still claim (same
-     * sibling rule as retireVanishedEventSlugs). The payload is still populated
-     * on the in-memory model at deleted() time, so no re-read is needed.
-     *
-     * Idempotent — forgetMany() on already-absent keys is a no-op, so a later
-     * force-delete re-firing deleted() is harmless.
-     *
-     * Best-effort — a failure here must never break the disconnect.
-     */
-    private function retireEventSlugsOnDelete(IntegrationConnection $connection): void
-    {
-        if (! in_array($connection->platform, EventSlugSync::PLATFORMS, true)) {
-            return;
-        }
-
-        try {
-            $ids = EventSlugSync::eventIds($connection->resource_kind, $connection->payload);
-            if ($ids === []) {
-                return;
-            }
-
-            $ids = array_values(array_diff($ids, $this->siblingEventIds($connection)));
-            if ($ids === []) {
-                return;
-            }
-
-            app(EventSlugSync::class)->retireEvents($connection->user_id, $ids);
-        } catch (\Throwable $e) {
-            report($e);
-            Log::warning('IntegrationConnectionObserver event-slug delete retirement failed', [
-                'platform_connection_id' => $connection->id,
-                'user_id' => $connection->user_id,
-                'message' => $e->getMessage(),
-            ]);
-        }
     }
 
     /**
@@ -398,7 +212,6 @@ class IntegrationConnectionObserver
         }
 
         $this->cleanupMirroredMedia($connection);
-        $this->retireEventSlugsOnDelete($connection);
         $this->syncIngestSource($connection);
     }
 
@@ -477,12 +290,9 @@ class IntegrationConnectionObserver
 
         $this->syncIngestSource($connection);
 
-        // deleted() HARD-deletes the slug rows (a retired row would still squat
-        // the slug), so a restore has to re-mint them — otherwise the connection
-        // comes back slug-less until its next payload change.
-        if (in_array($connection->platform, EventSlugSync::PLATFORMS, true)) {
-            $this->syncEventSlugs($connection);
-        }
+        // The event-slug re-mint that stood here went with the sync block in
+        // saved() (slice 7 Phase 6) — site.item_slugs has no reader left, and
+        // the content lane re-mints off the projection on the next run.
     }
 
     /**

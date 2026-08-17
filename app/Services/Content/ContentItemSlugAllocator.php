@@ -2,17 +2,16 @@
 
 namespace App\Services\Content;
 
-use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
  * Owns `content.item_slugs`: the per-profile human-readable URL slug registry
- * for content ITEMS, the pool lane's counterpart to
- * {@see ItemSlugAllocator} (which owns `site.item_slugs`
- * for the legacy events/menu lanes).
+ * for content ITEMS. It superseded the legacy `ItemSlugAllocator`
+ * (`site.item_slugs`, the events/menu lanes), retired in slice 7 Phase 6 once
+ * its last reader had moved here.
  *
- * Deliberately a second class rather than a generalisation of that one: the
+ * It was deliberately a second class rather than a generalisation of that one: the
  * two tables key differently and cannot share a query. `site.item_slugs` is
  * keyed `(item_type, item_key)` where item_key is a payload hex id;
  * `content.item_slugs` is keyed `item_id` — a real FK to `content.items`.

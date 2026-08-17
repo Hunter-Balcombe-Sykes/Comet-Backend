@@ -164,7 +164,7 @@ it('mints a content.item_slugs permalink for a pasted single event', function ()
         ->where('user_id', $user->id)->where('item_type', 'event')->count())->toBe(0);
 });
 
-it('mints item_slugs rows for every event in an organiser account payload', function () {
+it('no longer mints legacy item_slugs rows for an organiser account payload', function () {
     setupItemSlugsTable();
     $url = 'https://www.eventbrite.com/o/my-org-456';
     $scraper = Mockery::mock(EventbriteScraper::class);
@@ -182,8 +182,12 @@ it('mints item_slugs rows for every event in an organiser account payload', func
 
     actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $url])->assertOk();
 
+    // Phase 6: site.item_slugs is no longer minted for events. Its last reader
+    // moved to content.item_slugs in slice 2 Task 9 (PoolResolver serves event
+    // slug/aliases from the content lane), so the legacy registry was retired
+    // rather than kept in step with a lane nothing read.
     expect(DB::connection('pgsql')->table('site.item_slugs')
-        ->where('user_id', $user->id)->where('item_type', 'event')->count())->toBe(2);
+        ->where('user_id', $user->id)->where('item_type', 'event')->count())->toBe(0);
 });
 
 it('stores a non-platform link as a custom event', function () {

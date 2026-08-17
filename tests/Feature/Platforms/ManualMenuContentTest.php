@@ -1040,30 +1040,26 @@ it('keeps an owner-edited dish the vendor dropped, and still retires an untouche
 
 it('preserves a manual dish when the last ordering link is removed (clearScrapedContent)', function () {
     $user = mmcUser('mm15');
-    $menu = Menu::create([
-        'user_id' => $user->id, 'content_source' => 'uber-eats',
-        'currency' => 'AUD', 'fetch_status' => 'ok', 'last_fetched_at' => now(),
-    ]);
-    mmcSeedLegacy($menu, ['Mains' => [['name' => 'Scraped Dish', 'base_price' => 10.0]]], 'uber-eats');
-    $mainsId = MenuCategory::query()->where('menu_id', $menu->id)->value('id');
-    MenuItem::create(['menu_id' => $menu->id, 'name' => 'Handmade Dish', 'base_price' => 20.0, 'is_manual' => true])
-        ->categories()->attach($mainsId, ['position' => 1]);
-    MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Specials', 'position' => 5, 'source_platform' => 'manual']);
+
+    // Phase 6: this used to seed site.menu_* and assert those rows survived.
+    // The tables are gone and hasOwnerContent() asks content.* only, so the
+    // same question — "does anything owner-authored survive, and is the menu
+    // therefore kept alive?" — is now asked of the one remaining lane.
+    $menu = mmcSeedScraped(
+        $user,
+        ['Mains' => [['name' => 'Handmade Dish', 'base_price' => 20.0]]],
+        withOrdering: false,
+    );
 
     // No ordering source resolvable → clearScrapedContent path.
     $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->never());
     mmcRunFetch($user);
 
-    // The manual dish + manual category survive; menu kept alive. (The legacy
-    // 'Scraped Dish' row this helper seeds is no longer the scrape's to clear —
-    // Task 7 moved that lane to content.*, and Phase 5 drops the table.)
-    expect(MenuItem::query()->where('name', 'Handmade Dish')->exists())->toBeTrue();
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Specials')->exists())->toBeTrue();
+    // The dish survives and the menu row is kept alive rather than soft-deleted.
+    expect(mmcDishes($user)->has('Handmade Dish'))->toBeTrue();
     $menu->refresh();
     expect($menu->trashed())->toBeFalse();
     expect($menu->content_source)->toBe('manual');
-    // The scraped "Mains" category survived because it still holds the manual dish.
-    expect(MenuCategory::query()->whereKey($mainsId)->exists())->toBeTrue();
 });
 
 // The AUTOMATIC scan reapply (MenuFetchJob → MenuScanApplier, enrichOnly) runs

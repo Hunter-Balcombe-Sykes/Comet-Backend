@@ -38,11 +38,9 @@ dataset('rls_tables', [
     // to the identical shape in 20260724123223; guarded here so the claim stays true.
     'item_slugs' => ['site', 'item_slugs', 'item_slugs_app_backend_all'],
     'menus' => ['site', 'menus',                'menus_app_backend_all'],
-    'menu_categories' => ['site', 'menu_categories',      'menu_categories_app_backend_all'],
-    'menu_items' => ['site', 'menu_items',           'menu_items_app_backend_all'],
     'menu_platform_links' => ['site', 'menu_platform_links',  'menu_platform_links_app_backend_all'],
-    'menu_item_platforms' => ['site', 'menu_item_platforms',  'menu_item_platforms_app_backend_all'],
-    'menu_item_categories' => ['site', 'menu_item_categories', 'menu_item_categories_app_backend_all'],
+    // menu_categories / menu_items / menu_item_platforms / menu_item_categories
+    // dropped in slice 7 Phase 6 — their RLS policies went with the tables.
 ]);
 
 it('has RLS enabled and forced on each table', function (string $schema, string $table, string $_policy) {

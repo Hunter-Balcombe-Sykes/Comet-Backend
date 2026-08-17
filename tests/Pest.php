@@ -19,7 +19,9 @@ use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Services\BotProtection\Providers\FakeProvider;
+use App\Services\Content\ManualMenuWriter;
 use App\Services\Platforms\GenericShopScraper;
+use App\Services\Platforms\MenuProjectionMapper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\Shop\ShopContentWriter;
@@ -2024,57 +2026,91 @@ function seedMenuWithDishes(
         'updated_at' => now()->toDateTimeString(),
     ]);
 
+    // Phase 6: this used to insert site.menu_categories / menu_items /
+    // menu_item_categories / menu_item_platforms and leave callers to run
+    // MenuBackfiller. Those four tables are dropped, so the helper writes the
+    // content lane directly through the SAME writer the live paths use —
+    // ManualMenuWriter + MenuProjectionMapper — which is what the backfiller
+    // produced anyway. site.menus survives and is still seeded above.
+    $writer = app(ManualMenuWriter::class);
+
+    $categoryEntries = [];
     $categoryIds = [];
     foreach (array_values($categories) as $position => $name) {
-        $categoryIds[$name] = (string) Str::uuid();
-        DB::connection('pgsql')->table('site.menu_categories')->insert([
-            'id' => $categoryIds[$name],
-            'menu_id' => $menuId,
-            'name' => $name,
-            'position' => $position,
-            'source_platform' => 'uber-eats',
-            'created_at' => now()->toDateTimeString(),
-            'updated_at' => now()->toDateTimeString(),
-        ]);
+        $categoryEntries[] = ['id' => '', 'name' => $name, 'position' => $position];
+        $categoryIds[$name] = MenuProjectionMapper::categoryRef($name);
     }
 
+    $platformRows = array_map(
+        static fn (string $platform) => (object) [
+            'platform' => $platform,
+            'delivery_price' => 6.5,
+            'delivery_url' => 'https://example.test/'.$platform,
+        ],
+        array_values($platforms),
+    );
+
     foreach (array_values($names) as $position => $name) {
-        $dishId = (string) Str::uuid();
-        DB::connection('pgsql')->table('site.menu_items')->insert([
-            'id' => $dishId,
-            'menu_id' => $menuId,
+        $dish = (object) [
             'name' => $name,
+            'description' => null,
             'base_price' => 5.5,
+            'pickup_price' => null,
+            'delivery_price' => null,
             'currency' => $currency,
-            'is_manual' => 0,
-            'created_at' => now()->addSeconds($position)->toDateTimeString(),
-            'updated_at' => now()->toDateTimeString(),
-        ]);
+            'image_url' => null,
+            'images' => null,
+            'rating' => null,
+            'rating_count' => null,
+            'badges' => null,
+        ];
 
-        foreach ($categoryIds as $categoryId) {
-            DB::connection('pgsql')->table('site.menu_item_categories')->insert([
-                'menu_item_id' => $dishId,
-                'menu_category_id' => $categoryId,
-                'position' => $position,
-                'created_at' => now()->toDateTimeString(),
-                'updated_at' => now()->toDateTimeString(),
-            ]);
-        }
-
-        foreach ($platforms as $platform) {
-            DB::connection('pgsql')->table('site.menu_item_platforms')->insert([
-                'id' => (string) Str::uuid(),
-                'menu_item_id' => $dishId,
-                'platform' => $platform,
-                'delivery_price' => 6.5,
-                'delivery_url' => 'https://example.test/'.$platform.'/'.$dishId,
-                'created_at' => now()->toDateTimeString(),
-                'updated_at' => now()->toDateTimeString(),
-            ]);
-        }
+        $writer->write(
+            $userId,
+            MenuProjectionMapper::coordFor($menuId, $name),
+            $writer->projectionFor($dish, $categoryEntries, $platformRows, (object) ['currency' => $currency]),
+        );
     }
 
     return [$userId, $siteId, $menuId, $categoryIds];
+}
+
+/**
+ * The `order_platform` collection's `content.storefronts` sidecar — the shape
+ * MenuFetchJob::syncOrderPlatforms() writes from a site.menu_platform_links
+ * row. Fixture-only: it is the INPUT to the store-card rendering under test,
+ * and MenuBackfiller (which used to seed it from the same table) retired with
+ * the legacy menu tables in slice 7 Phase 6.
+ */
+function seedOrderPlatformSidecar(
+    string $userId,
+    string $platform,
+    ?string $storeUrl = null,
+    ?string $currency = 'AUD',
+): void {
+    $ref = MenuProjectionMapper::orderPlatformRef($platform);
+
+    $collectionId = DB::connection('pgsql')->table('content.collections')
+        ->where('user_id', $userId)
+        ->where('kind', 'order_platform')
+        ->where('external_ref', $ref)
+        ->value('id');
+
+    if ($collectionId === null) {
+        return;
+    }
+
+    DB::connection('pgsql')->table('content.storefronts')->upsert([[
+        'collection_id' => (string) $collectionId,
+        'provider' => $platform,
+        'url' => $storeUrl,
+        'external_ref' => $ref,
+        'currency' => $currency,
+        'referral_query' => '',
+        'is_individual' => false,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]], ['collection_id'], ['url', 'currency', 'updated_at']);
 }
 
 /**

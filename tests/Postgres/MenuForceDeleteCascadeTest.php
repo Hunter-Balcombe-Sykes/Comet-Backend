@@ -3,27 +3,27 @@
 // Nightwatch #297 / DINT-102 narrowing: the load-bearing half of the fix.
 //
 // MenuObserver used to refuse a hard delete of any Menu that still had live
-// categories. MenuCategory does NOT use SoftDeletes and nothing deletes
-// categories when a Menu is soft-deleted, so categories()->exists() stayed
+// categories. MenuCategory did NOT use SoftDeletes and nothing deleted
+// categories when a Menu was soft-deleted, so categories()->exists() stayed
 // true forever and PurgeSoftDeleted retried the same rows every night at
 // 03:20 UTC, permanently. The guard's premise — that a hard delete could
-// "silently orphan site.menu_categories / site.menu_items rows under a
-// vanished menu_id" — is false: all three children are ON DELETE CASCADE.
+// "silently orphan child rows under a vanished menu_id" — was false: the
+// children are ON DELETE CASCADE.
+//
+// Slice 7 Phase 6 finished the job. site.menu_categories / menu_items /
+// menu_item_categories / menu_item_platforms are DROPPED, so the orphan the
+// guard defended against cannot exist at all and MenuObserver retired with
+// them. What survives is site.menu_platform_links — the menu's one remaining
+// child — and its cascade is still the reason PurgeSoftDeleted can hard-delete
+// a trashed menu without orphaning anything.
 //
 // This can only be asserted here. The default lane is SQLite, where foreign
-// keys are off unless a pragma enables them, so the cascade cannot fire and
-// tests/Feature/Platforms/MenuTest.php can only assert that forceDelete() no
-// longer throws. The cascade IS the reason the guard was safe to narrow, so
-// it needs a real Postgres server to be a real assertion. If this test ever
-// shows children surviving, the FK evidence is wrong and MenuObserver's
-// forceDelete path must be re-guarded.
+// keys are off unless a pragma enables them, so the cascade cannot fire there.
 //
 // Self-provisioned schema, like the rest of tests/Postgres/, from
-// supabase/migrations/20260726000000_baseline_pilot.sql (tables 1707-1829,
-// constraints 3907/3927/3932). The three FKs are verbatim — they ARE the thing
-// under test. The tables are reduced to the columns this test writes: the
-// cascade is a property of the constraints, not of the column list, so
-// carrying all 40-odd columns would add noise without adding assurance.
+// supabase/migrations/20260726000000_baseline_pilot.sql. The FK is verbatim —
+// it IS the thing under test. The tables are reduced to the columns this test
+// writes: the cascade is a property of the constraint, not of the column list.
 
 use App\Models\Core\Site\Menu;
 use Illuminate\Support\Facades\DB;
@@ -37,10 +37,8 @@ beforeEach(function () {
 
     $pg->statement('CREATE SCHEMA IF NOT EXISTS site');
 
-    // Children first — dropping a parent other tables reference needs them gone.
+    // Child first — dropping a parent another table references needs it gone.
     $pg->statement('DROP TABLE IF EXISTS site.menu_platform_links');
-    $pg->statement('DROP TABLE IF EXISTS site.menu_items');
-    $pg->statement('DROP TABLE IF EXISTS site.menu_categories');
     $pg->statement('DROP TABLE IF EXISTS site.menus');
 
     $pg->statement("CREATE TABLE site.menus (
@@ -54,29 +52,6 @@ beforeEach(function () {
         CONSTRAINT menus_fetch_status_check
             CHECK (fetch_status = ANY (ARRAY['pending'::text, 'ok'::text, 'unavailable'::text]))
     )");
-
-    $pg->statement('CREATE TABLE site.menu_categories (
-        id              uuid PRIMARY KEY,
-        menu_id         uuid NOT NULL,
-        name            text NOT NULL,
-        position        integer NOT NULL DEFAULT 0,
-        source_platform text,
-        created_at      timestamptz,
-        updated_at      timestamptz,
-        CONSTRAINT menu_categories_menu_id_fkey
-            FOREIGN KEY (menu_id) REFERENCES site.menus(id) ON DELETE CASCADE
-    )');
-
-    $pg->statement('CREATE TABLE site.menu_items (
-        id         uuid PRIMARY KEY,
-        menu_id    uuid NOT NULL,
-        name       text NOT NULL,
-        is_manual  boolean NOT NULL DEFAULT false,
-        created_at timestamptz,
-        updated_at timestamptz,
-        CONSTRAINT menu_items_menu_id_fkey
-            FOREIGN KEY (menu_id) REFERENCES site.menus(id) ON DELETE CASCADE
-    )');
 
     $pg->statement('CREATE TABLE site.menu_platform_links (
         id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -94,12 +69,10 @@ beforeEach(function () {
 afterEach(function () {
     $pg = DB::connection('pgsql');
     $pg->statement('DROP TABLE IF EXISTS site.menu_platform_links');
-    $pg->statement('DROP TABLE IF EXISTS site.menu_items');
-    $pg->statement('DROP TABLE IF EXISTS site.menu_categories');
     $pg->statement('DROP TABLE IF EXISTS site.menus');
 });
 
-/** A trashed menu with a live category, item and platform link. Returns its id. */
+/** A trashed menu with a live platform link. Returns its id. */
 function seedJammedMenu(): string
 {
     $menuId = (string) Str::uuid();
@@ -116,17 +89,6 @@ function seedJammedMenu(): string
         'deleted_at' => now()->subDays(45),
     ]);
 
-    DB::connection('pgsql')->table('site.menu_categories')->insert([
-        'id' => (string) Str::uuid(), 'menu_id' => $menuId, 'name' => 'Mains',
-        'position' => 0, 'source_platform' => 'uber-eats',
-        'created_at' => now(), 'updated_at' => now(),
-    ]);
-
-    DB::connection('pgsql')->table('site.menu_items')->insert([
-        'id' => (string) Str::uuid(), 'menu_id' => $menuId, 'name' => 'Margherita',
-        'created_at' => now(), 'updated_at' => now(),
-    ]);
-
     DB::connection('pgsql')->table('site.menu_platform_links')->insert([
         'id' => (string) Str::uuid(), 'menu_id' => $menuId, 'platform' => 'uber-eats',
         'store_url' => 'https://www.ubereats.com/store/x', 'status' => 'ok',
@@ -136,33 +98,30 @@ function seedJammedMenu(): string
     return $menuId;
 }
 
-it('force-deletes a menu with live children and Postgres cascades the whole tree away', function () {
+it('force-deletes a trashed menu and Postgres cascades its platform links away', function () {
     $menuId = seedJammedMenu();
 
     $menu = Menu::withTrashed()->findOrFail($menuId);
 
-    // Pre-state: this is precisely what the old guard refused to touch.
-    expect($menu->categories()->exists())->toBeTrue();
+    expect($menu->platformLinks()->exists())->toBeTrue();
 
     $menu->forceDelete();
 
     expect(DB::connection('pgsql')->table('site.menus')->where('id', $menuId)->exists())->toBeFalse()
-        ->and(DB::connection('pgsql')->table('site.menu_categories')->where('menu_id', $menuId)->exists())->toBeFalse()
-        ->and(DB::connection('pgsql')->table('site.menu_items')->where('menu_id', $menuId)->exists())->toBeFalse()
         ->and(DB::connection('pgsql')->table('site.menu_platform_links')->where('menu_id', $menuId)->exists())->toBeFalse();
 });
 
-it('still refuses a soft delete while categories are live, leaving the tree intact', function () {
+it('soft-deletes a menu without touching its platform links', function () {
     $menuId = seedJammedMenu();
     DB::connection('pgsql')->table('site.menus')->where('id', $menuId)->update(['deleted_at' => null]);
 
     $menu = Menu::findOrFail($menuId);
 
-    // The narrowing is to forceDelete ONLY. A soft delete still leaves the
-    // category tree live and reachable under a menu the user cannot see,
-    // which is the state DINT-102 was actually about.
-    expect(fn () => $menu->delete())->toThrow(RuntimeException::class);
+    // No longer guarded: MenuObserver's refusal died with the category table it
+    // protected. A soft delete is an ordinary soft delete, and the links stay
+    // put — they are the menu's bookkeeping, restored with it.
+    $menu->delete();
 
-    expect(DB::connection('pgsql')->table('site.menus')->where('id', $menuId)->whereNull('deleted_at')->exists())->toBeTrue()
-        ->and(DB::connection('pgsql')->table('site.menu_categories')->where('menu_id', $menuId)->exists())->toBeTrue();
+    expect(DB::connection('pgsql')->table('site.menus')->where('id', $menuId)->whereNotNull('deleted_at')->exists())->toBeTrue()
+        ->and(DB::connection('pgsql')->table('site.menu_platform_links')->where('menu_id', $menuId)->exists())->toBeTrue();
 });
