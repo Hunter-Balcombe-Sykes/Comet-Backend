@@ -1,9 +1,13 @@
-# Execute prompt — the six P1s from the programme review (2026-08-17)
+# Execute prompt — the P1s from the programme review (2026-08-17)
+
+> **Status 2026-08-17: PGR-5 is CLOSED (`dd168126b`); five P1s remain. Baseline is
+> GREEN as of `dd168126b` — an earlier draft of this file said it was red.**
 
 Paste everything between the fences into a fresh session.
 
 The audit file is `audits/consolidation/2026-08-17-programme-review/CONSOLIDATED.md`
-(35 findings; this prompt covers the six P1s only). Grouping below is deliberate:
+(35 findings; this prompt covers the P1s only — six originally, five now that
+PGR-5 has shipped). Grouping below is deliberate:
 four of the six are the same defect theme and two are the same command, and
 `fix-flow.md` runs units **sequentially**, so the order changes how much work
 each unit is.
@@ -15,7 +19,9 @@ Rename this session to audit-fix-p1.
 
 Execute the P1 findings in audits/consolidation/2026-08-17-programme-review/CONSOLIDATED.md,
 following scripts/audit/fix-flow.md. Branch audit-fix/programme-review-p1-2026-08-17
-off development. Six findings: PGR-1 … PGR-6.
+off development. FIVE findings remain: PGR-1, PGR-2, PGR-3, PGR-4, PGR-6.
+PGR-5 shipped on 2026-08-17 (`dd168126b`) and is already ticked — Unit C below
+is a SKIP, kept only because two things it left open are still unowned.
 
 Everything in that file was produced by the audit pipeline and adjudicated; the
 review gate then independently re-verified PGR-3 and PGR-6 in the code. Trust
@@ -29,16 +35,20 @@ Work in your OWN git worktree: `git worktree add`, then `cp -a <main>/vendor ./v
 checkout, the app never boots, and you get ~1100 fake failures) and symlink .env.
 Check `git worktree list` first — a peer session was cleaning worktrees up.
 
-⚠️ BASELINE IS RED, AND NOT BY YOUR DOING. `development` currently fails six shop
-contract/golden-master tests from `feature/store-rows-auto-latest`:
-PlatformResourceContractTest ×2, ShopAsyncConnectTest T1/T5, ShopSelectionLockTest
-T16c, IntegrationContractGoldenMasterTest. Every one is `assertExactJson`/golden
-master failing on a single added line, `+ "autoLatest": false` — ShopBrandResource:42
-gained a field without its contracts being updated. Take your baseline, RECORD
-those six, and do not chase them. If your post-fix run shows exactly those six and
-nothing else, you are green. Do not "fix" them by regenerating a golden master:
-updating a contract test asserts the new shape is INTENDED, that field has no wire
-manifest, and it is not yours.
+✅ BASELINE IS GREEN as of `dd168126b` (full suite 8295 passed / 0 failed, PHPStan
+[OK]). An earlier draft of this prompt told you to expect and ignore six failing
+shop contract tests — that was true when written and is NOT true now; they were
+fixed in `47a093abc`. **Take your own baseline anyway, and treat ANY failure as
+yours until proven otherwise.** Do not carry forward a "known red" list from
+anywhere.
+
+(For the record, since the fix is instructive: those six were not the uniform
+one-line change they first appeared to be. Three assert `autoLatest => false` —
+the `addBrand`/connect paths, which mint a store's anchor connection explicitly
+off, because that is what "Sell goes opt-in" means at the wire — and three assert
+`true`, because pre-existing rows carry no flag and `ShopContentReader:187` treats
+absent as ON. A single-sample read of one failure said "false everywhere" and was
+half wrong. Both halves are now pinned.)
 
 IDS. The six source runs used overlapping id spaces — #TEST-1 named four different
 findings, #CFG-1 four more. Ids were renumbered to #PGR-n and each finding records
@@ -94,7 +104,25 @@ UNIT B — ContentRepairEventItemsCommand: PGR-4 + PGR-2  (same command)
   - PGR-2: the existing retirement test asserts removed_at only. Assert the
     invalidation itself.
 
-UNIT C — PGR-5, the auth finding  (STANDALONE — do not bundle)
+UNIT C — PGR-5, the auth finding  ✅ CLOSED 2026-08-17 (`dd168126b`) — SKIP IT
+  Ticked in the audit file. Owner ruled: ship the stop-gap. The handle path now
+  returns null unconditionally — no lookup happens, so the hit-vs-miss timing
+  signal is gone along with the jitter that was masking it. The test that
+  asserted 'resolves a handle to the matching primary email' was pinning the
+  leak as intended, so it was rewritten rather than deleted: it still seeds a
+  real matching user and now proves an exact hit returns null, with a sibling
+  case proving hit and miss are byte-identical.
+
+  TWO THINGS THAT ARE STILL OPEN, so do not read the tick as "done":
+  - It is a BREAKING FRONTEND CHANGE. Logging in by handle no longer works —
+    email only. Prod has zero users so nothing breaks there, but the
+    dashboard/login frontend needs telling, and no wire manifest covers it.
+  - The stop-gap is not the fix. Restoring handle login properly means resolving
+    server-side and never putting the address on the wire: the backend triggers
+    the Supabase OTP/reset and returns only whether it sent. Cross-repo, not
+    done, and unowned.
+
+  Original scope, kept for whoever picks that up:
   - HARD BLOCKER GATE: auth + PII on an unauthenticated public endpoint. Plan,
     present, WAIT for explicit go-ahead. Do not implement on your own judgement.
   - POST /api/public/auth/resolve-identifier takes a handle and returns

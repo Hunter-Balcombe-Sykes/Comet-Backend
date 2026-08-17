@@ -33,15 +33,12 @@ SYMLINKED vendor makes Pest's ->in('Feature') binding resolve to the main
 checkout, the app never boots, and you get ~1100 fake failures) and symlink .env.
 Check `git worktree list` first.
 
-⚠️ BASELINE IS RED AND IT IS NOT YOURS. `development` fails six shop
-contract/golden-master tests from `feature/store-rows-auto-latest`
-(PlatformResourceContractTest ×2, ShopAsyncConnectTest T1/T5,
-ShopSelectionLockTest T16c, IntegrationContractGoldenMasterTest). All six fail on
-one added line, `+ "autoLatest": false` — ShopBrandResource:42 gained a field
-without its exact-JSON contracts being updated. RECORD them at baseline and do
-not chase them. Exactly those six and nothing else afterwards = green. Do not
-regenerate the golden master: that asserts the new shape is intended, the field
-has no wire manifest, and it is not yours.
+✅ BASELINE IS GREEN as of `dd168126b` (full suite 8295 passed / 0 failed, PHPStan
+[OK]). An earlier draft of this prompt told you to expect and ignore six failing
+shop contract tests; that was true when written and is NOT true now — they were
+fixed in `47a093abc`. **Take your own baseline anyway, and treat ANY failure as
+yours until proven otherwise.** Do not carry forward a "known red" list from
+anywhere, including an older copy of this file.
 
 IDS. The six source runs used overlapping id spaces (#TEST-1 named four different
 findings, #CFG-1 four more). Ids are renumbered #PGR-n; each records
