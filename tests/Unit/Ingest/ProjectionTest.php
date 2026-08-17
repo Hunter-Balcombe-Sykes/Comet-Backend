@@ -328,7 +328,8 @@ it('instagram projector emits a reel mp4 as a video frame beside the cover (R7)'
 it('derives TitleRelease from the PRIMARY artist so a combined credit still meets a single credit (W5)', function () {
     expect(\App\Content\Identity\KeyClass::primaryArtist('Tame Impala, JENNIE, Boys Noize'))->toBe('tame impala')
         ->and(\App\Content\Identity\KeyClass::primaryArtist('Flume feat. Toro y Moi'))->toBe('flume')
-        ->and(\App\Content\Identity\KeyClass::primaryArtist('A & B'))->toBe('a')
+        ->and(\App\Content\Identity\KeyClass::primaryArtist('Simon & Garfunkel'))->toBe('simon')
+        ->and(\App\Content\Identity\KeyClass::primaryArtist('Lil Nas X'))->toBe('lil nas x')
         ->and(\App\Content\Identity\KeyClass::primaryArtist('Beyoncé'))->toBe('beyonce');
     $deriver = app(\App\Ingest\Projection\IdentityKeyDeriver::class);
     $keys = collect($deriver->derive('spotify:x', ['kind' => 'track', 'headline' => 'Dracula (Remix)', 'facets' => ['f_authored' => ['creator' => 'Tame Impala, JENNIE'], 'f_link' => ['url' => 'https://open.spotify.com/track/x']]]))

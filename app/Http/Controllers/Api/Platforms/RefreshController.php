@@ -129,10 +129,14 @@ class RefreshController extends ApiController
     private function runIngestSources(string $connectionId): void
     {
         try {
+            // A source that ran in the last 10 minutes is not run again from
+            // a click: the coarse 12s endpoint debounce alone would let a
+            // click loop hammer a paid connector between budget checks.
             $sources = DB::table('ingest.sources')
                 ->where('connection_id', $connectionId)
                 ->whereNull('in_flight_since')
                 ->where('health', '!=', 'dead')
+                ->where(fn ($q) => $q->whereNull('last_run_at')->orWhere('last_run_at', '<', now()->subMinutes(10)))
                 ->get(['id']);
             $scheduler = app(SourceScheduler::class);
             foreach ($sources as $source) {
@@ -142,9 +146,13 @@ class RefreshController extends ApiController
                 }
             }
         } catch (\Illuminate\Database\QueryException $e) {
-            // Same tolerance as IntegrationConnectionObserver's ingest sync: a
-            // test schema without ingest.* must not 500 the legacy refresh.
-            \Illuminate\Support\Facades\Log::debug('refresh.ingest_run_skipped', ['connection_id' => $connectionId, 'message' => $e->getMessage()]);
+            // Only the "no such table" case (a test schema without ingest.*)
+            // is tolerated; anything else is a real failure and propagates.
+            $missingRelation = (string) $e->getCode() === '42P01' || str_contains($e->getMessage(), 'no such table');
+            if (! $missingRelation) {
+                throw $e;
+            }
+            \Illuminate\Support\Facades\Log::debug('refresh.ingest_run_skipped', ['connection_id' => $connectionId]);
         }
     }
 

@@ -43,10 +43,11 @@ final class ConnectionDisplayName
             return self::cleanTitle($name, $brand);
         }
 
+        $isSubreddit = $surfaceKey === 'reddit.profile' && preg_match('~reddit\.com/r/~i', (string) ($payload['url'] ?? '')) === 1;
         foreach (['username', 'handle', 'artist', 'artistName', 'artist_name', 'login', 'organiser', 'slug', 'store'] as $key) {
             $value = self::text($payload[$key] ?? null);
             if ($value !== null && ! str_contains($value, '://')) {
-                return self::prefixed($surfaceKey, $value);
+                return $isSubreddit ? 'r/'.ltrim($value, '@') : self::prefixed($surfaceKey, $value);
             }
         }
 
@@ -61,7 +62,7 @@ final class ConnectionDisplayName
         if ($url !== null) {
             $handle = self::handleFromUrl($surfaceKey, $url);
             if ($handle !== null && ! self::looksOpaque($handle)) {
-                return self::prefixed($surfaceKey, $handle);
+                return $isSubreddit ? 'r/'.$handle : self::prefixed($surfaceKey, $handle);
             }
             $store = self::storeNameFromUrl($surfaceKey, $url);
             if ($store !== null) {
