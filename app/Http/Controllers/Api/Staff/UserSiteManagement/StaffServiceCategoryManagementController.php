@@ -9,14 +9,12 @@ use App\Http\Requests\Api\Staff\UserSite\Services\StaffStoreServiceCategoryReque
 use App\Http\Requests\Api\Staff\UserSite\Services\StaffUpdateServiceCategoryRequest;
 use App\Http\Resources\ServiceCategoryResource;
 use App\Models\Core\Site\Site;
-use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
 use App\Services\Content\ManualServiceWriter;
 use App\Services\Content\ServiceCollections;
 use App\Services\Site\AdvisoryLock;
 use App\Services\Site\AdvisoryLockTimeoutException;
-use App\Services\Site\ReorderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -153,15 +151,10 @@ class StaffServiceCategoryManagementController extends ApiController
             return $this->success(['category' => new ServiceCategoryResource($this->stampOwner($row, $professional))]);
         }
 
-        $legacy = $this->legacyCategory($professional, $serviceCategory, withTrashed: true);
-        if ($legacy === null) {
-            abort(404);
-        }
-        if (! $includeArchived && $legacy->trashed()) {
-            abort(404);
-        }
-
-        return $this->success(['category' => new ServiceCategoryResource($legacy)]);
+        // Services cutover: one id space. A legacy site.service_categories
+        // uuid resolves nowhere (ruling 1) — those rows served only the by-id
+        // fall-backs deleted here and drop with the table.
+        abort(404);
     }
 
     public function update(StaffUpdateServiceCategoryRequest $request, User $professional, string $serviceCategory): JsonResponse
@@ -173,7 +166,7 @@ class StaffServiceCategoryManagementController extends ApiController
         $collections = app(ServiceCollections::class);
         // Live rows only — editing a removed category 404s, as it did before.
         if ($collections->find($professional->id, $serviceCategory) === null) {
-            return $this->updateLegacy($request, $professional, $serviceCategory);
+            abort(404);
         }
 
         $data = $request->validated();
@@ -211,10 +204,7 @@ class StaffServiceCategoryManagementController extends ApiController
         $site = $this->currentSite($professional);
 
         if ($row === null) {
-            $this->destroyLegacy($professional, $serviceCategory);
-            $this->invalidate($professional, $site);
-
-            return $this->success(['deleted' => true]);
+            abort(404);
         }
 
         // Same deliberate change from the legacy path that
@@ -231,17 +221,11 @@ class StaffServiceCategoryManagementController extends ApiController
     }
 
     /**
-     * Both id spaces are renumbered, each dense within its own store and each
-     * preserving the relative order the caller submitted. They are NOT put on
-     * one shared index (unlike StaffServiceManagementController::reorder):
-     * `content.collections.position` and `site.service_categories.sort_order`
-     * are read by index() as two concatenated blocks, never interleaved, so a
-     * shared index would encode an order nothing reads back.
-     *
-     * An id in neither store still 422s, exactly as ReorderService's own
-     * membership check did before the cutover — including a category that
-     * belongs to a DIFFERENT professional, which is what keeps a foreign id
-     * from silently consuming a slot.
+     * ONE id space since the services cutover: content.collections.position,
+     * renumbered dense and preserving the submitted relative order. An
+     * unknown id 422s, exactly as ReorderService's own membership check did
+     * before the cutover — including a category belonging to a DIFFERENT
+     * professional, which is what keeps a foreign id from consuming a slot.
      */
     public function reorder(StaffReorderServiceCategoryRequest $request, User $professional): JsonResponse
     {
@@ -259,18 +243,13 @@ class StaffServiceCategoryManagementController extends ApiController
             ->map(fn (object $row) => (string) $row->id)
             ->all();
         $collectionIdSet = array_flip($collectionIds);
-        $legacyIdSet = array_flip($this->legacyCategoryIds($professional));
 
         $orderedCollectionIds = [];
-        $orderedLegacyIds = [];
         foreach ($ids as $id) {
-            if (isset($collectionIdSet[$id])) {
-                $orderedCollectionIds[] = $id;
-            } elseif (isset($legacyIdSet[$id])) {
-                $orderedLegacyIds[] = $id;
-            } else {
+            if (! isset($collectionIdSet[$id])) {
                 abort(422, 'One or more items are invalid.');
             }
+            $orderedCollectionIds[] = $id;
         }
 
         $lockKey = "service-categories:{$professional->id}";
@@ -284,7 +263,7 @@ class StaffServiceCategoryManagementController extends ApiController
             // could take the key in the gap and apply its WHOLE reorder, so this
             // request committed one store's order against the other's: a
             // half-applied layout, from two individually-correct requests.
-            DB::connection('pgsql')->transaction(function () use ($professional, $collections, $orderedCollectionIds, $orderedLegacyIds, $lockKey): void {
+            DB::connection('pgsql')->transaction(function () use ($professional, $collections, $orderedCollectionIds, $lockKey): void {
                 AdvisoryLock::acquire($lockKey, AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
                 if ($orderedCollectionIds !== []) {
@@ -292,16 +271,6 @@ class StaffServiceCategoryManagementController extends ApiController
                     // ones it was, keeping their relative order, so a partial
                     // list never leaves two rows sharing a position.
                     $collections->reposition($professional->id, $orderedCollectionIds);
-                }
-
-                if ($orderedLegacyIds !== []) {
-                    // renumberLocked(), not reorder(): we already hold the key
-                    // and the transaction, and reorder() would open its own.
-                    app(ReorderService::class)->renumberLocked(
-                        $orderedLegacyIds,
-                        ServiceCategory::query()->where('user_id', $professional->id),
-                        $lockKey,
-                    );
                 }
             });
         } catch (AdvisoryLockTimeoutException) {
@@ -324,17 +293,7 @@ class StaffServiceCategoryManagementController extends ApiController
         $site = $this->currentSite($professional);
 
         if ($row === null) {
-            $legacy = $this->legacyCategory($professional, $serviceCategory, withTrashed: true);
-            if ($legacy === null) {
-                abort(404);
-            }
-
-            // Memberships auto-detach: site.service_category_assignments.service_category_id
-            // is ON DELETE CASCADE (20260721180000_service_multi_category.sql), not SET NULL.
-            $legacy->forceDelete();
-            $this->invalidate($professional, $site);
-
-            return $this->success(['deleted' => true, 'hard' => true]);
+            abort(404);
         }
 
         // Ownership was established by find() above, so the deletes key off
@@ -372,25 +331,7 @@ class StaffServiceCategoryManagementController extends ApiController
         $site = $this->currentSite($professional);
 
         if ($row === null) {
-            $legacy = $this->legacyCategory($professional, $serviceCategory, withTrashed: true);
-            if ($legacy === null) {
-                abort(404);
-            }
-
-            if ($legacy->trashed()) {
-                $legacy->restore();
-
-                $max = ServiceCategory::query()
-                    ->where('user_id', $professional->id)
-                    ->max('sort_order');
-
-                $legacy->sort_order = is_null($max) ? 0 : ((int) $max + 1);
-                $legacy->save();
-            }
-
-            $this->invalidate($professional, $site);
-
-            return $this->success(['restored' => true, 'category' => new ServiceCategoryResource($legacy->fresh())]);
+            abort(404);
         }
 
         // Idempotent, and restored IN PLACE rather than pushed to max+1 —
@@ -407,43 +348,6 @@ class StaffServiceCategoryManagementController extends ApiController
             'restored' => true,
             'category' => new ServiceCategoryResource($this->readBack($collections, $professional, $serviceCategory)),
         ]);
-    }
-
-    /** The legacy (Fresha) rename branch — unchanged behaviour, just reached by explicit lookup instead of route-model binding. */
-    private function updateLegacy(StaffUpdateServiceCategoryRequest $request, User $professional, string $serviceCategory): JsonResponse
-    {
-        $legacy = $this->legacyCategory($professional, $serviceCategory);
-        if ($legacy === null) {
-            abort(404);
-        }
-
-        $legacy->fill($request->validated());
-        $legacy->save();
-
-        $this->invalidate($professional, $this->currentSite($professional));
-
-        return $this->success(['category' => new ServiceCategoryResource($legacy->fresh())]);
-    }
-
-    /** The legacy (Fresha) delete branch: detach members, then soft-delete. */
-    private function destroyLegacy(User $professional, string $serviceCategory): void
-    {
-        $legacy = $this->legacyCategory($professional, $serviceCategory);
-        if ($legacy === null) {
-            abort(404);
-        }
-
-        DB::transaction(function () use ($professional, $legacy) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-layout:{$professional->id}"]);
-
-            // Multi-category: detach members (a service left with zero
-            // memberships is Uncategorised); sort_order untouched.
-            DB::table('site.service_category_assignments')
-                ->where('service_category_id', $legacy->id)
-                ->delete();
-
-            $legacy->delete();
-        });
     }
 
     /**
@@ -471,28 +375,6 @@ class StaffServiceCategoryManagementController extends ApiController
 
             return $row;
         })->values();
-    }
-
-    /** A legacy (Fresha) category row for this professional, or null — the 404-not-403 owner scope. */
-    private function legacyCategory(User $professional, string $serviceCategory, bool $withTrashed = false): ?ServiceCategory
-    {
-        $query = ServiceCategory::query()->where('user_id', $professional->id);
-        if ($withTrashed) {
-            $query->withTrashed();
-        }
-
-        return $query->find($serviceCategory);
-    }
-
-    /** @return list<string> */
-    private function legacyCategoryIds(User $professional): array
-    {
-        return ServiceCategory::query()
-            ->withTrashed()
-            ->where('user_id', $professional->id)
-            ->pluck('id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
     }
 
     /**

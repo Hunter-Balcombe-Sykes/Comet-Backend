@@ -5,7 +5,6 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\PublicSite\SitepageDataResolverService;
-use App\Services\Site\AdvisoryLockTimeoutException;
 use App\Services\Site\ReorderService;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
@@ -352,26 +351,25 @@ it('reorders categories and the OWNER reads back the submitted order', function 
 
 // ── §19.8: both stores, ONE lock scope ──────────────────────────────────────
 
-it('acquires the category lock exactly once for a reorder spanning both stores', function () {
-    // reorder() writes content.collections AND site.service_categories. It used
-    // to do so under two independent scopes — reposition() in its own
-    // transaction, then ReorderService::reorder() opening a second one and
-    // re-taking the same key — leaving a gap a competing writer could take the
-    // key in, applying its whole reorder between this request's two halves.
+it('acquires the category lock exactly once for a reorder', function () {
+    // Was: "...for a reorder spanning both stores". reorder() used to write
+    // content.collections AND site.service_categories under two independent
+    // scopes — reposition() in its own transaction, then
+    // ReorderService::reorder() opening a second one and re-taking the same
+    // key — leaving a gap a competing writer could take the key in. Services
+    // cutover Task 8 removed the second store entirely, so there is one write;
+    // ONE acquisition is still what this asserts, and a re-introduced second
+    // scope would still show up as two.
     //
     // Counting the real `select pg_advisory_xact_lock(hashtext(?))` statements
     // is what distinguishes one scope from two. Asserting the resulting ORDER
-    // cannot: the submitted order comes out right either way whenever nothing
-    // happens to interleave, and comes out right with the lock deleted
-    // altogether, because each store's own two-pass renumber is already
-    // collision-safe. Two acquisitions here is the defect; one is the fix.
+    // cannot: it comes out right with the lock deleted altogether, because the
+    // two-pass renumber is already collision-safe.
     [$pro] = staffCatTenant();
     $staff = staffCatAdmin();
 
     $collectionA = staffCatCreate($staff, $pro, 'Collection A');
     $collectionB = staffCatCreate($staff, $pro, 'Collection B');
-    $legacyA = (string) createServiceCategoryFor($pro, ['title' => 'Legacy A', 'source' => 'fresha', 'sort_order' => 0])->id;
-    $legacyB = (string) createServiceCategoryFor($pro, ['title' => 'Legacy B', 'source' => 'fresha', 'sort_order' => 1])->id;
 
     $acquisitions = [];
     DB::listen(function ($query) use (&$acquisitions) {
@@ -382,53 +380,42 @@ it('acquires the category lock exactly once for a reorder spanning both stores',
 
     actingAsStaff($staff)
         ->postJson("/api/staff/professionals/{$pro->id}/service-categories/reorder", [
-            'ids' => [$collectionB, $collectionA, $legacyB, $legacyA],
+            'ids' => [$collectionB, $collectionA],
         ])
         ->assertOk();
 
     expect($acquisitions)->toBe(["service-categories:{$pro->id}"]);
 
-    // Positive control: the reorder really did write BOTH stores, so the count
-    // above is one-scope-covering-two-writes, not one-write-happening.
-    expect(DB::table('content.collections')->where('id', $collectionB)->value('position'))
-        ->toBe(0)
-        ->and(DB::table('site.service_categories')->where('id', $legacyB)->value('sort_order'))->toBe(0)
-        ->and(DB::table('site.service_categories')->where('id', $legacyA)->value('sort_order'))->toBe(1);
+    // Positive control: the reorder really did write, so the count above is
+    // one-scope-covering-a-write, not one-write-never-happening.
+    expect(DB::table('content.collections')->where('id', $collectionB)->value('position'))->toBe(0)
+        ->and(DB::table('content.collections')->where('id', $collectionA)->value('position'))->toBe(1);
 });
 
-it('rolls the collections half back when the legacy half fails', function () {
-    // The other half of "one scope": one transaction. Under two scopes the
-    // collections write had already committed by the time the legacy half ran,
-    // so a failure there left the layout half-applied.
+it('leaves the collections order untouched when the reorder is rejected', function () {
+    // Was: "rolls the collections half back when the legacy half fails" — the
+    // rollback mattered because a SECOND store's failure could land after the
+    // collections half had already committed under its own scope. Services
+    // cutover Task 8 left one store, so the half-applied layout it guarded
+    // cannot occur. What still matters, and is what this pins, is that the
+    // validation runs BEFORE any write: one bad id and nothing moves.
     [$pro] = staffCatTenant();
     $staff = staffCatAdmin();
 
     $collectionA = staffCatCreate($staff, $pro, 'Collection A');
     $collectionB = staffCatCreate($staff, $pro, 'Collection B');
-    $legacy = (string) createServiceCategoryFor($pro, ['title' => 'Legacy', 'source' => 'fresha', 'sort_order' => 0])->id;
 
     $beforeA = DB::table('content.collections')->where('id', $collectionA)->value('position');
     $beforeB = DB::table('content.collections')->where('id', $collectionB)->value('position');
 
-    // Throw from the legacy half only — the collections half has already run.
-    //
-    // BOTH entry points are stubbed on purpose. If only renumberLocked() were,
-    // re-splitting the controller into two scopes would fail this case with an
-    // unexpected-call 500 — red, but for the wrong reason, proving only that
-    // the method name changed. Stubbing reorder() identically means a re-split
-    // still returns 423, and the case then fails on the assertion that actually
-    // matters: the collections half committed instead of rolling back.
-    $this->mock(ReorderService::class, function ($m) {
-        $m->shouldReceive('renumberLocked')->andThrow(new AdvisoryLockTimeoutException('service-categories:pending'));
-        $m->shouldReceive('reorder')->andThrow(new AdvisoryLockTimeoutException('service-categories:pending'));
-    });
-
     actingAsStaff($staff)
         ->postJson("/api/staff/professionals/{$pro->id}/service-categories/reorder", [
-            'ids' => [$collectionB, $collectionA, $legacy],
+            // Second id is real but belongs to no store — a legacy uuid is
+            // exactly this shape post-cutover.
+            'ids' => [$collectionB, (string) Str::uuid()],
         ])
-        ->assertStatus(423)
-        ->assertJsonPath('message', 'Another change is still saving — please retry in a moment.');
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'One or more items are invalid.');
 
     expect(DB::table('content.collections')->where('id', $collectionA)->value('position'))->toBe($beforeA)
         ->and(DB::table('content.collections')->where('id', $collectionB)->value('position'))->toBe($beforeB);
@@ -582,28 +569,29 @@ it('busts all three cache lanes on hard delete', function () {
 
 // ── the legacy (Fresha) half stays reachable ────────────────────────────────
 
-it('still shows, renames and deletes a legacy site.service_categories row', function () {
+it('no longer shows, renames or deletes a legacy site.service_categories row', function () {
+    // Inverted by services cutover Task 8 (ruling 1): the by-id fall-backs
+    // into site.service_categories are deleted, so a legacy row — which still
+    // EXISTS here, making this a real proof rather than an absent-row 404 —
+    // resolves nowhere and is left untouched.
     [$pro] = staffCatTenant();
     $staff = staffCatAdmin();
     $legacy = createServiceCategoryFor($pro, ['title' => 'Legacy Title', 'source' => 'fresha']);
 
     actingAsStaff($staff)
         ->getJson("/api/staff/professionals/{$pro->id}/service-categories/{$legacy->id}")
-        ->assertOk()
-        ->assertJsonPath('category.id', (string) $legacy->id);
+        ->assertNotFound();
 
     actingAsStaff($staff)
         ->patchJson("/api/staff/professionals/{$pro->id}/service-categories/{$legacy->id}", ['title' => 'Legacy Renamed'])
-        ->assertOk()
-        ->assertJsonPath('category.title', 'Legacy Renamed');
-
-    expect(DB::table('site.service_categories')->where('id', $legacy->id)->value('title'))->toBe('Legacy Renamed');
+        ->assertNotFound();
 
     actingAsStaff($staff)
         ->deleteJson("/api/staff/professionals/{$pro->id}/service-categories/{$legacy->id}")
-        ->assertOk();
+        ->assertNotFound();
 
-    expect(DB::table('site.service_categories')->where('id', $legacy->id)->value('deleted_at'))->not->toBeNull();
+    expect(DB::table('site.service_categories')->where('id', $legacy->id)->value('title'))->toBe('Legacy Title');
+    expect(DB::table('site.service_categories')->where('id', $legacy->id)->value('deleted_at'))->toBeNull();
 });
 
 it('404s a legacy category belonging to a different professional', function () {

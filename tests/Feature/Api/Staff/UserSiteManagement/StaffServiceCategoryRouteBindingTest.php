@@ -14,20 +14,26 @@
 // documents the pre-fix Gate-only workaround this replaces with real coverage.
 
 use App\Models\Core\Staff\PartnaStaff;
+use App\Services\Content\ServiceCollections;
 use Illuminate\Support\Facades\DB;
 
-// Slice 3b Task 11b: the controller now resolves {serviceCategory} through
-// ServiceCollections (content.collections) BEFORE falling back to the legacy
-// site.service_categories row this file exercises, so the content stand-in has
-// to exist or every case below dies on "no such table: content.collections".
-// Fixture only — not one assertion here moved; the legacy branch this file
-// pins still returns exactly what it always did.
+// Slice 3b Task 11b: the controller resolves {serviceCategory} through
+// ServiceCollections (content.collections).
+//
+// Services cutover Task 8: the legacy site.service_categories fall-backs are
+// deleted, so the fixtures below are collections. The subject is unchanged and
+// is not about either store — it is that the scoped binding resolves at all
+// rather than 500ing on User::categories().
 
 beforeEach(function () {
     setupPartnaStaffTable();
     setupServiceCategoriesTable();
     setupIngestTables();
     setupContentTables();
+    // The collections rename/reposition path takes
+    // pg_advisory_xact_lock(hashtext(...)) — the legacy branch it replaced
+    // took none, so this shim is new here.
+    shimPgAdvisoryLockForSqlite();
 
     // staff.audit middleware (RecordStaffAuditEntry) writes here in terminate()
     // on every write request — mirrors StaffOwnedRecordActorGateTest's setup.
@@ -52,25 +58,25 @@ beforeEach(function () {
 it('resolves and returns a category owned by the professional (GET show)', function () {
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('cat-bind-show');
-    $category = createServiceCategoryFor($pro, ['title' => 'Haircuts']);
+    $categoryId = app(ServiceCollections::class)->create($pro->id, 'Haircuts');
 
     actingAsStaff($staff)
-        ->getJson("/api/staff/professionals/{$pro->id}/service-categories/{$category->id}")
+        ->getJson("/api/staff/professionals/{$pro->id}/service-categories/{$categoryId}")
         ->assertOk()
-        ->assertJsonPath('category.id', $category->id);
+        ->assertJsonPath('category.id', $categoryId);
 });
 
 it('updates a category owned by the professional (PATCH update)', function () {
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('cat-bind-update');
-    $category = createServiceCategoryFor($pro, ['title' => 'Old Title']);
+    $categoryId = app(ServiceCollections::class)->create($pro->id, 'Old Title');
 
     actingAsStaff($staff)
-        ->patchJson("/api/staff/professionals/{$pro->id}/service-categories/{$category->id}", ['title' => 'Renamed'])
+        ->patchJson("/api/staff/professionals/{$pro->id}/service-categories/{$categoryId}", ['title' => 'Renamed'])
         ->assertOk()
         ->assertJsonPath('category.title', 'Renamed');
 
-    expect(DB::connection('pgsql')->table('site.service_categories')->where('id', $category->id)->value('title'))
+    expect(DB::connection('pgsql')->table('content.collections')->where('id', $categoryId)->value('label'))
         ->toBe('Renamed');
 });
 
@@ -78,9 +84,9 @@ it('404s a category that belongs to a DIFFERENT professional (scoped-binding ten
     $staff = PartnaStaff::factory()->admin()->create();
     $proA = createTenant('cat-bind-tenant-a');
     $proB = createTenant('cat-bind-tenant-b');
-    $categoryB = createServiceCategoryFor($proB, ['title' => 'Belongs to B']);
+    $categoryB = app(ServiceCollections::class)->create($proB->id, 'Belongs to B');
 
     actingAsStaff($staff)
-        ->getJson("/api/staff/professionals/{$proA->id}/service-categories/{$categoryB->id}")
+        ->getJson("/api/staff/professionals/{$proA->id}/service-categories/{$categoryB}")
         ->assertStatus(404);
 });

@@ -1599,7 +1599,7 @@ The staff twin of Task 3. Same resolution, same override/hidden/removed_at seman
 - Modify: `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceManagementController.php` (`show:244-252`, `update:265-267` + delete `updateLegacy:731-770`, `destroy:361-372`, `forceDestroy:648-657`, `restore:689-700`, delete `legacyService:845-853`)
 - Test: extend `tests/Feature/Services/ServicesCutoverFreshaManagementTest.php` (staff cases, `svcCutMgmt` helpers reused)
 
-- [ ] **Step 1: Failing tests** (mirror Task 3's cases through the staff routes — `actingAsStaff(svcCutMgmtStaffAdmin())` following `ServiceCategoryAssignmentRetirementTest`'s staff idiom; add a `svcCutMgmtStaffAdmin(): PartnaStaff` helper copying `svcAsgnRetireAdmin()`'s shape):
+- [x] **Step 1: Failing tests** (mirror Task 3's cases through the staff routes — `actingAsStaff(svcCutMgmtStaffAdmin())` following `ServiceCategoryAssignmentRetirementTest`'s staff idiom; add a `svcCutMgmtStaffAdmin(): PartnaStaff` helper copying `svcAsgnRetireAdmin()`'s shape):
 
 ```php
 it('staff show resolves a Fresha service by content id', function () {
@@ -1631,16 +1631,16 @@ it('staff forceDestroy on a Fresha content item hard-deletes the item row', func
 });
 ```
 
-- [ ] **Step 2: Run; confirm failures.**
-- [ ] **Step 3: Implement.** Each legacy branch swaps `$this->legacyService(...)` for `app(FreshaServiceItems::class)->findRow($professional->id, $service, $manual->sectionId($professional->site), ...)`:
+- [x] **Step 2: Run; confirm failures.**
+- [x] **Step 3: Implement.** Each legacy branch swaps `$this->legacyService(...)` for `app(FreshaServiceItems::class)->findRow($professional->id, $service, $manual->sectionId($professional->site), ...)`:
   - `show()`: `includeRemoved: true, liveOnly: false`, then the same `include_archived` gate on `$row->removed_at`; respond via `toServiceModel(..., hiddenServiceIds())`.
   - `update()`: replace `return $this->updateLegacy(...)` with `return $this->updateFresha($request, $professional, $service);` — add a private `updateFresha()` mirroring Task 3's user version exactly (staff request class, `$professional` in place of `$pro`, `$this->invalidate($professional, $site, $writer)` as the invalidation call, membership via `$collections->assign($professional->id, ..., null)`). Delete `updateLegacy()`.
   - `destroy()`: Fresha branch = `markRemoved((string) $row->id)` + `app(FreshaServiceProjector::class)->refreshBlob($professional)` + `$this->invalidate(...)`; 404 when `findRow` misses.
   - `forceDestroy()`: the content-item hard-delete block already exists (`:662-669`) — the legacy branch simply routes into it: resolve via `findRow(..., includeRemoved: true, liveOnly: false)`; on miss 404. (One shared path — delete the `$legacy->forceDelete()` branch.)
   - `restore()`: mirror Task 3's restore branch (`clearRemoved` + `refreshBlob` + `invalidate`).
   - Delete `legacyService()`.
-- [ ] **Step 4: Run** the file + `tests/Feature/Api/Staff/` (fix pre-existing legacy-seeded staff cases). Then `composer test:pg`.
-- [ ] **Step 5: Commit**
+- [x] **Step 4: Run** the file + `tests/Feature/Api/Staff/` (fix pre-existing legacy-seeded staff cases). Then `composer test:pg`.
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A && git commit -m "feat(services-cutover): staff service verbs resolve Fresha via content.* — updateLegacy and legacyService removed"
@@ -1656,7 +1656,7 @@ Since 3b, Fresha categories are `content.collections` rows; the legacy `site.ser
 - Modify: `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceCategoryManagementController.php` (`show:156-164`, `update:175-176` + `updateLegacy:413-426`, `destroy:213-218` + `destroyLegacy:429-447`, `reorder:262-274,297-305`, `forceDestroy:326-338`, `restore:374-394`, `legacyCategory:477-485`, `legacyCategoryIds:488-496`)
 - Test: extend `tests/Feature/Services/ServicesCutoverFreshaManagementTest.php`
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```php
 it('a legacy service-category uuid 404s on every staff by-id verb', function () {
@@ -1675,15 +1675,15 @@ it('a legacy service-category uuid 404s on every staff by-id verb', function () 
 
 (These already pass for a random uuid — the teeth are Step 3's deletions plus the existing collection-branch tests staying green: the change is pure branch removal, so the RED here comes from `StaffServiceCategoryCutoverTest`-style pre-existing cases that seed legacy rows and exercise the branches. Invert those cases: a legacy-seeded id now 404s.)
 
-- [ ] **Step 2: Run the directory** to inventory which pre-existing cases exercise the legacy branches:
+- [x] **Step 2: Run the directory** to inventory which pre-existing cases exercise the legacy branches:
 
 ```bash
 ./vendor/bin/pest tests/Feature/Api/Staff/ --filter=Categor
 ```
 
-- [ ] **Step 3: Implement.** In each of `show`/`update`/`destroy`/`forceDestroy`/`restore`, replace the `if ($row === null) { ...legacy... }` block with `abort(404);` (or for `update`, `if ($collections->find(...) === null) { abort(404); }`). In `reorder()`: delete `$legacyIdSet`/`$orderedLegacyIds` and the `ReorderService::renumberLocked()` branch — an id not in `$collectionIdSet` 422s. Delete `updateLegacy()`, `destroyLegacy()`, `legacyCategory()`, `legacyCategoryIds()`, and the now-unused `ReorderService`/`ServiceCategory` imports. The 8 routes and their 3/5 middleware-group split are untouched (spec §3.2).
-- [ ] **Step 4: Run + invert/re-seed the pre-existing legacy-branch cases; list each in the commit body. `composer test:pg`.**
-- [ ] **Step 5: Commit**
+- [x] **Step 3: Implement.** In each of `show`/`update`/`destroy`/`forceDestroy`/`restore`, replace the `if ($row === null) { ...legacy... }` block with `abort(404);` (or for `update`, `if ($collections->find(...) === null) { abort(404); }`). In `reorder()`: delete `$legacyIdSet`/`$orderedLegacyIds` and the `ReorderService::renumberLocked()` branch — an id not in `$collectionIdSet` 422s. Delete `updateLegacy()`, `destroyLegacy()`, `legacyCategory()`, `legacyCategoryIds()`, and the now-unused `ReorderService`/`ServiceCategory` imports. The 8 routes and their 3/5 middleware-group split are untouched (spec §3.2).
+- [x] **Step 4: Run + invert/re-seed the pre-existing legacy-branch cases; list each in the commit body. `composer test:pg`.**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A && git commit -m "feat(services-cutover): staff category by-id verbs single-store — legacy site.service_categories branches deleted"

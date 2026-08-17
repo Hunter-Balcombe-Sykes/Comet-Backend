@@ -221,8 +221,15 @@ it('leaves the category-assignment-only service-layout site untouched, and keeps
     expect($userCategorySource)->not->toContain('AdvisoryLock::acquire("services:');
     expect($staffCategorySource)->not->toContain('AdvisoryLock::acquire("services:');
 
-    // The staff controller is still on the untouched raw service-layout key.
-    expect($staffCategorySource)->toContain('service-layout:');
+    // Services cutover Task 8: the staff twin is off the raw service-layout
+    // key too. It held that key ONLY inside destroyLegacy(), whose whole job
+    // was detaching site.service_category_assignments rows before soft-
+    // deleting a legacy category — a branch deleted with the id space it
+    // served. Like the user twin it now renumbers content.collections.position
+    // alone, under service-categories:{user}, through AdvisoryLock.
+    expect($staffCategorySource)->not->toContain('service-layout:');
+    expect($staffCategorySource)->toContain('AdvisoryLock::acquire("service-categories:');
+    expect($staffCategorySource)->toContain('catch (AdvisoryLockTimeoutException)');
 
     // Slice 3b Task 9 retired the user-facing half of this pair. Its
     // categories now live in content.collections, so the ids it handles can
