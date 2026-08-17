@@ -47,7 +47,7 @@ Never script a tick keyed on id alone.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 5 of 6 complete
+- P1 High: 6 of 6 complete
 - P2 Medium: 0 of 15 complete
 - P3 Low: 0 of 15 complete
 
@@ -90,7 +90,13 @@ Never script a tick keyed on id alone.
         // only, so it passed while proving nothing about the invalidation.
         ```
 
-- [ ] **#PGR-3** · P1 — `BackfillPreviousWebsiteContentScanCommand`'s dispatch stagger resets every 200-row chunk instead of spreading across the whole run
+- [x] **#PGR-3** · P1 — `BackfillPreviousWebsiteContentScanCommand`'s dispatch stagger resets every 200-row chunk instead of spreading across the whole run
+    - **Resolution (2026-08-18, `audit-fix/programme-review-p1-2026-08-17`):** DONE. The adjudicated text was right and the scan draft's reasoning was wrong — `floor()` wraps the whole expression, so the ramp was correct *within* a chunk; the arithmetic was left alone. The precise mechanism: `Collection::chunk()` preserves keys and `$rows` came from `->get()`, so keys were already cumulative — **`->values()` was the entire bug**, re-indexing each chunk to `0..199`. The chunk loop was also dead weight (`->get()` had already materialised everything) and is deleted. The ramp is now a whole-run rate driven by **jobs dispatched**, not row index, so a row skipped for a null site no longer punches a hole in the schedule.
+        - *Owner decisions:* a fixed **per-row rate, unbounded run, no delay cap** (a fixed total window would collapse spacing as N grows — worse than the bug; a capped delay would reintroduce a tail-flood on the billed lane), at **2s/row**, up from the effective 1.5 (300/200) — rounded up as the conservative direction on a billed path, and integer so the curve is exactly assertable.
+        - ⚠️ **A hidden invariant was disturbed, deliberately and with sign-off.** The old max delay was **298s** — one tick under `ScanPreviousWebsiteContentJob::$uniqueFor = 300`, almost certainly not a coincidence: the per-chunk ramp kept every delayed job inside its own `ShouldBeUnique` lock. Under an unbounded per-row rate, jobs past ~150 rows are delayed beyond that lock, which expires before they run — so `WorkplaceObserver`'s own trigger is unblocked and a user editing their site mid-run can cause a second, **duplicate-billing** scan. Accepted by the owner; documented in the command's docblock so the next operator sizes `--limit` against it.
+        - *Also added:* `--limit` (query-level, so it bounds memory too) with `->orderBy('site_id')` for determinism — documented as a **cap, not a cursor**, since no "already scanned" filter exists and a second capped run re-picks and re-bills the same leading rows; `--stagger-seconds`; and `->with('site')`, removing an N+1. A **negative `--stagger-seconds` is rejected, not clamped** — `max(0, -5)` is `0` and `$dispatched * 0` is `0` for every job, so clamping would have resolved bad input to the exact hazard it was meant to prevent (the whole fleet dispatched at once onto the billed OCR path). `0` stays legitimate, with that consequence stated in the error text.
+        - *Not done, deliberately:* `->get()` was **not** converted to `chunkById()` — `site.workplaces`' PK is a non-sequential TEXT UUID that does not compose with `--limit`, the repo's `chunkById` rule is a *streaming* rule while this is a *counter* bug, and measured scale is 9 rows on dev / 0 users on prod. Promote if the fleet crosses ~10k.
+        - *Coverage:* the finding's implicit "no test" premise was **false** — the file existed with 4 tests, none asserting delay. Four added (cumulative ramp across a 201-row population; jobs-dispatched vs rows-scanned; `--limit`; negative-stagger rejection) plus a dry-run projection assertion. Non-vacuity proven by *isolated* probes — reverting the whole file was rejected as proof, because it failed for incidental reasons (a lazy-load exception, missing options) rather than the defect. Reintroducing **only** the re-index made the ramp test report a zero-delay count of **2 instead of 1** — two jobs racing at the same instant, the defect's signature. Removing **only** the negative guard let all 3 jobs reach the billed queue.
     - **Source:** migration-commands — was `#MIG-1`
     - **Where:** app/Console/Commands/BackfillPreviousWebsiteContentScanCommand.php
     - **Affects:** Every existing Workplace with a `previous_website`; the scraping queue and the billed Mistral OCR / MenuAiExtractor spend on a real fleet-wide run.
