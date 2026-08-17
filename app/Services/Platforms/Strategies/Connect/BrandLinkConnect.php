@@ -67,16 +67,38 @@ final class BrandLinkConnect implements ConnectStrategy
         ], $this->slug);
     }
 
-    /** No scheme, no slash, no whitespace; a leading @ is fine. Dots allowed (Medium/TikTok-style handles). */
+    /**
+     * No scheme, no slash, no whitespace; a leading @ is fine; dots allowed
+     * (Medium/TikTok-style handles). A token whose last label reads like a
+     * TLD ("site.com", "torvalds.github.io") is a HOST, never a handle — the
+     * one exception is a paste of this brand's own subdomain form
+     * ("yourpub.substack.com"), which is reduced to its label. Review caught
+     * the first cut treating any host as a Substack handle.
+     */
     private function looksLikeBareHandle(string $s): bool
     {
         $t = PlatformInput::token($s);
+        if ($t === '' || str_contains($t, '/') || str_contains($t, ' ') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $t)) {
+            return false;
+        }
+        if (! preg_match('~\.[a-z]{2,}$~i', $t)) {
+            return true;
+        }
 
-        return $t !== '' && ! str_contains($t, '/') && ! str_contains($t, ' ') && ! preg_match('~^[a-z][a-z0-9+.-]*:~i', $t)
-            // "site.com" is a host, not a handle — but "julie.zhuo" is a handle. Only
-            // treat as host when the last label reads like a TLD AND the brand template
-            // is not itself a subdomain template (yourpub.substack.com is a valid paste).
-            && (! preg_match('~\.[a-z]{2,}$~i', $t) || $this->templateIsSubdomain());
+        return $this->isOwnSubdomainHost($t);
+    }
+
+    /** "yourpub.substack.com" for a template "https://{handle}.substack.com". */
+    private function isOwnSubdomainHost(string $host): bool
+    {
+        $t = $this->template();
+        if ($t === null || ! $this->templateIsSubdomain()) {
+            return false;
+        }
+        $suffix = preg_replace('~^https?://\{[a-z_]+\}~i', '', $t); // ".substack.com"
+
+        return $suffix !== null && $suffix !== '' && str_ends_with(strtolower($host), strtolower($suffix))
+            && strlen($host) > strlen($suffix) && ! str_contains(substr($host, 0, -strlen($suffix)), '.');
     }
 
     private function expandHandle(string $s): ?string
@@ -87,7 +109,7 @@ final class BrandLinkConnect implements ConnectStrategy
         }
         $handle = PlatformInput::token($s);
         // A pasted "yourpub.substack.com" for a subdomain template: keep the label only.
-        if ($this->templateIsSubdomain()) {
+        if ($this->templateIsSubdomain() && $this->isOwnSubdomainHost($handle)) {
             $handle = preg_replace('~\..*$~', '', $handle) ?? $handle;
         }
         if ($handle === '' || ! preg_match('~^[A-Za-z0-9_.+-]{1,120}$~', $handle)) {

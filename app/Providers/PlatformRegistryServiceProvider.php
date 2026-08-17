@@ -580,6 +580,18 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('bandcamp')->displayToggles([
                 ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest release', 'description' => 'Automatically refresh your newest release.'],
             ]);
+            // Spotify + SoundCloud source `track` items into the listen pool
+            // since convergence Phase 4, so their connections take the same
+            // sparse auto_sync_latest toggle every other sourcing platform
+            // has — without it PlatformSheet showed no Rules and the pool's
+            // latest_per_auto_source could never be switched off per source
+            // (overnight 2026-08-18, W2).
+            $r->get('spotify')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest track', 'description' => 'Your newest track joins your site automatically.'],
+            ]);
+            $r->get('soundcloud')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Latest track', 'description' => 'Your newest track joins your site automatically.'],
+            ]);
 
             // ── Refresh cadences ─────────────────────────────────────────────────
             // Per-platform re-fetch intervals for the hourly dispatcher; anything

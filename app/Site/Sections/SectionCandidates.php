@@ -43,6 +43,7 @@ class SectionCandidates
         'tagged_with',
         'has_action',
         'latest_per_auto_source',
+        'latest_n_per_auto_source',
         'upcoming_occurrence',
     ];
 
@@ -97,6 +98,9 @@ class SectionCandidates
             ->join('site.sites', 'site.sites.user_id', '=', 'content.items.user_id')
             ->where('site.sites.id', $section->site_id)
             ->whereNull('content.items.removed_at');
+        // Disconnect = hide: an item whose every source is a removed/inactive
+        // connection leaves the auto half (overnight 2026-08-18, W2).
+        \App\Site\Pools\LiveSourceScope::apply($query);
 
         foreach ($predicates as $predicate) {
             $this->applyPredicate($query, (array) $predicate);
@@ -112,7 +116,17 @@ class SectionCandidates
                 '(SELECT MIN(fo.starts_at_utc) FROM content.f_occurrence fo'
                 .' WHERE fo.item_id = content.items.id) ASC NULLS LAST'
             ),
-            default => $query->orderByDesc('content.items.last_seen_at'),
+            // 'recency' = newest CONTENT first: the source's published date,
+            // falling back to when we first saw the item. Was last_seen_at —
+            // the projector's touch time — which a bulk ingest stamps
+            // identically across a whole catalogue, so a fresh Instagram
+            // connect published its photos in arbitrary order (overnight
+            // F13). first_seen_at is stable across re-projections; ties break
+            // on id so the order is total.
+            default => $query->orderByRaw(
+                'COALESCE((SELECT MAX(fp.published_from) FROM content.f_published fp'
+                .' WHERE fp.item_id = content.items.id), content.items.first_seen_at) DESC, content.items.id DESC'
+            ),
         };
 
         return array_values($ordered
@@ -254,108 +268,17 @@ class SectionCandidates
             // candidates — so excluding today's latest leaves nothing from
             // that source until something newer lands (owner semantics).
             'latest_per_auto_source' => $this->applyExists($query, $negated, function ($q) use ($values) {
-                $q->orWhereExists(function ($e) use ($values) {
-                    $e->from('content.source_items')
-                        ->join('content.sources', 'content.sources.id', '=', 'content.source_items.source_id')
-                        ->join('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
-                        ->whereColumn('content.source_items.item_id', 'content.items.id')
-                        ->whereNull('content.source_items.removed_at')
-                        ->where('content.sources.kind', 'connection')
-                        ->whereNull('site.platform_connections.deleted_at')
-                        ->where('site.platform_connections.is_active', true)
-                        // Sparse toggle: absent = ON, so only an explicit
-                        // false turns a source off. The JSON grammar compiles
-                        // per driver (->> on pg, json_extract on SQLite).
-                        ->where(fn ($w) => $w
-                            ->whereNull('site.platform_connections.display_settings->auto_sync_latest')
-                            ->orWhere('site.platform_connections.display_settings->auto_sync_latest', '!=', false))
-                        ->whereNotExists(function ($newer) use ($values) {
-                            $newer->from('content.source_items as si2')
-                                ->join('content.items as i2', 'i2.id', '=', 'si2.item_id')
-                                ->leftJoin('content.f_published as p2', fn ($j) => $j
-                                    ->on('p2.item_id', '=', 'i2.id')
-                                    ->on('p2.source_id', '=', 'si2.source_id'))
-                                ->leftJoin('content.f_published as p1', fn ($j) => $j
-                                    ->on('p1.item_id', '=', 'content.items.id')
-                                    ->on('p1.source_id', '=', 'content.source_items.source_id'))
-                                ->whereColumn('si2.source_id', 'content.source_items.source_id')
-                                ->whereNull('si2.removed_at')
-                                ->whereNull('i2.removed_at')
-                                ->whereColumn('i2.id', '!=', 'content.items.id');
-                            $values === []
-                                ? $newer->whereColumn('i2.kind', 'content.items.kind')
-                                : $newer->whereIn('i2.kind', $values);
-                            // "Newer": published when a source dated it,
-                            // first-seen otherwise — same fallback the
-                            // published_within arm uses. Ties break on id:
-                            // a bulk first-ingest stamps one first_seen_at
-                            // across a whole catalogue, and without a total
-                            // order NOTHING is "newer", so EVERY item won
-                            // (live smoke, ollies: 15 undated releases all
-                            // wearing auto). Exactly one item must win a tie.
-                            // Outer parentheses are load-bearing: without
-                            // them the OR escaped every preceding AND
-                            // (same-source, not-removed, kind), so ANY row
-                            // in the table with an equal timestamp and a
-                            // greater id — another user's copy of the same
-                            // video — made every candidate lose and the
-                            // pool auto-selected nothing (overnight F1).
-                            $newer->whereRaw(
-                                '(COALESCE(p2.published_from, i2.first_seen_at) > COALESCE(p1.published_from, content.items.first_seen_at)'
-                                .' OR (COALESCE(p2.published_from, i2.first_seen_at) = COALESCE(p1.published_from, content.items.first_seen_at)'
-                                .' AND i2.id > content.items.id))'
-                            );
-                        });
-                });
+                $this->connectionSourceLatestArm($q, $values, 1, ['auto_sync_latest']);
+                $this->storefrontLatestArm($q, $values);
+            }),
 
-                // THE STOREFRONT ARM (2026-08-17, shop opt-in). Shop products
-                // hang off the user's MANUAL source (the identity spine), so
-                // the connection-source arm above can never see them. A store
-                // is a content.storefronts collection whose ANCHOR connection
-                // (resource_id = external_ref, ShopConnections::anchor) holds
-                // the same sparse auto_sync_latest toggle — this arm publishes
-                // each live store's NEWEST catalogue row (collection_items
-                // position 0, ShopFetch writes newest-first) while the toggle
-                // is on. The individual-products bucket is excluded: those
-                // are hand-adds the owner pins one by one, and "the newest
-                // thing you pasted" is not a store's newest release.
-                //
-                // PRODUCT POOLS ONLY: the arm exists for shop, and adding
-                // storefront joins to every latest_per_auto_source pool put
-                // storefront SQL in the WATCH pool's query plan
-                // (ShopPoolPayloadTest's query-isolation guard).
-                if (in_array('product', $values, true)) {
-                    $q->orWhereExists(function ($e) use ($values) {
-                        $e->from('content.collection_items as sci')
-                            ->join('content.collections as scol', 'scol.id', '=', 'sci.collection_id')
-                            ->join('content.storefronts as sf', 'sf.collection_id', '=', 'scol.id')
-                            ->join('site.platform_connections as spc', function ($j) {
-                                $j->on('spc.resource_id', '=', 'sf.external_ref')
-                                    ->whereColumn('spc.user_id', 'scol.user_id');
-                            })
-                            ->whereColumn('sci.item_id', 'content.items.id')
-                            ->whereColumn('scol.user_id', 'content.items.user_id')
-                            ->where('scol.kind', 'storefront')
-                            ->where('sf.is_individual', false)
-                            ->whereNull('spc.deleted_at')
-                            ->where('spc.is_active', true)
-                            ->where(fn ($w) => $w
-                                ->whereNull('spc.display_settings->auto_sync_latest')
-                                ->orWhere('spc.display_settings->auto_sync_latest', '!=', false))
-                            // Newest = the smallest position in its own store:
-                            // ShopFetch/syncStore write the catalogue newest-first.
-                            ->whereNotExists(function ($newer) {
-                                $newer->from('content.collection_items as sci2')
-                                    ->join('content.items as si2', 'si2.id', '=', 'sci2.item_id')
-                                    ->whereColumn('sci2.collection_id', 'sci.collection_id')
-                                    ->whereNull('si2.removed_at')
-                                    ->whereRaw('sci2.position < sci.position');
-                            });
-                        // Non-empty by construction — the in_array above only
-                        // enters this arm when 'product' is present.
-                        $e->whereIn('content.items.kind', $values);
-                    });
-                }
+            // Media opt-in (2026-08-18, R5): fewer than N same-source items are
+            // newer, and BOTH sparse toggles are on — auto_sync_latest (every
+            // sourcing platform) and photos (google-business only; absent
+            // elsewhere = on).
+            'latest_n_per_auto_source' => $this->applyExists($query, $negated, function ($q) use ($values) {
+                $n = max(1, (int) config('partna.pools.auto_latest_n', 5));
+                $this->connectionSourceLatestArm($q, $values, $n, ['auto_sync_latest', 'photos']);
             }),
 
             // See RuleOperator::UpcomingOccurrence. `values` is ignored: kind
@@ -382,5 +305,124 @@ class SectionCandidates
         $negated
             ? $query->whereNot(fn ($q) => $q->where($orClauses))
             : $query->where($orClauses);
+    }
+
+    /**
+     * The connection-source arm shared by latest_per_auto_source (N=1) and
+     * latest_n_per_auto_source (N from config): the item is among its
+     * connection-source's N newest non-removed items of the given kinds (its
+     * own kind when none given), the connection is live, and every toggle in
+     * $toggles is not explicitly false on that connection's sparse
+     * display_settings.
+     *
+     * "Newer": published when a source dated it, first-seen otherwise. Ties
+     * break on id — a bulk first-ingest stamps one first_seen_at across a
+     * whole catalogue, and without a total order NOTHING is "newer", so
+     * EVERY item won (live smoke, ollies). The whole comparison is
+     * parenthesised: without that the OR escaped the same-source / kind
+     * filters and any equal-timestamp row in the table — another user's
+     * copy of the same video — made every candidate lose (overnight F1).
+     *
+     * @param list<string> $values
+     * @param list<string> $toggles
+     */
+    private function connectionSourceLatestArm($q, array $values, int $n, array $toggles): void
+    {
+        $q->orWhereExists(function ($e) use ($values, $n, $toggles) {
+            $e->from('content.source_items')
+                ->join('content.sources', 'content.sources.id', '=', 'content.source_items.source_id')
+                ->join('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
+                ->whereColumn('content.source_items.item_id', 'content.items.id')
+                ->whereNull('content.source_items.removed_at')
+                ->where('content.sources.kind', 'connection')
+                ->whereNull('site.platform_connections.deleted_at')
+                ->where('site.platform_connections.is_active', true);
+            foreach ($toggles as $toggle) {
+                // Sparse toggle: absent = ON, so only an explicit false turns a
+                // source off. The JSON grammar compiles per driver (->> on pg,
+                // json_extract on SQLite).
+                $e->where(fn ($w) => $w
+                    ->whereNull('site.platform_connections.display_settings->'.$toggle)
+                    ->orWhere('site.platform_connections.display_settings->'.$toggle, '!=', false));
+            }
+
+            $kinds = $values === [] ? null : $values;
+            $kindSql = $kinds === null
+                ? 'i2.kind = content.items.kind'
+                : 'i2.kind in ('.implode(',', array_fill(0, count($kinds), '?')).')';
+
+            // Correlated count of strictly-newer same-source items; N=1 is
+            // exactly the old NOT EXISTS.
+            $e->whereRaw(
+                '(select count(*) from content.source_items as si2'
+                .' join content.items as i2 on i2.id = si2.item_id'
+                .' left join content.f_published as p2 on p2.item_id = i2.id and p2.source_id = si2.source_id'
+                .' left join content.f_published as p1 on p1.item_id = content.items.id and p1.source_id = content.source_items.source_id'
+                .' where si2.source_id = content.source_items.source_id'
+                .' and si2.removed_at is null and i2.removed_at is null'
+                .' and i2.id <> content.items.id'
+                .' and '.$kindSql
+                .' and (COALESCE(p2.published_from, i2.first_seen_at) > COALESCE(p1.published_from, content.items.first_seen_at)'
+                .' or (COALESCE(p2.published_from, i2.first_seen_at) = COALESCE(p1.published_from, content.items.first_seen_at)'
+                .' and i2.id > content.items.id))'
+                .') < ?',
+                [...($kinds ?? []), $n]
+            );
+        });
+    }
+
+    /**
+     * THE STOREFRONT ARM (2026-08-17, shop opt-in). Shop products hang off the
+     * user's MANUAL source (the identity spine), so the connection-source arm
+     * can never see them. A store is a content.storefronts collection whose
+     * ANCHOR connection (resource_id = external_ref, ShopConnections::anchor)
+     * holds the same sparse auto_sync_latest toggle — this arm publishes each
+     * live store's NEWEST catalogue row (collection_items position 0,
+     * ShopFetch writes newest-first) while the toggle is on. The
+     * individual-products bucket is excluded: those are hand-adds the owner
+     * pins one by one, and "the newest thing you pasted" is not a store's
+     * newest release.
+     *
+     * PRODUCT POOLS ONLY: the arm exists for shop, and adding storefront joins
+     * to every latest_per_auto_source pool put storefront SQL in the WATCH
+     * pool's query plan (ShopPoolPayloadTest's query-isolation guard).
+     *
+     * @param list<string> $values
+     */
+    private function storefrontLatestArm($q, array $values): void
+    {
+        if (! in_array('product', $values, true)) {
+            return;
+        }
+        $q->orWhereExists(function ($e) use ($values) {
+            $e->from('content.collection_items as sci')
+                ->join('content.collections as scol', 'scol.id', '=', 'sci.collection_id')
+                ->join('content.storefronts as sf', 'sf.collection_id', '=', 'scol.id')
+                ->join('site.platform_connections as spc', function ($j) {
+                    $j->on('spc.resource_id', '=', 'sf.external_ref')
+                        ->whereColumn('spc.user_id', 'scol.user_id');
+                })
+                ->whereColumn('sci.item_id', 'content.items.id')
+                ->whereColumn('scol.user_id', 'content.items.user_id')
+                ->where('scol.kind', 'storefront')
+                ->where('sf.is_individual', false)
+                ->whereNull('spc.deleted_at')
+                ->where('spc.is_active', true)
+                ->where(fn ($w) => $w
+                    ->whereNull('spc.display_settings->auto_sync_latest')
+                    ->orWhere('spc.display_settings->auto_sync_latest', '!=', false))
+                // Newest = the smallest position in its own store:
+                // ShopFetch/syncStore write the catalogue newest-first.
+                ->whereNotExists(function ($newer) {
+                    $newer->from('content.collection_items as sci2')
+                        ->join('content.items as si2', 'si2.id', '=', 'sci2.item_id')
+                        ->whereColumn('sci2.collection_id', 'sci.collection_id')
+                        ->whereNull('si2.removed_at')
+                        ->whereRaw('sci2.position < sci.position');
+                });
+            // Non-empty by construction — the in_array above only enters this
+            // arm when 'product' is present.
+            $e->whereIn('content.items.kind', $values);
+        });
     }
 }

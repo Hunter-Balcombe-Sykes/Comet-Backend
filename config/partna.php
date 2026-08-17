@@ -885,6 +885,13 @@ return [
     // which cannot be anchored to a connection's artist URL and so risks
     // landing a different artist's catalogue. URL-anchored identity beats a
     // stronger dedup key where the two conflict (convergence-log F29).
+    // Pool auto-selection knobs (overnight 2026-08-18, ruling R5). N newest
+    // items per auto source that the media pool publishes without a pin;
+    // per-connection override is a later slice.
+    'pools' => [
+        'auto_latest_n' => (int) env('PARTNA_POOL_AUTO_LATEST_N', 5),
+    ],
+
     'music' => [
         'platforms' => [
             'spotify' => [

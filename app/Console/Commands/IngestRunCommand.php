@@ -33,6 +33,12 @@ class IngestRunCommand extends Command
 
     public function handle(SourceScheduler $scheduler): int
     {
+        if (app()->isProduction() || (string) config('app.env') === 'production') {
+            $this->error('Refusing to run in production — use ingest:dispatch.');
+
+            return self::FAILURE;
+        }
+
         $q = DB::table('ingest.sources');
         if ($id = $this->option('source')) {
             $q->where('id', $id);

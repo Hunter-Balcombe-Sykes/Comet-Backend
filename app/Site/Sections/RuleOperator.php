@@ -28,6 +28,16 @@ enum RuleOperator: string
     // simply wins the next resolve, which IS the rolling behaviour.
     case LatestPerAutoSource = 'latest_per_auto_source';
 
+    // The auto half of the MEDIA pool (overnight 2026-08-18, owner ruling R5:
+    // media is opt-in — pins plus each source's N newest while that source's
+    // sparse toggles are on). Same predicate as LatestPerAutoSource with a
+    // rank window instead of "the one newest": an item matches iff fewer
+    // than N items from the same connection-source (among the given kinds)
+    // are newer. N = config('partna.pools.auto_latest_n'). Also honours the
+    // google-business `photos` toggle, so switching photos off hides that
+    // source's media without an exclude per item.
+    case LatestNPerAutoSource = 'latest_n_per_auto_source';
+
     // The auto half of a DATED pool (events, 2026-08-11): the item occurs at
     // or after now, with a day of grace so something running today does not
     // vanish at its start time. An item with no f_occurrence row does NOT
@@ -59,6 +69,7 @@ enum RuleOperator: string
             self::TaggedWith => 'is tagged',
             self::PublishedWithin => 'was published within',
             self::LatestPerAutoSource => "is a platform's newest",
+            self::LatestNPerAutoSource => "is among a platform's newest",
             self::HasAction => 'can be',
             self::UpcomingOccurrence => 'is upcoming',
         };

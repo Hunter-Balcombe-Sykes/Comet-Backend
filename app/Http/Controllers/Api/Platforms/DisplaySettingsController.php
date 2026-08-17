@@ -43,18 +43,33 @@ class DisplaySettingsController extends ApiController
         $user = $this->currentUser($request);
         $defs = $descriptor->displayToggleDefs();
 
-        // first() (not value()) so the array cast applies — value() returns
-        // the raw JSON string from the driver.
-        $stored = IntegrationConnection::query()
+        // ALL live rows, not first(): update() writes every account of the
+        // platform, and AutoSyncSetting::isOn() answers "any account on".
+        // Reading one row could report a channel's state that differs from
+        // its siblings (youtube with 4 accounts). Merge with the same
+        // semantics as isOn(): a toggle reads ON if ANY row has it on
+        // (absent = on); OFF only when every row says false (overnight W2).
+        $rows = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('platform', $platform)
             ->where('is_active', true)
-            ->first(['display_settings'])
-            ?->display_settings ?? [];
+            ->get(['display_settings'])
+            ->map(fn ($row) => (array) ($row->display_settings ?? []));
+
+        $stored = [];
+        foreach ($defs as $def) {
+            $key = $def['key'];
+            if ($rows->isEmpty()) {
+                continue;
+            }
+            $default = $def['default'] ?? true;
+            $anyOn = $rows->contains(fn (array $settings) => (bool) ($settings[$key] ?? $default) === true);
+            $stored[$key] = $anyOn;
+        }
 
         return $this->success([
             'platform' => $platform,
-            'toggles' => $this->shapeToggles($defs, (array) $stored),
+            'toggles' => $this->shapeToggles($defs, $stored),
         ]);
     }
 

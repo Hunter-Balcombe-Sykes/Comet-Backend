@@ -161,4 +161,9 @@ it('accepts a bare handle for brands whose surface has a canonical template (F12
     // A brand without a template still needs a URL.
     actingAsUser($user)->postJson('/api/platforms/menulog/connect', ['url' => 'somerestaurant'])
         ->assertStatus(422);
+    // A foreign host is never a subdomain handle (review: torvalds.github.io was rewritten to *.substack.com).
+    actingAsUser($user)->postJson('/api/platforms/substack/connect', ['url' => 'torvalds.github.io'])
+        ->assertStatus(422);
+    actingAsUser($user)->postJson('/api/platforms/substack/connect', ['url' => 'myrestaurant.com.au'])
+        ->assertStatus(422);
 });

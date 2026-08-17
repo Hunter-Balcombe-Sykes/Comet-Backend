@@ -79,6 +79,44 @@ it('still auto-selects the newest item when another tenant holds the same video 
     expect($data['latestItemId'])->toBe($mine);
 });
 
+it('orders recency pools by published date, not by the projector touch time (F13)', function () {
+    config(['partna.pools.auto_latest_n' => 10]);
+    [$pro] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id, 'instagram.profile'));
+    // Inserted out of date order; all rows share last_seen_at = now().
+    $mid = poolItem($pro->id, $source, 'media', 'Mid', '2026-08-02T00:00:00Z');
+    $new = poolItem($pro->id, $source, 'media', 'New', '2026-08-03T00:00:00Z');
+    $old = poolItem($pro->id, $source, 'media', 'Old', '2026-08-01T00:00:00Z');
+
+    $data = poolGet($pro, 'media');
+    expect(array_column($data['selection'], 'id'))->toBe([$new, $mid, $old]);
+});
+
+it('hides a removed connection\'s items from the auto half, the pins and the library — disconnect = hide, never delete (W2)', function () {
+    [$pro] = poolTenant();
+    $connectionId = poolConnection($pro->id);
+    $source = poolSource($pro->id, $connectionId);
+    $vid = poolItem($pro->id, $source, 'video', 'Kept video', now()->subDay()->toDateTimeString());
+    // Pin it too, so both halves are exercised.
+    $pin = Request::create("/api/content/pools/watch/selection/{$vid}", 'POST');
+    $pin->attributes->set('professional', $pro);
+    app(PoolController::class)->select($pin, 'watch', $vid);
+
+    expect(poolHeadlines(poolGet($pro)))->toBe(['Kept video']);
+
+    DB::table('site.platform_connections')->where('id', $connectionId)->update(['deleted_at' => now()]);
+
+    $data = poolGet($pro);
+    expect($data['selection'])->toBe([])
+        ->and($data['library'])->toBe([])
+        // History is kept: the item row and its pin survive for a reconnect.
+        ->and(DB::table('content.items')->where('id', $vid)->whereNull('removed_at')->exists())->toBeTrue()
+        ->and(DB::table('site.section_items')->where('item_id', $vid)->exists())->toBeTrue();
+
+    DB::table('site.platform_connections')->where('id', $connectionId)->update(['deleted_at' => null]);
+    expect(poolHeadlines(poolGet($pro)))->toBe(['Kept video']);
+});
+
 it('auto-selects nothing from a source whose auto_sync_latest is off', function () {
     [$pro] = poolTenant();
     $offSource = poolSource($pro->id, poolConnection($pro->id, 'youtube.channel', ['auto_sync_latest' => false]));
