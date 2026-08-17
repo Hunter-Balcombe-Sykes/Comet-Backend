@@ -60,7 +60,15 @@ class LinkCardScraper
         $favicon = $meta->faviconUrl
             ?? $meta->appleTouchIconUrl
             ?? $this->parser->absolutize('/favicon.ico', $finalUrl);
-        $logo = $this->parser->absolutize($meta->og('og:image'), $finalUrl) ?? $meta->headerLogoUrl;
+        // The share image: og:image, then its secure twin, then Twitter's card
+        // image (which many pages set INSTEAD of og:image), then a header
+        // logo. Tested 2026-08-17: ABC/Vercel/Stripe hit on og:image; pages
+        // that publish only twitter:image used to come back imageless.
+        $share = $meta->og('og:image')
+            ?? $meta->og('og:image:secure_url')
+            ?? $this->metaName($meta->meta, 'twitter:image')
+            ?? $this->metaName($meta->meta, 'twitter:image:src');
+        $logo = $this->parser->absolutize($share, $finalUrl) ?? $meta->headerLogoUrl;
 
         return [
             'url' => $finalUrl,
