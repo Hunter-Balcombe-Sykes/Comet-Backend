@@ -472,7 +472,26 @@ class Lander
 
             // Delete-guard: an implausible share vanishing at once is far
             // more likely to be a login wall than a real bulk deletion.
-            if ($liveCount > 0 && (count($dominatedAbsent) / $liveCount) >= $guardThreshold && count($dominatedAbsent) >= 5) {
+            //
+            // An absence the provisioner ANNOUNCED in advance is not a
+            // surprise: a changed selection_ref (a Fresha team-member re-pick)
+            // pre-charges every live record with absent_runs = tombstone-1 and
+            // no absent_since — "expect these to go". Those rows do not count
+            // toward the guard's ratio, or narrowing a 10-service storewide
+            // menu to a 5-service stylist would trip the guard forever and
+            // never hide the other five (fresh-eyes review, 2026-08-18 W6).
+            $surprise = array_filter($dominatedAbsent, fn ($row) => ! ((int) ($row->absent_runs ?? 0) > 0 && ($row->absent_since ?? null) === null));
+            if ($liveCount > 0 && (count($surprise) / $liveCount) >= $guardThreshold && count($surprise) >= 5) {
+                // Stamp the absence even though nothing is tombstoned: without
+                // it clearGuardIfRecovered() (called right after this in the
+                // same run) sees no absent rows and clears the guard it just
+                // tripped — trip → resolve → repeat, every run.
+                foreach (array_chunk($dominatedAbsent, 500) as $chunk) {
+                    DB::table('ingest.record_state')
+                        ->where('stream_id', $streamId)
+                        ->whereIn('key', array_map(fn ($row) => $row->key, $chunk))
+                        ->update(['absent_since' => DB::raw('COALESCE(absent_since, now())')]);
+                }
                 DB::table('ingest.streams')->where('id', $streamId)->update(['guard_tripped_at' => now(), 'updated_at' => now()]);
                 DB::table('ingest.anomalies')->insert([
                     'id' => (string) Str::uuid(),
@@ -532,7 +551,7 @@ class Lander
                 ->where('stream_id', $streamId)
                 ->whereNull('tombstoned_at')
                 ->whereNotIn('key', $seenKeys)
-                ->get(['key', 'current_version_id', 'absent_runs'])
+                ->get(['key', 'current_version_id', 'absent_runs', 'absent_since'])
                 ->all();
         }
 
@@ -547,7 +566,7 @@ class Lander
                 ->when($lastKey !== null, fn ($q) => $q->where('key', '>', $lastKey))
                 ->orderBy('key')
                 ->limit(500)
-                ->get(['key', 'current_version_id', 'absent_runs']);
+                ->get(['key', 'current_version_id', 'absent_runs', 'absent_since']);
 
             if ($page->isEmpty()) {
                 break;

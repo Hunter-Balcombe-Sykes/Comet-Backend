@@ -600,9 +600,14 @@ class FreshaController extends ApiController
         }
 
         return $this->withConnectionLock($user, function () use ($user, $url): JsonResponse {
-            $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
+            $stored = $this->readConnection($user) ?? [];
+            $existing = SelectionPayload::fromArray($stored);
             $storeName = $existing->selection?->toArray()['storeName'] ?? null;
-            $projected = $this->projector->sync($user, [], $existing->selection?->hiddenServiceIds() ?? []);
+            // payload.raw.services is the vendor's menu ORDER (compose() reads
+            // values from content.*); carry the stored list forward rather
+            // than re-scraping — sync([]) would blank it for good (review).
+            $rawServices = is_array($stored['raw']['services'] ?? null) ? $stored['raw']['services'] : [];
+            $projected = $this->projector->sync($user, $rawServices, $existing->selection?->hiddenServiceIds() ?? []);
             $selection = [
                 'url' => $url,
                 'storeName' => is_string($storeName) ? $storeName : null,
@@ -617,7 +622,10 @@ class FreshaController extends ApiController
                 'raw' => ['services' => $projected['raw']],
             ]);
 
-            return $this->success((new FreshaSelectionResource($selection, (string) $user->id))->resolve());
+            // The storewide menu itself lands via the eager ingest run this
+            // write triggers (selection_ref → 'storewide'); until it does the
+            // composed list is the narrowed one, so the response says so.
+            return $this->success([...(new FreshaSelectionResource($selection, (string) $user->id))->resolve(), 'pending' => true]);
         });
     }
 

@@ -343,6 +343,58 @@ it('trips the delete-guard when at least 40% (and at least 5) of live keys vanis
     }
 });
 
+it('does not count announced absences (pre-charged, never absent) toward the delete-guard, so a selection change folds them at once', function () {
+    $spec = new StreamSpec(name: 'services', target: 'service', profile: SourceProfile::Catalogue, deletesOnExhaustive: true);
+    $lander = new Lander;
+    seedIngestStream('s1');
+
+    $records = [];
+    foreach (range(1, 10) as $i) {
+        $records[] = new Record('services', "k{$i}", ['name' => "svc {$i}"]);
+    }
+    $lander->land('s1', 'r1', $spec, $records, new Covered('services', Coverage::exhaustive()));
+
+    // The provisioner's selection-change pre-charge: every live record is one
+    // absence from tombstoning, but none has ever actually been absent.
+    DB::table('ingest.record_state')->where('stream_id', 's1')->update(['absent_runs' => 2]);
+
+    // The new stylist's menu keeps only 5 of 10 — 50% would trip the guard if
+    // these were surprises. They were announced, so they fold now.
+    $survivors = array_slice($records, 0, 5);
+    $result = $lander->land('s1', 'r2', $spec, $survivors, new Covered('services', Coverage::exhaustive()));
+
+    expect($result['guard_tripped'])->toBeFalse();
+    expect($result['tombstoned'])->toBe(5);
+    foreach (range(1, 5) as $i) {
+        expect((int) ingestRecordState('s1', "k{$i}")->absent_runs)->toBe(0);
+    }
+    foreach (range(6, 10) as $i) {
+        expect(ingestRecordState('s1', "k{$i}")->tombstoned_at)->not->toBeNull();
+    }
+});
+
+it('a tripped guard stamps absent_since so clearGuardIfRecovered does not clear it in the same run', function () {
+    $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror, orderField: 'seq');
+    $lander = new Lander;
+    seedIngestStream('s1');
+
+    $records = [];
+    foreach (range(1, 10) as $i) {
+        $records[] = new Record('releases', "k{$i}", ['seq' => $i]);
+    }
+    $lander->land('s1', 'r1', $spec, $records, null);
+    $result = $lander->land('s1', 'r2', $spec, array_slice($records, 0, 5), new Covered('releases', Coverage::exhaustive()));
+    expect($result['guard_tripped'])->toBeTrue();
+
+    // Before the fix the trip path returned without stamping absence, so this
+    // cleared the guard it had just tripped (trip → resolve → repeat).
+    expect($lander->clearGuardIfRecovered('s1'))->toBeFalse();
+    expect(DB::table('ingest.streams')->where('id', 's1')->value('guard_tripped_at'))->not->toBeNull();
+    foreach (range(6, 10) as $i) {
+        expect(ingestRecordState('s1', "k{$i}")->absent_since)->not->toBeNull();
+    }
+});
+
 it('keeps tombstoning frozen on every subsequent run once the delete-guard has tripped', function () {
     $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror, orderField: 'seq');
     $lander = new Lander;
