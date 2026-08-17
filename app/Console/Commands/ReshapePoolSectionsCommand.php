@@ -122,7 +122,9 @@ class ReshapePoolSectionsCommand extends Command
             sort($values);
             $expected = $kinds;
             sort($expected);
-            if ($values !== [] && $values !== $expected) {
+            // Empty values on a rule op means "own kind, no restriction" — a
+            // deliberate customisation, not a canonical shape (review W2).
+            if ($values === [] || $values !== $expected) {
                 return false;
             }
         }
