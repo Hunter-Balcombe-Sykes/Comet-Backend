@@ -43,7 +43,8 @@ final class BrandLinkConnect implements ConnectStrategy
         // on fetching a remote icon.
         return ConnectResult::ok([
             'url' => $url,
-            'name' => $classified['label'] ?? $this->label,
+            // classify() guarantees `label` on a non-null result, so no fallback.
+            'name' => $classified['label'],
             'provider' => $this->label,
         ], $this->slug);
     }
