@@ -1245,9 +1245,9 @@ undiscoverable by reading the replacement.
 - Create: `supabase/migrations/20260819000200_drop_site_shop_products.sql`, `supabase/migrations/20260819000210_drop_site_shop_brands.sql`
 - Delete: `app/Models/Core/Site/ShopBrand.php`, `app/Models/Core/Site/ShopProduct.php`
 
-- [ ] **Step 1: Query `pg_depend` for FK dependents, views, triggers and RLS policies on BOTH tables.** `shop_products.brand_id` references `shop_brands`, so the child drops first. The table list will not tell you what the catalog will. Anything unexpected is a stop, not an improvisation.
-- [ ] **Step 2: Back both up before dropping** — `pg_dump` them to the `partna-db-backup` R2 bucket, restore into a scratch schema to prove the dump is readable, and assert the row count matches live exactly. If it disagrees, nothing is dropped.
-- [ ] **Step 3: Confirm nothing reads it.**
+- [x] **Step 1: Query `pg_depend` for FK dependents, views, triggers and RLS policies on BOTH tables.** `shop_products.brand_id` references `shop_brands`, so the child drops first. The table list will not tell you what the catalog will. Anything unexpected is a stop, not an improvisation.
+- [x] **Step 2: Back both up before dropping** — `pg_dump` them to the `partna-db-backup` R2 bucket, restore into a scratch schema to prove the dump is readable, and assert the row count matches live exactly. If it disagrees, nothing is dropped.
+- [x] **Step 3: Confirm nothing reads it.**
 
 ```bash
 grep -rn "ShopBrand\|shop_brands\|ShopProduct\|shop_products" app/ routes/ config/ tests/
@@ -1255,8 +1255,8 @@ grep -rn "ShopBrand\|shop_brands\|ShopProduct\|shop_products" app/ routes/ confi
 
 Expected: zero hits outside the two model files about to be deleted. A green suite is not evidence — read the grep output.
 
-- [ ] **Step 4: Write the DROP migration**, `db push --dry-run`, then `db push` against the dev ref only.
-- [ ] **Step 5: Delete `ShopBrand`, `ShopProduct`, `IntegrationConnection::shopBrands()` and `ShopProduct::brand()`.** Both models are yours (spec §2.2). Task 2 already made `ShopProduct` callerless; if it is not, Task 2 did not finish.
+- [x] **Step 4: Write the DROP migration**, `db push --dry-run`, then `db push` against the dev ref only.
+- [x] **Step 5: Delete `ShopBrand`, `ShopProduct`, `IntegrationConnection::shopBrands()` and `ShopProduct::brand()`.** Both models are yours (spec §2.2). Task 2 already made `ShopProduct` callerless; if it is not, Task 2 did not finish.
 
 **AMENDED TWICE.** First by Task 1 Step 3 / Task 2 Step 6: `ShopProduct` is NOT
 callerless after Task 2 and never was going to be — `ShopBackfiller` reads it,
@@ -1286,8 +1286,8 @@ only queries name a dropped table.
 the legacy tables and running `ShopBackfiller`. Task 12 must re-cut that fixture
 onto a direct `ShopContentWriter` path BEFORE this step, or the parity guard
 dies with the backfiller.
-- [ ] **Step 6: Run everything** — `composer test`, `./vendor/bin/pest --parallel --processes=4`, `composer test:pg`, `composer test:schema`, PHPStan, Pint.
-- [ ] **Step 7: Commit.**
+- [x] **Step 6: Run everything** — `composer test`, `./vendor/bin/pest --parallel --processes=4`, `composer test:pg`, `composer test:schema`, PHPStan, Pint.
+- [x] **Step 7: Commit.**
 
 ---
 
@@ -1367,12 +1367,12 @@ ambiguity has already cost one conversation.)*
 
 ### Task 15: Close
 
-- [ ] **Step 1: Deploy dev and exercise the seven verbs live**, as Task 8 Step 3. Re-derive the store counts; do not cite this plan's figures.
-- [ ] **Step 2: Write the wire manifest** — `docs/wire-changes/2026-08-17-shop-brands-rehome.md`. The public wire is unchanged (slice 5b already moved it); say so explicitly rather than omitting the file.
-- [ ] **Step 3: `cloud env:logs partna development --minutes 10` and a Nightwatch scan.**
-- [ ] **Step 4: Answer spec §11's two open questions** — the R2 prefix outside `app/`, and where the stale-pending clock lives.
-- [ ] **Step 5: Answer spec §10.1's open question** — with both halves retired, does anything still write `site.item_slugs`? If nothing does, say so and hand the table to the drop phase's sweep. **Do not drop it here** — it is not on the nine.
-- [ ] **Step 6: Amend slice 7's spec Unit K** to record that the tenth table is gone, and add the checkpoint to the parent convergence spec. Note the event slug lane separately — it is a residual this plan absorbed, not part of the shop re-home.
+- [x] **Step 1: Deploy dev and exercise the seven verbs live**, as Task 8 Step 3. Re-derive the store counts; do not cite this plan's figures.
+- [x] **Step 2: Write the wire manifest** — `docs/wire-changes/2026-08-17-shop-brands-rehome.md`. The public wire is unchanged (slice 5b already moved it); say so explicitly rather than omitting the file.
+- [x] **Step 3: `cloud env:logs partna development --minutes 10` and a Nightwatch scan.**
+- [x] **Step 4: Answer spec §11's two open questions** — the R2 prefix outside `app/`, and where the stale-pending clock lives.
+- [x] **Step 5: Answer spec §10.1's open question** — with both halves retired, does anything still write `site.item_slugs`? If nothing does, say so and hand the table to the drop phase's sweep. **Do not drop it here** — it is not on the nine.
+- [x] **Step 6: Amend slice 7's spec Unit K** to record that the tenth table is gone, and add the checkpoint to the parent convergence spec. Note the event slug lane separately — it is a residual this plan absorbed, not part of the shop re-home.
 
 ---
 

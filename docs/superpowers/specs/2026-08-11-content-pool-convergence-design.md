@@ -4678,3 +4678,166 @@ What remains is **phase-8-review-and-docs**, whose A2 legacy-zero sweep should
 now name zero remaining tables from this programme's drop list — and whose
 scope should include reconciling **production**, which still carries the full
 legacy schema for all of them.
+
+---
+
+## 27. Shop re-home checkpoint — the last two shop tables are gone
+
+Executed 2026-08-17, dev only, as a project of its own rather than a slice-7
+unit: slice 7 shipped "five tables of nine" and handed `site.shop_brands` +
+`site.shop_products` back on sizing. Merged across several pushes to
+`development`, ending `b0fa66da3`; every figure below was read off
+`glncumufgaqcmqhzwrxm` or `dev-api.partna.au` after the run.
+
+**The claim, and it is now structural rather than asserted:** there is no shop
+storage outside `content.*`. Both legacy tables are DROPPED, both models are
+deleted, and a `grep` for them across `app/ routes/ config/` returns only
+historical comments.
+
+### 27.1 Exit state on dev
+
+```
+site.shop_brands          DROPPED (was 10 rows)
+site.shop_products        DROPPED (was 51 rows)
+content.storefronts       15   (10 shop + 5 order-platform)
+content.collections       10   kind='storefront'
+content.collection_items  52   under storefront collections
+```
+
+Migration band `20260819*`: `…000100` denormalised `user_id`, `…000110` the
+partial unique identity index, `…000120` carried the `connect_status`
+vocabulary across, `…000200` dropped the child, `…000210` the parent.
+
+### 27.2 What the plan got wrong, and what that cost
+
+Every one of these was found by re-deriving rather than by trusting the plan,
+which is why Rule Zero is in the kickoff prompt:
+
+- Task 2's line list named 3 legacy fallbacks; there were **5**, plus two
+  further reads of the products relation that would have become dangling
+  callers of a deleted method.
+- `ShopBrand::products()` was described as "callerless" after Task 2. It was
+  not: `ShopBackfiller` genuinely reads it, because it IS the legacy→content.*
+  migration. That pushed `ShopProduct`, `ShopBackfiller` and its command into
+  Task 13.
+- Task 9 Step 4 said to replace the two settle writes with `upsertStore()`.
+  Both are **compare-and-set** on `connect_status='pending'` and the design
+  rests on the row count — `upsertStore()` can express neither the guard nor
+  the answer. They are guarded UPDATEs.
+- Task 10 was described as "type-hint changes, not logic changes". It was three
+  substantive problems: `connection_id` scoping has no content.* equivalent,
+  `upsertStore()` has no partial-write semantics, and the connect job's writes
+  are CAS.
+- The stale-pending clock and the R2 prefix were left as open questions for the
+  end; both were answerable on day one (§27.4).
+
+### 27.3 The asymmetry that shaped the whole project
+
+Every legacy write was an Eloquent `updateOrCreate` / `firstOrCreate` /
+`fill()->save()`, all of which **omit absent keys**. `upsertStore()` writes every
+column unconditionally. So each write path's omission rule had to be
+re-expressed as an explicit fold onto the record content.* already held, or it
+would silently blank what it did not mention:
+
+- `addBrand`'s deferred branch omits name/favicon/logo so a re-add of a settled
+  store keeps its profile through the pending window. Naively ported, a re-add
+  would have wiped it.
+- `StoreBrandSeeder` built `$carried` with `array_filter(… !== null)` so a
+  re-scan never wipes a logo an earlier fetch earned. Naively ported, the rule
+  would have **inverted**.
+- `addProduct` / `ShopProductSeeder` relied on `firstOrCreate` not updating an
+  existing individual bucket. Naively ported, every second product added would
+  have renumbered the bucket and overwritten its currency.
+
+`StoreRecord::with()` exists so that fold lives in one place with the full field
+list rather than in four call sites' memory.
+
+### 27.4 Two open questions closed with evidence, not deferral
+
+**The R2 prefix (spec §12.1).** Nothing outside `app/` references
+`shop-brands/<uuid>`; the only code occurrence anywhere is
+`ProcessShopBrandLogoJob`. Existing objects are deliberately not migrated —
+their URLs are stored absolute and keep resolving.
+
+**The stale-pending clock (spec §12.2).** The spec assumed `upsertStore()` would
+not bump `updated_at` for a byte-identical write, and therefore that
+`addBrand`'s explicit `->touch()` needed a replacement. **Checked against a real
+Postgres rather than reasoned about: it does bump.** `ON CONFLICT DO UPDATE`
+writes the row unconditionally; the `touch()` existed only to defeat *Eloquent's*
+dirty check, which has no database equivalent. The clock is
+`content.storefronts.updated_at` and the touch is deleted, not ported.
+
+### 27.5 Two things the DROP would have taken silently
+
+**A cross-lane NOT NULL break.** `content.storefronts` is not the shop lane's
+alone — `MenuFetchJob` writes order-platform store cards into it (5 of the 15
+rows) and was not setting `user_id`. The migration would have SUCCEEDED (the
+backfill fills existing rows through their collection) and then the next menu
+scrape creating a new order-platform storefront would have failed on a NOT NULL
+violation. Deferred and silent, which is the worst shape. Fixed in the same
+change.
+
+**A lost CHECK constraint.** `site.shop_brands` carried three;
+`content.storefronts` carried none. Two were dead, but
+`connect_status IN (NULL,'pending','failed')` is live and is read by
+`PublicIntegrationConnectionResource`, which rejects only `'pending'` — so an
+unlisted third value renders publicly as though the store had connected. Carried
+across as `storefronts_connect_status_check` **before** the DROP, because
+afterwards there is no original left to compare against. A test fixture was then
+found seeding exactly `connect_status = 'connected'`; it had passed only because
+the SQLite stand-in carries no CHECK.
+
+### 27.6 Verification
+
+Four lanes green at the merge: `pest --parallel` 8269 passed / 2 skipped / 0
+failed, `composer test:pg` 212 passed, PHPStan (1G) no errors, Pint passed.
+
+Live on dev, before and after the DROP: `stores()` resolves 5 users / 10 stores;
+a real `upsertStore()` round-trip moved `content.storefronts` and left
+`site.shop_brands` **untouched** (`max(updated_at)` and row count both
+unchanged) while returning the SAME collection id — so slice 5a's
+duplicate-minting fault cannot recur. The public wire served 34 shop items
+across 6 collections both before and after. Dev logs over the window: 0 errors,
+0 5xx.
+
+**Backup gate met, and the tooling wall the drop phase logged in red is gone.**
+`scripts/db/backup-to-r2.sh` reaches `partna-db-backups` (plural — the singular
+name is the GitHub repo, which CLAUDE.md and the kickoff prompt conflate) via an
+existing wrangler OAuth session through `npx`, with a byte-compare read-back.
+Both tables were dumped, restored into a scratch database, and matched to live
+by md5 over the sorted id set — re-confirmed unchanged immediately before the
+DROP ran.
+
+### 27.7 What was NOT done
+
+- **The seven verbs were not driven through the authenticated HTTP API.** That
+  needs a Supabase JWT this session did not hold, and driving the controllers
+  through tinker would have bypassed the middleware stack, so a green result
+  would have proved nothing. The half SQLite cannot prove — writer, reader and
+  schema against real Postgres — was verified instead, plus the public path over
+  HTTP. Outstanding for the owner.
+- **The R2 copy of the pre-DROP dump.** The upload path is proven, but it
+  encrypts under `BACKUP_PASSPHRASE` so that `restore-drill` can decrypt it, and
+  that secret was not available here. The verified dump is at
+  `~/partna-backups/partna-dev-2026-08-17-shop-predrop.sql`. Supabase Pro daily
+  managed backups cover dev in the meantime.
+- **Production is untouched** and still carries both tables and the code that
+  reads them. It has ZERO users, which is also why deleting
+  `PseudoPlatformRetirer` lost nothing: it repoints `partna.storefront` markers,
+  and prod has no connections to hold any.
+
+### 27.8 Residuals
+
+- `ConstraintVocabularyLockstepTest` still parses archived migration
+  `20260720100200` for `shop_brands_selection_mode_check` and
+  `shop_brands_link_mode_check` — constraints that went with the table. The
+  tests pass (they read files, not the database) and their app-side arm is still
+  live, but the migration-vs-hardcoded half now pins something that no longer
+  exists. For the drop phase's sweep.
+- `site.item_slugs` is inert: nothing writes it (only `PruneRetiredItemSlugs`
+  deletes from it), every live write goes to `content.item_slugs`, and its 293
+  surviving rows are `menu_item` residue. Hand to the drop phase's sweep — it is
+  not one of the nine and was deliberately NOT dropped here.
+- `ShopConnections::LEGACY_SURFACE` stays. `removeBrand()` guards on it so a
+  surviving `partna.storefront` marker is never deleted out from under other
+  stores. Dev has zero; production is the reason to keep it.

@@ -67,3 +67,23 @@ migration made that column NOT NULL, so `MenuFetchJob::syncOrderPlatforms()` had
 to start writing it in the same change. Without that, the migration would have
 passed and the next menu scrape creating a NEW order-platform storefront would
 have failed on a NOT NULL violation — deferred and silent.
+
+## Verified AFTER the DROP, on dev
+
+The tables were dropped at 2026-08-17 ~05:2x UTC and the wire re-read:
+
+- `GET /api/public/profiles/ollies` → **200**, `profile.pools.shop` still carries
+  **34 items across 6 collections** — byte-identical shape to the pre-DROP read
+  taken an hour earlier.
+- `ShopConnections::stores()` resolves **6 stores** for that user off content.*;
+  `ShopContentReader::brandMap()` returns 6 entries with 7/8/8/2/8/1 products.
+- A real `upsertStore()` with both tables absent returns the **same collection
+  id** — the write lane is unaffected by their removal.
+- `content.*` intact: 15 storefronts, 10 storefront collections, 52 shop items.
+- Dev logs over the window: **0 errors, 0 5xx** across 96 rows. Nightwatch shows
+  no new exception attributable to this work.
+
+Backup taken before the DROP and proven restorable: both tables restored into a
+scratch database and matched against live by md5 over the sorted id set —
+`4d0f7bc3…` (10 brands) and `4e496f91…` (51 products), re-confirmed unchanged
+immediately before the DROP ran.
