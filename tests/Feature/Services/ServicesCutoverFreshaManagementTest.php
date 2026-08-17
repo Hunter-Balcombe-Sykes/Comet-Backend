@@ -52,15 +52,24 @@ function svcCutMgmtUser(): User
     return createTenant('svccutmgmt-'.Str::lower(Str::random(8)));
 }
 
-/** Fresha content item + a stored connection blob naming it. Returns itemId. */
-function svcCutMgmtFresha(User $pro, string $title, string $recordKey): string
+/**
+ * Fresha content item + a stored connection blob naming it. Returns itemId.
+ *
+ * Pass $sourceId to land a SECOND item on the same connection source: a user
+ * has at most one live Fresha connection (unique on user+surface+resource), so
+ * a second call without it would collide.
+ */
+function svcCutMgmtFresha(User $pro, string $title, string $recordKey, ?string $sourceId = null): string
 {
-    $sourceId = (string) Str::uuid();
+    $existingSource = $sourceId !== null;
+    $sourceId ??= (string) Str::uuid();
     $itemId = (string) Str::uuid();
-    DB::table('content.sources')->insert([
-        'id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'connection',
-        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
-    ]);
+    if (! $existingSource) {
+        DB::table('content.sources')->insert([
+            'id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'connection',
+            'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
         'headline_cache' => $title, 'facets_cache' => '{}', 'eligible_cache' => '{}',
@@ -83,6 +92,10 @@ function svcCutMgmtFresha(User $pro, string $title, string $recordKey): string
     DB::table('content.item_anchors')->insert([
         'coord' => 'fresha:'.$recordKey, 'user_id' => $pro->id, 'item_id' => $itemId, 'bound_at' => now(),
     ]);
+    if ($existingSource) {
+        return $itemId;
+    }
+
     // Through the model, not a raw insert: platform_connections.platform is a
     // GENERATED column off surface_key, and there is no resource_kind column.
     IntegrationConnection::create([
@@ -277,4 +290,24 @@ it('a legacy service-category uuid 404s on every staff by-id verb', function () 
     actingAsStaff($staff)->deleteJson("/api/staff/professionals/{$pro->id}/service-categories/{$legacyId}/hard")->assertNotFound();
     actingAsStaff($staff)->postJson("/api/staff/professionals/{$pro->id}/service-categories/{$legacyId}/restore")->assertNotFound();
     actingAsStaff($staff)->postJson("/api/staff/professionals/{$pro->id}/service-categories/reorder", ['ids' => [$legacyId]])->assertStatus(422);
+});
+
+it('disconnecting Fresha hides synced items via source_items.removed_at and spares overridden ones', function () {
+    $pro = svcCutMgmtUser();
+    $syncedId = svcCutMgmtFresha($pro, 'Synced', 's:1');
+    // Same connection source — one live Fresha connection per user.
+    $sourceId = (string) DB::table('content.sources')->where('user_id', $pro->id)
+        ->where('kind', 'connection')->value('id');
+    $editedId = svcCutMgmtFresha($pro, 'Edited', 's:2', $sourceId);
+    DB::table('content.manual_overrides')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $editedId,
+        'facet' => 'f_text', 'column_name' => 'headline', 'value' => json_encode('Mine'),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    actingAsUser($pro)->deleteJson('/api/platforms/fresha')->assertOk();
+
+    expect(DB::table('content.source_items')->where('item_id', $syncedId)->value('removed_at'))->not->toBeNull()
+        ->and(DB::table('content.source_items')->where('item_id', $editedId)->value('removed_at'))->toBeNull()
+        ->and(DB::table('content.items')->whereIn('id', [$syncedId, $editedId])->whereNotNull('removed_at')->count())->toBe(0);
 });

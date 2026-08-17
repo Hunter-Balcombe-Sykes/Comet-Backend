@@ -24,7 +24,6 @@ use App\Services\Content\ServiceCollections;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Site\AdvisoryLock;
 use App\Services\Site\AdvisoryLockTimeoutException;
-use App\Services\Site\LegacyServiceSortOrder;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
@@ -104,10 +103,10 @@ class UserServiceController extends ApiController
         // sort_order, not a blind manual-then-Fresha concatenation — a
         // manual item's transient sort_order is populated from
         // section_items.sort_key (ManualServiceItems::hydrate()), and
-        // reorder()/reorderLayout() now number both halves from the same
-        // shared position index (LegacyServiceSortOrder's docblock), so
-        // this reconstructs the caller's actual combined order instead of
-        // always grouping every manual service ahead of every Fresha one.
+        // reorder()/reorderLayout() number both halves from the same shared
+        // position index on site.section_items.sort_key (spec §3.4), so this
+        // reconstructs the caller's actual combined order instead of always
+        // grouping every manual service ahead of every Fresha one.
         $limit = (int) config('partna.limits.pagination.services_max', 500);
         $services = $manualServices->concat($freshaServices)
             ->sortBy('sort_order')->values()->take($limit);

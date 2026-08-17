@@ -1699,7 +1699,7 @@ git add -A && git commit -m "feat(services-cutover): staff category by-id verbs 
 - Delete: `app/Services/Site/LegacyServiceSortOrder.php`, `app/Services/Migration/ServiceBackfiller.php`, `app/Console/Commands/BackfillOwnerServices.php` (+ their test files)
 - Test: extend `tests/Feature/Services/ServicesCutoverFreshaManagementTest.php`
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```php
 it('disconnecting Fresha hides synced items via source_items.removed_at and spares overridden ones', function () {
@@ -1721,8 +1721,8 @@ it('disconnecting Fresha hides synced items via source_items.removed_at and spar
 });
 ```
 
-- [ ] **Step 2: Run; confirm it fails** (current forget() touches only `site.services`).
-- [ ] **Step 3: Implement `forget()`** — replace the `Service::query()` loop with:
+- [x] **Step 2: Run; confirm it fails** (current forget() touches only `site.services`).
+- [x] **Step 3: Implement `forget()`** — replace the `Service::query()` loop with:
 
 ```php
         return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user) {
@@ -1755,7 +1755,7 @@ it('disconnecting Fresha hides synced items via source_items.removed_at and spar
 
 Note the trailing `, 30` TTL argument is REMOVED (back to the 10s default): the per-row `ServiceObserver` storm the 30s bound was sized for (its own comment) no longer exists — one raw UPDATE replaces it. Update the comment above the lock accordingly, keeping the booking-XOR-key reasoning. Add the `DB` and `UserCacheService` imports if missing.
 
-- [ ] **Step 4: Delete the orphans.** `FreshaServiceProjector::revert()` + `rawEntryFor()` + `rawAttributes()` + `parseDuration()` — check callers first:
+- [x] **Step 4: Delete the orphans.** `FreshaServiceProjector::revert()` + `rawEntryFor()` + `rawAttributes()` + `parseDuration()` — check callers first:
 
 ```bash
 grep -rn "revert(\|rawEntryFor\|rawAttributes\|parseDuration" app/ tests/ --include='*.php' | grep -v FreshaServiceProjector.php
@@ -1763,12 +1763,32 @@ grep -rn "revert(\|rawEntryFor\|rawAttributes\|parseDuration" app/ tests/ --incl
 
 Delete what has no remaining caller (Task 4 removed the resync call sites; `parseDuration()` may have test-only callers — delete those cases with it). Delete `LegacyServiceSortOrder.php`, `ServiceBackfiller.php`, `BackfillOwnerServices.php`, their imports, their scheduled/console registrations (grep `content:backfill-owner-services` and the class names in `routes/console.php` + `app/Console/`), and their test files (grep `tests/` for each class name).
 
-- [ ] **Step 5: Run the full suite chunk + `composer test:pg`; commit**
+- [x] **Step 5: Run the full suite chunk + `composer test:pg`; commit**
 
 ```bash
 ./vendor/bin/pest tests/Feature/Platforms/ tests/Feature/Services/ tests/Feature/Content/ --parallel
-git add -A && git commit -m "feat(services-cutover): forget() maps disconnect onto source_items.removed_at; revert(), backfillers and LegacyServiceSortOrder deleted"
+git add -A && git commit -m "feat(services-cutover): forget() maps disconnect onto source_items.removed_at; revert() and LegacyServiceSortOrder deleted"
 ```
+
+**Reality corrections applied (rule zero, 2026-08-17):**
+
+1. **`ServiceBackfiller` / `BackfillOwnerServices` deletion MOVES to Task 12,
+   where the spec already puts it.** Spec §3.6 step 4 lists these deletions in
+   the DROP window ("same window"), not here — and the earlier placement
+   collides with a Global Constraint: `ServiceTwoSurfaceTest` builds its manual
+   half with `ownerService()` + `ServiceBackfiller::run()`, so deleting the
+   class now would force a modification of the one file that must stay green
+   UNMODIFIED through every task. Eleven other test files use it as the same
+   legacy-row-to-content-item fixture step; all of them retire with the legacy
+   fixtures in Task 12. Where plan and spec disagreed, the spec won and the
+   protected test was not touched.
+2. **`FreshaServiceProjector::rawEntryFor()`/`rawAttributes()` go with
+   `revert()`** — they had no other caller. `parseDuration()` stays: it is
+   public and still used inside the class.
+3. **`FreshaStorewideDeferredConnectTest`'s mid-scrape disconnect case** ended
+   with "the legacy row is soft-deleted", which was forget()'s old behaviour
+   rather than the lock guard it exists to prove. Inverted: the legacy row is
+   left untouched, since forget() no longer writes `site.services` at all.
 
 ---
 
