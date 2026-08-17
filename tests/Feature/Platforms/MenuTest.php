@@ -64,6 +64,10 @@ function menuUser(string $h): User
  */
 function ordering(User $user, string $url, ?string $type, string $at): IntegrationConnection
 {
+    // Since 2026-08-18 the observer dispatches MenuFetchJob for any ordering
+    // row on a menu-platform host (F17). These tests drive MenuFetchJob by
+    // hand, so keep the observer's dispatch off the sync queue.
+    Queue::fake([MenuFetchJob::class]);
     Carbon::setTestNow($at);
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
     $row = IntegrationConnection::create([

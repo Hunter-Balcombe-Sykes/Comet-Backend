@@ -724,6 +724,11 @@ function projectableGoogleReviews(array $docs): array
 {
     $userId = createTenant('gbstats-'.Str::lower(Str::random(6)))->id;
 
+    // google_business is eagerOnConnect since 2026-08-18 (R8): the observer
+    // would run the connector inline under the sync queue and mint the
+    // 'reviews' stream this helper builds by hand. Keep the eager run out.
+    \Illuminate\Support\Facades\Bus::fake([\App\Jobs\Ingest\RunSourceJob::class]);
+
     $connection = IntegrationConnection::create([
         'user_id' => $userId,
         'platform' => 'google-business',

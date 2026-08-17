@@ -150,6 +150,14 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         if ($user === null || $site === null) {
             return;
         }
+        // A link-in-bio page is not a website to scan (no about text, no logo,
+        // no menu) — it is a bundle of links to unroll (overnight F15).
+        if (app(\App\Services\Platforms\LinkInBioDetector::class)->matches($this->url)) {
+            LinkInBioScanJob::dispatch($this->userId, $this->url);
+
+            return;
+        }
+
 
         $response = $fetcher->tryFetch($this->url);
         $html = is_array($response) && $response['status'] === 200 ? (string) $response['body'] : '';
