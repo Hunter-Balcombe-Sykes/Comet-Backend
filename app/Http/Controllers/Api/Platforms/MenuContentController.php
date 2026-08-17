@@ -755,6 +755,15 @@ class MenuContentController extends ApiController
      * all, and the honest column to freeze is the one whose value the owner is
      * now responsible for. `body` joins it only when the request actually sent
      * a description, so an untouched description keeps following the vendor.
+     *
+     * "On every write" is LOAD-BEARING, not tidiness. MenuFetchJob's whole-dish
+     * lock (ownerLockedCoords) reads these rows to decide which dishes a scrape
+     * must not touch, and price has no override column of its own —
+     * content.offers is a set, which FacetRegistry admits no override for. So
+     * this headline row is the ONLY thing standing between an owner's re-priced
+     * dish and the vendor's price on the next scrape. Make it conditional on a
+     * name being sent and price edits silently revert again;
+     * ManualMenuContentTest's price-only case is the guard.
      */
     private function recordOwnerEdits(string $itemId, string $name, bool $descriptionSent, ?string $description): void
     {

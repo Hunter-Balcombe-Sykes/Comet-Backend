@@ -162,7 +162,43 @@ reasoning about "what data do we still need?" does not, because the answer is
 - Re-grep for others before dropping. This shape appeared three times; assume a
   fourth.
 
-### 4b. A KNOWN, DEFERRED BUG you will meet — do not "fix" it in passing
+### 4b. FIXED 2026-08-17 — kept here because the fix has a fragile coupling
+
+**This bug is closed.** It is documented because the fix rests on something
+non-obvious that a later tidy-up could silently reopen.
+
+Owner ruling: **an owner edit locks the WHOLE dish** — the scrape stops touching
+it entirely, restoring the legacy `is_manual` semantics and matching
+`MenuScanApplier::lockedItemIds()`. Per-column locking was considered and
+rejected: a dish half owner-data and half vendor-data reads as incoherent.
+
+Implemented as a skip in `persist()`'s **write loop** (`MenuFetchJob.php:409-430`),
+keyed on `locked_coords` from `ownerLockedCoords()` — the same set the retirement
+exemption uses, so there is one derivation, not two.
+
+**Why the skip is in the write loop and not in `mergedDishes()`**, proven by
+experiment rather than argued: `$coords` is built from `$dishes` *before* the
+loop. Filtering `$dishes` first means the locked dish's coord never enters
+`$coords`, and `absentDishIds()` then treats it as vanished — **the naive fix
+deletes exactly the dishes it was meant to protect.** That was verified by
+neutralising the retirement exemption and running both shapes: write-loop skip
+passes, `mergedDishes()` filter fails.
+
+**The fragile coupling — do not "tidy" this.** A price-only edit is protected only
+because `recordOwnerEdits()` (`MenuContentController.php:759`) writes an
+`f_text/headline` override on **every** owner write, price-only included. That one
+row is the sole thing keeping a re-priced dish off the vendor's price. A
+reasonable-looking refactor to "only record the columns the request actually sent"
+would silently reopen the bug. It is commented at the method and guarded by
+`it('keeps an owner price-only edit across a scrape that re-prices the dish')`.
+
+There is **no** price override row, deliberately: `content.offers` is a SET
+resolved by union and never to a winner, and `FacetRegistry:16-19` excludes
+collections because they have no single value to override — its own docblock calls
+an unvalidated pair "a durable lie: a row nothing reads". The lock closes the gap
+instead of a new mechanism doing it.
+
+### 4b-hist. The bug as it stood before the fix — for context only
 
 The menu scrape still overwrites dishes the owner has edited by hand. When an
 owner edits a dish through the dashboard,
@@ -229,6 +265,43 @@ The Eloquent-model reads are separate and larger: `Service`, `ServiceCategory`,
 `MenuItem`, `MenuCategory`, `MenuItemPlatform`, `ShopProduct` and their relations,
 plus `->categories()->sync()` in two service controllers and both grouped
 `index()` methods. Those go with the models in step 7.
+
+### 4d. The carve-out is clean at TABLE level and NOT at code level — resolve this
+
+Found 2026-08-17 by the prompt-8 session, verified here. **A fourth instance of
+the integrity-oracle shape, and it sits exactly on the nine-vs-ten seam.**
+
+`site.shop_brands` is deferred, so `ShopBrand` survives. But its
+`products()` relation (`app/Models/Core/Site/ShopBrand.php:115`) is
+`hasMany(ShopProduct::class)`, and `ShopProduct` maps to `site.shop_products` —
+which IS in your nine. `toBrandArray()` (`:171`) walks that relation to compose a
+wire shape. So "do not touch `shop_brands`" and "delete the nine dropped tables'
+models" **cannot both hold literally**: deleting `ShopProduct` forces an edit to
+the deferred table's model.
+
+**Resolution — delete the fallback, then the model. In this order:**
+
+1. `ShopController` calls it in exactly three places, always as
+   `$this->contentReader->brandMap($user)[$id] ?? $brandRow->fresh('products')->toBrandArray()`
+   — `:468`, `:580`, `:664`. **`brandMap()` is the authoritative read** and the
+   controller's own comment at `:465-466` says the legacy arm "covers only a
+   theoretical read-your-own-write miss". Delete the `?? …toBrandArray()` half at
+   all three.
+2. That leaves `ShopBrand::products()` and `::toBrandArray()` with no callers.
+   Delete both members — a scoped edit to the deferred model, NOT a re-home.
+   Everything else on `ShopBrand` stays.
+3. Then `ShopProduct` deletes cleanly with the other eight models.
+
+**Do not** instead leave `products()` pointing at a dropped table "because the
+fallback is theoretical" — a theoretical path that raises `42P01` is a latent
+outage on the dashboard shop endpoint and the public shop path.
+
+**Also reconcile:** the `shop_brands` re-home plan
+(`docs/superpowers/plans/2026-08-17-shop-brands-rehome.md`, being written by
+another session) lists `ShopProduct.php` in its own "Deleted (last task only)"
+set. Both plans claim that file. **This phase deletes it** — say so in the
+checkpoint so the re-home's plan gets corrected rather than both sessions
+reaching for it.
 
 ### 5. Retire the five observers — the highest-risk step in the phase
 
