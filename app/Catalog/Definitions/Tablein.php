@@ -13,8 +13,8 @@ use App\Catalog\SurfaceBuilder;
 
 /**
  * Tablein — WLH-label reservations brand, new link-only surface. Host from
- * WebsiteLinkHarvester::RESERVATION_HOSTS (verbatim); WLH collapses it to the
- * generic 'reservations' pseudo-platform today.
+ * WebsiteLinkHarvester::RESERVATION_HOSTS (verbatim); since Phase 6 WLH returns
+ * this surface key ('tablein.reserve') rather than a generic bucket.
  */
 class Tablein
 {

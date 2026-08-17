@@ -13,9 +13,9 @@ use App\Catalog\SurfaceBuilder;
 
 /**
  * Menulog — WLH-label ordering brand, new link-only surface. Host from
- * WebsiteLinkHarvester::ORDERING_HOSTS (verbatim); WLH itself never writes a
- * distinct 'menulog' platform value — every ordering-bucket host collapses to
- * the generic 'online-ordering' pseudo-platform today (WLH:352).
+ * WebsiteLinkHarvester::ORDERING_HOSTS (verbatim); since Phase 6 split
+ * ORDERING_PLATFORM per brand, WLH returns this surface key ('menulog.order')
+ * rather than a generic 'online-ordering' bucket.
  */
 class Menulog
 {

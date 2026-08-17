@@ -13,8 +13,8 @@ use App\Catalog\SurfaceBuilder;
 
 /**
  * Quandoo — reservations, detect-only. TLD set from PRSP:447's HostMatch,
- * verbatim (also listed in WLH's RESERVATION_HOSTS, which collapses it to the
- * generic 'reservations' bucket rather than this dedicated key).
+ * verbatim (also listed in WLH's RESERVATION_HOSTS, which since Phase 6 agrees
+ * with this key and returns 'quandoo' rather than a generic bucket).
  */
 class Quandoo
 {

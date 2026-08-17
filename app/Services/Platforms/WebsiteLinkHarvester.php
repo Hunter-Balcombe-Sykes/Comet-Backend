@@ -64,7 +64,13 @@ class WebsiteLinkHarvester
         'NowBookit' => '~(^|\.)nowbookit\.com$~',
         // Expanded 2026-07-25
         'SevenRooms' => '~(^|\.)sevenrooms\.com$~',
-        'Tock' => '~(^|\.)exploretock\.com$~',
+        // Both hosts: Tock migrated exploretock.com -> tock.com and serves both.
+        // The catalog detector has carried the pair since Phase 6; this table had
+        // only the old one, so a tock.com paste fell through to
+        // classifyFromCatalog() and came back category 'link' — enough for the
+        // per-brand route, but the reservations FAMILY endpoint rejects anything
+        // whose category is not 'reservations', so that path refused a valid link.
+        'Tock' => '~(^|\.)(exploretock\.com|tock\.com)$~',
         'TheFork' => '~(^|\.)thefork\.(com|com\.au|com\.br|com\.ar|co\.uk|fr|es|it|pt|nl|be|ch|at|de|dk|se|cl)$~',
         'Quandoo' => '~(^|\.)quandoo\.(com|com\.au|de|at|ch|it|co\.uk|sg|hk|nl|fi)$~',
         'Resy' => '~(^|\.)resy\.com$~',

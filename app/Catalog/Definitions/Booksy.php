@@ -14,9 +14,9 @@ use App\Catalog\SurfaceBuilder;
 /**
  * Booksy. One of the 27-provider stopgap set (PICR.php:178-222) —
  * detect-only card, no connect/fetch, host verbatim from PRSP:429.
- * WebsiteLinkHarvester also matches booksy.com but always collapses it to
- * the generic 'booking' pseudo-platform, never to this dedicated key
- * (WLH.php:111,133) — a legacy quirk this new detector does not replicate.
+ * WebsiteLinkHarvester also matches booksy.com and agrees with this key:
+ * Phase 6 split BOOKING_PLATFORM per brand, so it returns 'booksy'. (It used
+ * to collapse to a generic 'booking' pseudo-platform; that is no longer true.)
  */
 class Booksy
 {

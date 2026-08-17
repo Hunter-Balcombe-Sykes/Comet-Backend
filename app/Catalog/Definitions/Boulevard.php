@@ -14,8 +14,8 @@ use App\Catalog\SurfaceBuilder;
 /**
  * Boulevard. One of the 27-provider stopgap set (PICR.php:178-222) —
  * detect-only card, no connect/fetch, host verbatim from PRSP:467-470.
- * WebsiteLinkHarvester also matches boulevard.io but collapses it to the
- * generic 'booking' pseudo-platform (WLH.php:121,135) — not replicated here.
+ * WebsiteLinkHarvester also matches boulevard.io and agrees with this key —
+ * Phase 6 split BOOKING_PLATFORM per brand, so it returns 'boulevard'.
  */
 class Boulevard
 {

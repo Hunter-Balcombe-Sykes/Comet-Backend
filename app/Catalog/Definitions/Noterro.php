@@ -13,8 +13,8 @@ use App\Catalog\SurfaceBuilder;
 
 /**
  * Noterro — WLH-label booking brand, new link-only surface. Host from
- * WebsiteLinkHarvester::BOOKING_HOSTS (verbatim); WLH collapses it to the
- * generic 'booking' pseudo-platform today.
+ * WebsiteLinkHarvester::BOOKING_HOSTS (verbatim); since Phase 6 WLH returns
+ * this surface key ('noterro.book') rather than a generic 'booking' bucket.
  */
 class Noterro
 {
