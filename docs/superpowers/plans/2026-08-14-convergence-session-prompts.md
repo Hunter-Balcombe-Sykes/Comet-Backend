@@ -38,8 +38,13 @@ Order:
    before the DROP that removes its legacy twin.** Six-unit work list and the
    live coverage figures: `2026-08-16-slice-7-entry-gate-report.md`.
 7b. `programme-review` (added 2026-08-16 — whole-programme verification gate;
-    phase-8-docs may not start until it reports PASS)
-8. `phase-8-docs`
+    phase-8-review-and-docs may not start until it reports PASS). **NOT YET RUN
+    as of 2026-08-17.** Expanded into its own kickoff, because the §7b text below
+    predates slice 7 shipping at reduced scope and the two follow-on projects
+    that finished it: `2026-08-17-programme-review-KICKOFF-PROMPT.md`. Run that
+    file, not the §7b block.
+8. `phase-8-review-and-docs` (the §8 block below; every session since 2026-08-17
+   has referred to it by this name)
 
 ---
 
@@ -625,17 +630,34 @@ checkpoint, any auth/money finding, any P0: STOP for the owner.
 
 ---
 
-## 8 — phase-8-docs
+## 8 — phase-8-review-and-docs
 
 ```
-Rename this session to phase-8-docs.
+Rename this session to phase-8-review-and-docs.
+
+GATE: prompt 7b (programme-review) must have reported PASS into the parent spec before
+this session starts — see 2026-08-17-programme-review-KICKOFF-PROMPT.md. If no review
+record exists, or it reads BLOCKED, STOP: raise it rather than documenting a programme
+nothing verified. If the owner rules that 7b is waived, record that ruling in the closing
+checkpoint as an accepted gap; do not let it go unrecorded.
 
 Execute Phase 8 per docs/2026-08-14-convergence-phases.md §8: the documentation truth
 pass. Rewrite the backend CLAUDE.md to the post-convergence reality (flag the root
 CLAUDE.md for its owner); correct every remaining stale figure in the parent spec; verify
 docs/wire-changes/ carries one manifest per shipped contract change (slice 4,
-custom-links, and slice 7 are the new ones); docs/2026-08-05-platforms-as-sources.md's
-closing line must state what is actually true.
+custom-links and slice 7, plus the two projects that finished the programme —
+2026-08-17-services-cutover.md and 2026-08-17-shop-brands-rehome.md);
+docs/2026-08-05-platforms-as-sources.md's closing line must state what is actually true.
+
+Two structural defects in the parent spec are this session's to fix, and neither is a
+formatting nit — both make the record unciteable:
+  * There are TWO sections numbered "## 27" (services cutover, then shop re-home). The
+    services checkpoint's own cross-references point at §27, so renumbering has to carry
+    every inbound reference with it.
+  * Slice 7's checkpoint was never filed into the spec at all — it lives in
+    docs/superpowers/plans/2026-08-17-slice-7-phase-6-checkpoint.md. The spec therefore
+    has no record of the largest teardown in the programme, including its accepted 23-row
+    data loss. Fold it in.
 
 The wire documentation describes the NEW wire on its own terms — never as a diff from
 legacy — because it is the input to the frontend rebuild.
