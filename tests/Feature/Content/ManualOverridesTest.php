@@ -3,6 +3,8 @@
 use App\Content\Values\Contribution;
 use App\Content\Values\ValueResolver;
 use App\Models\Content\ManualOverride;
+use App\Models\Core\Site\Site;
+use App\Site\Pools\PoolResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -197,4 +199,34 @@ it('requires authentication', function () {
     $this->putJson('/api/content/items/'.Str::uuid().'/overrides', [
         'facet' => 'f_text', 'column' => 'headline', 'value' => 'x',
     ])->assertStatus(401);
+});
+
+it('applies every override column on the wire, not just headline (owner, 2026-08-18)', function () {
+    // The sheets wrote overrides for description/duration/venue/… and the
+    // resolver read back headline alone — a save that toasts and no-ops.
+    [$pro] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id));
+    $itemId = poolItem($pro->id, $source, 'video', 'Original title', now()->toDateTimeString());
+
+    foreach ([
+        ['f_text', 'body', 'Edited description'],
+        ['f_duration', 'seconds', 1800],
+        ['f_authored', 'creator', 'Edited Creator'],
+    ] as [$facet, $column, $value]) {
+        DB::connection('pgsql')->table('content.manual_overrides')->insert([
+            'id' => (string) Str::uuid(), 'item_id' => $itemId,
+            'facet' => $facet, 'column_name' => $column,
+            'value' => json_encode($value),
+            'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+        ]);
+    }
+
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+    $item = collect(app(PoolResolver::class)->resolve($site, 'watch')['selection'])
+        ->firstWhere('id', $itemId);
+
+    expect($item['description'])->toBe('Edited description')
+        ->and($item['durationSeconds'])->toBe(1800)
+        ->and($item['creator'])->toBe('Edited Creator')
+        ->and($item['headline'])->toBe('Original title');
 });
