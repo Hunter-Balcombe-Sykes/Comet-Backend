@@ -7,6 +7,7 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\DisplaySettingsFilter;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
+use App\Services\Platforms\LinkInBioDetector;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\WebsiteLinkHarvester;
@@ -137,6 +138,18 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         // came back empty.
         $gbp = GoogleBusinessPayload::fromArray($connection->payload);
         $harvest = $harvester->harvest($gbp->website());
+
+        // A listing whose "website" is a link-in-bio page (linktr.ee, beacons,
+        // msha.ke, stan.store) has nothing for the anchor harvest to find —
+        // those pages render their links from JSON — but it is exactly the
+        // page that bundles the business's ordering / booking / socials.
+        // Unroll it through the same job Instagram bio links use (overnight
+        // 2026-08-18 F15: Top Choice Wollongong's linktree produced 0 links).
+        $website = $gbp->website();
+        if (is_string($website) && $website !== '' && app(LinkInBioDetector::class)->matches($website)) {
+            LinkInBioScanJob::dispatch($this->userId, $website, $this->autoConnectBooking);
+            Log::info('google_business.enrich_job.link_in_bio_unroll', ['user_id' => $this->userId, 'place_id' => $this->placeId]);
+        }
 
         $enrichment = null;
         // OBS-6 context: which of three states produced a null enrichment —

@@ -91,6 +91,10 @@ class GoogleBusinessConnector implements Connector
             ],
             cost: CostClass::Metered,
             defaultIntervalSeconds: 172800,
+            // Owner ruling R8 (overnight 2026-08-18): paid sources get ONE eager
+            // run at connect so the library fills on day one, then the
+            // scheduler cadence under the platform's budget cap.
+            eagerOnConnect: true,
             redactions: ['author', 'author_uri', 'author_photo'],
             redactionScopes: [
                 'author' => 'when_unclaimed',

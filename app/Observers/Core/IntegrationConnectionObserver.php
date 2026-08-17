@@ -58,6 +58,8 @@ class IntegrationConnectionObserver
 
     public function saved(IntegrationConnection $connection): void
     {
+        $this->maybeFetchMenu($connection);
+
         // Purge + preset resolve both gate on MEANINGFUL changes only — a
         // connect (created), a payload refresh, or an (de)activation — not
         // status-only writes like last_visited_at / refresh status. Both
@@ -360,8 +362,41 @@ class IntegrationConnectionObserver
         }
     }
 
+    /**
+     * An ordering connection on a MENU platform (Uber Eats / DoorDash /
+     * Square) triggers the shared menu fetch no matter which path wrote it —
+     * GoogleBusinessAutoSync's own seed used to be the ONLY dispatcher, so an
+     * ordering link that arrived via the router (Instagram bio, Linktree
+     * unroll, a paste) never filled the menus pool (overnight 2026-08-18
+     * F17: RUH's uber_eats.order landed with 0 dishes). MenuFetchJob is
+     * ShouldBeUnique per user and idempotent, so a burst coalesces.
+     */
+    private function maybeFetchMenu(IntegrationConnection $connection): void
+    {
+        if ((string) $connection->routing_class !== 'ordering') {
+            return;
+        }
+        if (! ($connection->wasRecentlyCreated || $connection->wasChanged('payload') || ($connection->wasChanged('is_active') && $connection->is_active))) {
+            return;
+        }
+        $url = (string) (($connection->payload['url'] ?? '') ?: '');
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return;
+        }
+        foreach ((array) config('partna.menu.platforms', []) as $slug => $spec) {
+            $pattern = $spec['host_pattern'] ?? null;
+            if (is_string($pattern) && $pattern !== '' && preg_match($pattern, $host)) {
+                \App\Jobs\Platforms\MenuFetchJob::dispatch((string) $connection->user_id)->afterCommit();
+
+                return;
+            }
+        }
+    }
+
     public function restored(IntegrationConnection $connection): void
     {
+        $this->maybeFetchMenu($connection);
         $this->refresher->refresh($connection);
 
         // Same hasCompletenessPredicate() touch as deleted()/saved() — a

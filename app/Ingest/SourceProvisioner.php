@@ -146,7 +146,18 @@ class SourceProvisioner
      */
     private static function schedulable(Manifest $manifest): bool
     {
-        return $manifest->cost === CostClass::Free;
+        if ($manifest->cost === CostClass::Free) {
+            return true;
+        }
+        // Owner ruling R8 (overnight 2026-08-18): named paid connectors run
+        // on the scheduler under their budget caps — google_business every
+        // 2d, spotify/soundcloud weekly (manifest defaultIntervalSeconds).
+        // Instagram stays connect+Resync only; the menu actors stay on the
+        // legacy MenuFetchJob lane. Config-driven so a spend incident is an
+        // env change, not a deploy.
+        $allowed = (array) config('partna.ingest_scheduled_paid_sources', []);
+
+        return in_array($manifest->source->value, $allowed, true);
     }
 
     /** The brand half of a surface key, when a registered connector serves it. */

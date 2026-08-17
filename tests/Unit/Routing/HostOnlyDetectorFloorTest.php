@@ -74,11 +74,15 @@ it('identifies the host-only booking and ordering brands the legacy table alread
 // prose: everything recovered above sits below every suggest threshold, and a
 // verdict below suggest is a Note, which writes nothing.
 it('keeps every recovered host-only match below the lowest suggest threshold', function () {
+    // ko-fi.com/acme and github.com/acme LEFT this list 2026-08-18: they now
+    // carry a `(?<handle>)` capture detector (F12), so a profile-shaped URL is
+    // ProfileLink evidence like x.com/{handle} — see the test below. Only the
+    // genuinely host-only shapes must stay below suggest.
     $recovered = [
-        'https://ko-fi.com/acme',
+        'https://ko-fi.com/gold',              // reserved path → host-only fallback
         'https://ra.co/events/1234567',
         'https://booksy.com/en-us/12345_the-salon',
-        'https://github.com/acme',
+        'https://github.com/features/actions', // multi-segment → host-only fallback
     ];
 
     $lowestSuggest = 45; // RoutingPolicy: social/content, the most permissive class
@@ -88,4 +92,13 @@ it('keeps every recovered host-only match below the lowest suggest threshold', f
     }
 
     expect(Verdict::Note->writesIntent())->toBeFalse();
+});
+
+it('scores a profile-shaped URL on a handle-capturing brand like any other ProfileLink (F12)', function () {
+    foreach (['https://ko-fi.com/acme' => 'ko_fi.page', 'https://github.com/acme' => 'github.profile', 'https://acme.substack.com' => 'substack.publication'] as $url => $surface) {
+        $p = projectUrl($url);
+        expect($p->matched())->toBeTrue($url)
+            ->and($p->surfaceKey)->toBe($surface)
+            ->and($p->confidence)->toBeGreaterThanOrEqual(45, $url);
+    }
 });

@@ -109,12 +109,15 @@ class GoogleBusinessAutoSync
             $findings = [...$findings, ...$this->seedBooking($userId, $enrichment, $businessName, $autoConnectBooking)];
         }
 
-        // Reservations / online-ordering / workplace / socials are a Business-Partna
-        // convenience — unchanged, still gated on google_business_full_sync so a
-        // standard (partna) account is never handed cards it doesn't surface.
-        // Reservations + ordering are ADDITIONALLY narrowed to food businesses only
-        // (a non-food business, e.g. a barbershop, gets neither — see can_use_*
-        // above); workplace + socials stay unconditional within this block.
+        // Workplace (previous website / category / description) + socials are
+        // seeded for EVERY account type (owner ruling R14, overnight
+        // 2026-08-18): an individual who connects their Google listing gets the
+        // website scan, logo, socials and booking too. Reservations + ordering
+        // stay capability-gated (food business only — see can_use_* above),
+        // which is what google_business_full_sync now means.
+        $this->seedWorkplace($userId, $gbPayload ?? []);
+        $findings = [...$findings, ...$this->seedSocials($userId, $enrichment, $autoConnectBooking)];
+
         if (! $capabilities->google_business_full_sync) {
             return $findings;
         }
@@ -125,8 +128,6 @@ class GoogleBusinessAutoSync
         if ($capabilities->can_use_online_ordering) {
             $findings = [...$findings, ...$this->seedOrdering($userId, $enrichment)];
         }
-        $this->seedWorkplace($userId, $gbPayload ?? []);
-        $findings = [...$findings, ...$this->seedSocials($userId, $enrichment, $autoConnectBooking)];
 
         return $findings;
     }
