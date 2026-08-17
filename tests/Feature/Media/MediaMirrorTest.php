@@ -166,3 +166,20 @@ it('never rewrites the fingerprint, even across a bytes change', function () {
 
     expect(DB::table('content.media_assets')->where('id', $assetId)->value('fingerprint'))->toBe($fingerprint);
 });
+
+it('stores a reel mp4 as-is under its content hash with mime video/mp4 (R7)', function () {
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:video'));
+    // A minimal ISO BMFF header: size + 'ftyp' box + brand, then junk.
+    $mp4 = "\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom".str_repeat("\x00", 512);
+    Http::fake(['*' => Http::response($mp4, 200, ['Content-Type' => 'video/mp4'])]);
+
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/reel.mp4');
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    expect($ok)->toBeTrue()
+        ->and($row->mime_type)->toBe('video/mp4')
+        ->and($row->storage_path)->toEndWith('.mp4')
+        ->and(Storage::disk('media')->exists($row->storage_path))->toBeTrue()
+        ->and(Storage::disk('media')->get($row->storage_path))->toBe($mp4);
+});

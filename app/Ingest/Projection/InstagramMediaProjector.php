@@ -43,6 +43,19 @@ class InstagramMediaProjector implements Projector
                 'ref' => "instagram:{$shortcode}:{$i}",
             ];
         }
+        // A reel/video post also carries its mp4 as a `video` frame (owner
+        // ruling R7, overnight 2026-08-18): the ref is instagram-owned so
+        // MediaMirror copies the bytes to R2 (the CDN url expires), and
+        // PoolResolver::frames() emits it with kind=video + the cover as
+        // poster so the sitepage can play it. The cover stays frame 0.
+        $video = $view->string('video_url');
+        if ($video !== null && $video !== '') {
+            $media[] = [
+                'role' => 'video',
+                'url' => $video,
+                'ref' => "instagram:{$shortcode}:video",
+            ];
+        }
 
         return [
             'kind' => self::kind(),

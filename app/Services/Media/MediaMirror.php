@@ -31,6 +31,9 @@ final class MediaMirror
      */
     private const MAX_BYTES = 15728640;
 
+    /** Reels are short; 80 MB is far above a typical 15–60s mp4 and below anything hostile (R7). */
+    private const MAX_VIDEO_BYTES = 83886080;
+
     /**
      * Gallery photos, not logos: the upload pipeline's own `optimized` tier
      * allows a 2400px long edge, and mirrored media sits beside uploads in the
@@ -69,7 +72,9 @@ final class MediaMirror
         // Category B. An Instagram CDN url arrived in a third-party scrape
         // payload and is untrusted by definition — a host allowlist would not
         // be the fix here, it would be a way of not asking the question.
-        $response = $this->fetcher->tryFetch($sourceUrl);
+        // A reel's mp4 is well over the fetcher's 10 MB page/image default;
+        // the video branch below enforces its own cap after the fact.
+        $response = $this->fetcher->withMaxBytes(self::MAX_VIDEO_BYTES)->tryFetch($sourceUrl);
 
         // tryFetch returns null on refusal or transport failure; dereferencing
         // before this null check is the repo's known trap. Past it, the shape
@@ -80,6 +85,25 @@ final class MediaMirror
         }
 
         $body = $response['body'];
+        // Video (a reel's mp4, R7): stored as-is under its content hash — no
+        // re-encode, its own byte cap. Detected by the ISO BMFF 'ftyp' box at
+        // offset 4, never by extension (a signed CDN url has none).
+        if (strlen($body) > 12 && substr($body, 4, 4) === 'ftyp') {
+            if (strlen($body) > self::MAX_VIDEO_BYTES) {
+                return $this->fail($assetId, 'video_too_large', $sourceUrl);
+            }
+            $path = 'content-media/'.$userId.'/'.substr(hash('sha256', $body), 0, 32).'.mp4';
+            try {
+                Storage::disk(config('partna.media_disk'))->put($path, $body, ['ContentType' => 'video/mp4']);
+            } catch (\Throwable $e) {
+                return $this->fail($assetId, 'store_failed', $sourceUrl, $e->getMessage());
+            }
+            DB::connection('pgsql')->table('content.media_assets')
+                ->where('id', $assetId)
+                ->update(['storage_path' => $path, 'mime_type' => 'video/mp4', 'variant_family' => 'native']);
+
+            return true;
+        }
         if ($body === '' || strlen($body) > self::MAX_BYTES) {
             return $this->fail($assetId, 'body_rejected', $sourceUrl);
         }

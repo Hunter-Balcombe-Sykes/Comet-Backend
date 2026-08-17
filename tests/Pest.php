@@ -3070,7 +3070,7 @@ function setupContentTables(): void
         item_id TEXT NOT NULL,
         source_id TEXT NOT NULL,
         asset_id TEXT NULL,
-        role TEXT NOT NULL CHECK (role IN (\'cover\',\'gallery\',\'poster\',\'avatar\',\'logo\')),
+        role TEXT NOT NULL CHECK (role IN (\'cover\',\'gallery\',\'poster\',\'avatar\',\'logo\',\'video\')),
         position INTEGER NOT NULL DEFAULT 0,
         alt_text TEXT NULL,
         created_at TEXT NOT NULL

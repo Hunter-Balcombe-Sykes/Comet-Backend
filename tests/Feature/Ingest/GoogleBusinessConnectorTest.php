@@ -247,3 +247,23 @@ it('redacts reviewer-identifying fields only for unclaimed accounts — claimed 
         ->and(in_array('author_uri', $claimed, true))->toBeFalse()
         ->and(in_array('author_photo', $claimed, true))->toBeFalse();
 });
+
+it('keys a photo record on its stable postId / maps uri, never on the rotating name ref (R6)', function () {
+    $io = gbIo(['status' => 'ok', 'cached' => false, 'data' => [
+        'photos' => [
+            ['name' => 'places/P/photos/ROTATES-1', 'widthPx' => 800, 'heightPx' => 600,
+                'flagContentUri' => 'https://www.google.com/local/content/rap/report?postId=!1e10!2sCIHM0ogKEICAgICpzJ_DGg&t=27',
+                'googleMapsUri' => 'https://www.google.com/maps/place//data=!3m4!1e2!3m2!1sCIHM0ogKEICAgICpzJ_DGg!2e10'],
+            ['name' => 'places/P/photos/ROTATES-2', 'widthPx' => 800, 'heightPx' => 600,
+                'googleMapsUri' => 'https://www.google.com/maps/place//data=!3m4!1e2!3m2!1sABC!2e10'],
+            ['name' => 'places/P/photos/ROTATES-3', 'widthPx' => 800, 'heightPx' => 600],
+        ],
+    ]]);
+    $messages = iterator_to_array((new GoogleBusinessConnector)->pull(gbPull('media'), $io));
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+    expect($records)->toHaveCount(3)
+        ->and($records[0]->key)->toBe('gphoto:CIHM0ogKEICAgICpzJ_DGg')
+        ->and($records[1]->key)->toStartWith('gphoto:maps:')
+        ->and($records[2]->key)->toBe('places/P/photos/ROTATES-3')
+        ->and($records[0]->doc['ref'])->toBe('places/P/photos/ROTATES-1');
+});

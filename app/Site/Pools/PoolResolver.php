@@ -610,7 +610,7 @@ class PoolResolver
             // `logo` joins the set (2026-08-17): a link's favicon rides the
             // logo role and reads back as `favicon` below. cover()/frames()
             // still see only their own roles.
-            ->whereIn('content.item_media.role', ['cover', 'poster', 'gallery', 'logo'])
+            ->whereIn('content.item_media.role', ['cover', 'poster', 'gallery', 'logo', 'video'])
             ->orderBy('content.item_media.position')
             ->get([
                 'content.item_media.item_id',
@@ -622,6 +622,7 @@ class PoolResolver
                 'content.media_assets.site_media_id',
                 'content.media_assets.width',
                 'content.media_assets.height',
+                'content.media_assets.mime_type',
             ]);
 
         // ONE resolver call for the page — MediaUrlResolver batches its
@@ -1102,17 +1103,30 @@ class PoolResolver
      */
     private function frames(Collection $rows, array $resolved): array
     {
+        // The cover (or first still) is the poster every video frame carries.
+        $poster = null;
+        foreach ($rows as $row) {
+            if ((string) $row->role !== 'video' && isset($resolved[(string) $row->asset_id])) {
+                $poster = $resolved[(string) $row->asset_id]['url'];
+                break;
+            }
+        }
         $frames = [];
         foreach ($rows as $row) {
             $hit = $resolved[(string) $row->asset_id] ?? null;
             if ($hit === null) {
                 continue;
             }
+            $isVideo = (string) $row->role === 'video' || str_starts_with((string) ($row->mime_type ?? ''), 'video/');
             $frames[] = [
                 'url' => $hit['url'],
                 'width' => $hit['width'],
                 'height' => $hit['height'],
                 'role' => (string) $row->role,
+                // kind + poster (R7): apps/pages MediaCard plays a `video`
+                // frame and falls back to its poster; every still is `image`.
+                'kind' => $isVideo ? 'video' : 'image',
+                'poster' => $isVideo ? $poster : null,
                 'alt' => $row->alt_text === null ? null : (string) $row->alt_text,
             ];
         }

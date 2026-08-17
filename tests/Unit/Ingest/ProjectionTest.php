@@ -312,3 +312,15 @@ it('emits no offer for a priceless menu item rather than a zero', function () {
     expect($projected['offers'])->toBe([])
         ->and($projected['media'])->toBe([]);
 });
+
+it('instagram projector emits a reel mp4 as a video frame beside the cover (R7)', function () {
+    $view = new \App\Ingest\Projection\RecordView([
+        'shortcode' => 'REEL1', 'url' => 'https://www.instagram.com/reel/REEL1/', 'caption' => 'hi',
+        'taken_at' => '2026-08-01T00:00:00Z', 'images' => ['https://cdn/cover.jpg'], 'video_url' => 'https://cdn/reel.mp4',
+    ]);
+    $p = (new \App\Ingest\Projection\InstagramMediaProjector)->project($view);
+    expect(array_column($p['media'], 'role'))->toBe(['cover', 'video'])
+        ->and($p['media'][1]['ref'])->toBe('instagram:REEL1:video')
+        ->and($p['media'][1]['url'])->toBe('https://cdn/reel.mp4')
+        ->and($p['facets']['f_playable']['stream_url'])->toBe('https://cdn/reel.mp4');
+});
