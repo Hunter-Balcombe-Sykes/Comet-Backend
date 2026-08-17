@@ -121,6 +121,22 @@ class ShopContentReader
         }
 
         $catalogues = $this->writer->cataloguesFor($rows->pluck('collection_id')->all());
+
+        // Per-store auto-latest, one query for the whole map (2026-08-17):
+        // each store's toggle lives on its anchor connection's sparse
+        // display_settings (resource_id IS external_ref). Absent = ON;
+        // anchors mint with an explicit false since Sell went opt-in.
+        $autoLatestByRef = DB::table('site.platform_connections')
+            ->where('user_id', (string) $user->id)
+            ->whereNull('deleted_at')
+            ->whereIn('resource_id', $rows->pluck('external_ref')->all())
+            ->pluck('display_settings', 'resource_id')
+            ->map(function ($settings) {
+                $decoded = is_string($settings) ? json_decode($settings, true) : (array) $settings;
+
+                return ($decoded['auto_sync_latest'] ?? true) !== false;
+            })
+            ->all();
         // Fix round 1, Finding 4 — one value for the whole map (see class
         // docblock, gap 3), not a per-brand lookup.
         $linkMode = DB::table('site.sites')->where('user_id', (string) $user->id)
@@ -165,6 +181,10 @@ class ShopContentReader
                 // per brand — selection_mode was always the default in
                 // practice; link_mode is one global site setting.
                 'selectionMode' => 'manual',
+                // Per-store auto-latest off the store's anchor connection
+                // (2026-08-17, Sell opt-in) — sparse: absent means ON, and
+                // new anchors mint with an explicit false.
+                'autoLatest' => ($autoLatestByRef[$externalRef] ?? true) !== false,
                 'linkMode' => $linkMode,
                 'referralQuery' => $row->referral_query ?? '',
                 'products' => self::withPopularityRank($catalogues[$row->collection_id] ?? [], $productRanks),
