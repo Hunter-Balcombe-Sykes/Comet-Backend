@@ -328,7 +328,12 @@ class ShopController extends ApiController
         // dispatching from inside the closure would self-deadlock the job
         // against this same per-user platform lock.
         $brandRow = null;
-        $lockResponse = $this->withConnectionLock($user, function () use ($user, $detected, $brand, $detectedProducts, $id, $deferred, $validated, &$brandRow): JsonResponse {
+        // Re-home Task 9: the two async jobs key on the collection id now, and
+        // it is only known INSIDE the lock (upsertStore() returns it) while the
+        // deferred dispatch has to happen after the lock releases — hence the
+        // second by-reference out-parameter, alongside $brandRow's own.
+        $collectionId = null;
+        $lockResponse = $this->withConnectionLock($user, function () use ($user, $detected, $brand, $detectedProducts, $id, $deferred, $validated, &$brandRow, &$collectionId): JsonResponse {
             // Convergence Phase 6 (owner ruling 4): the cap and the position are
             // resolved across the user's WHOLE shop family before the anchor is
             // minted, because minting first would leave an empty connection
@@ -461,7 +466,7 @@ class ShopController extends ApiController
             // upsertStore() call, mirroring this one). This is what makes
             // the Task 7 hybridBrandMap() merge droppable: brands()/
             // brandProducts()/selection() now always find a row.
-            $this->content->upsertStore($brandRow->fresh()->toStoreRecord(), (string) $user->id);
+            $collectionId = $this->content->upsertStore($brandRow->fresh()->toStoreRecord(), (string) $user->id);
 
             // The connection's payload is a static marker (FOUND-25) — the
             // observer's payload-dirty gate won't fire for a brand add after the
@@ -493,7 +498,7 @@ class ShopController extends ApiController
             if (! $deferred) {
                 // Best-effort mark processing (background removal + SVG) —
                 // the raw favicon/logo stays either way.
-                ProcessShopBrandLogoJob::dispatch((string) $brandRow->id);
+                ProcessShopBrandLogoJob::dispatch($collectionId);
 
                 return $this->success($resolved);
             }
@@ -515,7 +520,7 @@ class ShopController extends ApiController
 
         if ($deferred) {
             // AFTER the lock has released — see the sentinel comment above.
-            ShopBrandConnectJob::dispatch($brandRow->id)->afterCommit();
+            ShopBrandConnectJob::dispatch($collectionId)->afterCommit();
         }
 
         return $lockResponse;

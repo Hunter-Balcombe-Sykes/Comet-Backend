@@ -74,6 +74,18 @@ final readonly class StoreRecord
          * no database equivalent — so it disappears rather than moving.
          */
         public ?Carbon $updatedAt = null,
+        /**
+         * The owner, denormalised onto content.storefronts by Task 11 so store
+         * identity is enforceable in one table. Read-back only.
+         *
+         * It is here because a QUEUED JOB carries no User: ShopBrandConnectJob
+         * and ProcessShopBrandLogoJob are dispatched with nothing but the
+         * collection id, and both need the owner for the per-user lock key, the
+         * FeatureAvailability re-check and the cache refresher. Carrying it on
+         * the record means the read they already do supplies it, rather than a
+         * second query through content.collections on every run.
+         */
+        public ?string $userId = null,
     ) {}
 
     /**
@@ -114,6 +126,7 @@ final readonly class StoreRecord
             productsCuratedAt: $curatedAt === null ? null : Carbon::parse((string) $curatedAt),
             collectionId: isset($row->collection_id) ? (string) $row->collection_id : null,
             updatedAt: $updatedAt === null ? null : Carbon::parse((string) $updatedAt),
+            userId: isset($row->user_id) ? (string) $row->user_id : null,
         );
     }
 }

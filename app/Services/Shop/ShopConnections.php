@@ -110,6 +110,25 @@ class ShopConnections
         );
     }
 
+    /**
+     * The EXISTING anchor for one store, or null — the read-only counterpart to
+     * anchor(), which mints.
+     *
+     * Queued jobs need this: they carry a collection id, resolve the store off
+     * content.*, and then still need the connection row for the cache refresher
+     * and the availability re-check. resource_id IS the store id (see anchor()),
+     * which is what makes the lookup possible without a connection_id column on
+     * content.storefronts.
+     */
+    public function anchorFor(User $user, string $externalRef): ?IntegrationConnection
+    {
+        return $user->integrationConnections()
+            ->whereIn('surface_key', [...self::surfaces(), self::LEGACY_SURFACE])
+            ->where('resource_id', $externalRef)
+            ->first()
+            ?->setRelation('user', $user);
+    }
+
     /** The anchor for the individual-products bucket. */
     public function individualAnchor(User $user): IntegrationConnection
     {
@@ -202,6 +221,22 @@ class ShopConnections
     }
 
     /**
+     * One store by its content.collections id, with NO user scope.
+     *
+     * For queued jobs, which carry a collection id and no User — the collection
+     * id is itself the tenant-scoped handle (it was minted for exactly one
+     * owner and is unguessable), and the record carries $userId back, so the
+     * caller can re-derive the owner without a second query. Every HTTP path
+     * must use stores()/store() instead, which scope on the caller.
+     */
+    public function storeByCollection(string $collectionId): ?StoreRecord
+    {
+        $row = $this->storeQuery()->where('s.collection_id', $collectionId)->first();
+
+        return $row === null ? null : StoreRecord::fromStorefrontRow($row);
+    }
+
+    /**
      * The shared SELECT behind stores()/store(). Column list and ordering are
      * ShopContentReader::brandMap()'s, verbatim — one place to change if a
      * column moves, and no way for the two to drift apart silently.
@@ -220,6 +255,9 @@ class ShopConnections
                 's.logo_url', 's.favicon_url', 's.logo_mark_url', 's.logo_mark_svg_url',
                 // connectStatus()'s stale-pending clock — see StoreRecord::$updatedAt.
                 's.updated_at',
+                // The denormalised owner (Task 11) — what lets storeByCollection()
+                // hand a queued job its owner without a second query.
+                's.user_id',
                 'c.label', 'c.position',
             ]);
     }

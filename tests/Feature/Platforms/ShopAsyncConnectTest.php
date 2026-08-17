@@ -487,14 +487,17 @@ it('T5: a pending brand settles to ready after the job runs, and the poll report
     $poll = actingAsUser($user)->getJson('/api/platforms/shop/brands/t5-brand/connect/status')->assertOk();
     expect($poll->json('status'))->toBe('pending');
 
-    $brand = ShopBrand::where('brand_id', 't5-brand')->firstOrFail();
+    // Re-home Task 9: the job carries the content.collections id that
+    // addBrand()'s own upsertStore() minted, not the legacy site.shop_brands
+    // uuid PK — that uuid has no content.* twin at all.
+    $collectionId = app(ShopConnections::class)->store($user, 't5-brand')->collectionId;
 
     // Run the job directly — mirrors ShopBrandConnectJobTest's own established
     // idiom (see its header comment): never rely on the sync queue driver to
     // prove queued behaviour, since afterCommit() dispatches fire immediately
     // outside a wrapping transaction, which this suite deliberately avoided
     // above via Bus::fake().
-    app()->call([new ShopBrandConnectJob($brand->id), 'handle']);
+    app()->call([new ShopBrandConnectJob($collectionId), 'handle']);
 
     actingAsUser($user)->getJson('/api/platforms/shop/brands/t5-brand/connect/status')
         ->assertOk()

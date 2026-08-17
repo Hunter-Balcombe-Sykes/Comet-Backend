@@ -2,7 +2,9 @@
 
 namespace App\Services\Brand;
 
-use App\Models\Core\Site\ShopBrand;
+use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Shop\ShopConnections;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -15,7 +17,8 @@ use Illuminate\Support\Facades\Storage;
  * half for the fetches that could not happen at request time.
  *
  * This one READS. Everything it reports was already earned by the pipeline:
- * the probe's evidence landed on the site.shop_brands row, the brand-asset
+ * the probe's evidence landed on content.storefronts (re-home Task 10 — it was
+ * the site.shop_brands row until that table was dropped), the brand-asset
  * pipeline turned the store logo into owned bytes (content.media_assets via
  * content.brand_asset_refs), and the product catalog's offers carry the
  * store's trading currency. No branch per provider, no deferral, no second
@@ -28,6 +31,8 @@ use Illuminate\Support\Facades\Storage;
  */
 class StoreBrandProfiler
 {
+    public function __construct(private readonly ShopConnections $shop) {}
+
     /**
      * The display profile for a store connection.
      *
@@ -35,55 +40,48 @@ class StoreBrandProfiler
      */
     public function profile(string $connectionId): array
     {
-        $brand = ShopBrand::query()
-            ->where('connection_id', $connectionId)
-            ->orderBy('position')
-            ->first();
-
+        $store = $this->storeFor($connectionId);
         $owned = $this->ownedAssetUrls($connectionId);
 
         return [
-            'name' => $brand?->name ?: $this->attributionName($connectionId),
-            'currency' => $brand?->currency ?: $this->catalogCurrency($connectionId),
-            'logoUrl' => $owned['logo'] ?? ($brand?->logo ?: null),
-            'faviconUrl' => $owned['favicon'] ?? ($brand?->favicon ?: null),
+            'name' => $store?->name ?: $this->attributionName($connectionId),
+            'currency' => $store?->currency ?: $this->catalogCurrency($connectionId),
+            'logoUrl' => $owned['logo'] ?? ($store?->logoUrl ?: null),
+            'faviconUrl' => $owned['favicon'] ?? ($store?->faviconUrl ?: null),
             'ownedLogo' => isset($owned['logo']),
         ];
     }
 
     /**
-     * Fill what a pending brand row is missing from the catalog — the
-     * successor to the legacy forRow() deferral, without its re-fetch: by the
-     * time anyone asks, the products have landed and carry the answer.
+     * The store behind a connection id, off content.*.
      *
-     * Fill-if-empty only. A value the probe (or the user) already put on the
-     * row is someone else's truth; this method never competes with it.
+     * This class is connection-keyed throughout — profile(), ownedAssetUrls(),
+     * catalogCurrency() and attributionName() all take a connection id, because
+     * content.brand_asset_refs and content.sources genuinely carry one.
+     * content.storefronts does NOT, so there is no join path from a connection
+     * to a store inside content.* at all. The bridge is
+     * site.platform_connections itself: ShopConnections::anchor() and
+     * SourceReconciler::applyIntent() both write resource_id = the store id, so
+     * the connection row carries the owner and the external_ref this needs.
+     *
+     * The legacy read took the connection's LOWEST-position brand. With one
+     * connection per store that set has exactly one member, so resolving by
+     * resource_id is the same answer by a route that survives the DROP.
      */
-    public function settle(ShopBrand $brand): bool
+    private function storeFor(string $connectionId): ?StoreRecord
     {
-        $changed = false;
-
-        if (($brand->currency ?? '') === '') {
-            $currency = $this->catalogCurrency((string) $brand->connection_id);
-            if ($currency !== null) {
-                $brand->currency = $currency;
-                $changed = true;
-            }
+        // Eager-loaded, not read lazily off a fresh find(): nothing else loads
+        // this relation here, and ShopConnections::anchorFor() goes out of its
+        // way to setRelation('user', …) to avoid exactly this shape. A lazy
+        // read works today only because preventLazyLoading is not armed on a
+        // single-row hydrate.
+        $connection = IntegrationConnection::with('user')->find($connectionId);
+        $user = $connection?->user;
+        if ($user === null) {
+            return null;
         }
 
-        if (($brand->name ?? '') === '') {
-            $name = $this->attributionName((string) $brand->connection_id);
-            if ($name !== null) {
-                $brand->name = $name;
-                $changed = true;
-            }
-        }
-
-        if ($changed) {
-            $brand->save();
-        }
-
-        return $changed;
+        return $this->shop->store($user, (string) $connection->resource_id);
     }
 
     /**

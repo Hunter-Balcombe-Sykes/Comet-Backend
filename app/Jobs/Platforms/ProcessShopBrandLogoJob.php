@@ -2,17 +2,17 @@
 
 namespace App\Jobs\Platforms;
 
-use App\Models\Core\Site\ShopBrand;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\Exceptions\LogoProcessorException;
 use App\Services\Media\LogoProcessorClient;
 use App\Services\Media\MediaDiskResolver;
-use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\ShopConnections;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -42,21 +42,25 @@ class ProcessShopBrandLogoJob implements ShouldQueue
 
     public int $timeout = 280;
 
-    public function __construct(public readonly string $brandRowId) {}
+    /**
+     * Re-home Task 9: the content.collections id, not the site.shop_brands uuid
+     * PK. See ShopBrandConnectJob's constructor for why (spec §5).
+     */
+    public function __construct(public readonly string $collectionId) {}
 
-    public function handle(LogoProcessorClient $client, SafeUrlFetcher $fetcher, ShopContentWriter $content): void
+    public function handle(LogoProcessorClient $client, SafeUrlFetcher $fetcher, ShopConnections $shop): void
     {
         if (! (bool) config('partna.logo_removal.store_enabled', false)) {
             return;
         }
 
-        $brand = ShopBrand::query()->find($this->brandRowId);
-        if ($brand === null || $brand->is_individual) {
+        $store = $shop->storeByCollection($this->collectionId);
+        if ($store === null || $store->isIndividual || $store->userId === null) {
             return;
         }
 
         // Prefer the store's real logo; the favicon is the fallback mark.
-        $source = $brand->logo ?: $brand->favicon;
+        $source = $store->logoUrl ?: $store->faviconUrl;
         if (! is_string($source) || ! str_starts_with($source, 'http')) {
             return;
         }
@@ -72,7 +76,7 @@ class ProcessShopBrandLogoJob implements ShouldQueue
 
         if ($response === null) {
             Log::info('shop.brand_logo.fetch_failed', [
-                'brand_row_id' => $brand->id,
+                'collection_id' => $this->collectionId,
                 'source' => $source,
             ]);
 
@@ -92,7 +96,7 @@ class ProcessShopBrandLogoJob implements ShouldQueue
             $result = $client->process($bytes, basename(parse_url($source, PHP_URL_PATH) ?: 'logo'), $mime);
         } catch (LogoProcessorException $e) {
             Log::info('shop.brand_logo.process_failed', [
-                'brand_row_id' => $brand->id,
+                'collection_id' => $this->collectionId,
                 'error' => $e->getMessage(),
             ]);
 
@@ -101,7 +105,17 @@ class ProcessShopBrandLogoJob implements ShouldQueue
 
         $diskName = MediaDiskResolver::resolve();
         $disk = Storage::disk($diskName);
-        $base = "shop-brands/{$brand->id}";
+        // Spec §5.1: the prefix moves from the legacy shop_brands uuid to the
+        // collection id, so every NEW mark lands under a different path.
+        //
+        // EXISTING OBJECTS ARE DELIBERATELY NOT MIGRATED, and this is not loss:
+        // the processed URLs are stored ABSOLUTE in logo_mark_url /
+        // logo_mark_svg_url and keep resolving, and a re-process on the next
+        // connect rewrites them under the new prefix for free. What changes is
+        // that prefix-scan tooling keyed on collection ids will not find
+        // pre-migration objects — recorded here so a later bucket audit reads
+        // the stranded prefix as intentional rather than as orphaned data.
+        $base = "shop-brands/{$this->collectionId}";
 
         $pngHash = substr(hash('sha256', $result->pngTransparent), 0, 16);
         $pngPath = "{$base}/mark_{$pngHash}.png";
@@ -116,26 +130,26 @@ class ProcessShopBrandLogoJob implements ShouldQueue
             $svgUrl = $disk->url($svgPath);
         }
 
-        ShopBrand::whereKey($brand->id)->update([
-            'logo_mark_url' => $disk->url($pngPath),
-            'logo_mark_svg_url' => $svgUrl,
-        ]);
-
-        // Slice 5a Task 8, fix round 1 (I1): mirror the marks onto content.*
-        // — the dashboard reads ShopContentReader (content.storefronts) now,
-        // with no legacy fallback, and this job runs AFTER the upsertStore()
-        // in addBrand()/ShopBrandConnectJob, so without this write the
-        // processed marks would not surface until some later upsertStore()
-        // (next scheduled sync, 6h by default, or the next brand edit).
-        // The connection is null for a soft-deleted parent (BelongsTo
-        // respects SoftDeletes) — nothing to own the row, so skip.
-        // No edge purge is owed: logoMark/logoMarkSvg are dashboard-only
-        // (SHOP_BRAND_ALLOWLIST doesn't carry them), so the public wire is
-        // unchanged by this write.
-        $connection = $brand->connection;
-        if ($connection !== null) {
-            $content->upsertStore($brand->fresh()->toStoreRecord(), (string) $connection->user_id);
-        }
+        // Re-home Task 9: ONE write, straight onto content.storefronts, where
+        // the legacy row and a mirroring upsertStore() used to be two.
+        //
+        // A direct query-builder update rather than upsertStore() for the same
+        // reason ShopBrandConnectJob::settle() uses one: this job must only ever
+        // touch the two mark columns. upsertStore() rewrites the whole row from
+        // a record, so it would re-assert a connect_status/currency/name
+        // snapshot taken before the fetch — and this job runs AFTER the connect
+        // settle, so that snapshot is the stale one.
+        //
+        // updated_at by hand, as everywhere on this raw seam. No edge purge is
+        // owed: logoMark/logoMarkSvg are dashboard-only (SHOP_BRAND_ALLOWLIST
+        // does not carry them), so the public wire is unchanged by this write.
+        DB::table('content.storefronts')
+            ->where('collection_id', $this->collectionId)
+            ->update([
+                'logo_mark_url' => $disk->url($pngPath),
+                'logo_mark_svg_url' => $svgUrl,
+                'updated_at' => now(),
+            ]);
     }
 
     // R3-OBS-6: exists so Nightwatch sees a permanent failure at all — every
@@ -147,7 +161,7 @@ class ProcessShopBrandLogoJob implements ShouldQueue
     {
         report($e);
         Log::warning('shop.brand_logo.job_failed', [
-            'brand_row_id' => $this->brandRowId,
+            'collection_id' => $this->collectionId,
             'error' => $e->getMessage(),
         ]);
     }

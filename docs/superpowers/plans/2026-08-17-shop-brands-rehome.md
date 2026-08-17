@@ -821,7 +821,7 @@ it('connects a store end to end with no legacy row', function (): void {
 
 Both are dispatched with `(string) $brandRow->id`, the legacy uuid PK, which has no `content.*` twin. Spec §5: the collection id replaces it.
 
-- [ ] **Step 1: Write the failing test.**
+- [x] **Step 1: Write the failing test.**
 
 ```php
 it('settles a deferred connect keyed on the collection id', function (): void {
@@ -834,8 +834,8 @@ it('settles a deferred connect keyed on the collection id', function (): void {
 });
 ```
 
-- [ ] **Step 2: Run it, confirm it fails** — the job looks the id up in `site.shop_brands` and finds nothing.
-- [ ] **Step 3: Rename the constructor property** `$brandRowId` → `$collectionId` in both jobs and repoint the two lookups onto `ShopConnections`:
+- [x] **Step 2: Run it, confirm it fails** — the job looks the id up in `site.shop_brands` and finds nothing.
+- [x] **Step 3: Rename the constructor property** `$brandRowId` → `$collectionId` in both jobs and repoint the two lookups onto `ShopConnections`:
 
 ```php
     public function handle(ShopBrandProfiler $profiler, /* … */ ShopConnections $shop): void
@@ -849,11 +849,58 @@ it('settles a deferred connect keyed on the collection id', function (): void {
 
 Add `ShopConnections::storeByCollection(string $collectionId): ?StoreRecord` alongside `stores()` — same query, `where('s.collection_id', …)` instead of the user scope, because a queued job carries no `User`.
 
-- [ ] **Step 4: Replace both settle writes.** `ShopBrand::whereKey($id)->update([...])` becomes `ShopContentWriter::upsertStore()` with the profiled fields folded onto the record. Keep `ShopBrandConnectJob`'s deliberate rule that `external_ref`/`provider` are never re-derived — build the new record from the read-back one with named arguments, not from scratch.
-- [ ] **Step 5: Move the R2 prefix.** `$base = "shop-brands/{$brand->id}"` becomes `"shop-brands/{$store->collectionId}"`. Per spec §5.1 do **not** migrate existing objects: their URLs are stored absolute and keep resolving, and a re-process rewrites them under the new prefix for free. Add that sentence as a comment above the line so a later bucket audit does not read it as loss.
-- [ ] **Step 6: Update both dispatch sites** in `ShopController` to pass `$collectionId` (already in hand from Task 7 Step 3).
-- [ ] **Step 7: Run both test files, confirm they pass.** Commit.
+- [x] **Step 4: Replace both settle writes.** `ShopBrand::whereKey($id)->update([...])` becomes `ShopContentWriter::upsertStore()` with the profiled fields folded onto the record. Keep `ShopBrandConnectJob`'s deliberate rule that `external_ref`/`provider` are never re-derived — build the new record from the read-back one with named arguments, not from scratch.
+- [x] **Step 5: Move the R2 prefix.** `$base = "shop-brands/{$brand->id}"` becomes `"shop-brands/{$store->collectionId}"`. Per spec §5.1 do **not** migrate existing objects: their URLs are stored absolute and keep resolving, and a re-process rewrites them under the new prefix for free. Add that sentence as a comment above the line so a later bucket audit does not read it as loss.
+- [x] **Step 6: Update both dispatch sites** in `ShopController` to pass `$collectionId` (already in hand from Task 7 Step 3).
+- [x] **Step 7: Run both test files, confirm they pass.** Commit.
 
+
+**Corrections made while executing (all verified, not inferred):**
+
+- The cited ranges were stale: `ShopBrandConnectJob.php:91-226` is really
+  L64-287 (`markTerminal()` sits outside the cited window and held a SECOND
+  legacy write plus two `->connection` reads), and
+  `ProcessShopBrandLogoJob.php:53-127` is L45-138.
+- Step 6 says "update both dispatch sites in `ShopController`". There are
+  **three**: `ShopController:476` and `:498` (not 474/496), plus
+  `ShopBrandConnectJob:215`, which dispatches the logo job from inside the job
+  being edited. Also, only the logo job's dispatch was `(string)`-cast.
+- **Step 4's "replace both settle writes with `upsertStore()`" is wrong and was
+  not done.** Both writes are COMPARE-AND-SET — `->where('connect_status',
+  'pending')->update(…) > 0` — and the whole design rests on that row count: a
+  stale retry arriving after a newer dispatch already settled the store must be
+  a no-op, not a regression that flips a successful connect back to 'failed'.
+  `upsertStore()` is an unconditional upsert returning a collection id; it can
+  express neither the guard nor the answer. Both settles are therefore guarded
+  UPDATEs on `content.storefronts` — the same direct-write seam
+  `updateBrand()`/`setProducts()` already use for `products_curated_at` — with
+  `updated_at` set by hand, because a query-builder write does not maintain it
+  and it is now the stale-pending clock.
+- The store's display NAME is not on `content.storefronts`; it is
+  `content.collections.label`. The settle writes `label = name ?? externalRef`,
+  which mirrors the legacy write of a null name exactly (`ShopContentReader`
+  nulls that case back out on read) rather than inventing a display name.
+- `ProcessShopBrandLogoJob` writes its two mark columns DIRECTLY rather than
+  through `upsertStore()`. That method rewrites the whole row from a record, and
+  this job runs AFTER the connect settle — so it would re-assert a
+  connect_status/currency/name snapshot taken before the fetch.
+- The new `ShopBrandConnectJob::settle()` writes `content.collections`, which
+  trips `CollectionWriteInvalidationGuardTest`'s writer registry. Registered as
+  lane SHOP with its discharge noted — the guard did exactly its job.
+
+**`ShopConnections` gained two methods this task, neither in the plan:**
+`storeByCollection(string): ?StoreRecord` (unscoped by design — a queued job has
+no `User`, and the collection id is itself the tenant-scoped handle) and
+`anchorFor(User, string): ?IntegrationConnection`, the read-only counterpart to
+`anchor()`. The second exists because `content.storefronts` carries no
+connection linkage: the jobs still need the connection row for the availability
+re-check and the edge purge, and `resource_id` IS the store id, which is what
+makes that lookup possible at all.
+
+**`StoreRecord` gained `$userId`** (Task 11's denormalised column), which is what
+lets a queued job resolve its owner from the read it was already doing instead
+of a second query through `content.collections`. This is why Task 11 moved ahead
+of Task 9.
 ### Task 10: Profiler, catalog and the pre-account seeding lane
 
 **Files:**
@@ -862,7 +909,7 @@ Add `ShopConnections::storeByCollection(string $collectionId): ?StoreRecord` alo
 
 These are type-hint changes, not logic changes — `forRow()` reads only `provider`, `url` and `source_url`, all of which `StoreRecord` carries under the same names.
 
-- [ ] **Step 1: Write the failing test** — seed a pre-account store and assert it lands in `content.*` with no legacy row.
+- [x] **Step 1: Write the failing test** — seed a pre-account store and assert it lands in `content.*` with no legacy row.
 
 ```php
 it('seeds a pre-account store into content.* only', function (): void {
@@ -874,14 +921,54 @@ it('seeds a pre-account store into content.* only', function (): void {
 });
 ```
 
-- [ ] **Step 2: Run it, confirm it fails.**
-- [ ] **Step 3: Change `ShopBrandProfiler::forRow(ShopBrand $brand)` to `forRow(StoreRecord $store)`.** The `match` body is unchanged — `$store->provider`, `$store->url`, `$store->source_url` are the same names.
-- [ ] **Step 4: Change `ShopCatalog::syncLatest()`'s type hint to `StoreRecord`.** Its `loadMissing('products')` is already gone — Task 2 Step 6 removed it along with the relation.
-- [ ] **Step 5: Repoint `StoreBrandSeeder`'s five touches and `StoreBrandProfiler`'s two** onto `upsertStore()`. `BrandAssetPipeline`'s single touch is a type hint.
-- [ ] **Step 6: Run both test files plus `tests/Feature/PreAccount/`, confirm they pass.** Commit.
+- [x] **Step 2: Run it, confirm it fails.**
+- [x] **Step 3: Change `ShopBrandProfiler::forRow(ShopBrand $brand)` to `forRow(StoreRecord $store)`.** The `match` body is unchanged — `$store->provider`, `$store->url`, `$store->source_url` are the same names.
+- [x] **Step 4: Change `ShopCatalog::syncLatest()`'s type hint to `StoreRecord`.** Its `loadMissing('products')` is already gone — Task 2 Step 6 removed it along with the relation.
+- [x] **Step 5: Repoint `StoreBrandSeeder`'s five touches and `StoreBrandProfiler`'s two** onto `upsertStore()`. `BrandAssetPipeline`'s single touch is a type hint.
+- [x] **Step 6: Run both test files plus `tests/Feature/PreAccount/`, confirm they pass.** Commit.
 
 ---
 
+
+**Task 10 is NOT the "type-hint changes, not logic changes" this plan claims.**
+Three substantive problems, each resolved rather than worked around:
+
+1. **`connection_id` scoping has no `content.*` equivalent.** `StoreBrandSeeder`
+   scoped four reads on it and `StoreBrandProfiler`'s whole public API is
+   connection-keyed. The bridge is `site.platform_connections` itself: both
+   `ShopConnections::anchor()` and `SourceReconciler::applyIntent()` write
+   `resource_id` = the store id, so a connection yields owner + external_ref and
+   `stores($user)->get($ref)` does the rest. The seeder's cap/duplicate reads
+   become USER-scoped, which its own comment already said was what it wanted —
+   the connection scope was only ever equivalent because the probe pipeline
+   mints one connection per store.
+2. **`upsertStore()` has no partial-write semantics.** `StoreBrandSeeder`
+   deliberately built `$carried` with `array_filter(… !== null)` so a re-seed
+   never wipes a favicon or logo an earlier fetch earned; `upsertStore()` lists
+   every column unconditionally in its ON CONFLICT clause, so a naive port would
+   have inverted that rule and blanked the logo on every re-scan. Expressed now
+   as a coalesce onto the existing record — the same read-back-and-fold Task 9
+   Step 4 prescribes for the connect job, which this plan asks for there and not
+   here.
+3. **`StoreBrandProfiler::settle()` is DELETED, not ported.** Verified against
+   `origin/development`, not inferred: its only occurrence anywhere in `app/` is
+   its own declaration — **zero production callers**, three test callers.
+   Porting it would have meant solving problem 1 for dead code.
+
+   Recorded honestly, because the reviewing agent flagged it as a coverage loss:
+   `settle()` had two halves. The fill-if-empty PRECEDENCE (`name ?: attribution`,
+   `currency ?: catalogCurrency`) survives unchanged in `profile()`, and its
+   three tests were re-pointed there rather than deleted. The PERSISTENCE half —
+   writing the derived value back and reporting whether it wrote — is gone and
+   now has no coverage. That is not a behaviour regression: with no production
+   caller it never ran in production. If that write-back is ever wanted, it is
+   new work, not a restoration.
+
+**Also corrected:** `$store->source_url` does not exist — the DTO is
+`sourceUrl`, and Step 3's claim that "the `match` body is unchanged, the names
+are the same" is wrong for exactly that one field. `ShopCatalog::syncLatest()`'s
+type hint (Step 4) is NOT changed here: its callers still hand it a `ShopBrand`
+(`ShopFetch`, `updateBrand`), so it moves with Task 7, not before it.
 ## Phase 4 — Schema, tests, DROP
 
 ### Task 11: Denormalise `user_id` and enforce identity — spec §6

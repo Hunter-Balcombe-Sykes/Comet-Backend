@@ -3,11 +3,11 @@
 namespace App\Services\Brand;
 
 use App\Jobs\Brand\IngestBrandAssetJob;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Routing\SecretParams;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\WebpEncoder;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -53,19 +53,19 @@ class BrandAssetPipeline
     ) {}
 
     /**
-     * Queue the store-logo ingest for a freshly seeded shop brand.
+     * Queue the store-logo ingest for a freshly seeded store.
      *
      * Gated on `logo_removal.store_enabled` and NOT on `logo_removal.enabled`:
      * the config split exists so flipping the store path can never change what
      * happens to a workplace logo a user uploaded themselves (plan §12).
      */
-    public function queueStoreLogo(User $user, string $connectionId, ShopBrand $brand): void
+    public function queueStoreLogo(User $user, string $connectionId, StoreRecord $store): void
     {
         if (! config('partna.logo_removal.store_enabled')) {
             return;
         }
 
-        $source = $brand->logo ?: $brand->favicon;
+        $source = $store->logoUrl ?: $store->faviconUrl;
         if (! is_string($source) || trim($source) === '') {
             return;
         }
@@ -73,9 +73,9 @@ class BrandAssetPipeline
         IngestBrandAssetJob::dispatch(
             (string) $user->id,
             $connectionId,
-            $brand->logo ? 'logo_full' : 'favicon',
+            $store->logoUrl ? 'logo_full' : 'favicon',
             $source,
-            (string) ($brand->name ?? $brand->url ?? ''),
+            (string) ($store->name ?? $store->url ?? ''),
         );
     }
 

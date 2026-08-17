@@ -2,7 +2,6 @@
 
 namespace App\Services\Brand;
 
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkObserver;
@@ -13,6 +12,10 @@ use App\Routing\RoutingContext;
 use App\Routing\SourceReconciler;
 use App\Routing\Verdict;
 use App\Services\Platforms\UrlParamExtractor;
+use App\Services\Shop\ShopConnections;
+use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -52,6 +55,8 @@ class StoreBrandSeeder
         private readonly SourceReconciler $reconciler,
         private readonly LinkObserver $observer,
         private readonly BrandAssetPipeline $assets,
+        private readonly ShopConnections $shop,
+        private readonly ShopContentWriter $content,
     ) {}
 
     /**
@@ -110,13 +115,16 @@ class StoreBrandSeeder
         // distinct storefront, even same-provider, gets its own row). A count
         // scoped to $applied['connection_id'] alone would only ever see the
         // ONE brand that connection can hold and never cap anything.
-        $isNewBrand = ! ShopBrand::where('connection_id', $applied['connection_id'])
-            ->where('brand_id', $probe->identifier)
-            ->exists();
+        // Re-home Task 10: both reads come off content.* and are USER-scoped,
+        // which is what the paragraph above already says is wanted. The legacy
+        // connection_id scope was equivalent only because the probe pipeline
+        // mints one connection per store with resource_id = identifier =
+        // external_ref — a 1:1 that content.* expresses directly.
+        $stores = $this->shop->stores($user);
+        $isNewBrand = ! $stores->has($probe->identifier);
         if ($isNewBrand) {
-            $storeCount = ShopBrand::where('is_individual', false)
-                ->whereHas('connection', fn ($q) => $q->where('user_id', $user->id))
-                ->count();
+            // Strict comparison, not Collection::where() — that compares loosely.
+            $storeCount = $stores->filter(fn (StoreRecord $s): bool => $s->isIndividual === false)->count();
             if ($storeCount >= self::MAX_BRANDS) {
                 Log::info('store_brand_seeder.cap', ['user_id' => (string) $user->id]);
 
@@ -130,18 +138,18 @@ class StoreBrandSeeder
             }
         }
 
-        $brand = $this->upsertBrand($applied['connection_id'], $probe, $iri->canonical ?? $url);
+        $store = $this->upsertBrand($user, $stores, $probe, $iri->canonical ?? $url);
 
         // §12: the store's logo becomes an owned, sanitised asset rather than a
         // hotlink to a CDN URL that can rot or be swapped under us.
-        $this->assets->queueStoreLogo($user, $applied['connection_id'], $brand);
+        $this->assets->queueStoreLogo($user, $applied['connection_id'], $store);
 
         return [
             'outcome' => 'placed',
             'verdict' => $applied['verdict'],
             'reason' => null,
             'connectionId' => $applied['connection_id'],
-            'brandId' => (string) $brand->brand_id,
+            'brandId' => $store->externalRef,
         ];
     }
 
@@ -149,14 +157,19 @@ class StoreBrandSeeder
      * Brand-plane identity for the storefront. Everything written here came
      * off the probe's own response — the evidence rides forward on the outcome
      * precisely so this never costs a second request.
+     *
+     * $stores is the caller's already-fetched family; the store as content.*
+     * currently holds it (or null) comes off it rather than costing a second
+     * query. This method MUST fold onto that existing record rather than
+     * overwrite: upsertStore() has no partial-write semantics — every column is
+     * unconditionally in its ON CONFLICT list — where the legacy
+     * updateOrCreate() simply omitted absent keys. Without the fold, the
+     * `$carried` rule below would have inverted itself and every re-scan would WIPE
+     * a favicon or logo an earlier fetch had earned.
      */
-    private function upsertBrand(string $connectionId, ProbeOutcome $probe, string $sourceUrl): ShopBrand
+    private function upsertBrand(User $user, Collection $stores, ProbeOutcome $probe, string $sourceUrl): StoreRecord
     {
-        $existing = ShopBrand::where('connection_id', $connectionId)
-            ->where('brand_id', $probe->identifier)
-            ->first();
-
-        $maxPosition = ShopBrand::where('connection_id', $connectionId)->max('position');
+        $existing = $stores->get($probe->identifier);
 
         // A store link shared with a discount or referral param keeps it, read
         // from the URL as pasted. `?:` not `??`: both columns default to ''
@@ -167,29 +180,40 @@ class StoreBrandSeeder
 
         // Favicon/logo are written only when THIS probe carried them: not every
         // probe fetches them (Shopify's doesn't), and a re-seed must never wipe
-        // a value an earlier fetch already earned.
-        $carried = array_filter([
-            'favicon' => $probe->evidence['favicon'] ?? null,
-            'logo' => $probe->evidence['logo'] ?? null,
-        ], fn ($v) => $v !== null);
+        // a value an earlier fetch already earned. The legacy write expressed
+        // that by OMITTING the keys; upsertStore() writes every column, so the
+        // same rule is expressed as a coalesce onto what content.* already has.
+        $favicon = $probe->evidence['favicon'] ?? $existing?->faviconUrl;
+        $logo = $probe->evidence['logo'] ?? $existing?->logoUrl;
 
-        return ShopBrand::updateOrCreate(
-            ['connection_id' => $connectionId, 'brand_id' => $probe->identifier],
-            [
-                'provider' => explode('.', (string) $probe->surfaceKey)[0],
-                'url' => $probe->evidence['origin'] ?? null,
-                // Squarespace's probe discovers the products-collection URL and
-                // generic's the exact product page — refreshes must hit that,
-                // not whatever the user happened to paste.
-                'source_url' => $probe->evidence['source_url'] ?? $sourceUrl,
-                'name' => $probe->evidence['shop_name'] ?? null,
-                'currency' => $probe->evidence['currency'] ?? null,
-                'discount_code' => $existing?->discount_code ?: ($scanned['discountCode'] ?? ''),
-                'referral_query' => $existing?->referral_query ?: ($scanned['referralQuery'] ?? ''),
-                'is_individual' => false,
-                'position' => $existing !== null ? $existing->position : (($maxPosition === null ? -1 : $maxPosition) + 1),
-                ...$carried,
-            ],
+        // From the family the caller already fetched — re-reading it here was
+        // a second identical round-trip per seed.
+        $maxPosition = $stores->max('position');
+
+        $store = new StoreRecord(
+            externalRef: $probe->identifier,
+            provider: explode('.', (string) $probe->surfaceKey)[0],
+            name: $probe->evidence['shop_name'] ?? null,
+            position: $existing !== null ? $existing->position : (($maxPosition === null ? -1 : $maxPosition) + 1),
+            url: $probe->evidence['origin'] ?? null,
+            // Squarespace's probe discovers the products-collection URL and
+            // generic's the exact product page — refreshes must hit that,
+            // not whatever the user happened to paste.
+            sourceUrl: $probe->evidence['source_url'] ?? $sourceUrl,
+            currency: $probe->evidence['currency'] ?? null,
+            discountCode: $existing?->discountCode ?: ($scanned['discountCode'] ?? ''),
+            referralQuery: $existing?->referralQuery ?: ($scanned['referralQuery'] ?? ''),
+            isIndividual: false,
+            faviconUrl: $favicon,
+            logoUrl: $logo,
+            // Processed marks are ProcessShopBrandLogoJob's to write; carry
+            // them so a re-seed does not blank them, same rule as the raw pair.
+            logoMarkUrl: $existing?->logoMarkUrl,
+            logoMarkSvgUrl: $existing?->logoMarkSvgUrl,
         );
+
+        $this->content->upsertStore($store, (string) $user->id);
+
+        return $store;
     }
 }

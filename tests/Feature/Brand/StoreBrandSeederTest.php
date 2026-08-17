@@ -14,8 +14,11 @@
 
 use App\Jobs\Brand\IngestBrandAssetJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
+use App\Models\Core\User\User;
 use App\Services\Brand\StoreBrandSeeder;
+use App\Services\Shop\ShopConnections;
+use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +29,10 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupRoutingTables();
+    // Re-home Task 10: the seeder's only store write is
+    // ShopContentWriter::upsertStore() — content.* is where every assertion in
+    // this file reads the seeded store back from.
+    setupContentTables();
     Cache::flush();
     Bus::fake();
 });
@@ -42,7 +49,21 @@ function storeResponds(array $meta = ['id' => 4242, 'name' => 'The Store', 'curr
     ]);
 }
 
-it('turns a probed own-domain storefront into a connection and a brand row', function () {
+/** The store the seeder wrote, read back off content.* by its provider store id. */
+function seededStore(User $user, string $externalRef): ?StoreRecord
+{
+    return app(ShopConnections::class)->store($user, $externalRef);
+}
+
+/** The user's connected-store count — what MAX_BRANDS caps (the individual bucket never counts). */
+function seededStoreCount(User $user): int
+{
+    return app(ShopConnections::class)->stores($user)
+        ->filter(fn (StoreRecord $store): bool => $store->isIndividual === false)
+        ->count();
+}
+
+it('turns a probed own-domain storefront into a connection and a store', function () {
     $pro = createTenant('store-seed');
     storeResponds();
 
@@ -53,11 +74,16 @@ it('turns a probed own-domain storefront into a connection and a brand row', fun
 
     $connection = IntegrationConnection::query()->where('user_id', $pro->id)->firstOrFail();
     expect($connection->surface_key)->toBe('shopify.store');
+    // The connection's resource_id IS the store id — the only bridge from a
+    // connection to a store now that content.storefronts carries no
+    // connection column.
+    expect($connection->resource_id)->toBe('4242');
 
-    $brand = ShopBrand::where('connection_id', $connection->id)->firstOrFail();
-    expect($brand->name)->toBe('The Store')
-        ->and($brand->currency)->toBe('AUD')
-        ->and($brand->provider)->toBe('shopify');
+    $store = seededStore($pro, '4242');
+    expect($store)->not->toBeNull()
+        ->and($store->name)->toBe('The Store')
+        ->and($store->currency)->toBe('AUD')
+        ->and($store->provider)->toBe('shopify');
 });
 
 it('leaves the connection write to the single writer', function () {
@@ -112,7 +138,7 @@ it('honours a tombstone it never checks for', function () {
     expect($result['outcome'])->toBe('not_placed')
         ->and($result['reason'])->toBe('tombstoned')
         ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0)
-        ->and(ShopBrand::count())->toBe(0);
+        ->and(DB::table('content.storefronts')->count())->toBe(0);
 });
 
 it('reports a miss without writing anything', function () {
@@ -134,14 +160,14 @@ it('keeps a hand-typed discount code through a re-scan', function () {
     storeResponds();
     app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
 
-    $brand = ShopBrand::firstOrFail();
-    $brand->update(['discount_code' => 'TYPED10']);
+    DB::table('content.storefronts')->where('external_ref', '4242')
+        ->update(['discount_code' => 'TYPED10']);
 
     Cache::flush();
     storeResponds();
     app(StoreBrandSeeder::class)->seed($pro, 'https://example.com?discount=SCANNED20');
 
-    expect(ShopBrand::firstOrFail()->discount_code)->toBe('TYPED10');
+    expect(seededStore($pro, '4242')->discountCode)->toBe('TYPED10');
 });
 
 it('does not queue a logo download while the store path is switched off', function () {
@@ -164,10 +190,11 @@ it('queues the store logo for ingest when the store path is on', function () {
     storeResponds();
 
     $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
-    ShopBrand::firstOrFail()->update(['logo' => 'https://cdn.example.com/logo.png']);
+    DB::table('content.storefronts')->where('external_ref', '4242')
+        ->update(['logo_url' => 'https://cdn.example.com/logo.png']);
 
-    // The seeder queues off the row it wrote; re-running with a logo present is
-    // the shape a refreshed brand takes.
+    // The seeder queues off the store it wrote; re-running with a logo present
+    // is the shape a refreshed store takes.
     Cache::flush();
     storeResponds();
     app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
@@ -191,40 +218,42 @@ it('queues the store logo for ingest when the store path is on', function () {
 // coincidentally collide with the per-surface cap first (there are exactly
 // five probe surfaces — shopify/woocommerce/squarespace/bigcartel/generic —
 // each capped at one), which would test the wrong mechanism. Five
-// directly-inserted brand rows isolate the property under test: the
+// directly-inserted stores isolate the property under test: the
 // aggregate count StoreBrandSeeder itself now guards.
-function seedExistingStores(object $user, int $count): void
+function seedExistingStores(User $user, int $count): void
 {
+    $writer = app(ShopContentWriter::class);
+
     for ($i = 0; $i < $count; $i++) {
-        $connectionId = (string) Str::uuid();
         DB::table('site.platform_connections')->insert([
-            'id' => $connectionId,
+            'id' => (string) Str::uuid(),
             'user_id' => $user->id,
             'surface_key' => "fixture.store{$i}",
             'routing_class' => 'shop',
-            'resource_id' => "fixture-{$i}",
+            // resource_id IS the store id since convergence Phase 6 — kept in
+            // step with external_ref below so the pair reads like a real one.
+            'resource_id' => "fixture-brand-{$i}",
             'payload' => '{}',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
-        ShopBrand::create([
-            'connection_id' => $connectionId,
-            'brand_id' => "fixture-brand-{$i}",
-            'provider' => 'fixture',
-            'url' => "https://fixture{$i}.example.com",
-            'source_url' => "https://fixture{$i}.example.com",
-            'is_individual' => false,
-            'position' => $i,
-        ]);
+        $writer->upsertStore(new StoreRecord(
+            externalRef: "fixture-brand-{$i}",
+            provider: 'fixture',
+            position: $i,
+            url: "https://fixture{$i}.example.com",
+            sourceUrl: "https://fixture{$i}.example.com",
+            isIndividual: false,
+        ), (string) $user->id);
     }
 }
 
 it('caps a 6th store the same way the legacy seeder did (MAX_BRANDS parity, WAVE-2C)', function () {
     // Mirrors ShopController::MAX_BRANDS / the legacy ShopBrandSeeder's own
-    // copy. StoreBrandSeeder never decides placement itself — but a brand-row
-    // cap is genuinely its own concern (the shop_brands row is "the only
-    // thing left that is genuinely its own"), so this one thing IS
-    // reimplemented here rather than sourced from PlacementPolicy.
+    // copy. StoreBrandSeeder never decides placement itself — but a store cap
+    // is genuinely its own concern (the store row is "the only thing left that
+    // is genuinely its own"), so this one thing IS reimplemented here rather
+    // than sourced from PlacementPolicy.
     $pro = createTenant('store-capped');
     seedExistingStores($pro, 5);
     storeResponds(['id' => 9999, 'name' => 'The 6th Store', 'currency' => 'AUD']);
@@ -237,12 +266,12 @@ it('caps a 6th store the same way the legacy seeder did (MAX_BRANDS parity, WAVE
         ->and($result['brandId'])->toBeNull();
 
     // The placement itself still applies — SourceReconciler's single-writer
-    // property is untouched, only the 6th brand row was refused, mirroring
+    // property is untouched, only the 6th store was refused, mirroring
     // the legacy seeder's own ordering (its connection upsert always ran;
-    // only the brand write was skipped past the cap).
+    // only the store write was skipped past the cap).
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->exists())->toBeTrue()
-        ->and(ShopBrand::where('is_individual', false)->count())->toBe(5)
-        ->and(ShopBrand::where('brand_id', '9999')->exists())->toBeFalse();
+        ->and(seededStoreCount($pro))->toBe(5)
+        ->and(seededStore($pro, '9999'))->toBeNull();
 });
 
 it('never counts a re-scan of an already-connected store against the cap', function () {
@@ -255,14 +284,14 @@ it('never counts a re-scan of an already-connected store against the cap', funct
 
     $first = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
     expect($first['outcome'])->toBe('placed');
-    expect(ShopBrand::where('is_individual', false)->count())->toBe(5);
+    expect(seededStoreCount($pro))->toBe(5);
 
     // Re-scanning the SAME store while the account sits exactly at MAX_BRANDS
-    // must still succeed — it's a re-scan of an existing row, not a new one.
+    // must still succeed — it's a re-scan of an existing store, not a new one.
     Cache::flush();
     storeResponds();
     $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
 
     expect($result['outcome'])->toBe('placed')
-        ->and(ShopBrand::where('is_individual', false)->count())->toBe(5);
+        ->and(seededStoreCount($pro))->toBe(5);
 });

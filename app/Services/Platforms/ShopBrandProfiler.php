@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use App\Models\Core\Site\ShopBrand;
+use App\Services\Shop\StoreRecord;
 use LogicException;
 
 // The brand-profile resolution split out of ShopController (W9). forDetected()
@@ -64,7 +64,7 @@ class ShopBrandProfiler
     }
 
     /**
-     * Resolve the display profile for an already-stored brand row — the
+     * Resolve the display profile for an already-stored store — the
      * deferred connect job calls this to settle a pending brand from its
      * truthful url/source_url. bigcartel/generic/client-assisted brands are
      * never pending (§3a of the plan — those three have nothing left to fetch
@@ -72,14 +72,17 @@ class ShopBrandProfiler
      *
      * @return array{id:string, name:?string, currency:?string, favicon:?string, logo:?string}
      */
-    public function forRow(ShopBrand $brand): array
+    public function forRow(StoreRecord $store): array
     {
-        return match ($brand->provider) {
-            ShopProviderDetector::PROVIDER_SHOPIFY => $this->shopify->fetchBrand($brand->url),
-            ShopProviderDetector::PROVIDER_WOOCOMMERCE => $this->woocommerce->fetchBrand($brand->url),
-            ShopProviderDetector::PROVIDER_SQUARESPACE => $this->squarespace->fetchBrand($brand->source_url ?? $brand->url),
+        return match ($store->provider) {
+            ShopProviderDetector::PROVIDER_SHOPIFY => $this->shopify->fetchBrand($store->url),
+            ShopProviderDetector::PROVIDER_WOOCOMMERCE => $this->woocommerce->fetchBrand($store->url),
+            // sourceUrl, NOT source_url — the DTO is camelCase where the column
+            // is snake_case, and the plan's claim that the names are identical
+            // is wrong for exactly this one.
+            ShopProviderDetector::PROVIDER_SQUARESPACE => $this->squarespace->fetchBrand($store->sourceUrl ?? $store->url),
             default => throw new LogicException(
-                "ShopBrandProfiler::forRow() is unreachable for provider '{$brand->provider}' — only shopify/woocommerce/squarespace ever defer."
+                "ShopBrandProfiler::forRow() is unreachable for provider '{$store->provider}' — only shopify/woocommerce/squarespace ever defer."
             ),
         };
     }
