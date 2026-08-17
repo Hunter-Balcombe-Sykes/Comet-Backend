@@ -4,8 +4,16 @@ Kickoff: `2026-08-17-slice-7-drops-KICKOFF-PROMPT.md`, order of work steps 1–2
 Run against **dev** (`glncumufgaqcmqhzwrxm`). Production not touched, not named in
 any tool call.
 
-**VERDICT: STOP. The coverage gate is RED and the DROPs are therefore not
-pre-authorised.** Nothing has been dropped, dumped, deployed or pushed. No
+> **SUPERSEDED IN PART, 2026-08-17.** This document's findings all stand and are
+> the evidence base for what followed — but its verdict was overtaken on the day.
+> The owner was shown the 23-row loss and **ruled it acceptable**, which cleared
+> the coverage stop. Scope was then cut from nine tables to five on a *different*
+> finding (a live `site.shop_products` read, §5's blind spot). What actually
+> shipped is recorded in `2026-08-17-slice-7-phase-6-checkpoint.md` and in the
+> wire manifest's Phase 6 section. Read this document for WHY, that one for WHAT.
+
+**ORIGINAL VERDICT: STOP. The coverage gate is RED and the DROPs are therefore
+not pre-authorised.** Nothing has been dropped, dumped, deployed or pushed. No
 migration applied. Work done is read-only verification plus this document.
 
 The owner ruling was *"the DROPs are pre-authorised **if every gate is green**;
