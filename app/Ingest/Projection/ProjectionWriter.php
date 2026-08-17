@@ -1556,6 +1556,20 @@ class ProjectionWriter
      *
      * @param  list<string>  $itemIds
      */
+    /**
+     * Public repair entry (X4, overnight 2026-08-18): one dish of 42 had
+     * f_text.headline but a NULL headline_cache — the caches are only rebuilt
+     * inside a projection run, so a row that missed its refresh stayed
+     * "Untitled" forever. `content:refresh-item-caches` finds and heals such
+     * rows through this.
+     *
+     * @param  list<string>  $itemIds
+     */
+    public function refreshCachesFor(string $userId, array $itemIds): void
+    {
+        $this->refreshItemCaches($userId, $itemIds);
+    }
+
     private function refreshItemCaches(string $userId, array $itemIds): void
     {
         foreach (array_chunk($itemIds, self::BATCH_SIZE) as $batch) {

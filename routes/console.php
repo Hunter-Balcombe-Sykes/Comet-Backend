@@ -501,6 +501,13 @@ Schedule::command('platforms:enrich-pending-cards --older-than=30')
     ->withoutOverlapping()
     ->onOneServer();
 
+// Safety net for item caches that missed their projection refresh (X4):
+// stale-only by default, so a healthy database is a no-op read.
+Schedule::command('content:refresh-item-caches')
+    ->dailyAt('03:25')
+    ->withoutOverlapping()
+    ->onOneServer();
+
 // Stranded-claim watchdog: releases an ingest.sources claim that outlived any plausible
 // run (a worker died mid-flight) and files the anomaly. Hourly is ample slack — a claim
 // only qualifies past SourceScheduler::STRANDED_AFTER_SECONDS (2h), so an hourly cadence
