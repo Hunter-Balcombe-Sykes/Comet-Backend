@@ -672,7 +672,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 $descriptor
                     ->surfaceKey($spec['surface'])
                     ->connect(
-                        fn () => new BrandLinkConnect($slug, $spec['label']),
+                        fn () => new BrandLinkConnect($slug, $spec['label'], $spec['surface']),
                         'Enter a valid '.$spec['label'].' link.'
                     )
                     ->connectInput('url', ['required', 'string', 'max:2048'])

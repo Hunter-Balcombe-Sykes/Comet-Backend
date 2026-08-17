@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -34,7 +35,14 @@ class Tock
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                ->canonicalUrl('https://www.exploretock.com/{handle}')
                 ->detect(
+                    Detector::url('exploretock.com')
+                        ->path('#^/(?<handle>[A-Za-z0-9_-]{2,80})/?$#')
+                        ->captures('handle')
+                        ->from(IdentifierSource::Path)
+                        ->reject('#^/(?:login|signup|search|about|careers|help|blog|pricing|join|city|cities|discover|offers|experiences|api|settings|account|giftcards|gift\-cards)(?:/|$)#i')
+                        ->strength(EvidenceStrength::ProfileLink),
                     Detector::url('exploretock.com')->strength(EvidenceStrength::ProfileLink),
                     Detector::url('tock.com')->strength(EvidenceStrength::ProfileLink),
                 )

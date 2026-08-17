@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -35,7 +36,14 @@ class Patreon
                 ->shelf(Shelf::Social)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                ->canonicalUrl('https://www.patreon.com/{handle}')
                 ->detect(
+                    Detector::url('patreon.com')
+                        ->path('#^/(?:c/|cw/)?(?<handle>[A-Za-z0-9_-]{2,64})(?:/(?:posts|about|membership|shop|collections))?/?$#')
+                        ->captures('handle')
+                        ->from(IdentifierSource::Path)
+                        ->reject('#^/(?:login|signup|home|explore|about|pricing|policy|careers|press|blog|create|creators|product|features|apps|settings|join|checkout|oauth2|api|search|messages|notifications|discover|podcasts|video|community|store|help)(?:/|$)#i')
+                        ->strength(EvidenceStrength::ProfileLink),
                     Detector::url('patreon.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

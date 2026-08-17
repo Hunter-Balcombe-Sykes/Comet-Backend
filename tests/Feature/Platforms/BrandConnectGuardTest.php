@@ -143,3 +143,22 @@ it('enriches a brand card after connect so it does not sit pending forever (F4)'
             && $job->surfaceKey !== null;
     });
 });
+
+it('accepts a bare handle for brands whose surface has a canonical template (F12)', function () {
+    Queue::fake();
+    $user = User::create([
+        'handle' => 'bg-handle', 'handle_lc' => 'bg-handle', 'display_name' => 'S',
+        'first_name' => 'S', 'account_type' => 'partna', 'sector' => null,
+        'auth_user_id' => (string) Str::uuid(), 'primary_email' => 'bg-handle@example.com',
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/github/connect', ['url' => '@torvalds'])
+        ->assertSuccessful()->assertJsonPath('url', 'https://github.com/torvalds');
+    actingAsUser($user)->postJson('/api/platforms/substack/connect', ['url' => 'astralcodexten'])
+        ->assertSuccessful()->assertJsonPath('url', 'https://astralcodexten.substack.com');
+    actingAsUser($user)->postJson('/api/platforms/substack/connect', ['url' => 'astralcodexten.substack.com'])
+        ->assertSuccessful()->assertJsonPath('url', 'https://astralcodexten.substack.com');
+    // A brand without a template still needs a URL.
+    actingAsUser($user)->postJson('/api/platforms/menulog/connect', ['url' => 'somerestaurant'])
+        ->assertStatus(422);
+});

@@ -6,6 +6,7 @@ use App\Catalog\LegacyPlatformMap;
 use App\Http\Requests\Platforms\Concerns\ResolvesConnectRules;
 use App\Services\Platforms\Registry\DerivedDescriptorFactory;
 use App\Services\Platforms\Registry\PlatformRouteShape;
+use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
@@ -58,6 +59,15 @@ class PlatformConnectRequest extends FormRequest
         $url = $this->input($descriptor->connectField());
         if (! is_string($url)) {
             return;
+        }
+
+        // A bare handle ("torvalds", "yourpub") is expanded through the
+        // surface's canonical template before the host check, and the
+        // expanded URL is merged back so the controller stores it (F12).
+        $expanded = BrandLinkConnect::normaliseInput($descriptor->getSurfaceKey(), $url);
+        if ($expanded !== $url) {
+            $this->merge([$descriptor->connectField() => $expanded]);
+            $url = $expanded;
         }
 
         $classified = app(WebsiteLinkHarvester::class)->classify($url);
