@@ -76,6 +76,35 @@ function svcAsgnRetireTenant(): User
     return createTenant('svcasgn-'.Str::lower(Str::random(8)));
 }
 
+/**
+ * One Fresha-landed service content item. Services cutover Task 5: the layout
+ * reorder verbs resolve content.items ids and file under content.collections,
+ * so the fixture these cases drive is content-side — what they still assert is
+ * that the LEGACY pivot is neither written nor disturbed while that happens.
+ */
+function svcAsgnRetireFreshaItem(User $pro): string
+{
+    $sourceId = (string) Str::uuid();
+    $itemId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
+        'headline_cache' => 'Fresha Cut', 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'coord' => 'fresha:s:1', 'record_key' => 's:1', 'kind' => 'service',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+
+    return $itemId;
+}
+
 /** The legacy pivot rows for one service, as a sorted list of category ids. */
 function svcAsgnRetireRows(string $serviceId): array
 {
@@ -92,53 +121,55 @@ function svcAsgnRetireRows(string $serviceId): array
 
 it('writes no legacy assignment row when the OWNER layout reorder files a Fresha service under a category', function () {
     $pro = svcAsgnRetireTenant();
-    $category = createServiceCategoryFor($pro, ['title' => 'Fresha Cat', 'sort_order' => 0]);
-    $fresha = createServiceFor($pro, ['title' => 'Fresha Cut', 'source' => 'fresha', 'sort_order' => 0]);
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Fresha Cat');
+    $freshaId = svcAsgnRetireFreshaItem($pro);
 
-    expect(svcAsgnRetireRows((string) $fresha->id))->toBe([]);
+    expect(svcAsgnRetireRows($freshaId))->toBe([]);
 
     actingAsUser($pro)->postJson('/api/services/reorder-layout', [
         'categories' => [
-            ['id' => (string) $category->id, 'service_ids' => [(string) $fresha->id]],
+            ['id' => $collectionId, 'service_ids' => [$freshaId]],
         ],
     ])->assertOk();
 
-    expect(svcAsgnRetireRows((string) $fresha->id))->toBe([]);
+    expect(svcAsgnRetireRows($freshaId))->toBe([]);
 });
 
 it('leaves an existing legacy assignment row untouched when the OWNER layout reorder re-files that service', function () {
     $pro = svcAsgnRetireTenant();
     $catA = createServiceCategoryFor($pro, ['title' => 'Cat A', 'sort_order' => 0]);
-    $catB = createServiceCategoryFor($pro, ['title' => 'Cat B', 'sort_order' => 1]);
-    // createServiceFor() seeds the pivot row for category_id.
-    $fresha = createServiceFor($pro, ['title' => 'Fresha Cut', 'source' => 'fresha', 'sort_order' => 0, 'category_id' => (string) $catA->id]);
+    // createServiceFor() seeds the pivot row for category_id. This legacy row
+    // is no longer addressable by any verb — what is asserted is that a live
+    // content-side layout reorder does not reach across and disturb it.
+    $legacy = createServiceFor($pro, ['title' => 'Fresha Cut', 'source' => 'fresha', 'sort_order' => 0, 'category_id' => (string) $catA->id]);
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Cat B');
+    $freshaId = svcAsgnRetireFreshaItem($pro);
 
-    expect(svcAsgnRetireRows((string) $fresha->id))->toBe([(string) $catA->id]);
+    expect(svcAsgnRetireRows((string) $legacy->id))->toBe([(string) $catA->id]);
 
     actingAsUser($pro)->postJson('/api/services/reorder-layout', [
         'categories' => [
-            ['id' => (string) $catB->id, 'service_ids' => [(string) $fresha->id]],
-            ['id' => (string) $catA->id, 'service_ids' => []],
+            ['id' => $collectionId, 'service_ids' => [$freshaId]],
         ],
     ])->assertOk();
 
-    // The replace-set is gone: no detach of catA, no attach of catB.
-    expect(svcAsgnRetireRows((string) $fresha->id))->toBe([(string) $catA->id]);
+    // The replace-set is gone: no detach, no attach, nothing written.
+    expect(svcAsgnRetireRows((string) $legacy->id))->toBe([(string) $catA->id]);
 });
 
 // ── the staff twin ──────────────────────────────────────────────────────────
 
 it('writes no legacy assignment row when the STAFF layout reorder files a Fresha service under a category', function () {
     $pro = svcAsgnRetireTenant();
-    $category = createServiceCategoryFor($pro, ['title' => 'Fresha Cat', 'sort_order' => 0]);
-    $freshaId = ownerService($pro->id, ['title' => 'Fresha Cut', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Fresha Cat');
+    $freshaId = svcAsgnRetireFreshaItem($pro);
 
     expect(svcAsgnRetireRows($freshaId))->toBe([]);
 
     actingAsStaff(svcAsgnRetireAdmin())
         ->postJson("/api/staff/professionals/{$pro->id}/services/reorder-layout", [
             'categories' => [
-                ['id' => (string) $category->id, 'service_ids' => [$freshaId]],
+                ['id' => $collectionId, 'service_ids' => [$freshaId]],
             ],
         ])->assertOk();
 
@@ -148,24 +179,24 @@ it('writes no legacy assignment row when the STAFF layout reorder files a Fresha
 it('leaves an existing legacy assignment row untouched when the STAFF layout reorder re-files that service', function () {
     $pro = svcAsgnRetireTenant();
     $catA = createServiceCategoryFor($pro, ['title' => 'Cat A', 'sort_order' => 0]);
-    $catB = createServiceCategoryFor($pro, ['title' => 'Cat B', 'sort_order' => 1]);
-    $freshaId = ownerService($pro->id, ['title' => 'Fresha Cut', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
+    $legacyId = ownerService($pro->id, ['title' => 'Fresha Cut', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
     DB::table('site.service_category_assignments')->insert([
-        'service_id' => $freshaId,
+        'service_id' => $legacyId,
         'service_category_id' => (string) $catA->id,
         'created_at' => now(),
         'updated_at' => now(),
     ]);
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Cat B');
+    $freshaId = svcAsgnRetireFreshaItem($pro);
 
     actingAsStaff(svcAsgnRetireAdmin())
         ->postJson("/api/staff/professionals/{$pro->id}/services/reorder-layout", [
             'categories' => [
-                ['id' => (string) $catB->id, 'service_ids' => [$freshaId]],
-                ['id' => (string) $catA->id, 'service_ids' => []],
+                ['id' => $collectionId, 'service_ids' => [$freshaId]],
             ],
         ])->assertOk();
 
-    expect(svcAsgnRetireRows($freshaId))->toBe([(string) $catA->id]);
+    expect(svcAsgnRetireRows($legacyId))->toBe([(string) $catA->id]);
 });
 
 // ── the staff category index: one id space, not two ─────────────────────────

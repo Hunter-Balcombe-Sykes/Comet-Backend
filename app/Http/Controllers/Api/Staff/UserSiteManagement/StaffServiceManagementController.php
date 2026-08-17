@@ -15,12 +15,12 @@ use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
+use App\Services\Content\FreshaServiceItems;
 use App\Services\Content\ManualServiceItems;
 use App\Services\Content\ManualServiceWriter;
 use App\Services\Content\ServiceCollections;
 use App\Services\Site\AdvisoryLock;
 use App\Services\Site\AdvisoryLockTimeoutException;
-use App\Services\Site\LegacyServiceSortOrder;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -408,32 +408,31 @@ class StaffServiceManagementController extends ApiController
         /** @var list<string> $ids */
         $ids = array_values(array_map('strval', (array) $request->input('ids', [])));
 
-        $manualRowsById = $manual->rows($professional->id, $manual->sectionId($site), includeRemoved: false)
+        $sectionId = $manual->sectionId($site);
+        $manualRowsById = $manual->rows($professional->id, $sectionId, includeRemoved: false)
             ->keyBy(fn ($row) => (string) $row->id);
-        $manualIdSet = array_flip($manualRowsById->keys()->all());
-        $freshaIds = $this->liveFreshaIds($professional);
-        $freshaIdSet = array_flip($freshaIds);
+        $freshaRowsById = app(FreshaServiceItems::class)->managementRows($professional->id, $sectionId)
+            ->keyBy(fn ($row) => (string) $row->id);
 
         foreach ($ids as $id) {
-            if (! isset($manualIdSet[$id]) && ! isset($freshaIdSet[$id])) {
+            if (! $manualRowsById->has($id) && ! $freshaRowsById->has($id)) {
                 abort(422, 'One or more items are invalid.');
             }
         }
 
         // The submitted ids first, then every other live id this request
-        // didn't mention, in its current relative order — ONE combined
-        // authority for both writes below.
+        // didn't mention, in its current relative order — ONE authority, one
+        // numbering scale (spec §3.4).
         $fullOrder = array_merge($ids, array_values(array_diff(
-            [...$manualRowsById->keys()->all(), ...$freshaIds],
+            [...$manualRowsById->keys()->all(), ...$freshaRowsById->keys()->all()],
             $ids,
         )));
 
         try {
-            DB::connection('pgsql')->transaction(function () use ($professional, $site, $writer, $manualRowsById, $fullOrder) {
+            DB::connection('pgsql')->transaction(function () use ($professional, $site, $writer, $manualRowsById, $freshaRowsById, $fullOrder) {
                 AdvisoryLock::acquire("services:{$professional->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
-                $this->pinManualOrder($site, $writer, $manualRowsById, $fullOrder);
-                app(LegacyServiceSortOrder::class)->renumber($professional->id, $fullOrder);
+                $this->pinServiceOrder($site, $writer, $manualRowsById, $freshaRowsById, $fullOrder);
             });
         } catch (AdvisoryLockTimeoutException) {
             // U2: same contention/423 as store() above.
@@ -484,44 +483,34 @@ class StaffServiceManagementController extends ApiController
             DB::connection('pgsql')->transaction(function () use ($professional, $site, $manual, $writer, $collections, $payload) {
                 AdvisoryLock::acquire("services:{$professional->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
-                $legacyCategoryIds = ServiceCategory::query()->where('user_id', $professional->id)->pluck('id')
-                    ->map(fn ($id) => (string) $id)->all();
-                $legacyCategorySet = array_flip($legacyCategoryIds);
-
+                // ONE category id space (content.collections) and ONE service
+                // id space (content.items) — read inside the lock so a
+                // concurrent write can't make the coverage check disagree
+                // with what is then repositioned.
                 $collectionIds = $collections->list($professional->id)->map(fn ($row) => (string) $row->id)->all();
                 $collectionSet = array_flip($collectionIds);
 
-                $freshaIds = $this->liveFreshaIds($professional);
-                $freshaSet = array_flip($freshaIds);
-
-                $manualRowsById = $manual->rows($professional->id, $manual->sectionId($site), includeRemoved: false)
+                $sectionId = $manual->sectionId($site);
+                $manualRowsById = $manual->rows($professional->id, $sectionId, includeRemoved: false)
                     ->keyBy(fn ($row) => (string) $row->id);
-                $manualSet = array_flip($manualRowsById->keys()->all());
+                $freshaRowsById = app(FreshaServiceItems::class)->managementRows($professional->id, $sectionId)
+                    ->keyBy(fn ($row) => (string) $row->id);
 
-                $providedLegacyCategoryIds = [];
                 $orderedCollectionIds = [];
                 $seenPerBlock = [];
-                $membershipsByService = [];
-                $uncategorisedIds = [];
-                $manualIdsSeen = [];
+                $idsSeen = [];
 
                 foreach ($payload['categories'] as $blockIndex => $block) {
                     $categoryId = $block['id'] ?? null;
-                    $isCollectionBlock = $categoryId !== null && isset($collectionSet[$categoryId]);
-
                     if ($categoryId !== null) {
-                        if (! $isCollectionBlock && ! isset($legacyCategorySet[$categoryId])) {
+                        if (! isset($collectionSet[$categoryId])) {
                             abort(422, 'One or more category IDs are invalid.');
                         }
-                        $isCollectionBlock
-                            ? $orderedCollectionIds[] = $categoryId
-                            : $providedLegacyCategoryIds[] = $categoryId;
+                        $orderedCollectionIds[] = $categoryId;
                     }
 
                     foreach ($block['service_ids'] as $serviceId) {
-                        $isFresha = isset($freshaSet[$serviceId]);
-                        $isManual = isset($manualSet[$serviceId]);
-                        if (! $isFresha && ! $isManual) {
+                        if (! $manualRowsById->has($serviceId) && ! $freshaRowsById->has($serviceId)) {
                             abort(422, 'One or more service IDs are invalid.');
                         }
                         // Multi-category: one membership per category block;
@@ -530,65 +519,26 @@ class StaffServiceManagementController extends ApiController
                             abort(422, 'Duplicate service IDs detected within a category block.');
                         }
                         $seenPerBlock[$blockIndex][$serviceId] = true;
-
-                        // A block's id space decides what may sit in it — see
-                        // the docblock. Silently accepting the mismatch would
-                        // drop the service's real membership on the next read.
-                        if ($isCollectionBlock && ! $isManual) {
-                            abort(422, 'A Fresha-synced service cannot be filed under an owner-authored category.');
-                        }
-                        if ($categoryId !== null && ! $isCollectionBlock && ! $isFresha) {
-                            abort(422, 'An owner-authored service cannot be filed under a Fresha-synced category.');
-                        }
-
-                        if ($isManual) {
-                            // Manual ids never enter FRESHA's membership map;
-                            // only their first-occurrence position matters here.
-                            $manualIdsSeen[$serviceId] = true;
-
-                            continue;
-                        }
-
-                        if ($categoryId === null) {
-                            $uncategorisedIds[$serviceId] = true;
-                        } else {
-                            $membershipsByService[$serviceId][] = $categoryId;
-                        }
+                        $idsSeen[$serviceId] = true;
                     }
                 }
 
-                foreach ($uncategorisedIds as $serviceId => $_) {
-                    if (isset($membershipsByService[$serviceId])) {
-                        abort(422, 'A service cannot be both categorised and uncategorised.');
-                    }
-                }
-
-                // Every live service — Fresha AND manual — must be covered,
-                // checked per half so the payload can't silently omit one.
-                $coveredFreshaIds = array_unique([...array_keys($membershipsByService), ...array_keys($uncategorisedIds)]);
-                if (count($coveredFreshaIds) !== count($freshaIds) || count($manualIdsSeen) !== count($manualSet)) {
+                // Every live service — either half — must be covered. One
+                // check now, not two: the cross-space 422s described a
+                // mismatch that can no longer exist.
+                if (count($idsSeen) !== $manualRowsById->count() + $freshaRowsById->count()) {
                     abort(422, 'Layout payload must include all service IDs for this professional.');
                 }
-
-                $this->assertCoversEvery($providedLegacyCategoryIds, $legacyCategoryIds);
                 $this->assertCoversEvery($orderedCollectionIds, $collectionIds);
 
-                // Apply category order (legacy rows renumbered in place;
-                // collections through their own writer) + the flattened,
-                // first-occurrence service order across EVERY block.
-                $legacySort = 0;
+                if ($orderedCollectionIds !== []) {
+                    $collections->reposition($professional->id, array_values(array_unique($orderedCollectionIds)));
+                }
+
+                // NO MEMBERSHIPS ARE WRITTEN HERE, only ORDER — same stance
+                // as the owner twin.
                 $orderedServiceIds = [];
-
                 foreach ($payload['categories'] as $block) {
-                    $categoryId = $block['id'] ?? null;
-
-                    if ($categoryId !== null && isset($legacyCategorySet[$categoryId])) {
-                        ServiceCategory::query()
-                            ->where('user_id', $professional->id)
-                            ->where('id', $categoryId)
-                            ->update(['sort_order' => $legacySort++]);
-                    }
-
                     foreach ($block['service_ids'] as $serviceId) {
                         if (! in_array($serviceId, $orderedServiceIds, true)) {
                             $orderedServiceIds[] = $serviceId;
@@ -596,19 +546,7 @@ class StaffServiceManagementController extends ApiController
                     }
                 }
 
-                if ($orderedCollectionIds !== []) {
-                    $collections->reposition($professional->id, array_values(array_unique($orderedCollectionIds)));
-                }
-
-                // Slice 7 Task 12: the Fresha membership replace-set against
-                // site.service_category_assignments is GONE, exactly as in the
-                // owner twin. The Fresha lane projects into content.* and its
-                // categories are content.collections, so reposition() above is
-                // the whole membership story; the pivot drops in Phase 6.
-                // $membershipsByService survives as validation input only.
-
-                $this->pinManualOrder($site, $writer, $manualRowsById, $orderedServiceIds);
-                app(LegacyServiceSortOrder::class)->renumber($professional->id, $orderedServiceIds);
+                $this->pinServiceOrder($site, $writer, $manualRowsById, $freshaRowsById, $orderedServiceIds);
             });
         } catch (AdvisoryLockTimeoutException) {
             // Same contention/423 as store()/reorder() above.
@@ -852,34 +790,25 @@ class StaffServiceManagementController extends ApiController
         return $query->find($service);
     }
 
-    /** @return list<string> */
-    private function liveFreshaIds(User $professional): array
-    {
-        return Service::query()
-            ->where('user_id', $professional->id)
-            ->whereNotNull('source')
-            ->orderBy('sort_order')
-            ->orderBy('created_at')
-            ->pluck('id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
-    }
-
     /**
-     * Owner ordering for the manual half: a pin keyed by the id's own position
-     * in $order — NOT a recompacted per-half counter, so it stays on the same
-     * numbering scale LegacyServiceSortOrder uses. Excluded (hidden) items
-     * carry no sort_key by design (ManualServiceWriter::exclude) — accepted,
-     * but they stay unpositioned until reactivated.
+     * Both halves pinned from ONE traversal — sort_key on the services
+     * section is the shared ordering scale (spec §3.4), keyed by the id's own
+     * position in $order rather than a recompacted per-half counter. Hidden
+     * MANUAL items (excluded) carry no sort_key by design
+     * (ManualServiceWriter::exclude) and stay unpositioned until reactivated;
+     * a Fresha item's hidden state rides the blob, so it never blocks a pin.
      *
      * @param  Collection<string, \stdClass>  $manualRowsById
+     * @param  Collection<string, \stdClass>  $freshaRowsById
      * @param  list<string>  $order
      */
-    private function pinManualOrder(Site $site, ManualServiceWriter $writer, Collection $manualRowsById, array $order): void
+    private function pinServiceOrder(Site $site, ManualServiceWriter $writer, Collection $manualRowsById, Collection $freshaRowsById, array $order): void
     {
         foreach ($order as $rank => $id) {
-            $row = $manualRowsById->get($id);
-            if ($row !== null && ($row->state ?? null) !== 'excluded') {
+            $manualRow = $manualRowsById->get($id);
+            if ($manualRow !== null && ($manualRow->state ?? null) !== 'excluded') {
+                $writer->pin($site, $id, (float) $rank);
+            } elseif ($freshaRowsById->has($id)) {
                 $writer->pin($site, $id, (float) $rank);
             }
         }

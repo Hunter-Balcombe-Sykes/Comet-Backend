@@ -7,6 +7,7 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Content\ManualServiceWriter;
+use App\Services\Content\ServiceCollections;
 use App\Services\Migration\ServiceBackfiller;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Documents\BuildState;
@@ -331,22 +332,56 @@ it('a legacy site.services id resolves nowhere on any management verb (services 
     expect(DB::table('site.services')->where('id', $legacyId)->value('deleted_at'))->toBeNull();
 });
 
-it('reorder routes a Fresha id to sort_order and a manual id to sort_key in one request', function () {
+/**
+ * One Fresha-landed service content item. Services cutover: the Fresha half is
+ * content.* under a kind='connection' source, addressed by content.items.id.
+ * Build it AFTER any manual write in the same test — a hand-built source_item
+ * carries no content.identity_keys and writeManualItem() re-resolves the whole
+ * (user, kind) set, which would re-point it.
+ */
+function svcEndpointFreshaItem(string $userId, string $title, string $recordKey): string
+{
+    $sourceId = (string) Str::uuid();
+    $itemId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $userId, 'kind' => 'service',
+        'headline_cache' => $title, 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+
+    return $itemId;
+}
+
+it('reorder puts a Fresha id and a manual id on ONE section_items scale', function () {
+    // Was: "routes a Fresha id to sort_order and a manual id to sort_key".
+    // Services cutover Task 5 (spec §3.4): there is one scale now —
+    // site.section_items.sort_key on the services section — for both halves.
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
 
     $manualId = actingAsUser($user)->postJson('/api/services', ['title' => 'Manual One', 'price_cents' => 1000])
         ->assertCreated()->json('service.id');
-    $freshaId = ownerService($userId, ['title' => 'Fresha One', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 0]);
-    $freshaId2 = ownerService($userId, ['title' => 'Fresha Two', 'source' => 'fresha', 'external_id' => 's:3', 'sort_order' => 1]);
+    $freshaId = svcEndpointFreshaItem($userId, 'Fresha One', 's:2');
+    $freshaId2 = svcEndpointFreshaItem($userId, 'Fresha Two', 's:3');
 
     actingAsUser($user)->postJson('/api/services/reorder', ['ids' => [$freshaId2, $freshaId, $manualId]])
         ->assertOk()->assertJson(['ok' => true]);
 
-    expect(DB::table('site.services')->where('id', $freshaId2)->value('sort_order'))->toBe(0);
-    expect(DB::table('site.services')->where('id', $freshaId)->value('sort_order'))->toBe(1);
-    $manualSortKey = DB::table('site.section_items')->where('item_id', $manualId)->value('sort_key');
-    expect($manualSortKey)->not->toBeNull();
+    $keys = DB::table('site.section_items')->whereIn('item_id', [$freshaId2, $freshaId, $manualId])
+        ->pluck('sort_key', 'item_id');
+    expect((float) $keys[$freshaId2])->toBe(0.0)
+        ->and((float) $keys[$freshaId])->toBe(1.0)
+        ->and((float) $keys[$manualId])->toBe(2.0);
 });
 
 // C1 regression coverage deliberately lives in
@@ -487,108 +522,92 @@ it('a connector-shaped merge after the cutover backfill keeps the owner item ali
 
 // §NEW-C1 (review round 2): a professional holding both halves must not 500,
 // and the combined order must round-trip through GET.
-it('reorder mixing manual and Fresha ids does not 500 and round-trips through GET in the submitted order', function () {
+it('reorder mixing manual and Fresha ids does not 500 and lands them in the submitted order', function () {
+    // Was asserted through GET /api/services. The merged dashboard READ is
+    // Task 6's unit — until it is repointed it still reads the Fresha half
+    // from site.services, so this case asserts the ORDER Task 5 writes: one
+    // section_items scale, ascending in submitted order across both halves.
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
 
-    // A still-present LEGACY manual row (ServiceBackfiller never deletes
-    // site.services rows) sitting at a low sort_order, exactly like the dev
-    // reproduction (2 legacy manual rows at 0-1, Fresha rows at 2+).
-    $legacyManualId = ownerService($userId, ['title' => 'Legacy Manual', 'sort_order' => 0]);
-    app(ServiceBackfiller::class)->run();
-
+    $legacyManualId = actingAsUser($user)->postJson('/api/services', ['title' => 'Legacy Manual', 'price_cents' => 1000])
+        ->assertCreated()->json('service.id');
     $newManualId = actingAsUser($user)->postJson('/api/services', ['title' => 'New Manual', 'price_cents' => 1000])
         ->assertCreated()->json('service.id');
-    $freshaA = ownerService($userId, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 1]);
-    $freshaB = ownerService($userId, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 2]);
+    $freshaA = svcEndpointFreshaItem($userId, 'Fresha A', 's:1');
+    $freshaB = svcEndpointFreshaItem($userId, 'Fresha B', 's:2');
 
     // Interleaved: Fresha, manual, Fresha, manual.
-    $manualItemIdForLegacy = DB::table('content.source_items')->where('coord', 'manual:'.$legacyManualId)->value('item_id');
-    $submitted = [$freshaB, $manualItemIdForLegacy, $freshaA, $newManualId];
+    $submitted = [$freshaB, $legacyManualId, $freshaA, $newManualId];
 
     actingAsUser($user)->postJson('/api/services/reorder', ['ids' => $submitted])
         ->assertOk()->assertJson(['ok' => true]);
 
-    $response = actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk();
-    $ids = collect($response->json('services'))->pluck('id')->all();
-
-    expect($ids)->toBe($submitted);
+    $keys = DB::table('site.section_items')->whereIn('item_id', $submitted)->pluck('sort_key', 'item_id');
+    expect(collect($submitted)->map(fn ($id) => (float) $keys[$id])->all())->toBe([0.0, 1.0, 2.0, 3.0]);
 });
 
-// A brand-new manual service (created through the cut-over endpoint) has NO
-// legacy site.services row at all, so renumberLegacySortOrder() cannot
-// assign it a sort_order and must skip it entirely when translating the
-// submitted order — this is the exact case where a naive re-compacted
-// renumber (e.g. delegating wholesale to ReorderService::reorder(), which
-// was tried and reverted) silently shifts every Fresha id that comes AFTER
-// the unresolvable manual id, breaking the interleave the moment more than
-// one Fresha id follows it.
-it('round-trips even when two brand-new manual services (no legacy row) sit ahead of two Fresha ids', function () {
-    // §NEW-C1 review round 3 (item 3): the ORIGINAL version of this test
-    // (one unresolvable manual id, one Fresha id after it) stayed green
-    // under a dense recompaction of $targets — the exact
-    // ReorderService::reorder()-delegation defect this test exists to
-    // guard against — because dropping ONE unresolvable id from the front
-    // shifts nothing (there's nothing after it to shift past). The break
-    // needs at least two Fresha ids following the unresolvable id(s) for a
-    // dense re-index to diverge from the gapped one. [m1_new, m2_new, f1,
-    // f2] is the minimal shape that actually exercises it — verified below
-    // by reproducing the ReorderService-delegation mutation and confirming
-    // THIS test (and no other) goes red under it.
+// Services cutover Task 5: the defect this case was written for — a dense
+// re-compaction of the LEGACY renumber silently shifting every Fresha id that
+// followed an id it could not resolve — is retired with the renumber itself.
+// One scale, one traversal, every id resolvable, so the property that remains
+// is the plain one: the submitted order is the stored order, gap-free.
+it('round-trips two brand-new manual services sitting ahead of two Fresha ids', function () {
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
 
-    $freshaA = ownerService($userId, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
-    $freshaB = ownerService($userId, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 1]);
     $newManualId1 = actingAsUser($user)->postJson('/api/services', ['title' => 'Brand New 1', 'price_cents' => 1000])
         ->assertCreated()->json('service.id');
     $newManualId2 = actingAsUser($user)->postJson('/api/services', ['title' => 'Brand New 2', 'price_cents' => 2000])
         ->assertCreated()->json('service.id');
+    $freshaA = svcEndpointFreshaItem($userId, 'Fresha A', 's:1');
+    $freshaB = svcEndpointFreshaItem($userId, 'Fresha B', 's:2');
 
     $submitted = [$newManualId1, $newManualId2, $freshaA, $freshaB];
 
     actingAsUser($user)->postJson('/api/services/reorder', ['ids' => $submitted])
         ->assertOk()->assertJson(['ok' => true]);
 
-    $response = actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk();
-    $ids = collect($response->json('services'))->pluck('id')->all();
-
-    expect($ids)->toBe($submitted);
+    $keys = DB::table('site.section_items')->whereIn('item_id', $submitted)->pluck('sort_key', 'item_id');
+    expect(collect($submitted)->map(fn ($id) => (float) $keys[$id])->all())->toBe([0.0, 1.0, 2.0, 3.0]);
 });
 
 // §NEW-4 (review round 3): ManualServiceItems::hydrate() used to map a null
 // sort_key (ManualServiceWriter::exclude()'s deliberate null for a hidden
-// service) to sort_order=0 — the MINIMUM of the shared scale NEW-I1's merge
-// sort depends on — so a hidden manual service sorted to the HEAD of the
-// merged list instead of somewhere sane. Round 1's manual-first
-// concatenation masked this; the round 2 fix (sort by sort_order) exposed
-// it. Covers both index()'s uncached merge and
-// UserCacheService::getDashboardServices()'s cached one.
-it('a hidden manual service sorts LAST, not first, in the merged list on both cache paths', function () {
+// service) to sort_order=0 — the MINIMUM of the shared scale the merged list
+// sorts by — so a hidden manual service sorted to the HEAD instead of
+// somewhere sane. PHP_INT_MAX is the sentinel that fixes it.
+//
+// Services cutover Task 5: the fixture is content-side on both halves, and the
+// ORDER assertion is on the scale itself. The merged dashboard READ is Task 6's
+// unit — it still reads the Fresha half from site.services today, so a
+// content-side Fresha item would not appear in it yet.
+it('leaves a hidden manual service unpositioned rather than at the head of the scale', function () {
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
 
-    $freshaA = ownerService($userId, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
-    $freshaB = ownerService($userId, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 1]);
     $manualId = actingAsUser($user)->postJson('/api/services', ['title' => 'Manual A', 'price_cents' => 1000])
         ->assertCreated()->json('service.id');
+    $freshaA = svcEndpointFreshaItem($userId, 'Fresha A', 's:1');
+    $freshaB = svcEndpointFreshaItem($userId, 'Fresha B', 's:2');
 
     actingAsUser($user)->postJson('/api/services/reorder', ['ids' => [$freshaA, $freshaB, $manualId]])
         ->assertOk();
 
     actingAsUser($user)->patchJson("/api/services/{$manualId}", ['is_active' => false])->assertOk();
 
-    $expected = [$freshaA, $freshaB, $manualId];
+    // Excluded: sort_key nulled by design, so it cannot occupy position 0 —
+    // and the two live items keep the positions they were given.
+    $keys = DB::table('site.section_items')->whereIn('item_id', [$freshaA, $freshaB, $manualId])
+        ->pluck('sort_key', 'item_id');
+    expect($keys[$manualId])->toBeNull()
+        ->and((float) $keys[$freshaA])->toBe(0.0)
+        ->and((float) $keys[$freshaB])->toBe(1.0);
 
-    // Uncached path (index()'s ?include_archived branch — hidden items are
-    // always live, never removed, so they show regardless of this flag).
-    $uncached = actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk();
-    expect(collect($uncached->json('services'))->pluck('id')->all())->toBe($expected);
-
-    // Cached (hot) path — the PATCH above must have busted the key the
-    // reorder call also wrote through.
-    $cached = actingAsUser($user)->getJson('/api/services')->assertOk();
-    expect(collect($cached->json('services'))->pluck('id')->all())->toBe($expected);
+    // And the wire never carries the PHP_INT_MAX stand-in for it.
+    $hidden = collect(actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk()->json('services'))
+        ->firstWhere('id', $manualId);
+    expect($hidden['sort_order'])->toBeNull();
 });
 
 it('reorder 422s an id that belongs to neither the manual nor Fresha store', function () {
@@ -649,12 +668,12 @@ it('reorderLayout rejects an invalid category id (422)', function () {
 it('reorderLayout rejects a duplicate service id within one category block (422)', function () {
     [$userId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
-    $cat = createServiceCategoryFor($user, ['sort_order' => 0]);
-    $svc = createServiceFor($user, ['category_id' => $cat->id, 'sort_order' => 0, 'source' => 'fresha']);
+    $collectionId = app(ServiceCollections::class)->create($userId, 'Cuts');
+    $svcId = svcEndpointFreshaItem($userId, 'Fresha One', 's:1');
 
     $request = reorderLayoutRequestBypassingDistinct($user, [
         'categories' => [
-            ['id' => $cat->id, 'service_ids' => [$svc->id, $svc->id]],
+            ['id' => $collectionId, 'service_ids' => [$svcId, $svcId]],
         ],
     ]);
 
@@ -667,45 +686,50 @@ it('reorderLayout rejects a duplicate service id within one category block (422)
     }
 });
 
-it('reorderLayout rejects a service that is both categorised and uncategorised (422)', function () {
+it('accepts a service that appears in both a category block and the uncategorised block', function () {
+    // Was: "rejects a service that is both categorised and uncategorised
+    // (422)". That guard protected a MEMBERSHIP write: the payload decided
+    // which categories a Fresha service belonged to, so "in a category and
+    // also uncategorised" was contradictory. Slice 7 Task 12 stopped writing
+    // memberships here and the services cutover left one id space, so the
+    // blocks now carry ORDER only — a service listed in two blocks is the
+    // already-supported multi-category case, and its first occurrence sets
+    // its position. Membership is PATCH /services/{id}/category's job alone.
     [$userId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
-    $cat = createServiceCategoryFor($user, ['sort_order' => 0]);
-    $svc = createServiceFor($user, ['category_id' => $cat->id, 'sort_order' => 0, 'source' => 'fresha']);
+    $collectionId = app(ServiceCollections::class)->create($userId, 'Cuts');
+    $svcId = svcEndpointFreshaItem($userId, 'Fresha One', 's:1');
 
     $request = reorderLayoutRequestBypassingDistinct($user, [
         'categories' => [
-            ['id' => $cat->id, 'service_ids' => [$svc->id]],
-            ['id' => null, 'service_ids' => [$svc->id]],
+            ['id' => $collectionId, 'service_ids' => [$svcId]],
+            ['id' => null, 'service_ids' => [$svcId]],
         ],
     ]);
 
-    try {
-        app(UserServiceController::class)->reorderLayout($request);
-        expect(false)->toBeTrue('Expected an HttpException (422)');
-    } catch (HttpException $e) {
-        expect($e->getStatusCode())->toBe(422);
-        expect($e->getMessage())->toBe('A service cannot be both categorised and uncategorised.');
-    }
+    expect(app(UserServiceController::class)->reorderLayout($request)->getStatusCode())->toBe(200);
+    expect(DB::table('content.collection_items')->where('item_id', $svcId)->count())->toBe(0);
 });
 
 it('reorderLayout rejects a payload missing one of the owner\'s live category ids (422)', function () {
     [$userId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
-    $catA = createServiceCategoryFor($user, ['sort_order' => 0]);
+    $collections = app(ServiceCollections::class);
+    $catA = $collections->create($userId, 'Cat A');
     // catB carries NO services — if it did, omitting it from the payload
     // would ALSO leave its service uncovered and trip the earlier
     // "must include all service IDs" check first, making this test
     // indistinguishable from that one (the original vacuous shape).
-    $catB = createServiceCategoryFor($user, ['sort_order' => 1]);
-    $svcA = createServiceFor($user, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
+    $catB = $collections->create($userId, 'Cat B');
+    $svcA = svcEndpointFreshaItem($userId, 'Fresha One', 's:1');
+    $collections->assign($userId, $svcA, $catA, null);
 
     // $catB never appears in the payload at all, but every live SERVICE
     // (svcA is the only one) is still covered — only the category-coverage
     // check can fire.
     $response = actingAsUser($user)->postJson('/api/services/reorder-layout', [
         'categories' => [
-            ['id' => $catA->id, 'service_ids' => [$svcA->id]],
+            ['id' => $catA, 'service_ids' => [$svcA]],
         ],
     ]);
 

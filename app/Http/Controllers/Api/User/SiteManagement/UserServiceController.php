@@ -765,19 +765,20 @@ class UserServiceController extends ApiController
         return $this->success(['deleted' => true]);
     }
 
-    // Flat reorder. §C2: an id is looked up in whichever store owns it —
-    // manual (content.*) or Fresha (site.services) — an id neither
-    // recognises 422s, same as the pre-cutover single-table check.
+    // Flat reorder. Both halves live in content.* now, so an id is looked up
+    // in whichever READ owns it — ManualServiceItems (kind='manual') or
+    // FreshaServiceItems (kind='connection') — and an id neither recognises
+    // 422s, same as the pre-cutover single-table check.
     //
-    // §NEW-C1/I1 (review round 2): both halves are renumbered from ONE
-    // shared position index in the SAME transaction — never a per-half
-    // renumber. services_user_sort_order_uq is GLOBAL per user, so
-    // renumbering only the Fresha subset to a dense 0..N-1 collided with the
-    // legacy manual rows ServiceBackfiller never deletes (500 for any
-    // professional holding both halves); a shared index is also what lets a
-    // merged read reconstruct an interleaved manual+Fresha order instead of
-    // always grouping manual ahead of Fresha regardless of what was
-    // submitted. See LegacyServiceSortOrder's docblock.
+    // §NEW-C1/I1 survives the cutover unchanged in substance: both halves are
+    // positioned from ONE shared index in the SAME transaction, never a
+    // per-half renumber, so a merged read reconstructs the interleaved order
+    // the caller actually submitted instead of grouping one half ahead of the
+    // other. What changed is where that index is written — site.section_items
+    // .sort_key on the services section for both halves (spec §3.4), rather
+    // than sort_key for one and the global site.services.sort_order for the
+    // other. The uniqueness hazard that drove the original note goes with the
+    // table: sort_key carries no unique constraint.
     public function reorder(ReorderServiceRequest $request): JsonResponse
     {
         $pro = $this->currentUser($request);
@@ -790,55 +791,57 @@ class UserServiceController extends ApiController
         $this->authorizeForUser($pro, 'update', $skeleton);
 
         $manual = app(ManualServiceItems::class);
+        $fresha = app(FreshaServiceItems::class);
         $writer = app(ManualServiceWriter::class);
         $ids = $request->input('ids', []);
 
         $sectionId = $manual->sectionId($site);
-        $manualRows = $manual->rows($pro->id, $sectionId, includeRemoved: false);
-        $manualRowsById = $manualRows->keyBy(fn ($r) => (string) $r->id);
-        $manualIdSet = array_flip($manualRowsById->keys()->all());
-        $freshaIdSet = array_flip(
-            Service::query()->where('user_id', $pro->id)->whereNotNull('source')
-                ->orderBy('sort_order')->pluck('id')->map(fn ($id) => (string) $id)->all()
-        );
+        $manualRowsById = $manual->rows($pro->id, $sectionId, includeRemoved: false)
+            ->keyBy(fn ($r) => (string) $r->id);
+        $freshaRowsById = $fresha->managementRows($pro->id, $sectionId)
+            ->keyBy(fn ($r) => (string) $r->id);
 
         foreach ($ids as $id) {
-            if (! isset($manualIdSet[$id]) && ! isset($freshaIdSet[$id])) {
+            if (! $manualRowsById->has($id) && ! $freshaRowsById->has($id)) {
                 abort(422, 'One or more items are invalid.');
             }
         }
 
         // The submitted ids first, then every other live id (manual OR
         // Fresha) this request didn't mention, in its current relative
-        // order — ONE combined authority for both writes below.
+        // order — one authority, one numbering scale (spec §3.4).
         $remainder = array_values(array_diff(
-            [...$manualRowsById->keys()->all(), ...array_keys($freshaIdSet)],
+            [...$manualRowsById->keys()->all(), ...$freshaRowsById->keys()->all()],
             $ids,
         ));
         $fullOrder = array_merge($ids, $remainder);
 
         try {
-            DB::connection('pgsql')->transaction(function () use ($pro, $site, $writer, $manualRowsById, $fullOrder) {
+            DB::connection('pgsql')->transaction(function () use ($pro, $site, $writer, $manualRowsById, $freshaRowsById, $fullOrder) {
                 AdvisoryLock::acquire("services:{$pro->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
-                // Manual half: section_items.sort_key, keyed by $fullOrder's
-                // own position — not a recompacted counter, so it stays on
-                // the SAME numbering scale LegacyServiceSortOrder uses
-                // below. Excluded (hidden) items carry no sort_key by design
-                // (ManualServiceWriter::exclude) — accepted (no 422) but
-                // stay unpositioned; they get a real position the next time
-                // they're reactivated (update()'s re-pin branch).
+                // ONE loop, both halves: sort_key on the services section is
+                // the shared scale. Excluded (hidden) MANUAL items carry no
+                // sort_key by design (ManualServiceWriter::exclude) —
+                // accepted (no 422) but left unpositioned until update()
+                // re-pins them. Fresha items are always pinnable: their
+                // hidden state rides the blob, not section state.
+                //
+                // Landmine, named on purpose: the pool DSL reads 'pinned' as
+                // curated-in and the services pool rule is kind_is only
+                // (PoolRegistry). The PUBLIC read is source-kind-filtered
+                // (ManualServiceItems joins cs.kind = 'manual') so nothing
+                // leaks today — but if the site.site_documents lane ever
+                // becomes publicly readable, the services candidates rule
+                // must gain a source-kind guard FIRST (slice 6 spec §4.3).
                 foreach ($fullOrder as $rank => $id) {
-                    $row = $manualRowsById->get($id);
-                    if ($row !== null && ($row->state ?? null) !== 'excluded') {
+                    $manualRow = $manualRowsById->get($id);
+                    if ($manualRow !== null && ($manualRow->state ?? null) !== 'excluded') {
+                        $writer->pin($site, $id, (float) $rank);
+                    } elseif ($freshaRowsById->has($id)) {
                         $writer->pin($site, $id, (float) $rank);
                     }
                 }
-
-                // Legacy half (Fresha + still-present legacy manual rows) —
-                // see LegacyServiceSortOrder's docblock for why this
-                // covers more than just the ids the caller sent.
-                app(LegacyServiceSortOrder::class)->renumber($pro->id, $fullOrder);
             });
         } catch (AdvisoryLockTimeoutException) {
             // U2: same contention/423 as store() above.
@@ -846,11 +849,11 @@ class UserServiceController extends ApiController
         }
 
         $writer->invalidate([(string) $site->id]);
-        // EDGE-1: LegacyServiceSortOrder is a raw query-builder mass
-        // update, so ServiceObserver never fires for the Fresha half either
-        // — touch explicitly (fires SiteObserver: Redis + Cloudflare + cache
-        // warm), mirroring what ReorderService's afterCommit callback used
-        // to do for this exact reorder.
+        // EDGE-1: the pins above are Eloquent writes on site.section_items,
+        // not on Service, so ServiceObserver never fires — touch explicitly
+        // (fires SiteObserver: Redis + Cloudflare + cache warm), mirroring
+        // what ReorderService's afterCommit callback used to do for this
+        // exact reorder.
         $site->touch();
         app(UserCacheService::class)->invalidateServices($pro->id);
 
@@ -860,33 +863,23 @@ class UserServiceController extends ApiController
     /**
      * Full layout reorder (categories + services).
      *
-     * BOTH category id spaces are accepted, because the grouped read emits
-     * both (C1): a `site.service_categories` block orders that row's
-     * sort_order, a `content.collections` block is repositioned through
-     * `ServiceCollections::reposition()`. NO membership is written for either
-     * space — slice 7 Task 12 deleted the legacy pivot replace-set. This
-     * mirrors `StaffServiceManagementController::reorderLayout()` method for
-     * method — the two surfaces run one approach over one dataset, rather
-     * than two implementations that agree until they don't.
-     *
-     * A block's id space also decides which services may sit in it — a
-     * mismatch is a 422, not a silently accepted block whose membership the
-     * next read contradicts. (Pre-C1 a manual id was tolerated in any block
-     * because the grouped read gave the frontend nowhere else to put it.
-     * C1 gave it its own block, so the tolerance is now the bug.)
+     * ONE category id space (`content.collections`, repositioned through
+     * `ServiceCollections::reposition()`) and ONE service id space
+     * (`content.items`) — the services cutover ended the dual-space era, so
+     * the C1-era per-space validation, the cross-space 422s and the
+     * `site.service_categories.sort_order` renumber are all gone. This mirrors
+     * `StaffServiceManagementController::reorderLayout()` method for method —
+     * the two surfaces run one approach over one dataset, rather than two
+     * implementations that agree until they don't.
      *
      * NO MEMBERSHIPS ARE WRITTEN HERE, only ORDER — identical to the staff
      * twin, deliberately. `PATCH /services/{id}/category` is the writer of
      * `content.collection_items`; a layout endpoint that also rewrote them
      * would silently re-file a service any time a UI round-tripped it
-     * through a block of the other kind. See this method's entry in
-     * task-10-report.md: this is the one point where the two instructions I
-     * was given pull apart, and parity with the twin won.
+     * through a different block.
      *
      * Every one of the owner's live services — Fresha AND manual — must be
-     * covered by the payload, checked separately per half so the error path
-     * can't silently accept a payload that omits one half entirely; the same
-     * per-space coverage rule applies to the two category id spaces.
+     * covered by the payload, and every collection must appear.
      */
     public function reorderLayout(ReorderServiceLayoutRequest $request): JsonResponse
     {
@@ -909,144 +902,64 @@ class UserServiceController extends ApiController
             DB::connection('pgsql')->transaction(function () use ($pro, $site, $manual, $writer, $collections, $payload) {
                 AdvisoryLock::acquire("services:{$pro->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
-                $activeCategoryIds = ServiceCategory::query()
-                    ->where('user_id', $pro->id)
-                    ->pluck('id')
-                    ->map(fn ($id) => (string) $id)
-                    ->all();
-                $activeCategorySet = array_flip($activeCategoryIds);
-
-                // The other id space the grouped read emits (C1). Read inside
-                // the lock, like every other set here, so a concurrent
-                // category write can't make the coverage check disagree with
-                // what is then repositioned.
+                // ONE category id space (content.collections) and ONE service
+                // id space (content.items) — read inside the lock, like every
+                // other set here, so a concurrent write can't make the
+                // coverage check disagree with what is then repositioned.
                 $collectionIds = $collections->list($pro->id)->map(fn ($row) => (string) $row->id)->all();
                 $collectionSet = array_flip($collectionIds);
 
-                $activeFreshaServiceIds = Service::query()
-                    ->where('user_id', $pro->id)
-                    ->whereNotNull('source')
-                    ->pluck('id')
-                    ->all();
-                $activeFreshaServiceSet = array_flip($activeFreshaServiceIds);
-
                 $sectionId = $manual->sectionId($site);
-                $manualRows = $manual->rows($pro->id, $sectionId, includeRemoved: false);
-                $manualRowsById = $manualRows->keyBy(fn ($r) => (string) $r->id);
-                $manualIdSet = array_flip($manualRowsById->keys()->all());
+                $manualRowsById = $manual->rows($pro->id, $sectionId, includeRemoved: false)
+                    ->keyBy(fn ($r) => (string) $r->id);
+                $freshaRowsById = app(FreshaServiceItems::class)->managementRows($pro->id, $sectionId)
+                    ->keyBy(fn ($r) => (string) $r->id);
 
-                $providedCategoryIds = [];
                 $orderedCollectionIds = [];
                 $seenPerBlock = [];
-                $membershipsByService = [];
-                $uncategorisedIds = [];
-                $manualIdsSeen = [];
+                $idsSeen = [];
 
                 foreach ($payload['categories'] as $bi => $catBlock) {
                     $catId = $catBlock['id'] ?? null;
-                    $isCollectionBlock = $catId !== null && isset($collectionSet[$catId]);
-
                     if ($catId !== null) {
-                        if (! $isCollectionBlock && ! isset($activeCategorySet[$catId])) {
+                        if (! isset($collectionSet[$catId])) {
                             abort(422, 'One or more category IDs are invalid.');
                         }
-                        $isCollectionBlock
-                            ? $orderedCollectionIds[] = $catId
-                            : $providedCategoryIds[] = $catId;
+                        $orderedCollectionIds[] = $catId;
                     }
 
                     foreach ($catBlock['service_ids'] as $sid) {
-                        $isFresha = isset($activeFreshaServiceSet[$sid]);
-                        $isManual = isset($manualIdSet[$sid]);
-                        if (! $isFresha && ! $isManual) {
+                        if (! $manualRowsById->has($sid) && ! $freshaRowsById->has($sid)) {
                             abort(422, 'One or more service IDs are invalid.');
                         }
-                        // Multi-category: a service MAY appear in several category
-                        // blocks (one membership per block) — but never twice in the
-                        // same block, and never both categorised AND uncategorised.
+                        // Multi-category: a service MAY appear in several
+                        // category blocks, but never twice in the same one.
                         if (isset($seenPerBlock[$bi][$sid])) {
                             abort(422, 'Duplicate service IDs detected within a category block.');
                         }
                         $seenPerBlock[$bi][$sid] = true;
-
-                        // A block's id space decides what may sit in it — see
-                        // the docblock. Silently accepting the mismatch would
-                        // drop the service's real membership on the next read.
-                        if ($isCollectionBlock && ! $isManual) {
-                            abort(422, 'A Fresha-synced service cannot be filed under an owner-authored category.');
-                        }
-                        if ($catId !== null && ! $isCollectionBlock && ! $isFresha) {
-                            abort(422, 'An owner-authored service cannot be filed under a Fresha-synced category.');
-                        }
-
-                        // Manual ids never enter the Fresha membership map,
-                        // whatever block they were placed in — only
-                        // first-occurrence order matters for them here
-                        // (tracked below). Their content.collection_items
-                        // memberships are written by PATCH
-                        // /services/{id}/category, not here — same stance as
-                        // the staff twin, see the docblock.
-                        if ($isManual) {
-                            $manualIdsSeen[$sid] = true;
-
-                            continue;
-                        }
-
-                        if ($catId === null) {
-                            $uncategorisedIds[$sid] = true;
-                        } else {
-                            $membershipsByService[$sid][] = $catId;
-                        }
+                        $idsSeen[$sid] = true;
                     }
                 }
 
-                foreach ($uncategorisedIds as $sid => $_) {
-                    if (isset($membershipsByService[$sid])) {
-                        abort(422, 'A service cannot be both categorised and uncategorised.');
-                    }
-                }
-
-                // Every active FRESHA service must appear somewhere (its
-                // memberships, or the uncategorised block for zero
-                // memberships) — unchanged from the pre-cutover check.
-                $coveredFreshaIds = array_unique([...array_keys($membershipsByService), ...array_keys($uncategorisedIds)]);
-                if (count($coveredFreshaIds) !== count($activeFreshaServiceIds)) {
+                // Every live service — either half — must appear somewhere.
+                // One check now, not two: the cross-space 422s ("a Fresha
+                // service cannot be filed under an owner-authored category")
+                // described a mismatch that can no longer exist.
+                if (count($idsSeen) !== $manualRowsById->count() + $freshaRowsById->count()) {
                     abort(422, 'Layout payload must include all service IDs for this professional.');
                 }
-
-                // Every live MANUAL service must appear somewhere too — a
-                // separate coverage check since manual ids never reach
-                // $membershipsByService/$uncategorisedIds above.
-                if (count($manualIdsSeen) !== count($manualIdSet)) {
-                    abort(422, 'Layout payload must include all service IDs for this professional.');
-                }
-
-                // Every category must be included (excluding the uncategorised
-                // null bucket), applied SEPARATELY to each id space — a
-                // payload covering every legacy category but no collection is
-                // still an incomplete layout.
-                $this->assertCoversEveryCategory($providedCategoryIds, $activeCategoryIds);
                 $this->assertCoversEveryCategory($orderedCollectionIds, $collectionIds);
 
-                // Apply category order + service order (both halves,
-                // flattened into ONE first-occurrence traversal — §NEW-C1/I1
-                // review round 2).
-                $categorySort = 0;
+                if ($orderedCollectionIds !== []) {
+                    $collections->reposition($pro->id, array_values(array_unique($orderedCollectionIds)));
+                }
+
+                // NO MEMBERSHIPS ARE WRITTEN HERE, only ORDER — unchanged
+                // stance (slice 7 Task 12): PATCH /services/{id}/category is
+                // the writer of content.collection_items.
                 $orderedAllServiceIds = [];
-
                 foreach ($payload['categories'] as $catBlock) {
-                    $catId = $catBlock['id'] ?? null;
-
-                    // Legacy rows are renumbered in place; collections carry
-                    // their order in content.collections.position and are
-                    // repositioned through their own writer after this loop.
-                    if ($catId !== null && isset($activeCategorySet[$catId])) {
-                        ServiceCategory::query()
-                            ->where('user_id', $pro->id)
-                            ->where('id', $catId)
-                            ->update(['sort_order' => $categorySort++]);
-                    }
-
                     foreach ($catBlock['service_ids'] as $serviceId) {
                         if (! in_array($serviceId, $orderedAllServiceIds, true)) {
                             $orderedAllServiceIds[] = $serviceId;
@@ -1054,40 +967,18 @@ class UserServiceController extends ApiController
                     }
                 }
 
-                if ($orderedCollectionIds !== []) {
-                    $collections->reposition($pro->id, array_values(array_unique($orderedCollectionIds)));
-                }
-
-                // Slice 7 Task 12: the per-Fresha-service replace-set against
-                // site.service_category_assignments is GONE. The Fresha lane
-                // is projected into content.* now and its categories are
-                // content.collections, so reposition() above is the whole
-                // membership/order story; the pivot is dropped in Phase 6.
-                // $membershipsByService survives only as validation input
-                // (the categorised-vs-uncategorised and coverage checks).
-
-                // MANUAL service order → section_items.sort_key, keyed by
-                // $orderedAllServiceIds' own position (not a recompacted
-                // counter) — the same numbering scale LegacyServiceSortOrder
-                // uses below (§NEW-I1). Excluded (hidden) items carry no
-                // sort_key by design (ManualServiceWriter::exclude) —
-                // covered above (no 422), but stay unpositioned; they get a
-                // real position the next time they're reactivated (update()'s
-                // re-pin branch).
+                // Both halves, one traversal, one scale (spec §3.4). Excluded
+                // (hidden) MANUAL items carry no sort_key by design and stay
+                // unpositioned; a Fresha item's hidden state rides the blob,
+                // so it is always pinnable.
                 foreach ($orderedAllServiceIds as $rank => $sid) {
-                    if (! isset($manualIdSet[$sid])) {
-                        continue;
-                    }
-                    $row = $manualRowsById->get($sid);
-                    if ($row !== null && ($row->state ?? null) !== 'excluded') {
+                    $manualRow = $manualRowsById->get($sid);
+                    if ($manualRow !== null && ($manualRow->state ?? null) !== 'excluded') {
+                        $writer->pin($site, $sid, (float) $rank);
+                    } elseif ($freshaRowsById->has($sid)) {
                         $writer->pin($site, $sid, (float) $rank);
                     }
                 }
-
-                // §NEW-C1: renumber the WHOLE legacy set (Fresha + the
-                // still-present legacy manual rows), never just the Fresha
-                // subset — see LegacyServiceSortOrder's docblock.
-                app(LegacyServiceSortOrder::class)->renumber($pro->id, $orderedAllServiceIds);
             });
         } catch (AdvisoryLockTimeoutException) {
             // Same contention/423 as store()/reorder() above.

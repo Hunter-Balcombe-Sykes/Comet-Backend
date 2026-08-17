@@ -1167,7 +1167,7 @@ Spec §3.4. `ManualPoolWriter::pin()` is item-kind-agnostic; Fresha items now ge
 **Interfaces:**
 - Consumes: `FreshaServiceItems::managementRows()` (Task 2), `ManualPoolWriter::pin(Site $site, string $itemId, float $sortKey)` (existing).
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```php
 <?php
@@ -1256,9 +1256,9 @@ it('reorder-layout accepts one category space and orders Fresha items without to
 });
 ```
 
-- [ ] **Step 2: Run; confirm failures** (Fresha id 422s as invalid — the legacy id-set lookup doesn't know content ids).
+- [x] **Step 2: Run; confirm failures** (Fresha id 422s as invalid — the legacy id-set lookup doesn't know content ids).
 
-- [ ] **Step 3: Implement `reorder()` (user)** — replace `:843-905` with:
+- [x] **Step 3: Implement `reorder()` (user)** — replace `:843-905` with:
 
 ```php
         $manual = app(ManualServiceItems::class);
@@ -1324,7 +1324,7 @@ it('reorder-layout accepts one category space and orders Fresha items without to
 
 (The `app(LegacyServiceSortOrder::class)->renumber(...)` call and the `Service::query()` id-set read are gone; the `use App\Services\Site\LegacyServiceSortOrder;` import goes when the last reference does, Task 9.)
 
-- [ ] **Step 4: Implement `reorderLayout()` (user)** — the legacy category space dissolves (ONE space: collections). Replace the transaction body (`:958-1140`) with:
+- [x] **Step 4: Implement `reorderLayout()` (user)** — the legacy category space dissolves (ONE space: collections). Replace the transaction body (`:958-1140`) with:
 
 ```php
                 $collectionIds = $collections->list($pro->id)->map(fn ($row) => (string) $row->id)->all();
@@ -1395,7 +1395,7 @@ it('reorder-layout accepts one category space and orders Fresha items without to
 
 Delete from the method: the `ServiceCategory::query()` reads, `$activeFreshaServiceIds` (`Service::query()`), the cross-space 422s ("cannot be filed under..."), `$membershipsByService`/`$uncategorisedIds` machinery, the `ServiceCategory ... ->update(['sort_order' => ...])` loop, and the `LegacyServiceSortOrder::renumber()` call. Keep the method docblock but rewrite it: one category id space, one service id space, order-only, blob-independent.
 
-- [ ] **Step 5: Implement the staff twins** — `StaffServiceManagementController::reorder()` and `reorderLayout()` take the identical change (they are deliberate mirrors — keep them mirrors): same one-loop pin over `$manualRowsById` + `$freshaRowsById` from `FreshaServiceItems::managementRows($professional->id, $sectionId)`, same single-space category validation, `pinManualOrder()` generalised to:
+- [x] **Step 5: Implement the staff twins** — `StaffServiceManagementController::reorder()` and `reorderLayout()` take the identical change (they are deliberate mirrors — keep them mirrors): same one-loop pin over `$manualRowsById` + `$freshaRowsById` from `FreshaServiceItems::managementRows($professional->id, $sectionId)`, same single-space category validation, `pinManualOrder()` generalised to:
 
 ```php
     /**
@@ -1423,7 +1423,7 @@ Delete from the method: the `ServiceCategory::query()` reads, `$activeFreshaServ
 
 Delete `liveFreshaIds()` (`:856-866`) and both `LegacyServiceSortOrder` calls.
 
-- [ ] **Step 6: Run**
+- [x] **Step 6: Run**
 
 ```bash
 ./vendor/bin/pest tests/Feature/Services/ tests/Feature/Api/ --parallel
@@ -1431,11 +1431,43 @@ Delete `liveFreshaIds()` (`:856-866`) and both `LegacyServiceSortOrder` calls.
 
 `ServiceCategoryAssignmentRetirementTest` seeds legacy Fresha rows and asserts through the OLD id space — its reorder-layout cases now 422 (legacy ids unknown). Re-seed them content-side; the assertions ("writes no legacy assignment row") keep their meaning until Task 12 drops the table, then Task 12 retires the file.
 
-- [ ] **Step 7: `composer test:pg`; commit**
+- [x] **Step 7: `composer test:pg`; commit**
 
 ```bash
 git add -A && git commit -m "feat(services-cutover): one ordering scale — both halves pin section_items.sort_key, LegacyServiceSortOrder calls removed"
 ```
+
+**Reality corrections applied (rule zero, 2026-08-17):**
+
+1. **The fixture order matters, and the plan's Step 1 file gets it wrong.**
+   `svcCutOrdFresha()` must be called AFTER any `svcCutOrdManual()` in the same
+   test. A hand-built `content.source_items` row carries no
+   `content.identity_keys`, and `ProjectionWriter::writeManualItem()` re-runs
+   `resolveItems()` over EVERY live source item for the (user, kind) pair — so
+   a later manual write resolves the hand-built coord as an unrelated
+   singleton, mints a fresh item for it, and orphans the id the fixture
+   returned. Fixture artefact, not a production one (connector-landed rows
+   always carry identity keys), but every content-side Fresha fixture in this
+   project now carries the warning.
+2. **Retargeting the ordering tests reached five more files than Step 6 named.**
+   `ServiceCategoryAssignmentRetirementTest` (named), plus
+   `ServiceReorderPurgeTest`, `ServiceLayoutReorderTest`,
+   `ServiceEndpointCutoverTest`, `StaffServiceManagementCutoverTest`,
+   `ServiceLayoutLockUnificationTest` and one case in
+   `ServiceResyncCutoverTest`. All drove the legacy id space through the
+   reorder verbs; each case was moved onto its successor property rather than
+   deleted (details in the commit body).
+3. **Two guards retire with the space they policed**, not by oversight:
+   the cross-space 422s ("a Fresha-synced service cannot be filed under an
+   owner-authored category") and "a service cannot be both categorised and
+   uncategorised". Both described contradictions that required two id spaces
+   and a membership write; the endpoint has neither. The within-block duplicate
+   guard and both coverage checks stay.
+4. **The merged-read assertions move to Task 6.** Several retargeted cases
+   asserted order through `GET /api/services`, which still reads the Fresha
+   half from `site.services` until Task 6 repoints it — those now assert the
+   `section_items.sort_key` scale Task 5 actually writes, and Task 6 restores
+   the round-trip through the read.
 
 ---
 
