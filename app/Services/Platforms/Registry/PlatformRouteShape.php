@@ -28,6 +28,14 @@ enum PlatformRouteShape
     // Branch on multiAccount(), never on this enum.
     case MultiAccount;
 
+    // connect + selection + DELETE all on GenericPlatformController, for
+    // descriptors DERIVED from the compiled catalog (DerivedDescriptorFactory).
+    // Distinct from LinkOnly, which is for hand-registered socials: a Brand
+    // connect additionally validates that the submitted URL belongs to THIS
+    // brand, so /platforms/menulog/connect cannot accept a DoorDash link.
+    // /accounts is emitted only when multiAccount().
+    case Brand;
+
     // Not emitted by the loop — the platform keeps its standalone route group. Default.
     case Bespoke;
 }
