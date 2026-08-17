@@ -41,10 +41,14 @@ Feature branches off `development`. PR → merge → fast-forward `development` 
 
 ## MCP servers
 
-| MCP | Auto-trigger |
-|-----|-------------|
-| **laravel-boost** | Routes, artisan, tinker, config, docs, browser-logs. **NOT server logs/errors.** |
-| **supabase** | DB query, migration, schema check |
+| MCP | Tool prefix | Auto-trigger |
+|-----|-------------|-------------|
+| **laravel-boost** | `mcp__laravel-boost__` | Routes, artisan, tinker, config, docs, browser-logs. **NOT server logs/errors.** |
+| **claude.ai Supabase** | `mcp__claude_ai_Supabase__` | DB query, migration, schema check |
+
+⚠️ **The Supabase MCP is not named `supabase`.** It is the claude.ai-hosted connector — an account-level OAuth integration, not a server spawned from this repo. It therefore does **not** appear in `~/.claude.json` or a `.mcp.json`, and a session that greps the config for `supabase` will conclude it is missing when it is live. `claude mcp list` is the honest check (it covers both transports); a config grep is not. Its tools are deferred — load a schema with `ToolSearch` (`select:mcp__claude_ai_Supabase__execute_sql`) before calling. Pass `project_id` explicitly: dev `glncumufgaqcmqhzwrxm`, prod `edplucmvkcnokyygxqsb` — there is no default, and the two schemas have diverged.
+
+`laravel-boost` is a **stdio** server (`php artisan boost:mcp`, package `laravel/boost` in `composer.json`), registered at **local scope** for this project alongside `github` and `nightwatch`. If its tools vanish, it was dropped from `~/.claude.json`, not uninstalled — re-add with `claude mcp add laravel-boost --scope local -- php artisan boost:mcp` from the repo root. Do **not** run `php artisan boost:install` to fix this: that command also rewrites AI guideline files and can edit this one.
 
 ## Laravel logs — Cloud CLI only
 
