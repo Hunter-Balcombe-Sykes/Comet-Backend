@@ -70,6 +70,9 @@ class PlatformDescriptor
 
     private PlatformRouteShape $routeShape = PlatformRouteShape::Bespoke;
 
+    /** Built by DerivedDescriptorFactory from a compiled catalog surface, not hand-registered. */
+    private bool $derived = false;
+
     private ?string $connectController = null;
 
     private bool $multiAccount = false;
@@ -356,6 +359,23 @@ class PlatformDescriptor
     public function routeShape(): PlatformRouteShape
     {
         return $this->routeShape;
+    }
+
+    /**
+     * Mark this descriptor as built by DerivedDescriptorFactory from a compiled
+     * catalog surface rather than hand-registered in PlatformRegistryServiceProvider.
+     * Read by the registry-freeze tests to tell the two halves apart.
+     */
+    public function derived(): self
+    {
+        $this->derived = true;
+
+        return $this;
+    }
+
+    public function isDerived(): bool
+    {
+        return $this->derived;
     }
 
     public function connectController(): ?string

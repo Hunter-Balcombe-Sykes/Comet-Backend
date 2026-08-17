@@ -2,7 +2,9 @@
 
 namespace App\Services\Platforms\Registry;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Models\Core\Site\IntegrationConnection;
+use RuntimeException;
 
 // The single source of truth for which platforms exist and what each is. Bound as
 // a singleton in PlatformRegistryServiceProvider. Consumers (validation now; the
@@ -13,11 +15,48 @@ class PlatformRegistry
     /** @var array<string, PlatformDescriptor> */
     private array $descriptors = [];
 
+    /**
+     * Registration is fail-loud on a duplicate key. It used to be last-write-wins
+     * with no guard, which was safe only while every descriptor was hand-written
+     * in one file. Descriptors are now ALSO derived from the compiled catalog
+     * (DerivedDescriptorFactory), so a slug collision would silently replace a
+     * real descriptor — strategies, resources and all — with a link-only stub.
+     * The derived registration site skips on has() first; this throw is the
+     * backstop for the case where it doesn't.
+     */
     public function register(PlatformDescriptor $descriptor): self
     {
-        $this->descriptors[$descriptor->key()] = $descriptor;
+        $key = $descriptor->key();
+
+        if (isset($this->descriptors[$key])) {
+            throw new RuntimeException(
+                "Duplicate platform registration for '{$key}'. A descriptor with this key already exists; "
+                .'registering again would silently discard it.'
+            );
+        }
+
+        $this->descriptors[$key] = $descriptor;
 
         return $this;
+    }
+
+    /**
+     * The hand-written slugs, frozen to the 20260727110001 backfill CASE and
+     * pinned by CatalogLegacyMapTest.
+     *
+     * Derived descriptors are registered ON TOP of these and are deliberately NOT
+     * in this list — the freeze applies to the hand-written half only. The
+     * registry and LegacyPlatformMap were once asserted byte-identical on the
+     * premise that the connect layer and the write-guard must not drift; that
+     * premise is already half-false, because LegacyPlatformMap::isKnownSurface()
+     * falls back to the compiled catalog and so already accepts surfaces the
+     * registry has never heard of. See the uniformity design doc §6.8.
+     *
+     * @return list<string>
+     */
+    public static function handWrittenFreeze(): array
+    {
+        return array_keys(LegacyPlatformMap::toSurfaceMap());
     }
 
     public function get(string $key): ?PlatformDescriptor

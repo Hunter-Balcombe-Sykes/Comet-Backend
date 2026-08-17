@@ -12,22 +12,39 @@ use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Refresh\NoRefresh;
 use App\Services\Platforms\Strategies\Refresh\ScheduledRefresh;
 
-it('registers exactly the platforms the app accepts today', function () {
+it('keeps the hand-written registry frozen to the legacy map', function () {
     $registry = app(PlatformRegistry::class);
 
-    // Since the 27-provider stopgap (512689f4) + the P1 catalog bridge, the
-    // registry's key set and LegacyPlatformMap must be the SAME 78-slug
-    // vocabulary: the registry is what the legacy connect flows accept, the
-    // map is what the connection write-guard accepts — drift between them
-    // would let one layer accept what the other rejects. (The old hand-list
-    // here encoded Decision 10, which plan §0 supersedes.)
-    $expected = array_keys(LegacyPlatformMap::toSurfaceMap());
+    // This assertion used to demand registry keys == LegacyPlatformMap keys, on
+    // the premise that the connect layer and the write-guard must accept the same
+    // vocabulary or one would accept what the other rejects. That premise is
+    // already half-false: LegacyPlatformMap::isKnownSurface() falls back to the
+    // compiled catalog, so the write-guard has long accepted catalog-only
+    // surfaces the registry never carried.
+    //
+    // Derived descriptors (DerivedDescriptorFactory) make the asymmetry explicit
+    // rather than introducing it. The freeze still binds the HAND-WRITTEN half —
+    // that half is what the 20260727110001 backfill CASE mirrors, and
+    // CatalogLegacyMapTest pins it independently.
+    $frozen = PlatformRegistry::handWrittenFreeze();
+    sort($frozen);
 
-    sort($expected);
-    $actual = $registry->keys();
-    sort($actual);
+    $handWritten = array_values(array_intersect($registry->keys(), $frozen));
+    sort($handWritten);
 
-    expect($actual)->toBe($expected);
+    expect($handWritten)->toBe($frozen);
+});
+
+it('never lets a derived descriptor shadow a hand-written one', function () {
+    $registry = app(PlatformRegistry::class);
+
+    // register() throws on a duplicate key, so a shadow can only appear if the
+    // derived registration site stopped skipping on has(). Belt to that brace.
+    foreach (PlatformRegistry::handWrittenFreeze() as $slug) {
+        expect($registry->get($slug)?->isDerived())->toBeFalse(
+            "Derived descriptor shadowed the hand-written '{$slug}'."
+        );
+    }
 });
 
 // The "cover-capable platforms" freeze lived here until 2026-08-05: the owner
