@@ -50,15 +50,30 @@ The per-IP cap (`partna.pre_account.max_unclaimed_per_ip`, default 3) counts **a
 forever** — `PreAccountBuild::scopeLive()` (`app/Models/Core/User/PreAccountBuild.php:99-102`) is only
 `whereNull('claimed_at')` and **ignores `expires_at`**.
 
-⚠️ **If the Instagram wave has already run, it is holding all 3 slots and every build here will
-`429 IP_BUILD_CAP`.** Check first, and if it is full, **stop and ask Josh** which builds to release —
-do not purge anything on your own initiative.
+**Measure the cap; do not assume it.** Any number written in this file is stale by the time you read it
+— the Instagram wave, staff builds and the daily prune all move it. Check immediately before starting,
+and if it is full, **stop and ask Josh** which builds to release. Do not purge anything yourself.
 
 ```sql
+-- Your own slot usage. Confirm the hash is yours first — see the warning below.
 select count(*) from core.pre_account_builds
-where created_ip_hash = '4147c0d0476fc60576d5ad95bb1ae1ab8a02999395ea042f29d0a00c6689777b'
+where created_ip_hash = '28a2b71d0d4730e305ba75f39630fda357ccf9a970e3b8233c2fec63d12d5b8b'
   and claimed_at is null;   -- 3 or more means the next build 429s
+
+-- Fuller picture, and the one to trust if there is any doubt about the hash.
+select coalesce(created_ip_hash,'(null - staff/early_access)') as ip_hash,
+       count(*) as live_unclaimed, max(created_at) as newest
+from core.pre_account_builds where claimed_at is null
+group by created_ip_hash order by live_unclaimed desc, newest desc;
 ```
+
+⚠️ **Verify the hash is yours before trusting the first query.** It is the sha256 of dev egress IP
+`150.228.243.132`, measured 2026-08-10. An earlier revision quoted `4147c0d0…`, which belongs to a
+**different origin** — it returned 0 regardless of the true state, i.e. it would have reported "cap
+clear" even when full. If your egress IP differs, use the second query.
+
+Note the cap is **per-IP**, so builds made from other origins (including the null-hash `staff` /
+`early_access` rows) do not consume your slots.
 
 ---
 

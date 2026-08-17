@@ -4,19 +4,36 @@
 
 ## Objective
 
-Two phases, in order:
-
-1. **Create three `partna` pre-account sites on dev** from three real Instagram handles, via the public
+1. **Create six `partna` pre-account sites on dev** from six real Instagram handles, via the public
    signup endpoint — the same path a real visitor takes.
 2. **Write one report** verifying what the pipeline did and did not do, end to end.
+
+> ### ⚠️ READ THIS FIRST — batch A has already been run
+>
+> **Batch A (targets 1–3) was executed on 2026-08-10.** Its report is at
+> `docs/reviews/2026-08-10-instagram-build-wave-RESULTS.md` — all three builds reached `ready`.
+>
+> **Do not re-run batch A.** Each build spends a paid Apify scrape, and re-running would burn three of
+> them to reproduce a result already on disk. Read that report first; if you are here to run
+> **batch B (targets 4–6)**, skip straight to it.
+>
+> Re-run batch A only if Josh explicitly asks for a fresh comparison.
+
+⚠️ **Six builds cannot coexist.** The per-IP cap is **3 unclaimed builds**, counted forever
+(`PreAccountBuild::scopeLive()` is only `whereNull('claimed_at')` — it **ignores `expires_at`**). So the
+wave runs as **two batches of three**, and batch B needs three free slots.
+
+**You do not release slots yourself.** If the cap is full, **stop and ask Josh**. Deleting anything on
+your own initiative is forbidden (rule 4).
 
 ## Hard rules
 
 1. **Dev only.** `https://dev-api.partna.au`. Never touch production.
 2. **Sequential.** One build at a time; wait for terminal state before the next. Never parallelise.
-3. **Never stop the creation phase.** If build 1 errors or fails, **record it and continue to build 2
-   and 3 anyway.** All three attempts must be made regardless of what happens to any of them.
-4. **Do NOT delete anything.** All three must be left live and unclaimed.
+3. **Never stop the creation phase.** If a build errors or fails, **record it and continue to the next
+   anyway.** Every attempt in a batch gets made regardless of what happens to the others.
+4. **Do NOT delete anything.** Every build must be left live and unclaimed. Releasing cap slots is
+   **Josh's call, not yours** — ask, and wait.
 5. **Report only. Change nothing.** No code edits, no commits, no migrations, no config changes, no
    re-running of jobs to "make it work", no manual backfills. If something is broken, that is the
    finding — write it down and move on.
@@ -32,23 +49,31 @@ Two phases, in order:
 - Each build costs a **paid Apify** scrape. Do not retry a build more than once; if you do, say so.
 - Dev Supabase ref: `glncumufgaqcmqhzwrxm`. App name for logs: `partna`.
 
-### Preconditions — already satisfied 2026-08-10, but re-check
+### Preconditions — measure, do not assume
 
-The per-IP cap (`partna.pre_account.max_unclaimed_per_ip`, default 3) was freed by purging the two
-2026-08-05 fixtures. Confirm it is still clear before starting:
+The per-IP cap is `partna.pre_account.max_unclaimed_per_ip` (**3**, `config/partna.php:1144`). Check it
+immediately before starting — the answer changes over time, so treat any number written in this file as
+stale and re-measure:
 
 ```sql
 select count(*) from core.pre_account_builds
-where created_ip_hash = '4147c0d0476fc60576d5ad95bb1ae1ab8a02999395ea042f29d0a00c6689777b'
-  and claimed_at is null;   -- expect 0; 3 or more means the next build 429s
+where created_ip_hash = '28a2b71d0d4730e305ba75f39630fda357ccf9a970e3b8233c2fec63d12d5b8b'
+  and claimed_at is null;   -- 3 or more means the next build 429s
 ```
 
+⚠️ **Confirm that hash is still yours before trusting the query.** It is the sha256 of dev egress IP
+`150.228.243.132`, measured 2026-08-10. An earlier revision of this file quoted `4147c0d0…`, which
+belongs to a **different origin** — that query returned 0 regardless of the true state and would have
+reported "cap clear" even when full. If your egress IP differs, the count above is meaningless: derive
+your own hash, or read the whole table grouped by `created_ip_hash`.
+
 ⚠️ `PreAccountBuild::scopeLive()` (`app/Models/Core/User/PreAccountBuild.php:99-102`) is only
-`whereNull('claimed_at')` — it **ignores `expires_at`**, so unclaimed builds hold cap slots forever.
+`whereNull('claimed_at')` — it **ignores `expires_at`**, so unclaimed builds hold cap slots until
+something deletes them.
 
 ---
 
-# PHASE 1 — Create the three builds
+# PHASE 1 — Create the builds (batch A, then batch B)
 
 For each handle, in this order:
 
@@ -67,11 +92,53 @@ curl -s https://dev-api.partna.au/api/public/signup/builds/<BUILD_ID>
 The 2026-08-05 run reached `ready` in ~25s. After **5 minutes** stop polling, record it as stuck, and
 **move to the next handle**.
 
-| # | `source_ref` | Built on dev before? |
+### BATCH A — ALREADY RUN 2026-08-10, do not repeat
+
+| # | `source_ref` | What it was there to catch |
 |---|---|---|
-| 1 | `simondoylehair` | Yes, 4× (all now purged) |
-| 2 | `jess.hair.stylist` | **Never** |
-| 3 | `crucibletattooco` | **Never** |
+| 1 | `simondoylehair` | A/B control for the SIGNUP-2 fix |
+| 2 | `jess.hair.stylist` | Two periods in the handle → SIGNUP-1 divergence |
+| 3 | `crucibletattooco` | Dense Linktree; Bluesky + retired Pinterest |
+
+Results: `docs/reviews/2026-08-10-instagram-build-wave-RESULTS.md`. Read it, don't reproduce it.
+
+### BATCH B — the outstanding work
+
+Re-measure the cap first (see Preconditions). Needs three free slots.
+
+| # | `source_ref` | What it is there to catch |
+|---|---|---|
+| 4 | `kimcosmik` | **Duplicate-platform dedupe** + music density + product pages |
+| 5 | `themilleraffect` | **Influencer** — shop/affiliate density, probe-budget exhaustion |
+| 6 | `supernormal_180` | **Gate denial** — a restaurant forced onto a `partna` account |
+
+**#4 `kimcosmik`** (electronic producer/DJ) — its Linktree carries ~19 links including **two Bandcamp,
+two SoundCloud and two YouTube** links, which is the cleanest available test of
+`RouteContext::$seenPlatforms` first-link-per-platform dedupe: the second of each pair **must** return
+`skipped`, not seed a duplicate row. It also has **three Facebook links of different shapes** — a
+profile, a `/groups/<id>/` and a page — which probes the Facebook normalizer's documented blind spot for
+reserved path segments. Plus **three Juno Records vinyl product pages** (individual products, not a
+storefront — the clearest "does a product page become an **item**?" test in the whole wave),
+**Discogs**, **Mixcloud**, **Resident Advisor**, **Discord** and a fourth Bandcamp-family link.
+
+**#5 `themilleraffect`** — a fashion/lifestyle influencer, and **deliberately not Melbourne**; chosen
+purely for shop-and-affiliate density, which none of the other five have. Its Linktree carries **LTK ×2**,
+**Amazon**, **Poshmark**, a **canva.link**, Pinterest, TikTok, Facebook, plus several affiliate product
+links. Expect the probe budget (6) to be **exhausted** here — that is the point. Report how many links
+fell past it straight to custom.
+
+**#6 `supernormal_180`** — the Melbourne restaurant on Flinders Lane (83K followers). Two reasons:
+
+- **The pairing map forces it to `partna`.** `config('partna.pre_account.sources')` allows only
+  `instagram` → `partna`, so a restaurant signing up via Instagram becomes a `partna` account, and
+  `gateAllows()` denies **`reservations`** and **`online-ordering`** to non-business accounts. Its
+  OpenTable/SevenRooms and UberEats/Menulog links are all **defined in the catalog** (verified), so they
+  will classify correctly and then be **demoted to custom links**. Record exactly which links this hits.
+  This is realistic, not contrived: it is what happens to every restaurant that signs up via Instagram.
+- **`linkin.bio` unroll regression.** `LinkInBioDetector`'s own comment records that *this account's*
+  bio link was a `linkin.bio` page that went unrecognised and "landed as one inert custom link instead
+  of unrolling" — which is why `linkin.bio` was added to the host list on 2026-07-23. If its bio link is
+  still a `linkin.bio` page, this verifies that fix against the account that motivated it.
 
 Record per build: HTTP status, full response body, `build_id`, `user_id`, `build_state`,
 `failure_code`, and wall-clock time to terminal state.
@@ -93,7 +160,8 @@ select b.source_ref, b.id as build_id, b.user_id, b.build_state, b.failure_code,
 from core.pre_account_builds b
 join core.users u on u.id = b.user_id
 left join site.sites s on s.user_id = u.id
-where b.source_ref in ('simondoylehair','jess.hair.stylist','crucibletattooco') and b.claimed_at is null
+where b.source_ref in ('simondoylehair','jess.hair.stylist','crucibletattooco',
+                       'kimcosmik','themilleraffect','supernormal_180') and b.claimed_at is null
 order by b.created_at;
 ```
 
@@ -205,10 +273,21 @@ outcome? Enumerate the Linktree's links yourself (fetch the page) and account fo
 Known contents of `linktr.ee/crucibletattooco`: custom site `crucibletattooco.com.au` plus 5 sub-pages,
 **Bluesky**, **Pinterest**, TikTok, Facebook, Instagram, and `paytherent.net.au`.
 
-Expect **Bluesky** and **Bookwell** to be unclassified — verified 2026-08-10, they have zero references
-anywhere in `app/Catalog/` or `app/Services/Platforms/`. **Pinterest is different: it was deliberately
-retired** 2026-07-28 (`app/Catalog/LegacyPlatformMap.php:117-121`), so a Pinterest link *should* land
-as a custom link. Report Pinterest as correct-by-decision, not as a gap.
+**Catalog coverage, verified 2026-08-10 by grepping `app/Catalog/Definitions/`.** These have **zero**
+definitions and should land unclassified → custom link. Confirm each; do not re-report them as
+discoveries, but DO report if one behaves differently from "custom link":
+
+`bluesky` / `bsky.app` · `bookwell.com.au` · `discogs.com` · `juno.co.uk` · `shopltk.com` (LTK) ·
+`amazon` storefronts · `poshmark.com` · `canva.link`
+
+**Pinterest is different — it is NOT a gap.** It was **deliberately retired** 2026-07-28 by owner
+decision (`app/Catalog/LegacyPlatformMap.php:117-121`: connector, catalog surface, legacy scraper and
+registry entry all deleted). A Pinterest link *should* land as a custom link. Both `crucibletattooco`
+and `themilleraffect` carry one. Report it as correct-by-decision.
+
+Platforms that ARE defined and must therefore classify: Resident Advisor, Mixcloud, Bandcamp,
+SoundCloud, Spotify, Apple Music, Tidal, Discord, Substack, Patreon, OpenTable, SevenRooms, UberEats,
+Menulog, Booksy, Fresha, Eventbrite, YouTube, TikTok, Facebook, Threads, X, LinkedIn.
 
 ### §3d — Outcome-type verification
 
@@ -220,8 +299,24 @@ as a custom link. Report Pinterest as correct-by-decision, not as a gap.
 | 3.4 | A probe that resolved a **product page** produced an **item** (`content.items`, `content.item_links`) |
 | 3.5 | A probe that resolved a **storefront** produced a shop connection |
 | 3.6 | Input link count == seeded + custom + skipped + pending + denied-by-gate. **Nothing unaccounted for.** |
+| 3.7 | **Duplicate-platform links**: exactly ONE row per platform; every later duplicate `skipped` |
+| 3.8 | **Gate-denied links** became custom links — not dropped, not seeded |
+| 3.9 | **Probe budget**: count links that fell past the 6-probe cap straight to custom |
 
-3.6 is the single most important check in this report. Every input URL must land in exactly one bucket.
+**3.6 is the single most important check in this report.** Every input URL must land in exactly one
+bucket.
+
+**3.7 is best measured on `kimcosmik`** — two Bandcamp, two SoundCloud, two YouTube and three Facebook
+links. Expect one connection per platform and the rest `skipped`. Two rows for one platform is a
+dedupe failure; zero rows is worse.
+
+**3.8 is best measured on `supernormal_180`** — its OpenTable/SevenRooms (`reservations`) and
+UberEats/Menulog (`online-ordering`) links are gate-denied on a `partna` account. They must appear as
+**custom links**. Silently vanishing is the failure mode to look for.
+
+**3.9 is best measured on `themilleraffect`**, which should exhaust the budget. A link that falls past
+the cap is *supposed* to become a custom link without a probe — the finding would be if it vanishes
+instead, or if the count is never surfaced anywhere. Silent truncation reads as full coverage.
 
 ## §4 — Does the loop continue? (cascade)
 
@@ -285,10 +380,15 @@ exception, failed job, 5xx and repeated warning seen during the run.
 
 # Deliverable
 
-A single markdown report at `docs/reviews/2026-08-10-instagram-build-wave-RESULTS.md`:
+⚠️ **Batch A's report already occupies `docs/reviews/2026-08-10-instagram-build-wave-RESULTS.md`.**
+Do not overwrite it. Write batch B to
+**`docs/reviews/2026-08-10-instagram-build-wave-RESULTS-BATCH-B.md`**, and cross-reference batch A's
+findings rather than restating them.
 
-1. **Summary table** — three accounts × created / handle / display_name / links found / links routed /
-   platforms connected.
+The report contains:
+
+1. **Summary table** — one row per account in this batch × created / handle / display_name / links
+   found / links routed / platforms connected / probe budget used.
 2. **Per-account link ledger** — every input URL, its outcome, and the row that proves it. This is the
    heart of the report; §3.6 must balance.
 3. **Section-by-section PASS / FAIL / UNVERIFIED** against §1–§6.
@@ -297,4 +397,5 @@ A single markdown report at `docs/reviews/2026-08-10-instagram-build-wave-RESULT
    for reservations/online-ordering, first-link-per-platform skips, empty `link_observations`, stripped
    `bioLinks`, retired Pinterest, unpublished-but-public). This stops the next reader re-raising them.
 
-**Do not delete the three builds. Do not fix anything. Do not change any code.**
+**Do not delete any build. Do not fix anything. Do not change any code.** If the cap is full when you
+arrive, stop and ask Josh — do not release slots yourself.
