@@ -19,12 +19,21 @@ use App\Ingest\Runtime\Pull;
 use App\Ingest\Support\Fields;
 
 /**
- * Instagram via the paid Apify profile actor (plan §11) — MANUAL-ONLY by
+ * Instagram via the paid Apify profile actor (plan §11) — OFF THE SCHEDULER by
  * construction, not by convention: CostClass::Actor means SourceProvisioner
- * provisions the source with auto_sync=false (the scheduler never touches
- * it), so a run happens only on an explicit manual/connect trigger. The hard
- * cap lives where the money moves: ApifyBudget's per-actor + global daily
- * caps (config partna.limits.apify), claimed by InstagramActorDriver
+ * provisions the source with auto_sync=false, and SourceScheduler::scoreDue()
+ * selects only auto_sync=true, so the scheduler never touches it.
+ *
+ * A run therefore happens on exactly ONE trigger: `eagerOnConnect` below, which
+ * fires once when the source row is first created. This is not a redundant
+ * restatement of the paragraph above — from 2026-07-28 to 2026-08-17 that
+ * sentence read "a run happens only on an explicit manual/connect trigger" and
+ * NO such trigger existed in the codebase. The connector was unreachable, and a
+ * pre-account build's scraped grid never reached any surface. Do not delete the
+ * eagerOnConnect line believing the scheduler will pick this up; it will not.
+ *
+ * The hard cap lives where the money moves: ApifyBudget's per-actor + global
+ * daily caps (config partna.limits.apify), claimed by InstagramActorDriver
  * immediately before the run. There is deliberately NO per-user cooldown —
  * `partna.instagram.apify_cooldown_seconds` is vestigial config with no reader,
  * and InstagramController documents the same decision for the connect path.
@@ -68,6 +77,14 @@ class InstagramConnector implements Connector
             ],
             cost: CostClass::Actor,
             defaultIntervalSeconds: 604800,
+            // The connect trigger this connector's docblock has always claimed.
+            // Until 2026-08-17 no such trigger existed anywhere in the codebase,
+            // so an instagram source was provisioned auto_sync=false and then
+            // never ran — a pre-account build's scraped grid reached no surface
+            // at all. Costs a second actor call per connect, on top of the
+            // build-time InstagramConnectionSeeder scrape; capped by ApifyBudget,
+            // which InstagramActorDriver claims immediately before the run.
+            eagerOnConnect: true,
         );
     }
 

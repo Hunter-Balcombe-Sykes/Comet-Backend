@@ -63,6 +63,37 @@ class SourceScheduler
     }
 
     /**
+     * Claim ONE known source, for a caller that already knows which row it
+     * wants — the eager-on-connect trigger (Manifest::runsEagerlyOnConnect).
+     *
+     * Deliberately the same conditional UPDATE as claimDue(), not a second
+     * locking scheme: this class's docblock commits to ONE mechanism, and a
+     * caller that dispatched RunSourceJob WITHOUT claiming would let a
+     * scheduler tick or a second connect event run the same source
+     * concurrently. For a billed connector that is a double charge, which the
+     * EffectLedger settles per digest and cannot refund.
+     *
+     * Does NOT consult auto_sync or next_attempt_at: the whole point of the
+     * eager trigger is to run a source the scheduler is barred from claiming.
+     * Whether this source SHOULD run eagerly is the manifest's decision, made
+     * before we get here — mixing that policy in would give one source two
+     * disagreeing gates.
+     *
+     * @return bool true when the claim was won and the caller owns the run
+     */
+    public function claimOne(string $sourceId, string $runId): bool
+    {
+        return DB::table('ingest.sources')
+            ->where('id', $sourceId)
+            ->whereNull('in_flight_since')
+            ->update([
+                'in_flight_since' => now(),
+                'in_flight_run_id' => $runId,
+                'updated_at' => now(),
+            ]) === 1;
+    }
+
+    /**
      * Due sources, most valuable first.
      *
      * score = staleness × visibility ÷ (cost × (1 + units already spent today))

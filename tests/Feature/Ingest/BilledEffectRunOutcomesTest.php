@@ -113,6 +113,39 @@ it('folds the kill switch to budget_skipped without writing a ledger row', funct
         ->and(DB::table('ingest.effects')->count())->toBe(0);
 });
 
+it('records the run\'s effect count and claimed cost on the run row', function () {
+    $result = runGoogleSourceWith(stubPlacesDriver(
+        fn () => BilledEffectResult::answered(['displayName' => ['text' => 'Anseo']]),
+    ));
+
+    $effects = DB::table('ingest.effects')->get();
+    $run = DB::table('ingest.runs')->where('id', $result['run_id'])->first();
+
+    // Both columns existed from the baseline and NOTHING wrote either — every
+    // run row read 0/0 while ingest.effects carried the real spend (an
+    // instagram actor call showed effects_count 0 against 50 units settled).
+    // cost_claimed is not cosmetic: scoreDue() sums it per user as the
+    // fairness denominator, so a permanent 0 made that guard a no-op.
+    expect($effects)->toHaveCount(1)
+        ->and((int) $run->effects_count)->toBe(1)
+        ->and((int) $run->cost_claimed)->toBe((int) $effects[0]->cost_units)
+        ->and((int) $run->cost_claimed)->toBeGreaterThan(0);
+});
+
+it('leaves the run row\'s cost at zero when no effect was billed', function () {
+    // The refusal path writes no ledger row, so the aggregate must report 0
+    // rather than inheriting a stale figure.
+    $result = runGoogleSourceWith(stubPlacesDriver(
+        fn () => throw new EffectNotAttempted('places daily cap reached'),
+    ));
+
+    $run = DB::table('ingest.runs')->where('id', $result['run_id'])->first();
+
+    expect(DB::table('ingest.effects')->count())->toBe(0)
+        ->and((int) $run->effects_count)->toBe(0)
+        ->and((int) $run->cost_claimed)->toBe(0);
+});
+
 it('bills once for a whole run and lands records on every stream', function () {
     $calls = 0;
     $result = runGoogleSourceWith(stubPlacesDriver(function () use (&$calls) {
