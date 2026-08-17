@@ -24,11 +24,11 @@
 // would observe the key already held and record false.
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
-use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\ShopifyScraper;
+use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -57,19 +57,33 @@ function shopSelLockUser(string $h): User
     ]);
 }
 
-/** A stored shopify brand ready for setProducts(), no picker catalog warmed. */
-function shopSelLockBrand(User $user, string $brandId = 'lockbrand'): ShopBrand
+/**
+ * A stored shopify store ready for setProducts(), no picker catalog warmed.
+ *
+ * Re-home Task 7: the store itself is a content.collections +
+ * content.storefronts pair, written through the real ShopContentWriter — the
+ * same lane addBrand() uses — because setProducts() resolves it via
+ * ShopConnections::store() off content.*, and nothing writes site.shop_brands
+ * any more. The connection row stays: it is still the per-store lifecycle/
+ * authorization anchor, and refreshShopCache() resolves the user's shop family
+ * through it.
+ */
+function shopSelLockBrand(User $user, string $brandId = 'lockbrand'): void
 {
-    $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => $brandId,
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    return ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => $brandId, 'provider' => 'shopify',
-        'url' => 'https://lockbrand.example.com', 'source_url' => 'https://lockbrand.example.com',
-        'currency' => 'AUD', 'discount_code' => '', 'position' => 0,
-    ]);
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: $brandId,
+        provider: 'shopify',
+        position: 0,
+        url: 'https://lockbrand.example.com',
+        sourceUrl: 'https://lockbrand.example.com',
+        currency: 'AUD',
+        discountCode: '',
+    ), (string) $user->id);
 }
 
 // ── T15 — structural proof ──────────────────────────────────────────────────
@@ -209,9 +223,10 @@ it('T16f: setProducts stamps products_curated_at', function () {
     shopSelLockBrand($user, 'lockbrand');
     // Task 8: the stamp lands on content.storefronts.products_curated_at —
     // setProducts() no longer writes the legacy site.shop_brands column at
-    // all, so there is nothing there to assert null-then-non-null on; no
-    // content.storefronts row exists yet either (brand never synced), so
-    // the value() call below is null pre-PUT by construction.
+    // all, so there is nothing there to assert null-then-non-null on. The
+    // storefront row DOES exist pre-PUT (re-home Task 7 made the fixture mint
+    // it), and its stamp is null because upsertStore() never sets one — only
+    // a real curation event does, which is precisely what this test triggers.
     expect(DB::table('content.storefronts')->where('external_ref', 'lockbrand')->value('products_curated_at'))
         ->toBeNull();
 
@@ -242,23 +257,35 @@ it('T16d: a scraper HttpException still surfaces as 502, same body', function ()
         ->assertStatus(502)
         ->assertJsonPath('message', 'An error occurred');
 
-    // Never reached the transaction — no product rows written.
-    $brand = ShopBrand::where('brand_id', 'lockbrand')->firstOrFail();
-    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(0);
+    // Never reached the write — the store's collection carries no items. (The
+    // collection itself exists: the fixture minted it, and a failed scrape
+    // must not retire a store that is merely temporarily unreachable.)
+    //
+    // The collection id is asserted non-null FIRST, which is what the legacy
+    // `ShopProduct::count()` line here used to buy: with site.shop_products
+    // dropped that assertion could not fail any more, and without this one a
+    // missing storefront would give $collectionId = null and make the
+    // items-count assertion below pass for the wrong reason.
+    $collectionId = DB::table('content.storefronts')->where('external_ref', 'lockbrand')->value('collection_id');
+    expect($collectionId)->not->toBeNull();
+    expect(DB::table('content.collection_items')->where('collection_id', $collectionId)->count())->toBe(0);
 });
 
 it('T16e: a brand deleted between the pre-lock read and the locked write yields 404, not 500', function () {
     $user = shopSelLockUser('lockdel1');
     shopSelLockBrand($user, 'lockbrand');
 
-    // Simulate the concurrent removeBrand/forget: delete the row from inside
+    // Simulate the concurrent removeBrand/forget: retire the store from inside
     // the vendor-fetch mock, i.e. exactly the window between the pre-lock
-    // read (which found the brand) and the locked re-read (which must not).
-    $this->mock(ShopifyScraper::class, function ($m) {
-        $m->shouldReceive('fetchProducts')->once()->andReturnUsing(function () {
-            $brand = ShopBrand::where('brand_id', 'lockbrand')->firstOrFail();
-            ShopProduct::where('brand_id', $brand->id)->delete();
-            $brand->delete();
+    // read (which found the store) and the locked re-read (which must not).
+    // Re-home Task 7: it retires the content.* store, because that is what
+    // removeBrand()/forget() actually do now and what the endpoint's re-read
+    // consults — deleting the legacy row would leave the read untouched and
+    // this race unexercised.
+    $this->mock(ShopifyScraper::class, function ($m) use ($user) {
+        $m->shouldReceive('fetchProducts')->once()->andReturnUsing(function () use ($user) {
+            $collectionId = DB::table('content.storefronts')->where('external_ref', 'lockbrand')->value('collection_id');
+            app(ShopContentWriter::class)->retireStore((string) $user->id, (string) $collectionId);
 
             return [['productId' => 'p1', 'title' => 'One']];
         });
@@ -268,7 +295,7 @@ it('T16e: a brand deleted between the pre-lock read and the locked write yields 
         ->assertStatus(404)
         ->assertJsonPath('message', 'Brand not found.');
 
-    expect(ShopBrand::where('brand_id', 'lockbrand')->exists())->toBeFalse();
+    expect(DB::table('content.storefronts')->where('external_ref', 'lockbrand')->exists())->toBeFalse();
 });
 
 // ── Fix 1 (P1 review finding) — was: the in-lock write is a single bulk insert ──
@@ -286,11 +313,15 @@ it('T16e: a brand deleted between the pre-lock read and the locked write yields 
 // tests below still exercise at 250 products — no failure observed in this
 // suite's run). Restructuring ShopContentWriter::syncStore() into a genuine
 // bulk write is out of this task's scope (that class is Task 5's deliverable,
-// shared by every syncStore() caller, not just this endpoint). What this
-// test can still usefully pin: site.shop_products stays untouched (0 rows,
-// 0 inserts) and the selection lands correctly in content.*.
+// shared by every syncStore() caller, not just this endpoint).
+//
+// SHOP RE-HOME UPDATE: site.shop_products is DROPPED (20260819000200), so the
+// half of this test that pinned "0 rows, 0 inserts there" could no longer fail
+// and has been replaced by its content.* counterpart — the write really does
+// land one collection_items upsert per product, which is the N-round-trip
+// shape recorded above.
 
-it('setProducts writes zero rows to the legacy site.shop_products table (was F1: single bulk INSERT)', function () {
+it('setProducts writes the selection into content.*, one collection_items upsert per product (was F1: single bulk INSERT)', function () {
     $user = shopSelLockUser('lockqc1');
     shopSelLockBrand($user, 'lockbrand');
 
@@ -310,16 +341,15 @@ it('setProducts writes zero rows to the legacy site.shop_products table (was F1:
     $res->assertOk();
     expect($res->json('products'))->toHaveCount(6);
 
-    // Matched by statement shape (starts with INSERT, touches shop_products),
-    // not an exact SQL string — robust to quoting differences between the
-    // real pgsql driver and the SQLite test mirror.
+    // Matched by statement shape (starts with INSERT, touches the table), not
+    // an exact SQL string — robust to quoting differences between the real
+    // pgsql driver and the SQLite test mirror.
     $insertQueries = array_values(array_filter(
         $log,
         fn ($q) => str_starts_with(strtolower(ltrim((string) $q['query'])), 'insert')
-            && str_contains($q['query'], 'shop_products'),
+            && str_contains($q['query'], 'collection_items'),
     ));
-    expect($insertQueries)->toHaveCount(0);
-    expect(ShopProduct::count())->toBe(0);
+    expect($insertQueries)->toHaveCount(6);
 
     expect(orderedProductIdsFor('lockbrand'))->toBe(['p1', 'p2', 'p3', 'p4', 'p5', 'p6']);
 });
@@ -346,10 +376,11 @@ it('a 250-product selection round-trips correctly through content.* (was F1: sin
     expect(array_column($responseProducts, 'productId'))->toBe($productIds);
 
     // content.* replacement for the old ShopProduct-row assertions —
-    // position ordering preserved, matching the requested order, and
-    // site.shop_products stays entirely untouched.
+    // position ordering preserved, matching the requested order. (The
+    // companion `site.shop_products stays untouched` assertion went with the
+    // table itself, dropped by 20260819000200; content.collection_items IS
+    // the storage now, so this line is the whole guarantee.)
     expect(orderedProductIdsFor('lockbrand'))->toBe($productIds);
-    expect(ShopProduct::count())->toBe(0);
 
     $first = collect($responseProducts)->firstWhere('productId', $productIds[0]);
     expect($first['title'])->toBe('Title for '.$productIds[0]);

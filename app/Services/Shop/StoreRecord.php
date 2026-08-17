@@ -9,9 +9,11 @@ use Illuminate\Support\Carbon;
  *
  * This exists so the writer's identity anchor is DATA, not an Eloquent model
  * bound to `site.shop_brands`. That table is dropped by
- * `20260817000900_drop_site_shop_brands.sql`; a writer that type-hints its
- * model cannot survive the DROP, and shop writes are live (unlike
- * `site.shop_products`, which nothing writes any more).
+ * `20260819000210_drop_site_shop_brands.sql` (the re-home's own band — slice 7
+ * deferred the DROP it originally numbered `20260817000900`, and that file was
+ * never written); a writer that type-hints its model cannot survive the DROP,
+ * and shop writes are live (unlike `site.shop_products`, which nothing writes
+ * any more).
  *
  * IDENTITY is (provider, externalRef) — never the name. `externalRef` is the
  * PROVIDER's own store id (`75102060779`, `fearnoevil-com-au`), which is what
@@ -28,6 +30,19 @@ use Illuminate\Support\Carbon;
  */
 final readonly class StoreRecord
 {
+    /**
+     * The reserved bucket holding individually-added products — not a connected
+     * store, so it never occupies a store slot, and it anchors on its own
+     * surface (`partna.manual_product`).
+     *
+     * Re-home Task 7 moved this off ShopBrand. It had been lifted onto that
+     * model in convergence Phase 6 so ShopConnections could route the bucket,
+     * but the model is scheduled for deletion — and slice 7 Task 24 already had
+     * to untangle an adapter left on it for exactly that reason. A const whose
+     * readers outlive its host is how that happens twice.
+     */
+    public const INDIVIDUAL_REF = 'individual';
+
     public function __construct(
         public string $externalRef,
         public string $provider,
@@ -47,7 +62,91 @@ final readonly class StoreRecord
         public ?string $logoMarkUrl = null,
         public ?string $logoMarkSvgUrl = null,
         public ?Carbon $productsCuratedAt = null,
+        /**
+         * Set ONLY when read back from content.* — never an input to
+         * upsertStore(), where the collection id is the OUTPUT. It is the
+         * replacement identity for the site.shop_brands uuid PK the two async
+         * jobs used to key on (spec §5), and the prefix ProcessShopBrandLogoJob
+         * writes R2 objects under.
+         */
+        public ?string $collectionId = null,
+        /**
+         * Read-back only, like $collectionId — upsertStore() stamps its own
+         * now() and never takes one.
+         *
+         * This is connectStatus()'s stale-pending clock (spec §12.2): a worker
+         * that dies leaves a store 'pending' with nothing to flip it, so a poll
+         * past StrandedPendingWindow::MINUTES answers 'failed' synthetically.
+         * The clock lives on content.storefronts.updated_at.
+         *
+         * The spec doubted that upsertStore() would bump it for a byte-identical
+         * write, and therefore that the legacy `->touch()` would need a
+         * replacement. It does bump: Postgres's ON CONFLICT DO UPDATE writes the
+         * row unconditionally. The touch() existed because ELOQUENT's
+         * fill()->save() skips a no-op UPDATE — a model-layer dirty check with
+         * no database equivalent — so it disappears rather than moving.
+         */
+        public ?Carbon $updatedAt = null,
+        /**
+         * The owner, denormalised onto content.storefronts by Task 11 so store
+         * identity is enforceable in one table. Read-back only.
+         *
+         * It is here because a QUEUED JOB carries no User: ShopBrandConnectJob
+         * and ProcessShopBrandLogoJob are dispatched with nothing but the
+         * collection id, and both need the owner for the per-user lock key, the
+         * FeatureAvailability re-check and the cache refresher. Carrying it on
+         * the record means the read they already do supplies it, rather than a
+         * second query through content.collections on every run.
+         */
+        public ?string $userId = null,
     ) {}
+
+    /**
+     * A copy with selected fields replaced.
+     *
+     * This exists because ShopContentWriter::upsertStore() writes EVERY column
+     * unconditionally in its ON CONFLICT clause, where the legacy Eloquent
+     * writes simply omitted absent keys. Every write path therefore has to fold
+     * its edit onto the record content.* already holds, or it silently blanks
+     * whatever it did not mention — the fault that would have wiped a favicon
+     * on every re-scan in StoreBrandSeeder. Putting the field list in ONE place
+     * makes that fold mechanical instead of something each caller has to
+     * remember; PHP has no `clone with` before 8.5.
+     *
+     * Keys are the camelCase property names. array_key_exists, not `??`, so an
+     * override CAN set a field to null — clearing connectError on a settle is
+     * exactly that.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public function with(array $overrides): self
+    {
+        $v = fn (string $key, mixed $current): mixed => array_key_exists($key, $overrides) ? $overrides[$key] : $current;
+
+        return new self(
+            externalRef: $v('externalRef', $this->externalRef),
+            provider: $v('provider', $this->provider),
+            name: $v('name', $this->name),
+            position: $v('position', $this->position),
+            url: $v('url', $this->url),
+            sourceUrl: $v('sourceUrl', $this->sourceUrl),
+            currency: $v('currency', $this->currency),
+            discountCode: $v('discountCode', $this->discountCode),
+            referralQuery: $v('referralQuery', $this->referralQuery),
+            isIndividual: $v('isIndividual', $this->isIndividual),
+            fetchMode: $v('fetchMode', $this->fetchMode),
+            connectStatus: $v('connectStatus', $this->connectStatus),
+            connectError: $v('connectError', $this->connectError),
+            logoUrl: $v('logoUrl', $this->logoUrl),
+            faviconUrl: $v('faviconUrl', $this->faviconUrl),
+            logoMarkUrl: $v('logoMarkUrl', $this->logoMarkUrl),
+            logoMarkSvgUrl: $v('logoMarkSvgUrl', $this->logoMarkSvgUrl),
+            productsCuratedAt: $v('productsCuratedAt', $this->productsCuratedAt),
+            collectionId: $v('collectionId', $this->collectionId),
+            updatedAt: $v('updatedAt', $this->updatedAt),
+            userId: $v('userId', $this->userId),
+        );
+    }
 
     /**
      * Rebuild from a `content.storefronts` row joined to its
@@ -64,6 +163,7 @@ final readonly class StoreRecord
         $externalRef = (string) $row->external_ref;
         $label = isset($row->label) ? (string) $row->label : null;
         $curatedAt = $row->products_curated_at ?? null;
+        $updatedAt = $row->updated_at ?? null;
 
         return new self(
             externalRef: $externalRef,
@@ -84,6 +184,9 @@ final readonly class StoreRecord
             logoMarkUrl: $row->logo_mark_url,
             logoMarkSvgUrl: $row->logo_mark_svg_url,
             productsCuratedAt: $curatedAt === null ? null : Carbon::parse((string) $curatedAt),
+            collectionId: isset($row->collection_id) ? (string) $row->collection_id : null,
+            updatedAt: $updatedAt === null ? null : Carbon::parse((string) $updatedAt),
+            userId: isset($row->user_id) ? (string) $row->user_id : null,
         );
     }
 }

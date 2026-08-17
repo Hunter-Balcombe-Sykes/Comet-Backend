@@ -1,13 +1,45 @@
 <?php
 
-use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
-use App\Services\Migration\ShopBackfiller;
+use App\Models\Core\User\User;
 use App\Services\Platforms\ShopCatalog;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+
+/**
+ * A user with NO store of any kind — for the handful of tests below that must
+ * observe content.* empty, or hand the writer a StoreRecord that has never been
+ * upserted. makeShopStore() cannot serve them: it writes the storefront row,
+ * which is the very absence those tests turn on. Prefixed `scw*` because a
+ * cross-file helper name collision is fatal under --parallel (PHP has no
+ * per-file function scope).
+ */
+function scwUser(): User
+{
+    $handle = 'scw'.Str::lower(Str::random(8));
+
+    return User::factory()->create(['handle' => $handle, 'handle_lc' => $handle]);
+}
+
+/** An unwritten StoreRecord — no content.* row behind it. */
+function scwRecord(array $overrides = []): StoreRecord
+{
+    return (new StoreRecord(
+        externalRef: 'scw-'.Str::lower(Str::random(8)),
+        provider: 'shopify',
+        name: 'Test Store',
+        position: 0,
+        url: 'https://store.test',
+        sourceUrl: 'https://store.test',
+        currency: 'AUD',
+        discountCode: '',
+        referralQuery: '',
+        isIndividual: false,
+    ))->with($overrides);
+}
 
 // Slice 5a §3.5: syncStore() is what Tasks 6/7/8 call on every re-fetch. The
 // legacy ShopCatalog::syncLatest() deletes every row for a brand and
@@ -35,7 +67,8 @@ beforeEach(function () {
 // .php for why THAT half needs a real Postgres server.
 
 it('reuses an orphaned collection with no storefronts partner rather than minting a second one', function () {
-    [$user, $brand] = makeShopBrand();
+    $user = scwUser();
+    $record = scwRecord();
 
     // The incident's own leftover shape: content.collections committed,
     // content.storefronts never wrote. collectionIdFor()'s primary lookup
@@ -46,15 +79,15 @@ it('reuses an orphaned collection with no storefronts partner rather than mintin
         'id' => $orphanId,
         'user_id' => (string) $user->id,
         'parent_id' => null,
-        'label' => (string) ($brand->name ?? $brand->brand_id),
+        'label' => (string) ($record->name ?? $record->externalRef),
         'kind' => 'storefront',
-        'position' => (int) $brand->position,
+        'position' => $record->position,
         'is_user_created' => false,
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
-    $collectionId = app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+    $collectionId = app(ShopContentWriter::class)->upsertStore($record, (string) $user->id);
 
     expect($collectionId)->toBe($orphanId)
         ->and(DB::table('content.collections')->count())->toBe(1)
@@ -121,31 +154,16 @@ it('does not retire an item still live in another storefront of the same user', 
     // Fix round 1, Finding 2: coordFor() is URL-only, not store-scoped, so
     // two of this user's stores listing the same URL resolve to ONE
     // content.items row. Store A dropping it must not remove it from B.
-    [$user, $brandA] = makeShopBrand();
-    $collectionA = app(ShopContentWriter::class)->upsertStore($brandA->toStoreRecord(), (string) $user->id);
+    [$user, $storeA] = makeShopStore();
+    $collectionA = (string) $storeA->collectionId;
 
-    $connectionB = IntegrationConnection::create([
-        'user_id' => $user->id,
-        'platform' => 'shopify.store',
-        'resource_id' => 'shop-b',
-        'payload' => ['storage' => 'relational'],
-        'is_active' => true,
-        'last_refresh_status' => 'ok',
-    ]);
-    $brandB = ShopBrand::create([
-        'connection_id' => $connectionB->id,
-        'brand_id' => 'brand-b',
-        'provider' => 'shopify',
+    $storeB = addShopStore($user, [
+        'externalRef' => 'brand-b',
         'url' => 'https://store-b.test',
-        'source_url' => 'https://store-b.test',
+        'sourceUrl' => 'https://store-b.test',
         'name' => 'Store B',
-        'currency' => 'AUD',
-        'discount_code' => '',
-        'referral_query' => '',
-        'is_individual' => false,
-        'position' => 0,
     ]);
-    $collectionB = app(ShopContentWriter::class)->upsertStore($brandB->toStoreRecord(), (string) $user->id);
+    $collectionB = (string) $storeB->collectionId;
 
     $shared = ['url' => 'https://s.test/shared', 'title' => 'Shared', 'price' => '5.00'];
     app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionA, [$shared], 'AUD');
@@ -169,111 +187,113 @@ it('does not retire an item still live in another storefront of the same user', 
     expect(DB::table('content.items')->where('id', $itemId)->value('removed_at'))->not->toBeNull();
 });
 
-it('survives a sync run immediately after the backfill — parent 8.3', function () {
-    // The kickoff asks for "a real connector run after backfill". No connector
-    // emits kind=product (there is no gumroad ingest source), so the honest
-    // equivalent is the thing that actually rewrites this data: a sync.
-    [$user, $brand] = makeShopBrand();
-    makeShopProduct($brand, ['url' => 'https://s.test/a', 'price' => '9.00']);
-
-    app(ShopBackfiller::class)->run();
-    $before = DB::table('content.items')->where('kind', 'product')->pluck('id')->sort()->values();
-
-    $collectionId = DB::table('content.collections')->value('id');
-    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId,
-        [['url' => 'https://s.test/a', 'title' => 'A', 'price' => '9.00']], 'AUD');
-
-    $after = DB::table('content.items')->where('kind', 'product')
-        ->whereNull('removed_at')->pluck('id')->sort()->values();
-
-    expect($after->all())->toBe($before->all());
-});
+// DELETED: "survives a sync run immediately after the backfill — parent 8.3".
+// It pinned the handoff from ShopBackfiller::run() to the first syncStore() —
+// that a migrated item kept its id when the sync lane next touched it. The
+// backfiller existed only to move stores off site.shop_brands /
+// site.shop_products; both tables and the backfiller are gone, so there is no
+// backfill for a sync to follow. The surviving property (syncStore reconciles
+// by coord and never re-mints an item id) is pinned by "keeps the same item id
+// when a product is re-synced" above.
 
 // ── Task 6: ShopCatalog::syncLatest() repointed at content.* ──────────────
 
-it('syncLatest writes content.* and leaves shop_products untouched', function () {
-    // Two pre-existing legacy products, not one (deviates from the task-6
-    // brief's literal test setup — see the Task 6 report): syncLatest()'s
-    // count-preserving selection sizes $count from the brand's LIVE
+// Was "syncLatest writes content.* and leaves shop_products untouched". The
+// second half named a table that no longer exists, so it could not fail; the
+// first half is the whole guarantee now.
+it('syncLatest writes the fetched catalogue into content.*, retiring what it drops', function () {
+    // Two pre-existing products, not one (deviates from the task-6 brief's
+    // literal test setup — see the Task 6 report): syncLatest()'s
+    // count-preserving selection sizes $count from the store's LIVE
     // content.collection_items count (this test's whole point is proving
-    // that source), and after ShopBackfiller migrates these 2 rows that
-    // count is 2 — matching this test's 2-item fetched catalog so both get
-    // selected. A single pre-existing row would size $count at 1 and
-    // legitimately cap the selection at 1, which the brief's original
-    // setup — count=1 preserved, but asserting toBe(2) — did not account
-    // for. 'stale' is deliberately absent from the fetched catalog so this
-    // also exercises retireAbsent() alongside the storage-target change.
-    [$user, $brand] = makeShopBrand();
-    makeShopProduct($brand, ['url' => 'https://s.test/old', 'price' => '1.00']);
-    makeShopProduct($brand, ['url' => 'https://s.test/stale', 'price' => '3.00']);
-    app(ShopBackfiller::class)->run();
+    // that source), and with these 2 seeded rows that count is 2 — matching
+    // this test's 2-item fetched catalog so both get selected. A single
+    // pre-existing row would size $count at 1 and legitimately cap the
+    // selection at 1, which the brief's original setup — count=1 preserved,
+    // but asserting toBe(2) — did not account for. 'stale' is deliberately
+    // absent from the fetched catalog so this also exercises retireAbsent().
+    [$user, $store] = makeShopStore();
+    makeShopStoreProduct($store, ['url' => 'https://s.test/old', 'price' => '1.00']);
+    makeShopStoreProduct($store, ['url' => 'https://s.test/stale', 'price' => '3.00']);
 
-    fakeProviderCatalog($brand, [
+    fakeProviderCatalog($store, [
         ['url' => 'https://s.test/old', 'title' => 'Old', 'price' => '1.00'],
         ['url' => 'https://s.test/new', 'title' => 'New', 'price' => '2.00'],
     ]);
-    $legacyBefore = DB::table('site.shop_products')->count();
 
-    expect(app(ShopCatalog::class)->syncLatest($brand))->toBe(2)
-        ->and(DB::table('site.shop_products')->count())->toBe($legacyBefore)
+    // Re-home Task 7: syncLatest() takes the StoreRecord and its owner, read
+    // back off content.* exactly as ShopFetch reads it.
+    $fresh = app(ShopConnections::class)->store($user, $store->externalRef);
+
+    expect(app(ShopCatalog::class)->syncLatest($fresh, (string) $user->id))->toBe(2)
         ->and(DB::table('content.items')->where('kind', 'product')
-            ->whereNull('removed_at')->count())->toBe(2);
+            ->whereNull('removed_at')->count())->toBe(2)
+        // 'stale' left the catalogue — retired, never hard-deleted.
+        ->and(DB::table('content.items')->where('kind', 'product')
+            ->whereNotNull('removed_at')->count())->toBe(1);
 });
 
 it('syncLatest still returns null for a reachable but empty store', function () {
-    [$user, $brand] = makeShopBrand();
-    fakeProviderCatalog($brand, []);
+    $user = scwUser();
+    $record = scwRecord();
+    fakeProviderCatalog($record, []);
 
-    expect(app(ShopCatalog::class)->syncLatest($brand))->toBeNull();
+    // No content.* row on purpose: an empty catalogue returns BEFORE
+    // upsertStore(), so a store that has never synced must not be minted as a
+    // side effect of a fruitless fetch — hence a StoreRecord built from data
+    // alone, with nothing behind it.
+    expect(app(ShopCatalog::class)->syncLatest($record, (string) $user->id))->toBeNull();
+    expect(DB::table('content.collections')->where('kind', 'storefront')->count())->toBe(0);
 });
 
 // ── Task 6: ShopContentWriter::isCurated() ─────────────────────────────────
 
 it('isCurated reads the record-carried curation stamp, not a content.storefronts snapshot', function () {
-    // #SEM-1: a brand curated via ShopController::setProducts() (which sets
-    // this column directly and does not touch content.storefronts) must read
-    // as curated immediately — even before any sync/backfill has ever run for
-    // it, i.e. before a content.collections/storefronts row even exists.
-    [$user, $brand] = makeShopBrand(['products_curated_at' => now()]);
+    // #SEM-1: a store whose curation stamp the CALLER already holds must read
+    // as curated immediately — even before any sync has ever run for it, i.e.
+    // before a content.collections/storefronts row even exists. That two-way
+    // read is why the record carries productsCuratedAt at all.
+    $user = scwUser();
 
-    expect(app(ShopContentWriter::class)->isCurated($brand->toStoreRecord(), (string) $user->id))->toBeTrue();
+    expect(app(ShopContentWriter::class)->isCurated(
+        scwRecord(['productsCuratedAt' => now()]), (string) $user->id))->toBeTrue();
 });
 
-it('isCurated is false for a brand with no curation on record', function () {
-    [$user, $brand] = makeShopBrand();
+it('isCurated is false for a store with no curation on record', function () {
+    $user = scwUser();
 
-    expect(app(ShopContentWriter::class)->isCurated($brand->toStoreRecord(), (string) $user->id))->toBeFalse();
+    expect(app(ShopContentWriter::class)->isCurated(scwRecord(), (string) $user->id))->toBeFalse();
 });
 
 // ── Task 6 fix round 1, Finding 2: content.storefronts.products_curated_at
 // is becoming the source of truth for #SEM-1 ────────────────────────────
 
 it('upsertStore never clobbers an already-stamped content.storefronts.products_curated_at', function () {
-    [$user, $brand] = makeShopBrand();
-    $collectionId = app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+    [$user, $store] = makeShopStore();
+    $collectionId = (string) $store->collectionId;
 
-    // Simulate Task 8 having stamped the content-side column directly,
-    // independent of the (in this test, still-null) legacy column.
+    // Simulate setProducts() having stamped the content-side column directly.
+    // The RECORD still carries null, which is the whole hazard: upsertStore()
+    // writes every column unconditionally.
     DB::table('content.storefronts')->where('collection_id', $collectionId)
         ->update(['products_curated_at' => now()->subMinute()]);
-    expect($brand->products_curated_at)->toBeNull();
+    expect($store->productsCuratedAt)->toBeNull();
 
-    // A routine resync calls upsertStore() again for the same brand — this
-    // must NOT reset the content-side stamp back to the frozen legacy null.
-    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+    // A routine resync calls upsertStore() again for the same store — this
+    // must NOT reset the content-side stamp back to the record's null.
+    app(ShopContentWriter::class)->upsertStore($store, (string) $user->id);
 
     expect(DB::table('content.storefronts')->where('collection_id', $collectionId)->value('products_curated_at'))
         ->not->toBeNull();
 });
 
-it('isCurated returns true from the storefront value alone, with the legacy column null', function () {
-    [$user, $brand] = makeShopBrand();
-    $collectionId = app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
-    DB::table('content.storefronts')->where('collection_id', $collectionId)
+it('isCurated returns true from the storefront value alone, with the record carrying null', function () {
+    [$user, $store] = makeShopStore();
+    DB::table('content.storefronts')->where('collection_id', $store->collectionId)
         ->update(['products_curated_at' => now()]);
 
-    expect($brand->products_curated_at)->toBeNull()
-        ->and(app(ShopContentWriter::class)->isCurated($brand->toStoreRecord(), (string) $user->id))->toBeTrue();
+    expect($store->productsCuratedAt)->toBeNull()
+        ->and(app(ShopContentWriter::class)->isCurated($store, (string) $user->id))->toBeTrue();
 });
 
 // ── Fix round 3, Finding 1 (CRITICAL): createdAt must be reformatted, not
@@ -414,24 +434,19 @@ it('round-trips a variant image through syncStore() and back out of currentCatal
 // unnamespaced for exactly that reason (pinned by the test above).
 
 it('gives two stores urlless products that share a product id their own items, titles intact', function () {
-    [$user, $brandA] = makeShopBrand(['brand_id' => 'store-a', 'position' => 0]);
-    $brandB = ShopBrand::create([
-        'connection_id' => $brandA->connection_id,
-        'brand_id' => 'store-b',
+    [$user, $storeA] = makeShopStore(['externalRef' => 'store-a', 'position' => 0]);
+    $storeB = addShopStore($user, [
+        'externalRef' => 'store-b',
         'provider' => 'bigcartel',
         'url' => 'https://storeb.test',
-        'source_url' => 'https://storeb.test',
+        'sourceUrl' => 'https://storeb.test',
         'name' => 'Store B',
-        'currency' => 'AUD',
-        'discount_code' => '',
-        'referral_query' => '',
-        'is_individual' => false,
         'position' => 1,
     ]);
 
     $writer = app(ShopContentWriter::class);
-    $collectionA = $writer->upsertStore($brandA->toStoreRecord(), (string) $user->id);
-    $collectionB = $writer->upsertStore($brandB->toStoreRecord(), (string) $user->id);
+    $collectionA = (string) $storeA->collectionId;
+    $collectionB = (string) $storeB->collectionId;
 
     // Same provider product id, two different stores — the exact collision.
     $writer->syncStore((string) $user->id, $collectionA, [

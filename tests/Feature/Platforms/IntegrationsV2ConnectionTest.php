@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\GenericShopScraper;
@@ -11,6 +10,7 @@ use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\SkoolScraper;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\Shop\ShopConnections;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -63,8 +63,11 @@ it('detects a WooCommerce store from the URL alone and stores its provider', fun
 
     $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->first();
     expect($conn)->not->toBeNull();
-    // FOUND-25: brands live in site.shop_brands now, not the connection payload.
-    expect(ShopBrand::where('brand_id', 'store-example')->value('provider'))
+    // FOUND-25: brands never lived in the connection payload. Re-home Task 7:
+    // they no longer live in site.shop_brands either — addBrand() writes
+    // content.collections + content.storefronts through ShopContentWriter::
+    // upsertStore(), where external_ref is the old brand_id column.
+    expect(DB::table('content.storefronts')->where('external_ref', 'store-example')->value('provider'))
         ->toBe('woocommerce');
 });
 

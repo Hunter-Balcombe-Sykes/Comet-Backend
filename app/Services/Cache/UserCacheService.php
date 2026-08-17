@@ -6,6 +6,7 @@ use App\Http\Resources\ServiceResource;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
+use App\Services\Content\FreshaServiceItems;
 use App\Services\Content\ManualServiceItems;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -207,8 +208,9 @@ class UserCacheService
      * merge ManualServiceItems/getDashboardServices() already uses: content.*
      * owner-authored rows (filtered to the live/visible ones — this is the
      * PUBLIC-facing "active services" list, not the dashboard management
-     * list, so an excluded row must not appear here) plus
-     * `site.services WHERE source IS NOT NULL` (Fresha, untouched, 3b's rows).
+     * list, so an excluded row must not appear here) plus the Fresha half,
+     * which since the services cutover is content.* as well
+     * (FreshaServiceItems, content.sources.kind='connection').
      */
     public function getActiveServices(string $userId): array
     {
@@ -227,14 +229,16 @@ class UserCacheService
                     ->filter(fn (Service $s) => $s->is_active)
                     ->values();
 
-                $freshaServices = Service::query()
-                    ->with('categories:id')
-                    ->where('user_id', $userId)
-                    ->whereNotNull('source')
-                    ->where('is_active', true)
-                    ->whereNull('deleted_at')
-                    ->orderBy('sort_order')
-                    ->get();
+                // Services cutover: the Fresha half is content.* too, read
+                // through FreshaServiceItems (kind='connection'). is_active
+                // rides the connection blob's hiddenServiceIds, so the filter
+                // is applied to the hydrated model, not to a column.
+                $fresha = app(FreshaServiceItems::class);
+                $freshaServices = $fresha->toServiceModels(
+                    $userId,
+                    $fresha->managementRows($userId, $manual->sectionId($site)),
+                    $fresha->hiddenServiceIds($userId),
+                )->filter(fn (Service $s) => $s->is_active)->values();
 
                 return $manualServices->concat($freshaServices)
                     ->sortBy('sort_order')->values()
@@ -253,11 +257,9 @@ class UserCacheService
      * Slice 3a Task 5: owner-authored services live in content.* now — reads
      * through ManualServiceItems, the same query UserServiceController's
      * uncached (archived/grouped) branches use, so the cached and uncached
-     * dashboard paths can't drift apart. This list is a MERGE of both halves:
-     * content.* (owner-authored) plus site.services WHERE source IS NOT NULL
-     * (Fresha — untouched, 3b's rows). site.services also still physically
-     * carries the pre-cutover manual rows, but those are superseded by their
-     * content.* projection and are never read from here again.
+     * dashboard paths can't drift apart. This list is a MERGE of both halves,
+     * both from content.*: owner-authored through ManualServiceItems
+     * (kind='manual') and Fresha through FreshaServiceItems ('connection').
      *
      * @return array<int, array<string, mixed>>
      */
@@ -276,13 +278,15 @@ class UserCacheService
                 $rows = $manual->rows($userId, $manual->sectionId($site), includeRemoved: false);
                 $manualServices = $manual->toServiceModels($userId, $rows);
 
-                $freshaServices = Service::query()
-                    ->where('user_id', $userId)
-                    ->whereNotNull('source')
-                    ->with('categories:id')
-                    ->orderBy('sort_order')
-                    ->orderBy('created_at')
-                    ->get();
+                // Services cutover: the Fresha half is content.* too. No
+                // is_active filter here — this is the MANAGEMENT list and the
+                // dashboard renders the visibility toggle from that flag.
+                $fresha = app(FreshaServiceItems::class);
+                $freshaServices = $fresha->toServiceModels(
+                    $userId,
+                    $fresha->managementRows($userId, $manual->sectionId($site)),
+                    $fresha->hiddenServiceIds($userId),
+                );
 
                 // §NEW-I1 (review round 2): sort the MERGED collection by
                 // sort_order rather than concatenating manual-then-Fresha —

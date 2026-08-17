@@ -10,6 +10,8 @@ use App\Http\Requests\Api\User\Services\ReorderServiceRequest;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Content\ManualServiceWriter;
+use App\Services\Content\ServiceCollections;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -128,6 +130,51 @@ function seedServiceReorderFixture(): array
     return [$pro, $siteId, $catIds, $svcIds];
 }
 
+/**
+ * The content.* side of the same fixture — services cutover Task 5: the reorder
+ * verbs resolve content.items ids only, and file under content.collections.
+ * The Fresha item carries a content.item_anchors row, exactly as a
+ * connector-landed one does: ProjectionWriter::resolveItems() re-runs across
+ * every live source item for the (user, kind) pair on any manual write, and
+ * an unanchored coord would resolve as an unrelated singleton, get a freshly
+ * minted item, and orphan the id returned here.
+ *
+ * @return array{0: string, 1: string, 2: string} [manualItemId, freshaItemId, collectionId]
+ */
+function seedServiceReorderContentFixture(User $pro): array
+{
+    $writer = app(ManualServiceWriter::class);
+    $manualId = $writer->write($pro->id, 'manual:'.(string) Str::uuid(), $writer->projectionFor((object) [
+        'title' => 'Manual One', 'description' => null, 'price_cents' => 1000,
+        'currency_code' => 'AUD', 'duration_minutes' => null,
+    ]));
+
+    $sourceId = (string) Str::uuid();
+    $freshaId = (string) Str::uuid();
+    DB::connection('pgsql')->table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::connection('pgsql')->table('content.items')->insert([
+        'id' => $freshaId, 'user_id' => $pro->id, 'kind' => 'service',
+        'headline_cache' => 'Fresha One', 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::connection('pgsql')->table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $freshaId, 'source_id' => $sourceId,
+        'coord' => 'fresha:s:1', 'record_key' => 's:1', 'kind' => 'service',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    // Anchored, so ProjectionWriter::resolveItems() keeps this coord bound to
+    // this item when a later manual write re-runs it (see the helper docblock).
+    DB::connection('pgsql')->table('content.item_anchors')->insert([
+        'coord' => 'fresha:s:1', 'user_id' => $pro->id, 'item_id' => $freshaId, 'bound_at' => now(),
+    ]);
+
+    return [$manualId, $freshaId, app(ServiceCollections::class)->create($pro->id, 'Cuts')];
+}
+
 function buildFormRequest(string $class, Request $request): mixed
 {
     $formRequest = $class::createFrom($request);
@@ -169,7 +216,9 @@ it('category reorder touches the site and dispatches CloudflareCachePurgeJob (us
 });
 
 it('service reorder touches the site and dispatches CloudflareCachePurgeJob (user-api/EDGE-1)', function () {
-    [$pro, $siteId, , $svcIds] = seedServiceReorderFixture();
+    [$pro, $siteId] = seedServiceReorderFixture();
+    [$manualId, $freshaId] = seedServiceReorderContentFixture($pro);
+    $svcIds = [$manualId, $freshaId];
     Queue::fake();
 
     $siteKey = CacheKeyGenerator::publicSitePayload('service-purge');
@@ -200,7 +249,8 @@ it('service reorder touches the site and dispatches CloudflareCachePurgeJob (use
 });
 
 it('reorderLayout touches the site and dispatches CloudflareCachePurgeJob (user-api/EDGE-1)', function () {
-    [$pro, $siteId, $catIds, $svcIds] = seedServiceReorderFixture();
+    [$pro, $siteId] = seedServiceReorderFixture();
+    [$manualId, $freshaId, $collectionId] = seedServiceReorderContentFixture($pro);
     Queue::fake();
 
     $siteKey = CacheKeyGenerator::publicSitePayload('service-purge');
@@ -219,8 +269,8 @@ it('reorderLayout touches the site and dispatches CloudflareCachePurgeJob (user-
     // every category needs >=1 service (fixture gives each one its own).
     $payload = [
         'categories' => [
-            ['id' => $catIds[1], 'service_ids' => [$svcIds[1]]],
-            ['id' => $catIds[0], 'service_ids' => [$svcIds[0]]],
+            ['id' => $collectionId, 'service_ids' => [$freshaId]],
+            ['id' => null, 'service_ids' => [$manualId]],
         ],
     ];
 

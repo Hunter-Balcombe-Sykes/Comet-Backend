@@ -45,8 +45,8 @@ class ShopBrandResource extends ApiResource
             'products' => $this->resource['products'] ?? [],
         ];
 
-        // W9: conditional pass-through, mirroring ShopBrand::toBrandArray()'s
-        // own optional-key emission — present only while a deferred connect is
+        // W9: conditional pass-through, mirroring ShopContentReader::brandMap()'s
+        // optional-key emission — present only while a deferred connect is
         // pending/failed, so a settled brand's body stays byte-identical
         // (dark-merge / IntegrationContractGoldenMasterTest).
         // Processed logo marks — conditional pass-through, same byte-identity
@@ -64,8 +64,8 @@ class ShopBrandResource extends ApiResource
             $data['connectError'] = $this->resource['connectError'];
         }
         // #SEM-1: same conditional pass-through — present only for a brand the
-        // user hand-curated (ShopBrand::toBrandArray() only sets the key when
-        // non-null), keeping a non-curated brand's body byte-identical.
+        // user hand-curated (ShopContentReader::brandMap() only sets the key
+        // when non-null), keeping a non-curated brand's body byte-identical.
         if (array_key_exists('productsCuratedAt', $this->resource)) {
             $data['productsCuratedAt'] = $this->resource['productsCuratedAt'];
         }

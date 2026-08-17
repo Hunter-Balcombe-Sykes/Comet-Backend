@@ -57,7 +57,7 @@ class PoolResolver
     public const ITEM_KEYS = [
         'id', 'kind', 'slug', 'aliases', 'headline', 'headlineEdited', 'url',
         'platform', 'creator', 'publishedAt', 'firstSeenAt', 'durationSeconds',
-        'thumbnail', 'frames', 'startsAt', 'startsAtLocal', 'endsAtLocal',
+        'thumbnail', 'favicon', 'frames', 'startsAt', 'startsAtLocal', 'endsAtLocal',
         'timezone', 'venue', 'locality', 'price', 'availability', 'links',
         'popularityRank', 'description', 'vendor', 'variants', 'collectionIds',
         'review', 'selected', 'origin',
@@ -577,7 +577,10 @@ class PoolResolver
         $coverRows = DB::connection('pgsql')->table('content.item_media')
             ->join('content.media_assets', 'content.media_assets.id', '=', 'content.item_media.asset_id')
             ->whereIn('content.item_media.item_id', $ids)
-            ->whereIn('content.item_media.role', ['cover', 'poster', 'gallery'])
+            // `logo` joins the set (2026-08-17): a link's favicon rides the
+            // logo role and reads back as `favicon` below. cover()/frames()
+            // still see only their own roles.
+            ->whereIn('content.item_media.role', ['cover', 'poster', 'gallery', 'logo'])
             ->orderBy('content.item_media.position')
             ->get([
                 'content.item_media.item_id',
@@ -656,13 +659,20 @@ class PoolResolver
                 'firstSeenAt' => $item->first_seen_at,
                 'durationSeconds' => isset($durations[$itemId]) ? (int) $durations[$itemId] : null,
                 'thumbnail' => $this->cover($covers->get($itemId, collect()), $resolvedUrls),
+                // The site's icon, for link cards (2026-08-17). Null on
+                // every kind that carries no logo-role media — same
+                // shape-does-not-change-with-kind contract as thumbnail.
+                'favicon' => $this->favicon($covers->get($itemId, collect()), $resolvedUrls),
                 // Slice 1a §3.5: media items ship every frame (positional);
                 // products joined in 5b — the legacy shop wire carried 271
                 // gallery images and retiring it without this loses them.
                 // Every other kind ships [] — the wire shape does not change
                 // with kind, same contract startsAt/venue/price follow.
                 'frames' => in_array($item->kind, ['media', 'product'], true)
-                    ? $this->frames($covers->get($itemId, collect()), $resolvedUrls)
+                    ? $this->frames(
+                        $covers->get($itemId, collect())->filter(fn (object $row): bool => $row->role !== 'logo'),
+                        $resolvedUrls
+                    )
                     : [],
                 // Dated / located / priced facets. Present on every pool item
                 // and null off events, so the wire shape does not change with
@@ -1028,6 +1038,15 @@ class PoolResolver
         }
 
         return null;
+    }
+
+    /** The logo-role asset's URL — a link's favicon — or null. */
+    private function favicon(Collection $rows, array $resolved): ?string
+    {
+        $row = $rows->firstWhere('role', 'logo');
+        $url = $row !== null ? ($resolved[(string) $row->asset_id]['url'] ?? null) : null;
+
+        return $url !== null && $url !== '' ? $url : null;
     }
 
     /**

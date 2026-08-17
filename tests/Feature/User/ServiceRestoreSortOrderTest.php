@@ -32,26 +32,29 @@ beforeEach(function () {
     );
 });
 
-it('restores a Fresha service without 500 when another service claimed its freed sort_order', function () {
+it('does not restore a legacy site.services row at all — the id is unaddressable (services cutover, ruling 1)', function () {
+    // Was: "restores a Fresha service without 500 when another service claimed
+    // its freed sort_order" — a regression guard on restore()'s legacy
+    // sort_order recompute. Services-cutover ruling 1 retires that branch:
+    // restore() resolves content.items ids only, so this row is unreachable
+    // and the recompute it guarded no longer exists (the index it served,
+    // services_user_sort_order_uq, drops with the table). The content-side
+    // restore semantics are pinned by the second case here and by
+    // ServicesCutoverFreshaManagementTest.
     $owner = createTenant('svc-restore-sort-order-cr004');
 
-    // Service A in category A gets sort_order=0, then is soft-deleted, freeing that slot.
     $catA = createServiceCategoryFor($owner, ['sort_order' => 0]);
     $serviceA = createServiceFor($owner, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
     $serviceA->delete();
 
-    // Service B in category B claims sort_order=0 (the freed slot).
+    // Another row claims the freed slot — the collision the old recompute existed for.
     $catB = createServiceCategoryFor($owner, ['sort_order' => 1]);
     createServiceFor($owner, ['category_id' => $catB->id, 'sort_order' => 0, 'source' => 'fresha']);
 
-    // Restoring service A must not crash and must land on sort_order=1.
-    $response = actingAsUser($owner)->postJson("/api/services/{$serviceA->id}/restore");
-
-    $response->assertOk();
+    actingAsUser($owner)->postJson("/api/services/{$serviceA->id}/restore")->assertNotFound();
 
     $serviceA->refresh();
-    expect($serviceA->deleted_at)->toBeNull();
-    expect($serviceA->sort_order)->toBe(1);
+    expect($serviceA->deleted_at)->not->toBeNull();
 });
 
 it('restores a manual (content.*) service by clearing removed_at, no sort_order recompute', function () {

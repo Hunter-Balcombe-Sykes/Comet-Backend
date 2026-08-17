@@ -523,8 +523,9 @@ it('job: a disconnect landing MID-SCRAPE is caught inside the booking-XOR lock â
     // teardown is the re-check inside the booking-XOR lock.
     $user = freshaStorewideUser('swjob3b');
 
-    // A projected row from the prior connect â€” forget() tombstones it with
-    // deleted_origin='sync', which is precisely what sync() resurrects.
+    // A projected row from the prior connect. Pre-cutover, forget() tombstoned
+    // it with deleted_origin='sync' and sync() resurrected exactly that; the
+    // guard under test is the same either way â€” sync() must never run.
     $user->services()->create([
         'title' => 'Cut', 'price_cents' => 5000, 'currency_code' => 'AUD', 'duration_minutes' => 30,
         'is_active' => true, 'sort_order' => 0, 'source' => 'fresha', 'is_manual' => false, 'external_id' => 's:1',
@@ -566,7 +567,11 @@ it('job: a disconnect landing MID-SCRAPE is caught inside the booking-XOR lock â
     expect($fresh->last_refresh_status)->toBe('unavailable');
     expect($fresh->last_refresh_error)->toBe(FRESHA_STOREWIDE_NON_VENDOR_FAIL);
     expect($fresh->payload['selection'])->toBeNull(); // the scraped menu was discarded
-    expect(Service::where('user_id', $user->id)->where('source', 'fresha')->whereNull('deleted_at')->count())->toBe(0);
+    // Services cutover: forget() no longer soft-deletes site.services rows â€”
+    // the content twin is content.source_items.removed_at, and this fixture has
+    // no content items. The legacy row is left exactly as it was, which is the
+    // post-cutover form of "the teardown was not resurrected".
+    expect(Service::where('user_id', $user->id)->where('source', 'fresha')->whereNull('deleted_at')->count())->toBe(1);
 });
 
 it('job: a held booking-XOR lock resolves terminally instead of stranding the row', function () {

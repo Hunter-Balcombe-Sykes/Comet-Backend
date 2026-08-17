@@ -43,8 +43,12 @@
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
+use App\Models\Core\User\User;
+use App\Services\Content\ManualServiceItems;
+use App\Services\Content\ServiceCollections;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
@@ -88,6 +92,39 @@ beforeEach(function () {
          WHERE deleted_at IS NULL'
     );
 });
+
+/** One Fresha-landed service content item — the id space the layout verbs speak. */
+function layoutUnifyFreshaItem(User $pro, string $title, string $recordKey): string
+{
+    $sourceId = (string) Str::uuid();
+    $itemId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
+        'headline_cache' => $title, 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    // The anchor is what makes this stable: ProjectionWriter::resolveItems()
+    // binds a coord to its item through content.item_anchors, and it re-runs
+    // over EVERY live source item for the (user, kind) pair on any manual
+    // write. Without an anchor row this coord resolves as an unrelated
+    // singleton, gets a freshly minted item, and the id returned here is
+    // orphaned — which is exactly what a connector-landed row never does.
+    DB::table('content.item_anchors')->insert([
+        'coord' => 'fresha:'.$recordKey, 'user_id' => $pro->id, 'item_id' => $itemId, 'bound_at' => now(),
+    ]);
+
+    return $itemId;
+}
 
 function serviceLayoutUnificationAdminStaff(): PartnaStaff
 {
@@ -152,13 +189,22 @@ it('no longer keys the three sort_order-renumbering sites on service-layout', fu
     // the file still holds the key, then update the number and this comment —
     // do NOT relax the assertion to an inequality, which is what would make it
     // stop catching the case it is here for.
-    expect(substr_count($userSource, 'AdvisoryLock::acquire("services:'))->toBe(5);
+    // Services cutover Task 4 lowered the USER count from 5 to 4, and the
+    // property above is why it is safe: updateCategory() held the key solely
+    // to serialise its max(sort_order)+1 append against the global
+    // services_user_sort_order_uq. Both halves file into content.collections
+    // now, that append is gone (assignOwnerServiceCategory()'s docblock: a
+    // re-file must not move a service in the owner's chosen order), and an
+    // endpoint that renumbers nothing must not hold an ordering lock.
+    // Remaining four, each still renumbering: store, update, reorder (manual
+    // half), reorderLayout.
+    expect(substr_count($userSource, 'AdvisoryLock::acquire("services:'))->toBe(4);
     expect(substr_count($staffSource, 'AdvisoryLock::acquire("services:'))->toBe(4);
 
     // Each migrated site catches the timeout and returns the same 423 every
     // other services:{user} writer does.
     expect(substr_count($userSource, 'catch (AdvisoryLockTimeoutException)'))
-        ->toBeGreaterThanOrEqual(4); // store, reorder, updateCategory, reorderLayout
+        ->toBeGreaterThanOrEqual(4); // store, update, reorder, reorderLayout
     expect(substr_count($staffSource, 'catch (AdvisoryLockTimeoutException)'))
         ->toBeGreaterThanOrEqual(4); // store, update, reorder, reorderLayout
 });
@@ -175,8 +221,15 @@ it('leaves the category-assignment-only service-layout site untouched, and keeps
     expect($userCategorySource)->not->toContain('AdvisoryLock::acquire("services:');
     expect($staffCategorySource)->not->toContain('AdvisoryLock::acquire("services:');
 
-    // The staff controller is still on the untouched raw service-layout key.
-    expect($staffCategorySource)->toContain('service-layout:');
+    // Services cutover Task 8: the staff twin is off the raw service-layout
+    // key too. It held that key ONLY inside destroyLegacy(), whose whole job
+    // was detaching site.service_category_assignments rows before soft-
+    // deleting a legacy category — a branch deleted with the id space it
+    // served. Like the user twin it now renumbers content.collections.position
+    // alone, under service-categories:{user}, through AdvisoryLock.
+    expect($staffCategorySource)->not->toContain('service-layout:');
+    expect($staffCategorySource)->toContain('AdvisoryLock::acquire("service-categories:');
+    expect($staffCategorySource)->toContain('catch (AdvisoryLockTimeoutException)');
 
     // Slice 3b Task 9 retired the user-facing half of this pair. Its
     // categories now live in content.collections, so the ids it handles can
@@ -191,55 +244,61 @@ it('leaves the category-assignment-only service-layout site untouched, and keeps
     expect($userCategorySource)->toContain('catch (AdvisoryLockTimeoutException)');
 });
 
-it('updateCategory() still appends at max(sort_order)+1 under the unified key', function () {
+it('updateCategory() no longer renumbers sort_order at all — the legacy row is unaddressable', function () {
+    // Was: "updateCategory() still appends at max(sort_order)+1 under the
+    // unified key". Services cutover Task 4 retires that append with the
+    // legacy branch it belonged to: both halves file into content.collections,
+    // ordering lives on site.section_items.sort_key, and re-filing a service
+    // deliberately does not move it in the owner's chosen order. What is left
+    // to pin is that nothing renumbers — the legacy row is untouched because
+    // the id resolves nowhere.
     $pro = createTenant('layout-unify-user-cat');
     $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
     $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    // Fresha-sourced: category assignment is Fresha-only until 3b (Slice 3a).
     $mover = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
     createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1]);
 
     actingAsUser($pro)->patchJson("/api/services/{$mover->id}/category", [
         'category_id' => $catB->id,
-    ])->assertOk();
+    ])->assertNotFound();
 
     $mover->refresh();
-    expect($mover->sort_order)->toBe(2);
+    expect($mover->sort_order)->toBe(0);
     $sortOrders = Service::query()->where('user_id', $pro->id)->pluck('sort_order');
     expect($sortOrders->unique())->toHaveCount($sortOrders->count());
 });
 
-it('staff reorderLayout() still renumbers services + categories under the unified key', function () {
+it('staff reorderLayout() still holds the unified key while it orders content items', function () {
+    // Was: "still renumbers services + categories under the unified key".
+    // Services cutover Task 5 moved BOTH halves onto site.section_items
+    // .sort_key and dissolved the legacy category space, so there is no
+    // site.services.sort_order or site.service_categories.sort_order renumber
+    // left to observe. The lock is still held (the exact-count assertion
+    // above covers that structurally); what this case now proves behaviourally
+    // is that the endpoint orders content items and leaves the legacy rows
+    // exactly as it found them.
     $pro = createTenant('layout-unify-staff');
-    $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    // Slice 3b Task 11: `source => 'fresha'`, not the default `source IS NULL`.
-    // A legacy owner-authored row is the shadow of a content.* item post-3a and
-    // is deliberately unaddressable through the staff routes, so it would 422
-    // here — and a legacy site.service_categories BLOCK is the Fresha id space
-    // anyway. This keeps the case on exactly its own subject: that the staff
-    // layout endpoint still renumbers site.services.sort_order and
-    // site.service_categories.sort_order under the unified services:{user} key.
-    $serviceA = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha', 'external_id' => 's:a']);
-    $serviceB = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 1, 'source' => 'fresha', 'external_id' => 's:b']);
+    $legacyCat = createServiceCategoryFor($pro, ['sort_order' => 0]);
+    $legacyService = createServiceFor($pro, ['category_id' => $legacyCat->id, 'sort_order' => 7, 'source' => 'fresha', 'external_id' => 's:a']);
 
-    $response = actingAsStaff(serviceLayoutUnificationAdminStaff())
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Cuts');
+    $itemA = layoutUnifyFreshaItem($pro, 'Fresha A', 's:1');
+    $itemB = layoutUnifyFreshaItem($pro, 'Fresha B', 's:2');
+
+    actingAsStaff(serviceLayoutUnificationAdminStaff())
         ->postJson("/api/staff/professionals/{$pro->id}/services/reorder-layout", [
             'categories' => [
-                ['id' => $catB->id, 'service_ids' => [$serviceB->id]],
-                ['id' => $catA->id, 'service_ids' => [$serviceA->id]],
+                ['id' => $collectionId, 'service_ids' => [$itemB, $itemA]],
             ],
-        ]);
+        ])->assertOk();
 
-    $response->assertOk();
+    $sectionId = app(ManualServiceItems::class)->sectionId($pro->site->fresh());
+    $keys = DB::table('site.section_items')->where('section_id', $sectionId)
+        ->whereIn('item_id', [$itemA, $itemB])->pluck('sort_key', 'item_id');
+    expect((float) $keys[$itemB])->toBeLessThan((float) $keys[$itemA]);
 
-    $serviceA->refresh();
-    $serviceB->refresh();
-    // $catB's block came first in the payload, so $serviceB sorts ahead.
-    expect($serviceB->sort_order)->toBeLessThan($serviceA->sort_order);
-    expect(ServiceCategory::withoutGlobalScopes()->whereKey($catB->id)->value('sort_order'))->toBe(0);
-    expect(ServiceCategory::withoutGlobalScopes()->whereKey($catA->id)->value('sort_order'))->toBe(1);
-
-    $sortOrders = Service::query()->where('user_id', $pro->id)->pluck('sort_order');
-    expect($sortOrders->unique())->toHaveCount(2);
+    // The legacy rows are untouched — nothing renumbers them any more.
+    $legacyService->refresh();
+    expect($legacyService->sort_order)->toBe(7);
+    expect(ServiceCategory::withoutGlobalScopes()->whereKey($legacyCat->id)->value('sort_order'))->toBe(0);
 });

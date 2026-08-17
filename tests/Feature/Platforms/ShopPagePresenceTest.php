@@ -1,9 +1,11 @@
 <?php
 
 // FOUND-25 fix: a 'shop' IntegrationConnection's payload is a static
-// lifecycle marker — brands/products live relationally (ShopBrand/
-// ShopProduct), decoupled from connect (ShopController::addBrand stores a
-// brand with zero products; the picker runs any time after). Before this
+// lifecycle marker — stores and their products live in their own rows
+// (content.storefronts + content.collection_items, formerly the relational
+// ShopBrand/ShopProduct pair), decoupled from connect
+// (ShopController::addBrand stores a brand with zero products; the picker
+// runs any time after). Before this
 // fix, presentPageIds() treated any active 'shop' connection as enough to
 // advertise the Shop page, so a brand added with no products yet (or ever)
 // showed an empty Shop page to site visitors. Bandcamp also maps to the Shop
@@ -11,17 +13,17 @@
 // content directly), so it's asserted separately to confirm it's untouched.
 
 use App\Catalog\LegacyPlatformMap;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
-    setupSitesTable(); // also creates shop_brands / shop_products / platform_connections
+    setupSitesTable(); // also creates site.platform_connections
     // Slice 5a Task 8 moved the shop presence gate onto content.*; slice 5b
     // Task 8 moved it one step further, onto PoolResolver::hasSelection() —
     // the same question `profile.pools.shop` answers. Fixtures still land in
@@ -52,44 +54,20 @@ function spConnection(User $user, string $platform, array $payload = []): string
 }
 
 /**
- * The legacy anchor row PLUS its content.* storefront — what addBrand() writes
- * today (ShopController calls upsertStore() in the same locked block). Returns
- * the content.collections id, which is what a product now hangs off.
+ * The store, as addBrand() writes it — one upsertStore() call in the same
+ * locked block. It used to write a site.shop_brands row first and mirror it
+ * into content.*; the re-home dropped that table, so content.collections +
+ * content.storefronts IS the store. Returns the content.collections id, which
+ * is what a product hangs off.
  */
-function spBrand(User $user, string $connectionId, ?string $connectStatus = null): string
+function spBrand(User $user, ?string $connectStatus = null): string
 {
-    $brand = ShopBrand::create([
-        'connection_id' => $connectionId,
-        'brand_id' => 'b1',
-        'provider' => 'shopify',
-        'url' => 'https://b1.example.com',
-        'connect_status' => $connectStatus,
-        'position' => 0,
-    ]);
-
-    return app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
-}
-
-/** The anchor row ALONE — a brand connected before this slice deployed and
- *  never backfilled, so it has no content.storefronts row at all. */
-function spLegacyOnlyBrand(string $connectionId): void
-{
-    ShopBrand::create([
-        'connection_id' => $connectionId,
-        'brand_id' => 'b1',
-        'provider' => 'shopify',
-        'url' => 'https://b1.example.com',
-        'position' => 0,
-    ]);
-    DB::connection('pgsql')->table('site.shop_products')->insert([
-        'id' => (string) Str::uuid(),
-        'brand_id' => DB::connection('pgsql')->table('site.shop_brands')->where('connection_id', $connectionId)->value('id'),
-        'product_id' => 'p1',
-        'position' => 0,
-        'data' => json_encode(['productId' => 'p1', 'price' => '10.00', 'currency' => 'AUD']),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
+    return app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: 'b1',
+        provider: 'shopify',
+        url: 'https://b1.example.com',
+        connectStatus: $connectStatus,
+    ), (string) $user->id);
 }
 
 function spProduct(User $user, string $collectionId): void
@@ -103,8 +81,8 @@ function spProduct(User $user, string $collectionId): void
 
 it('drops the shop page from presence when a brand is connected with zero products', function () {
     $pro = createTenant('shop-empty-brand');
-    $connId = spConnection($pro, 'shop', ['storage' => 'relational']);
-    spBrand($pro, $connId); // no products
+    spConnection($pro, 'shop', ['storage' => 'relational']);
+    spBrand($pro); // no products
 
     $pages = app(SitepageDataResolverService::class)
         ->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
@@ -114,8 +92,8 @@ it('drops the shop page from presence when a brand is connected with zero produc
 
 it('keeps the shop page present once the connected brand has a chosen product', function () {
     $pro = createTenant('shop-with-product');
-    $connId = spConnection($pro, 'shop', ['storage' => 'relational']);
-    $collectionId = spBrand($pro, $connId);
+    spConnection($pro, 'shop', ['storage' => 'relational']);
+    $collectionId = spBrand($pro);
     spProduct($pro, $collectionId);
 
     $pages = app(SitepageDataResolverService::class)
@@ -143,8 +121,8 @@ it('keeps the shop page present once the connected brand has a chosen product', 
 
 it('keeps the shop page present for a pending brand with a saved product — the pool renders it', function () {
     $pro = createTenant('shop-pending-with-product');
-    $connId = spConnection($pro, 'shop', ['storage' => 'relational']);
-    $collectionId = spBrand($pro, $connId, 'pending');
+    spConnection($pro, 'shop', ['storage' => 'relational']);
+    $collectionId = spBrand($pro, 'pending');
     spProduct($pro, $collectionId);
 
     $pages = app(SitepageDataResolverService::class)
@@ -155,8 +133,8 @@ it('keeps the shop page present for a pending brand with a saved product — the
 
 it('keeps the shop page present for a failed brand with a chosen product — failed is deliberately public (plan §3g)', function () {
     $pro = createTenant('shop-failed-with-product');
-    $connId = spConnection($pro, 'shop', ['storage' => 'relational']);
-    $collectionId = spBrand($pro, $connId, 'failed');
+    spConnection($pro, 'shop', ['storage' => 'relational']);
+    $collectionId = spBrand($pro, 'failed');
     spProduct($pro, $collectionId);
 
     $pages = app(SitepageDataResolverService::class)
@@ -165,22 +143,31 @@ it('keeps the shop page present for a failed brand with a chosen product — fai
     expect($pages)->toContain('shop');
 });
 
-// ── Slice 5a Task 8, fix round 1 (C3): the un-backfilled state ────────────
+// ── Slice 5a Task 8, fix round 1 (C3): an active connection is not a store ──
 //
-// ShopBackfiller has NOT been run on dev (0 content.storefronts rows against
-// 9 legacy brands / 51 legacy products at the time of writing), and Task 8
-// deleted the hybrid read that used to cover for that. This test pins the
-// honest consequence rather than leaving it to be discovered in production:
-// a brand connected before this slice deploys, with a full legacy product
-// selection, advertises NO shop page until the backfill runs. Backfill first,
-// then deploy — see the rollout note in the Task 8 report.
-it('drops the shop page for a legacy brand that was never backfilled into content.*', function () {
-    $pro = createTenant('shop-never-backfilled');
-    $connId = spConnection($pro, 'shop', ['storage' => 'relational']);
-    spLegacyOnlyBrand($connId);
+// This test used to drive the UN-BACKFILLED state: a site.shop_brands row with
+// a full site.shop_products selection and nothing in content.*, pinning the
+// honest consequence of Task 8 deleting the hybrid read — such a brand
+// advertised no shop page until ShopBackfiller ran. That premise is now
+// unbuildable: the re-home dropped both legacy tables and deleted the
+// backfiller with them, so there is no second store of truth left to be out of
+// step with, and no backfill to sequence a deploy around.
+//
+// The GUARANTEE it protected is still live, and still reachable by another
+// route: an ACTIVE shop connection with no content.storefronts row — what a
+// store retired by removeBrand(), or a connect that armed its anchor before
+// upsertStore() landed, leaves behind. Presence must answer on content.*, never
+// on the bare existence of an active connection, which is precisely the
+// FOUND-25 bug this file's header describes. So the assertion moves onto that
+// state rather than going with the tables.
+it('drops the shop page for an active shop connection with no content.* store', function () {
+    $pro = createTenant('shop-connection-no-store');
+    spConnection($pro, 'shop', ['storage' => 'relational']);
 
-    // The legacy tables say this user has a store with a chosen product...
-    expect(DB::connection('pgsql')->table('site.shop_products')->count())->toBe(1)
+    // Non-vacuous: the connection genuinely exists and is active, so a presence
+    // gate reading is_active alone would answer "shop" here...
+    expect(DB::connection('pgsql')->table('site.platform_connections')
+        ->where('user_id', $pro->id)->where('is_active', 1)->count())->toBe(1)
         ->and(DB::table('content.storefronts')->count())->toBe(0);
 
     $pages = app(SitepageDataResolverService::class)
@@ -190,7 +177,7 @@ it('drops the shop page for a legacy brand that was never backfilled into conten
     expect($pages)->not->toContain('shop');
 });
 
-it('keeps the shop page present for an active bandcamp connection with no ShopProduct rows', function () {
+it('keeps the shop page present for an active bandcamp connection with no store products', function () {
     // Bandcamp isn't FOUND-25 — its connection payload carries real content
     // directly, so it must keep the blanket is_active signal untouched by
     // the shop-specific product gate.

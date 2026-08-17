@@ -1,12 +1,13 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -81,54 +82,62 @@ it('does not un-retire an item outside the catalogue being synced', function () 
 
 // ── The un-retire in syncStore() is not itself owner-exclusive — ShopFetch's
 // scheduled 6-hourly sync reaches it too. The owner-vs-connector boundary
-// lives in ShopFetch's CALLERS: it skips a hand-curated brand and the
+// lives in ShopFetch's CALLERS: it skips a hand-curated store and the
 // individual bucket. These two pin that boundary at the ShopFetch level —
 // each MUST fail if its matching filter is deleted from ShopFetch::fetch(),
-// because a deleted filter leaves the excluded brand in $latestBrands and
+// because a deleted filter leaves the excluded store in $latestStores and
 // ShopCatalog::syncLatest() gets called on it, which the mock forbids.
+//
+// Re-home Task 7: both facts now ride on the StoreRecord itself
+// (productsCuratedAt / isIndividual, read straight off content.storefronts),
+// so ShopFetch's filter is a property read rather than a per-store
+// isCurated() query — and its 3rd constructor arg is ShopConnections, the
+// store READER, where it used to be ShopContentWriter.
 
-/** A shop connection with one brand, shaped for a single ShopFetch::fetch() call. */
-function shopFetchBoundaryBrand(string $userId, array $brandAttrs = []): IntegrationConnection
+/** A shop connection with one content.* store, shaped for a single ShopFetch::fetch() call. */
+function shopFetchBoundaryStore(string $userId, array $overrides = []): IntegrationConnection
 {
     $conn = IntegrationConnection::create([
-        'user_id' => $userId, 'platform' => 'shopify.store', 'resource_id' => 'shop',
+        'user_id' => $userId, 'platform' => 'shopify.store', 'resource_id' => 'boundary-brand',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    ShopBrand::create($brandAttrs + [
-        'connection_id' => $conn->id, 'brand_id' => 'boundary-brand', 'provider' => 'shopify',
-        'url' => 'https://boundary.example', 'selection_mode' => 'manual', 'position' => 0,
-    ]);
+    app(ShopContentWriter::class)->upsertStore((new StoreRecord(
+        externalRef: 'boundary-brand',
+        provider: 'shopify',
+        position: 0,
+        url: 'https://boundary.example',
+    ))->with($overrides), $userId);
 
     return $conn;
 }
 
 it('ShopFetch never calls syncLatest for a hand-curated brand', function () {
     $pro = createTenant('shop-fetch-curated');
-    $conn = shopFetchBoundaryBrand($pro->id, ['products_curated_at' => now()]);
+    $conn = shopFetchBoundaryStore($pro->id, ['productsCuratedAt' => now()]);
 
     $catalog = Mockery::mock(ShopCatalog::class);
     $catalog->shouldNotReceive('syncLatest');
     $refresher = Mockery::mock(IntegrationConnectionCacheRefresher::class);
     $refresher->shouldNotReceive('refresh');
 
-    // The curated brand is the ONLY brand on this connection, so excluding it
-    // leaves $latestBrands empty — the quiet 304 path, not a hard error.
-    expect(fn () => (new ShopFetch($catalog, $refresher, app(ShopContentWriter::class)))->fetch($conn->fresh()))
+    // The curated store is the user's ONLY store, so excluding it leaves
+    // $latestStores empty — the quiet 304 path, not a hard error.
+    expect(fn () => (new ShopFetch($catalog, $refresher, app(ShopConnections::class)))->fetch($conn->fresh()))
         ->toThrow(FetchNotModifiedException::class);
 });
 
 it('ShopFetch never calls syncLatest for an individual-bucket brand', function () {
     $pro = createTenant('shop-fetch-individual');
-    $conn = shopFetchBoundaryBrand($pro->id, ['is_individual' => true]);
+    $conn = shopFetchBoundaryStore($pro->id, ['isIndividual' => true]);
 
     $catalog = Mockery::mock(ShopCatalog::class);
     $catalog->shouldNotReceive('syncLatest');
     $refresher = Mockery::mock(IntegrationConnectionCacheRefresher::class);
     $refresher->shouldNotReceive('refresh');
 
-    // Same shape as the curated case: the only brand present is excluded, so
-    // $latestBrands is empty and the fetch is a quiet no-op, not an error.
-    expect(fn () => (new ShopFetch($catalog, $refresher, app(ShopContentWriter::class)))->fetch($conn->fresh()))
+    // Same shape as the curated case: the only store present is excluded, so
+    // $latestStores is empty and the fetch is a quiet no-op, not an error.
+    expect(fn () => (new ShopFetch($catalog, $refresher, app(ShopConnections::class)))->fetch($conn->fresh()))
         ->toThrow(FetchNotModifiedException::class);
 });
 

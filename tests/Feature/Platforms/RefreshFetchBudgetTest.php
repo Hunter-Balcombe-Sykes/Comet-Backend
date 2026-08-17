@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
@@ -10,6 +9,8 @@ use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\ShopCatalog;
+use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
@@ -73,17 +74,27 @@ function rfbShopSyncUser(string $h): User
     return $user->fresh();
 }
 
-function rfbShopSyncBrand(User $user, string $brandId): ShopBrand
+/**
+ * Re-home Task 7: the store is a content.* row and ShopFetch selects it
+ * through ShopConnections::stores(), so the fixture lands through the real
+ * writer and returns the connection PlatformRefresher is handed.
+ * selection_mode is not set because it no longer exists — #SEM-1's gate is
+ * products_curated_at, left null so this store is eligible to sync.
+ */
+function rfbShopSyncStore(User $user, string $brandId): IntegrationConnection
 {
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => $brandId,
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    return ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => $brandId, 'provider' => 'shopify',
-        'url' => 'https://sf.example', 'selection_mode' => 'latest', 'position' => 0,
-    ]);
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: $brandId,
+        provider: 'shopify',
+        url: 'https://sf.example',
+    ), (string) $user->id);
+
+    return $conn;
 }
 
 beforeEach(function () {
@@ -292,7 +303,7 @@ it('a shop platform refresh still returns its normal result under the ensureOpen
     config(['partna.http_fetch.refresh_budget_seconds' => 90]);
 
     $user = rfbShopSyncUser('rfb5');
-    $brand = rfbShopSyncBrand($user, 'b1');
+    $conn = rfbShopSyncStore($user, 'b1');
 
     $catalog = Mockery::mock(ShopCatalog::class);
     $catalog->shouldReceive('syncLatest')->once()->andReturn(3);
@@ -302,7 +313,7 @@ it('a shop platform refresh still returns its normal result under the ensureOpen
     $cacheRefresher->shouldReceive('refresh')->once();
     $this->app->instance(IntegrationConnectionCacheRefresher::class, $cacheRefresher);
 
-    app(PlatformRefresher::class)->refresh($brand->connection->fresh());
+    app(PlatformRefresher::class)->refresh($conn->fresh());
 
-    expect($brand->connection->fresh()->last_refresh_status)->toBe('ok');
+    expect($conn->fresh()->last_refresh_status)->toBe('ok');
 });

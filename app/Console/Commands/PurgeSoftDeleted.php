@@ -34,10 +34,8 @@ class PurgeSoftDeleted extends Command
      */
     public const PURGE_HANDLED = [
         Customer::class,
-        Service::class,
         SiteMedia::class,
         Enquiry::class,
-        ServiceCategory::class,
         Block::class,
         Feedback::class,
         IntegrationConnection::class,
@@ -51,6 +49,17 @@ class PurgeSoftDeleted extends Command
      */
     public const PURGE_EXEMPT = [
         FeatureFlag::class => 'Lifecycle managed by FeatureFlagService — flags are tombstoned for audit history and never auto-purged.',
+        // Services cutover (2026-08-17): site.services and
+        // site.service_categories are DROPPED. Both classes survive only as
+        // the in-memory shapes ServiceResource/ServiceCategoryResource map,
+        // hydrated unsaved from content.*; they keep SoftDeletes because
+        // `deleted_at` is still part of that wire shape. There is no table to
+        // purge, and leaving them in PURGE_HANDLED made this nightly command
+        // query a dropped relation (42P01). The rows they used to hold now
+        // live as content.items.removed_at, whose retention is the content
+        // pool's own concern, not this loop's.
+        Service::class => 'No table since the services cutover — DTO only, hydrated from content.*. Soft-delete state lives on content.items.removed_at.',
+        ServiceCategory::class => 'No table since the services cutover — DTO only, hydrated from content.collections. Removal state lives on content.collections.removed_at.',
     ];
 
     /**
@@ -95,21 +104,10 @@ class PurgeSoftDeleted extends Command
             $query = $modelClass::onlyTrashed()
                 ->where('deleted_at', '<', $cutoff);
 
-            // Fresha suppression records must never expire: a soft-deleted
-            // projection with deleted_origin='user' IS the "owner deleted this
-            // synced service" marker the sync consults — purging it would let
-            // the next scrape silently resurrect the service. Spelled as an OR
-            // chain (not whereNot) because NOT(source='fresha' AND …) evaluates
-            // to NULL — not TRUE — for the ordinary rows where source IS NULL,
-            // which would silently exempt EVERY plain service from the purge.
-            if ($modelClass === Service::class) {
-                $query->where(fn ($q) => $q
-                    ->whereNull('source')
-                    ->orWhere('source', '!=', 'fresha')
-                    ->orWhereNull('deleted_origin')
-                    ->orWhere('deleted_origin', '!=', 'user'));
-            }
-
+            // The Fresha suppression carve-out that used to live here went
+            // with site.services (services cutover): the "owner deleted this
+            // synced service" marker is content.items.removed_at now, which
+            // the projection path never clears and this loop never sees.
             $query
                 ->orderBy('deleted_at')
                 ->chunk(500, function ($rows) use (&$count, &$failed) {

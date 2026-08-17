@@ -92,7 +92,7 @@ use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
-use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\ShopConnections;
 use App\Site\Pools\PoolResolver;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\RateLimiter;
@@ -432,13 +432,14 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('shop')->label('Shop')->category(Cat::Shop)->resource(ShopBrandResource::class)->refreshable()->payload(ShopPayload::class));
             // Latest-mode product sync — auto-tracks every non-individual
             // store's newest products when the site's global shop_auto_latest
-            // is on, EXCEPT a brand the user hand-curated (#SEM-1:
-            // shop_brands.products_curated_at IS NOT NULL) — see ShopFetch's
-            // docblock; when there's nothing left to sync it 304s inside.
+            // is on, EXCEPT a store the user hand-curated (#SEM-1:
+            // content.storefronts.products_curated_at IS NOT NULL) — see
+            // ShopFetch's docblock; when there is nothing left to sync it 304s
+            // inside.
             $r->get('shop')->fetch(fn () => new ShopFetch(
                 app(ShopCatalog::class),
                 app(IntegrationConnectionCacheRefresher::class),
-                app(ShopContentWriter::class),
+                app(ShopConnections::class),
             ));
             $r->get('shop')->refreshEvery((int) config('partna.refresh.intervals.shop', 6 * 3600));
             // FOUND-25 + W9: a shop connection's payload is a static lifecycle

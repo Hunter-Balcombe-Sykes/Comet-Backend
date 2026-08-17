@@ -61,6 +61,51 @@ beforeEach(function () {
  * only whole-suite/--filter runs parse sibling files — so nothing here leans
  * on a neighbour's definition.
  */
+/**
+ * One Fresha-landed service content item — the id space every service verb
+ * speaks after the services cutover, anchored exactly as a connector-landed
+ * row is.
+ */
+function staffSvcFreshaItem(string $userId, string $title, string $recordKey): string
+{
+    $sourceId = (string) Str::uuid();
+    $itemId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $userId, 'kind' => 'service',
+        'headline_cache' => $title, 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    // The anchor is what makes this stable: ProjectionWriter::resolveItems()
+    // binds a coord to its item through content.item_anchors, and it re-runs
+    // over EVERY live source item for the (user, kind) pair on any manual
+    // write. Without an anchor row this coord resolves as an unrelated
+    // singleton, gets a freshly minted item, and the id returned here is
+    // orphaned — which is exactly what a connector-landed row never does.
+    DB::table('content.item_anchors')->insert([
+        'coord' => 'fresha:'.$recordKey, 'user_id' => $userId, 'item_id' => $itemId, 'bound_at' => now(),
+    ]);
+
+    return $itemId;
+}
+
+/** The services section's sort_key for one item, as a float (null = unpositioned). */
+function staffSvcSortKey(string $itemId): ?float
+{
+    $key = DB::table('site.section_items')->where('item_id', $itemId)->value('sort_key');
+
+    return $key === null ? null : (float) $key;
+}
+
 function staffSvcAdmin(): PartnaStaff
 {
     $staff = new PartnaStaff;
@@ -254,26 +299,26 @@ it('creates a service through the staff endpoint that the owner and the public r
 
 // ── the merged list: manual half AND Fresha half ────────────────────────────
 
-it('lists BOTH the owner-authored (content.*) and the Fresha (site.services) halves', function () {
+it('lists BOTH the owner-authored and the Fresha halves, now both from content.*', function () {
     [$pro] = staffSvcTenant();
 
-    $freshaId = ownerService($pro->id, [
-        'title' => 'Fresha Cut', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0,
-    ]);
     $manualId = staffSvcOwnerCreate($pro, ['title' => 'Owner Colour']);
+    $freshaId = staffSvcFreshaItem($pro->id, 'Fresha Cut', 's:1');
 
-    $titles = collect(
+    $rows = collect(
         actingAsStaff(staffSvcAdmin())
             ->getJson("/api/staff/professionals/{$pro->id}/services")
             ->assertOk()
             ->json('services')
-    )->pluck('title');
+    );
 
-    // Both halves, through the same merge the owner's own list performs.
-    expect($titles)->toContain('Fresha Cut');
-    expect($titles)->toContain('Owner Colour');
-    expect(DB::table('site.services')->where('id', $freshaId)->exists())->toBeTrue();
-    expect(DB::table('content.items')->where('id', $manualId)->exists())->toBeTrue();
+    // Both halves, through the same merge the owner's own list performs —
+    // and both addressed by content.items ids (services cutover ruling 1).
+    expect($rows->pluck('title'))->toContain('Fresha Cut')
+        ->and($rows->pluck('title'))->toContain('Owner Colour');
+    expect($rows->firstWhere('id', $freshaId)['source'])->toBe('fresha');
+    expect($rows->firstWhere('id', $manualId)['source'])->toBeNull();
+    expect(DB::table('content.items')->whereIn('id', [$freshaId, $manualId])->count())->toBe(2);
 });
 
 it('archives filters read the content.* half, not site.services', function () {
@@ -339,18 +384,18 @@ it('lets staff file an owner service into a content collection, and the owner se
     expect($owner['category_ids'])->toBe([$categoryId]);
 });
 
-// ── ordering: services_user_sort_order_uq is GLOBAL per user ────────────────
+// ── ordering: ONE scale, site.section_items.sort_key (spec §3.4) ───────────
 
-it('reorders across both halves without colliding on services_user_sort_order_uq', function () {
+it('reorders across both halves onto one section_items scale', function () {
+    // Was: "without colliding on services_user_sort_order_uq". That partial
+    // UNIQUE (user_id, sort_order) is what made a half-only renumber a 500,
+    // and it drops with site.services — services cutover Task 5 puts both
+    // halves on sort_key, which carries no uniqueness constraint at all.
     [$pro, $siteId] = staffSvcTenant();
 
-    // A legacy owner-authored site.services row (ServiceBackfiller never
-    // deletes these) sits alongside the Fresha row — renumbering only the
-    // Fresha subset to a dense 0..N-1 lands on a slot this row holds.
-    ownerService($pro->id, ['title' => 'Legacy Manual', 'source' => null, 'sort_order' => 0]);
-    $fresha = ownerService($pro->id, ['title' => 'Fresha Cut', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 1]);
     $manualA = staffSvcOwnerCreate($pro, ['title' => 'Owner A']);
     $manualB = staffSvcOwnerCreate($pro, ['title' => 'Owner B']);
+    $fresha = staffSvcFreshaItem($pro->id, 'Fresha Cut', 's:1');
 
     actingAsStaff(staffSvcAdmin())
         ->postJson("/api/staff/professionals/{$pro->id}/services/reorder", [
@@ -359,20 +404,10 @@ it('reorders across both halves without colliding on services_user_sort_order_uq
         ->assertOk()
         ->assertJson(['ok' => true]);
 
-    // No duplicate live sort_order for this user — the constraint is not
-    // scoped by source, so a half-only renumber is a 500 waiting to happen.
-    $sortOrders = DB::table('site.services')->where('user_id', $pro->id)->whereNull('deleted_at')->pluck('sort_order');
-    expect($sortOrders->unique()->count())->toBe($sortOrders->count());
-
-    // The merged staff list reconstructs the submitted interleaving — both
-    // halves are numbered on ONE shared index, never per-half.
-    $order = collect(actingAsStaff(staffSvcAdmin())
-        ->getJson("/api/staff/professionals/{$pro->id}/services")->assertOk()->json('services'))
-        ->pluck('id')
-        ->filter(fn ($id) => in_array($id, [$manualA, $manualB, $fresha], true))
-        ->values()
-        ->all();
-    expect($order)->toBe([$manualB, $fresha, $manualA]);
+    // The submitted interleaving IS the stored scale — one shared index
+    // across both halves, never per-half (§NEW-I1).
+    expect([staffSvcSortKey($manualB), staffSvcSortKey($fresha), staffSvcSortKey($manualA)])
+        ->toBe([0.0, 1.0, 2.0]);
 
     // And the public page follows the manual half's new pin order.
     $publicTitles = array_column(staffSvcPublicServices($siteId, $pro->id), 'title');
@@ -388,107 +423,85 @@ it('reorders across both halves without colliding on services_user_sort_order_uq
 // which is a coverage hole on this surface rather than an incomplete
 // extraction.
 
-it('reorder moves a Fresha row past another Fresha row on the staff surface', function () {
+it('reorder moves a Fresha item past another Fresha item on the staff surface', function () {
     [$pro] = staffSvcTenant();
 
-    // Seeded A-then-B; submitted B-then-A. Only an actual write to
-    // site.services.sort_order can reverse them — the manual half's sort_key
-    // pins cannot, because neither row has a content item.
-    $freshaA = ownerService($pro->id, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
-    $freshaB = ownerService($pro->id, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 1]);
+    // Seeded A-then-B; submitted B-then-A. Only an actual ordering write can
+    // reverse them.
+    $freshaA = staffSvcFreshaItem($pro->id, 'Fresha A', 's:1');
+    $freshaB = staffSvcFreshaItem($pro->id, 'Fresha B', 's:2');
 
     actingAsStaff(staffSvcAdmin())
         ->postJson("/api/staff/professionals/{$pro->id}/services/reorder", ['ids' => [$freshaB, $freshaA]])
         ->assertOk();
 
-    // Pinned as the exact stored ranks, not merely "B before A": the submitted
-    // array index IS the target rank, and that shared scale is what lets the
-    // merged read interleave the two halves at all (§NEW-I1).
-    expect(DB::table('site.services')->where('id', $freshaB)->value('sort_order'))->toBe(0)
-        ->and(DB::table('site.services')->where('id', $freshaA)->value('sort_order'))->toBe(1);
-
-    $order = collect(actingAsStaff(staffSvcAdmin())
-        ->getJson("/api/staff/professionals/{$pro->id}/services")->assertOk()->json('services'))
-        ->pluck('id')->all();
-    expect($order)->toBe([$freshaB, $freshaA]);
+    // The exact stored ranks, not merely "B before A": the submitted array
+    // index IS the target rank, and that shared scale is what lets the merged
+    // read interleave the two halves at all (§NEW-I1).
+    expect([staffSvcSortKey($freshaB), staffSvcSortKey($freshaA)])->toBe([0.0, 1.0]);
 });
 
-it('reorder renumbers a backfilled manual item\'s legacy row from the staff surface', function () {
+it('positions a backfilled manual item by its content id and leaves its legacy row alone', function () {
+    // Was: "renumbers a backfilled manual item's legacy row from the staff
+    // surface" — the staff copy of the renumber had to reach the legacy row
+    // through the 'manual:{legacy_uuid}' coord. Services cutover Task 5 ends
+    // that: ordering is written on the content item alone, and the legacy row
+    // is inert until Task 12 drops it.
     [$pro] = staffSvcTenant();
 
-    // ServiceBackfiller leaves the site.services row in place and mints a
-    // content item coordinated 'manual:{legacy_uuid}'. Staff submit the ITEM
-    // id, so reaching that legacy row needs the coord lookup — which the staff
-    // copy of this renumber never did, while the owner copy always has. The
-    // extraction unified them on the owner's behaviour; without it, the legacy
-    // row below falls into the unaddressed tail and lands at rank 2, not 0.
     $legacyManualId = ownerService($pro->id, ['title' => 'Legacy Manual', 'source' => null, 'sort_order' => 0]);
     app(ServiceBackfiller::class)->run();
     $itemId = (string) DB::table('content.source_items')->where('coord', 'manual:'.$legacyManualId)->value('item_id');
 
-    $freshaA = ownerService($pro->id, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 1]);
-    $freshaB = ownerService($pro->id, ['title' => 'Fresha B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 2]);
+    $freshaA = staffSvcFreshaItem($pro->id, 'Fresha A', 's:1');
+    $freshaB = staffSvcFreshaItem($pro->id, 'Fresha B', 's:2');
 
     actingAsStaff(staffSvcAdmin())
         ->postJson("/api/staff/professionals/{$pro->id}/services/reorder", ['ids' => [$itemId, $freshaB, $freshaA]])
         ->assertOk();
 
-    expect(DB::table('site.services')->where('id', $legacyManualId)->value('sort_order'))->toBe(0)
-        ->and(DB::table('site.services')->where('id', $freshaB)->value('sort_order'))->toBe(1)
-        ->and(DB::table('site.services')->where('id', $freshaA)->value('sort_order'))->toBe(2);
+    expect([staffSvcSortKey($itemId), staffSvcSortKey($freshaB), staffSvcSortKey($freshaA)])
+        ->toBe([0.0, 1.0, 2.0]);
+    // Untouched: nothing renumbers site.services any more.
+    expect((int) DB::table('site.services')->where('id', $legacyManualId)->value('sort_order'))->toBe(0);
 });
 
-it('reorderLayout renumbers both halves and orders content collections, without colliding', function () {
+it('reorderLayout orders both halves and repositions content collections', function () {
+    // Was: "renumbers both halves and orders content collections, without
+    // colliding". One category id space (content.collections) and one service
+    // id space now — the legacy category blocks and the sort_order collision
+    // they could cause are both gone.
     [$pro] = staffSvcTenant();
 
-    $catA = createServiceCategoryFor($pro, ['title' => 'Fresha Cat A', 'sort_order' => 0]);
-    $catB = createServiceCategoryFor($pro, ['title' => 'Fresha Cat B', 'sort_order' => 1]);
     $collectionA = (string) actingAsUser($pro)->postJson('/api/service-categories', ['title' => 'Owner Cat A'])
         ->assertCreated()->json('category.id');
     $collectionB = (string) actingAsUser($pro)->postJson('/api/service-categories', ['title' => 'Owner Cat B'])
         ->assertCreated()->json('category.id');
 
-    $freshaA = ownerService($pro->id, ['title' => 'F A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
-    $freshaB = ownerService($pro->id, ['title' => 'F B', 'source' => 'fresha', 'external_id' => 's:2', 'sort_order' => 1]);
-    DB::table('site.service_category_assignments')->insert([
-        ['service_id' => $freshaA, 'service_category_id' => (string) $catA->id, 'created_at' => now(), 'updated_at' => now()],
-        ['service_id' => $freshaB, 'service_category_id' => (string) $catB->id, 'created_at' => now(), 'updated_at' => now()],
-    ]);
-
     $manual = staffSvcOwnerCreate($pro, ['title' => 'Owner One']);
     $manualTwo = staffSvcOwnerCreate($pro, ['title' => 'Owner Two']);
+    $freshaA = staffSvcFreshaItem($pro->id, 'F A', 's:1');
+    $freshaB = staffSvcFreshaItem($pro->id, 'F B', 's:2');
 
-    // Every block carries at least one id here because this case is about
-    // renumbering, not about empty blocks — those are covered on their own
-    // below, since StaffReorderServiceLayoutRequest now accepts them.
     actingAsStaff(staffSvcAdmin())
         ->postJson("/api/staff/professionals/{$pro->id}/services/reorder-layout", [
             'categories' => [
-                ['id' => $collectionB, 'service_ids' => [$manual]],
-                ['id' => (string) $catB->id, 'service_ids' => [$freshaB]],
-                ['id' => (string) $catA->id, 'service_ids' => [$freshaA]],
-                ['id' => $collectionA, 'service_ids' => [$manualTwo]],
+                ['id' => $collectionB, 'service_ids' => [$manual, $freshaB]],
+                ['id' => $collectionA, 'service_ids' => [$manualTwo, $freshaA]],
             ],
         ])
         ->assertOk()
         ->assertJson(['ok' => true]);
 
-    // Legacy categories renumbered in payload order (B before A).
-    expect((int) DB::table('site.service_categories')->where('id', $catB->id)->value('sort_order'))
-        ->toBeLessThan((int) DB::table('site.service_categories')->where('id', $catA->id)->value('sort_order'));
-
-    // Content collections renumbered in payload order too (B before A).
+    // Content collections repositioned in payload order (B before A).
     expect((int) DB::table('content.collections')->where('id', $collectionB)->value('position'))
         ->toBeLessThan((int) DB::table('content.collections')->where('id', $collectionA)->value('position'));
 
-    // No duplicate live sort_order for this user.
-    $sortOrders = DB::table('site.services')->where('user_id', $pro->id)->whereNull('deleted_at')->pluck('sort_order');
-    expect($sortOrders->unique()->count())->toBe($sortOrders->count());
-
-    // The manual service came first in the payload, so it leads the merged list.
-    $order = collect(actingAsStaff(staffSvcAdmin())
-        ->getJson("/api/staff/professionals/{$pro->id}/services")->assertOk()->json('services'))->pluck('id')->all();
-    expect(array_search($manual, $order, true))->toBe(0);
+    // Both halves flattened onto one scale in first-occurrence order.
+    expect([
+        staffSvcSortKey($manual), staffSvcSortKey($freshaB),
+        staffSvcSortKey($manualTwo), staffSvcSortKey($freshaA),
+    ])->toBe([0.0, 1.0, 2.0, 3.0]);
 });
 
 // ── the three cache lanes, per write route ──────────────────────────────────

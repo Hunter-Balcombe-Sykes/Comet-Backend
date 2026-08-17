@@ -1,7 +1,5 @@
 <?php
 
-use App\Models\Core\Site\ShopBrand;
-use App\Services\Migration\ShopBackfiller;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\WooCommerceScraper;
@@ -27,14 +25,14 @@ use Illuminate\Support\Facades\DB;
 //
 // Fixture: one user, THREE stores (brand-a/b fully populated Shopify/
 // WooCommerce-shaped; brand-c nameless + a urlless product, bigcartel-shaped),
-// six products total. ALL THREE are seeded via site.shop_brands/
-// site.shop_products (what the pre-Task-7 controllers read) then landed in
-// content.* via app(ShopBackfiller::class)->run() — the real migration path,
-// with no workaround. Fix round 4, Finding 2 closed the backfiller's own
-// urlless-skip gap (it had survived syncStore()'s round-3 fix), so brand-c's
-// urlless product no longer needs the direct ShopContentWriter::syncStore()
-// call this fixture used to make on its behalf — the backfiller landing it
-// unaided is now part of what this test proves.
+// six products total. All three were originally seeded into site.shop_brands/
+// site.shop_products (what the pre-Task-7 controllers read) and landed in
+// content.* via app(ShopBackfiller::class)->run(). Both tables are dropped
+// (20260819000200/210) and the backfiller with them, so the fixture now writes
+// content.* directly through the same ShopContentWriter + ProjectionWriter
+// lane the backfiller itself used — the shape it produced is preserved
+// exactly, including brand-c's urlless product, which is still landed and
+// still asserted below rather than special-cased.
 
 beforeEach(function () {
     setupUsersTable();
@@ -44,55 +42,50 @@ beforeEach(function () {
 
 function parityFixture(): array
 {
-    [$user, $brandA, $site] = makeShopBrand([
-        'brand_id' => 'brand-a',
+    // selection_mode/link_mode were set on brand-a here before the re-home.
+    // content.storefronts has no column for either (slice 5a fix round 1,
+    // Finding 4: selection_mode was always the default in practice, link_mode
+    // is one global site setting), and the reader has derived both for a while
+    // — so the expected bodies below are unaffected by their absence.
+    [$user, $storeA, $site] = makeShopStore([
+        'externalRef' => 'brand-a',
         'provider' => 'shopify',
         'url' => 'https://storea.example.com',
-        'source_url' => 'https://storea.example.com',
+        'sourceUrl' => 'https://storea.example.com',
         'name' => 'Store A',
         'currency' => 'AUD',
-        'discount_code' => 'SAVE10',
-        'referral_query' => 'ref=abc123',
-        'selection_mode' => 'latest',
-        'link_mode' => 'checkout',
-        'logo_mark_url' => 'https://cdn.example.com/a-mark.png',
-        'logo_mark_svg_url' => 'https://cdn.example.com/a-mark.svg',
+        'discountCode' => 'SAVE10',
+        'referralQuery' => 'ref=abc123',
+        'logoMarkUrl' => 'https://cdn.example.com/a-mark.png',
+        'logoMarkSvgUrl' => 'https://cdn.example.com/a-mark.svg',
         'position' => 0,
     ], withSite: true);
 
-    $brandB = ShopBrand::create([
-        'connection_id' => $brandA->connection_id,
-        'brand_id' => 'brand-b',
+    $storeB = addShopStore($user, [
+        'externalRef' => 'brand-b',
         'provider' => 'woocommerce',
         'url' => 'https://storeb.example.com',
-        'source_url' => 'https://storeb.example.com',
+        'sourceUrl' => 'https://storeb.example.com',
         'name' => 'Store B',
         'currency' => 'USD',
-        'discount_code' => '',
-        'referral_query' => '',
-        'is_individual' => false,
         'position' => 1,
     ]);
 
     // Fix round 3, Finding 5/6: a nameless brand — content.collections.label
-    // is NOT NULL, so upsertStore() writes brand_id into it when name is
+    // is NOT NULL, so upsertStore() writes external_ref into it when name is
     // null. Bigcartel-shaped: that provider's own scraper return type is
     // `url:?string`, so its one product is urlless too (Finding 3/6).
-    $brandC = ShopBrand::create([
-        'connection_id' => $brandA->connection_id,
-        'brand_id' => 'brand-c',
+    $storeC = addShopStore($user, [
+        'externalRef' => 'brand-c',
         'provider' => 'bigcartel',
         'url' => 'https://storec.example.com',
-        'source_url' => 'https://storec.example.com',
+        'sourceUrl' => 'https://storec.example.com',
         'name' => null,
         'currency' => 'AUD',
-        'discount_code' => '',
-        'referral_query' => '',
-        'is_individual' => false,
         'position' => 2,
     ]);
 
-    makeShopProduct($brandA, [
+    makeShopStoreProduct($storeA, [
         'productId' => 'p1',
         'title' => 'Classic Tee',
         'handle' => 'classic-tee',
@@ -111,7 +104,7 @@ function parityFixture(): array
             ['id' => 'v2', 'title' => 'Large', 'price' => '27.00', 'available' => false, 'image' => null],
         ],
     ]);
-    makeShopProduct($brandA, [
+    makeShopStoreProduct($storeA, [
         'productId' => 'p2',
         'title' => 'Canvas Tote',
         'handle' => 'canvas-tote',
@@ -127,7 +120,7 @@ function parityFixture(): array
         'createdAt' => '2026-02-10T00:00:00Z',
         'variants' => [],
     ]);
-    makeShopProduct($brandA, [
+    makeShopStoreProduct($storeA, [
         'productId' => 'p3',
         'title' => 'Wool Beanie',
         'handle' => 'wool-beanie',
@@ -153,7 +146,7 @@ function parityFixture(): array
         'variants' => [],
     ]);
 
-    makeShopProduct($brandB, [
+    makeShopStoreProduct($storeB, [
         'productId' => 'q1',
         'title' => 'Ceramic Mug',
         'handle' => 'ceramic-mug',
@@ -178,8 +171,8 @@ function parityFixture(): array
     //
     // Fix round 4, Finding 5 — comment corrected to what this fixture
     // ACTUALLY exercises: `images` below is an EMPTY ARRAY, not an absent
-    // key. makeShopProduct() cannot express key-absence at all — it merges
-    // $data over a default blob that always carries 'images' => [] (see
+    // key. makeShopStoreProduct() cannot express key-absence at all — it
+    // merges $data over a default blob that always carries 'images' => [] (see
     // tests/Pest.php), and every key it forces is one fromBlob() reads
     // without a `??` fallback. Nothing is lost on the WRITE side by that:
     // ShopProductProjection::media() reads `$data['images'] ?? []`, so
@@ -187,7 +180,7 @@ function parityFixture(): array
     // the empty-array case, NOT the key-absent case, and the divergence
     // asserted below (`images` reading back as [cover]) is the same one p3
     // demonstrates rather than an additional Squarespace-specific one.
-    makeShopProduct($brandB, [
+    makeShopStoreProduct($storeB, [
         'productId' => 'q2',
         'title' => 'Linen Napkin Set',
         'handle' => 'linen-napkin-set',
@@ -218,16 +211,17 @@ function parityFixture(): array
         'variants' => [],
         'createdAt' => '2026-04-01T00:00:00Z',
     ];
-    makeShopProduct($brandC, $rBlob);
+    makeShopStoreProduct($storeC, $rBlob);
 
-    // The actual production migration path — lands ALL THREE brands' seeded
-    // data in content.* the same way ShopBackfiller does on real dev/prod
-    // data, brand-c's urlless product included (fix round 4, Finding 2).
-    $backfill = app(ShopBackfiller::class)->run();
-    expect($backfill['products'])->toBe(6)
-        ->and($backfill['skipped_unidentifiable'])->toBe(0);
+    // Non-vacuity anchor, inherited from the ShopBackfiller run this replaced
+    // (which asserted products=6, skipped_unidentifiable=0): all six products
+    // — brand-c's urlless one included — really landed as live content.* items
+    // before a single endpoint is called. Without it, an expected body that
+    // came back empty could pass for the wrong reason.
+    expect(DB::table('content.items')->where('kind', 'product')
+        ->whereNull('removed_at')->count())->toBe(6);
 
-    return [$user, $brandA, $brandB, $brandC, $site];
+    return [$user, $storeA, $storeB, $storeC, $site];
 }
 
 /**
@@ -340,7 +334,7 @@ function brandBProductsDashboardShape(): array
             'image' => 'https://cdn.example.com/q2.jpg',
             // DOCUMENTED DIVERGENCE — see p3's identical note above. The
             // legacy blob showed [] (fix round 4, Finding 5: [] is what the
-            // fixture actually stores — makeShopProduct() cannot express an
+            // fixture actually stores — makeShopStoreProduct() cannot express an
             // absent 'images' key; see the fixture's own corrected comment).
             'images' => ['https://cdn.example.com/q2.jpg'],
             'variants' => [],
@@ -519,18 +513,18 @@ it('GET /brands/{id}/connect/status — matches the pre-Task-7 dump', function (
 //
 // Scope note carried over from the header above: this file's fixtures now
 // also exercise the WRITE endpoints Task 8 repoints. makeStoreCollection()
-// (tests/Pest.php) builds a store already landed in content.* the same way
-// ShopBackfiller does — through the real ShopContentWriter::upsertStore() +
-// ProjectionWriter::writeManualItem() lane, not hand-rolled rows.
+// (tests/Pest.php) builds a store already landed in content.* through the real
+// ShopContentWriter::upsertStore() + ProjectionWriter::writeManualItem() lane
+// — the same one ShopBackfiller used before it and its source tables were
+// dropped — not hand-rolled rows.
 
 it('setProducts writes the selection to content.* in the given order', function () {
     // setProducts() always re-fetches the LIVE catalog (picker-cache miss
     // here) rather than reading what's already selected, so the mocked
     // catalog below is what the user is choosing from — withProducts: 0
-    // keeps the fixture from seeding site.shop_products at all, so the
-    // toBe(0) assertion below proves the ENDPOINT writes nothing there,
-    // not merely that it doesn't add to what the fixture itself seeded.
-    // makeShopBrand()'s defaults: provider=shopify, url=https://store.test,
+    // seeds no catalogue at all, so the ordering assertion below is entirely
+    // the ENDPOINT's work rather than partly the fixture's.
+    // makeShopStore()'s defaults: provider=shopify, url=https://store.test,
     // currency=AUD.
     [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 0);
     mockShopService(ShopifyScraper::class, function ($m) {
@@ -549,12 +543,12 @@ it('setProducts writes the selection to content.* in the given order', function 
     expect($positions)->toHaveCount(2);
     $itemIdForSku = fn (string $sku) => DB::table('content.f_catalog')->where('sku', $sku)->value('item_id');
     expect($positions->all())->toBe([$itemIdForSku('sku-b'), $itemIdForSku('sku-a')]);
-    expect(DB::table('site.shop_products')->count())->toBe(0);
 });
 
 it('setProducts stamps products_curated_at on the storefront', function () {
-    // #SEM-1: this is the flag ShopContentWriter::isCurated() reads FIRST —
-    // not the legacy site.shop_brands column (Task 8 stops writing it).
+    // #SEM-1: this is the flag ShopContentWriter::isCurated() reads FIRST. It
+    // used to read a legacy site.shop_brands column ahead of it; that column
+    // and its table are gone, so this row is the sole source of truth.
     [$user, $collectionId, $brandId] = makeStoreCollection(withProducts: 1);
     mockShopService(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('fetchProducts')->with('https://store.test', 'AUD')->andReturn([
@@ -584,7 +578,10 @@ it('removeProduct retires one item and leaves its siblings alone', function () {
     // only ever operates on ShopController::INDIVIDUAL_BRAND_ID. Built via
     // three real addProduct() calls (not makeStoreCollection(), which seeds a
     // regular store) so this exercises the actual endpoint pairing under test.
-    [$user] = makeShopBrand();
+    // makeShopUser() rather than makeShopStore() for the same reason: a
+    // connected store in content.* would put a second collection in every
+    // count below.
+    [$user] = makeShopUser();
 
     mockShopService(GenericShopScraper::class, function ($m) {
         $m->shouldReceive('readProductPage')->andReturn(
@@ -604,16 +601,22 @@ it('removeProduct retires one item and leaves its siblings alone', function () {
     expect(DB::table('content.items')->whereNull('removed_at')->count())->toBe(2);
 });
 
-// Fix round 1, C1 regression. The anchor row's lifetime is the whole bug:
+// Fix round 1, C1 regression. The bucket row's lifetime is the whole bug:
 // removeProduct() used to ask site.shop_products "is this bucket empty now?",
 // a table addProduct() had stopped writing, so the FIRST removal always
-// deleted the anchor and stranded the surviving content.* products — the
+// deleted the bucket and stranded the surviving content.* products — the
 // dashboard still listed them and every later DELETE 404'd on the missing
-// anchor. Both halves are asserted here: the anchor SURVIVES a partial
+// bucket. Both halves are asserted here: the bucket SURVIVES a partial
 // removal (with the siblings still listed and still removable), and is still
 // cleaned up exactly as before once the last product goes.
-it('removeProduct keeps the individual anchor row until the last product is gone', function () {
-    [$user] = makeShopBrand();
+//
+// Re-home Task 7: the bucket IS its content.storefronts row now — the legacy
+// site.shop_brands twin this used to check was written by nothing, so asking
+// that table would answer "gone" from the very first call and make the guard
+// vacuous, which is the same failure mode C1 was. That table is since dropped
+// outright, which settles the question permanently.
+it('removeProduct keeps the individual bucket row until the last product is gone', function () {
+    [$user] = makeShopUser();
 
     mockShopService(GenericShopScraper::class, function ($m) {
         $m->shouldReceive('readProductPage')->andReturn(
@@ -627,12 +630,12 @@ it('removeProduct keeps the individual anchor row until the last product is gone
         actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => "https://s.test/{$pid}"])->assertSuccessful();
     }
 
-    $anchorExists = fn (): bool => ShopBrand::where('brand_id', 'individual')->exists();
-    expect($anchorExists())->toBeTrue();
+    $bucketExists = fn (): bool => DB::table('content.storefronts')->where('external_ref', 'individual')->exists();
+    expect($bucketExists())->toBeTrue();
 
-    // One of three removed: the bucket is NOT empty, so the anchor must stay.
+    // One of three removed: the bucket is NOT empty, so it must stay.
     actingAsUser($user)->deleteJson('/api/platforms/shop/products/p2')->assertOk();
-    expect($anchorExists())->toBeTrue()
+    expect($bucketExists())->toBeTrue()
         ->and(orderedProductIdsFor('individual'))->toBe(['p3', 'p1']);
 
     // The siblings are still listed by the dashboard AND still removable —
@@ -644,15 +647,15 @@ it('removeProduct keeps the individual anchor row until the last product is gone
         ->assertJsonPath('brands.0.products.1.productId', 'p1');
 
     actingAsUser($user)->deleteJson('/api/platforms/shop/products/p3')->assertOk();
-    expect($anchorExists())->toBeTrue()
+    expect($bucketExists())->toBeTrue()
         ->and(orderedProductIdsFor('individual'))->toBe(['p1']);
 
-    // Last one out: the anchor and the content.* store are both cleaned up,
+    // Last one out: the bucket and its collection are both cleaned up,
     // exactly as before this fix.
     actingAsUser($user)->deleteJson('/api/platforms/shop/products/p1')
         ->assertOk()
         ->assertJsonPath('brands', []);
-    expect($anchorExists())->toBeFalse()
+    expect($bucketExists())->toBeFalse()
         ->and(DB::table('content.storefronts')->where('external_ref', 'individual')->count())->toBe(0)
         ->and(DB::table('content.collections')->where('kind', 'storefront')->count())->toBe(0)
         // Retired, never hard-deleted.
@@ -669,40 +672,39 @@ it('forget removes every store for the user and retires their items', function (
         ->and(DB::table('content.items')->whereNull('removed_at')->count())->toBe(0);
 });
 
-// ── Step 5: the inertness proof ────────────────────────────────────────────
+// ── Step 5: the inertness proof, inverted by the DROP ─────────────────────
 //
-// site.shop_products is fully retired — no write endpoint touches it anymore
-// (setProducts/addProduct/removeProduct all moved to ShopContentWriter).
+// This pair used to assert that no shop write endpoint touched site
+// .shop_products (Task 8) or site.shop_brands (the re-home) — measured by
+// max(updated_at) and row count staying put across all nine writes.
 //
-// site.shop_brands is a DELIBERATE deviation from the brief's "written by
-// nothing" framing, reported in the Task 8 report rather than silently
-// forced green: it stays the operational anchor row MAX_BRANDS/dedup/
-// position/ShopBrandConnectJob/ProcessShopBrandLogoJob depend on (none of
-// those are Task 8's to rewrite), AND — more importantly — it is still what
-// PublicIntegrationConnectionResource reads for the LIVE, CDN-cached public
-// sitepage (app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php
-// eager-loads `shopBrands.products` and never touches content.*). Stopping
-// those writes would make a visitor's shop card go stale the moment a user
-// edits their store, with nothing in this slice's scope to fix it. The two
-// tests below assert the real, verified state of both tables rather than one
-// aspirational claim that doesn't hold for both.
+// Both tables are dropped (20260819000200 / 20260819000210), so those
+// assertions cannot be made and cannot fail: there is nothing left to observe.
+// The property they were protecting is now enforced by the database itself —
+// a resurrected legacy write is an immediate hard error, not a silent stale
+// card, which is precisely the outcome the two guards existed to reach.
+//
+// What is NOT settled by the DROP, and is worth exactly as much as the guards
+// were, is the other side of that coin: every one of the nine write endpoints
+// must still complete against content.* alone. That is what this test asserts
+// now — exerciseAllShopWrites() calls each one once and requires a successful
+// response from every one, so a path that still reached for a legacy table
+// would fail here rather than anywhere subtler.
 
-it('no shop endpoint writes site.shop_products — the JSONB blob table is fully retired', function () {
+it('every shop write endpoint completes with the legacy tables gone', function () {
     // exerciseAllShopWrites() calls updateSettings(), which hard-requires a
     // current site.
-    [$user, $brand] = makeShopBrand(withSite: true);
-    $before = DB::table('site.shop_products')->max('updated_at');
+    [$user, $store] = makeShopStore(withSite: true);
 
-    exerciseAllShopWrites($this, $user, $brand);
+    // Nine write endpoints, each asserted successful inside the helper —
+    // addBrand, updateBrand, catalog, selection, addProduct, removeProduct,
+    // removeBrand, updateSettings, forget, in that order.
+    exerciseAllShopWrites($this, $user, $store);
 
-    expect(DB::table('site.shop_products')->max('updated_at'))->toBe($before);
-});
-
-it('site.shop_brands keeps being written — the anchor row + live public-wire read source', function () {
-    [$user, $brand] = makeShopBrand(withSite: true);
-    $before = DB::table('site.shop_brands')->max('updated_at');
-
-    exerciseAllShopWrites($this, $user, $brand);
-
-    expect(DB::table('site.shop_brands')->max('updated_at'))->not->toBe($before);
+    // forget() runs last and wipes the family, so content.* is the only place
+    // that can show the run really did the work: no storefront survives, and
+    // every item it touched is retired rather than hard-deleted.
+    expect(DB::table('content.collections')->where('kind', 'storefront')->count())->toBe(0)
+        ->and(DB::table('content.storefronts')->count())->toBe(0)
+        ->and(DB::table('content.items')->whereNull('removed_at')->count())->toBe(0);
 });

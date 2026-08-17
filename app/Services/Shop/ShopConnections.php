@@ -3,10 +3,12 @@
 namespace App\Services\Shop;
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\ShopProviderDetector;
-use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use stdClass;
 
 /**
  * Convergence Phase 6, owner ruling 4: ONE CONNECTION PER STORE.
@@ -20,14 +22,20 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * Now each store carries its own connection on its real brand surface —
  * `shopify.store`, `woocommerce.store`, `squarespace.store`, `bigcartel.store`,
- * or `generic.store` for a storefront whose platform has no name. The
- * `site.shop_brands` row points at ITS OWN connection, which the existing
- * UNIQUE (connection_id, brand_id) still allows.
+ * or `generic.store` for a storefront whose platform has no name.
+ *
+ * The shop re-home then took the storage with it: `site.shop_brands` is DROPPED
+ * (20260819000210) and a store is a `content.collections` row (kind='storefront')
+ * with a `content.storefronts` sidecar, keyed (user_id, provider, external_ref).
+ * The connection row survives as the lifecycle/authorization anchor, and its
+ * `resource_id` IS the store id — which is the only bridge between the two, and
+ * what anchorFor() below exists to walk.
  *
  * This class is the single place that knows the mapping, so no caller has to
  * re-derive it — and, more importantly, so `where('connection_id', $one->id)`
- * cannot survive anywhere as a silently-narrowing read. Every brand lookup goes
- * through brands()/brandsFor(), which span the user's whole shop family.
+ * cannot survive anywhere as a silently-narrowing read. Every store lookup goes
+ * through stores()/store()/storeByCollection(), which span the user's whole
+ * shop family.
  *
  * The RESOURCE ID is the brand id (`75102060779`, `fearnoevil-com-au`), which
  * is already unique per store and already what every read keys on. That keeps
@@ -37,9 +45,11 @@ class ShopConnections
 {
     /**
      * The surface this controller's family used to occupy, kept as a READ key
-     * only. Rows written before the split are live until the retirement command
-     * runs, and a read that missed them would blank an owner's shop between
-     * deploy and migration.
+     * only. The retirement command that cleared it is gone with the shop
+     * re-home, and live dev carries ZERO rows on this surface — but the key
+     * stays because removeBrand() guards on it: a marker row is the one anchor
+     * several stores could share, so it must never be deleted out from under
+     * them. Production has not been reconciled and is the reason to keep it.
      */
     public const LEGACY_SURFACE = 'partna.storefront';
 
@@ -106,6 +116,25 @@ class ShopConnections
         );
     }
 
+    /**
+     * The EXISTING anchor for one store, or null — the read-only counterpart to
+     * anchor(), which mints.
+     *
+     * Queued jobs need this: they carry a collection id, resolve the store off
+     * content.*, and then still need the connection row for the cache refresher
+     * and the availability re-check. resource_id IS the store id (see anchor()),
+     * which is what makes the lookup possible without a connection_id column on
+     * content.storefronts.
+     */
+    public function anchorFor(User $user, string $externalRef): ?IntegrationConnection
+    {
+        return $user->integrationConnections()
+            ->whereIn('surface_key', [...self::surfaces(), self::LEGACY_SURFACE])
+            ->where('resource_id', $externalRef)
+            ->first()
+            ?->setRelation('user', $user);
+    }
+
     /** The anchor for the individual-products bucket. */
     public function individualAnchor(User $user): IntegrationConnection
     {
@@ -113,7 +142,7 @@ class ShopConnections
             [
                 'user_id' => $user->id,
                 'surface_key' => self::INDIVIDUAL_SURFACE,
-                'resource_id' => ShopBrand::INDIVIDUAL_BRAND_ID,
+                'resource_id' => StoreRecord::INDIVIDUAL_REF,
             ],
             [
                 'payload' => ['storage' => 'relational'],
@@ -170,25 +199,88 @@ class ShopConnections
     }
 
     /**
-     * Every ShopBrand row this user owns, across all their shop connections.
+     * Every connected store this user owns, keyed by its provider store id.
      *
-     * The replacement for `ShopBrand::where('connection_id', $marker->id)`,
-     * which now sees exactly one store instead of all of them.
+     * Replaces brands(), which queried site.shop_brands. Ordering mirrors
+     * ShopContentReader::brandMap() — c.position then s.external_ref — so the
+     * two reads can never disagree about which store is position 0. Pinned by
+     * ShopStoreReadLaneTest's "orders stores identically to
+     * ShopContentReader::brandMap()".
      *
-     * @return Builder<ShopBrand>
+     * Returns a Collection rather than a query Builder deliberately: the
+     * callers that chained ->where()/->max()/->count() all work unchanged on
+     * one, and the whole family costs a single query instead of one per call.
+     *
+     * @return Collection<string, StoreRecord>
      */
-    public function brands(User $user): Builder
+    public function stores(User $user): Collection
     {
-        $ids = $this->connectionIds($user);
-
-        // whereIn on an empty list yields `in ()` — valid, matches nothing,
-        // which is the correct answer for a user with no shop at all.
-        return ShopBrand::query()->whereIn('connection_id', $ids);
+        return self::keyByExternalRef(
+            $this->storeQuery()->where('c.user_id', (string) $user->id)->get()
+        );
     }
 
-    /** One brand by its brand id, across the user's whole shop family. */
-    public function brand(User $user, string $brandId): ?ShopBrand
+    /** One store by its provider store id, across the user's whole shop family. */
+    public function store(User $user, string $externalRef): ?StoreRecord
     {
-        return $this->brands($user)->where('brand_id', $brandId)->first();
+        return $this->stores($user)->get($externalRef);
+    }
+
+    /**
+     * One store by its content.collections id, with NO user scope.
+     *
+     * For queued jobs, which carry a collection id and no User — the collection
+     * id is itself the tenant-scoped handle (it was minted for exactly one
+     * owner and is unguessable), and the record carries $userId back, so the
+     * caller can re-derive the owner without a second query. Every HTTP path
+     * must use stores()/store() instead, which scope on the caller.
+     */
+    public function storeByCollection(string $collectionId): ?StoreRecord
+    {
+        $row = $this->storeQuery()->where('s.collection_id', $collectionId)->first();
+
+        return $row === null ? null : StoreRecord::fromStorefrontRow($row);
+    }
+
+    /**
+     * The shared SELECT behind stores()/store(). Column list and ordering are
+     * ShopContentReader::brandMap()'s, verbatim — one place to change if a
+     * column moves, and no way for the two to drift apart silently.
+     */
+    private function storeQuery(): QueryBuilder
+    {
+        return DB::table('content.storefronts as s')
+            ->join('content.collections as c', 'c.id', '=', 's.collection_id')
+            ->where('c.kind', 'storefront')
+            ->orderBy('c.position')
+            ->orderBy('s.external_ref')
+            ->select([
+                's.collection_id', 's.external_ref', 's.provider', 's.url', 's.source_url',
+                's.currency', 's.discount_code', 's.referral_query', 's.is_individual',
+                's.fetch_mode', 's.connect_status', 's.connect_error', 's.products_curated_at',
+                's.logo_url', 's.favicon_url', 's.logo_mark_url', 's.logo_mark_svg_url',
+                // connectStatus()'s stale-pending clock — see StoreRecord::$updatedAt.
+                's.updated_at',
+                // The denormalised owner (Task 11) — what lets storeByCollection()
+                // hand a queued job its owner without a second query.
+                's.user_id',
+                'c.label', 'c.position',
+            ]);
+    }
+
+    /**
+     * @param  Collection<int, stdClass>  $rows
+     * @return Collection<string, StoreRecord>
+     */
+    private static function keyByExternalRef(Collection $rows): Collection
+    {
+        return $rows
+            // A row with no external_ref has nothing to key on — skip rather
+            // than collide every such row onto ''. The same guard brandMap()
+            // applies, for the same reason.
+            ->reject(fn (object $row): bool => (string) ($row->external_ref ?? '') === '')
+            ->mapWithKeys(fn (object $row): array => [
+                (string) $row->external_ref => StoreRecord::fromStorefrontRow($row),
+            ]);
     }
 }

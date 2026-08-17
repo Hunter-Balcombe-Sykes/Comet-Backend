@@ -36,8 +36,10 @@ class ShopContentWriter
      * value this method writes now arrives as data, so the whole method
      * — lookup and write — runs with `site.shop_brands` absent. That table is
      * a LIVE write target (unlike site.shop_products), so a writer type-hinted
-     * on its model would break every subsequent shop write the moment
-     * 20260817000900_drop_site_shop_brands.sql lands, not merely an old read.
+     * on its model would break every subsequent shop write the moment the DROP
+     * lands, not merely an old read. That DROP is
+     * 20260819000210_drop_site_shop_brands.sql — slice 7 deferred the
+     * 20260817000900 it originally planned, and that file was never written.
      *
      * The label (the store's display name) was the ORIGINAL key and is a
      * bug: it's a mutable, user-editable field (ShopController::updateBrand
@@ -84,6 +86,14 @@ class ShopContentWriter
 
             DB::table('content.storefronts')->upsert([[
                 'collection_id' => $collectionId,
+                // Re-home Task 11 / spec §6: the owner is denormalised onto this
+                // table so store identity (user_id, provider, external_ref) is
+                // enforceable by a single unique index —
+                // storefronts_user_provider_ref_uq. Before that, this method's
+                // own collectionIdFor() read-then-write was the ONLY thing
+                // between two concurrent writers and a duplicated store, which
+                // is how slice 5a minted 18 collections for 9 stores.
+                'user_id' => $ownerId,
                 'provider' => $store->provider,
                 'external_ref' => $externalRef,
                 'url' => $store->url,
@@ -110,6 +120,7 @@ class ShopContentWriter
                 'created_at' => now(),
                 'updated_at' => now(),
             ]], ['collection_id'], [
+                'user_id',
                 'provider', 'external_ref', 'url', 'source_url', 'currency', 'discount_code',
                 'referral_query', 'is_individual', 'fetch_mode', 'connect_status',
                 'connect_error', 'logo_url', 'favicon_url',

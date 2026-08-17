@@ -3,7 +3,6 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Services\Content\FreshaServiceItems;
 use App\Services\Platforms\Registry\Platform;
@@ -19,9 +18,10 @@ use App\Services\Platforms\Registry\Platform;
 // Data model now:
 //   • payload.raw.services  — the deduped raw scrape (PRIVATE: the public
 //                             resource allowlists only url+selection). Its
-//                             remaining jobs are the VENDOR'S MENU ORDER and
-//                             revert()'s source. It is no longer the value
-//                             source for the blob.
+//                             remaining job is the VENDOR'S MENU ORDER. It is
+//                             no longer the value source for the blob, and
+//                             since the services cutover nothing projects a
+//                             site.services row from it either.
 //   • content.*             — the truth for a service's EXISTENCE and its
 //                             VALUES. Read through FreshaServiceItems, which
 //                             is 3b's already-shipped reproduction of this
@@ -233,79 +233,35 @@ class FreshaServiceProjector
     }
 
     /**
-     * Re-project one LEGACY `site.services` row from the stored raw scrape
-     * ("revert to synced"). Returns false when the connection carries no raw
-     * entry for it (the service no longer exists on Fresha — nothing to revert
-     * to).
-     *
-     * This is the ONLY method here that still touches `site.services`, and it
-     * exists solely for `UserServiceController::resync()`/`resyncBulk()`'s §C2
-     * legacy branch — the rows this class stopped creating under D3a. Every one
-     * of the 61 live rows carries `is_manual = false`, so both call sites
-     * already short-circuit before reaching it. It goes with the table in phase
-     * 6; nothing new should call it. The content.* half of resync (deleting
-     * `content.manual_overrides`) is unaffected and still works for
-     * title/description/duration.
+     * Toggle one service's hidden state on the stored blob. The hidden list IS
+     * the record (D3a — content.* has no is_active); compose() prunes it to
+     * live ids. The dashboard's is_active toggle maps here.
      */
-    public function revert(User $user, Service $service): bool
+    public function setHidden(User $user, string $serviceId, bool $hidden): void
     {
-        $entry = $this->rawEntryFor($user, (string) $service->external_id);
-        if ($entry === null) {
-            return false;
-        }
-
-        $service->forceFill([
-            ...$this->rawAttributes($user, $entry),
-            'is_manual' => false,
-        ])->save();
-
-        return true;
-    }
-
-    /** The stored raw scrape entry for one serviceId, or null. */
-    private function rawEntryFor(User $user, string $externalId): ?array
-    {
-        $payload = IntegrationConnection::query()
+        $connection = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('platform', Platform::Fresha->value)
-            ->value('payload');
-        $rawServices = is_array($payload) ? ($payload['raw']['services'] ?? null) : null;
-        if (! is_array($rawServices)) {
-            return null;
+            ->first();
+        $payload = is_array($connection?->payload) ? $connection->payload : [];
+        $selection = $payload['selection'] ?? null;
+        if ($connection === null || ! is_array($selection)) {
+            return;
         }
 
-        foreach ($rawServices as $entry) {
-            if (is_array($entry) && (string) ($entry['serviceId'] ?? '') === $externalId) {
-                return $entry;
-            }
-        }
+        $list = array_values(array_filter($selection['hiddenServiceIds'] ?? [], 'is_string'));
+        $list = $hidden
+            ? array_values(array_unique([...$list, $serviceId]))
+            : array_values(array_filter($list, fn ($id) => $id !== $serviceId));
 
-        return null;
-    }
-
-    /**
-     * Service-row attributes projected from one raw scrape entry (everything
-     * except identity/provenance/ordering, which the caller owns).
-     *
-     * @param  array<string, mixed>  $entry
-     * @return array<string, mixed>
-     */
-    private function rawAttributes(User $user, array $entry): array
-    {
-        $priceValue = $entry['priceValue'] ?? null;
-        $currency = is_string($entry['currency'] ?? null) && strlen((string) $entry['currency']) === 3
-            ? strtoupper((string) $entry['currency'])
-            : 'AUD';
-
-        return [
-            'title' => (string) ($entry['name'] ?? ''),
-            'description' => is_string($entry['description'] ?? null) && trim($entry['description']) !== ''
-                ? trim($entry['description'])
-                : null,
-            'price_cents' => is_numeric($priceValue) ? (int) round(((float) $priceValue) * 100) : 0,
-            'currency_code' => $currency,
-            'duration_minutes' => $this->parseDuration($entry['duration'] ?? null),
-        ];
+        $rawServices = is_array($payload['raw']['services'] ?? null) ? $payload['raw']['services'] : [];
+        $composed = $this->compose($user, $rawServices, $list);
+        $connection->payload = [...$payload, 'selection' => [
+            ...$selection,
+            'services' => $composed['services'],
+            'hiddenServiceIds' => $composed['hiddenServiceIds'],
+        ]];
+        $connection->save();
     }
 
     /** "1h 15min" / "45min" / "2h" → minutes; null when unparsable. */

@@ -8,8 +8,6 @@ use App\Models\Core\Gdpr\DataExportAudit;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
-use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Staff\PartnaStaff;
@@ -24,8 +22,10 @@ use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\MenuProjectionMapper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\ShopProductProjection;
+use App\Services\Shop\StoreRecord;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Http\Request;
@@ -642,19 +642,29 @@ function makeReadyBuild(string $subdomain = 'janedoe'): array
 }
 
 /**
- * Slice 5a: a user with one connected shop store (site.shop_brands, FOUND-25
- * relational storage) — the source side of ShopBackfiller/ShopContentWriter.
- * $attrs merges into the ShopBrand row (name, provider, discount_code,
- * referral_query, etc.), NOT into a nested shape — mirrors makeShopProduct's
- * $data contract. Seeded via direct ::create() calls (not a factory) so every
- * column a raw backfill reads is explicit here, not derived by a mutator.
+ * Slice 5a: a user with one connected shop store.
  *
- * @return array{0: User, 1: ShopBrand}|array{0: User, 1: ShopBrand, 2: Site}
+ * Was makeShopBrand(), which wrote a `site.shop_brands` row. The shop re-home
+ * dropped that table (20260819000210), so content.collections +
+ * content.storefronts is the ONLY storage a store has — and this fixture
+ * writes it through the production writer (ShopContentWriter::upsertStore())
+ * plus the per-store anchor ShopConnections::anchor() mints, rather than
+ * hand-rolled DB rows, so it can never drift from what production writes.
+ *
+ * $attrs merges into the StoreRecord via StoreRecord::with(), so its keys are
+ * the record's camelCase property names (externalRef, sourceUrl, fetchMode,
+ * connectStatus, productsCuratedAt, …) — NOT the legacy snake_case columns.
+ *
+ * The returned record is READ BACK off content.*, so it carries collectionId
+ * (and userId), which every content.* assertion in the shop tests keys on.
+ *
+ * @return array{0: User, 1: StoreRecord}|array{0: User, 1: StoreRecord, 2: Site}
  */
-function makeShopBrand(array $attrs = [], bool $withSite = false): array
+function makeShopStore(array $attrs = [], bool $withSite = false): array
 {
     setupUsersTable();
     setupSitesTable();
+    setupContentTables();
 
     $handle = 'shop'.Str::lower(Str::random(8));
     $user = User::factory()->create(['handle' => $handle, 'handle_lc' => $handle]);
@@ -664,45 +674,115 @@ function makeShopBrand(array $attrs = [], bool $withSite = false): array
         $site = Site::factory()->create(['user_id' => $user->id, 'subdomain' => $handle]);
     }
 
-    $connection = IntegrationConnection::create([
-        'user_id' => $user->id,
-        'platform' => 'shopify.store',
-        'resource_id' => 'shop',
-        'payload' => ['storage' => 'relational'],
-        'is_active' => true,
-        'last_refresh_status' => 'ok',
-    ]);
+    $record = (new StoreRecord(
+        externalRef: 'brand-'.Str::lower(Str::random(8)),
+        provider: 'shopify',
+        name: 'Test Store',
+        position: 0,
+        url: 'https://store.test',
+        sourceUrl: 'https://store.test',
+        currency: 'AUD',
+        discountCode: '',
+        referralQuery: '',
+        isIndividual: false,
+    ))->with($attrs);
 
-    $brand = ShopBrand::create(array_merge([
-        'connection_id' => $connection->id,
-        'brand_id' => 'brand-'.Str::lower(Str::random(8)),
-        'provider' => 'shopify',
-        'url' => 'https://store.test',
-        'source_url' => 'https://store.test',
-        'name' => 'Test Store',
-        'currency' => 'AUD',
-        'discount_code' => '',
-        'referral_query' => '',
-        'is_individual' => false,
-        'position' => 0,
-    ], $attrs));
+    // One connection per store, keyed on the store id (convergence Phase 6,
+    // owner ruling 4) — the anchor every connect poll and cache refresh
+    // resolves through ShopConnections::anchorFor().
+    app(ShopConnections::class)->anchor($user, $record->provider, $record->externalRef);
 
-    return $withSite ? [$user, $brand, $site] : [$user, $brand];
+    app(ShopContentWriter::class)->upsertStore($record, (string) $user->id);
+
+    $store = app(ShopConnections::class)->store($user, $record->externalRef);
+
+    return $withSite ? [$user, $store, $site] : [$user, $store];
 }
 
 /**
- * One site.shop_products row under $brand. $data merges into the upstream-
- * shaped `data` jsonb blob (url/price/title/productId/... — exactly what
- * ShopProductProjection::fromBlob() reads) EXCEPT 'position', which is a real
- * column on the row (ordering — $brand->products() is ->orderBy('position'))
- * and is pulled out before the merge rather than buried in the blob, the same
- * split production rows carry.
+ * A shop-capable user with NO store of any kind.
+ *
+ * For the tests that must observe content.* empty, or that build their store
+ * through the endpoints under test rather than a fixture. makeShopStore()
+ * cannot serve them: it writes a storefront row, which is the very absence
+ * those tests turn on. Before the re-home they used makeShopBrand(), whose
+ * legacy row had no content.* presence at all — that incidental property is
+ * what this helper makes explicit.
+ *
+ * @return array{0: User}|array{0: User, 1: Site}
  */
-function makeShopProduct(ShopBrand $brand, array $data = []): ShopProduct
+function makeShopUser(bool $withSite = false): array
 {
+    setupUsersTable();
+    setupSitesTable();
+    setupContentTables();
+
+    $handle = 'shop'.Str::lower(Str::random(8));
+    $user = User::factory()->create(['handle' => $handle, 'handle_lc' => $handle]);
+
+    return $withSite
+        ? [$user, Site::factory()->create(['user_id' => $user->id, 'subdomain' => $handle])]
+        : [$user];
+}
+
+/**
+ * A SECOND (third, …) store for a user who already has one — the shape that
+ * used to be a bare `ShopBrand::create(['connection_id' => $first->connection_id,
+ * …])`, which is no longer possible: one connection per store (convergence
+ * Phase 6, owner ruling 4) means each store mints its own anchor, and the
+ * store itself lives in content.*.
+ *
+ * Same $attrs contract as makeShopStore(). Returns the record read back off
+ * content.*, so it carries collectionId and userId.
+ */
+function addShopStore(User $user, array $attrs = []): StoreRecord
+{
+    $record = (new StoreRecord(
+        externalRef: 'brand-'.Str::lower(Str::random(8)),
+        provider: 'shopify',
+        position: 0,
+        url: 'https://store.test',
+        sourceUrl: 'https://store.test',
+        currency: 'AUD',
+        discountCode: '',
+        referralQuery: '',
+        isIndividual: false,
+    ))->with($attrs);
+
+    app(ShopConnections::class)->anchor($user, $record->provider, $record->externalRef);
+    app(ShopContentWriter::class)->upsertStore($record, (string) $user->id);
+
+    return app(ShopConnections::class)->store($user, $record->externalRef);
+}
+
+/**
+ * One product in $store's content.* catalogue.
+ *
+ * Was makeShopProduct(), which wrote a `site.shop_products` row (dropped by
+ * 20260819000200). $data merges into the upstream-shaped raw blob
+ * (url/price/title/productId/... — exactly what
+ * ShopProductProjection::fromBlob() reads) EXCEPT 'position', which is not a
+ * blob key: it is the content.collection_items position, the same split the
+ * legacy row carried as a real column.
+ *
+ * Written through ProjectionWriter::writeManualItem() — the identical lane
+ * ShopContentWriter::syncStore() uses — so the item, its facets and its offers
+ * land exactly as a real sync leaves them. Returns the blob, which is what
+ * callers assert against.
+ *
+ * @return array<string, mixed>
+ */
+function makeShopStoreProduct(StoreRecord $store, array $data = []): array
+{
+    setupIngestTables();
+    setupContentTables();
+
+    $collectionId = (string) $store->collectionId;
+
     $position = array_key_exists('position', $data)
         ? (int) $data['position']
-        : (int) (ShopProduct::where('brand_id', $brand->id)->max('position') ?? -1) + 1;
+        : (int) (DB::table('content.collection_items')
+            ->where('collection_id', $collectionId)->max('position') ?? -1) + 1;
     unset($data['position']);
 
     // Every key here is one ShopProductProjection::fromBlob() reads WITHOUT a
@@ -721,50 +801,47 @@ function makeShopProduct(ShopBrand $brand, array $data = []): ShopProduct
         'variants' => [],
     ], $data);
 
-    return ShopProduct::create([
-        'brand_id' => $brand->id,
-        'product_id' => (string) $blob['productId'],
-        'position' => $position,
-        'data' => $blob,
-    ]);
+    // Mirrors syncStore()'s own coord choice: URL when there is one, else the
+    // collection-namespaced product id — a urlless product (Squarespace,
+    // BigCartel) is identified, not dropped.
+    $url = trim((string) ($blob['url'] ?? ''));
+    $coord = $url !== ''
+        ? ShopProductProjection::coordFor($url)
+        : ShopProductProjection::coordForProductId($collectionId, (string) $blob['productId']);
+
+    $itemId = app(ProjectionWriter::class)->writeManualItem(
+        (string) $store->userId,
+        $coord,
+        ShopProductProjection::fromBlob($blob, $store->currency),
+    );
+
+    DB::table('content.collection_items')->upsert([[
+        'collection_id' => $collectionId, 'item_id' => $itemId, 'source_id' => null, 'position' => $position,
+    ]], ['collection_id', 'item_id'], ['position']);
+
+    return $blob;
 }
 
 /**
- * A store already landed in content.* — the post-backfill shape ShopBackfiller
- * produces — plus $withProducts products. Built through the real
- * ShopContentWriter::upsertStore() + ProjectionWriter::writeManualItem() (the
- * same lane the backfiller and the future syncStore() use), not hand-rolled
- * DB rows, so this fixture can never drift from what production actually
- * writes. Task 8's endpoint URLs are keyed by the shop_brand's brand_id (the
- * provider-scoped key, not the content.collections uuid) — hence the third
- * return value.
+ * A store already landed in content.*, plus $withProducts products — the
+ * thin wrapper the endpoint tests use when they want the collection id and
+ * the store id as bare strings rather than a record. Task 8's endpoint URLs
+ * are keyed by the store's external_ref (the provider-scoped key, not the
+ * content.collections uuid) — hence the third return value.
  *
- * @return array{0: User, 1: string, 2: string} [$user, $collectionId, $brandId]
+ * @return array{0: User, 1: string, 2: string} [$user, $collectionId, $externalRef]
  */
 function makeStoreCollection(int $withProducts = 0): array
 {
-    setupUsersTable();
-    setupSitesTable();
     setupIngestTables();
-    setupContentTables();
 
-    [$user, $brand] = makeShopBrand();
-
-    $collectionId = app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+    [$user, $store] = makeShopStore();
 
     for ($i = 0; $i < $withProducts; $i++) {
-        $product = makeShopProduct($brand, ['position' => $i]);
-        $itemId = app(ProjectionWriter::class)->writeManualItem(
-            (string) $user->id,
-            ShopProductProjection::coordFor((string) $product->data['url']),
-            ShopProductProjection::fromBlob($product->data, $brand->currency),
-        );
-        DB::table('content.collection_items')->upsert([[
-            'collection_id' => $collectionId, 'item_id' => $itemId, 'source_id' => null, 'position' => $i,
-        ]], ['collection_id', 'item_id'], ['position']);
+        makeShopStoreProduct($store, ['position' => $i]);
     }
 
-    return [$user, $collectionId, $brand->brand_id];
+    return [$user, (string) $store->collectionId, $store->externalRef];
 }
 
 /**
@@ -817,18 +894,18 @@ function mockShopService(string $abstract, Closure $callback): void
 }
 
 /**
- * Task 6: binds a mocked ShopifyScraper (makeShopBrand()'s default provider)
- * so app(ShopCatalog::class)->syncLatest($brand) exercises the REAL
+ * Task 6: binds a mocked ShopifyScraper (makeShopStore()'s default provider)
+ * so app(ShopCatalog::class)->syncLatest($store) exercises the REAL
  * container-resolved ShopCatalog + ShopContentWriter wiring — not a hand-built
  * ShopCatalog — without a network fetch. $products is the raw scraper shape
  * ShopifyScraper::fetchProducts() itself returns (url/title/price/...).
  *
  * @param  list<array<string,mixed>>  $products
  */
-function fakeProviderCatalog(ShopBrand $brand, array $products): void
+function fakeProviderCatalog(StoreRecord $store, array $products): void
 {
-    mockShopService(ShopifyScraper::class, function ($mock) use ($brand, $products) {
-        $mock->shouldReceive('fetchProducts')->with($brand->url, $brand->currency)->andReturn($products);
+    mockShopService(ShopifyScraper::class, function ($mock) use ($store, $products) {
+        $mock->shouldReceive('fetchProducts')->with($store->url, $store->currency)->andReturn($products);
     });
 }
 
@@ -839,12 +916,12 @@ function fakeProviderCatalog(ShopBrand $brand, array $products): void
  * updates/catalog/selection calls; a SEPARATE brand is minted by addBrand()
  * and removed by removeBrand(), so removing it doesn't disturb the calls
  * still using $b. forget() runs last because it wipes everything. Assumes
- * the caller already has a current site (e.g. makeShopBrand(withSite: true))
+ * the caller already has a current site (e.g. makeShopStore(withSite: true))
  * — updateSettings() resolves one. $t is accepted (not currently used
  * internally) so a future write endpoint that needs a TestCase-bound
  * assertion can be added here without changing the call sites in Tasks 5/6/8.
  */
-function exerciseAllShopWrites(TestCase $t, User $u, ShopBrand $b): void
+function exerciseAllShopWrites(TestCase $t, User $u, StoreRecord $b): void
 {
     $exerciseBrandId = 'exercise-'.Str::lower(Str::random(8));
 
@@ -861,7 +938,7 @@ function exerciseAllShopWrites(TestCase $t, User $u, ShopBrand $b): void
     actingAsUser($u)->postJson('/api/platforms/shop/brands', ['url' => 'https://exercise-brand.test'])
         ->assertSuccessful();
 
-    actingAsUser($u)->patchJson("/api/platforms/shop/brands/{$b->brand_id}", ['discountCode' => 'EXERCISE'])
+    actingAsUser($u)->patchJson("/api/platforms/shop/brands/{$b->externalRef}", ['discountCode' => 'EXERCISE'])
         ->assertSuccessful();
 
     mockShopService(WooCommerceScraper::class, function ($m) {
@@ -869,11 +946,11 @@ function exerciseAllShopWrites(TestCase $t, User $u, ShopBrand $b): void
             ['productId' => 'ex-catalog-1', 'title' => 'Catalog Product', 'url' => 'https://exercise.test/c1'],
         ]);
     });
-    actingAsUser($u)->postJson("/api/platforms/shop/brands/{$b->brand_id}/catalog", [
+    actingAsUser($u)->postJson("/api/platforms/shop/brands/{$b->externalRef}/catalog", [
         'products' => [['id' => 'ex-catalog-1', 'title' => 'Catalog Product']],
     ])->assertSuccessful();
 
-    actingAsUser($u)->putJson("/api/platforms/shop/brands/{$b->brand_id}/selection", ['productIds' => []])
+    actingAsUser($u)->putJson("/api/platforms/shop/brands/{$b->externalRef}/selection", ['productIds' => []])
         ->assertSuccessful();
 
     mockShopService(GenericShopScraper::class, function ($m) {
@@ -1125,46 +1202,13 @@ function setupSitesTable(): void
         // already exists / unsupported — ignore
     }
 
-    // site.shop_brands + site.shop_products — FOUND-25: the shop connection's
-    // brand-keyed JSONB payload map, relationalized. Mirrors migration
-    // 20260704160000 (uuid FKs → TEXT, boolean → INTEGER, jsonb `data` → TEXT).
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.shop_brands (
-        id TEXT PRIMARY KEY,
-        connection_id TEXT NULL,
-        brand_id TEXT NULL,
-        provider TEXT NULL,
-        url TEXT NULL,
-        source_url TEXT NULL,
-        name TEXT NULL,
-        currency TEXT NULL,
-        favicon TEXT NULL,
-        logo TEXT NULL,
-        logo_mark_url TEXT NULL,
-        logo_mark_svg_url TEXT NULL,
-        discount_code TEXT NULL,
-        fetch_mode TEXT NULL,
-        connect_status TEXT NULL,
-        connect_error TEXT NULL,
-        is_individual INTEGER NULL DEFAULT 0,
-        position INTEGER NULL DEFAULT 0,
-        style_analysis TEXT NULL,
-        selection_mode TEXT NULL DEFAULT \'manual\',
-        link_mode TEXT NULL DEFAULT \'product\',
-        referral_query TEXT NULL DEFAULT \'\',
-        products_curated_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.shop_products (
-        id TEXT PRIMARY KEY,
-        brand_id TEXT NULL,
-        product_id TEXT NULL,
-        position INTEGER NULL DEFAULT 0,
-        data TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
+    // site.shop_brands + site.shop_products used to be provisioned here
+    // (FOUND-25 relational storage, migration 20260704160000). Both tables are
+    // GONE — dropped by 20260819000200 / 20260819000210 — and a store now lives
+    // entirely in content.collections + content.storefronts (see
+    // setupContentTables()). The stand-ins go with them: leaving them would let
+    // a test write a legacy row that production has nowhere to put, which is
+    // exactly the drift this lane exists to catch.
 
     // site.menus + site.menu_categories + site.menu_items + site.menu_platform_links
     // + site.menu_item_platforms + site.menu_item_categories — the relational
@@ -2100,8 +2144,11 @@ function seedOrderPlatformSidecar(
         return;
     }
 
+    // Mirrors MenuFetchJob::syncOrderPlatforms()'s own upsert, user_id
+    // included — that column is NOT NULL in production since re-home Task 11.
     DB::connection('pgsql')->table('content.storefronts')->upsert([[
         'collection_id' => (string) $collectionId,
+        'user_id' => $userId,
         'provider' => $platform,
         'url' => $storeUrl,
         'external_ref' => $ref,
@@ -2110,7 +2157,7 @@ function seedOrderPlatformSidecar(
         'is_individual' => false,
         'created_at' => now(),
         'updated_at' => now(),
-    ]], ['collection_id'], ['url', 'currency', 'updated_at']);
+    ]], ['collection_id'], ['user_id', 'url', 'currency', 'updated_at']);
 }
 
 /**
@@ -3178,7 +3225,15 @@ function setupContentTables(): void
         logo_mark_svg_url TEXT NULL,
         external_ref TEXT NULL,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        -- Re-home Task 11 (20260819000100): the owner is denormalised here so
+        -- store identity (user_id, provider, external_ref) is enforceable in
+        -- one table. NULLABLE in this stand-in where production is NOT NULL —
+        -- SQLite cannot express the partial unique index that makes it
+        -- meaningful either, so the real constraint is pinned in the PG lane
+        -- (tests/Postgres/ShopStorefrontUpsertConflictTest.php). Tightening it
+        -- here would only fail fixtures over a rule this engine cannot enforce.
+        user_id TEXT NULL
     )');
 }
 

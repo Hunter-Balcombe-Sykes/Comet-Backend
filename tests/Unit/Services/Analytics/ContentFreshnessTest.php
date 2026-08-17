@@ -16,6 +16,10 @@ beforeEach(function () {
     tenantHelpersEnsureTables();
     setupSitesTable();     // includes site.platform_connections
     setupServicesTable();
+    // Services cutover: the services-page freshness signal reads content.items
+    // (both source kinds) instead of the legacy site.services row.
+    setupIngestTables();
+    setupContentTables();
 });
 
 function freshnessSeedConnection(object $tenant, string $platform, string $createdAt, array $extra = []): string
@@ -100,19 +104,24 @@ it('boosts each custom link per URL (payload.url = the item content_key) at W_IT
         ->and($boosts['link_item']['https://example.com/older'])->toBeLessThan(ContentFreshness::W_ITEM * 0.52);
 });
 
-it('freshens the Services page from native service rows (newest wins over an older connection)', function () {
+it('freshens the Services page from service content items (newest wins over an older connection)', function () {
     $tenant = createTenant('fresh-book');
     freshnessSeedConnection($tenant, 'fresha', now()->subDays(60)->toISOString());
-    DB::connection('pgsql')->table('site.services')->insert([
+    DB::connection('pgsql')->table('content.items')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $tenant->id,
-        'title' => 'New Cut',
-        'is_active' => 1,
+        'kind' => 'service',
+        'headline_cache' => 'New Cut',
+        'facets_cache' => '{}',
+        'eligible_cache' => '{}',
+        'first_seen_at' => now()->toISOString(),
+        'last_seen_at' => now()->toISOString(),
         'created_at' => now()->toISOString(),
+        'updated_at' => now()->toISOString(),
     ]);
 
     $boosts = app(ContentFreshness::class)->boostsForSite($tenant->site);
 
-    // The brand-new service row drives the Services page's age, not the 60d-old connection.
+    // The brand-new service item drives the Services page's age, not the 60d-old connection.
     expect($boosts['page']['services'])->toBeGreaterThan(ContentFreshness::W_PAGE * 0.99);
 });

@@ -2,9 +2,9 @@
 
 namespace App\Services\Platforms;
 
-use App\Models\Core\Site\ShopBrand;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -35,7 +35,8 @@ class ShopCatalog
 
     /**
      * Live product catalog for a stored brand (array shape from
-     * ShopBrand::toBrandArray()), dispatched by its provider.
+     * ShopContentReader::brandMap(), or dispatchShapeFor() below), dispatched
+     * by its provider.
      *
      * Client-mode brands: the store blocks our egress, so a live scrape
      * usually 502s. Try it anyway (blocks get lifted), then fall back to the
@@ -85,26 +86,18 @@ class ShopCatalog
      * see the HttpException re-throw below — so callers can tell "empty" from
      * "broken" instead of both collapsing into the same silent null.
      */
-    public function syncLatest(ShopBrand $brand): ?int
+    public function syncLatest(StoreRecord $store, string $ownerId): ?int
     {
-        // #428: toBrandArray() materialises $brand->products unconditionally,
-        // so this method REQUIRES that relation loaded — 5a's claim that
-        // "syncLatest() no longer reads $brand->products" was never true, and
-        // ShopFetch stopped eager-loading it on the strength of that claim.
-        // Under Eloquent strict mode that threw LazyLoadingViolationException,
-        // which neither the catch below nor ShopFetch's catches, so every
-        // scheduled refresh of a MULTI-brand connection failed the job
-        // outright. (Multi-brand because Builder::hydrate() only arms the
-        // instance flag when a query returns more than one row — which is also
-        // why no test caught it.)
-        //
-        // Guaranteed here rather than at the call site: ShopController already
-        // passes fresh('products') and loadMissing() is a no-op for it, but a
-        // caller that forgets must not be able to kill a queue job.
-        $brand->loadMissing('products');
-
+        // Re-home Task 7: takes the StoreRecord and its owner directly. Both
+        // used to be reached through the Eloquent model — the catalogue via
+        // toBrandArray() (which materialised $brand->products, the reason #428
+        // needed that relation eager-loaded) and the owner via
+        // $brand->connection, a lazy relation that threw
+        // LazyLoadingViolationException on the strict-mode rows ShopFetch hands
+        // over. Neither hazard can recur: there is no model left to lazy-load
+        // from, and the caller supplies what it already knows.
         try {
-            $catalog = $this->providerProducts($brand->toBrandArray());
+            $catalog = $this->providerProducts($this->dispatchShapeFor($store, $ownerId));
         } catch (HttpException $e) {
             // OBS-2: previously swallowed here as a plain `return null`, which
             // is indistinguishable from a genuinely-empty catalog. ShopFetch's
@@ -112,8 +105,9 @@ class ShopCatalog
             // both need this to propagate so a persistently-blocked store trips
             // the circuit breaker instead of reporting healthy forever.
             Log::warning('shop.sync_latest.unreachable', [
-                'brand_id' => $brand->id,
-                'url' => $brand->url,
+                'collection_id' => $store->collectionId,
+                'external_ref' => $store->externalRef,
+                'url' => $store->url,
                 'error' => $e->getMessage(),
             ]);
 
@@ -124,7 +118,9 @@ class ShopCatalog
             return null;
         }
 
-        $collectionId = $this->storeCollectionId($brand);
+        // The store's content.collections row (kind='storefront'), created with
+        // its storefront sidecar on first sync.
+        $collectionId = $this->content()->upsertStore($store, $ownerId);
 
         // 5a §3.5: count-preserving selection, now sized from content.*'s
         // live link count instead of $brand->products()->count() — that
@@ -154,10 +150,10 @@ class ShopCatalog
         // state rather than a torn legacy table — an accepted trade already
         // made by Task 5's syncStore() implementation, not new here.
         $written = $this->content()->syncStore(
-            (string) $brand->connection->user_id,
+            $ownerId,
             $collectionId,
             $latest->all(),
-            $brand->currency,
+            $store->currency,
         );
 
         // Final review F4: lane 2. writeManualItem() bumps the build state for
@@ -165,7 +161,7 @@ class ShopCatalog
         // moved site.sites.updated_at, and IndividualProfilePayloadBuilder
         // composes its 60s cache key from exactly that column. A scheduled
         // resync therefore served the pre-sync payload for the full TTL.
-        $this->touchSite((string) $brand->connection->user_id);
+        $this->touchSite($ownerId);
 
         return $written;
     }
@@ -185,14 +181,62 @@ class ShopCatalog
     }
 
     /**
-     * The brand's content.collections row (kind='storefront'), created with
-     * its storefront sidecar on first sync. One implementation
-     * (ShopContentWriter::upsertStore()), two callers — ShopBackfiller's
-     * one-off migration and this scheduled resync.
+     * The {id, provider, url, sourceUrl, currency, fetchMode, products} shape
+     * providerProducts() dispatches on — formerly ShopBrand::toBrandArray()
+     * (re-home Task 2).
+     *
+     * `products` is populated ONLY for fetchMode 'client', the single branch
+     * of providerProducts() that reads it (its last-resort fallback when both
+     * the live fetch and the warmed cache come up empty). Every other provider
+     * therefore costs no extra query at all.
+     *
+     * Client mode, conversely, now pays that cost on EVERY call — a
+     * collectionIdFor() lookup plus a cataloguesFor() reconstruct — including
+     * when the live fetch then succeeds and the value is discarded. The old
+     * path read an already-hydrated $brand->products relation for free. Judged
+     * an acceptable trade for deleting the legacy read: client mode is one
+     * fetchMode among six, its stores are the ones that block our egress (so
+     * the fallback is the common branch for them, not the rare one), and the
+     * reconstruct is bounded by one store's catalogue.
+     *
+     * That fallback also gets more truthful in the move: it used to read
+     * site.shop_products, which nothing has written since slice 5a, so it
+     * served whatever was frozen there. It now reads the live catalogue.
+     *
+     * collectionIdFor() is deliberately the read-only lookup, NOT
+     * upsertStore(): this runs BEFORE the upsert in syncLatest(), and a store
+     * whose fetch then fails must not have been minted into content.* as a
+     * side effect of dispatching that fetch.
+     *
+     * Public because ShopController::setProducts() needs the same shape for
+     * its own pre-lock scrape, and building it twice is how the two would
+     * drift.
+     *
+     * $ownerId was briefly a closure, to keep syncLatest() from resolving
+     * $brand->connection before its empty-catalog early return — a lazy read on
+     * a strict-mode row, #428's exact shape. Re-home Task 7 removed the model
+     * from this path entirely, so the owner is a plain string the caller
+     * already has and the hazard cannot recur.
+     *
+     * @return array<string,mixed>
      */
-    private function storeCollectionId(ShopBrand $brand): string
+    public function dispatchShapeFor(StoreRecord $store, string $ownerId): array
     {
-        return $this->content()->upsertStore($brand->toStoreRecord(), (string) $brand->connection->user_id);
+        $products = [];
+        if ($store->fetchMode === 'client') {
+            $collectionId = $this->content()->collectionIdFor($store, $ownerId);
+            $products = $collectionId === null ? [] : $this->content()->currentCatalogue($collectionId);
+        }
+
+        return [
+            'id' => $store->externalRef,
+            'provider' => $store->provider,
+            'url' => $store->url,
+            'sourceUrl' => $store->sourceUrl,
+            'currency' => $store->currency,
+            'fetchMode' => $store->fetchMode,
+            'products' => $products,
+        ];
     }
 
     /** Real ShopContentWriter, or the container's when constructed without one (see the constructor note). */

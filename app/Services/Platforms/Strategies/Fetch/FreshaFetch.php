@@ -102,10 +102,11 @@ final readonly class FreshaFetch implements FetchStrategy
             static fn ($id): bool => is_string($id) && in_array($id, $serviceIds, true),
         ));
 
-        // Project the refreshed scrape into site.services (dedup by serviceId;
-        // detached/suppressed rows honoured) and store the EFFECTIVE list; the
-        // raw scrape persists privately at payload.raw (the revert source).
-        // The kept hidden list seeds is_active on first-time projections only.
+        // Compose the EFFECTIVE list from content.* (dedup by serviceId;
+        // removed/suppressed items honoured) and store it; the raw scrape
+        // persists privately at payload.raw, whose only remaining job is the
+        // vendor's menu ORDER. sync() writes no rows of its own (D3a), and
+        // since the services cutover there is no site.services row to write.
         $user = User::query()->find($connection->user_id);
         if ($user === null) {
             throw new FetchNotModifiedException('fresha');

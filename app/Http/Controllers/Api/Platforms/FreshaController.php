@@ -15,6 +15,7 @@ use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\UserCacheService;
 use App\Services\Http\FetchBudget;
 use App\Services\Http\SafeUrlException;
 use App\Services\Platforms\FreshaScraper;
@@ -27,6 +28,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // Endpoints for the Fresha integration (fully authenticated — 'user.api' middleware
@@ -668,28 +670,36 @@ class FreshaController extends ApiController
         // both on the per-platform 'fresha' key would leave clearBooking()
         // free to race this delete.
         //
-        // Fix B (whole-branch review pt.2): TTL 30s (not the 10s default) —
-        // Service::delete() below fires ServiceObserver per row (user+site
-        // lookup, ~29-key Redis bust, two visibility re-evaluations, a Site
-        // touch cascading into its own observer/purge) — the same per-row
-        // cost class as sync()'s upsert loop, which is why sync()'s lock was
-        // already raised to 30s. services_max=500 caps listing only, not
-        // count, so a large synced menu can plausibly exceed 10s here too.
+        // Fix B's 30s TTL is BACK to the 10s default (services cutover): it was
+        // sized for the per-row ServiceObserver storm the Service::delete()
+        // loop below caused — user+site lookup, ~29-key Redis bust, two
+        // visibility re-evaluations and a Site touch, PER ROW. One raw UPDATE
+        // replaces the loop, so the cost that justified the wider bound is gone.
         return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user) {
             $this->forgetConnection($user);
 
-            $synced = Service::query()
-                ->where('user_id', $user->id)
-                ->where('source', 'fresha')
-                ->where('is_manual', false)
-                ->get();
-            foreach ($synced as $row) {
-                $row->deleted_origin = 'sync';
-                $row->saveQuietly();
-                $row->delete();
-            }
+            // Content twin of the legacy 'sync' soft-delete (spec §3.3):
+            // source_items.removed_at hides the synced items from every
+            // management read, and ProjectionWriter CLEARS it when a
+            // reconnect's next run re-lands them — restore-on-return, native.
+            // An item carrying a manual override is the owner's detached
+            // content (the old is_manual rule) and survives live; an
+            // owner-DELETED item already carries items.removed_at, which
+            // nothing here touches.
+            DB::connection('pgsql')->table('content.source_items')
+                ->whereIn('source_id', fn ($q) => $q->select('id')->from('content.sources')
+                    ->where('user_id', $user->id)->where('kind', 'connection'))
+                ->whereIn('item_id', fn ($q) => $q->select('id')->from('content.items')
+                    ->where('user_id', $user->id)->where('kind', 'service')
+                    ->whereNotExists(fn ($e) => $e->selectRaw('1')
+                        ->from('content.manual_overrides')
+                        ->whereColumn('content.manual_overrides.item_id', 'content.items.id')))
+                ->whereNull('removed_at')
+                ->update(['removed_at' => now()]);
+
+            app(UserCacheService::class)->invalidateServices((string) $user->id);
 
             return $this->success(['url' => null, 'selection' => null]);
-        }, 30);
+        });
     }
 }

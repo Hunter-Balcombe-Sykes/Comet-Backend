@@ -580,20 +580,22 @@ it('fires all three invalidation lanes on a layout reorder', function () {
     Queue::assertPushed(CloudflareCachePurgeJob::class);
 });
 
-it('rejects a Fresha service filed under an owner-authored category block', function () {
-    // The guard that makes accepting both id spaces safe: a block's space
-    // decides what may sit in it, so a mismatch is a 422 rather than a
-    // membership silently dropped on the next read.
+it('rejects a legacy site.services id in a layout block', function () {
+    // Was: "rejects a Fresha service filed under an owner-authored category
+    // block" — the cross-space guard that made accepting TWO category id
+    // spaces safe. Services cutover Task 5 left one space, so the mismatch it
+    // described cannot occur; what a legacy id gets now is the plain
+    // unknown-id 422, before any block-space question is asked.
     [$user] = serviceResyncUser();
     $colour = app(ServiceCollections::class)->create($user->id, 'Colour');
-    $freshaId = ownerService($user->id, ['title' => 'Fresha Cut', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
+    $legacyId = ownerService($user->id, ['title' => 'Fresha Cut', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
 
     actingAsUser($user)->postJson('/api/services/reorder-layout', [
         'categories' => [
-            ['id' => $colour, 'service_ids' => [$freshaId]],
+            ['id' => $colour, 'service_ids' => [$legacyId]],
             ['id' => null, 'service_ids' => []],
         ],
-    ])->assertStatus(422)->assertJsonPath('message', 'A Fresha-synced service cannot be filed under an owner-authored category.');
+    ])->assertStatus(422)->assertJsonPath('message', 'One or more service IDs are invalid.');
 });
 
 it('rejects a payload that covers every legacy category but omits a collection', function () {

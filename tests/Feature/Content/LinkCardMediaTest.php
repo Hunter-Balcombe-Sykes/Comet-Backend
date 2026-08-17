@@ -1,0 +1,122 @@
+<?php
+
+use App\Http\Controllers\Api\Content\LinkPreviewController;
+use App\Http\Controllers\Api\Content\PoolController;
+use App\Http\Controllers\Api\Content\PoolItemCreateController;
+use App\Jobs\Content\EnrichPoolLinkJob;
+use App\Services\Content\LinkPoolWriter;
+use App\Services\Platforms\LinkCardScraper;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Queue;
+
+// Link cards carry the page's share image and favicon (2026-08-17): the
+// dashboard previews a pasted URL, the owner checks the card, and the create
+// endpoint stores it — images as borrowed media, read back as `thumbnail`
+// (cover) and `favicon` (logo).
+
+beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+    setupContentTables();
+    Queue::fake();
+});
+
+it('previews what a pasted link would become', function () {
+    [$pro] = poolTenant();
+
+    $this->mock(LinkCardScraper::class, function ($m) {
+        $m->shouldReceive('normalizeUrl')->with('example.com/page')->andReturn('https://example.com/page');
+        $m->shouldReceive('snapshotOrMinimal')->with('https://example.com/page')->andReturn([
+            'url' => 'https://example.com/page',
+            'name' => 'Example page',
+            'description' => 'A page about examples.',
+            'favicon' => 'https://example.com/favicon.ico',
+            'logo' => 'https://example.com/og.png',
+        ]);
+    });
+
+    $request = Request::create('/api/content/links/preview', 'POST', ['url' => 'example.com/page']);
+    $request->attributes->set('professional', $pro);
+    $data = app(LinkPreviewController::class)->show($request)->getData(true);
+
+    expect($data)->toMatchArray([
+        'url' => 'https://example.com/page',
+        'name' => 'Example page',
+        'description' => 'A page about examples.',
+        'favicon' => 'https://example.com/favicon.ico',
+        'logo' => 'https://example.com/og.png',
+        'fetched' => true,
+    ]);
+});
+
+it('stores the checked card on create and serves its images on the pool wire', function () {
+    [$pro] = poolTenant();
+
+    $request = Request::create('/api/content/pools/custom_links/items', 'POST', [
+        'url' => 'https://example.com/page',
+        'title' => 'Example page',
+        'description' => 'A page about examples.',
+        'favicon' => 'https://example.com/favicon.ico',
+        'logo' => 'https://example.com/og.png',
+    ]);
+    $request->attributes->set('professional', $pro);
+    $data = app(PoolItemCreateController::class)->store($request, 'custom_links')->getData(true);
+
+    $item = $data['selection'][0];
+    expect($item['headline'])->toBe('Example page')
+        ->and($item['description'])->toBe('A page about examples.')
+        ->and($item['thumbnail'])->toBe('https://example.com/og.png')
+        ->and($item['favicon'])->toBe('https://example.com/favicon.ico');
+
+    // The card came with the request, so nothing is dispatched to read it again.
+    Queue::assertNotPushed(EnrichPoolLinkJob::class);
+});
+
+it('enriches a link added without a card, and never clobbers typed words', function () {
+    [$pro] = poolTenant();
+
+    $request = Request::create('/api/content/pools/custom_links/items', 'POST', [
+        'url' => 'https://example.com/page',
+    ]);
+    $request->attributes->set('professional', $pro);
+    app(PoolItemCreateController::class)->store($request, 'custom_links');
+    Queue::assertPushed(EnrichPoolLinkJob::class);
+
+    $this->mock(LinkCardScraper::class, function ($m) {
+        $m->shouldReceive('snapshot')->with('https://example.com/page')->andReturn([
+            'url' => 'https://example.com/page',
+            'name' => 'Example page',
+            'description' => 'A page about examples.',
+            'favicon' => 'https://example.com/favicon.ico',
+            'logo' => 'https://example.com/og.png',
+        ]);
+    });
+    (new EnrichPoolLinkJob((string) $pro->id, 'https://example.com/page'))
+        ->handle(app(LinkCardScraper::class), app(LinkPoolWriter::class));
+
+    $show = Request::create('/api/content/pools/custom_links', 'GET');
+    $show->attributes->set('professional', $pro);
+    $item = app(PoolController::class)->show($show, 'custom_links')->getData(true)['selection'][0];
+    expect($item['headline'])->toBe('Example page')
+        ->and($item['description'])->toBe('A page about examples.')
+        ->and($item['thumbnail'])->toBe('https://example.com/og.png')
+        ->and($item['favicon'])->toBe('https://example.com/favicon.ico');
+
+    // A second run against a now-titled item leaves the words alone but the
+    // images still land (they are the page's, not the owner's).
+    $this->mock(LinkCardScraper::class, function ($m) {
+        $m->shouldReceive('snapshot')->andReturn([
+            'url' => 'https://example.com/page',
+            'name' => 'Some other title',
+            'description' => 'Other words.',
+            'favicon' => 'https://example.com/favicon2.ico',
+            'logo' => 'https://example.com/og2.png',
+        ]);
+    });
+    (new EnrichPoolLinkJob((string) $pro->id, 'https://example.com/page'))
+        ->handle(app(LinkCardScraper::class), app(LinkPoolWriter::class));
+    $item = app(PoolController::class)->show($show, 'custom_links')->getData(true)['selection'][0];
+    expect($item['headline'])->toBe('Example page')
+        ->and($item['description'])->toBe('A page about examples.')
+        ->and($item['thumbnail'])->toBe('https://example.com/og2.png');
+});

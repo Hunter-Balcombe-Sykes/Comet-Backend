@@ -6,7 +6,6 @@ use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -29,13 +28,24 @@ use Illuminate\Support\Carbon;
  * @property string|null $external_id
  * @property-read Collection<int, ServiceCategory> $categories
  */
-// V2: A bookable service offered by a professional. Stores pricing, duration,
-// and display metadata. Provenance (2026-07-21): source NULL = owner-authored
-// (manual); source='fresha' = projected from the Fresha scrape, identified by
-// external_id (the Fresha serviceId). An owner edit on a projected row flips
-// is_manual ("sync broken") — the re-scrape then never overwrites it, and the
-// revert/resync endpoints re-project it from the stored raw scrape. Deleting a
-// projected row records suppression via soft delete + deleted_origin='user'.
+// Services cutover (2026-08): site.services is DROPPED. This class survives
+// ONLY as the in-memory wire shape ServiceResource maps — every instance is
+// unsaved (exists = false), hydrated by ManualServiceItems (owner-authored)
+// or FreshaServiceItems (connection-sourced). NEVER query it:
+// tests/Feature/Architecture/LegacyServiceQuerySurfaceTest.php pins that no
+// code in app/ does.
+//
+// What the columns MEAN now, since they are populated by hand: source NULL =
+// owner-authored, 'fresha' = connection-sourced with external_id carrying the
+// vendor serviceId; is_manual = the item carries a content.manual_overrides
+// row ("sync broken"); is_active = not excluded (manual) / not on the blob's
+// hiddenServiceIds (Fresha); deleted_at mirrors content.items.removed_at;
+// sort_order is site.section_items.sort_key, with PHP_INT_MAX standing in for
+// an unpositioned item (ServiceResource maps that sentinel back to null).
+//
+// The SoftDeletes trait and the $table binding are retained deliberately: the
+// legacy fixtures that still seed site.services live until the DROP unit, and
+// they soft-delete through this model. Both go with the table.
 class Service extends BaseModel
 {
     use HasUuids, SoftDeletes;
@@ -76,16 +86,9 @@ class Service extends BaseModel
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * Every category this service is listed under (multi-category, 2026-07-21).
-     * No pivot ordering — the grouped display orders by category sort_order
-     * then the service's global sort_order, exactly as before.
-     *
-     * @return BelongsToMany<ServiceCategory, $this>
-     */
-    public function categories(): BelongsToMany
-    {
-        return $this->belongsToMany(ServiceCategory::class, 'site.service_category_assignments', 'service_id', 'service_category_id')
-            ->withTimestamps();
-    }
+    // categories() is GONE (services cutover): its pivot,
+    // site.service_category_assignments, is dropped, and every consumer reads
+    // the memberships pre-set onto the relation by the hydrators instead —
+    // which is what kept a content-item id from ever being queried against
+    // that pivot in the first place.
 }

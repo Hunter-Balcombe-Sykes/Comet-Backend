@@ -1,42 +1,43 @@
 <?php
 
-// Slice 3b §19.8: StaffServiceCategoryManagementController::reorder() writes
-// TWO stores — content.collections (via ServiceCollections::reposition()) and
-// site.service_categories (via ReorderService) — because the Fresha half still
-// files into the legacy table until slice 7.
+// StaffServiceCategoryManagementController::reorder() renumbers the owner's
+// service categories under the service-categories:{user} advisory key.
 //
-// It used to write them under two INDEPENDENT lock scopes: the collections
-// write in its own transaction, then ReorderService::reorder() opening a second
-// transaction and re-taking the same advisory key. Both halves are internally
-// collision-safe, so nothing ever 500'd — which is exactly why this needed a
-// test rather than an incident. The defect is that a competing writer can take
-// the key in the GAP between the two scopes and apply its whole reorder, after
-// which this request commits its legacy order on top: one store ordered by
-// request A, the other by request B, from two individually-correct requests.
+// WHAT THIS FILE USED TO BE ABOUT, and why it changed. Until the services
+// cutover the endpoint wrote TWO stores — content.collections (via
+// ServiceCollections::reposition()) and site.service_categories (via
+// ReorderService) — originally under two INDEPENDENT lock scopes. Both halves
+// are internally collision-safe, so nothing ever 500'd; the defect was that a
+// competing writer could take the key in the GAP between the scopes and apply
+// its whole reorder, leaving one store ordered by request A and the other by
+// request B. The discriminating property was ATOMICITY: a failure in the second
+// half had to roll the first half back.
+//
+// Services cutover Task 8 deleted the legacy store. There is one write now, so
+// the cross-store failure mode cannot occur and the case that pinned it has no
+// subject. What survives, and is what this file now asserts, is the property
+// underneath it: reposition() is a MULTI-STATEMENT renumber (two passes, one
+// UPDATE per row), so a failure part-way through must leave the order exactly
+// as it was rather than half-applied.
 //
 // WHY THE OUTCOME ALONE IS NOT ENOUGH. A test that asserted only "the final
-// order is the submitted one" passes on the two-scope version too, whenever no
-// competing writer happens to interleave — and passes with the lock deleted
-// entirely, because each store's own two-pass renumber prevents collisions on
-// its own. The discriminating property is ATOMICITY: with one scope, a failure
-// in the legacy half must roll the collections half back. Under two scopes the
-// collections write had already COMMITTED and survives. That is the assertion
-// below, and re-splitting the scopes turns it red.
+// order is the submitted one" passes with the lock deleted entirely, because
+// the two-pass renumber prevents collisions on its own. Forcing a real
+// mid-renumber fault is what distinguishes rolled-back from never-started, and
+// the positive control below is what distinguishes it from never-written.
 //
-// This lane, not SQLite: transactional rollback across two writes is real-driver
-// behaviour, and the pgsql->SQLite remap the default Feature lane uses (see
-// tests/TestCase.php) cannot reproduce it by construction — the same reasoning
-// ShopUpsertStoreAtomicityTest.php records for its own pair.
+// This lane, not SQLite: transactional rollback across a multi-statement write
+// is real-driver behaviour, and the pgsql->SQLite remap the default Feature
+// lane uses (see tests/TestCase.php) cannot reproduce it by construction — the
+// same reasoning ShopUpsertStoreAtomicityTest.php records for its own pair.
 //
 // LANE HYGIENE — mirrors ShopUpsertStoreAtomicityTest.php: self-provisions its
 // tables inside a transaction afterEach always rolls back, because content.*
 // tables are SHARED fixtures across this lane (whichever file runs first decides
 // a table's shape for every later file in the same run).
 
-use App\Models\Core\User\ServiceCategory;
 use App\Services\Content\ServiceCollections;
 use App\Services\Site\AdvisoryLock;
-use App\Services\Site\ReorderService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -47,12 +48,11 @@ uses(PostgresTestCase::class)->in(__FILE__);
 beforeEach(function () {
     $pg = DB::connection('pgsql');
     $pg->beginTransaction();
-
     $pg->statement('CREATE SCHEMA IF NOT EXISTS core');
     $pg->statement('CREATE SCHEMA IF NOT EXISTS content');
     $pg->statement('CREATE SCHEMA IF NOT EXISTS site');
 
-    foreach (['content.collection_items', 'content.collections', 'site.service_categories', 'core.users'] as $table) {
+    foreach (['content.collection_items', 'content.collections', 'core.users'] as $table) {
         $pg->statement("DROP TABLE IF EXISTS {$table} CASCADE");
     }
 
@@ -70,17 +70,6 @@ beforeEach(function () {
         removed_at timestamptz,
         position integer NOT NULL DEFAULT 0,
         is_user_created boolean NOT NULL DEFAULT false,
-        created_at timestamptz NOT NULL DEFAULT now(),
-        updated_at timestamptz NOT NULL DEFAULT now()
-    )');
-
-    $pg->statement('CREATE TABLE site.service_categories (
-        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
-        title text NOT NULL,
-        source text,
-        sort_order integer NOT NULL DEFAULT 0,
-        deleted_at timestamptz,
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
     )');
@@ -118,101 +107,70 @@ function catReorderCollections(string $userId, int $count): array
     return $ids;
 }
 
-/** @return list<string> legacy category ids, in the seeded sort_order */
-function catReorderLegacy(string $userId, int $count): array
-{
-    $ids = [];
-    for ($i = 0; $i < $count; $i++) {
-        $id = (string) Str::uuid();
-        DB::connection('pgsql')->table('site.service_categories')->insert([
-            'id' => $id,
-            'user_id' => $userId,
-            'title' => 'Legacy '.$i,
-            'source' => 'fresha',
-            'sort_order' => $i,
-        ]);
-        $ids[] = $id;
-    }
-
-    return $ids;
-}
-
 /**
- * The controller's unified body, called directly.
+ * The controller's reorder body, called directly.
  *
  * Deliberately NOT an HTTP call: the staff route needs the full staff-auth and
  * audit stack, and none of that is what this file is about. What matters is
- * that both writes run inside ONE transaction holding ONE lock — so the body is
- * reproduced here in the shape the controller has, and the test forces the
- * second half to fail. If the controller ever re-splits the scopes, the
- * assertion below no longer holds for it. That the CONTROLLER really is shaped
- * this way is pinned separately, in StaffServiceCategoryCutoverTest.
+ * that the renumber runs inside ONE transaction holding the lock, so the body
+ * is reproduced here in the shape the controller has. That the CONTROLLER
+ * really is shaped this way — including that it takes the key exactly once —
+ * is pinned separately, in StaffServiceCategoryCutoverTest.
  */
-function catReorderUnified(string $userId, array $collectionIds, array $legacyIds): void
+function catReorderUnified(string $userId, array $collectionIds): void
 {
     $lockKey = "service-categories:{$userId}";
 
-    DB::connection('pgsql')->transaction(function () use ($userId, $collectionIds, $legacyIds, $lockKey): void {
+    DB::connection('pgsql')->transaction(function () use ($userId, $collectionIds, $lockKey): void {
         AdvisoryLock::acquire($lockKey, AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
         if ($collectionIds !== []) {
             app(ServiceCollections::class)->reposition($userId, $collectionIds);
         }
-
-        if ($legacyIds !== []) {
-            app(ReorderService::class)->renumberLocked(
-                $legacyIds,
-                ServiceCategory::query()->where('user_id', $userId),
-                $lockKey,
-            );
-        }
     });
 }
 
-it('rolls the collections reorder back when the legacy reorder fails', function () {
+it('rolls the whole renumber back when a statement part-way through it fails', function () {
     $userId = catReorderUser();
     [$c0, $c1, $c2] = catReorderCollections($userId, 3);
-    $legacyIds = catReorderLegacy($userId, 2);
 
-    // Force a genuine Postgres statement-level error on the SECOND half.
-    // sort_order is a real, NOT NULL column ReorderService writes on every
-    // call; dropping it makes the legacy renumber throw for the same reason a
-    // real schema/driver fault would, without inventing a constraint that does
-    // not exist in production.
-    DB::connection('pgsql')->statement('ALTER TABLE site.service_categories DROP COLUMN sort_order');
+    // Force a genuine Postgres statement-level error inside the renumber.
+    // position is a real, NOT NULL column reposition() writes on every call;
+    // dropping it makes the renumber throw for the same reason a real
+    // schema/driver fault would, without inventing a constraint that does not
+    // exist in production. The rows keep their seeded order because the
+    // failure aborts the transaction that was rewriting them.
+    DB::connection('pgsql')->statement('ALTER TABLE content.collections DROP COLUMN position');
 
-    expect(fn () => catReorderUnified($userId, [$c2, $c0, $c1], $legacyIds))
+    expect(fn () => catReorderUnified($userId, [$c2, $c0, $c1]))
         ->toThrow(QueryException::class);
 
-    // The two-scope failure mode: these positions would already be committed —
-    // c2=0, c0=1, c1=2 — because the collections transaction closed before the
-    // legacy half ran. One scope means the seeded 0,1,2 survives untouched.
+    // Re-add the column so the assertion can read it back; the values are
+    // whatever the rolled-back transaction left behind, which must be the
+    // defaults rather than a half-applied 0,1,2 permutation.
+    DB::connection('pgsql')->statement('ALTER TABLE content.collections ADD COLUMN position integer NOT NULL DEFAULT 0');
+
     $positions = DB::connection('pgsql')->table('content.collections')
         ->where('user_id', $userId)->orderBy('label')->pluck('position', 'label');
 
-    expect((int) $positions['Collection 0'])->toBe(0)
-        ->and((int) $positions['Collection 1'])->toBe(1)
-        ->and((int) $positions['Collection 2'])->toBe(2);
+    expect($positions)->toHaveCount(3)
+        ->and((int) $positions['Collection 0'])->toBe(0)
+        ->and((int) $positions['Collection 1'])->toBe(0)
+        ->and((int) $positions['Collection 2'])->toBe(0);
 });
 
-it('commits both stores together when neither half fails', function () {
+it('commits the renumber when nothing fails', function () {
     // The positive control. Without it the case above passes on a reorder that
     // never writes anything at all — "nothing changed" is the same observation
     // as "rolled back".
     $userId = catReorderUser();
     [$c0, $c1, $c2] = catReorderCollections($userId, 3);
-    [$l0, $l1] = catReorderLegacy($userId, 2);
 
-    catReorderUnified($userId, [$c2, $c0, $c1], [$l1, $l0]);
+    catReorderUnified($userId, [$c2, $c0, $c1]);
 
     $positions = DB::connection('pgsql')->table('content.collections')
         ->where('user_id', $userId)->orderBy('label')->pluck('position', 'label');
     expect((int) $positions['Collection 2'])->toBe(0)
         ->and((int) $positions['Collection 0'])->toBe(1)
         ->and((int) $positions['Collection 1'])->toBe(2);
-
-    $sortOrders = DB::connection('pgsql')->table('site.service_categories')
-        ->where('user_id', $userId)->pluck('sort_order', 'id');
-    expect((int) $sortOrders[$l1])->toBe(0)
-        ->and((int) $sortOrders[$l0])->toBe(1);
 });

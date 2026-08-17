@@ -1,180 +1,177 @@
 <?php
 
-use App\Models\Core\User\Service;
-use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualServiceItems;
+use App\Services\Content\ServiceCollections;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
-// POST /api/services/reorder-layout (UserServiceController::reorderLayout) — full
-// layout save (categories + the services within each). Regression coverage for a
-// 500 (Postgres 23505) that fired whenever the layout had 2+ categories each
-// holding a service: the per-category loop restarted `sort_order` at 0 for every
-// bucket, but services_user_sort_order_uq is a partial UNIQUE index on
-// (user_id, sort_order) WHERE deleted_at IS NULL — GLOBAL per professional, not
-// per category — so two services in two different buckets both landing on
-// sort_order=0 collided. service_categories carries no equivalent unique index
-// (only a plain sort index + a unique-title index), so its sort_order write
-// needed no equivalent fix.
+// POST /api/services/reorder-layout (UserServiceController::reorderLayout) —
+// full layout save (categories + the services within each).
 //
-// Slice 3a Task 5 (§C3 review fix): reorderLayout()'s category-block +
-// sort_order/service_category_assignments machinery is now Fresha-only —
-// owner-authored (source IS NULL) services moved to content.* and are
-// reordered via section_items.sort_key instead, and carry no category
-// concept at all. Every fixture below is explicitly 'source' => 'fresha' so
-// it keeps exercising the SAME legacy code path this regression guard was
-// written against (byte-for-byte restored post-cutover, per the review) —
-// a source-less fixture would 422 here now (not a manual or Fresha id).
+// This file began as regression coverage for a 500 (Postgres 23505) whenever a
+// layout had 2+ categories each holding a service: the per-category loop
+// restarted sort_order at 0 per bucket, while services_user_sort_order_uq was a
+// partial UNIQUE on (user_id, sort_order) — GLOBAL per professional.
+//
+// Services cutover Task 5 retires that failure mode outright: both halves are
+// ordered by site.section_items.sort_key, which carries no uniqueness
+// constraint, and the index that made a repeated position fatal drops with
+// site.services. What survives, and is what these cases now assert, is the
+// property the fix was really protecting — ONE global running position across
+// buckets in payload order, never a per-bucket restart — plus the two stances
+// the endpoint has held since: it writes ORDER only, never membership, and
+// both halves land on the same scale in one request.
 beforeEach(function () {
     tenantHelpersEnsureTables();
-    setupServicesTable();
-    setupServiceCategoriesTable();
-    // reorderLayout() also touches content.*/site.sections regardless of
-    // whether the professional has any owner-authored services — the
-    // ManualServiceItems read that determines "how many manual ids must this
-    // payload cover" (zero, here) still queries those tables.
     setupIngestTables();
     setupContentTables();
     setupBlocksTable();
-    // reorderLayout() takes pg_advisory_xact_lock(hashtext(...)) — both Postgres-only;
-    // shim them as SQLite UDFs so the real production code path runs under test.
+    // reorderLayout() takes pg_advisory_xact_lock(hashtext(...)) — Postgres-only;
+    // shim it as a SQLite UDF so the real production code path runs under test.
     shimPgAdvisoryLockForSqlite();
-
-    // Mirror the production partial unique index (see ServiceRestoreSortOrderTest)
-    // so the collision actually fires in SQLite the way it does on Postgres.
-    DB::connection('pgsql')->statement(
-        'CREATE UNIQUE INDEX IF NOT EXISTS site.services_pro_sort_order_uq
-         ON services (user_id, sort_order)
-         WHERE deleted_at IS NULL'
-    );
 });
+
+/** One Fresha-landed service content item — the id space the layout verb speaks. */
+function svcLayoutReorderFreshaItem(User $pro, string $title, string $recordKey): string
+{
+    $sourceId = (string) Str::uuid();
+    $itemId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
+        'headline_cache' => $title, 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    // The anchor is what makes this stable: ProjectionWriter::resolveItems()
+    // binds a coord to its item through content.item_anchors, and it re-runs
+    // over EVERY live source item for the (user, kind) pair on any manual
+    // write. Without an anchor row this coord resolves as an unrelated
+    // singleton, gets a freshly minted item, and the id returned here is
+    // orphaned — which is exactly what a connector-landed row never does.
+    DB::table('content.item_anchors')->insert([
+        'coord' => 'fresha:'.$recordKey, 'user_id' => $pro->id, 'item_id' => $itemId, 'bound_at' => now(),
+    ]);
+
+    return $itemId;
+}
+
+/** The services section's sort_key for one item, as a float (null when unpositioned). */
+function svcLayoutReorderKey(User $pro, string $itemId): ?float
+{
+    $sectionId = app(ManualServiceItems::class)->sectionId($pro->site->fresh());
+    $key = DB::table('site.section_items')->where('section_id', $sectionId)
+        ->where('item_id', $itemId)->value('sort_key');
+
+    return $key === null ? null : (float) $key;
+}
 
 it('reorders a layout across two categories that each hold a service without a 500', function () {
     $pro = createTenant('svc-layout-two-cats');
 
-    $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    $serviceA = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
-    $serviceB = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 1, 'source' => 'fresha']);
+    $collections = app(ServiceCollections::class);
+    $catA = $collections->create($pro->id, 'Cat A');
+    $catB = $collections->create($pro->id, 'Cat B');
+    $serviceA = svcLayoutReorderFreshaItem($pro, 'Service A', 's:a');
+    $serviceB = svcLayoutReorderFreshaItem($pro, 'Service B', 's:b');
 
-    $response = actingAsUser($pro)->postJson('/api/services/reorder-layout', [
+    actingAsUser($pro)->postJson('/api/services/reorder-layout', [
         'categories' => [
-            ['id' => $catA->id, 'service_ids' => [$serviceA->id]],
-            ['id' => $catB->id, 'service_ids' => [$serviceB->id]],
+            ['id' => $catA, 'service_ids' => [$serviceA]],
+            ['id' => $catB, 'service_ids' => [$serviceB]],
         ],
-    ]);
+    ])->assertOk();
 
-    $response->assertOk();
-
-    $serviceA->refresh();
-    $serviceB->refresh();
-    // Global running counter across buckets in payload order, not a per-bucket
-    // restart — the two services must NOT both land on sort_order=0.
-    expect([$serviceA->sort_order, $serviceB->sort_order])->toEqualCanonicalizing([0, 1]);
+    // ONE global running counter across buckets in payload order, not a
+    // per-bucket restart — the two services must not share a position.
+    expect([svcLayoutReorderKey($pro, $serviceA), svcLayoutReorderKey($pro, $serviceB)])
+        ->toEqualCanonicalizing([0.0, 1.0]);
 });
 
-// Slice 7 Task 12 INVERTED the membership half of this case. reorderLayout()
-// no longer writes site.service_category_assignments at all — the pivot is
-// dropped in Phase 6 and the Fresha lane's categories are content.collections
-// now — so a payload that re-files a service persists ORDER only, and its
-// legacy membership stays exactly where it was.
-it('does NOT persist a re-filed category, and still renumbers sort_order globally', function () {
+it('does NOT persist a re-filed category, and still orders globally', function () {
     $pro = createTenant('svc-layout-move');
 
-    $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    // services_pro_sort_order_uq is GLOBAL per professional, not per category —
-    // every fixture service below needs its own distinct starting sort_order.
-    $stays = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
-    $moves = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1, 'source' => 'fresha']);
-    $resident = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 2, 'source' => 'fresha']);
+    $collections = app(ServiceCollections::class);
+    $catA = $collections->create($pro->id, 'Cat A');
+    $catB = $collections->create($pro->id, 'Cat B');
+    $stays = svcLayoutReorderFreshaItem($pro, 'Stays', 's:1');
+    $moves = svcLayoutReorderFreshaItem($pro, 'Moves', 's:2');
+    $resident = svcLayoutReorderFreshaItem($pro, 'Resident', 's:3');
+    $collections->assign($pro->id, $moves, $catA, null);
+    $collections->assign($pro->id, $resident, $catB, null);
 
     // $moves is asked to leave category A for category B, landing after
     // $resident. Only the landing is honoured.
-    $response = actingAsUser($pro)->postJson('/api/services/reorder-layout', [
+    actingAsUser($pro)->postJson('/api/services/reorder-layout', [
         'categories' => [
-            ['id' => $catA->id, 'service_ids' => [$stays->id]],
-            ['id' => $catB->id, 'service_ids' => [$resident->id, $moves->id]],
+            ['id' => $catA, 'service_ids' => [$stays]],
+            ['id' => $catB, 'service_ids' => [$resident, $moves]],
         ],
-    ]);
+    ])->assertOk();
 
-    $response->assertOk();
-
-    $moves->refresh();
     // Membership unmoved: still catA, and catB gained nothing.
-    expect($moves->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catA->id]);
-    expect(DB::table('site.service_category_assignments')->where('service_category_id', $catB->id)->pluck('service_id')->all())
-        ->toBe([(string) $resident->id]);
+    expect(DB::table('content.collection_items')->where('item_id', $moves)->pluck('collection_id')->all())
+        ->toBe([$catA]);
+    expect(DB::table('content.collection_items')->where('collection_id', $catB)->pluck('item_id')->all())
+        ->toBe([$resident]);
 
     // Order IS applied: $moves lands after $resident.
-    $resident->refresh();
-    expect($moves->sort_order)->toBeGreaterThan($resident->sort_order);
-
-    // Every active service's sort_order is globally unique post-reorder.
-    $sortOrders = Service::query()->where('user_id', $pro->id)->pluck('sort_order');
-    expect($sortOrders->unique())->toHaveCount($sortOrders->count());
+    expect(svcLayoutReorderKey($pro, $moves))->toBeGreaterThan(svcLayoutReorderKey($pro, $resident));
 });
 
-it('swaps the order of two services within a category and keeps sort_order globally unique', function () {
+it('swaps the order of two services within a category and keeps the collection order intact', function () {
     $pro = createTenant('svc-layout-swap');
 
-    $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    // services_pro_sort_order_uq is GLOBAL per professional — distinct starting values.
-    $first = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
-    $second = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1, 'source' => 'fresha']);
-    $other = createServiceFor($pro, ['category_id' => $catB->id, 'sort_order' => 2, 'source' => 'fresha']);
+    $collections = app(ServiceCollections::class);
+    $catA = $collections->create($pro->id, 'Cat A');
+    $catB = $collections->create($pro->id, 'Cat B');
+    $first = svcLayoutReorderFreshaItem($pro, 'First', 's:1');
+    $second = svcLayoutReorderFreshaItem($pro, 'Second', 's:2');
+    $other = svcLayoutReorderFreshaItem($pro, 'Other', 's:3');
 
     // Swap $first/$second's relative order within category A; category B unchanged.
-    $response = actingAsUser($pro)->postJson('/api/services/reorder-layout', [
+    actingAsUser($pro)->postJson('/api/services/reorder-layout', [
         'categories' => [
-            ['id' => $catA->id, 'service_ids' => [$second->id, $first->id]],
-            ['id' => $catB->id, 'service_ids' => [$other->id]],
+            ['id' => $catA, 'service_ids' => [$second, $first]],
+            ['id' => $catB, 'service_ids' => [$other]],
         ],
-    ]);
+    ])->assertOk();
 
-    $response->assertOk();
+    expect(svcLayoutReorderKey($pro, $second))->toBeLessThan(svcLayoutReorderKey($pro, $first));
+    // Distinct positions across all three, on one scale.
+    expect(collect([$first, $second, $other])->map(fn ($id) => svcLayoutReorderKey($pro, $id))->unique())
+        ->toHaveCount(3);
 
-    $first->refresh();
-    $second->refresh();
-    $other->refresh();
-
-    // Both stayed in category A; $second now sorts ahead of $first.
-    expect($first->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catA->id]);
-    expect($second->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catA->id]);
-    expect($second->sort_order)->toBeLessThan($first->sort_order);
-
-    // Globally unique across all three active services (the fix's core guarantee).
-    $sortOrders = Service::query()->where('user_id', $pro->id)->pluck('sort_order');
-    expect($sortOrders->unique())->toHaveCount(3);
-
-    // Category sort_order untouched by the fix — service_categories carries no
-    // unique index, so it never needed the two-pass treatment.
-    expect(ServiceCategory::withoutGlobalScopes()->whereKey($catA->id)->value('sort_order'))->toBe(0);
-    expect(ServiceCategory::withoutGlobalScopes()->whereKey($catB->id)->value('sort_order'))->toBe(1);
+    // Collection order follows the payload's block order.
+    expect($collections->list($pro->id)->map(fn ($row) => (string) $row->id)->all())->toBe([$catA, $catB]);
 });
 
-// New coverage (Task 5 fix round): a manual (content.*) service in the SAME
-// payload gets section_items.sort_key, never touches
-// service_category_assignments, and is exempt from the "categorised or
-// uncategorised, never both" check that governs the Fresha half.
 it('reorders a manual service by sort_key alongside a Fresha layout in one request', function () {
-    [$userId, $siteId] = seedUserWithSite();
+    [$userId] = seedUserWithSite();
     $pro = User::query()->with('site')->findOrFail($userId);
 
-    $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $freshaService = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
+    $catA = app(ServiceCollections::class)->create($pro->id, 'Cat A');
     $manualId = actingAsUser($pro)->postJson('/api/services', ['title' => 'Manual', 'price_cents' => 1000])
         ->assertCreated()->json('service.id');
+    $freshaId = svcLayoutReorderFreshaItem($pro, 'Fresha', 's:1');
 
-    $response = actingAsUser($pro)->postJson('/api/services/reorder-layout', [
+    actingAsUser($pro)->postJson('/api/services/reorder-layout', [
         'categories' => [
-            ['id' => $catA->id, 'service_ids' => [$freshaService->id]],
+            ['id' => $catA, 'service_ids' => [$freshaId]],
             ['id' => null, 'service_ids' => [$manualId]],
         ],
-    ]);
+    ])->assertOk();
 
-    $response->assertOk();
-
-    expect(DB::table('site.section_items')->where('item_id', $manualId)->value('sort_key'))->not->toBeNull();
-    expect(DB::table('site.service_category_assignments')->where('service_id', $manualId)->exists())->toBeFalse();
+    // Both halves land on the one scale, the Fresha block first.
+    expect(svcLayoutReorderKey($pro, $freshaId))->toBe(0.0)
+        ->and(svcLayoutReorderKey($pro, $manualId))->toBe(1.0);
 });

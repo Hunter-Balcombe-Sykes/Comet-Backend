@@ -326,6 +326,16 @@ Last, and only after A–J are live-verified on dev.
 **OWNER RULING 2026-08-17 — nine tables, not ten. `site.shop_brands` is
 deferred to its own follow-up.**
 
+> **CLOSED 2026-08-17 — the tenth and eleventh tables are gone.** The deferred
+> follow-up ran as the shop re-home and dropped BOTH `site.shop_brands` and
+> `site.shop_products` on dev (migrations `20260819000200` / `20260819000210`),
+> deleting both models, `ShopBackfiller`, `PseudoPlatformRetirer` and their
+> commands with them. The ruling's sizing was right: the read lane WAS the
+> blocker, and the project needed its own schema work first — a denormalised
+> `user_id` on `content.storefronts` behind a partial unique index, which is what
+> made `upsertStore()` safe as the sole writer. Full checkpoint: convergence
+> spec §27.
+
 Sized before deciding. `site.shop_brands` has a materially bigger tail than any
 other table on the list: **17 production files still read or write it**, and the
 blocker is not the writer (Task 24 re-homed `ShopContentWriter` onto a

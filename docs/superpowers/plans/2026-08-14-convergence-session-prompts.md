@@ -645,5 +645,19 @@ world" summary for the owner covering what shipped, what is deferred (prod
 reconciliation, LEGAL-2, RLS revisit, Google aggregates cadence), and where every record
 lives.
 
+The A2 legacy-zero sweep should now find NOTHING left from this programme's drop list.
+Retired on dev, with a checkpoint each: the four menu tables and site.content_selection
+(slice 7 phase 6), site.shop_brands and site.shop_products (shop re-home), and
+site.services, site.service_categories, site.service_category_assignments (services
+cutover, parent spec §27). Verify with to_regclass rather than by reading this list.
+
+Two things the sweep must NOT read as clean:
+  * PRODUCTION still carries every one of those tables — the whole programme was dev
+    only. Prod reconciliation is phase 8's to scope, not to assume done.
+  * ServiceBackfiller + BackfillOwnerServices are dead code that still queries a dropped
+    table (parent spec §27.3 residual 4). Removing them needs an owner decision, because
+    the fix touches tests/Feature/Content/ServiceTwoSurfaceTest.php, which the services
+    cutover's Global Constraints protected from modification.
+
 Autonomy: docs only — proceed to merge without sign-off.
 ```

@@ -32,10 +32,9 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupServicesTable(); // also sets up site.service_categories
-    // Slice 3b Task 11: index() merges the owner-authored half out of
-    // content.* (scoped to the site's services pool section) with the Fresha
-    // half still in site.services, and its grouped branch lists categories
-    // from BOTH content.collections and site.service_categories.
+    // Services cutover: index() merges BOTH halves out of content.* (the
+    // owner-authored one scoped to the site's services pool section), and its
+    // grouped branch lists categories from content.collections alone.
     setupIngestTables();
     setupContentTables();
 });
@@ -53,44 +52,73 @@ function makeStaffServicePro(): User
 }
 
 /**
- * Bulk-seed $count services the merged staff list can actually see.
+ * Bulk-seed $count Fresha services the merged staff list can actually see.
  *
- * Slice 3b Task 11: `source` is now `'fresha'`, not NULL. index() merges the
- * owner-authored half out of content.* with the Fresha half out of
- * `site.services WHERE source IS NOT NULL`; a `source IS NULL` row is the
- * legacy shadow of a content.* item, superseded by its projection and
- * deliberately never read from there again (UserServiceController made the
- * same call in slice 3a). Seeding 510 of those would have left the list EMPTY
- * and the cap trivially satisfied — the exact shape of test that reads green
- * while proving nothing.
+ * Services cutover: BOTH halves are content.* now — this one under a
+ * kind='connection' source, the owner-authored half (seedManualService())
+ * under the manual one. The cap is asserted over the MERGE of the two, which
+ * is what it actually bounds. Seeding legacy site.services rows would leave
+ * the list EMPTY and the cap trivially satisfied — the exact shape of test
+ * that reads green while proving nothing.
  *
- * The Fresha half is bulk-inserted because it is a plain table write; the
- * content.* half is seeded separately (seedManualService()) because it must go
- * through the real projection writer. The cap is asserted over the MERGE of
- * the two, which is what it now actually bounds.
+ * Bulk-inserted rather than driven through the projector: 510 real ingest
+ * runs would dominate the suite's runtime, and the shape is fixed.
  */
 function bulkSeedServices(string $userId, int $count): void
 {
     $now = now()->toDateTimeString();
-    $rows = [];
+    $sourceId = (string) Str::uuid();
+    DB::connection('pgsql')->table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $items = [];
+    $sourceItems = [];
+    $anchors = [];
     for ($i = 0; $i < $count; $i++) {
-        $rows[] = [
-            'id' => (string) Str::uuid(),
+        $itemId = (string) Str::uuid();
+        $items[] = [
+            'id' => $itemId,
             'user_id' => $userId,
-            'title' => "Service {$i}",
-            'price_cents' => 1000,
-            'currency_code' => 'AUD',
-            'is_active' => 1,
-            'sort_order' => $i,
-            'source' => 'fresha',
-            'external_id' => "s:{$i}",
+            'kind' => 'service',
+            'headline_cache' => "Service {$i}",
+            'facets_cache' => '{}',
+            'eligible_cache' => '{}',
+            'first_seen_at' => $now,
+            'last_seen_at' => $now,
             'created_at' => $now,
             'updated_at' => $now,
         ];
+        $sourceItems[] = [
+            'id' => (string) Str::uuid(),
+            'item_id' => $itemId,
+            'source_id' => $sourceId,
+            'coord' => "fresha:s:{$i}",
+            'record_key' => "s:{$i}",
+            'kind' => 'service',
+            'first_seen_at' => $now,
+            'last_seen_at' => $now,
+        ];
+        // Anchored like a connector-landed row: resolveItems() re-binds every
+        // live source item on any manual write, and an unanchored coord would
+        // be re-pointed at a freshly minted item.
+        $anchors[] = [
+            'coord' => "fresha:s:{$i}",
+            'user_id' => $userId,
+            'item_id' => $itemId,
+            'bound_at' => $now,
+        ];
     }
     // Chunked insert to avoid SQLite variable limit per statement.
-    foreach (array_chunk($rows, 50) as $chunk) {
-        DB::connection('pgsql')->table('site.services')->insert($chunk);
+    foreach (array_chunk($items, 50) as $chunk) {
+        DB::connection('pgsql')->table('content.items')->insert($chunk);
+    }
+    foreach (array_chunk($sourceItems, 50) as $chunk) {
+        DB::connection('pgsql')->table('content.source_items')->insert($chunk);
+    }
+    foreach (array_chunk($anchors, 50) as $chunk) {
+        DB::connection('pgsql')->table('content.item_anchors')->insert($chunk);
     }
 }
 
@@ -123,6 +151,11 @@ function seedManualService(User $pro, string $title): string
     return $itemId;
 }
 
+/**
+ * Services cutover: ONE category id space — content.collections. Bulk-inserted
+ * with is_user_created = 1 so ServiceCollections::list() keeps them (it drops
+ * connector-derived collections that hold no items).
+ */
 function bulkSeedServiceCategories(string $userId, int $count): void
 {
     $now = now()->toDateTimeString();
@@ -131,14 +164,16 @@ function bulkSeedServiceCategories(string $userId, int $count): void
         $rows[] = [
             'id' => (string) Str::uuid(),
             'user_id' => $userId,
-            'title' => "Category {$i}",
-            'sort_order' => $i,
+            'label' => "Category {$i}",
+            'kind' => 'service_category',
+            'position' => $i,
+            'is_user_created' => 1,
             'created_at' => $now,
             'updated_at' => $now,
         ];
     }
     foreach (array_chunk($rows, 50) as $chunk) {
-        DB::connection('pgsql')->table('site.service_categories')->insert($chunk);
+        DB::connection('pgsql')->table('content.collections')->insert($chunk);
     }
 }
 
@@ -184,12 +219,10 @@ it('caps the grouped services list at 500 even when more than 500 exist', functi
 
 it('caps the grouped categories list at 200 even when more than 200 exist', function () {
     $pro = makeStaffServicePro();
-    bulkSeedServiceCategories($pro->id, 210);
-    // Slice 3b Task 11: the grouped branch lists BOTH id spaces —
-    // content.collections (where the owner's categories now live) AND the
-    // legacy site.service_categories the Fresha half still points at. The cap
-    // bounds the concatenation, so seed a few of the other kind too or the
-    // case only ever proves the legacy half is bounded.
+    // Services cutover: one id space, so the cap bounds content.collections
+    // alone. A handful go through the real writer as well, to prove the
+    // bulk-inserted shape and the written one are read the same way.
+    bulkSeedServiceCategories($pro->id, 205);
     $collections = app(ServiceCollections::class);
     for ($i = 0; $i < 5; $i++) {
         $collections->create($pro->id, "Collection {$i}");

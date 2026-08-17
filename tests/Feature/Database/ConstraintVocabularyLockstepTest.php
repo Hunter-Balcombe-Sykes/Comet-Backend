@@ -39,7 +39,6 @@
 
 use App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\Site;
 use App\Services\Analytics\RankedActionsComputer;
 
@@ -222,14 +221,30 @@ it('shop_brands_link_mode_check matches UpdateShopBrandRequest and the hardcoded
     lockstepAssertSameSet($appList, $expected, 'UpdateShopBrandRequest linkMode (app vs hardcoded)');
 });
 
-// ─── site.shop_brands.connect_status (W9) ────────────────────────────────────
-
-it('shop_brands_connect_status_check matches ShopBrand::CONNECT_STATUSES and the hardcoded expected set', function () {
+// ─── content.storefronts.connect_status (W9) ─────────────────────────────────
+//
+// This assertion used to name site.shop_brands' own
+// shop_brands_connect_status_check (added 20260724150000) and compare it
+// against ShopBrand::CONNECT_STATUSES. The shop re-home dropped that table
+// (20260819000210) and its model with it; the guarantee did not go with them —
+// 20260819000120 carried the identical vocabulary onto the replacement column
+// on content.storefronts, deliberately BEFORE the DROP, so it moves here
+// rather than being deleted.
+//
+// Only ONE side is live now, because there is no app-side constant left to
+// compare: the vocabulary lives as literals at its three write sites —
+// ShopController::addBrand() (`connectStatus: $deferred ? 'pending' : null`)
+// and ShopBrandConnectJob's settle (null) and markTerminal ('failed') — and is
+// read back by ShopController::connectStatus() and
+// PublicIntegrationConnectionResource, which rejects only 'pending'. A fourth
+// value reaching that resource silently is the failure the CHECK prevents, so
+// the migration-vs-hardcoded arm is the one that has to hold. If a constant is
+// ever reintroduced for those literals, add the second arm back here.
+it('storefronts_connect_status_check matches the hardcoded expected set', function () {
     $expected = ['pending', 'failed'];
 
-    $sql = lockstepMigrationSql('20260724150000_shop_brands_connect_status.sql');
+    $sql = lockstepMigrationSql('20260819000120_content_storefronts_connect_status_check.sql');
     $migrationList = lockstepExtractInList($sql, 'connect_status');
 
-    lockstepAssertSameSet($migrationList, $expected, 'shop_brands_connect_status_check (migration vs hardcoded)');
-    lockstepAssertSameSet(ShopBrand::CONNECT_STATUSES, $expected, 'ShopBrand::CONNECT_STATUSES (app vs hardcoded)');
+    lockstepAssertSameSet($migrationList, $expected, 'storefronts_connect_status_check (migration vs hardcoded)');
 });

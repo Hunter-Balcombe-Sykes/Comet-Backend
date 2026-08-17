@@ -14,7 +14,6 @@
 // batch keeps the original quiet FetchNotModifiedException path.
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\GenericShopScraper;
@@ -27,6 +26,9 @@ use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ShopConnections;
+use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -60,67 +62,74 @@ function shopSyncUser(string $h): User
     return $user->fresh();
 }
 
-/** A shop connection with one brand, ready for ShopFetch's synced/failed loop. */
-function shopSyncBrand(User $user, string $brandId): ShopBrand
+/**
+ * A shop connection plus its one content.* store, ready for ShopFetch's
+ * synced/failed loop.
+ *
+ * Re-home Task 7: ShopFetch selects stores through ShopConnections::stores()
+ * off content.*, not $connection->shopBrands(), and site.shop_brands is
+ * written by nothing — so the fixture lands through the real writer and hands
+ * back the connection ShopFetch is actually given. selection_mode is not set
+ * because it no longer exists anywhere: #SEM-1's real gate is
+ * products_curated_at, which a fresh store leaves null (= "sync me").
+ */
+function shopSyncStore(User $user, string $brandId, string $url = 'https://sf.example', int $position = 0): IntegrationConnection
 {
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => $brandId,
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    return ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => $brandId, 'provider' => 'shopify',
-        'url' => 'https://sf.example', 'selection_mode' => 'latest', 'position' => 0,
-    ]);
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: $brandId,
+        provider: 'shopify',
+        position: $position,
+        url: $url,
+    ), (string) $user->id);
+
+    return $conn;
 }
 
 // ── ShopFetch: synced vs failed classification ────────────────────────────
 
 it('ShopFetch throws FetchUnavailableException when every brand is unreachable', function () {
     $user = shopSyncUser('ssf1');
-    $brand = shopSyncBrand($user, 'b1');
+    $conn = shopSyncStore($user, 'b1');
 
     $catalog = Mockery::mock(ShopCatalog::class);
     $catalog->shouldReceive('syncLatest')->once()->andThrow(new HttpException(502, 'blocked'));
     $refresher = Mockery::mock(IntegrationConnectionCacheRefresher::class);
     $refresher->shouldNotReceive('refresh');
 
-    expect(fn () => (new ShopFetch($catalog, $refresher))->fetch($brand->connection->fresh()))
+    expect(fn () => (new ShopFetch($catalog, $refresher))->fetch($conn->fresh()))
         ->toThrow(FetchUnavailableException::class);
 });
 
 it('ShopFetch throws FetchNotModifiedException when every brand is reachable but empty', function () {
     $user = shopSyncUser('ssf2');
-    $brand = shopSyncBrand($user, 'b1');
+    $conn = shopSyncStore($user, 'b1');
 
     $catalog = Mockery::mock(ShopCatalog::class);
     $catalog->shouldReceive('syncLatest')->once()->andReturn(null);
     $refresher = Mockery::mock(IntegrationConnectionCacheRefresher::class);
     $refresher->shouldNotReceive('refresh');
 
-    expect(fn () => (new ShopFetch($catalog, $refresher))->fetch($brand->connection->fresh()))
+    expect(fn () => (new ShopFetch($catalog, $refresher))->fetch($conn->fresh()))
         ->toThrow(FetchNotModifiedException::class);
 });
 
 it('ShopFetch publishes when at least one brand synced despite another failing', function () {
     $user = shopSyncUser('ssf3');
-    $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
-        'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
-    ]);
-    ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'ok-brand', 'provider' => 'shopify',
-        'url' => 'https://ok.example', 'selection_mode' => 'latest', 'position' => 0,
-    ]);
-    ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'blocked-brand', 'provider' => 'shopify',
-        'url' => 'https://blocked.example', 'selection_mode' => 'latest', 'position' => 1,
-    ]);
+    // Two stores, two anchors (convergence Phase 6: one connection per store).
+    // ShopFetch is handed ONE of them and still sees both, because its store
+    // read is user-scoped, not connection-scoped.
+    $conn = shopSyncStore($user, 'ok-brand', 'https://ok.example', 0);
+    shopSyncStore($user, 'blocked-brand', 'https://blocked.example', 1);
 
     $catalog = Mockery::mock(ShopCatalog::class);
     $catalog->shouldReceive('syncLatest')
         ->twice()
-        ->andReturnUsing(fn (ShopBrand $b) => $b->brand_id === 'ok-brand' ? 3 : throw new HttpException(502, 'blocked'));
+        ->andReturnUsing(fn (StoreRecord $s) => $s->externalRef === 'ok-brand' ? 3 : throw new HttpException(502, 'blocked'));
     $refresher = Mockery::mock(IntegrationConnectionCacheRefresher::class);
     $refresher->shouldReceive('refresh')->once();
 
@@ -146,41 +155,51 @@ function shopCatalogWithShopify(ShopifyScraper $shopify): ShopCatalog
 it('ShopCatalog::syncLatest re-throws HttpException and logs instead of swallowing it', function () {
     Log::spy();
     $user = shopSyncUser('ssc1');
-    $brand = shopSyncBrand($user, 'blocked-brand');
+    shopSyncStore($user, 'blocked-brand');
+    // Re-home Task 7: syncLatest() takes the StoreRecord and its owner, not
+    // the Eloquent model — so the call site reads the store the same way
+    // ShopFetch does.
+    $store = app(ShopConnections::class)->store($user, 'blocked-brand');
 
     $shopify = Mockery::mock(ShopifyScraper::class);
     $shopify->shouldReceive('fetchProducts')->once()->andThrow(new HttpException(502, 'Shopify returned HTTP 502'));
 
-    expect(fn () => shopCatalogWithShopify($shopify)->syncLatest($brand))
+    expect(fn () => shopCatalogWithShopify($shopify)->syncLatest($store, (string) $user->id))
         ->toThrow(HttpException::class);
 
     // Matched by message + context, not by total warning count: creating the
-    // connection above (`shopSyncBrand`) also triggers the observer's
+    // connection above (`shopSyncStore`) also triggers the observer's
     // best-effort cache-purge, which logs its own unrelated warning in this
     // Cloudflare-config-less test env — a pre-existing, out-of-scope noise
     // source, not something this fix introduces.
+    //
+    // The context keys moved with the model: `brand_id` (the legacy row's
+    // uuid PK) is now `collection_id` + `external_ref`, since those are what
+    // identify a store once site.shop_brands is gone.
     Log::shouldHaveReceived('warning')
         ->withArgs(fn (string $message, array $ctx) => $message === 'shop.sync_latest.unreachable'
-            && $ctx['brand_id'] === $brand->id && $ctx['url'] === $brand->url)
+            && $ctx['collection_id'] === $store->collectionId
+            && $ctx['external_ref'] === 'blocked-brand'
+            && $ctx['url'] === $store->url)
         ->once();
 });
 
 it('ShopCatalog::syncLatest returns null (not an error) for a reachable but genuinely empty catalog', function () {
     $user = shopSyncUser('ssc2');
-    $brand = shopSyncBrand($user, 'empty-brand');
+    shopSyncStore($user, 'empty-brand');
+    $store = app(ShopConnections::class)->store($user, 'empty-brand');
 
     $shopify = Mockery::mock(ShopifyScraper::class);
     $shopify->shouldReceive('fetchProducts')->once()->andReturn([]);
 
-    expect(shopCatalogWithShopify($shopify)->syncLatest($brand))->toBeNull();
+    expect(shopCatalogWithShopify($shopify)->syncLatest($store, (string) $user->id))->toBeNull();
 });
 
 // ── End-to-end: the circuit breaker must NOT reset on a blocked store ─────
 
 it('a persistently-blocked shop trips the circuit breaker instead of resetting it', function () {
     $user = shopSyncUser('ssce1');
-    $brand = shopSyncBrand($user, 'blocked-brand');
-    $conn = $brand->connection;
+    $conn = shopSyncStore($user, 'blocked-brand');
 
     // Bind a ShopCatalog mock so the registry-resolved ShopFetch (constructed
     // via app(ShopCatalog::class) — see PlatformRegistryServiceProvider)

@@ -55,30 +55,46 @@ it('keeps non-deleted enquiries untouched', function () {
     expect(DB::connection('pgsql')->table('site.enquiries')->where('id', $enquiry->id)->exists())->toBeTrue();
 });
 
-// ─── ServiceCategory retention ────────────────────────────────────────────────
+// ─── Service / ServiceCategory: exempt, not purged ───────────────────────────
+//
+// These two cases used to assert the retention loop hard-deleting soft-deleted
+// site.service_categories rows. The services cutover (2026-08-17) DROPPED that
+// table and site.services with it, so both models moved to PURGE_EXEMPT — a
+// nightly command cannot purge a relation that does not exist, and leaving them
+// in PURGE_HANDLED made `partna:purge-soft-deletes` (scheduled 03:20) a 42P01.
+//
+// The successor property is the inverse and is what is asserted here: the
+// command runs clean and leaves those rows entirely alone. The fixture seeds
+// the SQLite stand-in, so a row genuinely exists to be left — this is not
+// "nothing happened because nothing was there". Retention for the content.*
+// twins (content.items.removed_at / content.collections.removed_at) is the
+// content pool's own concern, not this loop's.
 
-it('hard-deletes soft-deleted service categories past the retention window', function () {
+it('does not purge soft-deleted service categories — the model is exempt, its table is gone', function () {
     $pro = createTenant('purge-cat-old');
 
     $category = createServiceCategoryFor($pro, [
         'deleted_at' => now()->subDays(35)->toDateTimeString(),
     ]);
 
-    Artisan::call('partna:purge-soft-deletes');
+    $exit = Artisan::call('partna:purge-soft-deletes');
 
-    expect(DB::connection('pgsql')->table('site.service_categories')->where('id', $category->id)->exists())->toBeFalse();
+    expect($exit)->toBe(0);
+    expect(DB::connection('pgsql')->table('site.service_categories')->where('id', $category->id)->exists())->toBeTrue();
 });
 
-it('keeps soft-deleted service categories within the retention window', function () {
-    $pro = createTenant('purge-cat-recent');
+it('does not purge soft-deleted services — the model is exempt, its table is gone', function () {
+    $pro = createTenant('purge-svc-old');
 
-    $category = createServiceCategoryFor($pro, [
-        'deleted_at' => now()->subDays(20)->toDateTimeString(),
+    $serviceId = ownerService($pro->id, [
+        'title' => 'Purge Me Not',
+        'deleted_at' => now()->subDays(35)->toDateTimeString(),
     ]);
 
-    Artisan::call('partna:purge-soft-deletes');
+    $exit = Artisan::call('partna:purge-soft-deletes');
 
-    expect(DB::connection('pgsql')->table('site.service_categories')->where('id', $category->id)->exists())->toBeTrue();
+    expect($exit)->toBe(0);
+    expect(DB::connection('pgsql')->table('site.services')->where('id', $serviceId)->exists())->toBeTrue();
 });
 
 // ─── Failed SiteMedia cleanup ─────────────────────────────────────────────────

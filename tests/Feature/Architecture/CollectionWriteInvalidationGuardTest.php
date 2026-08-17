@@ -100,7 +100,20 @@ const COLLECTION_WRITE_REGISTRY = [
     'ShopContentWriter::syncStore' => 'SHOP',
     'ShopContentWriter::retireStore' => 'SHOP',
     'ShopContentWriter::retireAbsent' => 'SHOP',
-    'ShopBackfiller::linkToCollection' => 'SHOP',
+    // ShopBackfiller::linkToCollection was registered here until the shop
+    // re-home deleted the backfiller with the legacy tables it migrated off
+    // (site.shop_brands / site.shop_products). Nothing inherited the write:
+    // the four ShopContentWriter entries above are the whole shop lane now.
+    // Re-home Task 9. The deferred-connect settle writes the store's display
+    // name, which lives on the parent collection's `label`, not on
+    // content.storefronts. A guarded UPDATE rather than upsertStore() because
+    // the settle is a compare-and-set on connect_status='pending' and that
+    // method cannot express the guard. Discharges its own invalidation: the
+    // caller fires IntegrationConnectionCacheRefresher::refresh() plus
+    // bumpSiteCache() (BuildState + site.sites.updated_at) on a real
+    // transition, and skips both on a no-op — the same three lanes, gated on
+    // the row count.
+    'ShopBrandConnectJob::settle' => 'SHOP',
 
     'MenuFetchJob::syncOrderPlatforms' => 'MENU',
     'MenuFetchJob::clearStorefronts' => 'MENU',

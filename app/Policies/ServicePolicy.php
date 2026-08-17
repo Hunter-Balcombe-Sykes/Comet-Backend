@@ -74,13 +74,12 @@ class ServicePolicy extends BasePolicy
      * without a gate here relabels every uncategorised service.
      *
      * Ownership/pending-deletion still come from update() (404, never 403 —
-     * the enumeration rule the rest of this policy follows). Which STORE a
-     * given id lives in is the controller's resolution problem, not an
-     * authorization one: `UserServiceController::updateCategory()` resolves
-     * against `site.services WHERE source IS NOT NULL` and against
-     * `content.items`, so a superseded legacy owner-authored row (source IS
-     * NULL, matched by neither) still 404s — by being unaddressable, not by
-     * being denied.
+     * the enumeration rule the rest of this policy follows). WHICH id resolves
+     * is the controller's problem, not an authorization one: since the
+     * services cutover both halves live in `content.items`, and a legacy
+     * `site.services` uuid 404s by being unaddressable rather than denied
+     * (spec ruling 1). This policy authorizes on user_id against the in-memory
+     * model either way.
      */
     public function updateCategory(User $actor, Model $resource): bool|Response
     {
