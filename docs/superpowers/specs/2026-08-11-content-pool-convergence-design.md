@@ -5196,7 +5196,7 @@ precedent.
 | R-7 | Four wire manifests carry stale STATUS headers; 5b's reads "not yet merged" for a live retirement | phase 8 |
 | R-6 | Prod lacks four whole schemas — bigger than "carries the dropped tables" | prod reconciliation |
 | — | Two `## 27` sections; slice 7's checkpoint misfiled under `plans/` | phase 8 (as the kickoff already assigned) |
-| audit | 5 P1 / 8 P2 / 11 P3 across six runs, in `audits/sweeps/2026-08-17-*` | per-finding, via `fix-flow.md` |
+| audit | 0 P0 · 6 P1 · 14 P2 · 15 P3 — six runs consolidated into one executable file, `audits/consolidation/2026-08-17-programme-review/CONSOLIDATED.md` (ids renumbered `PGR-n`; the source runs used overlapping id spaces) | per-finding, via `fix-flow.md` |
 
 ### 30.6 Holes the last three projects recorded against themselves
 
@@ -5371,7 +5371,7 @@ and 40 here, after a deliberate owner menu replace. The shape is the contract.
 | `content.storefronts.user_id` NOT NULL — UPDATE arm proven live, **INSERT arm unexercised** (all five storefronts predate the migration); closing it needs a billed Apify scrape | owner call |
 | `anseo-studio`'s Fresha `book-now/…?pId=` URL still unprovisionable | open since slice 3b |
 | **Nightwatch not scanned** in the review (needs an OAuth grant); **authenticated verbs unproven** (no owner JWT) | carried from §30 |
-| Audit backlog from the review: 0 P0 · 6 P1 · 13 P2 · 15 P3, across `audits/sweeps/2026-08-17-*` | fix-flow sessions |
+| Audit backlog from the review: 0 P0 · 6 P1 · **14** P2 · 15 P3, in `audits/consolidation/2026-08-17-programme-review/CONSOLIDATED.md` (P2 is 14 not 13 — the review's own R-4, the missing menu-DTO query-surface guard, was folded in as `PGR-15` when the six runs were consolidated) | fix-flow sessions |
 | **#SEC-1 (auth lane, outside this programme)** — `POST /api/public/auth/resolve-identifier` is unauthenticated and returns `core.users.primary_email` for a public handle; its `bot.token` middleware is inert on both envs. Raised to the owner as a STOP by the review. Prod exposure nil (0 users); dev holds real addresses. | owner — auth, not convergence |
 
 ### 31.7 Where the records live
@@ -5384,7 +5384,7 @@ and 40 here, after a deliberate owner menu replace. The shape is the contract.
   findings) · `docs/convergence-HANDOFF.md` (W#↔Phase# mapping).
 - `docs/superpowers/plans/2026-08-14-convergence-session-prompts.md` — the
   session index and standing rulings.
-- `audits/sweeps/2026-08-17-*` — the review's six audit runs.
+- `audits/consolidation/2026-08-17-programme-review/CONSOLIDATED.md` — the review's six audit runs.
 - Working records under `plans/`: the slice-7 drops gate report, the slice-7
   phase-6 checkpoint (now folded into §27), the prod reconciliation scope.
 
