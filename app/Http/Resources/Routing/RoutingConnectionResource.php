@@ -35,6 +35,11 @@ class RoutingConnectionResource extends ApiResource
             'isPrimary' => (bool) $this->is_primary,
             'resourceId' => $this->resource_id,
             'url' => is_string($this->payload['url'] ?? null) ? $this->payload['url'] : null,
+            // The name of the connected THING, not the platform — displayName is
+            // the platform's label. Without it a per-connection row falls back to
+            // a hostname. Guarded on is_string() for the same reason as url: the
+            // payload column is jsonb and nothing constrains its shape.
+            'name' => is_string($this->payload['name'] ?? null) ? $this->payload['name'] : null,
             'isActive' => (bool) $this->is_active,
         ];
     }
