@@ -16,6 +16,7 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupSectionsTables();
+    setupContentTables();
 });
 
 // buildTestSite() lives in tests/Pest.php (shared with DocumentBuilderTest).

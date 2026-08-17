@@ -119,6 +119,9 @@ it('online-ordering addEntry never dispatches on the 422 MAX_ENTRIES cap', funct
         ]);
     }
 
+    // The seed rows above fire the observer's ordering→menu fetch (W3);
+    // re-fake so the assertion below sees only what the 422 request pushed.
+    Queue::fake();
     actingAsUser($user)
         ->postJson('/api/platforms/online-ordering/entries', ['url' => 'https://www.ubereats.com/store/overflow'])
         ->assertStatus(422);

@@ -16,6 +16,7 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupSectionsTables();
+    setupContentTables();
 });
 
 function countItemsQueries(array $queries): int

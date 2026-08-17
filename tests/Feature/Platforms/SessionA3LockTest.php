@@ -170,6 +170,9 @@ it('online-ordering removeEntry (forgetConnection write) is blocked by a held pl
         'last_refresh_status' => 'ok',
     ]);
 
+    // Seeded rows fire the observer's ordering→menu fetch (W3); re-fake so
+    // only what the blocked request pushed is judged.
+    Queue::fake();
     $lock = Cache::lock(CacheKeyGenerator::platformConnectionLock('online-ordering', (string) $user->id), 10);
     expect($lock->get())->toBeTrue();
 
@@ -224,6 +227,9 @@ it('online-ordering forget (forgetAllConnections write) is blocked by a held pla
         'last_refresh_status' => 'ok',
     ]);
 
+    // Seeded rows fire the observer's ordering→menu fetch (W3); re-fake so
+    // only what the blocked request pushed is judged.
+    Queue::fake();
     $lock = Cache::lock(CacheKeyGenerator::platformConnectionLock('online-ordering', (string) $user->id), 10);
     expect($lock->get())->toBeTrue();
 
