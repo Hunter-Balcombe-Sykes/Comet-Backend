@@ -8,6 +8,7 @@ use App\Ingest\Manifest\Manifest;
 use App\Ingest\Manifest\SourceKey;
 use App\Ingest\Manifest\SourceProfile;
 use App\Ingest\Manifest\StreamSpec;
+use App\Ingest\Message\Bookmark;
 use App\Ingest\Message\Covered;
 use App\Ingest\Message\Message;
 use App\Ingest\Message\Note;
@@ -68,10 +69,17 @@ class FreshaConnector implements Connector
                     // time — there is no reverse-chron prefix to claim, so
                     // this stream is exhaustive-or-nothing, never partial.
                     orderField: null,
+                    // ...but the one call IS the whole menu, so a service the
+                    // menu no longer lists is gone (see StreamSpec::mayDelete).
+                    deletesOnExhaustive: true,
                 ),
             ],
             cost: CostClass::Free,
             defaultIntervalSeconds: 172800,
+            // One free GraphQL call: run as soon as the connection (or its
+            // team-member selection) lands so the services pool is not empty
+            // until the scheduler's next tick.
+            eagerOnConnect: true,
         );
     }
 
@@ -110,14 +118,46 @@ class FreshaConnector implements Connector
         }
 
         if ($pull->stream->name === 'services') {
-            yield from $this->servicesMessages($decoded);
+            // The booking-flow response prices everything as a bare formatted
+            // string ("from $360") with NO currency anywhere in it, so every
+            // service landed currency-less (overnight 2026-08-18 W6). The
+            // location page's __NEXT_DATA__ carries the venue's ISO currency;
+            // resolve it once and keep it in the stream cursor, like the
+            // YouTube handle→channel-id resolution.
+            $currency = $pull->cursor['currency'] ?? null;
+            $currency = is_string($currency) && preg_match('/^[A-Z]{3}$/', $currency) ? $currency : null;
+            $resolvedFresh = false;
+            if ($currency === null) {
+                $currency = $this->resolveCurrency($slug, $io);
+                $resolvedFresh = $currency !== null;
+            }
+
+            yield from $this->servicesMessages($decoded, $currency);
+
+            if ($resolvedFresh) {
+                yield new Bookmark('services', ['currency' => $currency]);
+            }
 
             return;
         }
     }
 
+    /** The venue's ISO-4217 currency from its public location page, or null. */
+    private function resolveCurrency(string $slug, Io $io): ?string
+    {
+        $response = $io->get('https://www.fresha.com/a/'.rawurlencode($slug));
+        if ($response['status'] !== 200 || $response['body'] === '') {
+            return null;
+        }
+        if (preg_match('/"currency":"([A-Z]{3})"/', $response['body'], $m)) {
+            return $m[1];
+        }
+
+        return null;
+    }
+
     /** @return iterable<Message> */
-    private function servicesMessages(array $decoded): iterable
+    private function servicesMessages(array $decoded, ?string $currency = null): iterable
     {
         $categories = data_get($decoded, 'data.bookingFlowInitialize.screenServices.categories');
         if (! is_array($categories)) {
@@ -148,6 +188,9 @@ class FreshaConnector implements Connector
                 : null;
             foreach ((array) ($category['items'] ?? []) as $item) {
                 $mapped = $this->mapServiceItem($item, $categoryName, $categoryId);
+                if ($mapped !== null && $currency !== null) {
+                    $mapped['currency'] = $currency;
+                }
                 $mapped === null ? $unmapped++ : $items[] = $mapped;
             }
         }

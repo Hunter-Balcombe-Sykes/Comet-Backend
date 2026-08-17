@@ -11,7 +11,7 @@ use Illuminate\Database\Query\Builder;
  * connection the owner removed (deleted_at) or that is inactive.
  *
  * An item is LIVE when it has no source_items at all (nothing to judge), or
- * at least one non-removed source_item whose source is the user's manual
+ * at least one non-retired source_item whose source is the user's manual
  * source or a connection that is present and active. Applied to the rule
  * candidates (auto half), the pinned half and the library in PoolResolver.
  */
@@ -29,9 +29,15 @@ final class LiveSourceScope
                     ->join('content.sources as lsrc', 'lsrc.id', '=', 'lss.source_id')
                     ->leftJoin('site.platform_connections as lpc', 'lpc.id', '=', 'lsrc.connection_id')
                     ->whereColumn('lss.item_id', $itemsTable.'.id')
-                    // Any source_item, retired or not: a source that stopped
-                    // listing an item is absence folding's business, not this
-                    // scope's — only the CONNECTION's liveness hides here.
+                    // A retired source_item (absence folding: the source's
+                    // exhaustive run no longer lists it — a Fresha service
+                    // dropped from the menu, the 5 storewide-only services
+                    // after narrowing to one stylist) does not keep an item
+                    // live either. Until 2026-08-18 W6 this scope ignored
+                    // removed_at and the departed rows stayed in the library
+                    // and the pool; ProjectionWriter clears removed_at on
+                    // reappearance, so this is hide, never delete.
+                    ->whereNull('lss.removed_at')
                     ->where(function (Builder $s) {
                         $s->where('lsrc.kind', 'manual')
                             ->orWhere(function (Builder $c) {

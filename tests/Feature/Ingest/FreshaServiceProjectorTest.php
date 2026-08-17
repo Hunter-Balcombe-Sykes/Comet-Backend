@@ -74,6 +74,8 @@ it('maps the real price shapes', function (string $price, string $qualifier, ?in
 /** A user + active Fresha connection + its provisioned ingest source and `services` stream. */
 function freshaProjectableSource(): array
 {
+    // The eager on-connect run must not reach fresha.com from a test.
+    \Illuminate\Support\Facades\Http::fake();
     setupUsersTable();
     setupSitesTable();
     setupIngestTables();
@@ -100,11 +102,18 @@ function freshaProjectableSource(): array
         ->and($source->source_key)->toBe('fresha');
     $source = (array) $source;
 
-    $streamId = (string) Str::uuid();
-    DB::table('ingest.streams')->insert([
-        'id' => $streamId, 'source_id' => $source['id'], 'stream_name' => 'services',
-        'created_at' => now(), 'updated_at' => now(),
-    ]);
+    // FreshaConnector runs eagerly on connect (W6), so the observer's inline
+    // (sync-queue) run may already have minted the stream row — reuse it.
+    $streamId = DB::table('ingest.streams')
+        ->where('source_id', $source['id'])->where('stream_name', 'services')->value('id');
+    if ($streamId === null) {
+        $streamId = (string) Str::uuid();
+        DB::table('ingest.streams')->insert([
+            'id' => $streamId, 'source_id' => $source['id'], 'stream_name' => 'services',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+    $streamId = (string) $streamId;
 
     return [$userId, $connection, $source, $streamId];
 }

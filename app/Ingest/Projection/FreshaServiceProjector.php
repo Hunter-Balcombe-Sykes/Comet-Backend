@@ -33,7 +33,7 @@ class FreshaServiceProjector implements Projector
         $category = $view->string('category');
         $categoryId = $view->string('categoryId');
         $duration = $this->durationSeconds($view->string('duration'));
-        $offer = $this->offer($view->string('price'));
+        $offer = $this->offer($view->string('price'), $view->string('currency'));
 
         // Keyed on the vendor's stable numeric category id, never the label:
         // the legacy lane (App\Services\Platforms\FreshaServiceProjector's
@@ -85,15 +85,16 @@ class FreshaServiceProjector implements Projector
      *
      * @return array<string, mixed>|null
      */
-    private function offer(?string $price): ?array
+    private function offer(?string $price, ?string $currency = null): ?array
     {
+        $currency = is_string($currency) && preg_match('/^[A-Z]{3}$/', $currency) ? $currency : null;
         if ($price === null || trim($price) === '') {
             return null;
         }
         $price = trim($price);
 
         if (strcasecmp($price, 'free') === 0) {
-            return ['channel' => 'fresha', 'qualifier' => 'free', 'amount_minor' => 0, 'currency' => null];
+            return ['channel' => 'fresha', 'qualifier' => 'free', 'amount_minor' => 0, 'currency' => $currency];
         }
 
         if (! preg_match('/^(?<from>from\s+)?(?<currency>A?\$)\s*(?<amount>\d+(?:\.\d{1,2})?)$/i', $price, $m)) {
@@ -104,8 +105,10 @@ class FreshaServiceProjector implements Projector
             'channel' => 'fresha',
             'qualifier' => $m['from'] !== '' ? 'from' : 'exact',
             'amount_minor' => (int) round(((float) $m['amount']) * 100),
-            // "A$" is unambiguous; a bare "$" is not, and never USD-defaults.
-            'currency' => strcasecmp($m['currency'], 'A$') === 0 ? 'AUD' : null,
+            // The record's own currency (the venue's, resolved by the
+            // connector) wins; "A$" is unambiguous; a bare "$" is not, and
+            // never USD-defaults.
+            'currency' => $currency ?? (strcasecmp($m['currency'], 'A$') === 0 ? 'AUD' : null),
         ];
     }
 }

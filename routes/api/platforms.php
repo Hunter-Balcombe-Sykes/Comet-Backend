@@ -62,6 +62,7 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::get('/employee-services', [FreshaController::class, 'employeeServices']);
             Route::post('/selection', [FreshaController::class, 'saveSelection']);
             Route::get('/selection', [FreshaController::class, 'selection']);
+            Route::post('/selection/storewide', [FreshaController::class, 'saveStorewide']);
             Route::post('/service-visibility', [FreshaController::class, 'setServiceVisibility']);
             Route::delete('/', [FreshaController::class, 'forget']);
         });

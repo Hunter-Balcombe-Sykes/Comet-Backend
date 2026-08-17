@@ -580,6 +580,47 @@ class FreshaController extends ApiController
         ]);
     }
 
+    // POST /api/platforms/fresha/selection/storewide — go back to booking the whole
+    // venue after narrowing to one team member (ruling R11, overnight 2026-08-18:
+    // business accounts default storewide but MAY narrow via saveSelection, and
+    // must be able to widen again). Capability-gated: an individual account can
+    // never publish a whole salon's menu. The public services list is composed
+    // from content.* — SourceProvisioner sees selection_ref flip to 'storewide'
+    // and the observer runs the source eagerly, so the storewide menu lands
+    // seconds later without a scrape here.
+    public function saveStorewide(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        if (! AccountCapabilities::for($user)->can_book_storewide) {
+            return $this->error('This account books one team member at a time.', 403);
+        }
+        $url = $this->freshaUrl($user);
+        if (! $url) {
+            return $this->error('No Fresha URL saved yet. Save one first.', 404);
+        }
+
+        return $this->withConnectionLock($user, function () use ($user, $url): JsonResponse {
+            $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
+            $storeName = $existing->selection?->toArray()['storeName'] ?? null;
+            $projected = $this->projector->sync($user, [], $existing->selection?->hiddenServiceIds() ?? []);
+            $selection = [
+                'url' => $url,
+                'storeName' => is_string($storeName) ? $storeName : null,
+                'mode' => 'storewide',
+                'employee' => null,
+                'services' => $projected['services'],
+                'hiddenServiceIds' => $projected['hiddenServiceIds'],
+            ];
+            $this->writeConnection($user, [
+                'url' => $url,
+                'selection' => $selection,
+                'raw' => ['services' => $projected['raw']],
+            ]);
+
+            return $this->success((new FreshaSelectionResource($selection, (string) $user->id))->resolve());
+        });
+    }
+
     // POST /api/platforms/fresha/service-visibility — show/hide one service on the
     // public page. Toggles the service id in the saved selection's hiddenServiceIds
     // list; only ids present in the saved menu are accepted. Returns the updated

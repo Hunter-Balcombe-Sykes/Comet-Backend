@@ -256,7 +256,7 @@ class IntegrationConnectionObserver
      * SourceScheduler::scoreDue() selects only auto_sync = true, so without
      * this an instagram source is created and then never runs.
      *
-     * `created` ONLY, and that gate is load-bearing: syncIngestSource() is also
+     * `created` (and `reselected`) ONLY, and that gate is load-bearing: syncIngestSource() is also
      * called from the payload-change path and from restored(). Firing on
      * `updated` would buy a paid actor call on EVERY refresh of the connection.
      *
@@ -276,7 +276,10 @@ class IntegrationConnectionObserver
     {
         // Not `?? null`: every SourceProvisioner::sync() return path sets
         // `status`, so the coalesce was dead code (phpstan nullCoalesce.offset).
-        if ($result['status'] !== 'created') {
+        // 'reselected' = the source's selection_ref changed (a Fresha team
+        // member re-pick). The connector's manifest still gates the run, so a
+        // paid connector never gets a bonus call from a payload write.
+        if (! in_array($result['status'], ['created', 'reselected'], true)) {
             return;
         }
 

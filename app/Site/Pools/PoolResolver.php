@@ -507,6 +507,37 @@ class PoolResolver
             $sourceLinks[$itemId] = ($sourceLinks[$itemId] ?? collect())->concat($rows);
         }
 
+        // A connection-fed item with NO url of its own (a Fresha service —
+        // the vendor has no per-service page, only the venue's booking page)
+        // still came FROM a platform: derive it from the item's live
+        // connection source so the source badge and the item sheet's platform
+        // row can name it, and lend the connection's own url as the link
+        // (overnight 2026-08-18 W6). Highest-priority connection wins.
+        $sourcePlatforms = DB::connection('pgsql')->table('content.source_items')
+            ->join('content.sources', 'content.sources.id', '=', 'content.source_items.source_id')
+            ->join('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
+            ->whereIn('content.source_items.item_id', $ids)
+            ->whereNull('content.source_items.removed_at')
+            ->whereNull('site.platform_connections.deleted_at')
+            ->orderByDesc('content.sources.priority')
+            ->get([
+                'content.source_items.item_id',
+                'site.platform_connections.platform as platform',
+                'site.platform_connections.payload as payload',
+            ])
+            ->groupBy('item_id')
+            ->map(function ($rows): ?object {
+                $row = $rows->first();
+                if ($row === null || ! is_string($row->platform) || $row->platform === '') {
+                    return null;
+                }
+                $payload = is_string($row->payload) ? (json_decode($row->payload, true) ?: []) : (array) ($row->payload ?? []);
+                $url = $payload['url'] ?? ($payload['selection']['url'] ?? null);
+
+                return (object) ['platform' => $row->platform, 'url' => is_string($url) && preg_match('~^https?://~i', $url) ? $url : null];
+            })
+            ->filter();
+
         $manualLinks = DB::connection('pgsql')->table('content.item_links')
             ->whereIn('item_id', $ids)
             ->get(['item_id', 'platform', 'url'])
@@ -676,6 +707,13 @@ class PoolResolver
                 $manualLinks->get($itemId, collect()),
             );
             $primary = $links[0] ?? null;
+            if ($primary === null && isset($sourcePlatforms[$itemId])) {
+                $fallback = $sourcePlatforms[$itemId];
+                $primary = ['platform' => $fallback->platform, 'url' => $fallback->url, 'source' => 'synced'];
+                if ($fallback->url !== null) {
+                    $links = [$primary];
+                }
+            }
 
             $overrideHeadline = $overrides[$itemId] ?? null;
 

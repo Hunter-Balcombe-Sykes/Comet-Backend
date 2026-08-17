@@ -113,6 +113,16 @@ class SourceProvisioner
             // A different selection is a different menu at different prices:
             // without this the change waits out max_interval_secs (7 days).
             $update['next_attempt_at'] = now();
+            // ...and what the NEW menu does not list is gone NOW, not after
+            // tombstone_runs (3) more absences — a business that narrows to
+            // one stylist must not keep publishing the other 5 storewide-only
+            // services for a week (overnight 2026-08-18 W6). Pre-charge every
+            // live record so the very next run's absence fold tombstones it.
+            $tombstoneRuns = max(1, (int) config('partna.ingest.tombstone_runs', 3));
+            DB::table('ingest.record_state')
+                ->whereIn('stream_id', DB::table('ingest.streams')->where('source_id', $existing->id)->select('id'))
+                ->whereNull('tombstoned_at')
+                ->update(['absent_runs' => $tombstoneRuns - 1]);
         }
         if (! $existing->auto_sync && self::schedulable($manifest)) {
             $update['auto_sync'] = true;
@@ -133,6 +143,14 @@ class SourceProvisioner
             $update['cost_units'] = $manifest->cost->budgetWeight();
         }
         DB::table('ingest.sources')->where('id', $existing->id)->update($update);
+
+        // A changed selection (a different Fresha team member, a different
+        // storewide/employee mode) is a different menu: report it distinctly so
+        // the observer can run the source NOW instead of leaving the pool
+        // empty until the scheduler's next tick (overnight 2026-08-18 W6).
+        if (array_key_exists('selection_ref', $update)) {
+            return ['status' => 'reselected', 'source_key' => $sourceKey];
+        }
 
         return ['status' => count($update) > 1 ? 'updated' : 'unchanged', 'source_key' => $sourceKey];
     }
