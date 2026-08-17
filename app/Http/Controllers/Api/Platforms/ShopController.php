@@ -34,6 +34,7 @@ use App\Services\Platforms\ShopProviderDetector;
 use App\Services\Platforms\StrandedPendingWindow;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ProductPageAdder;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentReader;
 use App\Services\Shop\ShopContentWriter;
@@ -142,6 +143,7 @@ class ShopController extends ApiController
         private readonly ShopContentReader $contentReader,
         private readonly ShopContentWriter $content,
         private readonly ShopConnections $shop,
+        private readonly ProductPageAdder $products,
     ) {}
 
     // The FAMILY key: the per-user lock and FeatureAvailability only. Rows carry
@@ -1002,22 +1004,28 @@ class ShopController extends ApiController
     {
         $user = $this->currentUser($request);
 
-        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
-        $read = $this->budget->open($seconds, fn () => $this->generic->readProductPage($request->validated()['url']));
+        // The OV-A availability assert is explicit here because the adder is a
+        // storage helper and does not gate; losing it silently would have let a
+        // staff takedown of the shop integration still accept a product add.
+        $this->assertPlatformAvailable($user);
+
+        // ONE way in (2026-08-17): ProductPageAdder is the page read + the
+        // reserved-bucket write this method used to carry inline, shared with
+        // the pool lane's POST /content/pools/shop/items — which also pins.
+        // This legacy endpoint keeps its own response shape and status codes.
+        $added = $this->products->add($user, $request->validated()['url'], connectStore: false);
 
         // Distinct code when the "product" URL is really a storefront homepage
         // (WS-B1.1) — the dashboard suggests connecting it as a brand instead,
         // prefilled with `storeUrl`.
-        if ($read['outcome'] === GenericShopScraper::OUTCOME_STORE_PAGE) {
+        if ($added['outcome'] === ProductPageAdder::OUTCOME_STORE_PAGE) {
             return $this->error(
                 "That looks like a store's homepage, not a product page. Connect it as a brand to import its products, or paste a specific product's page URL.",
                 422,
-                extra: ['code' => 'store_homepage', 'storeUrl' => $read['storeUrl']],
+                extra: ['code' => 'store_homepage', 'storeUrl' => $added['storeUrl']],
             );
         }
-
-        $product = $read['product'];
-        if ($product === null) {
+        if ($added['outcome'] !== ProductPageAdder::OUTCOME_PRODUCT) {
             return $this->error(
                 "Couldn't read a product from that link. Open the product's own page and paste its URL — it needs a title and price in standard product markup.",
                 422,
@@ -1025,67 +1033,11 @@ class ShopController extends ApiController
             );
         }
 
-        return $this->withConnectionLock($user, function () use ($user, $product) {
-            // The individual-products bucket is not a store, so it does not get
-            // a store surface: its anchor is `partna.manual_product`, hidden,
-            // dormant and explicitly NOT retired (§16 names it "the manual
-            // product add-path"). That reservation is exactly this case.
-            //
-            // The OV-A availability assert is explicit here because
-            // ShopConnections is a storage helper and does not gate (see its
-            // anchor() docblock). This path used to reach it for free through
-            // writeConnection(); losing it silently would have let a staff
-            // takedown of the shop integration still accept a product add.
-            $this->assertPlatformAvailable($user);
-            $connection = $this->shop->individualAnchor($user);
+        $this->bumpSiteCache($user);
 
-            // Re-home Task 6: read off content.*. max() on a Collection returns
-            // null for an empty set where the query Builder returned 0, which
-            // the ($maxPosition === null ? -1 : …) below already handles.
-            $stores = $this->shop->stores($user);
-            $maxPosition = $stores->max('position');
-
-            // Re-home Task 7: the reserved bucket is a content.* store like any
-            // other. firstOrCreate's "create only if absent" semantics matter
-            // here and upsertStore() has none — it writes every column — so an
-            // EXISTING bucket keeps its own position and currency, and only a
-            // brand-new one takes the defaults. Without that fold, adding a
-            // second product would renumber the bucket and overwrite the
-            // currency the first one set.
-            $existing = $stores->get(StoreRecord::INDIVIDUAL_REF);
-            $individual = $existing ?? new StoreRecord(
-                externalRef: StoreRecord::INDIVIDUAL_REF,
-                provider: ShopProviderDetector::PROVIDER_GENERIC,
-                position: ($maxPosition === null ? -1 : $maxPosition) + 1,
-                url: '',
-                sourceUrl: '',
-                currency: $product['currency'] ?? null,
-                discountCode: '',
-                isIndividual: true,
-            );
-
-            $productId = $product['productId'] ?? null;
-
-            // Mirrors ShopProductSeeder::seed() exactly (that class is the
-            // reference implementation for this same reserved-bucket pattern)
-            // — newest first, de-duped by productId, capped, reconstructed
-            // from content.*.
-            $collectionId = $this->content->upsertStore($individual, (string) $user->id);
-            $ordered = collect($this->content->currentCatalogue($collectionId))
-                ->reject(fn (array $p) => ($p['productId'] ?? null) === $productId)
-                ->prepend($product)
-                ->take(self::MAX_INDIVIDUAL_PRODUCTS)
-                ->values();
-
-            $this->content->syncStore((string) $user->id, $collectionId, $ordered->all(), $individual->currency);
-
-            $this->refresher->refresh($connection);
-            $this->bumpSiteCache($user);
-
-            return $this->success((new ShopBrandResource(
-                $this->contentReader->brandMap($user)[StoreRecord::INDIVIDUAL_REF] ?? []
-            ))->resolve());
-        });
+        return $this->success((new ShopBrandResource(
+            $this->contentReader->brandMap($user)[StoreRecord::INDIVIDUAL_REF] ?? []
+        ))->resolve());
     }
 
     // DELETE /api/platforms/shop/products/{productId} — remove one individual
