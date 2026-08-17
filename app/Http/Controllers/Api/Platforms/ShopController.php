@@ -57,10 +57,10 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 // sidecar per brand, and one content.items row per product, written through
 // ShopContentWriter and read back through ShopContentReader. NOT in the
 // connection's JSONB payload. site.shop_brands survives as the per-brand
-// identity/lifecycle anchor this controller still writes (and which the
-// not-yet-repointed public read path still reads); site.shop_products is
-// no longer written at all — the deletes below only clear pre-deploy rows.
-// Slice 7 drops both.
+// identity/lifecycle anchor this controller still writes; site.shop_products
+// is neither written NOR read here any more — re-home Task 2 removed the last
+// of both, and its remaining rows go with the DROP (Task 13), which is also
+// where site.shop_brands and the writes above it go.
 //
 // Convergence Phase 6 (owner ruling 4): there is no longer a single 'shop'
 // marker row. Each connected store carries its OWN connection on its real
@@ -565,18 +565,45 @@ class ShopController extends ApiController
      * failure) — same-request-cycle read-your-own-write — so content.* is
      * current by the time any poll can observe a settled store.
      *
-     * Re-home Task 2 dropped the legacy site.shop_brands fallback that used to
-     * sit here. It rebuilt the payload through toBrandArray(), which reads
-     * site.shop_products — a table nothing has written since slice 5a, so the
-     * fallback could only ever have served a frozen product list. The one case
-     * it genuinely covered, a store present in site.shop_brands but never
-     * backfilled into content.*, stops being reachable at Task 6: once
-     * connectStatus() resolves through ShopConnections::store() the 404 fires
-     * before this method is called at all.
+     * Re-home Task 2 dropped the legacy toBrandArray() fallback that used to
+     * sit here: it materialised site.shop_products, a table nothing has written
+     * since slice 5a, so it could only ever have served a frozen product list.
+     *
+     * What it CANNOT drop is a fallback altogether, and this is the one of the
+     * five repointed payload sites where that matters. The other four are each
+     * preceded by an upsertStore() in the same request, so their content.* row
+     * is guaranteed. This one is not: connectStatus() resolves $brand from
+     * site.shop_brands and never writes, so the guarantee lives in a different
+     * request or in ShopBrandConnectJob. A store with a legacy row and no
+     * content.* row — the reader's own KNOWN GAPS #1, "a DEPLOY ORDERING FACT"
+     * — would otherwise render as a card with id "" and no name, url, logo or
+     * connectStatus at all, which is strictly worse than the stale-products
+     * shape the old fallback returned.
+     *
+     * So the miss returns the identity this endpoint actually knows, from the
+     * legacy row it already holds, with an empty catalogue — honest, because
+     * content.* genuinely has no catalogue for this store. Products are the
+     * only thing lost, and a poll of an in-flight connect has none to show.
+     *
+     * This whole branch dies at Task 6: once connectStatus() resolves through
+     * ShopConnections::store(), a store absent from content.* 404s before this
+     * method is reached.
      */
     private function brandPayload(User $user, ShopBrand $brand): array
     {
-        return $this->contentReader->brandMap($user)[$brand->brand_id] ?? [];
+        return $this->contentReader->brandMap($user)[$brand->brand_id] ?? [
+            'id' => $brand->brand_id,
+            'provider' => $brand->provider,
+            'url' => $brand->url,
+            'sourceUrl' => $brand->source_url,
+            'name' => $brand->name,
+            'currency' => $brand->currency,
+            'favicon' => $brand->favicon,
+            'logo' => $brand->logo,
+            'discountCode' => $brand->discount_code ?? '',
+            'referralQuery' => $brand->referral_query ?? '',
+            'products' => [],
+        ];
     }
 
     // PATCH /api/platforms/shop/brands/{id} — update PER-BRAND settings: the
@@ -1278,7 +1305,7 @@ class ShopController extends ApiController
      * (site.shop_brands) brandMap() above and Task 7's ShopContentReader
      * call sites below — both must pass an array (never null) here so
      * popularityRank stays PRESENT (not omitted) on every dashboard read,
-     * matching ShopBrand::toBrandArray()'s own contract.
+     * matching ShopContentReader::brandMap()'s own contract.
      */
     private function productRanksFor(User $user): array
     {

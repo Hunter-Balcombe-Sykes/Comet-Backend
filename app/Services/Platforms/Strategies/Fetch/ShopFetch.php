@@ -56,7 +56,7 @@ final readonly class ShopFetch implements FetchStrategy
         //
         // Re-home Task 2 dropped the 'products' eager load. #428 added it back
         // because syncLatest() reached the relation through
-        // ShopBrand::toBrandArray(), and the resulting
+        // ShopBrand::toBrandArray() (since deleted), and the resulting
         // LazyLoadingViolationException failed this job on every multi-brand
         // connection. That method is gone and syncLatest() no longer touches
         // the relation at all, so eager-loading it now buys nothing. The

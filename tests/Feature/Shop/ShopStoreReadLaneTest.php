@@ -196,12 +196,12 @@ it('defaults the collection id to null for a record built to be written', functi
 
 it('lists every store the user owns, ordered, off content.*', function (): void {
     [$user, $brandA] = makeShopBrand([
-        'brand_id' => 'alpha', 'url' => 'https://a.test', 'source_url' => 'https://a.test', 'position' => 0,
+        'brand_id' => 'zeta', 'url' => 'https://z.test', 'source_url' => 'https://z.test', 'position' => 0,
     ], withSite: true);
     ShopBrand::create([
         'connection_id' => $brandA->connection_id,
-        'brand_id' => 'beta', 'provider' => 'shopify',
-        'url' => 'https://b.test', 'source_url' => 'https://b.test',
+        'brand_id' => 'alpha', 'provider' => 'shopify',
+        'url' => 'https://a.test', 'source_url' => 'https://a.test',
         'is_individual' => false, 'position' => 1,
     ]);
 
@@ -209,10 +209,13 @@ it('lists every store the user owns, ordered, off content.*', function (): void 
 
     $stores = app(ShopConnections::class)->stores($user);
 
-    expect($stores->keys()->all())->toBe(['alpha', 'beta'])
-        ->and($stores->get('alpha'))->toBeInstanceOf(StoreRecord::class)
-        ->and($stores->get('alpha')->collectionId)->not->toBeNull()
-        ->and($stores->get('beta')->position)->toBe(1);
+    // 'zeta' is position 0 and 'alpha' position 1, so this ordering can only
+    // come from c.position — alphabetical order would invert it.
+    expect($stores->keys()->all())->toBe(['zeta', 'alpha'])
+        ->and($stores->get('zeta'))->toBeInstanceOf(StoreRecord::class)
+        ->and($stores->get('zeta')->collectionId)->not->toBeNull()
+        ->and($stores->get('zeta')->position)->toBe(0)
+        ->and($stores->get('alpha')->position)->toBe(1);
 });
 
 it('returns an empty collection for a user with no shop at all', function (): void {
@@ -270,6 +273,50 @@ it('orders stores identically to ShopContentReader::brandMap()', function (): vo
 
     app(ShopBackfiller::class)->run();
 
-    expect(app(ShopConnections::class)->stores($user)->keys()->all())
-        ->toBe(array_keys(app(ShopContentReader::class)->brandMap($user)));
+    $keys = app(ShopConnections::class)->stores($user)->keys()->all();
+
+    // Pinned LITERALLY, not just as "equal to brandMap()". Two failures that a
+    // self-comparison alone would pass: an empty fixture (both sides []), and
+    // an identical change to BOTH queries. The fixture is chosen so position
+    // order and alphabetical order disagree — 'zeta' is position 0, and the
+    // two position-1 stores tie-break on external_ref.
+    expect($keys)->toHaveCount(3)
+        ->and($keys)->toBe(['zeta', 'alpha', 'mid'])
+        ->and($keys)->toBe(array_keys(app(ShopContentReader::class)->brandMap($user)));
+});
+
+// ── Review P1-1 ─────────────────────────────────────────────────────────
+//
+// connectStatus() is the ONE repointed payload site with no upsertStore() in
+// its own request, so it is the one that can actually observe a store present
+// in site.shop_brands and absent from content.*. It must not answer that with
+// a blank card.
+it('serves a truthful store on a connect poll when content.* has no row yet', function (): void {
+    // Deliberately NO ShopBackfiller run — this IS the un-backfilled store.
+    [$user, $brand] = makeShopBrand([
+        'brand_id' => 'unbackfilled-store',
+        'provider' => 'shopify',
+        'url' => 'https://unbackfilled.test',
+        'source_url' => 'https://unbackfilled.test',
+        'name' => 'Unbackfilled Store',
+        'currency' => 'AUD',
+        'discount_code' => 'SAVE5',
+    ], withSite: true);
+
+    expect(DB::table('content.storefronts')->count())->toBe(0);
+
+    $response = actingAsUser($user)
+        ->getJson("/api/platforms/shop/brands/{$brand->brand_id}/connect/status")
+        ->assertOk();
+
+    // The identity the endpoint knows, not an empty shell. `id` in particular:
+    // a blank one makes the dashboard replace a real card with an anonymous
+    // store it can no longer address.
+    $response->assertJsonPath('brand.id', 'unbackfilled-store')
+        ->assertJsonPath('brand.name', 'Unbackfilled Store')
+        ->assertJsonPath('brand.url', 'https://unbackfilled.test')
+        ->assertJsonPath('brand.provider', 'shopify')
+        ->assertJsonPath('brand.currency', 'AUD')
+        ->assertJsonPath('brand.discountCode', 'SAVE5')
+        ->assertJsonPath('brand.products', []);
 });

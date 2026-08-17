@@ -212,6 +212,216 @@ consequences worth stating:
 
 ---
 
+## Pre-flight findings — verified 2026-08-17, before Phase 2
+
+Everything below was re-derived against the live dev ref
+(`glncumufgaqcmqhzwrxm`) or the branch tip, not taken from the spec.
+
+### ⛔ TASK 11 BLOCKER — `content.storefronts` is NOT the shop lane's alone
+
+`site.shop_brands` is a shop-only table. `content.storefronts` is **not**: the
+order-platform lane writes it too. Of the 15 live rows, **10** hang off
+`kind='storefront'` collections (shop) and **5** off `kind='order_platform'`
+(DoorDash, written by `MenuFetchJob::…` at `app/Jobs/Platforms/MenuFetchJob.php:639`).
+Both `ShopContentReader::brandMap()` and `ShopConnections::stores()` filter
+`c.kind = 'storefront'`, so the order rows are correctly invisible to the shop
+lane — that part is fine.
+
+What is **not** fine: `MenuFetchJob:639`'s upsert writes
+`collection_id, provider, url, external_ref, currency, referral_query,
+is_individual, created_at, updated_at` — **and no `user_id`**. Task 11 adds
+`user_id` and then `SET NOT NULL`. The migration itself succeeds (the backfill
+fills all 15 existing rows through their collection), but **the next
+order-platform scrape that inserts a new storefront row fails on a NOT NULL
+violation.** The failure is deferred and silent until a menu is re-scraped,
+which is the worst possible shape.
+
+**Task 11 must therefore also make `MenuFetchJob:639` write `user_id`.** That
+file is outside this plan's stated file list and outside the services session's
+territory (theirs is `site.services` ×3 and `Service*`/`Fresha*`), so it is
+ours to fix — but it is a cross-lane edit and gets its own commit and its own
+test. `MenuFetchJob::clearStorefronts()` (`:1063`) deletes by collection id and
+needs no change.
+
+### Task 11 pre-flight — the index will build clean
+
+```
+storefronts_total          15      null_external_ref         0
+orphaned_no_collection      0      collection_without_owner  0
+duplicate (user_id, provider, external_ref) identities       0
+```
+
+So the backfill fills every row, `SET NOT NULL` cannot fail on a leftover null,
+and the unique index cannot fail on a pre-existing duplicate.
+
+Two design notes for the migration:
+
+- **The index is PARTIAL on `external_ref IS NOT NULL`.** The column is
+  nullable and Postgres treats NULLs as distinct, so a plain unique index would
+  silently permit unlimited `(user_id, provider, NULL)` rows while *looking*
+  like it enforced identity. The sibling index
+  `idx_content_storefronts_external_ref` is already partial the same way.
+- **Name it `storefronts_user_provider_ref_uq`**, not `…_unique` as this plan's
+  Task 11 test snippet says — the existing unique index on the sibling table is
+  `collections_user_kind_external_ref_uq`. The test must pin the real name.
+
+### ✅ Task 13's backup gate — the tooling wall is GONE, solved early
+
+The EXECUTE prompt flagged this in red and told us to solve it in parallel with
+Phase 1 rather than discover it with the DROP as the only thing left. Done, and
+the previous session's conclusion that R2 is unreachable from this laptop was
+**wrong** — they missed the one route that works.
+
+- **The bucket is `partna-db-backups`, plural.** `partna-db-backup` (singular)
+  is the GitHub *repo*. CLAUDE.md and the EXECUTE prompt both conflate them.
+- `rclone`, `aws`, `s3cmd`, `mc` and `wrangler` are all genuinely absent, and
+  `.env`'s `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_BUCKET` are **empty
+  strings** — so the `aws/aws-sdk-php` route (the SDK *is* in `vendor/`) is dead
+  for want of credentials, and no configured disk points at a backup bucket.
+  The scoped `R2_*` keys exist only as GitHub Actions secrets: write-only.
+- **What works:** a wrangler OAuth session already stored at
+  `~/Library/Preferences/.wrangler/config/default.toml`, driven through
+  `npx --yes wrangler@4` so nothing needs installing. Its stored
+  `expiration_time` is long past but the refresh token renews it silently, and
+  R2 works despite no R2 scope being listed.
+- **`scripts/db/backup-to-r2.sh`** (new) wraps it: encrypts by default with the
+  same AES-256-CBC/pbkdf2 `weekly-db-backup.yml` uses so `restore-drill.yml`
+  can decrypt it, uploads, then **reads the object back and byte-compares**
+  before reporting success, and has a `--delete` path that confirms removal.
+  Proven end to end against the live bucket — upload, verified round-trip,
+  delete, delete confirmed — with throwaway probe objects only. Bucket left in
+  its prior state.
+
+Three traps the script encodes, each of which bit during that proving run:
+`wrangler r2 bucket info`'s `object_count` is a lagging analytics figure and is
+**not** a verification (it read 4 while the probe was demonstrably readable, and
+wrangler has no object-list command at all); `wrangler r2 object get` creates
+the destination file *before* discovering a 404 and exits 0 in a pipe, so a
+zero-byte result is the failure signal, not the exit code; and `set -o pipefail`
+with `wrangler … | grep` makes a correct delete-confirmation read as a failure.
+
+Two operational notes for Task 13:
+- `restore-drill.yml` resolves `object_key` under `weekly/` **only** (the prefix
+  is hardcoded), and picks "newest" by `sort | tail -1` — so a pre-DROP dump
+  must land under `weekly/` to be drillable, and its name becomes the default
+  restore target if it sorts last.
+- A laptop dump may be unnecessary: `gh workflow run weekly-db-backup -R
+  Hunter-Balcombe-Sykes/partna-db-backup` runs dump → verify → encrypt → upload
+  where the scoped secrets already live, and `restore-drill` proves it
+  restorable. The last scheduled run succeeded 2026-08-16 15:10 UTC. Neither
+  was triggered here — both write real data.
+
+⚠️ The OAuth session is an **account-wide owner credential**, not the
+bucket-scoped token the backup design specifies. Fine for an operator by hand;
+it must never be baked into a CI path. That caveat is in the script header.
+
+### Task 13's `pg_depend` gate — already clean
+
+No inbound foreign keys, no views, no materialised views, no triggers, and no
+function bodies referencing either table. The only dependents are their own
+indexes (`idx_shop_brands_connection`, `idx_shop_products_brand`), their TOAST
+tables, and their own RLS policies (`shop_brands_app_backend_all`,
+`shop_products_app_backend_all`) — all of which drop with the table. Re-run at
+Task 13 as the plan says; recorded here because it means the DROP has no
+hidden blocker to discover late.
+
+### Task 7 — the legacy shared anchor is already empty
+
+`removeBrand()`'s anchor guard (`! ShopBrand::where('connection_id', …)->exists()`)
+exists for ONE case: the retired `partna.storefront` marker, where several
+stores shared an anchor. Live dev has **zero** `partna.storefront` connections —
+Phase 6's retirement migration cleared them. Live surfaces are
+`shopify.store` (9), `woocommerce.store` (1) and `partna.manual_product` (1).
+With one connection per store the anchor's `resource_id` IS the store id, so
+removing a store always empties its own anchor. Guard on the surface, not on a
+row count, so a marker row that somehow survived is never deleted out from
+under other stores.
+
+### Spec §12's two open questions — both answerable NOW, not at Task 15
+
+**§12.1 — does anything outside `app/` reference the `shop-brands/<uuid>` R2
+prefix?** **No.** The only code occurrence anywhere is
+`ProcessShopBrandLogoJob.php:104`. Zero hits in `config/`, `scripts/`,
+`cloudflare-worker/`, `tests/`, `database/`; the only other hits are this plan,
+the EXECUTE prompt and the spec discussing it. §5.1's assumption holds.
+
+**§12.2 — where does the stale-pending clock live?** On
+`content.storefronts.updated_at`, and **the explicit `touch()` disappears
+rather than needing a replacement.** The spec asserts that "`upsertStore()`
+writing byte-identical values will not bump it either — the same defect the
+legacy path already patched once". **That is wrong**, verified against a real
+Postgres 16 rather than reasoned about: `ON CONFLICT DO UPDATE` writes the row
+unconditionally, so `updated_at` moved even when every other column was
+byte-identical. The legacy `$brandRow->touch()` exists because *Eloquent's*
+`fill()->save()` skips a no-op UPDATE — that is a model-layer dirty check, not
+a database one, and the upsert has no equivalent.
+
+### Task 6 Steps 1-2 are already satisfied by an existing guard
+
+The plan asks for a characterisation test written against the legacy path that
+passes BEFORE the repoint. `tests/Feature/Shop/ShopEndpointParityTest.php` is
+exactly that and already passes (13 tests, 80 assertions): byte-exact
+`assertExactJson` captures for all five read endpoints, taken from a dump of
+the real pre-Task-7 responses. Do not write a second one — re-run that file
+after each Phase 2 commit instead.
+
+Note its last test, *"site.shop_brands keeps being written — the anchor row +
+live public read"*, is an INVERSE guard and is **expected to fail at Task 7**,
+when the legacy writes stop. Failing it is the signal Task 7 worked; it gets
+re-cut then, not before.
+
+### Phase 3 (Tasks 9-10) — the plan materially understates the work
+
+Re-derived file by file. Corrections:
+
+| Plan says | Reality |
+|---|---|
+| `ShopBrandConnectJob.php:91-226` | L64-287 — `markTerminal()` at L259-287 is outside the cited window and holds a second `ShopBrand::update()` plus two `->connection` reads |
+| `ProcessShopBrandLogoJob.php:53-127` | L45-138 |
+| dispatch sites at `ShopController:474, 496` | **476 and 498**, and there is a **third**: `ShopBrandConnectJob.php:215` dispatches `ProcessShopBrandLogoJob`. Step 6's "update both dispatch sites in `ShopController`" is wrong. |
+| "both are dispatched with `(string) $brandRow->id`" | only the logo job casts; `ShopController:498` passes `$brandRow->id` uncast |
+| `$store->source_url` (Task 10 Step 3) | `$store->sourceUrl` — the names are NOT identical, which is the one thing that step asserts |
+| "`StoreBrandSeeder`'s five touches" | eight |
+| "`StoreBrandProfiler`'s two touches" | five |
+| Task 10 is "type-hint changes, not logic changes" | **false** — three substantive logic problems, below |
+
+**The three Task 10 hazards, none of which the plan names:**
+
+1. **`connection_id` scoping has no `content.*` equivalent.** `StoreBrandSeeder`
+   scopes four queries on `connection_id`, and `StoreBrandProfiler`'s ENTIRE
+   public API is connection-keyed (`profile(string $connectionId)`, plus
+   `ownedAssetUrls()`/`catalogCurrency()`/`attributionName()`, which query
+   `content.brand_asset_refs.connection_id` and `content.sources.connection_id`).
+   `content.storefronts` carries no connection linkage, so there is no join path
+   from a connection id to a `StoreRecord` inside `content.*` at all. The bridge
+   has to come from `site.platform_connections`: `resource_id` IS the brand id
+   (`ShopConnections::anchor()`), so connection → `user_id` + `resource_id` →
+   `stores($user)->get($resourceId)`. That is a design decision this plan never
+   made, and it is the likeliest thing to blow up Task 10.
+2. **`upsertStore()` has no partial-write semantics.** `StoreBrandSeeder`
+   deliberately builds `$carried` with `array_filter(… !== null)` so a re-seed
+   never wipes a favicon/logo an earlier fetch earned; `ShopProductSeeder` relies
+   on `firstOrCreate` NOT updating an existing bucket's currency/position.
+   `upsertStore()` lists `logo_url`/`favicon_url` unconditionally in its ON
+   CONFLICT update, so a naive port nulls out an existing logo on every re-scan.
+   Both need read-back-and-fold, exactly as Task 9 Step 4 prescribes for the
+   connect job — the plan says so for Task 9 and not for Task 10.
+3. **`ShopBrandConnectJob`'s two settle writes are compare-and-set**
+   (`->where('connect_status','pending')->update(…)`, and the design rests on
+   the returned row COUNT). `upsertStore()` is unconditional and returns a
+   collection id. A naive replacement loses the "a stale retry must not clobber
+   a newer settle" guarantee.
+
+**Also:** `ShopConnections::storeByCollection()` and the plan's
+`sbrUserWithPendingStore()` / `sbrProvisionalUser()` helpers do not exist yet.
+`ShopBrand::INDIVIDUAL_BRAND_ID` is referenced from `ShopConnections.php:120`
+and `ShopProductSeeder.php:75` and must move off the model before the DROP
+(Task 7 Step 4 already plans the move; these are two more call sites it must
+carry). `StoreBrandProfiler::settle()` has **no production caller** — only
+three tests — so consider deleting it rather than porting it.
+
+---
+
 ## Phase 1 — The read lane
 
 ### Task 3: `StoreRecord` carries its collection id
@@ -402,7 +612,57 @@ git commit -m "feat(shop-rehome): ShopConnections::stores() reads content.*"
       `pipe()`). Pint → passed.
 - [x] **Step 2:** `composer test:pg` — `ShopStorefrontUpsertConflictTest` and `ShopUpsertStoreAtomicityTest` both live there.
 - [x] **Step 3:** `php -d memory_limit=1G ./vendor/bin/phpstan analyse --no-progress` and `php artisan pint`.
-- [ ] **Step 4: Independent review of the phase diff**, then merge to `development` and deploy dev. `stores()` is additive — nothing reads it yet, so this deploy changes no behaviour.
+- [x] **Step 4: Independent review of the phase diff**, then merge to `development` and deploy dev. ~~`stores()` is additive — nothing reads it yet, so this deploy changes no behaviour.~~
+
+**CORRECTED — that sentence is true of Task 4 and FALSE of the phase**, and it
+must not be read as "safe to fast-forward". Task 4 is additive; **Task 2 is
+not**. It changed five response payloads, dropped `ShopFetch`'s `products`
+eager load, changed `syncLatest()`'s dispatch shape and the source of its
+client-mode fallback, and repointed the private `ShopController::brandMap()`
+off `site.shop_brands` onto `content.*` — reversing a decision the deleted
+docblock recorded verbatim (*"It stays on the legacy row deliberately:
+`catalog()` dispatches a LIVE re-scrape…"*). The behaviour change that leaves:
+**`POST /brands/{id}/catalog` now 404s for a store present in
+`site.shop_brands` and absent from `content.*`**, where it previously worked.
+Deliberate — `catalog()` reads `{url, provider}` for a re-scrape and content.*
+carries both — but it is a change, and it ships with this deploy.
+
+**Independent review: run.** One P1 and five P2s, all fixed in the phase before
+merge (see the review-fixes commit for the detail):
+
+- **P1** — `brandPayload()`'s `?? []` was the one payload site NOT preceded by
+  an `upsertStore()` in the same request, so an un-backfilled store made
+  `connectStatus()` emit a card with `id: ""` and every conditional key gone.
+  It now returns the identity it actually knows, from the legacy row it already
+  holds, with an empty catalogue. Pinned by a test.
+- **P2** — a `removeBrand`/`forget` assertion that enshrined an SQLite-only
+  truth (`shop_products.brand_id` is `ON DELETE CASCADE`, so Postgres removes
+  the rows and SQLite does not) → replaced with a query assertion; an ordering
+  test that could pass on two empty arrays and did not discriminate position
+  order from alphabetical → literal order + count; a **genuine latent bug** in
+  the client-mode `syncLatest()` path (it resolved the owner through the lazy
+  `connection` relation, throwing `LazyLoadingViolationException` for a brand
+  hydrated off a multi-row `get()` — #428's exact shape) → `loadMissing()`,
+  plus the client-mode test that was missing; ~20 docblocks still naming the
+  deleted `ShopBrand::toBrandArray()` as the authority for the wire shape →
+  re-pointed at `ShopContentReader::brandMap()`.
+
+**Carried to Task 6 rather than fixed here** (neither bites while nothing calls
+`stores()`):
+
+1. **`stores()` is not soft-delete aware and `brands()` is.** `brands()` scopes
+   through `connectionIds($user)` → `$user->integrationConnections()`, which
+   respects the connection's soft delete. `stores()` has no connection concept,
+   so a store whose `IntegrationConnection` was soft-deleted (staff takedown,
+   GDPR, `forgetAllConnections`) while its `content.*` collection survived
+   appears in one and not the other. Task 6 must decide whether the content
+   collection is retired on that path, or whether `stores()` needs the join.
+2. **`store()` re-issues the whole query per call.** The commit's "a single
+   query instead of one per call" only holds if the caller hoists `stores()`
+   into a variable. `addBrand` has three `brand()`/`brands()` touches today, so
+   a naive repoint turns one query into three full scans. Hoist at Task 6.
+3. `ShopController:337`'s `->where('is_individual', false)` becomes
+   `Collection::where('isIndividual', false)`, which uses loose `==`.
 
 ---
 

@@ -9,8 +9,9 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Slice 5a Task 7: the read counterpart to ShopContentWriter — rebuilds the
- * legacy brand-keyed map (the shape ShopBrand::toBrandArray() produces,
- * keyed by brand_id) from content.collections / content.storefronts, using
+ * legacy brand-keyed map (keyed by brand_id) — the shape that WAS
+ * ShopBrand::toBrandArray()'s, and that this class is now the sole author of
+ * (re-home Task 2 deleted that method) from content.collections / content.storefronts, using
  * ShopContentWriter::cataloguesFor() for the nested `products` reconstruction
  * instead of writing a second parallel one.
  *
@@ -63,26 +64,25 @@ use Illuminate\Support\Facades\DB;
  *    per brandMap() call, not per brand — it is the same value for every
  *    brand a user has), falling back to Site::DEFAULT_SHOP_LINK_MODE when
  *    the site has no row or the column is null. This is a DELIBERATE
- *    behaviour change from the old per-brand ShopBrand::toBrandArray()
+ *    behaviour change from the old per-brand toBrandArray()
  *    shape (which showed whatever was last written to that brand's own,
  *    now-vestigial link_mode/selection_mode columns) — see the Task 7
  *    report, Fix round 1, for why the parity fixture's expectations moved
  *    to match.
  *
  * 4. popularityRank is keyed by product HANDLE (content_popularity_scores'
- *    own scoring-pipeline convention — see ShopBrand::toBrandArray()'s own
- *    docblock). Since gap 2 above, `handle` is populated once an item has
+ *    own scoring-pipeline convention). Since gap 2 above, `handle` is populated once an item has
  *    synced since the Finding 3 migration, so the rank lookup can hit for
  *    up-to-date items — same backfill-lag caveat, not a permanent miss.
  *    ShopController's own private brandMap() (the pre-Task-7 path this
  *    class replaces for brands()/brandProducts()/selection()) ALWAYS passes
- *    a ranks array — never null — to ShopBrand::toBrandArray(), so
+ *    a ranks array — never null — so
  *    popularityRank is present (not omitted) on the DASHBOARD shape too,
  *    despite that method's docblock describing the key as public-path-only
  *    — confirmed empirically, not from the docblock. This class mirrors
  *    that: pass $productRanks (even an empty array) to get the key; pass
- *    null (as connectStatus()'s fallback does) to omit it, matching
- *    ShopBrand::toBrandArray()'s own contract exactly.
+ *    null to omit it. That contract is this method's own now; it was
+ *    inherited from toBrandArray(), which no longer exists.
  */
 class ShopContentReader
 {
@@ -94,7 +94,7 @@ class ShopContentReader
      * every product (dashboard shape); pass null to omit the key entirely.
      *
      * @param  array<string, int>|null  $productRanks
-     * @return array<string, array<string, mixed>> external_ref (brand_id) => brand array, ShopBrand::toBrandArray() shape
+     * @return array<string, array<string, mixed>> external_ref (brand_id) => brand array (the shape ShopBrandResource consumes)
      */
     public function brandMap(User $user, ?array $productRanks = null): array
     {
@@ -170,10 +170,12 @@ class ShopContentReader
                 'products' => self::withPopularityRank($catalogues[$row->collection_id] ?? [], $productRanks),
             ];
 
-            // Conditional emission mirrors ShopBrand::toBrandArray() exactly,
-            // so a settled/non-individual/unprocessed brand's body stays
-            // byte-identical to the pre-repoint shape (dark-merge contract —
-            // IntegrationContractGoldenMasterTest and friends).
+            // Conditional emission — a settled/non-individual/unprocessed
+            // brand's body stays byte-identical to the pre-repoint shape
+            // (dark-merge contract — IntegrationContractGoldenMasterTest and
+            // friends). It mirrored ShopBrand::toBrandArray() when that
+            // existed; since re-home Task 2 deleted it, the byte-identity
+            // reference is ShopEndpointParityTest's captured dumps.
             if ($row->fetch_mode !== null) {
                 $brand['fetchMode'] = $row->fetch_mode;
             }
@@ -203,7 +205,7 @@ class ShopContentReader
     }
 
     /**
-     * Mirrors ShopBrand::toBrandArray()'s own conditional: $productRanks ===
+     * The conditional inherited from toBrandArray(): $productRanks ===
      * null omits the key entirely (matches connectStatus()'s fallback path);
      * any array (even empty) adds it, keyed by handle — see gap 4 above for
      * why that lookup is always a miss post-repoint.

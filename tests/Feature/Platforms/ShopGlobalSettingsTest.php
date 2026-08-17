@@ -262,6 +262,47 @@ it('runs the scheduled sync end to end without tripping the lazy-loading guard',
         ->toThrow(FetchNotModifiedException::class);
 });
 
+// Re-home Task 2 sibling of the test below. syncLatest() no longer reads
+// $brand->products at all, but it DOES need the owner id — and it resolves it
+// through $brand->connection, another lazy relation on the same strict-mode
+// row. ShopCatalog::dispatchShapeFor() therefore takes the owner as a CLOSURE
+// so only the fetchMode='client' branch pays for it.
+//
+// 'client' is the branch that DOES invoke the closure, and it invokes it
+// before the empty-catalog return — so this is the case that would throw if
+// ShopFetch ever stopped eager-loading `connection`, exactly as 5a stopped
+// eager-loading `products` and produced #428. Nothing else pins it.
+it('syncLatest tolerates a CLIENT-mode brand handed to it with connection unloaded', function () {
+    $user = shopSettingsUser('sflazy3');
+    $conn = shopFetchConnection($user, autoLatest: true);
+    shopFetchSecondBrand($conn);
+    ShopBrand::where('connection_id', $conn->id)->update(['fetch_mode' => 'client']);
+
+    // Straight off a multi-row get(), with NEITHER relation loaded — this is
+    // what arms Eloquent strict mode (Builder::hydrate only sets the flag for
+    // >1 row).
+    $brand = ShopBrand::query()->where('connection_id', $conn->id)->get()->firstOrFail();
+    expect($brand->relationLoaded('connection'))->toBeFalse()
+        ->and($brand->relationLoaded('products'))->toBeFalse()
+        ->and($brand->preventsLazyLoading)->toBeTrue();
+
+    // Client mode dispatches through WooCommerceScraper::fetchProducts, and an
+    // empty return sends it down the cached/stored fallback — the path that
+    // reads content.* and therefore needs the owner.
+    $woo = Mockery::mock(WooCommerceScraper::class);
+    $woo->shouldReceive('fetchProducts')->andReturn([]);
+    $catalog = new ShopCatalog(
+        Mockery::mock(ShopifyScraper::class),
+        $woo,
+        Mockery::mock(SquarespaceScraper::class),
+        Mockery::mock(BigCartelScraper::class),
+        Mockery::mock(GenericShopScraper::class),
+        app(ShopContentWriter::class),
+    );
+
+    expect($catalog->syncLatest($brand))->toBeNull();
+});
+
 it('syncLatest tolerates a brand handed to it with products unloaded', function () {
     $user = shopSettingsUser('sflazy2');
     $conn = shopFetchConnection($user, autoLatest: true);

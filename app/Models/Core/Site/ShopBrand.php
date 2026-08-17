@@ -28,8 +28,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $connect_error
  * @property bool $is_individual
  * @property int $position
- * @property array<string, mixed>|null $style_analysis Internal design-preset input (OutsideWebsitesFactor) — never surfaced by toBrandArray().
- * @property string|null $selection_mode NOT NULL in Postgres (default 'manual'), but pre-migration rows and the SQLite test mirror read NULL — toBrandArray() coalesces.
+ * @property array<string, mixed>|null $style_analysis Internal design-preset input (OutsideWebsitesFactor) — never surfaced on the wire.
+ * @property string|null $selection_mode NOT NULL in Postgres (default 'manual'), but pre-migration rows and the SQLite test mirror read NULL. Dead since slice 5a — ShopContentReader emits the constant 'manual'.
  * @property string|null $link_mode Same NOT-NULL-in-Postgres/nullable-in-tests story as $selection_mode (default 'product').
  * @property string|null $referral_query Same story as $selection_mode (default '').
  * @property Carbon|null $products_curated_at #SEM-1: NULL = no evidence of human curation (ShopFetch's scheduled resync tracks this brand's newest products); non-NULL = the user hand-picked this brand's products at this instant (ShopController::setProducts) and ShopFetch skips it until selectionMode=latest clears it back to NULL. NOT selection_mode — see ShopFetch's docblock for why that column can't carry this fact.
@@ -97,7 +97,7 @@ class ShopBrand extends BaseModel
         'is_individual' => 'boolean',
         'position' => 'integer',
         // Internal-only: AnalyzeConnectionWebsitesJob writes it, OutsideWebsitesFactor
-        // reads it. Deliberately NOT surfaced by toBrandArray() below — it must never
+        // reads it. Deliberately NOT surfaced on the wire — it must never
         // leak into the public/dashboard shop payload.
         'style_analysis' => 'array',
         'created_at' => 'datetime',

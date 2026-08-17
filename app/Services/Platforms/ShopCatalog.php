@@ -102,7 +102,18 @@ class ShopCatalog
         // a strict-mode-armed row, so touching it before the empty-catalog
         // return below would throw for every store that scrapes to nothing.
         $store = $brand->toStoreRecord();
-        $owner = fn (): string => (string) $brand->connection->user_id;
+        $owner = function () use ($brand): string {
+            // loadMissing(), not a bare $brand->connection read. Strict mode
+            // blocks the IMPLICIT lazy load, not an explicit one, and callers
+            // do hand this method rows with the relation absent — ShopFetch
+            // takes them straight off a multi-row get(). Guaranteeing it here
+            // rather than at the call site is the same discipline #428
+            // established for `products`: a caller that forgets must not be
+            // able to kill a queue job.
+            $brand->loadMissing('connection');
+
+            return (string) $brand->connection->user_id;
+        };
 
         try {
             $catalog = $this->providerProducts($this->dispatchShapeFor($store, $owner));
@@ -197,6 +208,15 @@ class ShopCatalog
      * of providerProducts() that reads it (its last-resort fallback when both
      * the live fetch and the warmed cache come up empty). Every other provider
      * therefore costs no extra query at all.
+     *
+     * Client mode, conversely, now pays that cost on EVERY call — a
+     * collectionIdFor() lookup plus a cataloguesFor() reconstruct — including
+     * when the live fetch then succeeds and the value is discarded. The old
+     * path read an already-hydrated $brand->products relation for free. Judged
+     * an acceptable trade for deleting the legacy read: client mode is one
+     * fetchMode among six, its stores are the ones that block our egress (so
+     * the fallback is the common branch for them, not the rare one), and the
+     * reconstruct is bounded by one store's catalogue.
      *
      * That fallback also gets more truthful in the move: it used to read
      * site.shop_products, which nothing has written since slice 5a, so it

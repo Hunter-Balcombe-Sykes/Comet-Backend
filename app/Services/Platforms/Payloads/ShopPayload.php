@@ -7,7 +7,7 @@ namespace App\Services\Platforms\Payloads;
 //
 // FOUND-25: brands are no longer STORED this way — they live in the relational
 // site.shop_brands/site.shop_products child tables, hydrated into this same map
-// shape by ShopController::brandMap() via ShopBrand::toBrandArray(). This DTO
+// shape by ShopContentReader::brandMap(). This DTO
 // now only serves the in-memory helpers built around that shape: the is-array
 // guard on a possibly-garbage input, and primaryWithProducts() for the COMPAT
 // /selection endpoint. `provider ??= 'shopify'` stays as a defensive default —

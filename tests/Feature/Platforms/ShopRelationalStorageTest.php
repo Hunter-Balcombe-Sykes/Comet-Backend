@@ -108,13 +108,18 @@ it('addBrand + setProducts persist the relational marker and child rows, not a J
     expect(orderedProductIdsFor('rel-brand'))->toBe(['p1', 'p2']);
 });
 
-// Re-home Task 2 retired the explicit site.shop_products child delete: that
+// Re-home Task 2 retired the EXPLICIT site.shop_products child delete: that
 // table has not been WRITTEN since slice 5a, so the delete only ever cleared
-// pre-slice-5a rows, and those go with the DROP (Task 13). The assertion below
-// pins the new truth — the brand row goes, the legacy product row is left
-// where it is — rather than being deleted, so a re-introduction of the legacy
-// delete would show up as a failure rather than as silence.
-it('removeBrand hard-deletes the brand row and leaves legacy product rows for the DROP', function () {
+// pre-slice-5a rows, and those go with the DROP (Task 13).
+//
+// This asserts on the QUERY, not on a surviving row count. A row count would
+// be an SQLite-only truth: shop_products.brand_id carries ON DELETE CASCADE
+// (baseline_pilot.sql) and ShopBrand has no SoftDeletes, so on PRODUCTION
+// Postgres the child rows still disappear — the database does it. SQLite
+// doesn't enforce FKs, which is exactly what the (now deleted) "keeps this
+// deterministic on SQLite in tests" comment was about. Asserting the count
+// would pin the opposite of what production does.
+it('removeBrand hard-deletes the brand row and issues no delete against shop_products', function () {
     $user = shopStorageUser('rel2');
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
@@ -123,15 +128,27 @@ it('removeBrand hard-deletes the brand row and leaves legacy product rows for th
     $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'brand-x', 'provider' => 'shopify', 'url' => 'https://x', 'position' => 0]);
     ShopProduct::create(['brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1']]);
 
+    $deletes = [];
+    DB::listen(function ($q) use (&$deletes): void {
+        if (str_starts_with(strtolower(ltrim($q->sql)), 'delete')) {
+            $deletes[] = $q->sql;
+        }
+    });
+
     actingAsUser($user)->deleteJson('/api/platforms/shop/brands/brand-x')
         ->assertOk()
         ->assertJsonPath('brands', []);
 
-    expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(0);
-    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(1);
+    expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(0)
+        // Non-vacuous: the endpoint DOES delete (the brand row), so an empty
+        // $deletes would mean the listener never fired rather than that the
+        // shop_products delete is gone.
+        ->and($deletes)->not->toBeEmpty()
+        ->and(collect($deletes)->filter(fn (string $sql) => str_contains($sql, 'shop_products')))
+        ->toBeEmpty();
 });
 
-it('forget deletes the brand rows and soft-deletes the connection', function () {
+it('forget deletes the brand rows, soft-deletes the connection, and never touches shop_products', function () {
     $user = shopStorageUser('rel3');
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
@@ -140,13 +157,23 @@ it('forget deletes the brand rows and soft-deletes the connection', function () 
     $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'b1', 'provider' => 'shopify', 'url' => 'https://b1', 'position' => 0]);
     ShopProduct::create(['brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1']]);
 
+    $deletes = [];
+    DB::listen(function ($q) use (&$deletes): void {
+        if (str_starts_with(strtolower(ltrim($q->sql)), 'delete')) {
+            $deletes[] = $q->sql;
+        }
+    });
+
     actingAsUser($user)->deleteJson('/api/platforms/shop')
         ->assertOk()
         ->assertJsonPath('brands', []);
 
     expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(0);
-    // Same as removeBrand above — the legacy product row survives until the DROP.
-    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(1);
+    // Same as removeBrand above — a query assertion, not a row count, because
+    // Postgres's ON DELETE CASCADE removes the child rows and SQLite does not.
+    expect($deletes)->not->toBeEmpty()
+        ->and(collect($deletes)->filter(fn (string $sql) => str_contains($sql, 'shop_products')))
+        ->toBeEmpty();
     expect(IntegrationConnection::find($conn->id))->toBeNull(); // soft-deleted
     expect(IntegrationConnection::withTrashed()->find($conn->id))->not->toBeNull();
 });
