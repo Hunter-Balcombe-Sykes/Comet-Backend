@@ -6,6 +6,10 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\RefreshConnectionJob;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use App\Jobs\Ingest\RunSourceJob;
+use App\Ingest\Runtime\SourceScheduler;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Cache\Concerns\JitteredTtl;
@@ -104,6 +108,15 @@ class RefreshController extends ApiController
             // already holding the connection's 2h dedup lock can't silently
             // swallow this user-triggered click.
             RefreshConnectionJob::dispatch($row->id, $platform, manual: true);
+
+            // Resync also runs the connection's INGEST sources now (owner
+            // ruling R8, overnight 2026-08-18): the pools read content.*, so
+            // a click that only refreshed the legacy payload left "new
+            // videos" invisible until the scheduler's next tick — and paid
+            // sources (auto_sync=false) never ran at all from a click. Claim
+            // + RunSourceJob is exactly what ingest:dispatch does; billing
+            // still goes through the budgets. Skips rows already in flight.
+            $this->runIngestSources((string) $row->id);
         }
 
         return $this->success([
@@ -111,6 +124,28 @@ class RefreshController extends ApiController
             'refreshed' => $rows->count(),
             'statusUrl' => url("/api/platforms/{$platform}/refresh/status"),
         ], 202);
+    }
+
+    private function runIngestSources(string $connectionId): void
+    {
+        try {
+            $sources = DB::table('ingest.sources')
+                ->where('connection_id', $connectionId)
+                ->whereNull('in_flight_since')
+                ->where('health', '!=', 'dead')
+                ->get(['id']);
+            $scheduler = app(SourceScheduler::class);
+            foreach ($sources as $source) {
+                $tick = (string) Str::uuid();
+                if ($scheduler->claimOne((string) $source->id, $tick)) {
+                    RunSourceJob::dispatch((string) $source->id);
+                }
+            }
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Same tolerance as IntegrationConnectionObserver's ingest sync: a
+            // test schema without ingest.* must not 500 the legacy refresh.
+            \Illuminate\Support\Facades\Log::debug('refresh.ingest_run_skipped', ['connection_id' => $connectionId, 'message' => $e->getMessage()]);
+        }
     }
 
     // GET /platforms/{platform}/refresh/status — poll target for the 202 above.

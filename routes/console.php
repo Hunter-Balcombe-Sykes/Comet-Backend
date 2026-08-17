@@ -494,6 +494,13 @@ Schedule::command('ingest:dispatch')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('ingest:dispatch'));
 
+// Safety net for link cards that never got their enrichment (F4 lineage):
+// idempotent, unique per card, so daily is plenty.
+Schedule::command('platforms:enrich-pending-cards --older-than=30')
+    ->dailyAt('03:20')
+    ->withoutOverlapping()
+    ->onOneServer();
+
 // Stranded-claim watchdog: releases an ingest.sources claim that outlived any plausible
 // run (a worker died mid-flight) and files the anomaly. Hourly is ample slack — a claim
 // only qualifies past SourceScheduler::STRANDED_AFTER_SECONDS (2h), so an hourly cadence

@@ -207,3 +207,27 @@ it('dispatches the shared menu fetch when an ordering connection on a menu platf
     ]);
     Bus::assertNotDispatched(\App\Jobs\Platforms\MenuFetchJob::class);
 });
+
+it('Resync claims and runs the connection\'s ingest sources, not only the legacy refresh (R8)', function () {
+    Bus::fake([RunSourceJob::class, \App\Jobs\Platforms\RefreshConnectionJob::class]);
+    $userId = eagerUser();
+    $connection = connectFor($userId, [
+        'platform' => 'youtube',
+        'payload' => ['handle' => 'someone'],
+    ]);
+    $sourceId = (string) \Illuminate\Support\Facades\DB::table('ingest.sources')->where('connection_id', $connection->id)->value('id');
+    expect($sourceId)->not->toBe('');
+
+    $user = \App\Models\Core\User\User::query()->findOrFail($userId);
+    actingAsUser($user)->postJson('/api/platforms/youtube/refresh')->assertStatus(202);
+
+    Bus::assertDispatched(RunSourceJob::class, fn ($job) => $job->sourceId === $sourceId);
+    expect(\Illuminate\Support\Facades\DB::table('ingest.sources')->where('id', $sourceId)->value('in_flight_since'))->not->toBeNull();
+
+    // A second click while the first is in flight does not double-dispatch
+    // (the per-user refresh cooldown 429s it anyway; the claim is the guard).
+    Bus::fake([RunSourceJob::class, \App\Jobs\Platforms\RefreshConnectionJob::class]);
+    $second = actingAsUser($user)->postJson('/api/platforms/youtube/refresh');
+    expect(in_array($second->status(), [202, 429], true))->toBeTrue();
+    Bus::assertNotDispatched(RunSourceJob::class);
+});

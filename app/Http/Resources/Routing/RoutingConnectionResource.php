@@ -2,6 +2,8 @@
 
 namespace App\Http\Resources\Routing;
 
+use App\Services\Platforms\ConnectionDisplayName;
+
 use App\Catalog\CatalogNotCompiled;
 use App\Catalog\CompiledCatalog;
 use App\Http\Resources\ApiResource;
@@ -40,6 +42,11 @@ class RoutingConnectionResource extends ApiResource
             // a hostname. Guarded on is_string() for the same reason as url: the
             // payload column is jsonb and nothing constrains its shape.
             'name' => is_string($this->payload['name'] ?? null) ? $this->payload['name'] : null,
+            // The ONE human name for the row (R9): display_name → the connected
+            // thing's name → native handle with its prefix → a handle captured
+            // from the url by the surface's own detector. Null means "no idea,
+            // label the url" — never the brand label.
+            'accountName' => ConnectionDisplayName::for((string) $this->surface_key, (array) ($this->payload ?? [])),
             'isActive' => (bool) $this->is_active,
         ];
     }
