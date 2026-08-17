@@ -161,6 +161,14 @@ For every finding:
 --scope app/Http/Controllers/Api/Routing
 ```
 
+### Group G — Platform connect/refresh lanes (per-user connection locks)
+```
+--scope app/Services/Platforms
+--scope app/Services/Shop
+--scope app/Jobs/Platforms
+--scope app/Http/Controllers/Api/Platforms
+```
+
 ## Exhaustiveness directive
 
 Walk every file in scope. Every `Cache::`, `cache()`, `->remember`, `->rememberForever`, `->put`, `->forget`, `->flush`, `->lock`, `CacheLockService` call site is a candidate. Three controllers each missing a single-flight lock on a hot read = three findings (`CCH-1`, `CCH-2`, `CCH-3`), not one consolidated finding. A write path with both a missing `afterCommit` AND a missing `:stale` forget = two findings. The adjudicator dedupes and re-tiers — **under-reporting is the failure mode**. Aim for breadth over consolidation; the gold standard is concrete and the diff against it should be itemised.

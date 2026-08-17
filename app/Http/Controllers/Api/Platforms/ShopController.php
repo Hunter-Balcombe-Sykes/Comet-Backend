@@ -23,7 +23,6 @@ use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Http\FetchBudget;
-use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\ShopPayload;
 use App\Services\Platforms\ShopBrandIdentity;
@@ -103,8 +102,6 @@ class ShopController extends ApiController
 
     private const MAX_BRANDS = 5;
 
-    private const MAX_INDIVIDUAL_PRODUCTS = 20;
-
     // How long the picker-warmed product catalog stays cached, so a PUT
     // /selection right after the picker opened reuses it instead of re-scraping.
     private const CATALOG_TTL_MINUTES = 10;
@@ -133,7 +130,6 @@ class ShopController extends ApiController
         private readonly ShopProviderDetector $detector,
         private readonly ShopifyScraper $shopify,
         private readonly WooCommerceScraper $woocommerce,
-        private readonly GenericShopScraper $generic,
         private readonly IntegrationConnectionCacheRefresher $refresher,
         private readonly ShopCatalog $catalog,
         private readonly FetchBudget $budget,

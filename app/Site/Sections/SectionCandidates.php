@@ -344,9 +344,9 @@ class SectionCandidates
                                     ->whereNull('si2.removed_at')
                                     ->whereRaw('sci2.position < sci.position');
                             });
-                        if ($values !== []) {
-                            $e->whereIn('content.items.kind', $values);
-                        }
+                        // Non-empty by construction — the in_array above only
+                        // enters this arm when 'product' is present.
+                        $e->whereIn('content.items.kind', $values);
                     });
                 }
             }),
