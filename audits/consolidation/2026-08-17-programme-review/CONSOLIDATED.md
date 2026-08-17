@@ -15,7 +15,7 @@ new public surface.
 |---|---|
 | P0 — blockers | 0 |
 | P1 — high     | 6 |
-| P2 — medium   | 14 |
+| P2 — medium   | 15 |
 | P3 — low      | 15 |
 
 ## READ THIS BEFORE TICKING ANYTHING — ids were renumbered
@@ -47,15 +47,16 @@ Never script a tick keyed on id alone.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 6 complete
-- P2 Medium: 0 of 14 complete
+- P1 High: 6 of 6 complete
+- P2 Medium: 0 of 15 complete
 - P3 Low: 0 of 15 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#PGR-1** · P1 — `ProvisionShopPinsCommand`'s three-lane invalidation is unguarded by CI
+- [x] **#PGR-1** · P1 — `ProvisionShopPinsCommand`'s three-lane invalidation is unguarded by CI
+    - **Resolution (2026-08-18, `audit-fix/programme-review-p1-2026-08-17`):** DONE, premise partly restated. "No CI check enforces this" was **stale** — `ShopPinProvisioningTest.php:230-246` already asserted three lanes. But its lane-1 check was `->exists()`, a row-existence test that still passes with `BuildState::bump()` deleted, and no case asserted `--dry-run` stays silent. Both of the finding's actual asks are now real tests: exact per-site `content_revision` deltas across **two independent sites**, plus a new `--dry-run` fires-none case. `invalidate()` now routes through `SiteCacheLanes::bust()`, and the new `tests/Feature/Architecture/PoolCacheLaneSeamTest.php` fails if this command or the four Content controllers re-roll the lanes by hand. Every lane assertion was proven non-vacuous by deleting its lane and observing the failure.
     - **Source:** migration-commands — was `#TEST-1`
     - **Where:** app/Console/Commands/ProvisionShopPinsCommand.php
     - **Affects:** Shop-page owners after pin backfill; if any invalidation lane is dropped in a refactor, pinned products may not appear on the live/edge sitepage.
@@ -72,7 +73,8 @@ Never script a tick keyed on id alone.
         // CDN outlives the origin write. No CI check enforces this.
         ```
 
-- [ ] **#PGR-2** · P1 — `ContentRepairEventItemsCommand` retirement test proves only `removed_at`, not cache/edge invalidation
+- [x] **#PGR-2** · P1 — `ContentRepairEventItemsCommand` retirement test proves only `removed_at`, not cache/edge invalidation
+    - **Resolution (2026-08-18, `audit-fix/programme-review-p1-2026-08-17`):** DONE, but the finding was **materially stale as written** and was restated before any code was touched. `EventItemRepairTest.php:187-236` *already* asserted all three lanes. The finding's quoted evidence — "The test asserted removed_at only, so it passed while proving nothing about the invalidation" — was a verbatim lift of the past-tense code comment at `ContentRepairEventItemsCommand.php:89-90`; the pipeline read a historical narration as current state. Implementing it as written would have rewritten a test that existed. The four **genuine** residual gaps were fixed instead: (1) the lane-1 assertion was `->toBeGreaterThan(0)`, banned by this run's execution prompt — now an exact `$revisionBefore + 1` delta; (2) coverage was single-site — a new multi-tenant case asserts the lanes fire per site; (3) lane 3 was a bare `assertPushed`, which passes even if the code dispatched the site UUID instead of the subdomain — now a discriminating closure (proven: switching the dispatch to `$site->id` makes it fail); (4) `#PGR-4` had no test at all — now covered. That stale sentence has been deleted from the command's comment block, since it is what caused this finding to be adjudicated against already-correct code.
     - **Source:** migration-commands — was `#TEST-2`
     - **Where:** app/Console/Commands/ContentRepairEventItemsCommand.php
     - **Affects:** Repair operators and users whose published sitepages may keep serving retired event items after a `--retire` run; a green test gives false confidence that invalidation happened.
@@ -88,7 +90,13 @@ Never script a tick keyed on id alone.
         // only, so it passed while proving nothing about the invalidation.
         ```
 
-- [ ] **#PGR-3** · P1 — `BackfillPreviousWebsiteContentScanCommand`'s dispatch stagger resets every 200-row chunk instead of spreading across the whole run
+- [x] **#PGR-3** · P1 — `BackfillPreviousWebsiteContentScanCommand`'s dispatch stagger resets every 200-row chunk instead of spreading across the whole run
+    - **Resolution (2026-08-18, `audit-fix/programme-review-p1-2026-08-17`):** DONE. The adjudicated text was right and the scan draft's reasoning was wrong — `floor()` wraps the whole expression, so the ramp was correct *within* a chunk; the arithmetic was left alone. The precise mechanism: `Collection::chunk()` preserves keys and `$rows` came from `->get()`, so keys were already cumulative — **`->values()` was the entire bug**, re-indexing each chunk to `0..199`. The chunk loop was also dead weight (`->get()` had already materialised everything) and is deleted. The ramp is now a whole-run rate driven by **jobs dispatched**, not row index, so a row skipped for a null site no longer punches a hole in the schedule.
+        - *Owner decisions:* a fixed **per-row rate, unbounded run, no delay cap** (a fixed total window would collapse spacing as N grows — worse than the bug; a capped delay would reintroduce a tail-flood on the billed lane), at **2s/row**, up from the effective 1.5 (300/200) — rounded up as the conservative direction on a billed path, and integer so the curve is exactly assertable.
+        - ⚠️ **A hidden invariant was disturbed, deliberately and with sign-off.** The old max delay was **298s** — one tick under `ScanPreviousWebsiteContentJob::$uniqueFor = 300`, almost certainly not a coincidence: the per-chunk ramp kept every delayed job inside its own `ShouldBeUnique` lock. Under an unbounded per-row rate, jobs past ~150 rows are delayed beyond that lock, which expires before they run — so `WorkplaceObserver`'s own trigger is unblocked and a user editing their site mid-run can cause a second, **duplicate-billing** scan. Accepted by the owner; documented in the command's docblock so the next operator sizes `--limit` against it.
+        - *Also added:* `--limit` (query-level, so it bounds memory too) with `->orderBy('site_id')` for determinism — documented as a **cap, not a cursor**, since no "already scanned" filter exists and a second capped run re-picks and re-bills the same leading rows; `--stagger-seconds`; and `->with('site')`, removing an N+1. A **negative `--stagger-seconds` is rejected, not clamped** — `max(0, -5)` is `0` and `$dispatched * 0` is `0` for every job, so clamping would have resolved bad input to the exact hazard it was meant to prevent (the whole fleet dispatched at once onto the billed OCR path). `0` stays legitimate, with that consequence stated in the error text.
+        - *Not done, deliberately:* `->get()` was **not** converted to `chunkById()` — `site.workplaces`' PK is a non-sequential TEXT UUID that does not compose with `--limit`, the repo's `chunkById` rule is a *streaming* rule while this is a *counter* bug, and measured scale is 9 rows on dev / 0 users on prod. Promote if the fleet crosses ~10k.
+        - *Coverage:* the finding's implicit "no test" premise was **false** — the file existed with 4 tests, none asserting delay. Four added (cumulative ramp across a 201-row population; jobs-dispatched vs rows-scanned; `--limit`; negative-stagger rejection) plus a dry-run projection assertion. Non-vacuity proven by *isolated* probes — reverting the whole file was rejected as proof, because it failed for incidental reasons (a lazy-load exception, missing options) rather than the defect. Reintroducing **only** the re-index made the ramp test report a zero-delay count of **2 instead of 1** — two jobs racing at the same instant, the defect's signature. Removing **only** the negative guard let all 3 jobs reach the billed queue.
     - **Source:** migration-commands — was `#MIG-1`
     - **Where:** app/Console/Commands/BackfillPreviousWebsiteContentScanCommand.php
     - **Affects:** Every existing Workplace with a `previous_website`; the scraping queue and the billed Mistral OCR / MenuAiExtractor spend on a real fleet-wide run.
@@ -115,7 +123,8 @@ Never script a tick keyed on id alone.
         }
         ```
 
-- [ ] **#PGR-4** · P1 — `ContentRepairEventItemsCommand` retires items before resolving invalidation targets; any failure between the two leaves a half-applied destructive update
+- [x] **#PGR-4** · P1 — `ContentRepairEventItemsCommand` retires items before resolving invalidation targets; any failure between the two leaves a half-applied destructive update
+    - **Resolution (2026-08-18, `audit-fix/programme-review-p1-2026-08-17`):** DONE, premise CONFIRMED exactly as written. The `site.sites` resolution now runs **before** the one-way `content.items.removed_at` update (the shape `PurgeReviewHeadlinePiiCommand.php:72-81` already used), and the three DB mutations — the retirement, `BuildState::bump()` and the `site.sites.updated_at` touch — are wrapped in one `DB::connection('pgsql')->transaction()`. The `CloudflareCachePurgeJob` dispatch moved **outside** the transaction: `config/queue.php` sets `after_commit => false`, so dispatching inside would have re-created the very bug being fixed, and `->afterCommit()` was deliberately NOT used (the job declares no `$afterCommit`, and adding one as a typed property is a fatal — `Queueable` declares it untyped). A dispatch failure is now reported loudly (`report()` + an operator message naming the subdomains + `self::FAILURE`) rather than swallowed, because a re-run will **not** retry the purge — the second run finds nothing orphaned and invalidates nothing, so silence would leave a permanently stale edge. `$orphaned` is deliberately **not** re-read under lock: `SELECT … FOR UPDATE` on `content.items` would contend with the live `ingest:project` writer and would not close the only real race anyway (the projector writes `source_items`, not `items`) — accepted residual, noted in code. Proven by a failure-injection dataset test that drops the table the invalidation half needs: the `site.sites` case proves the **ordering**, the `site.site_build_state` case proves the **rollback**, and both were observed failing against the pre-fix code (`Failed asserting that '…' is null` — the retirement had committed) and passing after.
     - **Source:** migration-commands — was `#MIG-2`
     - **Where:** app/Console/Commands/ContentRepairEventItemsCommand.php
     - **Affects:** `content.items` retired via `--retire` and the public sitepage caches for affected sites.
@@ -159,7 +168,13 @@ Never script a tick keyed on id alone.
         ]);
         ```
 
-- [ ] **#PGR-6** · P1 — Three pool-mutation endpoints reproduce the pre-2026-08-14 stale-origin-cache bug
+- [x] **#PGR-6** · P1 — Three pool-mutation endpoints reproduce the pre-2026-08-14 stale-origin-cache bug
+    - **Resolution (2026-08-18, `audit-fix/programme-review-p1-2026-08-17`):** DONE for the four controller call sites; the `bumpSite()` half is **WONTFIX — premise disproved** (owner ruling, 2026-08-18).
+        - *The controllers:* `PoolItemCreateController::pin()`, `ItemController::destroy()` and `ItemLinkController::upsert()/destroy()` were confirmed still two-lane on `293aff38b` and now fire all three. `PoolController::poolChanged()` and `ProvisionShopPinsCommand::invalidate()` were collapsed onto the same seam, so no hand-rolled copy of the contract remains in the pool lane.
+        - *No helper was extracted:* the finding asked for one, but `App\Site\Documents\SiteCacheLanes::bust()` (`app/Site/Documents/SiteCacheLanes.php:35`) already existed and was already used by 8 call sites. The work was **adoption, not extraction**.
+        - *Why `bumpSite()` is WONTFIX:* the finding's rationale — "the method every connector/manual-write path funnels through" — is false. `grep -rn "bumpSite(" app/` returns exactly **one** caller (`ProjectionWriter.php:422`, `writeManualItem()`); the second hit is a comment in `PruneOrphanedReviewPiiCommand`. The connector seam is `projectStream()` → `invalidateSiteLanes()` (`:258` → `:1688-1694`), which already fires all three lanes (shipped `30240ce19`). `bumpSite()` is a **per-item primitive** whose batch callers (`MenuScanApplier`, `ShopContentWriter::syncProducts`, the backfillers) invoke `writeManualItem()` once per row — a 318-dish menu scan would issue 318 `UPDATE site.sites` and 318 purge dispatches where one of each is correct, and would turn `ProjectionWriterBatchingTest`'s ≤140-query budget red. Its own docblock stated this design deliberately. The owner ruling is satisfied **at the request boundary**, which is where a lane belongs; `bumpSite()` now carries a docblock note recording the ruling and why the split survives it. Behaviour unchanged — the diff on that file is comments only.
+        - *Scope found and deferred:* three further owner-initiated lane-1-only paths the finding missed are filed as **#PGR-36** (P2).
+        - *Guards:* `tests/Feature/Content/PoolCacheLanesTest.php` extended with hand-add (exact **+2** delta — one bump from `writeManualItem()`, one from `pin()`), item delete, link upsert and link delete; the pre-existing reorder case hardened off `toBeGreaterThan()` to an exact delta. New `tests/Feature/Architecture/PoolCacheLaneSeamTest.php` pins the five files to the seam. `CLAUDE.md` corrected — it wrongly said `bumpSite()` "fires only lanes 1+3"; it fires **lane 1 only**.
     - **Source:** wire-resources — was `#TEST-1`. Independently re-verified in code by the review gate (this was its finding R-10) and **upgraded from a question to a confirmed defect by owner ruling, 2026-08-17.**
     - **Verified, not taken from the draft.** Read directly: `PoolController::poolChanged()` (`:226-233`) fires all three lanes; `PoolItemCreateController::pin()` (`:246-249`) fires lanes 1+3 only; `ProjectionWriter::bumpSite()` (`:1672-1679`) calls `BuildState::bump()` and nothing else. `grep -c "site.sites')"` returns **0** for `PoolItemCreateController`, `ItemController` and `ItemLinkController`. Lane 2 is the load-bearing one — the 60s public-profile payload cache key is composed from `site.sites.updated_at`, so the CDN is correctly purged while the ORIGIN keeps re-serving its own stale payload behind it.
     - **The split the original finding did not make, which changes the fix.** `store()` (hand-add → `writeManualItem()` → `bumpSite()`) is NOT a regression: spec §12.6 explicitly accepted it — *"60s public-profile payload cache — Not busted. A content write does not move `site.sites.updated_at`… TTL-bounded staleness only (default 60s)."* `pin()`, `ItemController::destroy()` and `ItemLinkController::upsert()/destroy()` ARE, because they are owner-initiated mutations inconsistent with a sibling in the same controller family that was deliberately fixed on 2026-08-14, and §17.2 shows the owner-write convention is the opposite (`ManualServiceWriter::invalidate()` DOES touch `site.sites.updated_at`).
@@ -516,6 +531,27 @@ Never script a tick keyed on id alone.
         longitude: $this->detectLongitude($request),
         ```
 
+- [ ] **#PGR-36** · P2 — Three further owner-initiated write paths fire lane 1 only, the same defect class as #PGR-6
+    - **Source:** found during the execution of #PGR-6, 2026-08-18 (`audit-fix/programme-review-p1-2026-08-17`) — not from a scan run. Owner ruled it a follow-up rather than folding it into #PGR-6, to keep that unit's diff tight and to avoid dragging `ItemMerger`'s concurrency story into a cache unit.
+    - **Where:** `app/Http/Controllers/Api/Content/ManualOverrideController.php:107-112` (`bumpSites()`); `app/Services/Content/ItemMerger.php:368-373` (`bumpSites()`); `app/Http/Controllers/Api/Site/SectionItemController.php:103` (`upsert()`) and `:126` (`destroy()`)
+    - **Affects:** Public sitepage visitors. Each is an owner-initiated curation write that bumps the build state and then stops — no `site.sites.updated_at`, no edge purge — so the origin re-serves its stale payload for the 60s TTL *and* the CDN is never purged at all. `ManualOverrideController` is the sharpest of the three: an override changes the rendered headline/body, so the visible text is what goes stale.
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Route all four through `App\Site\Documents\SiteCacheLanes::bust()`, the seam #PGR-6 established.
+        - Decide `SectionItemController` deliberately: it is the *other* pin path onto `site.section_items` (named as such at `PoolController.php:57`), so it should almost certainly match the pool lane. The site-builder controllers (`SectionController`, `SectionGroupController`, `PageController`) are also lane-1-only and may warrant a different judgement — settle whether the builder lane is in or out before writing code.
+        - Add the five files to `POOL_CACHE_LANE_FILES` in `tests/Feature/Architecture/PoolCacheLaneSeamTest.php` (and bump its count assertion) so the guard covers them once they adopt the seam. That test's docblock currently names these three as deliberately excluded — update it.
+    - **Technical:** Verified by reading each method on `293aff38b`: all three call `BuildState::bump()` in a loop over the user's sites and nothing else. `SectionItemController::destroy()` uses Eloquent `->delete()` on `SectionItem`, but there is no `SectionItemObserver`, so no observer discharges the other two lanes either. Distinct from `ShopController::bumpSiteCache()` (`:1266-1275`), which fires lanes 1+2 but deliberately not 3 because `IntegrationConnectionCacheRefresher` owns the edge purge on that lane — that one is **not** a defect and should not be swept in.
+    - **Plain English:** The same "only cleared two of the three caches" bug that #PGR-6 fixed for adding, deleting and linking items is still present in three more places an owner can edit their page — including the one that changes the actual wording shown on the page. The fix is the same one-line swap onto the shared helper that #PGR-6 introduced.
+    - **Evidence:**
+        ```php
+        // ManualOverrideController::bumpSites() — an override changes what the page SAYS
+        private function bumpSites(User $user): void
+        {
+            foreach (DB::table('site.sites')->where('user_id', $user->id)->pluck('id') as $siteId) {
+                BuildState::bump((string) $siteId);
+            }
+        }
+        ```
 
 ## P3 — Nice to have
 

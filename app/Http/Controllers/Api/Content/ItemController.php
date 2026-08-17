@@ -5,10 +5,9 @@ namespace App\Http\Controllers\Api\Content;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Content\Item;
 use App\Services\Content\ManualServiceWriter;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -45,12 +44,7 @@ class ItemController extends ApiController
         // is service-flavoured by name only — markRemoved() is kind-agnostic.
         $writer->markRemoved((string) $item->id);
 
-        BuildState::bump((string) $site->id);
-        if ($site->subdomain !== '') {
-            // The pools serve LIVE (Option B) but the sitepage edge cache
-            // does not — purge so the visitor page follows the edit.
-            CloudflareCachePurgeJob::dispatch($site->subdomain);
-        }
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['removed' => true]);
     }

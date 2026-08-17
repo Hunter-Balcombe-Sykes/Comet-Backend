@@ -2,9 +2,8 @@
 
 namespace App\Console\Commands;
 
-use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Console\Command;
@@ -142,17 +141,15 @@ class ProvisionShopPinsCommand extends Command
     }
 
     /**
-     * Raw-write seam: all three lanes by hand (spec §4). bump() alone is not
-     * enough — the payload cache key composes from sites.updated_at, and the
-     * CDN outlives the origin write. No CI check enforces this.
+     * Raw-write seam: all three lanes via the shared seam (spec §4). bump()
+     * alone is not enough — the payload cache key composes from
+     * sites.updated_at, and the CDN outlives the origin write. Enforced by
+     * tests/Feature/Content/ShopPinProvisioningTest.php (per-site lane
+     * assertions) and tests/Feature/Architecture/PoolCacheLaneSeamTest.php
+     * (this file must route through SiteCacheLanes::bust(), not hand-roll).
      */
     private function invalidate(Site $site): void
     {
-        BuildState::bump((string) $site->id);
-        DB::connection('pgsql')->table('site.sites')
-            ->where('id', $site->id)->update(['updated_at' => now()]);
-        if ((string) ($site->subdomain ?? '') !== '') {
-            CloudflareCachePurgeJob::dispatch($site->subdomain);
-        }
+        SiteCacheLanes::bust([(string) $site->id]);
     }
 }

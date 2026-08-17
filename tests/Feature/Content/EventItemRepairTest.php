@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -220,17 +221,112 @@ it('--retire actually performs all three invalidations, not just the retirement'
 
     DB::table('site.sites')->where('id', $siteId)->update(['updated_at' => now()->subDay()]);
     $before = (string) DB::table('site.sites')->where('id', $siteId)->value('updated_at');
+    // BuildState::read() would insert a 0 row on first touch, but nothing has
+    // read it yet here, so the column may still be entirely absent — treat
+    // absence as revision 0 rather than assuming a row exists.
+    $revisionBefore = (int) (DB::table('site.site_build_state')->where('site_id', $siteId)->value('content_revision') ?? 0);
 
     $this->artisan('content:repair-event-items --retire')->assertExitCode(0);
 
     expect(DB::table('content.items')->where('id', $gone)->value('removed_at'))->not->toBeNull()
-        // 1. the document build state moved
+        // 1. the document build state moved by exactly one bump, not "some
+        // positive amount" — an exact delta is the only form that would catch
+        // a double-bump or a bump that fires for the wrong site.
         ->and((int) DB::table('site.site_build_state')->where('site_id', $siteId)->value('content_revision'))
-        ->toBeGreaterThan(0)
+        ->toBe($revisionBefore + 1)
         // 2. sites.updated_at moved — the 60s payload cache key composes from it
         ->and((string) DB::table('site.sites')->where('id', $siteId)->value('updated_at'))
         ->not->toBe($before);
 
-    // 3. the edge purge was dispatched
-    Queue::assertPushed(CloudflareCachePurgeJob::class);
+    // 3. the edge purge was dispatched for THIS site's subdomain, not merely
+    // "some CloudflareCachePurgeJob" — a bare assertPushed also passes if the
+    // code ever dispatched the site UUID instead of the subdomain (see
+    // PurgeReviewHeadlinePiiTest.php:134 for the same trap on a sibling command).
+    Queue::assertPushed(CloudflareCachePurgeJob::class, fn ($job) => $job->handle === $pro->handle);
 });
+
+function seedOrphanedEvent(string $userId): string
+{
+    $sourceId = repairSource($userId);
+    $itemId = (string) Str::uuid();
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $userId, 'kind' => 'event',
+        'headline_cache' => 'Workshop', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => 'eventbrite:acct-test:'.$itemId, 'item_id' => $itemId,
+        'kind' => 'event', 'removed_at' => now()->subDay(),
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    DB::table('content.f_text')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId,
+        'headline' => 'Workshop', 'updated_at' => now(),
+    ]);
+
+    return $itemId;
+}
+
+it('invalidates each tenant site exactly once when --retire spans multiple tenants', function () {
+    // CloudflareCachePurgeJob implements ShouldBeUnique, and the lock is
+    // taken at DISPATCH time (PendingDispatch::shouldDispatch()), which
+    // Queue::fake() honours — three same-handle dispatches under Queue::fake()
+    // elsewhere in this run yielded pushed()->count() of 1, not 3. So a
+    // duplicate SAME-subdomain dispatch would be swallowed by the framework,
+    // not caught by an assertion here. Two DISTINCT subdomains do get two
+    // distinct uniqueId()s and both legitimately push, so a per-subdomain
+    // push assertion below is real — but the per-site CARDINALITY claim (that
+    // each site was invalidated exactly once, not zero or twice) rests on the
+    // exact content_revision deltas, not on the purge push count.
+    $proA = createTenant('repair-'.Str::lower(Str::random(6)));
+    $proB = createTenant('repair-'.Str::lower(Str::random(6)));
+    $siteIdA = (string) DB::table('site.sites')->where('user_id', $proA->id)->value('id');
+    $siteIdB = (string) DB::table('site.sites')->where('user_id', $proB->id)->value('id');
+
+    $itemA = seedOrphanedEvent($proA->id);
+    $itemB = seedOrphanedEvent($proB->id);
+
+    DB::table('site.sites')->where('id', $siteIdA)->update(['updated_at' => now()->subDay()]);
+    DB::table('site.sites')->where('id', $siteIdB)->update(['updated_at' => now()->subDay()]);
+    $beforeA = (string) DB::table('site.sites')->where('id', $siteIdA)->value('updated_at');
+    $beforeB = (string) DB::table('site.sites')->where('id', $siteIdB)->value('updated_at');
+    $revBeforeA = (int) (DB::table('site.site_build_state')->where('site_id', $siteIdA)->value('content_revision') ?? 0);
+    $revBeforeB = (int) (DB::table('site.site_build_state')->where('site_id', $siteIdB)->value('content_revision') ?? 0);
+
+    $this->artisan('content:repair-event-items --retire')->assertExitCode(0);
+
+    expect(DB::table('content.items')->where('id', $itemA)->value('removed_at'))->not->toBeNull()
+        ->and(DB::table('content.items')->where('id', $itemB)->value('removed_at'))->not->toBeNull()
+        ->and((int) DB::table('site.site_build_state')->where('site_id', $siteIdA)->value('content_revision'))
+        ->toBe($revBeforeA + 1)
+        ->and((int) DB::table('site.site_build_state')->where('site_id', $siteIdB)->value('content_revision'))
+        ->toBe($revBeforeB + 1)
+        ->and((string) DB::table('site.sites')->where('id', $siteIdA)->value('updated_at'))->not->toBe($beforeA)
+        ->and((string) DB::table('site.sites')->where('id', $siteIdB)->value('updated_at'))->not->toBe($beforeB);
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, fn ($job) => $job->handle === $proA->handle);
+    Queue::assertPushed(CloudflareCachePurgeJob::class, fn ($job) => $job->handle === $proB->handle);
+});
+
+// PGR-4's own test: failure injection. 'site.sites' proves the ORDERING fix —
+// the resolution that used to raise 42703 now runs BEFORE the one-way
+// retirement, so a broken read leaves the retirement un-attempted. Dropping
+// 'site.site_build_state' instead lets the resolution succeed and lands the
+// failure INSIDE the transaction, after the retirement statement but before
+// commit — proving the TRANSACTION rolls the retirement back rather than
+// leaving it half-applied. Both must fail against the pre-fix code for the
+// right reason; see the implementation report for that evidence.
+it('rolls back the retirement and dispatches nothing when the invalidation half is broken', function (string $tableToDrop) {
+    $pro = createTenant('repair-'.Str::lower(Str::random(6)));
+    $itemId = seedOrphanedEvent($pro->id);
+
+    DB::connection('pgsql')->statement("DROP TABLE {$tableToDrop}");
+
+    expect(fn () => $this->artisan('content:repair-event-items --retire')->run())
+        ->toThrow(QueryException::class);
+
+    expect(DB::table('content.items')->where('id', $itemId)->value('removed_at'))->toBeNull();
+    Queue::assertNothingPushed();
+})->with(['site.sites', 'site.site_build_state']);

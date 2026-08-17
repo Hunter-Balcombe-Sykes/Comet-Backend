@@ -5,9 +5,8 @@ namespace App\Http\Controllers\Api\Content;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Content\Item;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\ItemLinkRules;
 use App\Site\Pools\PoolRegistry;
 use Illuminate\Http\JsonResponse;
@@ -62,12 +61,7 @@ class ItemLinkController extends ApiController
             ]);
         }
 
-        BuildState::bump((string) $site->id);
-        if ($site->subdomain !== '') {
-            // The pools serve LIVE (Option B) but the sitepage edge cache
-            // does not — purge so the visitor page follows the edit.
-            CloudflareCachePurgeJob::dispatch($site->subdomain);
-        }
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['platform' => $platform, 'url' => $data['url']]);
     }
@@ -88,12 +82,7 @@ class ItemLinkController extends ApiController
             abort(404, 'No saved link for that platform.');
         }
 
-        BuildState::bump((string) $site->id);
-        if ($site->subdomain !== '') {
-            // The pools serve LIVE (Option B) but the sitepage edge cache
-            // does not — purge so the visitor page follows the edit.
-            CloudflareCachePurgeJob::dispatch($site->subdomain);
-        }
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['deleted' => true]);
     }
