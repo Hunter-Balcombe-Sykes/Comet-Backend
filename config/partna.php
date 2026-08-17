@@ -892,6 +892,10 @@ return [
         'auto_latest_n' => (int) env('PARTNA_POOL_AUTO_LATEST_N', 5),
     ],
 
+    // Paid ingest connectors the scheduler may run (ruling R8). Everything
+    // else that costs money runs only on connect (eagerOnConnect) and Resync.
+    'ingest_scheduled_paid_sources' => array_values(array_filter(array_map('trim', explode(',', (string) env('PARTNA_INGEST_SCHEDULED_PAID_SOURCES', 'google_business,spotify,soundcloud'))))),
+
     'music' => [
         'platforms' => [
             'spotify' => [

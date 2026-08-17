@@ -383,6 +383,9 @@ it('reports each sync outcome by name so the backfill command can count them', f
 });
 
 it('creates billed-connector sources unscheduled even once their effect drivers exist', function () {
+    // R8 allow-lists google_business/spotify/soundcloud for the scheduler; this
+    // test pins the invariant that paid connectors are OFF unless allow-listed.
+    config(['partna.ingest_scheduled_paid_sources' => []]);
     // The drivers exist as of slice 0, but auto_sync stays false: turning on paid
     // auto-sync is a spend decision for the slice that consumes the data. The row
     // must exist (the seam is complete); it just must not auto-run yet.
@@ -679,6 +682,9 @@ it('accepts several --connector values at once', function () {
 // ── Cost class changes (convergence Phase 4) ────────────────────────────────
 
 it('turns auto_sync OFF when its connector has become paid, and corrects the weight', function () {
+    // R8 allow-lists google_business/spotify/soundcloud for the scheduler; this
+    // test pins the invariant that paid connectors are OFF unless allow-listed.
+    config(['partna.ingest_scheduled_paid_sources' => []]);
     // Phase 4 flipped spotify from a keyless oEmbed (Free) to an Apify actor
     // (Actor). Rows provisioned in the free era carry auto_sync=true and
     // cost_units=1, and nothing used to turn either back down — so the
@@ -703,6 +709,9 @@ it('turns auto_sync OFF when its connector has become paid, and corrects the wei
 });
 
 it('provisions a paid connector unscheduled from the start', function () {
+    // R8 allow-lists google_business/spotify/soundcloud for the scheduler; this
+    // test pins the invariant that paid connectors are OFF unless allow-listed.
+    config(['partna.ingest_scheduled_paid_sources' => []]);
     $connection = makeConnection(provisionerUser(), [
         'platform' => 'soundcloud',
         'payload' => ['url' => 'https://soundcloud.com/flume'],

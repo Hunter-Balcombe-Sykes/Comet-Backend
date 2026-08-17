@@ -327,7 +327,7 @@ it('does not re-seed an ordering store the user already has (only-if-empty per s
     expect($orders->first()->payload['name'])->toBe('Mine');
 });
 
-it('syncs ONLY the booking link for a standard (partna) account', function () {
+it('syncs booking + socials + workplace for a standard (partna) account, but never reservations/ordering (R14)', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
     Bus::fake([InstagramConnectJob::class]);
@@ -340,12 +340,17 @@ it('syncs ONLY the booking link for a standard (partna) account', function () {
     // Booking IS synced for every account type (Google's appointment link, only-if-empty).
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeTrue();
 
-    // The Business-only seeds are all skipped for a standard account.
-    foreach (['opentable', 'reservations', 'online-ordering', 'facebook', 'tiktok', 'instagram'] as $businessOnly) {
+    // Ruling R14 (overnight 2026-08-18): socials + workplace seed for every
+    // account type; only reservations + ordering stay business/food-gated.
+    foreach (['opentable', 'reservations', 'online-ordering'] as $businessOnly) {
         expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $businessOnly)->exists())
             ->toBeFalse("expected no {$businessOnly} row for a partna account");
     }
-    Bus::assertNotDispatched(InstagramConnectJob::class);
+    foreach (['facebook', 'tiktok'] as $social) {
+        expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $social)->exists())
+            ->toBeTrue("expected a {$social} row for a partna account (R14)");
+    }
+    Bus::assertDispatched(InstagramConnectJob::class);
 });
 
 it('seeds no booking when the only booking link is the business website', function () {

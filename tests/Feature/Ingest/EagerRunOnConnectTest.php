@@ -97,15 +97,43 @@ it('does not dispatch for a free connector — the scheduler owns those', functi
 
 it('does not dispatch for a paid connector that has not opted in', function () {
     connectFor(eagerUser(), [
+        'platform' => 'square',
+        'payload' => ['url' => 'https://squareup.com/appointments/book/abc/xyz/start'],
+    ]);
+
+    // The menu actors are CostClass::Actor and stay OFF eager: the live menu
+    // lane is MenuFetchJob, and a second paid run per connect would double
+    // the bill. Opting in is one visible line per connector, never a side
+    // effect of being paid.
+    expect(ConnectorRegistry::manifestFor('square')->runsEagerlyOnConnect())->toBeFalse();
+    Bus::assertNotDispatched(RunSourceJob::class);
+});
+
+it('runs eagerly on connect for spotify, soundcloud and google_business (ruling R8), and only the allow-listed paid sources are schedulable', function () {
+    foreach (['spotify', 'soundcloud', 'google_business'] as $key) {
+        expect(ConnectorRegistry::manifestFor($key)->runsEagerlyOnConnect())->toBeTrue($key);
+    }
+    expect(ConnectorRegistry::manifestFor('instagram')->runsEagerlyOnConnect())->toBeTrue();
+
+    config(['partna.ingest_scheduled_paid_sources' => ['google_business', 'spotify', 'soundcloud']]);
+    $userId = eagerUser();
+    $spotify = connectFor($userId, [
         'platform' => 'spotify',
         'payload' => ['url' => 'https://open.spotify.com/artist/1vCWHaC5f2uS3yhpwWbIA6'],
     ]);
+    $instagram = connectFor($userId, [
+        'platform' => 'instagram',
+        'payload' => ['username' => 'someone'],
+    ]);
+    $ubereats = connectFor($userId, [
+        'platform' => 'square',
+        'payload' => ['url' => 'https://squareup.com/appointments/book/abc/xyz/start'],
+    ]);
 
-    // spotify is CostClass::Actor but eagerOnConnect stays false. This is the
-    // containment: opting in is one visible line per connector, never a
-    // side effect of being paid.
-    expect(ConnectorRegistry::manifestFor('spotify')->runsEagerlyOnConnect())->toBeFalse();
-    Bus::assertNotDispatched(RunSourceJob::class);
+    $auto = fn ($conn) => (bool) \Illuminate\Support\Facades\DB::table('ingest.sources')->where('connection_id', $conn->id)->value('auto_sync');
+    expect($auto($spotify))->toBeTrue()
+        ->and($auto($instagram))->toBeFalse()
+        ->and($auto($ubereats))->toBeFalse();
 });
 
 it('does not dispatch again when an existing connection is updated', function () {
@@ -160,4 +188,22 @@ it('claimOne wins once and refuses a second caller for the same row', function (
         ->update(['in_flight_since' => null, 'in_flight_run_id' => null]);
 
     expect($scheduler->claimOne($sourceId, (string) Str::uuid()))->toBeTrue();
+});
+
+it('dispatches the shared menu fetch when an ordering connection on a menu platform is written by ANY path (F17)', function () {
+    Bus::fake([\App\Jobs\Platforms\MenuFetchJob::class, RunSourceJob::class]);
+    $userId = eagerUser();
+    connectFor($userId, [
+        'surface_key' => 'uber_eats.order', 'routing_class' => 'ordering',
+        'payload' => ['url' => 'https://www.ubereats.com/au/store/ruh/WNhZXiljTPCcV9eUbVU1cA', 'name' => 'Uber Eats', 'provider' => 'Uber Eats'],
+    ]);
+    Bus::assertDispatched(\App\Jobs\Platforms\MenuFetchJob::class, fn ($job) => $job->userId === $userId);
+
+    // A non-menu ordering brand (bopple) does not.
+    Bus::fake([\App\Jobs\Platforms\MenuFetchJob::class, RunSourceJob::class]);
+    connectFor($userId, [
+        'surface_key' => 'bopple.order', 'routing_class' => 'ordering',
+        'payload' => ['url' => 'https://bopple.app/lower-east-by-ruh', 'name' => 'Bopple', 'provider' => 'Bopple'],
+    ]);
+    Bus::assertNotDispatched(\App\Jobs\Platforms\MenuFetchJob::class);
 });

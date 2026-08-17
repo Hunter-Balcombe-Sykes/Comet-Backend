@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Api\Routing;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Routing\RouteLinkRequest;
+use App\Jobs\Platforms\LinkInBioScanJob;
+use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\LinkInBioDetector;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
@@ -34,10 +37,19 @@ class RoutingController extends ApiController
     public function preview(RouteLinkRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $result = $this->routing->preview(
-            $request->validated()['url'],
-            RoutingContext::forUser($user, 'paste'),
-        );
+        $url = $request->validated()['url'];
+        if (app(LinkInBioDetector::class)->matches($url)) {
+            return $this->success([
+                'verdict' => 'note',
+                'canonicalUrl' => trim($url),
+                'routedTo' => null,
+                'confidence' => null,
+                'blockReason' => null,
+                'explanation' => "We'll pull the links from this page onto your site.",
+                'conflictingConnectionId' => null,
+            ]);
+        }
+        $result = $this->routing->preview($url, RoutingContext::forUser($user, 'paste'));
 
         return $this->success($result);
     }
@@ -46,6 +58,30 @@ class RoutingController extends ApiController
     {
         $user = $this->currentUser($request);
         $url = $request->validated()['url'];
+        // A pasted link-in-bio page (linktr.ee, beacons.ai, msha.ke, stan.store)
+        // used to bounce as `reject: shortener`. It is a bundle of the user's
+        // own links: unroll it (every outbound link goes through LinkRouter
+        // via LinkInBioScanJob) and keep the page itself as a link card, so
+        // nothing the owner pasted is lost (overnight 2026-08-18 F15).
+        if (app(LinkInBioDetector::class)->matches($url)) {
+            LinkInBioScanJob::dispatch((string) $user->id, trim($url), AccountCapabilities::for($user)->can_use_booking);
+            $write = $this->links->addManual($user, trim($url));
+
+            return $this->success([
+                'status' => 'pending',
+                'outcome' => in_array($write['status'] ?? null, ['created', 'exists'], true) ? 'link' : null,
+                'verdict' => 'note',
+                'canonicalUrl' => trim($url),
+                'routedTo' => null,
+                'confidence' => null,
+                'blockReason' => null,
+                'explanation' => "We'll pull the links from this page onto your site.",
+                'conflictingConnectionId' => null,
+                'connectionId' => null,
+                'unrolled' => true,
+            ], 202);
+        }
+
         $result = $this->routing->route($url, RoutingContext::forUser($user, 'paste'));
 
         // What actually happened, in one word the dashboard can switch on:
