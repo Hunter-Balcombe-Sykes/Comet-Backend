@@ -58,9 +58,11 @@ it('emits exactly the documented top-level and profile-nested key set', function
         'designKit', 'architectureId', 'publicConfig', 'policies',
     ]);
 
+    // `brand` joined 2026-08-17 (owner ruling): the two logo singletons
+    // regain a public projection — see BrandWireTest.
     expect(array_keys($array['profile']))->toBe([
         'handle', 'displayName', 'accountType', 'site_id',
-        'links', 'pools', 'services',
+        'links', 'pools', 'brand', 'services',
         'document', 'newsletter', 'contact', 'publicContact', 'workplace',
     ]);
 

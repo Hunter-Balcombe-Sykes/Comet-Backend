@@ -2,7 +2,10 @@
 
 namespace App\Observers\Core;
 
+use App\Ingest\ConnectorRegistry;
+use App\Ingest\Runtime\SourceScheduler;
 use App\Ingest\SourceProvisioner;
+use App\Jobs\Ingest\RunSourceJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\IdentitySync;
@@ -15,6 +18,7 @@ use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 // Purges the user's public sitepage edge cache on a MEANINGFUL platform-connection
 // write (dashboard CRUD + the refresh cron — create, payload change, or
@@ -226,7 +230,8 @@ class IntegrationConnectionObserver
     private function syncIngestSource(IntegrationConnection $connection): void
     {
         try {
-            app(SourceProvisioner::class)->sync($connection);
+            $result = app(SourceProvisioner::class)->sync($connection);
+            $this->maybeRunEagerly($connection, $result);
         } catch (QueryException $e) {
             Log::debug('IntegrationConnectionObserver ingest-source sync query failure', [
                 'platform_connection_id' => $connection->id,
@@ -239,6 +244,84 @@ class IntegrationConnectionObserver
                 'user_id' => $connection->user_id,
                 'message' => $e->getMessage(),
             ]);
+        }
+    }
+
+    /**
+     * Run a NEWLY provisioned source once, immediately, when its connector asks
+     * for it (Manifest::runsEagerlyOnConnect) — the only trigger a paid
+     * connector has. SourceProvisioner sets auto_sync = (cost === Free) and
+     * SourceScheduler::scoreDue() selects only auto_sync = true, so without
+     * this an instagram source is created and then never runs.
+     *
+     * `created` ONLY, and that gate is load-bearing: syncIngestSource() is also
+     * called from the payload-change path and from restored(). Firing on
+     * `updated` would buy a paid actor call on EVERY refresh of the connection.
+     *
+     * Claimed before dispatch, never after. RunSourceJob does not claim its own
+     * source — claimDue() does that for the scheduler's callers — so an
+     * unclaimed dispatch could run concurrently with a scheduler tick and
+     * double-charge the vendor. The claim is also what makes this idempotent
+     * under a duplicate save.
+     *
+     * Best-effort by construction: this sits inside syncIngestSource()'s
+     * try/catch, so a failure here can never break the connection save or the
+     * pre-account build that triggered it.
+     *
+     * @param  array{status: string, source_key?: string, reason?: string}  $result
+     */
+    private function maybeRunEagerly(IntegrationConnection $connection, array $result): void
+    {
+        // Not `?? null`: every SourceProvisioner::sync() return path sets
+        // `status`, so the coalesce was dead code (phpstan nullCoalesce.offset).
+        if ($result['status'] !== 'created') {
+            return;
+        }
+
+        $sourceKey = $result['source_key'] ?? null;
+        if ($sourceKey === null || ! ConnectorRegistry::has($sourceKey)) {
+            return;
+        }
+
+        if (! ConnectorRegistry::manifestFor($sourceKey)->runsEagerlyOnConnect()) {
+            return;
+        }
+
+        // sync() just inserted this row; re-read it rather than threading the id
+        // back through the provisioner's return contract for one caller.
+        $sourceId = DB::table('ingest.sources')
+            ->where('connection_id', $connection->id)
+            ->where('source_key', $sourceKey)
+            ->value('id');
+
+        if ($sourceId === null) {
+            return;
+        }
+
+        $scheduler = app(SourceScheduler::class);
+        $runId = (string) Str::uuid();
+        if (! $scheduler->claimOne((string) $sourceId, $runId)) {
+            // Someone else owns the row already — their run covers this connect.
+            return;
+        }
+
+        try {
+            RunSourceJob::dispatch((string) $sourceId);
+        } catch (\Throwable $e) {
+            // The claim is released by RunSourceJob's own finally/failed() once
+            // the job RUNS — but a dispatch that never lands (queue
+            // unreachable) reaches neither, leaving the row claimed until
+            // releaseStranded()'s 2h backstop. Release it here so the source is
+            // left in a clean, re-runnable state instead.
+            //
+            // Note this does NOT re-run it: the eager trigger fires once, on
+            // creation, and nothing retries it. A lost dispatch therefore means
+            // this user's media never arrives — auto_sync=false keeps the
+            // scheduler away no matter what next_attempt_at says. Recovering one
+            // needs a manual re-run.
+            $scheduler->release((string) $sourceId, 'error', false);
+
+            throw $e;
         }
     }
 
