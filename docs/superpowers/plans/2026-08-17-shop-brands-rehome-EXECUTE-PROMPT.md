@@ -3,7 +3,7 @@
 > Paste the fenced block into a fresh session. Named EXECUTE, not KICKOFF: the
 > spec and plan already exist, so this session implements rather than plans.
 
-**Status 2026-08-17 — cleared to launch, behind ONE gate.**
+**Status 2026-08-17 — CLEARED TO LAUNCH. All gates discharged.**
 
 - ✅ The drop phase has merged. `origin/development` carried it at `1866354dc`;
   its checkpoint (`2026-08-17-slice-7-phase-6-checkpoint.md`) reads *"Shipped,
@@ -11,11 +11,11 @@
   back to this project. `ShopController` is free.
 - ✅ The migration-version collision with the services cutover is resolved.
   This project owns the `20260819*` band.
-- ⛔ **The one remaining gate: services cutover Task 1** must apply
-  `20260817000000_public_site_payload_services_from_content.sql` to dev first.
-  As of 2026-08-17 11:5x it is **not yet applied** — verified against
-  `supabase_migrations.schema_migrations`. The block below checks this first
-  and stops if it has not happened.
+- ✅ **Services cutover Task 1 has landed** — the gate that used to block this
+  project. Verified independently 2026-08-17: `20260817000000` is recorded in
+  `supabase_migrations.schema_migrations`, and `pg_depend` returns zero rows for
+  all three legacy service tables. The block below still re-checks it, because
+  verifying is cheap and this line is a snapshot.
 
 The services cutover runs **in parallel** with this project, not before it —
 only its Task 1 is a dependency. Territory was verified disjoint, not assumed.
@@ -52,12 +52,14 @@ you fix the plan in the same commit, and you say so in the commit body.
 
 BEFORE YOU WRITE ANY CODE
 
-1. ⛔ THE ONE BLOCKING GATE — has services Task 1 landed?
+1. THE GATE — services Task 1. It HAD landed as of 2026-08-17 (verified: the row
+   below exists, and pg_depend returns zero rows for the three legacy service
+   tables). Re-check anyway; it costs one query and this prompt is a snapshot.
 
    select version from supabase_migrations.schema_migrations
    where version = '20260817000000';
 
-   - 1 row  → clear, proceed.
+   - 1 row  → clear, proceed. This is the expected result.
    - 0 rows → STOP AND ASK THE OWNER. Do not push, do not park the file, do not
               hand-insert a schema_migrations row, and do NOT apply it yourself.
               It is the services project's first unit and carries its own KV
