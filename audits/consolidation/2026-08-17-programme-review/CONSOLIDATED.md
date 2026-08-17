@@ -136,7 +136,7 @@ Never script a tick keyed on id alone.
             ->get(['id', 'subdomain']);
         ```
 
-- [ ] **#PGR-5** · P1 — Handle→email login-identifier endpoint discloses a professional's private `primary_email`, not their published contact address
+- [x] **#PGR-5** · P1 — Handle→email login-identifier endpoint discloses a professional's private `primary_email`, not their published contact address
     - **Source:** public-surface-security — was `#SEC-1`
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicLoginIdentifierController.php:37-45
     - **Affects:** Every professional's private login email; handles are public subdomains, so this is a systematic email-harvesting vector across the whole user base.

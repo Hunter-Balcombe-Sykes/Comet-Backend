@@ -20,7 +20,13 @@ it('echoes a valid email back lowercased', function () {
     $response->assertOk()->assertJson(['email' => 'tobias@example.com']);
 });
 
-it('resolves a handle to the matching primary email', function () {
+// SEC-1: this used to assert the handle resolved to `tobias@example.com`, which
+// pinned the disclosure as intended behaviour. A real, live, matching user is
+// still seeded here on purpose — the point is that even a perfect hit returns
+// null, so the endpoint cannot be used to harvest a private login address from a
+// public handle. Asserting exact JSON so a future change cannot quietly re-add
+// the field alongside it.
+it('never discloses a primary email for a handle, even on an exact match', function () {
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => '00000000-0000-0000-0000-000000000010',
         'auth_user_id' => 'auth-user-handle-resolve',
@@ -38,7 +44,32 @@ it('resolves a handle to the matching primary email', function () {
         'identifier' => 'Tobias-Balcombe-Ehrlich',
     ]);
 
-    $response->assertOk()->assertJson(['email' => 'tobias@example.com']);
+    $response->assertOk()->assertExactJson(['email' => null]);
+
+    // The address must not appear anywhere in the body under any other key.
+    expect($response->getContent())->not->toContain('tobias@example.com');
+});
+
+it('is indistinguishable between a real handle and an unknown one', function () {
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => '00000000-0000-0000-0000-000000000011',
+        'auth_user_id' => 'auth-user-handle-indistinguishable',
+        'handle' => 'real-person',
+        'handle_lc' => 'real-person',
+        'display_name' => 'Real',
+        'first_name' => 'Real',
+        'primary_email' => 'real@example.com',
+        'account_type' => 'partna',
+        'status' => 'active',
+        'onboarding_step' => 0,
+    ]);
+
+    $hit = $this->postJson('/api/public/auth/resolve-identifier', ['identifier' => 'real-person']);
+    $miss = $this->postJson('/api/public/auth/resolve-identifier', ['identifier' => 'no-such-person']);
+
+    $hit->assertOk();
+    $miss->assertOk();
+    expect($hit->getContent())->toBe($miss->getContent());
 });
 
 it('returns null for an unknown handle', function () {
