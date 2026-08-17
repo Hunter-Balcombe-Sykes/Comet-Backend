@@ -23,11 +23,16 @@ class MediumNormalizer
             // A medium.com URL without the @<handle> path.
             return null;
         } else {
-            $candidate = PlatformInput::token($s);
+            // From the RAW input, not urlish($input): urlish() promotes a
+            // dotted bare token ("julie.zhuo") to https://julie.zhuo because
+            // it reads as host.tld — but we already know it is not a
+            // medium.com URL, so a dotted token here is a handle.
+            $candidate = PlatformInput::token($input);
         }
 
-        // {2,40}: Medium itself has 2-char handles (founder @ev).
-        if (! preg_match('~^[A-Za-z0-9_-]{2,40}$~', $candidate)) {
+        // {2,40}: Medium itself has 2-char handles (founder @ev). Dots are legal
+        // (@julie.zhuo is live) — the sweep rejected every dotted handle (F10).
+        if (! preg_match('~^[A-Za-z0-9_.-]{2,40}$~', $candidate)) {
             return null;
         }
 
