@@ -5,9 +5,11 @@ namespace App\Services\Platforms\Registry;
 use App\Catalog\CatalogNotCompiled;
 use App\Catalog\CompiledCatalog;
 use App\Catalog\LegacyPlatformMap;
+use App\Http\Resources\Platforms\LinkConnectionResource;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\Payloads\CardPayload;
+use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
 
 /**
  * Builds a PlatformDescriptor for every connectable, URL-detected catalog surface
@@ -95,7 +97,7 @@ class DerivedDescriptorFactory
                 continue;
             }
 
-            $derived[$slug] = $this->descriptorFor($slug, $surface, $brands[$surface['brand_key']] ?? []);
+            $derived[$slug] = $this->descriptorFor($slug, $key, $surface, $brands[$surface['brand_key']] ?? []);
         }
 
         return $derived;
@@ -130,12 +132,26 @@ class DerivedDescriptorFactory
      * @param  array<string, mixed>  $surface
      * @param  array<string, mixed>  $brand
      */
-    private function descriptorFor(string $slug, array $surface, array $brand): PlatformDescriptor
+    private function descriptorFor(string $slug, string $surfaceKey, array $surface, array $brand): PlatformDescriptor
     {
+        $label = is_string($brand['display_name'] ?? null)
+            ? $brand['display_name']
+            : ($surface['display_name'] ?? $slug);
+
         $descriptor = PlatformDescriptor::make($slug)
-            ->label(is_string($brand['display_name'] ?? null) ? $brand['display_name'] : ($surface['display_name'] ?? $slug))
+            ->label($label)
             ->derived()
+            ->surfaceKey($surfaceKey)
+            ->resource(LinkConnectionResource::class)
             ->payload(CardPayload::class)
+            // A CLOSURE, never an instance: this runs at boot on every request,
+            // and the loop's own comments explain at length why resolving a
+            // strategy eagerly here is a trap. BrandLinkConnect is cheap, but the
+            // rule is the rule.
+            ->connect(
+                fn () => new BrandLinkConnect($slug, $label),
+                'Enter a valid '.$label.' link.'
+            )
             // connectInput is NOT optional: ResolvesConnectRules::connectDescriptor()
             // aborts 404 when connectField() is null, so a derived descriptor without
             // it would 404 every connect before validation ever ran.

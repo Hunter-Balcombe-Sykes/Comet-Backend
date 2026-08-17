@@ -73,6 +73,15 @@ class PlatformDescriptor
     /** Built by DerivedDescriptorFactory from a compiled catalog surface, not hand-registered. */
     private bool $derived = false;
 
+    /**
+     * The catalog surface this descriptor's rows are written under, e.g.
+     * 'menulog.order'. Only derived descriptors set it: their slug is the BRAND
+     * (matching the generated `platform` column) while storage needs the full
+     * surface key, and the two differ. Hand-written platforms leave it null and
+     * keep resolving their surface through LegacyPlatformMap::surfaceFor().
+     */
+    private ?string $surfaceKey = null;
+
     private ?string $connectController = null;
 
     private bool $multiAccount = false;
@@ -376,6 +385,18 @@ class PlatformDescriptor
     public function isDerived(): bool
     {
         return $this->derived;
+    }
+
+    public function surfaceKey(string $surfaceKey): self
+    {
+        $this->surfaceKey = $surfaceKey;
+
+        return $this;
+    }
+
+    public function getSurfaceKey(): ?string
+    {
+        return $this->surfaceKey;
     }
 
     public function connectController(): ?string

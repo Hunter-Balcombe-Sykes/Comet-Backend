@@ -283,7 +283,11 @@ $registerIntegrationRoutes = function (string $base): void {
                 // Null connectController = fully registry-driven (link-only, and
                 // every platform migrated onto a ConnectStrategy).
                 $connectController = $descriptor->connectController() ?? GenericPlatformController::class;
-                Route::post('/connect', [$connectController, 'connect'])->defaults('platform', $slug)->middleware('platform.available');
+                // Brand (derived) writes through connectBrand: its row carries the
+                // full catalog surface key, not the brand slug the route is named
+                // for. See that method's docblock.
+                $connectAction = $shape === PlatformRouteShape::Brand ? 'connectBrand' : 'connect';
+                Route::post('/connect', [$connectController, $connectAction])->defaults('platform', $slug)->middleware('platform.available');
 
                 if ($shape === PlatformRouteShape::SingleSelection) {
                     // selection + DELETE stay on the bespoke controller.

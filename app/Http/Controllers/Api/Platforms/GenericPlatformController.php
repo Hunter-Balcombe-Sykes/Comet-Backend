@@ -49,6 +49,52 @@ class GenericPlatformController extends ApiController
         return $platform;
     }
 
+    /**
+     * POST /api/platforms/{platform}/connect for a DERIVED brand
+     * (PlatformRouteShape::Brand).
+     *
+     * Separate from connect() because the row must carry the full catalog
+     * SURFACE key ('menulog.order'), while the route slug is the BRAND
+     * ('menulog') — the generated `platform` column is the brand prefix, so the
+     * two genuinely differ. connect()'s writeConnection() keys on platform(),
+     * which would store 'menulog' as the surface and trip
+     * IntegrationConnection's saving guard (isKnownSurface() rightly refuses a
+     * brand key). writeBrandCard() exists for precisely this shape — Phase 6
+     * built it so the caller, not platform(), names the surface.
+     *
+     * The URL was already asserted to belong to this brand by
+     * PlatformConnectRequest::after().
+     */
+    public function connectBrand(PlatformConnectRequest $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $descriptor = $this->descriptor();
+
+        $surfaceKey = $descriptor->getSurfaceKey();
+        abort_if($surfaceKey === null, 404);
+
+        $this->authorizeForUser($user, 'connect', [new IntegrationConnection(['user_id' => $user->id]), $descriptor]);
+
+        $strategy = $descriptor->connectStrategy();
+        abort_if($strategy === null, 404);
+
+        $result = $strategy->resolve($request->validated()[$descriptor->connectField()]);
+        if ($result->failed()) {
+            return $this->error($result->error ?? $descriptor->connectErrorMessage() ?? 'Enter a valid link.', $result->status);
+        }
+
+        $resourceClass = $descriptor->resourceClass();
+
+        // PWL-2: serialise against ConnectFetchJob / ScheduledRefresh, same as
+        // connect() — a link brand has no refresh today, but the lock is keyed
+        // per user, not per platform, so skipping it would weaken the others.
+        return $this->withConnectionLock($user, function () use ($user, $descriptor, $surfaceKey, $result, $resourceClass): JsonResponse {
+            $row = $this->writeBrandCard($user, $surfaceKey, $descriptor->key(), $result->selection);
+
+            return $this->success(['id' => $row->resource_id, ...(new $resourceClass($result->selection))->resolve()]);
+        });
+    }
+
     // POST /api/platforms/{platform}/connect — resolve the input via the
     // descriptor's connect strategy (parse + any upstream fetch), store the
     // canonical selection, echo it. Multi-account platforms add an account row
