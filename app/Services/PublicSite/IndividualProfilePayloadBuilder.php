@@ -7,6 +7,7 @@ use App\Http\Resources\PublicSite\IndividualProfileResource;
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
+use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Analytics\ContentPopularityReader;
@@ -139,6 +140,11 @@ class IndividualProfilePayloadBuilder
             'ordering' => $this->actions->orderingWire($ordering),
             // Engine outputs — flat, camelCase, no envelope wrapper.
             'pools' => $this->buildPools($site),
+            // Brand logos (owner ruling 2026-08-17): the design singletons
+            // regain a public projection — slice 7 unit E deleted `siteImages`
+            // wholesale, which took the logos down with the noise. Just the
+            // two logo slots; the placeholder singleton stays private.
+            'brand' => $this->buildBrand($site),
             'links' => $this->buildLinks($site, $booking, $ranks['block'] ?? []),
             'services' => $this->buildServices($site, $pro->id, $sections, $ranks['service'] ?? []),
             'document' => $this->buildDocument($site),
@@ -345,6 +351,39 @@ class IndividualProfilePayloadBuilder
             'category' => (string) ($service['category'] ?? 'Services'),
             'popularityRank' => $ranks[(string) ($service['id'] ?? '')] ?? null,
         ], $services));
+    }
+
+    /**
+     * Brand logos — {logoFull, logoSquare}, each {url, urlHd, urlSvg,
+     * urlIcon} | null (owner ruling 2026-08-17). Reads the design-singleton
+     * projection getDesignSingletons() kept alive for exactly this moment,
+     * remapping its snake_case url keys to the wire's camelCase. The
+     * `placeholder` singleton is deliberately not published.
+     *
+     * @return array{logoFull: array{url: string, urlHd: string|null, urlSvg: string|null, urlIcon: string|null}|null, logoSquare: array{url: string, urlHd: string|null, urlSvg: string|null, urlIcon: string|null}|null}
+     */
+    private function buildBrand(?Site $site): array
+    {
+        $singletons = $this->resolver->getDesignSingletons($site);
+
+        $slot = function (string $purpose) use ($singletons): ?array {
+            $row = $singletons[$purpose] ?? null;
+            if (! is_array($row)) {
+                return null;
+            }
+
+            return [
+                'url' => (string) $row['url'],
+                'urlHd' => $row['url_hd'] ?? null,
+                'urlSvg' => $row['url_svg'] ?? null,
+                'urlIcon' => $row['url_icon'] ?? null,
+            ];
+        };
+
+        return [
+            'logoFull' => $slot(SiteMedia::PURPOSE_LOGO_FULL),
+            'logoSquare' => $slot(SiteMedia::PURPOSE_LOGO_SQUARE),
+        ];
     }
 
     /**

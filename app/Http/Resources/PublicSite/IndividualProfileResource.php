@@ -106,6 +106,10 @@ class IndividualProfileResource extends ApiResource
                 // links[{platform,url,source}] for the per-item platform
                 // buttons, origin. Always an object.
                 'pools' => (object) ($this->sections['pools'] ?? []),
+                // Brand logos (owner, 2026-08-17): {logoFull, logoSquare},
+                // each {url, urlHd, urlSvg, urlIcon} | null. Null when the
+                // owner never uploaded one — name-as-type is the fallback.
+                'brand' => $this->sections['brand'] ?? ['logoFull' => null, 'logoSquare' => null],
                 'services' => $this->sections['services'] ?? [],
                 'document' => $this->sections['document'] ?? null,
                 'newsletter' => $this->sections['newsletter'] ?? null,
