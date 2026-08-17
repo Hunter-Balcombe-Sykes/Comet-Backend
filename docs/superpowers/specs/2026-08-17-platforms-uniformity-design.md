@@ -316,7 +316,83 @@ wrong call is user-visible rather than merely internal.
 work, `isConnectable` and "has connect routes" mean the same thing. That
 equivalence is the seam §7 depends on.
 
-### 6.8 Exit criteria
+### 6.8 The registry freeze — W2's real blast radius
+
+**This is the largest thing the brief missed, and it must be resolved before any
+code is written.**
+
+`PlatformRegistry` is deliberately **frozen at 78 slugs**. Two tests pin it:
+
+- `tests/Feature/Platforms/Registry/RegistryCoverageTest.php` asserts
+  `$registry->keys()` is byte-identical to
+  `array_keys(LegacyPlatformMap::toSurfaceMap())`. Its stated reason: "the
+  registry is what the legacy connect flows accept, the map is what the
+  connection write-guard accepts — drift between them would let one layer accept
+  what the other rejects."
+- `tests/Unit/Catalog/CatalogLegacyMapTest.php` chains the same set to the
+  `20260727110001` migration's backfill CASE.
+
+`PlatformRegistry::forConnection()`'s own docblock states the consequence
+outright: *"a brand added after P1 is catalog-only by construction and can never
+have a descriptor of its own."* Derivation makes that sentence false on purpose.
+
+**The freeze's premise is already obsolete in one direction.**
+`LegacyPlatformMap::isKnownSurface()` falls back to `CompiledCatalog::surface()`,
+so the write-guard already accepts catalog-only surfaces the registry has never
+heard of. The two layers are *already* asymmetric; the test pins a symmetry that
+stopped being true when the catalog fallback landed.
+
+**Required change:** re-base `RegistryCoverageTest`'s first assertion from set
+equality to two containments — hand-written descriptors are exactly the legacy
+map's 78, and derived descriptors are exactly the connectable URL-detected
+catalog brands not among those 78. Keep the equality assertion for the
+hand-written half; that half is what the migration CASE mirrors, and it must stay
+frozen.
+
+**Do not weaken `CatalogLegacyMapTest`.** It pins the migration's backfill, which
+is history and does not move.
+
+**Consumers that widen as a result** — inventory verified 2026-08-17, all three
+are improvements rather than regressions, but each needs a test:
+
+| Consumer | Effect |
+|---|---|
+| `app/Rules/PlatformInRegistry.php` | `has()` starts accepting derived slugs. Desired — it is what lets connect validate. |
+| `IntegrationsMetaController:72` | The `/integrations` availability map grows to cover derived brands, computed via `descriptor->availableFor()`. **Desired** — this is precisely what greys out an unusable brand's card (§7), and it only works if derived descriptors carry §6.5's `requiresCapability` predicate. |
+| `GenericPlatformController::descriptor()` | Does `registry->get($this->platform())` and 404s on null. Derived descriptors are what stop that 404. This is the mechanism, not a side effect. |
+
+### 6.8.1 Why brand-key slugs are safe — the generated column
+
+`site.platform_connections.platform` is a **generated column**: the brand prefix
+of `surface_key` (`LegacyPlatformMap::legacyFor()` → `explode('.', $key)[0]`,
+modulo `SPECIAL_TO_LEGACY`). `IntegrationConnection::setPlatformAttribute()`
+accepts either a legacy slug or a full surface key and derives `surface_key` from
+it; it never writes `platform` directly.
+
+So a route slug of `calendly` resolves a descriptor keyed `calendly`, whose
+connect writes `calendly.book`, whose generated `platform` column reads back as
+`calendly` — which is exactly what `GenericPlatformController` filters on. The
+brand-key slug rule of §6.2 is consistent with storage by construction.
+
+### 6.8.2 `LinkRouter` does write per-brand — confirmed
+
+The brief asserts LinkRouter "already writes per-brand", and one docblock appears
+to contradict it: `app/Catalog/Definitions/Booksy.php` says
+`WebsiteLinkHarvester` "always collapses it to the generic 'booking'
+pseudo-platform, never to this dedicated key."
+
+**That comment is stale — it describes pre-Phase-6 behaviour.**
+`WebsiteLinkHarvester::BOOKING_PLATFORM` and `::ORDERING_PLATFORM` now map every
+host to a per-brand key (`'Booksy' => 'booksy'`, `'Calendly' => 'calendly.book'`,
+`'DoorDash' => 'doordash.order'`), in the two shapes the file documents: a
+registered brand uses its legacy slug, a catalog-only brand uses its full surface
+key. The brief is right and the docblock is wrong.
+
+**Fold into W2:** correct the `Booksy.php` docblock as an opportunistic fix while
+that file is open for its `notConnectable()` flip. A stale comment that
+contradicts the design is how the next reader re-derives the wrong conclusion.
+
+### 6.9 Exit criteria
 
 - `DELETE /platforms/doordash` disconnects DoorDash. `DELETE /platforms/booksy`
   disconnects Booksy.
