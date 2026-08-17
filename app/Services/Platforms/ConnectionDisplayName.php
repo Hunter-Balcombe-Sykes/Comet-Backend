@@ -113,6 +113,32 @@ final class ConnectionDisplayName
         return $words === [] ? null : mb_convert_case(implode(' ', $words), MB_CASE_TITLE, 'UTF-8');
     }
 
+    /**
+     * The connected thing's picture, if the payload carries one: avatar /
+     * profile picture / channel thumbnail / store logo / og image / favicon —
+     * in that order, and only absolute http(s) URLs.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public static function avatarFor(array $payload): ?string
+    {
+        foreach (['avatarUrl', 'avatar', 'profilePicUrl', 'profile_pic_url', 'thumbnail', 'image', 'logo', 'favicon'] as $key) {
+            $value = self::text($payload[$key] ?? null);
+            if ($value !== null && preg_match('~^https?://~i', $value)) {
+                return $value;
+            }
+        }
+        $latest = $payload['latest'] ?? null;
+        if (is_array($latest)) {
+            $value = self::text($latest['thumbnail'] ?? null);
+            if ($value !== null && preg_match('~^https?://~i', $value)) {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
     /** The handle a surface's catalog detector captures from a URL, if any. */
     public static function handleFromUrl(string $surfaceKey, string $url): ?string
     {

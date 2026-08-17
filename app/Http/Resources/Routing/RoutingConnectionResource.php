@@ -47,6 +47,11 @@ class RoutingConnectionResource extends ApiResource
             // from the url by the surface's own detector. Null means "no idea,
             // label the url" — never the brand label.
             'accountName' => ConnectionDisplayName::for((string) $this->surface_key, (array) ($this->payload ?? [])),
+            // The connected thing's own picture where the payload has one — a
+            // channel avatar, a store logo, an enriched card's og image or
+            // favicon — so the connect summary and the table can show WHAT was
+            // connected, not only which platform (R9 / connect-summary).
+            'avatarUrl' => ConnectionDisplayName::avatarFor((array) ($this->payload ?? [])),
             'isActive' => (bool) $this->is_active,
         ];
     }
