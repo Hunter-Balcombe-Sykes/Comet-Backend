@@ -3,6 +3,7 @@
 namespace Tests\Authz;
 
 use App\Models\Content\Collection;
+use App\Models\Content\Item;
 use App\Models\Core\Feedback;
 use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Site\Block;
@@ -13,8 +14,6 @@ use App\Models\Core\Site\Section;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\Customer;
-use App\Models\Core\User\Service;
-use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -42,7 +41,8 @@ use Illuminate\Support\Str;
  *   blocks             user_id, site_id
  *   customers          user_id
  *   enquiries          user_id, site_id, name, email, subject, message
- *   service_categories user_id, title
+ *   content.items      user_id, kind='service' (the {service} id space since
+ *                      the services cutover dropped site.services)
  *   services           user_id, title, price_cents
  *   site_media         site_id, path
  *   sites              user_id, subdomain
@@ -243,28 +243,31 @@ final class Fixtures
 
         self::remember(Enquiry::class, $enquiry->id);
 
-        $category = ServiceCategory::query()->where('user_id', $user->id)->first();
-
-        if (! $category) {
-            $category = new ServiceCategory;
-            $category->title = 'Authz Category';
-            $category->user()->associate($user);
-            $category->save();
-        }
-
-        self::remember(ServiceCategory::class, $category->id);
-
-        $service = Service::query()->where('user_id', $user->id)->first();
+        // Services cutover: site.services and site.service_categories are
+        // DROPPED, so the {service} routes substitute a content.items row of
+        // kind='service' — the id space every service verb now speaks. The
+        // Service/ServiceCategory classes survive only as in-memory DTOs and
+        // have no table to seed. Item carries no user() relation, so user_id
+        // is assigned directly, the same convention this file's docblock
+        // states for every tenancy FK.
+        $service = Item::query()
+            ->where('user_id', $user->id)
+            ->where('kind', 'service')
+            ->first();
 
         if (! $service) {
-            $service = new Service;
-            $service->title = 'Authz Service';
-            $service->price_cents = 1000;
-            $service->user()->associate($user);
+            $service = new Item;
+            $service->user_id = $user->id;
+            $service->kind = 'service';
+            $service->headline_cache = 'Authz Service';
+            $service->facets_cache = [];
+            $service->eligible_cache = [];
+            $service->first_seen_at = now();
+            $service->last_seen_at = now();
             $service->save();
         }
 
-        self::remember(Service::class, $service->id);
+        self::remember(Item::class, $service->id);
 
         // Slice 3b: service categories moved to content.collections, so the
         // ServiceCategory row above no longer backs the

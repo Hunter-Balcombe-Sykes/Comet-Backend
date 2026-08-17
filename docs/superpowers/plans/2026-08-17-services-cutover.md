@@ -1992,7 +1992,7 @@ Only after Task 11's sign-off.
 - Create: `supabase/migrations/20260818000300_drop_site_service_categories.sql`
 - Modify: `tests/Schema/UpdatedAtTriggerCoverageTest.php`, `tests/Postgres/StaffCategoryReorderAtomicityTest.php`, `tests/Postgres/` stand-in DDL naming the three tables, `tests/Feature/Services/ServiceCategoryAssignmentRetirementTest.php` (retire — its subject table is gone; keep the staff-index case, moved into the cutover test file)
 
-- [ ] **Step 1: The backup gate.** Get the dev DB URL the way `scripts/db/` scripts do (Cloud CLI env vars — never echoed, never written to disk):
+- [x] **Step 1: The backup gate.** Get the dev DB URL the way `scripts/db/` scripts do (Cloud CLI env vars — never echoed, never written to disk):
 
 ```bash
 pg_dump "$DEV_DB_URL" --no-owner --no-privileges -Fc \
@@ -2009,7 +2009,7 @@ psql svc_teardown_scratch -c "select 'services', count(*) from site.services uni
 
 versus the same SELECT on dev. **One table disagreeing = nothing is dropped.** Upload the dump to the `partna-db-backup` R2 bucket per `docs/superpowers/plans/2026-07-17-weekly-db-backup.md`'s mechanism; record location + counts in the checkpoint.
 
-- [ ] **Step 2: Re-check the catalog** (the Task 1 Step 3 `pg_depend` query, plus):
+- [x] **Step 2: Re-check the catalog** (the Task 1 Step 3 `pg_depend` query, plus):
 
 ```sql
 SELECT polname, polrelid::regclass FROM pg_policy
@@ -2017,7 +2017,7 @@ WHERE polrelid IN ('site.services'::regclass,'site.service_categories'::regclass
 -- expect the seven known policies and nothing else
 ```
 
-- [ ] **Step 3: Write the three migrations** (children before parents; convention from `20260817000400_drop_site_menu_categories.sql` — no `IF EXISTS`, fail loudly):
+- [x] **Step 3: Write the three migrations** (children before parents; convention from `20260817000400_drop_site_menu_categories.sql` — no `IF EXISTS`, fail loudly):
 
 `20260818000100_drop_site_service_category_assignments.sql`:
 
@@ -2080,16 +2080,16 @@ DROP TABLE site.service_categories;
 COMMIT;
 ```
 
-- [ ] **Step 4: Update the test lanes BEFORE applying.** `tests/Schema/UpdatedAtTriggerCoverageTest.php`: remove the two tables from its trigger expectations (or its exclusion list — read the test's own convention). `tests/Postgres/StaffCategoryReorderAtomicityTest.php`: the legacy half it exercises died in Task 8 — rewrite its scenario collections-only or delete it if fully superseded (state which in the commit). Grep `tests/Postgres/` stand-in DDL for the three table names and remove those CREATE TABLE stand-ins. Retire `ServiceCategoryAssignmentRetirementTest` (its table is gone); keep its staff-index case by moving the assertion into `ServicesCutoverFreshaManagementTest`.
+- [x] **Step 4: Update the test lanes BEFORE applying.** `tests/Schema/UpdatedAtTriggerCoverageTest.php`: remove the two tables from its trigger expectations (or its exclusion list — read the test's own convention). `tests/Postgres/StaffCategoryReorderAtomicityTest.php`: the legacy half it exercises died in Task 8 — rewrite its scenario collections-only or delete it if fully superseded (state which in the commit). Grep `tests/Postgres/` stand-in DDL for the three table names and remove those CREATE TABLE stand-ins. Retire `ServiceCategoryAssignmentRetirementTest` (its table is gone); keep its staff-index case by moving the assertion into `ServicesCutoverFreshaManagementTest`.
 
-- [ ] **Step 5: Apply to dev**
+- [x] **Step 5: Apply to dev**
 
 ```bash
 supabase db push --dry-run    # exactly the three 20260818* files
 supabase db push
 ```
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```sql
 select to_regclass('site.services'), to_regclass('site.service_categories'), to_regclass('site.service_category_assignments');
@@ -2098,14 +2098,52 @@ select to_regclass('site.services'), to_regclass('site.service_categories'), to_
 
 Then: one authenticated dashboard list, one staff list, one public profile, one DSAR export (`user:export` path) against dev — all 200, logs clean (`cloud env:logs partna development --minutes 10`), Nightwatch clean.
 
-- [ ] **Step 7: Full local suites** — `composer test` (parallel), `composer test:pg`, `composer test:schema` (the applied-schema lane must be green against the post-drop dev schema).
+- [x] **Step 7: Full local suites** — `composer test` (parallel), `composer test:pg`, `composer test:schema` (the applied-schema lane must be green against the post-drop dev schema).
 
-- [ ] **Step 8: Commit + push**
+- [x] **Step 8: Commit + push**
 
 ```bash
 git add supabase/migrations/2026081800*.sql tests/
 git commit -m "feat(services-cutover)!: drop site.services, site.service_categories, site.service_category_assignments"
 ```
+
+**Reality corrections applied (rule zero, 2026-08-17):**
+
+1. **The R2 upload path EXISTS** — `scripts/db/backup-to-r2.sh`, added since the
+   kickoff was written, reaches R2 through the wrangler OAuth session rather
+   than the absent AWS/R2 keys. The exec prompt's red "no working tooling"
+   warning is out of date. What blocked it is narrower: encrypting needs
+   `BACKUP_PASSPHRASE`, which exists only as a GitHub Actions secret. **Owner
+   ruling 2026-08-17: skip R2, local dump only** — recorded here as deferred,
+   exactly as the slice-7 drop phase recorded it.
+2. **`supabase db push` could not be used.** The CLI connects as `postgres` to
+   the direct host and the credential available here is the `app_backend`
+   Supavisor role — `SQLSTATE 28P01`. Applied through the Supabase MCP instead,
+   one call per file. The ledger drift the two-window memory predicts happened
+   on cue (MCP stamped `20260817050436/446/459` against repo files
+   `20260818000100/200/300`); repaired by INSERTing the repo versions and
+   DELETEing the strays, then re-read to confirm filename order.
+3. **The shop session had already applied `20260819*`**, so these `20260818*`
+   files are OUT OF ORDER on dev and a bare `db push` would silently skip them.
+   Nothing to fix now (they are applied and recorded), but any future from-zero
+   apply must use `--include-all`.
+4. **`tests/Authz/Fixtures.php` seeds both dropped tables** — Step 4's grep list
+   named `tests/Postgres/` and `tests/Schema/` but not `tests/Authz/`. The
+   `{service}` routes now substitute a `content.items` row of kind='service'
+   (`App\Models\Content\Item`), keeping the STRONG cross-tenant form rather
+   than downgrading four routes to `unknown`.
+5. **`ServiceBackfiller` and `BackfillOwnerServices` are STILL NOT deleted.**
+   Deleting them forces a fixture change in `ServiceTwoSurfaceTest`, which the
+   Global Constraints say must stay green UNMODIFIED through every task. They
+   are dead code now — the only invocation path is
+   `php artisan content:backfill-owner-services`, which would 42P01 against the
+   dropped table. Carried as the project's single residual, for an owner
+   decision on touching the protected file.
+6. **`StaffCategoryReorderAtomicityTest` was rewritten, not deleted.** Its
+   cross-store atomicity subject died with the second store, but the property
+   underneath survives and is worth the PG lane: `reposition()` is a
+   multi-statement renumber, so a fault part-way through must roll the whole
+   thing back rather than leave a half-applied order.
 
 ---
 

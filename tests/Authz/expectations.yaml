@@ -217,7 +217,7 @@
 # without naming any category — least of all one of identity B's.
 - route: "PATCH api/services/{service}/category"
   body: { category_ids: [] }
-  fixture: { service: "App\\Models\\Core\\User\\Service" }
+  fixture: { service: "App\\Models\\Content\\Item" }
 
 # ShopController (routes/api/platforms.php). The `/shopify` alias spelling was
 # removed as dead-with-zero-callers in 1917be75b, so only `/shop` remains.
@@ -240,21 +240,22 @@
   fixture: { section: "App\\Models\\Core\\Site\\Section", item: unknown }
 
 # ── Services — the 3a content.* cutover changed these signatures ─────────────
-# show/update/destroy/restore now take `string $service`, not `Service $service`:
-# they resolve the id against content.* first and fall back to site.services for
-# the Fresha half, so implicit model binding no longer applies and reflection has
-# nothing to read. Slice 3b (Task 10) did the same to resync/updateCategory, the
-# last two that still resolved by reflection — hence their entries below.
+# show/update/destroy/restore take `string $service`, not `Service $service`:
+# they resolve the id against content.* and implicit model binding no longer
+# applies, so reflection has nothing to read. Slice 3b (Task 10) did the same to
+# resync/updateCategory, the last two that still resolved by reflection.
 #
-# STRONG form deliberately — site.services still holds every Fresha row and every
-# backfilled owner row, so identity B has a real row to substitute and this stays
-# a genuine cross-tenant probe rather than an `unknown` opt-out.
+# The services cutover DROPPED site.services, so the substituted row is a
+# content.items row of kind='service' — the one id space these routes speak.
+# STRONG form deliberately: identity B has a real row, so these stay genuine
+# cross-tenant probes rather than an `unknown` opt-out, which would quietly
+# delete cross-tenant coverage from four routes as a way of making CI green.
 - route: "api/services/{service}"
-  fixture: { service: "App\\Models\\Core\\User\\Service" }
+  fixture: { service: "App\\Models\\Content\\Item" }
 - route: "api/services/{service}/restore"
-  fixture: { service: "App\\Models\\Core\\User\\Service" }
+  fixture: { service: "App\\Models\\Content\\Item" }
 - route: "api/services/{service}/resync"
-  fixture: { service: "App\\Models\\Core\\User\\Service" }
+  fixture: { service: "App\\Models\\Content\\Item" }
 
 # ── Service categories — the 3b content.* cutover changed these signatures ───
 # show/update/destroy/restore now take `string $category`, not

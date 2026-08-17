@@ -311,3 +311,22 @@ it('disconnecting Fresha hides synced items via source_items.removed_at and spar
         ->and(DB::table('content.source_items')->where('item_id', $editedId)->value('removed_at'))->toBeNull()
         ->and(DB::table('content.items')->whereIn('id', [$syncedId, $editedId])->whereNotNull('removed_at')->count())->toBe(0);
 });
+
+it('the staff category index returns content.collections ids only', function () {
+    // Moved here when ServiceCategoryAssignmentRetirementTest retired with its
+    // subject table (services cutover Task 12). The legacy id space it used to
+    // contrast against no longer exists, so what remains to pin is that the
+    // index emits collection ids and nothing else.
+    $pro = svcCutMgmtUser();
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Owner Cat');
+
+    $rows = collect(
+        actingAsStaff(svcCutMgmtStaffAdmin())
+            ->getJson("/api/staff/professionals/{$pro->id}/service-categories")
+            ->assertOk()
+            ->json('categories')
+    );
+
+    expect($rows->pluck('id')->all())->toBe([$collectionId])
+        ->and($rows->pluck('title')->all())->toBe(['Owner Cat']);
+});

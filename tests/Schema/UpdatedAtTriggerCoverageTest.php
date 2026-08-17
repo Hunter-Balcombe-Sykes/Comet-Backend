@@ -64,9 +64,10 @@ function assertUpdatedAtTriggerExists(string $schema, string $table): void
 
 // ─── site schema ────────────────────────────────────────────────────────────
 
-it('site.services has a set_updated_at trigger', function () {
-    assertUpdatedAtTriggerExists('site', 'services');
-});
+// site.services' set_timestamp_services trigger went with the table (services
+// cutover, 20260818000200). Its content.* twin, content.items, carries its own
+// updated_at maintenance in ProjectionWriter rather than a DB trigger, so
+// there is no replacement assertion to make here.
 
 it('site.enquiries has a set_updated_at trigger', function () {
     assertUpdatedAtTriggerExists('site', 'enquiries');
