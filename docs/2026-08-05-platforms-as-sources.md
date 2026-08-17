@@ -411,10 +411,27 @@ the payload), already shipped in P1.
   (stale baseline entries dropped — baseline shrinks), pint clean,
   catalog recompiled, astro check + build + tokens-only audit clean.
 
-**This programme is NOT complete.** The Media pool never shipped — no billed-effect
-driver exists, so no `kind='media'` item has ever been written. See
-`docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md`, which
-supersedes the scope statement here and corrects this checkpoint.
+**This programme IS complete on dev, as of 2026-08-17.** The line that stood here
+— *"This programme is NOT complete. The Media pool never shipped — no
+billed-effect driver exists, so no `kind='media'` item has ever been written"* —
+was true when written and is now false on both counts:
+
+- The **billed-effect driver seam shipped** in slice 0 (convergence spec §13),
+  with a live billed effect executed and recorded.
+- The **media pool shipped** in slices 1a and 1b. `content.items` carries **77**
+  live `kind='media'` items, and `profile.pools.media` serves 11 of them on
+  `ollies` (read off `dev-api.partna.au`, 2026-08-17 11:11–11:12 UTC).
+
+The Content Pool Convergence programme that superseded this document has since
+closed: seven pools serve off `content.*` on the public wire (`custom_links`,
+`events`, `listen`, `media`, `menus`, `services`, `shop`), and ten legacy tables
+are dropped on dev. The authoritative record is
+`docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md` — read its
+closing checkpoint (§31) for what shipped and what is deferred.
+
+**Dev only.** Production carries none of it: prod is missing the `content`,
+`ingest`, `routing` and `catalog` schemas outright. Prod reconciliation is
+scoped, not done — `docs/superpowers/plans/2026-08-17-prod-schema-reconciliation.md`.
 
 What P1–P4 did deliver stands: platforms are sources, pools are the one curation
 surface, the public site follows instantly, and Featured is gone end to end.

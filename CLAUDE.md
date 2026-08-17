@@ -2,7 +2,7 @@
 
 Laravel 12 + Supabase + PostgreSQL backend for individual professionals' public site pages.
 Full business context: `AI_CONTEXT.md`. API reference: `docs/api.md`.
-Cross-project rules (git, tool routing, STOP gates) live in `../CLAUDE.md`.
+⚠️ **Dangling pointer — for the repo owner.** This line used to read *"Cross-project rules (git, tool routing, STOP gates) live in `../CLAUDE.md`"*. **That file does not exist** (checked 2026-08-17: no `CLAUDE.md` at the `Side Street/` root, at `~/Herd/`, or at `~/`; `~/.claude/CLAUDE.md` exists but is empty). So either those cross-project rules were never written, or they were lost — and every session reading this file has been told to consult a document it cannot open. Phase 8 flags it rather than inventing the content: **owner to either write `../CLAUDE.md` or delete this pointer.**
 
 ## Environments
 
@@ -68,7 +68,8 @@ App = `partna`. Environments: `development` (default), `production` (gated).
 ### Database — Supabase Only
 - **Never create Laravel migration files.** Composer guard rejects them.
 - All schema changes in `supabase/migrations/` as raw SQL. Baseline: `20260726000000_baseline_pilot.sql` (snapshot of the verified dev schema, 2026-07-26). Historical in `supabase/migrations-archive/`.
-- Schemas: `public` (Laravel infra), `core` (users, staff, flags, handles, config), `site` (sites, blocks, services, design_kits, media, customers, enquiries, aliases), `notifications`, `analytics`, `audit` (append-only — `app_backend` SELECT/INSERT only), `moderation`, `catalog` (platform surface registry — surfaces, brands, detectors), `content` (normalized content items, media, sources), `ingest` (connector ingest pipeline — runs, sources, streams, record_versions), `routing` (link routing — link_observations, source_intents). No `brand`, `commerce`, `billing`.
+- Schemas: `public` (Laravel infra), `core` (users, staff, flags, handles, config), `site` (sites, blocks, design_kits, media, customers, enquiries, aliases, section_items), `notifications`, `analytics`, `audit` (append-only — `app_backend` SELECT/INSERT only), `moderation`, `catalog` (platform surface registry — surfaces, brands, detectors), `content` (**the curation store** — items, collections, sources, source_items, manual_overrides, item_slugs, storefronts), `ingest` (connector ingest pipeline — runs, sources, streams, record_versions), `routing` (link routing — link_observations, source_intents). No `brand`, `commerce`, `billing`.
+- **`site` no longer owns services, menus or shop content** — all of it lives in `content.*`. See "Content pools" below for the drop list and the rules.
 
 ### Code Organization
 ```
@@ -229,6 +230,31 @@ Partna is an individual-user-only platform. The model is `App\Models\Core\User\U
 - Adding a second architecture is a **platform decision, not a task** — needs CHECK widened, collapse undone, new `src/architectures/<name>/`, rebuilt dashboard picker. `tests/Schema/ArchitectureSystemConstraintsTest` pins the `architecture_id` CHECK, the `design_kits` CASCADE FK, the auto-insert trigger, and that `site.themes` + `set_default_theme_for_site()` stay dropped — but it runs in the **applied-schema lane** (`composer test:schema`, CI `ci.yml`), **NOT** `composer test`. A green `composer test` says nothing about any of them.
 - Never reintroduce `site.themes`, `settings.design.*`, or theme-picker machinery. "Theme" ONLY means `theme_mode` (bleach/dust/warm/dusk/midnight). The dropped `site.themes`/`set_default_theme_for_site()` are pinned by the schema test above; the `settings.design.*` write rejection by `UpdateSiteValidationTest` + `StaffUpdateSiteValidationTest` (those two DO run in `composer test`).
 
+## Content pools (`content.*`) — the one curation surface
+
+The Content Pool Convergence programme closed on dev 2026-08-17. **`content.*` is the single store for every curated item**; platforms are sources, not owners. Full record: `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md` (checkpoints §12–§31). Per-contract wire manifests: `docs/wire-changes/`. **Dev only — production carries none of it (see below).**
+
+**Ten legacy tables are DROPPED on dev.** Verified by `to_regclass`, 2026-08-17 11:05 UTC:
+`site.menu_items` · `site.menu_categories` · `site.menu_item_categories` · `site.menu_item_platforms` · `site.content_selection` (slice 7, spec §27) · `site.shop_brands` · `site.shop_products` (shop re-home, §29) · `site.services` · `site.service_categories` · `site.service_category_assignments` (services cutover, §28).
+
+**Two menu tables SURVIVE by design** and are not part of any teardown: `site.menus` (the bookkeeping row — `scan_items`, `suppressed_items`, `last_successful_fetch_at`) and `site.menu_platform_links`. Live readers in `PoolResolver`, `MenuFetchJob`, `MenuPayloadComposer`, `MenuScanApplier`, `ManualMenuItems`, `PlatformHealthNotifier`. A sweep that expects "all menu tables gone" is reading the drop list wrong.
+
+**The public wire.** `GET /api/public/profiles/{handle}` → pools live at **`data.profile.pools`**, NOT top level. Seven: `custom_links`, `events`, `listen`, `media`, `menus`, `services`, `shop`. Each carries `items` + `latestItemId`; `menus` adds `collections` + `diningModes`, `shop` adds `collections`.
+
+- **`profile.services` and `profile.pools.services` are different things, deliberately** (owner ruling 2026-08-17). `profile.services` = owner-authored only. `pools.services` = the union of all service-kind items including Fresha-scraped, with `origin` (`auto`|`manual`) per item. Consumers pick one surface or filter by `origin`; the backend will not de-duplicate them.
+
+**Models without tables are DTO carriers — do not "tidy" them away.** `MenuItem`, `MenuCategory`, `MenuItemPlatform`, `Service`, `ServiceCategory` and `ShopBrand` survive their dropped tables because `ManualMenuItems`/`ManualServiceItems` hydrate them unpersisted (`exists = false`) for the dashboard shape. Deleting them breaks the surviving content lane. They MUST stay in `PurgeSoftDeleted::PURGE_EXEMPT` — a table-less model in `PURGE_HANDLED` makes that nightly 03:20 command throw `42P01` (it did; `d8beab929` fixed it, spec §28.3).
+
+**Cache invalidation is a THREE-lane contract** on any owner-initiated pool mutation (owner ruling 2026-08-17, spec §12.6): `BuildState::bump()` + `DB::table('site.sites')->update(['updated_at' => now()])` + conditional `CloudflareCachePurgeJob`. Lane 2 is the one people forget — the public payload cache keys off `site.sites.updated_at`, so skipping it serves stale content for the TTL while the CDN is correctly purged. `PoolController::poolChanged()` is the reference implementation; `tests/Feature/Content/PoolCacheLanesTest.php` pins it. **Known open defect:** `ProjectionWriter::bumpSite()` fires only lanes 1+3, so `PoolItemCreateController::pin()`, `ItemController::destroy()` and `ItemLinkController::upsert()/destroy()` reproduce the bug — filed, owned by a fix-flow session.
+
+**Gotchas that have each cost a session:**
+- A **live coverage gate is valid only until the next write.** This programme watched readings go stale mid-verification four times. Timestamp every figure; never gate on totals (net counts can FALL while uncovered rows appear).
+- A residual sweep with `grep -rn "table('site\.<t>'" app/` is **blind to Eloquent**. A table is inert only when BOTH the query-builder and Eloquent greps come back empty.
+- `partna.*` surface identity lives in `site.platform_connections.surface_key`, **not** `platform`. Filtering on `platform LIKE 'partna.%'` returns 0 for the wrong reason.
+- `IntegrationConnection::RETIRED_SURFACES` is a **six-item enumeration**, not `partna.*`. `partna.manual_product` is hidden but deliberately NOT retired.
+
+**Production carries NONE of this.** Prod is missing the `content`, `ingest`, `routing` and `catalog` schemas **outright** — `content.items` does not exist there — and its ledger holds 4 rows (latest `20260803100001`) against dev's 106 (verified 2026-08-17 11:06 UTC). Prod still has all ten dropped tables. This is not "slightly behind": it is a different schema. Scope: `docs/superpowers/plans/2026-08-17-prod-schema-reconciliation.md`.
+
 ## Load-testing harness (`scripts/launch-check/k6/`)
 
 DIY k6 harness against dev only (README + plan: `docs/superpowers/plans/2026-07-26-k6-load-testing.md`). Its `seed.sql`/`jobs.js` hard-code 3 real invariants that silently broke them once already — touching any of these, re-check the harness:
@@ -243,3 +269,7 @@ DIY k6 harness against dev only (README + plan: `docs/superpowers/plans/2026-07-
 - Return raw Eloquent from API endpoints (use Resource classes)
 - Over-engineer simple fixes
 - Reintroduce `site.themes` or `settings.design.*`
+- Reintroduce any of the ten dropped legacy tables, or write a new read path against one — curated content lives in `content.*`
+- Delete a table-less DTO model (`MenuItem`, `MenuCategory`, `MenuItemPlatform`, `Service`, `ServiceCategory`, `ShopBrand`) or move one into `PurgeSoftDeleted::PURGE_HANDLED`
+- Mutate a pool without all three cache lanes (build state + `site.sites.updated_at` + edge purge)
+- Assume dev's schema says anything about production's — prod lacks four whole schemas
