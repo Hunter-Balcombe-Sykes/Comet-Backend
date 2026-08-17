@@ -388,6 +388,11 @@ it('GET /brands — matches the pre-Task-7 dump, with every remaining divergence
             [
                 'id' => 'brand-a', 'provider' => 'shopify', 'url' => 'https://storea.example.com',
                 'name' => 'Store A', 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
+                // DOCUMENTED DIVERGENCE (2026-08-17, Sell opt-in): autoLatest
+                // joined the brand body — per-store, read off the anchor
+                // connection's sparse display_settings. False here because
+                // anchors mint with the explicit OFF default now.
+                'autoLatest' => false,
                 // DOCUMENTED DIVERGENCE (fix round 1, Finding 4): the
                 // ORIGINAL dump showed 'latest' (this fixture's ShopBrand.
                 // selection_mode) — selectionMode is now the derived
@@ -403,6 +408,7 @@ it('GET /brands — matches the pre-Task-7 dump, with every remaining divergence
             [
                 'id' => 'brand-b', 'provider' => 'woocommerce', 'url' => 'https://storeb.example.com',
                 'name' => 'Store B', 'currency' => 'USD', 'favicon' => null, 'logo' => null,
+                'autoLatest' => false,
                 // DOCUMENTED DIVERGENCE (fix round 1, Finding 4): the
                 // ORIGINAL dump showed 'product' (this fixture never set
                 // ShopBrand.link_mode, so toBrandArray()'s per-brand default
@@ -416,6 +422,7 @@ it('GET /brands — matches the pre-Task-7 dump, with every remaining divergence
             ],
             [
                 'id' => 'brand-c', 'provider' => 'bigcartel', 'url' => 'https://storec.example.com',
+                'autoLatest' => false,
                 // DOCUMENTED DIVERGENCE (fix round 3, Finding 5): a
                 // nameless brand reads back `name: null`, not its brand_id
                 // — content.collections.label is NOT NULL and upsertStore()
@@ -502,6 +509,7 @@ it('GET /brands/{id}/connect/status — matches the pre-Task-7 dump', function (
         'brand' => [
             'id' => 'brand-a', 'provider' => 'shopify', 'url' => 'https://storea.example.com',
             'name' => 'Store A', 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
+            'autoLatest' => false,
             // DOCUMENTED DIVERGENCE — see the identical note in the
             // GET /brands test above.
             'discountCode' => 'SAVE10', 'selectionMode' => 'manual', 'linkMode' => 'checkout',
@@ -711,4 +719,25 @@ it('every shop write endpoint completes with the legacy tables gone', function (
     expect(DB::table('content.collections')->where('kind', 'storefront')->count())->toBe(0)
         ->and(DB::table('content.storefronts')->count())->toBe(0)
         ->and(DB::table('content.items')->whereNull('removed_at')->count())->toBe(0);
+});
+
+// Per-store auto-latest (2026-08-17, Sell opt-in): PATCH /brands/{id}
+// autoLatest writes THAT store's anchor alone and reads back per store —
+// unlike /shop/settings autoLatest, which writes every store at once.
+it('PATCH /brands/{id} autoLatest flips one store and leaves its siblings alone', function () {
+    [$user] = parityFixture();
+
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/brand-a', ['autoLatest' => true])
+        ->assertOk();
+
+    // Anchors mint OFF, so the flip under test is OFF → ON.
+    $brands = collect(actingAsUser($user)->getJson('/api/platforms/shop/brands')->json('brands'))
+        ->keyBy('id');
+    expect($brands['brand-a']['autoLatest'])->toBeTrue()
+        ->and($brands['brand-b']['autoLatest'])->toBeFalse();
+
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/brand-a', ['autoLatest' => false])
+        ->assertOk();
+    expect(collect(actingAsUser($user)->getJson('/api/platforms/shop/brands')->json('brands'))
+        ->keyBy('id')['brand-a']['autoLatest'])->toBeFalse();
 });

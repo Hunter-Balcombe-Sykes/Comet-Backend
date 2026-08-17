@@ -610,6 +610,24 @@ class ShopController extends ApiController
             $store = $store->with($overrides);
             $collectionId = $this->content->upsertStore($store, (string) $user->id);
 
+            // Per-store auto-latest (2026-08-17): written on THIS store's
+            // anchor connection alone — the read-time storefront arm
+            // (SectionCandidates) publishes the store's newest while it is
+            // on, and ShopFetch tracks the catalogue on the same key.
+            // Distinct from /shop/settings autoLatest, which writes every
+            // store at once.
+            if (array_key_exists('autoLatest', $validated)) {
+                // anchor(), not anchorFor(): find-or-create, so a store whose
+                // anchor row never minted (pre-re-home fixtures, a partial
+                // connect) heals here instead of the toggle silently no-oping.
+                $anchor = $this->shop->anchor($user, $store->provider, $id);
+                $settings = (array) ($anchor->display_settings ?? []);
+                $settings[AutoSyncSetting::KEY] = (bool) $validated['autoLatest'];
+                $anchor->display_settings = $settings;
+                $anchor->save();
+                $this->refresher->refresh($anchor);
+            }
+
             if (($validated['selectionMode'] ?? null) === 'latest') {
                 // #SEM-1 opt-back-in: 'latest' un-curates the store so ShopFetch
                 // picks it back up on the next scheduled sync (the immediate
