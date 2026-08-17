@@ -1892,14 +1892,14 @@ git add -A && git commit -m "feat(services-cutover): Service/ServiceCategory bec
 
 The ordering law's checkpoint: every content.* path live-verified BEFORE any DROP is written.
 
-- [ ] **Step 1: Merge `feat/services-cutover` → `development`, push.** (CI runs its nine jobs on `development` — wait for green.)
-- [ ] **Step 2: Deploy happens on push (dev). Tail logs:**
+- [x] **Step 1: Merge `feat/services-cutover` → `development`, push.** (CI runs its nine jobs on `development` — wait for green.)
+- [x] **Step 2: Deploy happens on push (dev). Tail logs:**
 
 ```bash
 cloud env:logs partna development --minutes 10
 ```
 
-- [ ] **Step 3: Live-verify on dev, output pasted into the checkpoint draft:**
+- [x] **Step 3: Live-verify on dev, output pasted into the checkpoint draft:**
   - `GET /api/services` for `brotherwolf` and `vision` (the two live Fresha salons) — Fresha entries carry content ids, categories, prices.
   - Edit → resync round-trip on one Fresha service (title override on, then off).
   - Hide → unhide one service; confirm the blob's `hiddenServiceIds` moves and the booking surface follows.
@@ -1914,8 +1914,71 @@ JOIN content.sources cs ON cs.id = s.source_id
 WHERE i.kind='service' AND cs.kind='connection';   -- > 0 after the reorder test
 ```
 
-- [ ] **Step 4: Nightwatch scan** (`list_issues`, dev environment, since the deploy). Any new exception traced before proceeding.
-- [ ] **Step 5: STOP.** Report the verification to the owner before Task 12 — the next task is irreversible.
+- [x] **Step 4: Nightwatch scan** (`list_issues`, dev environment, since the deploy). Any new exception traced before proceeding.
+- [x] **Step 5: STOP.** Report the verification to the owner before Task 12 — the next task is irreversible.
+
+**Gate result, 2026-08-17 (rebased onto `origin/development` 4beeb310d, pushed as a94654bca):**
+
+| Lane | Result |
+|---|---|
+| `pest` serial | 8279 passed, 2 skipped, 1 warning, 0 failed (475s) |
+| `pest --parallel --processes=4` | 8292 passed, 2 skipped, 0 failed |
+| `composer test:pg` (throwaway postgres:16) | 207 passed / 955 assertions |
+| `composer test:schema` | CI ONLY — 162 failed locally on `auth.users` absent (documented environment gap) |
+| `composer analyse` (phpstan L5 over `app/`) | [OK] No errors |
+| `./vendor/bin/pint --test` | passed |
+| **CI on `development` (run 31994888774)** | **all 9 required jobs green**, `schema-tests` and `postgres-tests` included |
+| Dev deploy | `deployment.succeeded` on a94654bca |
+| `cloud env:logs --minutes 90` | 98 entries, **0 errors**; 34 `GET /profiles/ollies/menu 404` + 16 analytics 404s, all by-design public-endpoint 404s |
+| Nightwatch (open exceptions) | **no new issue since the deploy**; newest is #444 at 04:10, 24 min BEFORE it, in the DSAR/uber_eats lane |
+
+**Live reads, through the DEPLOYED code on dev data** (`cloud command:run`, exitCode 0):
+
+```
+ra33rty mgmtRows=36 models=36 selection=36 dashboard=36 hidden=0
+  first: id=4fb6b637-… src=fresha ext=s:19380400 active=true manual=false
+ollies  mgmtRows=23 models=23 selection=23 dashboard=25 hidden=0
+  first: id=bfb95354-… src=fresha ext=s:14972348 active=true manual=false
+```
+
+ra33rty still holds 36 legacy `site.services` Fresha rows and its dashboard
+returns 36, not 72 — the merge is single-source. ollies returns 25 = 23 Fresha
++ 2 owner-authored, matching the public profile's 2 services exactly, so the
+two-surface rule holds live: the public `services` key carries the manual half
+only, and the 36/23 Fresha items reach the booking surface alone.
+
+**NOT exercised (owner ruling, 2026-08-17): the authenticated management verbs.**
+No owner JWT or staff token was available to this session, so edit / resync /
+hide / delete / restore / reorder were verified by test and by DB-side reads,
+not by live round-trip. `site.section_items` rows for Fresha items are still 0
+on dev because a live reorder is the only thing that writes them. Task 12's
+non-negotiable "every content.* write path live-verified BEFORE the DROP" is
+therefore only partly met — that is the owner's call to make before Task 12.
+
+**Reality corrections applied (rule zero, 2026-08-17):**
+
+1. **The two live Fresha salons on dev are `ra33rty` and `ollies`, not
+   `brotherwolf` and `vision`.** Re-derived from
+   `site.platform_connections WHERE platform='fresha'` joined to live
+   connection-sourced service items: ra33rty 36 items (36 legacy rows still
+   present), ollies 23 items (0 legacy rows). Three other users hold a Fresha
+   connection with zero live items — 3b's deliberate no-selection cases.
+2. **The dev row counts have MOVED since the spec's §1.2 figures.** Now
+   `site.services` 79 (25 soft-deleted), `site.service_categories` 16,
+   `site.service_category_assignments` 61 — against 82 / 18 / 61 recorded on
+   2026-08-17. Nothing in this branch writes those tables, and no migration
+   ran; the drift is external. Task 12's backup gate asserts per-table counts
+   match EXACTLY, so it must re-derive them immediately before the dump rather
+   than quote either figure.
+3. **`composer test:schema` cannot run locally** and did not — 162 failed / 17
+   passed against a throwaway container, every failure `relation "auth.users"
+   does not exist`. The lane asserts against the REAL applied schema plus
+   Supabase's `auth` schema; a bare container has neither. It ran in CI, where
+   `schema-tests` is one of the nine required checks, and passed there.
+4. **The authenticated half of Step 3 was NOT exercised** (owner ruling,
+   2026-08-17): no owner JWT or staff token was available to this session. What
+   ran instead is recorded in the checkpoint as DB-side verification —
+   including the deployed code's own reads over live data.
 
 ---
 
