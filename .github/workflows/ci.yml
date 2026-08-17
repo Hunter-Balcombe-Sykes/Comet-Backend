@@ -21,6 +21,16 @@ on:
     # file, so this block must exist on that branch to fire at all.
     - cron: '0 20 * * 0'
 
+# Authenticate every Composer download. Unauthenticated fetches from
+# codeload.github.com share one low per-runner rate limit, and on 2026-08-17/18
+# a burst took five jobs red at once — each dying in "Set up job" or "Install
+# dependencies" on HTTP 429/503 with no test ever executed, twice in a row
+# including after `gh run rerun --failed`. Only `test` survived, on its cache.
+# The failure looks exactly like a code regression and has cost real time to
+# diagnose, twice. GITHUB_TOKEN is injected automatically; no secret to manage.
+env:
+  COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.GITHUB_TOKEN }}"}}'
+
 jobs:
   test:
     if: github.event_name != 'schedule'
@@ -383,6 +393,13 @@ jobs:
           extensions: pdo, pdo_pgsql, pgsql, redis
           coverage: none
 
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
 
@@ -470,6 +487,13 @@ jobs:
           extensions: pdo, pdo_pgsql, pgsql, redis
           coverage: none
 
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
 
@@ -531,6 +555,13 @@ jobs:
           extensions: pdo, pdo_sqlite, sqlite3, redis
           coverage: none
 
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
 
@@ -566,6 +597,13 @@ jobs:
           php-version: '8.4'
           extensions: pdo, pdo_sqlite, sqlite3
           coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
 
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
@@ -605,6 +643,13 @@ jobs:
           php-version: '8.4'
           extensions: pdo, pdo_sqlite, sqlite3
           coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
 
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
