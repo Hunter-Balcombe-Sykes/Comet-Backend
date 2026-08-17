@@ -651,13 +651,14 @@ Retired on dev, with a checkpoint each: the four menu tables and site.content_se
 site.services, site.service_categories, site.service_category_assignments (services
 cutover, parent spec §27). Verify with to_regclass rather than by reading this list.
 
-Two things the sweep must NOT read as clean:
-  * PRODUCTION still carries every one of those tables — the whole programme was dev
-    only. Prod reconciliation is phase 8's to scope, not to assume done.
-  * ServiceBackfiller + BackfillOwnerServices are dead code that still queries a dropped
-    table (parent spec §27.3 residual 4). Removing them needs an owner decision, because
-    the fix touches tests/Feature/Content/ServiceTwoSurfaceTest.php, which the services
-    cutover's Global Constraints protected from modification.
+One thing the sweep must NOT read as clean: PRODUCTION still carries every one of those
+tables — the whole programme was dev only. Prod reconciliation is phase 8's to scope, not
+to assume done.
+
+The services cutover's own code residuals are CLOSED (parent spec §27.3 item 4):
+ServiceBackfiller and BackfillOwnerServices are deleted, and PurgeSoftDeleted no longer
+lists the two table-less DTOs — that one was scheduled nightly and would have started
+failing on its own.
 
 Autonomy: docs only — proceed to merge without sign-off.
 ```

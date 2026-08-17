@@ -27,8 +27,9 @@ it('routes no Fresha service through the owner-authored price mapper', function 
 
     // Derived from the real tree (2026-08-13), not the plan's placeholder
     // list: ManualServiceWriter.php defines projectionFor() (the literal
-    // matches its own method signature); ServiceBackfiller.php and
-    // UserServiceController.php are the two callers the 3a spec named;
+    // matches its own method signature); UserServiceController.php is the
+    // caller the 3a spec named — ServiceBackfiller.php was the other, and it
+    // was DELETED with site.services in the services cutover;
     // StaffServiceManagementController.php is a 3b-era caller for staff-
     // created (still owner-authored/manual) services, added since the task
     // brief was written.
@@ -68,7 +69,6 @@ it('routes no Fresha service through the owner-authored price mapper', function 
         'ManualServiceWriter.php',
         'MenuContentController.php',
         'MenuFetchJob.php',
-        'ServiceBackfiller.php',
         'UserServiceController.php',
         'StaffServiceManagementController.php',
     ]);

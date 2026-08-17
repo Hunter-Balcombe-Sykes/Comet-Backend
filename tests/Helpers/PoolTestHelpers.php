@@ -1,13 +1,15 @@
 <?php
 
 use App\Http\Controllers\Api\Content\PoolController;
+use App\Models\Core\Site\Site;
+use App\Services\Content\ManualServiceWriter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 // The pool-lane fixture family. Lives here rather than inside PoolLaneTest.php
-// because four other suites build pool fixtures too (the Media* trio and
-// ServiceBackfillerTest). A function declared inside a Pest test file only
+// because four other suites build pool fixtures too (the Media* trio and the
+// owner-service callers of ownerServiceItem() below). A function declared inside a Pest test file only
 // exists once PHPUnit has included THAT file — fine serially, where discovery
 // includes every test file before any of them run, but under `--parallel` each
 // worker includes only its own assigned files, so a caller that lands in a
@@ -178,6 +180,74 @@ if (! function_exists('shopProduct')) {
             'item_id' => $itemId, 'source_id' => $sourceId,
             'headline' => $title, 'body' => 'A description.', 'updated_at' => now(),
         ]);
+
+        return $itemId;
+    }
+}
+
+if (! function_exists('ownerServiceItem')) {
+    /**
+     * ONE owner-authored service, landed as a content item through the real
+     * manual lane. Returns the content.items id.
+     *
+     * Replaces the `ownerService() + ServiceBackfiller::run()` pair every
+     * service fixture used to build. That pair wrote a `site.services` row and
+     * migrated it; the services cutover dropped that table and retired the
+     * backfiller, so the item is written directly through the same collaborator
+     * the backfiller itself used — `ManualServiceWriter` — and this reproduces
+     * its per-row behaviour exactly:
+     *
+     *   * coord `manual:{uuid}` (the backfiller keyed on the legacy row's id;
+     *     any stable uuid does the same job now that no legacy id exists),
+     *   * `deleted_at` -> `markRemoved()` on items.removed_at ONLY, never
+     *     source_items.removed_at,
+     *   * `is_active` false -> a pool EXCLUDE, not a pin, because a
+     *     live-but-hidden service must not surface in buildServicesData(),
+     *   * otherwise a pin at `sort_order` — which is what keeps the ordering
+     *     assertions in the public-read tests meaningful.
+     *
+     * Defaults mirror the retired ownerService() so re-fixtured callers keep
+     * their existing assertions.
+     *
+     * @param  array<string, mixed>  $attrs  title, description, price_cents,
+     *                                       currency_code, duration_minutes,
+     *                                       sort_order, is_active, deleted_at
+     */
+    function ownerServiceItem(string $userId, array $attrs = []): string
+    {
+        $attrs = array_merge([
+            'title' => 'Consultation',
+            'description' => 'A chat about your hair.',
+            'price_cents' => 6500,
+            'currency_code' => 'AUD',
+            'duration_minutes' => 45,
+            'sort_order' => 0,
+            'is_active' => true,
+            'deleted_at' => null,
+        ], $attrs);
+
+        $writer = app(ManualServiceWriter::class);
+
+        $itemId = $writer->write($userId, 'manual:'.(string) Str::uuid(), $writer->projectionFor((object) [
+            'title' => $attrs['title'],
+            'description' => $attrs['description'],
+            'price_cents' => $attrs['price_cents'],
+            'currency_code' => $attrs['currency_code'],
+            'duration_minutes' => $attrs['duration_minutes'],
+        ]));
+
+        if ($attrs['deleted_at'] !== null) {
+            $writer->markRemoved($itemId, $attrs['deleted_at']);
+
+            return $itemId;
+        }
+
+        $site = Site::query()->where('user_id', $userId)->first();
+        if ($site !== null) {
+            (bool) $attrs['is_active']
+                ? $writer->pin($site, $itemId, (float) $attrs['sort_order'])
+                : $writer->exclude($site, $itemId);
+        }
 
         return $itemId;
     }

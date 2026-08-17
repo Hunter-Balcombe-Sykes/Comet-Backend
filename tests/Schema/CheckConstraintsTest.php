@@ -213,18 +213,22 @@ it('sites_shop_link_mode_check constraint exists and is validated', function () 
 // carries a CHECK today; theme_mode's single legal value is enforced by the
 // request rule, not the database.
 
-// ─── site.shop_brands (SCHEMA-4) ──────────────────────────────────────────────
-
-it('shop_brands_selection_mode_check constraint exists and is validated', function () {
-    assertCheckConstraintExists('site', 'shop_brands', 'shop_brands_selection_mode_check');
-});
-
-it('shop_brands_link_mode_check constraint exists and is validated', function () {
-    assertCheckConstraintExists('site', 'shop_brands', 'shop_brands_link_mode_check');
-});
-
-it('shop_brands_connect_status_check constraint exists and is validated', function () {
-    assertCheckConstraintExists('site', 'shop_brands', 'shop_brands_connect_status_check');
+// ─── content.storefronts — the shop lane after the re-home (was SCHEMA-4) ────
+//
+// site.shop_brands is DROPPED (20260819000210) and with it went its three CHECK
+// constraints. Two carried nothing: selection_mode and link_mode do not exist on
+// content.storefronts, deliberately — slice 5a fix round 1, Finding 4 found
+// selection_mode was always the default in practice and link_mode had already
+// become one global site setting (site.sites.shop_link_mode, whose own CHECK is
+// asserted above and is the surviving guarantee).
+//
+// The third was live and was carried across BEFORE the DROP, by
+// 20260819000120, precisely so this assertion could keep existing: connect_status
+// is read by PublicIntegrationConnectionResource, which rejects only 'pending',
+// so a value outside the vocabulary renders publicly as though the store had
+// connected.
+it('storefronts_connect_status_check constraint exists and is validated', function () {
+    assertCheckConstraintExists('content', 'storefronts', 'storefronts_connect_status_check');
 });
 
 // ─── analytics.content_popularity_scores (SCHEMA-2) ──────────────────────────

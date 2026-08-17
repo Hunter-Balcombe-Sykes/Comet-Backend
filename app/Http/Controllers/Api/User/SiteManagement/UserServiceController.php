@@ -36,7 +36,7 @@ use Illuminate\Support\Str;
 // Slice 3a (Task 5): index/store/show/update/destroy/reorder/restore/
 // reorderLayout — the 8 owner-authored routes — read and write content.*
 // through ManualServiceItems (read) / ManualServiceWriter (write), the same
-// two collaborators ServiceBackfiller and SitepageDataResolverService use.
+// two collaborators SitepageDataResolverService uses for the public read.
 //
 // Slice 3b (Task 10): resync/resyncBulk/updateCategory follow. An owner edit
 // is a content.manual_overrides row, so resync DELETES those rows;

@@ -2,8 +2,6 @@
 
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
-use App\Services\Migration\ServiceBackfiller;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 // B2 (final whole-branch review): UserCacheService::getActiveServices() —
@@ -78,26 +76,31 @@ it('a deleted owner-authored service no longer shows as live', function () {
     expect(array_column($services, 'id'))->not->toContain($id);
 });
 
-it('a backfilled legacy row deleted through the cutover endpoint does not linger as live via the untouched site.services row', function () {
-    // The precise "deleted one still shows as live" scenario the finding
-    // names: a PRE-cutover site.services row, backfilled into content.*
-    // (ServiceBackfiller never deletes the legacy row). The old, uncut-over
-    // getActiveServices() read site.services directly (is_active=true,
-    // deleted_at=null — both still true on the stale legacy row) and would
-    // show it as live forever, no matter what happened on the content.* side.
+it('a service deleted through the endpoint does not linger as live in the cached active list', function () {
+    // Was: "a backfilled legacy row deleted through the cutover endpoint does
+    // not linger as live via the untouched site.services row". That named a
+    // PRE-cutover shape — a site.services row backfilled into content.*, which
+    // the old getActiveServices() read directly (is_active=true,
+    // deleted_at=null on the stale legacy row) and would show as live forever.
+    // Both the table and ServiceBackfiller are gone, so the stale-legacy-row
+    // half cannot occur. What still matters, and is what this asserts, is the
+    // propagation itself: a delete through the endpoint must leave the cached
+    // /me list, not just the dashboard read.
     [$userId] = seedUserWithSite();
-    $legacyId = ownerService($userId, ['title' => 'Legacy Owner Service', 'price_cents' => 6500]);
-    app(ServiceBackfiller::class)->run();
-
-    $itemId = DB::table('content.source_items')->where('coord', 'manual:'.$legacyId)->value('item_id');
+    $itemId = ownerServiceItem($userId, ['title' => 'Legacy Owner Service', 'price_cents' => 6500]);
     expect($itemId)->not->toBeNull();
 
     $user = User::query()->with('site')->findOrFail($userId);
+
+    // Positive control FIRST: a bare `not->toContain` after the delete passes
+    // just as happily on a list that never held the item at all.
+    expect(array_column(app(UserCacheService::class)->getActiveServices($userId), 'id'))
+        ->toContain($itemId);
+
     actingAsUser($user)->deleteJson("/api/services/{$itemId}")->assertOk();
 
-    $services = app(UserCacheService::class)->getActiveServices($userId);
-    expect(array_column($services, 'id'))->not->toContain($legacyId);
-    expect(array_column($services, 'id'))->not->toContain($itemId);
+    expect(array_column(app(UserCacheService::class)->getActiveServices($userId), 'id'))
+        ->not->toContain($itemId);
 });
 
 it('a hidden (is_active=false) owner-authored service is excluded, matching the public read', function () {

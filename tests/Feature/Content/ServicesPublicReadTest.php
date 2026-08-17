@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Core\Site\Site;
-use App\Services\Migration\ServiceBackfiller;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -21,9 +20,8 @@ beforeEach(function () {
 
 it('renders backfilled owner services in the owner ordering', function () {
     [$userId, $siteId] = seedUserWithSite();
-    ownerService($userId, ['title' => 'Second', 'sort_order' => 1, 'price_cents' => 9000]);
-    ownerService($userId, ['title' => 'First', 'sort_order' => 0, 'price_cents' => 5000]);
-    app(ServiceBackfiller::class)->run();
+    ownerServiceItem($userId, ['title' => 'Second', 'sort_order' => 1, 'price_cents' => 9000]);
+    ownerServiceItem($userId, ['title' => 'First', 'sort_order' => 0, 'price_cents' => 5000]);
 
     $site = Site::query()->find($siteId);
     $data = app(SitepageDataResolverService::class)->buildServicesData($site, $userId);
@@ -33,8 +31,7 @@ it('renders backfilled owner services in the owner ordering', function () {
 
 it('never renders a fresha-sourced service in the services section', function () {
     [$userId, $siteId] = seedUserWithSite();
-    ownerService($userId, ['title' => 'Mine']);
-    app(ServiceBackfiller::class)->run();
+    ownerServiceItem($userId, ['title' => 'Mine']);
 
     // A Fresha service item, landed as a connection source would land it.
     freshaServiceItem($userId, 'Fresha Cut');
@@ -47,8 +44,7 @@ it('never renders a fresha-sourced service in the services section', function ()
 
 it('hides the services section when the owner has no live services', function () {
     [$userId, $siteId] = seedUserWithSite();
-    ownerService($userId, ['deleted_at' => now()]);
-    app(ServiceBackfiller::class)->run();
+    ownerServiceItem($userId, ['deleted_at' => now()]);
 
     $site = Site::query()->find($siteId);
     $data = app(SitepageDataResolverService::class)->buildServicesData($site, $userId);

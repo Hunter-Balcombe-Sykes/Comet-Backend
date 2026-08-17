@@ -4660,12 +4660,24 @@ clean; Pint clean; CI green on all nine required jobs at the phase gate.
    writes those tables and no migration ran between the readings, so three
    pre-`deleted_origin` soft-deleted services and two categories were removed
    externally. The backup gate re-derived rather than trusting either figure.
-4. **`ServiceBackfiller` and `BackfillOwnerServices` survive** as the project's
-   single code residual. Deleting them forces a fixture change in
-   `ServiceTwoSurfaceTest`, which the plan's Global Constraints require to stay
-   green UNMODIFIED through every task. They are dead code — the only
-   invocation path, `php artisan content:backfill-owner-services`, would now
-   `42P01` — and their removal needs an owner decision on touching that file.
+4. **`ServiceBackfiller` and `BackfillOwnerServices` are GONE** — owner lifted
+   the protection on `ServiceTwoSurfaceTest` once it was clear the change was
+   fixture-only. The replacement is `ownerServiceItem()` in
+   `tests/Helpers/PoolTestHelpers.php`, which writes through
+   `ManualServiceWriter` (the collaborator the backfiller itself called) and
+   reproduces its per-row rules: `deleted_at` → `markRemoved()`, inactive → a
+   pool EXCLUDE not a pin, otherwise a pin at `sort_order`. Ten call sites
+   converted; four whose premise was the legacy row itself were retargeted to
+   their surviving property. `ServiceTwoSurfaceTest` stayed green with **zero
+   assertion lines changed**, which was the condition for touching it.
+
+   Found while answering "why do the DTOs still exist": a SECOND residual that
+   was NOT dead — `PurgeSoftDeleted::PURGE_HANDLED` still listed both models,
+   and that command is scheduled daily at 03:20, so it would have thrown 42P01
+   on its next run. Both moved to `PURGE_EXEMPT`. The query-surface guard could
+   not have caught it: it greps for literal `Service::query(`, and the purge
+   loop resolves `$modelClass::onlyTrashed()` dynamically. It now also asserts
+   the table-less DTOs never enter a list a query loop iterates.
 5. **`anseo-studio`'s unprovisionable `book-now/…?pId=` URL** and the
    **no-selection dashboard prompt** stay deferred (rulings 4 and 5), unchanged
    by this project.

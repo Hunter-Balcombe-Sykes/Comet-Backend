@@ -3,7 +3,6 @@
 use App\Models\Core\Site\Site;
 use App\Services\Content\FreshaServiceItems;
 use App\Services\Content\ManualServiceItems;
-use App\Services\Migration\ServiceBackfiller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -71,10 +70,16 @@ function twoSurfaceFreshaService(string $userId, string $title): string
 
 /**
  * A tenant with ONE owner-authored (manual) service, landed through the real
- * backfill lane (ownerService() + ServiceBackfiller::run() — the same path
- * ServicesPublicReadTest.php uses), and ONE Fresha-landed service on the
- * same user. Both surfaces get read against this single fixture so a
- * mutation to either reader's scoping is guaranteed to touch a live row.
+ * manual lane (ownerServiceItem() — the same path ServicesPublicReadTest.php
+ * uses), and ONE Fresha-landed service on the same user. Both surfaces get
+ * read against this single fixture so a mutation to either reader's scoping is
+ * guaranteed to touch a live row.
+ *
+ * FIXTURE ONLY — not one assertion in this file changed. It used to build the
+ * manual half as `ownerService() + ServiceBackfiller::run()`: a site.services
+ * row migrated into content.*. The services cutover dropped that table and
+ * retired the backfiller, so the item is written directly through
+ * ManualServiceWriter — the same collaborator the backfiller called per row.
  *
  * @return array{0: string, 1: Site, 2: string, 3: string} [userId, site, manualTitle, freshaTitle]
  */
@@ -84,8 +89,7 @@ function twoSurfaceFixture(): array
     $manualTitle = 'Owner Haircut '.Str::lower(Str::random(6));
     $freshaTitle = 'Fresha Colour '.Str::lower(Str::random(6));
 
-    ownerService($userId, ['title' => $manualTitle]);
-    app(ServiceBackfiller::class)->run();
+    ownerServiceItem($userId, ['title' => $manualTitle]);
     twoSurfaceFreshaService($userId, $freshaTitle);
 
     $site = Site::query()->findOrFail($siteId);

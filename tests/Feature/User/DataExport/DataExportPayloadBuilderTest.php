@@ -3,7 +3,6 @@
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Content\ManualServiceWriter;
-use App\Services\Migration\ServiceBackfiller;
 use App\Services\User\DataExport\DataExportPayloadBuilder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -1883,33 +1882,31 @@ it('reflects a post-cutover edit to an already-backfilled owner service, not the
         'created_at' => '2026-01-01T00:00:00Z',
     ]);
 
-    // Pre-cutover state: a legacy row, already migrated to content.* by the
-    // one-off backfill (tests/Pest.php's ownerService() + ServiceBackfiller —
-    // exactly how production got there, per the task brief).
-    $serviceId = ownerService($pro->id, [
+    // An owner service at its original values. This used to be seeded as a
+    // site.services row migrated by ServiceBackfiller; both went with the
+    // services cutover, and the case's subject — that the export discloses
+    // what content.* holds NOW — is unchanged by how the item was created.
+    $itemId = ownerServiceItem($pro->id, [
         'title' => 'Old Title',
         'description' => 'Old description.',
         'price_cents' => 5000,
         'currency_code' => 'AUD',
+        'duration_minutes' => null,
     ]);
-    app(ServiceBackfiller::class)->run();
+    $coord = (string) DB::connection('pgsql')->table('content.source_items')
+        ->where('item_id', $itemId)->value('coord');
 
-    // The cutover edit: UserServiceController::update() writes content.*
-    // ONLY for a manual item (never back to site.services) — reproduced here
-    // with the same coord the backfill used and the same production writer
-    // the controller calls.
+    // The edit: UserServiceController::update() writes content.* through this
+    // same writer, on the same coord, which is what makes the write an UPDATE
+    // rather than a second item.
     $writer = app(ManualServiceWriter::class);
-    $itemId = $writer->write($pro->id, 'manual:'.$serviceId, $writer->projectionFor((object) [
+    $itemId = $writer->write($pro->id, $coord, $writer->projectionFor((object) [
         'title' => 'New Title',
         'description' => 'New description.',
         'price_cents' => 9900,
         'currency_code' => 'AUD',
         'duration_minutes' => null,
     ]));
-
-    // The legacy row is untouched — it is the stale value the pre-Task-6
-    // export would have disclosed.
-    expect(DB::connection('pgsql')->table('site.services')->where('id', $serviceId)->value('title'))->toBe('Old Title');
 
     $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
 
@@ -2159,20 +2156,19 @@ it('exports the content.items.id — NOT the legacy coord uuid — for a backfil
         'created_at' => '2026-01-01T00:00:00Z',
     ]);
 
-    $serviceId = ownerService($pro->id, ['title' => 'Consultation']);
-    app(ServiceBackfiller::class)->run();
-
-    $itemId = (string) DB::connection('pgsql')->table('content.source_items')
-        ->where('coord', 'manual:'.$serviceId)->value('item_id');
+    $itemId = ownerServiceItem($pro->id, ['title' => 'Consultation']);
     expect($itemId)->not->toBe('');
 
     $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
 
     $row = collect($payload['services'])->firstWhere('title', 'Consultation');
     expect($row)->not->toBeNull();
+    // The exported identifier is the content.items id. The legacy-id recovery
+    // went with site.services — the only oracle that could confirm a coord
+    // uuid really was a legacy id (see exportRows()'s docblock) — and the
+    // table itself is now dropped, so there is no other id space to confuse
+    // it with.
     expect($row['id'])->toBe($itemId);
-    // The legacy uuid is no longer emitted as the row's identifier.
-    expect($row['id'])->not->toBe($serviceId);
 });
 
 it('an item carrying two manual coords (a merge shape) exports exactly once', function () {

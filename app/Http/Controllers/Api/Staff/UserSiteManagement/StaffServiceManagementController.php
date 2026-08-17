@@ -397,13 +397,13 @@ class StaffServiceManagementController extends ApiController
      * 422s, same as the pre-cutover single-table check.
      *
      * Both halves are renumbered from ONE shared position index in the SAME
-     * transaction, never per-half. `services_user_sort_order_uq` is
-     * `UNIQUE (user_id, sort_order) WHERE deleted_at IS NULL` — GLOBAL per
-     * user and NOT scoped by source — so renumbering only the Fresha subset to
-     * a dense 0..N-1 collides with the legacy owner-authored rows
-     * ServiceBackfiller never deletes. The shared index is also what lets the
-     * merged read above reconstruct an interleaved manual+Fresha order instead
-     * of always grouping every manual service ahead of every Fresha one.
+     * transaction, never per-half. The hazard that made this mandatory —
+     * `services_user_sort_order_uq`, a GLOBAL per-user partial unique that a
+     * half-only renumber collided with — went with `site.services` in the
+     * services cutover. The shared index survives it because it is also what
+     * lets the merged read above reconstruct an interleaved manual+Fresha
+     * order instead of always grouping every manual service ahead of every
+     * Fresha one.
      */
     public function reorder(StaffReorderServiceRequest $request, User $professional): JsonResponse
     {

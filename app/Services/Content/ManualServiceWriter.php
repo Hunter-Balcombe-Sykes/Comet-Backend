@@ -7,11 +7,11 @@ use App\Site\Pools\PoolSectionProvisioner;
 
 /**
  * Slice 3a §3.1/§3.5: the ONE place that turns a legacy-shaped service (a
- * `site.services` row, or a dashboard request payload) into a `content.*`
- * projection plus pool curation state. Shared by `ServiceBackfiller` (the
- * one-off migration) and `UserServiceController` (the live write cutover) so
- * the two write paths cannot diverge — a backfiller and a controller writing
- * the same rows through two independent copies of this mapping is exactly the
+ * dashboard request payload — and, until the services cutover retired it, a
+ * `site.services` row) into a `content.*` projection plus pool curation state.
+ * It was shared by `ServiceBackfiller` (the one-off migration, now deleted with
+ * its table) and `UserServiceController` (the live write cutover) so the two
+ * write paths could not diverge — two independent copies of this mapping is exactly the
  * class of bug slice 2 shipped: `removeEvent()` wrote a lane the pool never
  * read, so every hide silently failed until it was caught.
  *
@@ -52,13 +52,9 @@ class ManualServiceWriter extends ManualPoolWriter
      *                                     brand-new create/backfill (nothing
      *                                     to clear, nothing ever forced)
      *                                     doesn't grow a facet row it never
-     *                                     had (ServiceBackfillerTest 'omits
-     *                                     duration and body rows when the
-     *                                     legacy columns are null'). Empty
-     *                                     by default — store()/
-     *                                     ServiceBackfiller never need it,
-     *                                     since a new item has nothing to
-     *                                     clear either way.
+     *                                     had. Empty by default — a create
+     *                                     never needs it, since a new item has
+     *                                     nothing to clear either way.
      * @return array<string, mixed>
      */
     public function projectionFor(object $service, array $forceFacets = []): array
