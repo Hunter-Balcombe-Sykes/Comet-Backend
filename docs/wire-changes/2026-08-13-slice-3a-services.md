@@ -6,10 +6,19 @@ Backend-only execution. Spec: `docs/superpowers/specs/2026-08-12-slice-3a-servic
 services (`source = 'fresha'`) are **not** migrated and still come from
 `site.services` — that half is slice 3b's job.
 
-> **STATUS: local verification only, this document.** The dev-database half
-> of Task 7 (running `content:backfill-owner-services` against dev and pasting
-> the live SQL assertions) is being run separately by the repo owner, not from
-> this session. Nothing below claims dev has been backfilled.
+> **STATUS (2026-08-17): SUPERSEDED — services are now entirely on `content.*`.**
+> This header used to read "local verification only … nothing below claims dev has
+> been backfilled". Dev was backfilled, and the cutover has since gone further
+> than this slice: slice 3b moved the Fresha half, and the services cutover
+> project **dropped all three legacy tables** on dev —  `site.services`,
+> `site.service_categories` and `site.service_category_assignments` are
+> `to_regclass` NULL (verified 2026-08-17 11:05 UTC). Parent spec §28.
+>
+> The shapes below are still accurate, and the slice's headline still holds — the
+> backing store moved, the wire did not. What is no longer true is the framing:
+> the Fresha half is not "still coming from `site.services`", because that table
+> no longer exists. Read `2026-08-17-services-cutover.md` for the current
+> contract.
 
 ## Headline: every shape is UNCHANGED — only the backing store moved
 

@@ -247,10 +247,15 @@ deliberately **not** carried — checkpoint §15, not re-litigated.
 
 **Parent spec §7 "Carried from slice 2", all four steps.** Plan tasks 14 and 15.
 
-> **STATUS: code landed, dev backfill NOT yet run.** `--dry-run` against dev
-> reports **2 would-be-backfilled, 0 duplicate url, 0 skipped (no url), 0
-> skipped (no site), 0 already curated, 0 failed** — the two live
-> `resource_kind='event'` rows the spec named. Prod: out of scope.
+> **STATUS (2026-08-17): RUN on dev.** `content:backfill-standalone-events` was
+> executed for real during slice 7 phase 6, having only ever been dry-run before:
+> it **backfilled 1**, taking `content.items` kind `event` from 17 to 18. Live
+> re-read 2026-08-17 11:12 UTC confirms **18**. Prod: out of scope.
+>
+> The earlier `--dry-run` predicted **2** would-be-backfilled; one turned out to
+> be already curated by the time the real run went in. This is the same lesson
+> the teardown recorded against its coverage gate — a dry run is a lower bound
+> taken at a moment, not a promise (parent spec §27.2).
 
 ### Why this could not happen in slice 2
 

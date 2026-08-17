@@ -4,13 +4,16 @@ Backend-only execution; the frontends are told, not designed around
 (spec `2026-08-12-slice-5b-shop-render-design.md`, owner decision, following
 the slice 2 precedent).
 
-> **STATUS: implemented on `feat/slice-5b-shop-render`, not yet merged to
-> `development` and not yet deployed to any environment.** Every shape below is
-> read from the merged branch's code, not from a live payload. The live dev
-> assertions, the provisioning-command output and a real `PoolResolver::resolve()`
-> call are Task 10's job — see the parent spec §18, whose live-verification
-> subsections are marked `PENDING — Task 10` rather than populated with
-> placeholder numbers.
+> **STATUS (2026-08-17): LIVE on dev.** Merged and deployed on **2026-08-13**;
+> this header previously read "not yet merged … not yet deployed to any
+> environment", which was wrong for four days and described a retirement that had
+> already shipped. Read back off `dev-api.partna.au`:
+> `GET /api/public/profiles/ollies` → 200, with `profile.pools.shop` serving
+> **30 items / 5 collections** (read 2026-08-17 11:11 UTC).
+>
+> The backing tables this slice rendered from are themselves now gone:
+> `site.shop_brands` and `site.shop_products` were dropped on dev by the shop
+> re-home project (parent spec §29). Shapes below stand; their store moved.
 
 ## `GET /api/public/profiles/{handle}`
 

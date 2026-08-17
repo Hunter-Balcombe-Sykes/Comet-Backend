@@ -1,5 +1,31 @@
 # Wire changes — services cutover
 
+## 2026-08-17 · Two service surfaces, and which one the rebuild targets — OWNER RULING
+
+There are two service-shaped keys on the public wire, they carry **different**
+things, and that is intended. Confirmed live on `ollies` off
+`dev-api.partna.au`, read 2026-08-17 11:11 UTC:
+
+| Wire key | Contents on `ollies` | What it is |
+|---|---|---|
+| `profile.services` | **2** | Owner-authored services only |
+| `profile.pools.services` | **25** — 23 `origin=auto` + 2 `origin=manual` | The services POOL: every service-kind item regardless of who sourced it, Fresha-scraped included |
+
+**Owner ruling (2026-08-17): `pools.services` carrying Fresha-sourced services
+STANDS.** The pool is the union of all service-kind items, and origin is carried
+per item (`origin`: `auto` | `manual`) precisely so a consumer can tell them
+apart. Slice 3b recorded this as a suspicion; the programme review confirmed it
+live; the owner has now ruled it intended behaviour rather than a leak.
+
+**What the frontend rebuild must do with that:** the rebuild targets `pools.*`,
+so a salon rendering both `profile.services` and `pools.services` unfiltered will
+show its owner-authored services twice — once alone, once inside the pool. Pick
+one surface per section, or filter the pool by `origin`. This is a render-side
+decision, not a backend defect; nothing on the backend will de-duplicate them for
+you.
+
+---
+
 ## 2026-08-17 · KV render payload: `services[].id` domain change (dev)
 
 `site.public_site_payload`'s `services` key now composes from `content.*`

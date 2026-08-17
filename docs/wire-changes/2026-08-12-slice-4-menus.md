@@ -1,6 +1,17 @@
 # Wire change — slice 4: menus on `content.*`
 
-**Status:** merged to `development`, pending live verification on dev.
+> **STATUS (2026-08-17): LIVE on dev, verified.** Merged, deployed, and read
+> back off `dev-api.partna.au`: `GET /api/public/profiles/ollies` → 200, with
+> `profile.pools.menus` serving **40 items / 12 collections** plus `diningModes`
+> (read 2026-08-17 11:11 UTC). The legacy relational menu tables are gone —
+> `site.menu_items`, `site.menu_categories`, `site.menu_item_categories` and
+> `site.menu_item_platforms` all `to_regclass` NULL on dev (11:05 UTC); see
+> parent spec §27. `site.menus` and `site.menu_platform_links` survive by design
+> as the bookkeeping row and platform-link carrier.
+>
+> Item counts move with owner edits — this pool read 65 items at slice 7's drop
+> and 40 hours later after a deliberate menu replace. Treat the shape as the
+> contract and the numbers as a timestamped sample.
 **Spec:** `docs/superpowers/specs/2026-08-12-slice-4-menus-design.md`.
 **Consuming repos:** partna-monorepo (sitepage render), Partna-App (dashboard).
 
