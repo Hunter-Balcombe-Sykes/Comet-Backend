@@ -6,6 +6,7 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Site\Documents\BuildState;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Finds event items that projection left in a bad state.
@@ -65,6 +66,19 @@ class ContentRepairEventItemsCommand extends Command
         }
 
         if ($this->option('retire') && $orphaned->isNotEmpty()) {
+            // Resolve the sites BEFORE the one-way write below, not after. A
+            // `deleted_at` filter site.sites has never had (Site declares no
+            // SoftDeletes) once lived in this query and raised Postgres 42703
+            // — but only AFTER the retirement had committed, so the fix is
+            // ordering, not the predicate: put the read that can fail ahead
+            // of the write that cannot be undone. SQLite would have hidden
+            // the same bug completely — an unknown double-quoted identifier
+            // is read as a string literal, so a bad predicate compiles to
+            // always-false and silently returns zero rows instead of erroring.
+            $sites = DB::connection('pgsql')->table('site.sites')
+                ->whereIn('user_id', $orphaned->pluck('user_id')->unique()->all())
+                ->get(['id', 'subdomain']);
+
             // Raw write — no Eloquent, so no observer fires. Three things must
             // happen by hand, and nothing in CI will catch a missing one:
             //
@@ -75,30 +89,50 @@ class ContentRepairEventItemsCommand extends Command
             //     60s Redis payload cache keeps serving the retired event.
             //  3. the Cloudflare edge purge — same reason PoolController::
             //     poolChanged() does it: the CDN outlives a pool edit.
-            DB::connection('pgsql')->table('content.items')
-                ->whereIn('id', $orphaned->pluck('id')->all())
-                ->update(['removed_at' => now(), 'updated_at' => now()]);
+            //
+            // 1 and 2 are wrapped together so a failure between them can't
+            // leave the retirement committed with the document/cache-key half
+            // undone. BuildState::bump() writes via DB::table() on the
+            // DEFAULT connection, not DB::connection('pgsql') — but
+            // config/database.php points 'default' at 'pgsql', so the two are
+            // the same handle here and the transaction does enclose it. It
+            // also touches no Redis/Cache, so there's no non-transactional
+            // side effect hiding inside step 2.
+            DB::connection('pgsql')->transaction(function () use ($orphaned, $sites) {
+                DB::connection('pgsql')->table('content.items')
+                    ->whereIn('id', $orphaned->pluck('id')->all())
+                    ->update(['removed_at' => now(), 'updated_at' => now()]);
 
-            // NO deleted_at filter: site.sites has no such column and never
-            // has — Site declares no SoftDeletes. Postgres raised 42703 here
-            // and killed the run AFTER the retirement above had committed,
-            // leaving the three invalidations below undone. SQLite hid it:
-            // an unknown DOUBLE-QUOTED identifier is silently reinterpreted as
-            // a string literal, so `"deleted_at" is null` compiled to
-            // `'deleted_at' is null` — always false, zero rows, no error, and
-            // the loop below simply never ran. The test asserted removed_at
-            // only, so it passed while proving nothing about the invalidation.
-            $sites = DB::connection('pgsql')->table('site.sites')
-                ->whereIn('user_id', $orphaned->pluck('user_id')->unique()->all())
-                ->get(['id', 'subdomain']);
-
-            foreach ($sites as $site) {
-                BuildState::bump((string) $site->id);
-                DB::connection('pgsql')->table('site.sites')
-                    ->where('id', $site->id)->update(['updated_at' => now()]);
-                if (($site->subdomain ?? '') !== '') {
-                    CloudflareCachePurgeJob::dispatch($site->subdomain);
+                foreach ($sites as $site) {
+                    BuildState::bump((string) $site->id);
+                    DB::connection('pgsql')->table('site.sites')
+                        ->where('id', $site->id)->update(['updated_at' => now()]);
                 }
+            });
+
+            // $orphaned is the snapshot from :41, not re-read under a lock —
+            // a SELECT ... FOR UPDATE here would contend with the live
+            // ingest:project writer and still wouldn't close the only real
+            // race (the projector writes source_items, not items).
+            //
+            // Dispatch happens after the transaction closes, so a purge
+            // failure can't roll back the retirement. It's still reported
+            // loudly rather than swallowed: a re-run will NOT retry it — the
+            // second run finds nothing orphaned and invalidates nothing — so
+            // a silent failure here leaves the operator with a permanently
+            // stale edge and no signal.
+            try {
+                foreach ($sites as $site) {
+                    if (($site->subdomain ?? '') !== '') {
+                        CloudflareCachePurgeJob::dispatch($site->subdomain);
+                    }
+                }
+            } catch (Throwable $e) {
+                report($e);
+                $this->error('Edge purge dispatch failed after retirement committed — manually purge: '
+                    .$sites->pluck('subdomain')->filter()->implode(', '));
+
+                return self::FAILURE;
             }
 
             $this->info('Retired '.$orphaned->count().' orphaned event item(s). This is not reversible by re-sync.');

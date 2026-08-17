@@ -47,7 +47,7 @@ Never script a tick keyed on id alone.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 3 of 6 complete
+- P1 High: 5 of 6 complete
 - P2 Medium: 0 of 15 complete
 - P3 Low: 0 of 15 complete
 
@@ -73,7 +73,8 @@ Never script a tick keyed on id alone.
         // CDN outlives the origin write. No CI check enforces this.
         ```
 
-- [ ] **#PGR-2** · P1 — `ContentRepairEventItemsCommand` retirement test proves only `removed_at`, not cache/edge invalidation
+- [x] **#PGR-2** · P1 — `ContentRepairEventItemsCommand` retirement test proves only `removed_at`, not cache/edge invalidation
+    - **Resolution (2026-08-18, `audit-fix/programme-review-p1-2026-08-17`):** DONE, but the finding was **materially stale as written** and was restated before any code was touched. `EventItemRepairTest.php:187-236` *already* asserted all three lanes. The finding's quoted evidence — "The test asserted removed_at only, so it passed while proving nothing about the invalidation" — was a verbatim lift of the past-tense code comment at `ContentRepairEventItemsCommand.php:89-90`; the pipeline read a historical narration as current state. Implementing it as written would have rewritten a test that existed. The four **genuine** residual gaps were fixed instead: (1) the lane-1 assertion was `->toBeGreaterThan(0)`, banned by this run's execution prompt — now an exact `$revisionBefore + 1` delta; (2) coverage was single-site — a new multi-tenant case asserts the lanes fire per site; (3) lane 3 was a bare `assertPushed`, which passes even if the code dispatched the site UUID instead of the subdomain — now a discriminating closure (proven: switching the dispatch to `$site->id` makes it fail); (4) `#PGR-4` had no test at all — now covered. That stale sentence has been deleted from the command's comment block, since it is what caused this finding to be adjudicated against already-correct code.
     - **Source:** migration-commands — was `#TEST-2`
     - **Where:** app/Console/Commands/ContentRepairEventItemsCommand.php
     - **Affects:** Repair operators and users whose published sitepages may keep serving retired event items after a `--retire` run; a green test gives false confidence that invalidation happened.
@@ -116,7 +117,8 @@ Never script a tick keyed on id alone.
         }
         ```
 
-- [ ] **#PGR-4** · P1 — `ContentRepairEventItemsCommand` retires items before resolving invalidation targets; any failure between the two leaves a half-applied destructive update
+- [x] **#PGR-4** · P1 — `ContentRepairEventItemsCommand` retires items before resolving invalidation targets; any failure between the two leaves a half-applied destructive update
+    - **Resolution (2026-08-18, `audit-fix/programme-review-p1-2026-08-17`):** DONE, premise CONFIRMED exactly as written. The `site.sites` resolution now runs **before** the one-way `content.items.removed_at` update (the shape `PurgeReviewHeadlinePiiCommand.php:72-81` already used), and the three DB mutations — the retirement, `BuildState::bump()` and the `site.sites.updated_at` touch — are wrapped in one `DB::connection('pgsql')->transaction()`. The `CloudflareCachePurgeJob` dispatch moved **outside** the transaction: `config/queue.php` sets `after_commit => false`, so dispatching inside would have re-created the very bug being fixed, and `->afterCommit()` was deliberately NOT used (the job declares no `$afterCommit`, and adding one as a typed property is a fatal — `Queueable` declares it untyped). A dispatch failure is now reported loudly (`report()` + an operator message naming the subdomains + `self::FAILURE`) rather than swallowed, because a re-run will **not** retry the purge — the second run finds nothing orphaned and invalidates nothing, so silence would leave a permanently stale edge. `$orphaned` is deliberately **not** re-read under lock: `SELECT … FOR UPDATE` on `content.items` would contend with the live `ingest:project` writer and would not close the only real race anyway (the projector writes `source_items`, not `items`) — accepted residual, noted in code. Proven by a failure-injection dataset test that drops the table the invalidation half needs: the `site.sites` case proves the **ordering**, the `site.site_build_state` case proves the **rollback**, and both were observed failing against the pre-fix code (`Failed asserting that '…' is null` — the retirement had committed) and passing after.
     - **Source:** migration-commands — was `#MIG-2`
     - **Where:** app/Console/Commands/ContentRepairEventItemsCommand.php
     - **Affects:** `content.items` retired via `--retire` and the public sitepage caches for affected sites.
