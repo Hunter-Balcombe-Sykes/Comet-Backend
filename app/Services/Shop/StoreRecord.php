@@ -9,9 +9,11 @@ use Illuminate\Support\Carbon;
  *
  * This exists so the writer's identity anchor is DATA, not an Eloquent model
  * bound to `site.shop_brands`. That table is dropped by
- * `20260817000900_drop_site_shop_brands.sql`; a writer that type-hints its
- * model cannot survive the DROP, and shop writes are live (unlike
- * `site.shop_products`, which nothing writes any more).
+ * `20260819000210_drop_site_shop_brands.sql` (the re-home's own band — slice 7
+ * deferred the DROP it originally numbered `20260817000900`, and that file was
+ * never written); a writer that type-hints its model cannot survive the DROP,
+ * and shop writes are live (unlike `site.shop_products`, which nothing writes
+ * any more).
  *
  * IDENTITY is (provider, externalRef) — never the name. `externalRef` is the
  * PROVIDER's own store id (`75102060779`, `fearnoevil-com-au`), which is what
@@ -47,6 +49,14 @@ final readonly class StoreRecord
         public ?string $logoMarkUrl = null,
         public ?string $logoMarkSvgUrl = null,
         public ?Carbon $productsCuratedAt = null,
+        /**
+         * Set ONLY when read back from content.* — never an input to
+         * upsertStore(), where the collection id is the OUTPUT. It is the
+         * replacement identity for the site.shop_brands uuid PK the two async
+         * jobs used to key on (spec §5), and the prefix ProcessShopBrandLogoJob
+         * writes R2 objects under.
+         */
+        public ?string $collectionId = null,
     ) {}
 
     /**
@@ -84,6 +94,7 @@ final readonly class StoreRecord
             logoMarkUrl: $row->logo_mark_url,
             logoMarkSvgUrl: $row->logo_mark_svg_url,
             productsCuratedAt: $curatedAt === null ? null : Carbon::parse((string) $curatedAt),
+            collectionId: isset($row->collection_id) ? (string) $row->collection_id : null,
         );
     }
 }

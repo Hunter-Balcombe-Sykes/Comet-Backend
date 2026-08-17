@@ -223,7 +223,7 @@ consequences worth stating:
 **Interfaces:**
 - Produces: `StoreRecord::$collectionId` (`?string`, default `null`) — set by `fromStorefrontRow()`, never passed to `upsertStore()`.
 
-- [ ] **Step 1: Write the failing test.**
+- [x] **Step 1: Write the failing test.**
 
 ```php
 it('carries the collection id when rebuilt from a storefront row', function (): void {
@@ -257,8 +257,8 @@ it('carries the collection id when rebuilt from a storefront row', function (): 
 });
 ```
 
-- [ ] **Step 2: Run it, confirm it fails** — `./vendor/bin/pest tests/Feature/Shop/ShopStoreReadLaneTest.php --filter="collection id"`. Expected: FAIL, `Unknown named parameter` or `null`.
-- [ ] **Step 3: Add the property and populate it.**
+- [x] **Step 2: Run it, confirm it fails** — `./vendor/bin/pest tests/Feature/Shop/ShopStoreReadLaneTest.php --filter="collection id"`. Expected: FAIL, `Unknown named parameter` or `null`.
+- [x] **Step 3: Add the property and populate it.**
 
 ```php
         public ?Carbon $productsCuratedAt = null,
@@ -280,8 +280,8 @@ and in `fromStorefrontRow()`:
         );
 ```
 
-- [ ] **Step 4: Run it, confirm it passes.**
-- [ ] **Step 5: Commit.**
+- [x] **Step 4: Run it, confirm it passes.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add app/Services/Shop/StoreRecord.php tests/Feature/Shop/ShopStoreReadLaneTest.php

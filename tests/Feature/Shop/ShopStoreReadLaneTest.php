@@ -3,6 +3,7 @@
 use App\Services\Migration\ShopBackfiller;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\Shop\ShopContentReader;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 
 // The shop re-home's read lane: every dashboard read resolves its store from
@@ -137,4 +138,49 @@ it('keys popularityRank by product HANDLE, matching the scoring pipeline', funct
 
     $productIdKeyed = $reader->brandMap($user, ['p1' => 3])['rank-lane-store'];
     expect($productIdKeyed['products'][0]['popularityRank'])->toBeNull();
+});
+
+// ── Task 3: StoreRecord carries the collection id it was read back from ──
+//
+// The legacy site.shop_brands uuid PK is what the two async jobs key on today
+// (spec §5). It has no content.* twin, so the collection id replaces it — and
+// the only place that id is known is the read.
+
+it('carries the collection id when rebuilt from a storefront row', function (): void {
+    $row = (object) [
+        'collection_id' => '11111111-1111-4111-8111-111111111111',
+        'external_ref' => '75102060779',
+        'provider' => 'shopify',
+        'label' => 'Fear No Evil',
+        'position' => 2,
+        'url' => 'https://fearnoevil.com.au',
+        'source_url' => null,
+        'currency' => 'AUD',
+        'discount_code' => null,
+        'referral_query' => '',
+        'is_individual' => false,
+        'fetch_mode' => null,
+        'connect_status' => null,
+        'connect_error' => null,
+        'logo_url' => null,
+        'favicon_url' => null,
+        'logo_mark_url' => null,
+        'logo_mark_svg_url' => null,
+        'products_curated_at' => null,
+    ];
+
+    $record = StoreRecord::fromStorefrontRow($row);
+
+    expect($record->collectionId)->toBe('11111111-1111-4111-8111-111111111111')
+        ->and($record->externalRef)->toBe('75102060779')
+        ->and($record->name)->toBe('Fear No Evil');
+});
+
+// The write direction must NOT carry one: upsertStore() RETURNS the collection
+// id, so a record built for a write has nothing to put there yet. A default of
+// null is what keeps those two directions from being confusable.
+it('defaults the collection id to null for a record built to be written', function (): void {
+    $record = new StoreRecord(externalRef: '75102060779', provider: 'shopify');
+
+    expect($record->collectionId)->toBeNull();
 });
