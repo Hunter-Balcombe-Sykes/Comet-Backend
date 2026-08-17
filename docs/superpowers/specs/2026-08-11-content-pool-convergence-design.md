@@ -4853,3 +4853,169 @@ DROP ran.
 - `ShopConnections::LEGACY_SURFACE` stays. `removeBrand()` guards on it so a
   surviving `partna.storefront` marker is never deleted out from under other
   stores. Dev has zero; production is the reason to keep it.
+
+---
+
+## 28. Whole-programme review — 2026-08-17
+
+The verification gate for the Content Pool Convergence programme, run cold
+against `origin/development` @ `ce890848b` in an isolated worktree. Rule zero
+observed: every claim below was re-derived, not cited. Live readings against
+`glncumufgaqcmqhzwrxm` were taken 2026-08-17 08:52–10:4x UTC and **are valid only
+until the next write to dev** — three checkpoint readings had already gone stale
+inside that same window, which is the point.
+
+### 28.1 Verdict
+
+**PASS — `phase-8-review-and-docs` may run.**
+
+Nothing found blocks a documentation-and-review phase. The programme's own
+surface verifies: all ten drop-list tables are gone by `to_regclass`, the
+migration ledger is clean, every remaining checkpoint gate re-runs green, all
+eight test lanes pass, and the live wire serves what the manifests describe.
+
+The verdict is PASS **with two rulings owed before phase 8 can finalise the wire
+manifests** (§28.4), and a named list of findings assigned to owners (§28.5).
+None of them is a phase-8 blocker; all of them are phase-8 or fix-session inputs.
+
+### 28.2 What was run
+
+| Step | Result |
+|---|---|
+| Checkpoint re-verification §12–§26, both §27s, slice 7 phase 6 | every gate green except §26's, which is a wording defect (§28.5 R-9) |
+| Legacy-zero sweep (DB + code + Eloquent) | 10/10 tables absent; no live query surface on any retired model |
+| `composer test` serial | 8292 passed, 0 failed |
+| `pest --parallel --processes=4` | 8293 passed, 0 failed |
+| `composer test:pg` | 212 passed |
+| `composer test:schema` | 182 passed + the documented AUTOANALYZE flake, control run |
+| `composer test:authz` (real Postgres) | 31 passed, **1425 assertions** — not the silent skip |
+| PHPStan (1G) · Pint | no errors · passed |
+| From-zero migration apply | all 106 files clean |
+| Audit pipeline — 5 targeted scopes + 1 security bundle | 0 P0 · 5 P1 · 8 P2 · 11 P3 |
+| Live wire, 5 handles · dev logs 30 min · prod schema | see §28.3 |
+
+Nightwatch was **not** scanned — the MCP needs an OAuth grant this session did
+not hold. Recorded as a gap rather than skipped silently, matching §13.5's
+precedent.
+
+### 28.3 Live state, re-derived
+
+- **Drops:** `menu_items`, `menu_categories`, `menu_item_categories`,
+  `menu_item_platforms`, `content_selection`, `services`, `service_categories`,
+  `service_category_assignments`, `shop_brands`, `shop_products` — all
+  `to_regclass` NULL. `site.menus`, `site.menu_platform_links`,
+  `site.item_slugs` survive by design.
+- **Ledger:** 105 recorded, exactly the repo minus `20260819000300`
+  (`shop_grandfather_pins`, non-programme, unapplied). No MCP stray versions —
+  slice 7's "ledger repaired" holds. §10's "committed and deliberately unapplied"
+  warning about `20260817000000` is **stale**: it is applied.
+- **Gates:** orphan items 0 · orphan source_items 0 · duplicate current slugs 0 ·
+  service `source_items.removed_at` 0 · manual sources all priority 200 ·
+  review PII (headline_cache, f_text) 0/0 · `f_channel` 0 · `item_merges` 0.
+- **Identity:** 5056 keys across **14** classes (12 at Phase 2, +`isrc`
+  +`title_duration` from Phase 4). Both of F10's dead keys still have producers.
+- **Paid guardrails:** every `CostClass::Actor` source carries `cost_units = 50`,
+  matching `budgetWeight()` — Phase 4's manifest-sync fix is holding. Spotify (4)
+  and Soundcloud (2) are `auto_sync = false`. The one Instagram source at `true`
+  is §15.5's deliberate 7-day enablement, not a breach.
+- **301 lane:** exactly one retired slug exists platform-wide, and it is §23.5's
+  own probe — `pizza-margherita` carrying
+  `aliases ["pizza-margherita-deluxe", <legacy uuid>]`. All 40 `ollies` dishes
+  carry aliases. No backend route serves the 301; the wire publishes
+  `slug` + `aliases` and the consumer redirects.
+- **Wire shapes:** `STORE_KEYS` is exactly the nine on the live payload;
+  `selected` is stripped from the public builder; `pools.reviews.stats` serves
+  `{ratingAvg, ratingCount, summaryText}` on the one handle that has a
+  `content.source_stats` row.
+- **Logs:** 30 minutes, one error — the known Cache SLO #371 on a cold
+  post-deploy cache. No `42P01`, no "does not exist".
+- **`anseo-studio` is HTTP 404, not 410.** The 410 was Fresha's answer to the
+  vendor URL; the profiles route answers 404 under the genericised-404 rule.
+- **PRODUCTION, derived rather than counted.** Prod MCP access **works** (the
+  recorded `28P01` breakage is stale). `edplucmvkcnokyygxqsb` is missing the
+  `content`, `ingest`, `routing` and `catalog` schemas **entirely** —
+  `content.items` does not exist — and its ledger holds **4** rows, latest
+  `20260803100001`, against dev's 105. The accurate statement is not "prod still
+  carries the dropped tables" (it does) but "prod has none of the schemas this
+  programme is built on". `core.users` = 0.
+
+### 28.4 Two rulings owed before phase 8 finalises the wire manifests
+
+1. **Does `pools.services` carrying Fresha services stand?** It does today, on
+   the live wire (R-3). The frontend rebuild targets `pools.*`, so this decides
+   whether a salon's menu renders twice.
+2. **Is 60s TTL-bounded staleness acceptable for owner-initiated pool
+   mutations?** §12.6 says yes for the write lane; the 2026-08-14 `poolChanged()`
+   fix says no for reorder. Both cannot be right for `pin()` (R-10).
+
+### 28.5 Findings, by owner
+
+| # | Finding | Owner |
+|---|---|---|
+| R-10 | Four pool endpoints fire 2 of 3 cache lanes (**P1**, verified in code) | pools lane / sell-opt-in |
+| R-3 | `pools.services` leaks Fresha onto the public wire — confirmed live, previously only suspected | slice 3b + product ruling |
+| R-4 | No query-surface guard for the three menu DTO models, asymmetric with `LegacyServiceQuerySurfaceTest` | slice 7 follow-up |
+| R-2 | §27.3 residual 3 is **explained**: `partna:purge-soft-deletes` (daily 03:20), not "external" | phase 8 — rewrite |
+| R-9 | §26's gate is a wildcard (`partna.*`) over a guard that is a six-item enumeration; reads red on the legitimate `partna.manual_product` | phase 8 — restate |
+| R-7 | Four wire manifests carry stale STATUS headers; 5b's reads "not yet merged" for a live retirement | phase 8 |
+| R-6 | Prod lacks four whole schemas — bigger than "carries the dropped tables" | prod reconciliation |
+| — | Two `## 27` sections; slice 7's checkpoint misfiled under `plans/` | phase 8 (as the kickoff already assigned) |
+| audit | 5 P1 / 8 P2 / 11 P3 across six runs, in `audits/sweeps/2026-08-17-*` | per-finding, via `fix-flow.md` |
+
+### 28.6 Holes the last three projects recorded against themselves
+
+- **(a) authenticated verbs — STILL UNPROVEN.** No owner JWT was available here
+  either. Unchanged from the services-cutover record.
+- **(b) Fresha `site.section_items` — STILL PENDING.** 59 live connection-sourced
+  service items, **0** carrying a section item; all 18 `pool:services` pins are
+  the manual half. The one-time tail-of-list effect has not happened yet.
+- **(c) count drift — CLOSED.** See R-2.
+- **(d) `storefronts.user_id` NOT NULL — HALF PROVEN.** The fix is present and
+  correctly reasoned; the **update** arm ran live (two rows updated 2026-08-17
+  03:01, after the migration), but all five order-platform storefronts were
+  created 2026-08-15 22:54, before it. The **insert** arm — the one NOT NULL
+  would break — is still unexercised. Closing it needs a billed Apify scrape
+  against a live third party: an owner call, not a verification step.
+- **(e) lost CHECK constraints — CLOSED.** All three accounted for:
+  `connect_status` carried across verbatim as `storefronts_connect_status_check`;
+  `link_mode` already lives as `sites_shop_link_mode_check` on `site.sites`
+  (present and validated); `selection_mode` dead, with the reasoning in migration
+  `20260819000120`'s own header.
+
+### 28.7 The cross-cutting theme, and the one recommendation
+
+Six findings across three audit scopes and two recorded incidents are a single
+shape: **a write commits, and its invalidation is a separate, unguarded, later
+step.** `#MIG-2` (retire → invalidate), `#MIG-6` (subdomain rename → invalidate
+cache + KV), `#TEST-1`/`#TEST-2` (no CI guard on the three-lane contract), R-10
+(two of three lanes), §14.3's `42703` after a committed retirement, and §16.7 /
+§19.5's own admission that invalidation is *"a hand-maintained caller obligation
+programme-wide"* with *"no CI check enforcing any of the three"*.
+
+The programme diagnosed this about itself twice in prose; the scans found it
+again from the code without reading the checkpoints. **That convergence is the
+strongest signal in this review.** The fix is one shared helper plus a CI guard
+that fails when a mutating pool path misses a lane — not six separate patches.
+
+### 28.8 Method notes worth keeping
+
+- **A live coverage gate is valid only until the next write.** Three checkpoint
+  readings went stale inside this review's own window: `ollies` menus 65→40 (a
+  deliberate menu replace at 01:01:31, leaving 35 stranded pins), `pool:watch`
+  disappearing (all four video connections soft-deleted), and §26's partna.*
+  count. None was a regression; all three would read as one.
+- **Both programme gates are blind to owner deletion.** `source_items.removed_at`
+  = 0 and orphan items = 0 held while 35 dishes left a public menu, because the
+  owner-delete semantic (§27.1) sets `items.removed_at` and leaves the source
+  item live. A gate on the source side cannot see it.
+- **Two flags, similar names, different tables.** `ingest.sources.auto_sync` (the
+  scheduler flag Phase 4's paid-source rule turns off) is NOT what
+  `latest_per_auto_source` reads — that gates on
+  `platform_connections.display_settings->auto_sync_latest` plus `deleted_at IS
+  NULL` and `is_active`. Making a connector paid does not empty its pool.
+- **The raw scan tier produces confident, well-written, wrong P1s.** Two here:
+  an `ItemMerger` docblock bug (0.8) that was fixed in 2026-07 and cites a test
+  file that does not exist, and a stagger "no-op" (0.95) whose arithmetic
+  misplaced a `floor()`. Adjudication caught both independently — and correctly
+  kept the second at P1 in its *true* form (a per-chunk ramp reset, not a no-op).
+  CLAUDE.md's "never hand-write findings" is load-bearing in both directions.
