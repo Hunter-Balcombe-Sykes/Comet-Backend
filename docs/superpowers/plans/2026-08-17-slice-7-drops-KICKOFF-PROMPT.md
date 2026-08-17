@@ -230,6 +230,43 @@ The Eloquent-model reads are separate and larger: `Service`, `ServiceCategory`,
 plus `->categories()->sync()` in two service controllers and both grouped
 `index()` methods. Those go with the models in step 7.
 
+### 4d. The carve-out is clean at TABLE level and NOT at code level — resolve this
+
+Found 2026-08-17 by the prompt-8 session, verified here. **A fourth instance of
+the integrity-oracle shape, and it sits exactly on the nine-vs-ten seam.**
+
+`site.shop_brands` is deferred, so `ShopBrand` survives. But its
+`products()` relation (`app/Models/Core/Site/ShopBrand.php:115`) is
+`hasMany(ShopProduct::class)`, and `ShopProduct` maps to `site.shop_products` —
+which IS in your nine. `toBrandArray()` (`:171`) walks that relation to compose a
+wire shape. So "do not touch `shop_brands`" and "delete the nine dropped tables'
+models" **cannot both hold literally**: deleting `ShopProduct` forces an edit to
+the deferred table's model.
+
+**Resolution — delete the fallback, then the model. In this order:**
+
+1. `ShopController` calls it in exactly three places, always as
+   `$this->contentReader->brandMap($user)[$id] ?? $brandRow->fresh('products')->toBrandArray()`
+   — `:468`, `:580`, `:664`. **`brandMap()` is the authoritative read** and the
+   controller's own comment at `:465-466` says the legacy arm "covers only a
+   theoretical read-your-own-write miss". Delete the `?? …toBrandArray()` half at
+   all three.
+2. That leaves `ShopBrand::products()` and `::toBrandArray()` with no callers.
+   Delete both members — a scoped edit to the deferred model, NOT a re-home.
+   Everything else on `ShopBrand` stays.
+3. Then `ShopProduct` deletes cleanly with the other eight models.
+
+**Do not** instead leave `products()` pointing at a dropped table "because the
+fallback is theoretical" — a theoretical path that raises `42P01` is a latent
+outage on the dashboard shop endpoint and the public shop path.
+
+**Also reconcile:** the `shop_brands` re-home plan
+(`docs/superpowers/plans/2026-08-17-shop-brands-rehome.md`, being written by
+another session) lists `ShopProduct.php` in its own "Deleted (last task only)"
+set. Both plans claim that file. **This phase deletes it** — say so in the
+checkpoint so the re-home's plan gets corrected rather than both sessions
+reaching for it.
+
 ### 5. Retire the five observers — the highest-risk step in the phase
 
 `MenuItemObserver` (via `#[ObservedBy]` on the model) and `Core\MenuObserver` /
