@@ -241,3 +241,36 @@ it('rejects re-filing a legacy site.services id (services cutover, ruling 1)', f
     expect(DB::table('site.service_category_assignments')->where('service_id', $legacy->id)
         ->pluck('service_category_id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catA->id]);
 });
+
+it('persists category_ids at creation (owner, 2026-08-17 — the gap is closed)', function () {
+    // store() used to validate the category then DROP it — the add sheet's
+    // picker makes create + membership one gesture now.
+    $pro = createTenant('svc-cat-create');
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Cuts');
+
+    $response = actingAsUser($pro)->postJson('/api/services', [
+        'title' => 'Beard trim',
+        'price_cents' => 3500,
+        'category_ids' => [$collectionId],
+    ]);
+
+    $response->assertStatus(201);
+    expect($response->json('service.category_ids'))->toBe([$collectionId]);
+
+    $itemId = (string) $response->json('service.id');
+    actingAsUser($pro)->getJson("/api/services/{$itemId}")
+        ->assertOk()
+        ->assertJsonPath('service.category_ids.0', $collectionId);
+});
+
+it('still creates uncategorised when no category is sent', function () {
+    $pro = createTenant('svc-cat-create-none');
+
+    $response = actingAsUser($pro)->postJson('/api/services', [
+        'title' => 'Walk-in consult',
+        'price_cents' => 0,
+    ]);
+
+    $response->assertStatus(201);
+    expect($response->json('service.category_ids'))->toBe([]);
+});
