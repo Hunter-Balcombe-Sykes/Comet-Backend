@@ -22,9 +22,14 @@ dataset('link_only', [
     'linkedin' => ['linkedin', ['username' => 'jane-doe', 'url' => 'https://www.linkedin.com/in/jane-doe/']],
     'threads' => ['threads', ['username' => 'janed', 'url' => 'https://www.threads.net/@janed']],
     'reddit' => ['reddit', ['username' => 'janed', 'url' => 'https://www.reddit.com/user/janed/']],
-    // Skool renders via SkoolConnectionResource (not LinkConnectionResource), which emits
-    // {url, name, image, description}. image and description default to null when absent.
-    'skool' => ['skool', ['url' => 'https://www.skool.com/community', 'name' => 'Community', 'image' => null, 'description' => null]],
+    // skool, strava and twitch joined this dataset on 2026-08-16, when Phase 1.2's
+    // demotion moved them onto LinkConnectionResource. Skool used to sit here with
+    // its own {url, name, image, description} shape; twitch and strava had bespoke
+    // selection/accounts contracts of their own further down. All three now freeze
+    // the same {username, url} pair as every other link-only platform.
+    'skool' => ['skool', ['username' => 'community', 'url' => 'https://www.skool.com/community']],
+    'strava' => ['strava', ['username' => 'Midday-Milers', 'url' => 'https://www.strava.com/clubs/Midday-Milers']],
+    'twitch' => ['twitch', ['username' => 'streamer', 'url' => 'https://www.twitch.tv/streamer']],
 ]);
 
 it('freezes link-only selection contract', function (string $platform, array $stored) {
@@ -336,69 +341,9 @@ it('freezes the vimeo selection contract', function () {
 // Twitch is a card platform (embed is built sitepage-side); selection emits exactly
 // {url, login, name, image, description}. Served by GenericPlatformController via
 // FeedPayload → TwitchConnectionResource after the Task 6 $migratedReads migration.
-it('freezes the twitch selection contract', function () {
-    $user = gmUser('gmtwsel');
-    gmSeed($user, 'twitch', [
-        'url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer',
-        'name' => 'StreamerName', 'image' => 'https://static-cdn.jtvnw.net/avatar.jpg',
-        'description' => 'Gaming channel', '_leak' => 'must-not-appear',
-    ]);
-
-    $sel = actingAsUser($user)->getJson('/api/platforms/twitch/selection')->assertOk()->json('selection');
-
-    expect($sel)->toEqual([
-        'url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer',
-        'name' => 'StreamerName', 'image' => 'https://static-cdn.jtvnw.net/avatar.jpg',
-        'description' => 'Gaming channel',
-    ]);
-    expect($sel)->not->toHaveKey('_leak');
-});
-
-it('freezes the twitch accounts list contract', function () {
-    $user = gmUser('gmtwacc');
-    gmSeed($user, 'twitch', [
-        'url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer',
-        'name' => 'StreamerName', 'image' => 'https://static-cdn.jtvnw.net/avatar.jpg',
-        'description' => 'Gaming channel', '_leak' => 'x',
-    ], 'acct-'.substr(sha1('streamer'), 0, 16));
-
-    $accounts = actingAsUser($user)->getJson('/api/platforms/twitch/accounts')->assertOk()->json('accounts');
-
-    expect($accounts)->toHaveCount(1);
-    expect($accounts[0])->not->toHaveKey('_leak');
-    expect($accounts[0]['id'])->toBe('acct-'.substr(sha1('streamer'), 0, 16));
-    expect($accounts[0]['url'])->toBe('https://www.twitch.tv/streamer');
-    expect($accounts[0]['login'])->toBe('streamer');
-});
-
 // Strava is a single-account feed platform (no /accounts) — multiAccount()
 // false, selection served by GenericPlatformController via FeedPayload →
 // StravaConnectionResource.
-it('freezes the strava selection contract', function () {
-    $user = gmUser('gmstsel');
-    gmSeed($user, 'strava', [
-        'url' => 'https://www.strava.com/clubs/myclub',
-        'name' => 'My Club',
-        'location' => 'San Francisco, California',
-        'image' => 'https://example.com/avatar.jpg',
-        'description' => 'A running club.',
-        'members' => 500,
-        '_leak' => 'must-not-appear',
-    ]);
-
-    $sel = actingAsUser($user)->getJson('/api/platforms/strava/selection')->assertOk()->json('selection');
-
-    expect($sel)->toEqual([
-        'url' => 'https://www.strava.com/clubs/myclub',
-        'name' => 'My Club',
-        'location' => 'San Francisco, California',
-        'image' => 'https://example.com/avatar.jpg',
-        'description' => 'A running club.',
-        'members' => 500,
-    ]);
-    expect($sel)->not->toHaveKey('_leak');
-});
-
 // Apple Music / Apple Podcast selection pins. Both are multi-account tile platforms;
 // after Task 8 the GET selection/accounts routes are served by GenericPlatformController
 // (platform=apple-music / apple-podcast) via FeedPayload → the platform's resource.
@@ -609,7 +554,12 @@ it('covers every integration GET read-route in the golden master', function () {
     // (.../connect/status + .../selection) are gone entirely, not migrated. 80 -> 78.
     // 2026-08-05: the legacy /platforms/shopify alias prefix was removed
     // (audit: zero callers) — its 4 GET mirrors vanish from the enumeration. 78 -> 74.
-    expect($readRoutes->count())->toBe(74);
+    // 2026-08-16: skool/strava/twitch demoted to link-only (Phase 1.2), so they
+    // take PlatformRouteShape::LinkOnly and expose only /selection — the same
+    // single route kick and medium have. Their 4 extra GETs (two
+    // /connect/status, twitch's /accounts and strava's /connect/status) are
+    // gone. 74 -> 70.
+    expect($readRoutes->count())->toBe(70);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/connect/status',
@@ -656,7 +606,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/shop/brands/{id}/connect/status',
         'api/platforms/shop/selection',
         'api/platforms/shop/settings',
-        'api/platforms/skool/connect/status',
         'api/platforms/skool/selection',
         'api/platforms/snapchat/selection',
         'api/platforms/soundcloud/accounts',
@@ -665,13 +614,10 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/spotify/connect/status',
         'api/platforms/spotify/selection',
         'api/platforms/square/selection',
-        'api/platforms/strava/connect/status',
         'api/platforms/strava/selection',
         'api/platforms/telegram/selection',
         'api/platforms/threads/selection',
         'api/platforms/tiktok/selection',
-        'api/platforms/twitch/accounts',
-        'api/platforms/twitch/connect/status',
         'api/platforms/twitch/selection',
         'api/platforms/vimeo/accounts',
         'api/platforms/vimeo/connect/status',

@@ -69,16 +69,43 @@ it('detect a recognised booking brand returns 202 + minimal card on that BRAND s
     Queue::assertPushed(EnrichLinkCardJob::class, fn ($j) => $j->platform === 'booking' && $j->surfaceKey === 'treatwell.book');
 });
 
-it('detect a booking link with no brand home sends it to the links pool', function () {
+it('detect a booking link NO brand claims still gives them a Book button', function () {
+    Queue::fake();
+    Http::fake();
+
+    $user = bookingUser('bookdirect');
+
+    // Owner ruling 2026-08-16. A booking page nothing recognises — nearly always
+    // the business's own site — lands on `direct.book` and renders as a normal
+    // booking card. Before Phase 6 it was a `partna.booking_link` row and it
+    // worked; retiring that key without a home would have emptied the card.
+    actingAsUser($user)->postJson('/api/platforms/booking/detect', [
+        'url' => 'https://www.example.com/book-appointment',
+    ])->assertStatus(202)
+        ->assertJsonPath('provider', 'custom')
+        ->assertJsonPath('next', 'custom-saved');
+
+    $row = IntegrationConnection::where('user_id', $user->id)->firstOrFail();
+    expect($row->surface_key)->toBe('direct.book');
+
+    actingAsUser($user)->getJson('/api/platforms/booking/status')
+        ->assertOk()->assertJsonPath('connected', true);
+
+    Queue::assertPushed(EnrichLinkCardJob::class);
+});
+
+it('detect a link that is demonstrably NOT a booking page sends it to the pool', function () {
     Queue::fake();
     Http::fake();
 
     $user = bookingUser('bookpool');
 
-    // Owner ruling 2A. `selection` is null and nothing reports connected,
-    // because nothing IS connected — the link was preserved, not adopted.
+    // The one case that still pools (owner ruling 2A): the URL classified, and
+    // it classified as something else entirely. Calling an Instagram profile a
+    // booking page would be us being wrong on purpose — `direct.book` is for
+    // links nothing recognises, not for links we recognise as not-booking.
     actingAsUser($user)->postJson('/api/platforms/booking/detect', [
-        'url' => 'https://www.example.com/book',
+        'url' => 'https://www.instagram.com/somesalon',
     ])->assertStatus(202)
         ->assertJsonPath('next', 'link-saved')
         ->assertJsonPath('routedTo.pool', 'custom_links')

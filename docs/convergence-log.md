@@ -926,3 +926,14 @@ among ~30 into `content.items` — so items must be deleted AFTER their
 source_items or the rows survive with a null item_id instead of going away.
 
 Dev logs clean for the window afterwards.
+
+### F23 — SUPERSEDED 2026-08-16: `GET /api/content/kinds` now exists
+
+F23 recorded that `KindRegistry`'s docblock claimed a route that had never been
+built. That was true when written. A parallel session has since built it
+(`KindsController`, `routes/api/user.php`) because the field renderer needed the
+schema, so the claim is now simply correct and the docblock says so.
+
+The finding still stands as a lesson — a document outlived its subject by months
+and would have been defended as a contract — but do not go looking for a missing
+endpoint.

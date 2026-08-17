@@ -4,8 +4,11 @@ use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
 use App\Services\Platforms\Normalizers\MediumNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
+use App\Services\Platforms\Normalizers\SkoolNormalizer;
+use App\Services\Platforms\Normalizers\StravaNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
+use App\Services\Platforms\Normalizers\TwitchNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 
 it('X normalizes a bare @handle to the canonical url', function () {
@@ -218,4 +221,48 @@ it('Facebook returns an empty reserved username for a bare "/pages/" link with n
     // since none previously covered it.
     expect((new FacebookNormalizer)('https://www.facebook.com/pages/'))
         ->toBe(['username' => '', 'url' => 'https://www.facebook.com/pages']);
+});
+
+// ── Phase 1 follow-through: twitch / skool / strava became link-only ────────
+// Each rule below is carried over from the SourceProvisioner::identifierFor()
+// helper that Phase 1 deleted with the connector, so the validation knowledge
+// moved rather than being lost.
+
+it('Twitch normalizes a bare login, lowercased', function () {
+    expect((new TwitchNormalizer)('SomeStreamer'))
+        ->toBe(['username' => 'somestreamer', 'url' => 'https://www.twitch.tv/somestreamer']);
+});
+
+it('Twitch normalizes a channel url and tolerates trailing junk', function () {
+    expect((new TwitchNormalizer)('https://www.twitch.tv/Monstercat?tt_medium=share'))
+        ->toBe(['username' => 'monstercat', 'url' => 'https://www.twitch.tv/monstercat']);
+});
+
+it('Twitch rejects site chrome and an out-of-range login', function () {
+    expect((new TwitchNormalizer)('https://twitch.tv/directory'))->toBeNull()
+        ->and((new TwitchNormalizer)('ab'))->toBeNull()
+        ->and((new TwitchNormalizer)('https://twitch.tv/'))->toBeNull();
+});
+
+it('Skool normalizes a community url to the canonical www form', function () {
+    expect((new SkoolNormalizer)('https://skool.com/Max-Business-School/about?ref=x'))
+        ->toBe(['username' => 'max-business-school', 'url' => 'https://www.skool.com/max-business-school']);
+});
+
+it('Skool refuses product chrome that looks like a valid slug', function () {
+    // The load-bearing case: /signup parses fine as a slug, and without the
+    // chrome list a pasted sign-up page would be saved as a "community".
+    expect((new SkoolNormalizer)('https://www.skool.com/signup'))->toBeNull()
+        ->and((new SkoolNormalizer)('https://www.skool.com/login'))->toBeNull();
+});
+
+it('Strava normalizes a club url and a bare club id', function () {
+    expect((new StravaNormalizer)('https://strava.com/clubs/Midday-Milers'))
+        ->toBe(['username' => 'Midday-Milers', 'url' => 'https://www.strava.com/clubs/Midday-Milers'])
+        ->and((new StravaNormalizer)('289149'))
+        ->toBe(['username' => '289149', 'url' => 'https://www.strava.com/clubs/289149']);
+});
+
+it('Strava refuses an athlete url rather than coercing it into a club link', function () {
+    expect((new StravaNormalizer)('https://www.strava.com/athletes/12345'))->toBeNull();
 });

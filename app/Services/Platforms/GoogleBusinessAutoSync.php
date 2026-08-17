@@ -11,6 +11,7 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\ApifyBudget;
+use App\Services\Content\LinkPoolWriter;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -63,6 +64,7 @@ class GoogleBusinessAutoSync
         private readonly ApifyBudget $apifyBudget,
         private readonly FacebookNormalizer $facebookNormalizer,
         private readonly LinkRouter $linkRouter,
+        private readonly LinkPoolWriter $linkPool,
     ) {}
 
     /**
@@ -242,11 +244,18 @@ class GoogleBusinessAutoSync
 
         // Convergence Phase 6: the shared 'reservations' pseudo-key is retired,
         // so the brand is resolved from the host. A link matching NO reservation
-        // brand is skipped rather than pooled — same call as the ordering arm
-        // above: this is a background harvest, and a pool link is public.
+        // brand becomes a links-pool item (owner ruling 2A, extended to the
+        // harvest 2026-08-16) — pooled by the CALLER, since this method only
+        // resolves the write and does not perform it. Returning null is how it
+        // says "no connection for this one".
         $surface = $this->brandSurfaceFor($url, 'reservations');
         if ($surface === null) {
-            Log::info('platforms.google_business.reservation_unroutable', [
+            $user = User::find($userId);
+            if ($user !== null) {
+                $this->linkPool->add($user, $url, $this->clean(data_get($reservation, 'provider')) ?? $businessName);
+            }
+
+            Log::info('platforms.google_business.reservation_pooled', [
                 'user_id' => $userId, 'host' => parse_url($url, PHP_URL_HOST),
             ]);
 
@@ -362,15 +371,12 @@ class GoogleBusinessAutoSync
             ]];
         }
 
-        // Convergence Phase 6 — see the reservation arm for the same reasoning.
-        $surface = $this->brandSurfaceFor($url, 'booking');
-        if ($surface === null) {
-            Log::info('platforms.google_business.booking_unroutable', [
-                'user_id' => $userId, 'host' => parse_url($url, PHP_URL_HOST),
-            ]);
-
-            return null;
-        }
+        // Convergence Phase 6 + owner ruling 2026-08-16: a booking link no brand
+        // claims falls to `direct.book` rather than being dropped. Google's
+        // "Book online" is usually the merchant's OWN domain, which matches no
+        // brand by construction, and it had a working Book button before this
+        // phase — see DirectBooking's docblock.
+        $surface = $this->brandSurfaceFor($url, 'booking') ?? 'direct.book';
 
         return ['platform' => $surface, 'resourceId' => LegacyPlatformMap::legacyFor($surface), 'payload' => [
             'provider' => 'custom', 'url' => $url, 'name' => $businessName,
@@ -557,26 +563,24 @@ class GoogleBusinessAutoSync
                         : $this->linkRouter->routeOrdering($user, $repUrl);
 
                     if ($routed === null || $routed->outcome !== 'seeded') {
-                        // No brand home, and this is a BACKGROUND harvest — so it
-                        // is skipped rather than pooled, which is where this path
-                        // deliberately parts company with
-                        // OnlineOrderingController::addEntry.
+                        // No brand home. Owner ruling 2A, extended to the harvest
+                        // by owner answer 2026-08-16: the link is preserved as a
+                        // links-pool item rather than dropped. It becomes a public
+                        // link rather than an ordering card, which is the honest
+                        // outcome — an ordering link we cannot type is nearly
+                        // always a marketplace redirector, not a merchant's own
+                        // order page, so there is no card shape to give it.
                         //
-                        // Owner ruling 2A ("a row with no working brand home
-                        // becomes a links-pool item") is about rows a PERSON asked
-                        // for: the 41 being migrated, and the manual add path.
-                        // Applying it here would publish a link the owner never
-                        // chose — ordering connections are dashboard-only, a pool
-                        // link renders on the public sitepage, and the synced
-                        // modal's undo affordance is per-CONNECTION, so there
-                        // would be nothing there to take it back with. Dropping a
-                        // link we cannot type is recoverable (the owner pastes it);
-                        // publishing one unasked is not.
-                        //
-                        // Logged rather than silent so the rate of these is
-                        // visible — if it is not ~zero, the answer is a catalog
-                        // detector for the host, not a policy change here.
-                        Log::info('platforms.google_business.ordering_unroutable', [
+                        // No finding: the synced modal's undo is per-CONNECTION
+                        // and there is no connection to undo. The owner manages it
+                        // from Links.
+                        if ($user !== null) {
+                            $this->linkPool->add($user, $repUrl, $name);
+                            $existingCount++;
+                            $existingStoreKeys[$storeKey] = true;
+                        }
+
+                        Log::info('platforms.google_business.ordering_pooled', [
                             'user_id' => $userId,
                             'host' => parse_url($repUrl, PHP_URL_HOST),
                         ]);

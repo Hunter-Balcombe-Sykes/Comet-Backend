@@ -8,10 +8,13 @@ use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\ShopifyScraper;
 use Illuminate\Support\Str;
 
-// W1: every fetch-bearing region in the 7 bespoke connect controllers (Apple,
-// Skool, Shop, Fresha, Eventbrite/Humanitix via EventsPlatformController,
-// Events) is now capped by a FetchBudget::open(connect_budget_seconds, ...)
-// wrap, mirroring ConnectResolver::resolve() — with ZERO happy-path change.
+// W1: every fetch-bearing region in the bespoke connect controllers (Apple,
+// Shop, Fresha, Eventbrite/Humanitix via EventsPlatformController, Events) is
+// capped by a FetchBudget::open(connect_budget_seconds, ...) wrap, mirroring
+// ConnectResolver::resolve() — with ZERO happy-path change. (Skool was one of
+// the seven until Phase 1.2 demoted it to link-only and deleted its
+// controller; the bandcamp case below covers the ConnectResolver lane it used
+// to stand in for.)
 //
 // Budget exhaustion is simulated with a SafeUrlFetcher double that reproduces
 // exactly what SafeUrlFetcher::fetchFollowingRedirects() itself does once
@@ -99,17 +102,24 @@ it('apple music connect surfaces the existing 404, not a 500, when the fetch bud
     expect($spy->opened)->toBeTrue();
 });
 
-// ── Skool ──────────────────────────────────────────────────────────────────
+// ── Bandcamp (ConnectResolver, the registry-driven connect lane) ────────────
+// Skool held this slot until Phase 1.2 demoted it to link-only — its connect no
+// longer fetches anything, so there is no budget left to exhaust. Bandcamp is
+// the surviving equivalent and a strictly better fixture: it exercises
+// ConnectResolver::resolve()'s FetchBudget::open() wrap (the one the header
+// comment above calls the model for the bespoke controllers), which nothing
+// else in this file covered. BandcampScraper reads via tryFetch/fetchMany, so
+// exhaustion lands on the same graceful 404 an ordinary transport failure gives.
 
-it('skool connect surfaces the existing 404, not a 500, when the fetch budget is exhausted', function () {
+it('bandcamp connect surfaces the existing 404, not a 500, when the fetch budget is exhausted', function () {
     $spy = budgetSpy();
     $this->app->instance(FetchBudget::class, $spy);
     $this->app->instance(SafeUrlFetcher::class, exhaustedFetcher());
 
-    actingAsUser(fbUser('fbsk1'))
-        ->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/some-community'])
+    actingAsUser(fbUser('fbbc1'))
+        ->postJson('/api/platforms/bandcamp/connect', ['url' => 'https://demo.bandcamp.com'])
         ->assertStatus(404)
-        ->assertJsonPath('message', 'Could not read that Skool community — check the URL.');
+        ->assertJsonPath('message', 'Could not find releases on that Bandcamp page.');
 
     expect($spy->opened)->toBeTrue();
 });
@@ -253,7 +263,7 @@ it('events add surfaces the existing 422, not a 500, when the fetch budget is ex
 // The budget now wraps every happy path too, so proving the response is
 // unchanged is the other half of the contract. Apple connect, Eventbrite
 // connect, and Shopify addBrand are already exact-pinned in
-// PlatformResourceContractTest.php; Skool connect and Humanitix connect in
+// PlatformResourceContractTest.php; Humanitix connect in
 // IntegrationsV2ConnectionTest.php; events/add in EventsCatalogTest.php.
 // Fresha connect (team mode — the branch a 'partna' account takes, since
 // can_book_storewide is business-only) has no existing happy-path pin, so it

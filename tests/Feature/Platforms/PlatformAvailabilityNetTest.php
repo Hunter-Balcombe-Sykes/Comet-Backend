@@ -4,7 +4,7 @@ use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\FeatureAvailability\FeatureAvailability;
-use App\Services\Platforms\SkoolScraper;
+use App\Services\Platforms\BandcampScraper;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -27,24 +27,33 @@ function netUser(string $h): User
     ]);
 }
 
+// Both cases below borrow a scraped platform purely as a fixture for the
+// availability net — the gating is platform-agnostic. Swapped skool → bandcamp
+// when skool was demoted to link-only and SkoolScraper was deleted; bandcamp is
+// the surviving refreshable, scrape-backed equivalent.
 it('blocks persisting a connection for a disabled platform even after a successful scrape', function () {
     $user = netUser('netblock');
 
     // Scrape "succeeds" — the point is the net still refuses to persist.
-    $this->mock(SkoolScraper::class, function ($m) {
-        $m->shouldReceive('normalizeUrl')->andReturn('https://www.skool.com/demo');
-        $m->shouldReceive('fetchCommunity')->andReturn(['url' => 'https://www.skool.com/demo', 'name' => 'Demo']);
+    $this->mock(BandcampScraper::class, function ($m) {
+        $m->shouldReceive('normalizeOrigin')->andReturn('https://demoband.bandcamp.com');
+        $m->shouldReceive('fetchProfile')->andReturn([
+            'name' => 'Demo',
+            'thumbnail' => 't',
+            'items' => [['itemId' => 'a1', 'name' => 'Album', 'thumbnail' => 't', 'link' => 'l']],
+        ]);
+        $m->shouldReceive('enrichPrices')->andReturnUsing(fn (array $items) => $items);
     });
 
     FeatureAvailabilityRule::query()->create([
-        'feature_key' => 'integration.skool', 'mode' => 'disabled',
+        'feature_key' => 'integration.bandcamp', 'mode' => 'disabled',
     ]);
     FeatureAvailability::flush();
 
-    actingAsUser($user)->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/demo'])
+    actingAsUser($user)->postJson('/api/platforms/bandcamp/connect', ['url' => 'https://demoband.bandcamp.com'])
         ->assertStatus(503);
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'skool')->count())
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'bandcamp')->count())
         ->toBe(0);
 });
 
@@ -53,22 +62,27 @@ it('does not resurrect a taken-down connection while the platform stays disabled
 
     // Existing connection already taken down (is_active=false).
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'skool', 'resource_id' => 'c-res',
-        'payload' => ['url' => 'https://www.skool.com/demo', 'name' => 'Demo'], 'is_active' => false,
+        'user_id' => $user->id, 'platform' => 'bandcamp', 'resource_id' => 'c-res',
+        'payload' => ['url' => 'https://demoband.bandcamp.com', 'name' => 'Demo'], 'is_active' => false,
     ]);
 
-    $this->mock(SkoolScraper::class, function ($m) {
-        $m->shouldReceive('normalizeUrl')->andReturn('https://www.skool.com/demo');
-        $m->shouldReceive('fetchCommunity')->andReturn(['url' => 'https://www.skool.com/demo', 'name' => 'Demo']);
+    $this->mock(BandcampScraper::class, function ($m) {
+        $m->shouldReceive('normalizeOrigin')->andReturn('https://demoband.bandcamp.com');
+        $m->shouldReceive('fetchProfile')->andReturn([
+            'name' => 'Demo',
+            'thumbnail' => 't',
+            'items' => [['itemId' => 'a1', 'name' => 'Album', 'thumbnail' => 't', 'link' => 'l']],
+        ]);
+        $m->shouldReceive('enrichPrices')->andReturnUsing(fn (array $items) => $items);
     });
 
     FeatureAvailabilityRule::query()->create([
-        'feature_key' => 'integration.skool', 'mode' => 'disabled',
+        'feature_key' => 'integration.bandcamp', 'mode' => 'disabled',
     ]);
     FeatureAvailability::flush();
 
     // A reconnect attempt while disabled must not flip is_active back to true.
-    actingAsUser($user)->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/demo'])
+    actingAsUser($user)->postJson('/api/platforms/bandcamp/connect', ['url' => 'https://demoband.bandcamp.com'])
         ->assertStatus(503);
 
     expect($conn->refresh()->is_active)->toBeFalse();

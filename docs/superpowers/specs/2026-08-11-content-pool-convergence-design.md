@@ -4420,24 +4420,57 @@ Turning the guard on also surfaced two write paths the plan had not listed:
 `GoogleBusinessAutoSync`'s **booking** and **reservation** fallbacks still wrote
 the shared keys.
 
-### 26.6 A ruling extended, and the extension named
+### 26.6 A gap in the plan, raised and ruled on
 
-Owner ruling 2A ("a row with no working brand home becomes a links-pool item")
-governs the 41 rows and the manual write paths. It is **deliberately not applied
-inside `GoogleBusinessAutoSync`**, which skips-and-logs instead:
+**Superseded 2026-08-16 by owner ruling. The paragraph this replaces is kept
+below, because the reasoning that turned out to be wrong is worth more than the
+conclusion.**
 
-- ordering connections are dashboard-only; a links-pool item is **public**;
-- the Google harvest is automatic, so pooling would publish a link the owner
-  never chose;
-- the synced modal's undo is per-CONNECTION, so there would be nothing there to
-  take it back with.
+The plan ordered ruling 2A ("a row with no working brand home becomes a
+links-pool item") for two things: the 41 existing rows, and the `/detect` write
+paths listed in unit 4. It said nothing about `GoogleBusinessAutoSync`, which is
+not in that list — and its coverage check ("every host **the harvester
+classifies** already has a catalog surface — 18/18 booking") could not have
+covered the case that matters, because the case is a URL the harvester
+classifies as nothing at all.
 
-Dropping a link we cannot type is recoverable — the owner pastes it, and
-`BookingController::detect` sends exactly that URL to the pool under 2A.
-Publishing one unasked is not. Logged as
-`platforms.google_business.{ordering,booking,reservation}_unroutable` so the rate
-is visible; if it is not ~zero the answer is a catalog detector for the host, not
-a policy change. **Raised for the owner rather than assumed settled.**
+**What was implemented first, and why it was wrong.** The harvest skipped-and-
+logged a link it could not type, on the argument that ordering connections are
+dashboard-only, a pool item is public, the harvest is automatic, and the synced
+modal's undo is per-CONNECTION — so pooling publishes something the owner never
+chose with no way back. That argument holds. What it missed is that **one of the
+three families already had a working card and would lose it.**
+
+Google's "Book online" link usually lives on the merchant's OWN domain
+(`fadelab.com.au/book-appointment`). It matches no brand by construction, and
+`GoogleBusinessAutoSync` deliberately KEEPS it — there is a test whose comment
+reads *"It must NOT be filtered as the website echo — it's a real way to book."*
+So the skip turned a deliberately-built, tested Book button into an empty Booking
+card. That is a product regression, not a cleanup, and no amount of correct
+reasoning about publishing-unasked makes it one.
+
+**The ruling (2026-08-16), and the asymmetry it accepts:**
+
+| Harvested link with no brand home | Result |
+|---|---|
+| ordering | links pool — 2A extended to the harvest |
+| reservations | links pool — 2A extended to the harvest |
+| **booking** | **`direct.book` — a real Booking card, as before** |
+
+Booking is the exception because a business's **own booking page is a normal way
+to book**. An ordering link we cannot type is nearly always a marketplace
+redirector (`hungryjacks.app.link`), not a merchant's own order page — there is
+no card shape to give it, so a link is the honest answer.
+
+Logged as `platforms.google_business.{ordering,reservation}_pooled` so the rate
+stays visible; if it is not ~zero the answer is a catalog detector for the host.
+
+**The lesson, which is not about booking.** "Nothing is lost" was checked against
+*the set of hosts the classifier knows*. The rows that get hurt by a retirement
+are, by definition, the ones outside that set. A coverage claim that draws its
+population from the same source as the mechanism it is checking cannot see its
+own blind spot — and this one had a passing test sitting in the repo naming
+exactly what it missed.
 
 ### 26.7 Behaviour changes, stated rather than discovered later
 
@@ -4462,25 +4495,55 @@ a policy change. **Raised for the owner rather than assumed settled.**
   not payload). It is the store's own public identifier — Shopify serves it from
   the storefront's `meta.json` — and the payload stays `[]`.
 
-### 26.8 One new catalog surface — `generic.store`
+### 26.8 Two new catalog surfaces — `generic.store` and `direct.book`
 
-A session decision, flagged for the owner. `ShopProviderDetector` resolves five
-providers; four have catalog surfaces, and the connect endpoint advertises the
-fifth ("pages with standard product markup") as supported, so refusing it would
-be a product regression.
+Both were flagged rather than assumed; both were approved 2026-08-16.
 
-**It is not `partna.storefront` renamed.** That surface held EVERY storefront —
-five Shopify stores and a WooCommerce one behind one row, which is the whole
-defect. This one holds only stores whose platform genuinely has no name: **zero
-on dev**, where all 9 brands are shopify (8) or woocommerce (1). Hidden,
-notConnectable, and deliberately detector-less — a detector claims "this host IS
-this brand", and the defining property here is that no host pattern identifies it.
+**`generic.store`** — `ShopProviderDetector` resolves five providers; four have
+catalog surfaces, and the connect endpoint advertises the fifth ("pages with
+standard product markup") as supported, so refusing it would be a product
+regression. **Zero on dev**, where all 9 brands are shopify (8) or woocommerce (1).
+
+**`direct.book`** — the booking page no brand claims, nearly always the
+business's own site. See §26.6 for why it exists.
+
+**Neither is the retired key renamed, and the same argument covers both.**
+`partna.storefront` held EVERY storefront — five Shopify stores and a WooCommerce
+one behind one row — and `partna.booking_link` held every booking link, Booksy
+and Treatwell included, all indistinguishable. That is the defect. These two are
+LAST ARMS: reached only after every real brand has been tried, so Shopify and
+Booksy still land on their own surfaces.
+
+Both are hidden and notConnectable, and both are deliberately **detector-less** —
+a detector claims "this host IS this brand", and the defining property here is
+that no host pattern identifies it.
+
+**They are separate BRANDS (`generic`, `direct`), not two surfaces on one**, and
+that is forced rather than stylistic: `PublicIntegrationConnectionResource
+::ALLOWLIST` is keyed by brand PREFIX. A storefront must publish `[]` (products
+reach the wire through `profile.pools.shop`, and a second thinner store shape
+could only disagree with it); a booking card must publish url/name/favicon/logo/
+provider or the sitepage cannot render a Book button. One brand key cannot answer
+both.
+
+**Booking resolves in three arms, and the third is what keeps `direct.book` from
+becoming the thing it replaced:**
+
+1. a real booking brand → that brand's surface;
+2. **nothing** recognised it → `direct.book`;
+3. it classified as something **else** (an Instagram profile pasted into the
+   booking box) → the links pool.
+
+Arm 3 is deliberately not arm 2. Calling a link we have positively identified as
+not-a-booking-page a booking page would be being wrong on purpose.
 
 ### 26.9 Lanes
 
+Re-run after the `direct.book` ruling (§26.6) landed:
+
 ```
-Feature       5800 passed, 1 skipped   (21,021 assertions)
-Unit          2537 passed, 1 skipped   ( 7,744 assertions)
+Feature       5810 passed, 1 skipped   (21,299 assertions)
+Unit          2537 passed, 1 skipped   ( 7,747 assertions)
 Postgres       207 passed              (   959 assertions)
 Applied-schema 196 passed, 1 skipped   (   558 assertions) — every migration from zero
 Authorization   31 passed              ( 1,045 assertions)
@@ -4509,6 +4572,10 @@ legacy third.
 - `LegacyPlatformMap`'s six pseudo entries must STAY: `CatalogLegacyMapTest` pins
   the map pair-for-pair to the 20260727110001 backfill CASE, and the map is what
   lets a pre-migration row still read correctly.
+- **`generic.store` and `direct.book` are LAST ARMS, not buckets** (§26.8). If a
+  sweep ever finds real volume on either, the answer is a detector for the host
+  that keeps landing there — not widening the arm. They are the two places this
+  phase's shape could quietly regrow.
 - `showcase-eats` holds a `shopify.store` placeholder with 0 brands, created
   2026-07-27 by unit 1's promotion — not this migration's, and harmless.
 - The `*.square.site` classification defect (§26.3).

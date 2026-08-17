@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
 use App\Http\Controllers\Api\Content\ItemController;
 use App\Http\Controllers\Api\Content\ItemLinkController;
+use App\Http\Controllers\Api\Content\KindsController;
 use App\Http\Controllers\Api\Content\ManualOverrideController;
 use App\Http\Controllers\Api\Content\PoolController;
 use App\Http\Controllers\Api\Content\PoolItemCreateController;
@@ -152,6 +153,14 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->whereUuid('section')->name('site.sections.groups.destroy');
 
         // ── Content library (plan §5/§6). ──────────────────────────────────
+        // The schema itself: kind → facets → overridable columns + wire types,
+        // plus the pool each kind belongs to and that pool's curation
+        // permissions. Pure registry projection, no user state — it is here
+        // rather than on a public route only because everything under
+        // /api/content is authenticated and there is no reason to widen that.
+        Route::get('/content/kinds', KindsController::class)
+            ->name('content.kinds.index');
+
         // Per-column manual edits — the "edited" chip and its reset-to-source.
         Route::put('/content/items/{item}/overrides', [ManualOverrideController::class, 'upsert'])
             ->whereUuid('item')->name('content.items.overrides.upsert');

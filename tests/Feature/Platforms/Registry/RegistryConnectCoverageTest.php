@@ -14,6 +14,9 @@ it('pins the descriptor-driven connect contract for every reducible platform', f
         'nowbookit' => ['url', ['required', 'string', 'max:2048'], [], false],
         'opentable' => ['url', ['required', 'string', 'max:2048'], [], false],
         'resdiary' => ['url', ['required', 'string', 'max:2048'], [], false],
+        // Link-only since Phase 1.2, but still url-shaped on the wire — see the
+        // provider's note: the field name and the stored payload shape are
+        // independent, and renaming it would break the dashboard's connect body.
         'skool' => ['url', ['required', 'string', 'max:500'], [], false],
         'soundcloud' => ['url', ['required', 'string', 'max:500'], [], false],
         'spotify' => ['url', ['required', 'string', 'max:500'], [], false],
@@ -60,7 +63,10 @@ it('pins deferredConnect() flag <=> DeferredConnect interface for every descript
     // vice versa), the flag<=>instanceof equality breaks.
     $registry = app(PlatformRegistry::class);
 
-    $deferredKeys = ['spotify', 'bandcamp', 'twitch', 'strava', 'vimeo', 'youtube-music', 'youtube'];
+    // twitch + strava dropped (Phase 1.2): demoted to link-only, so their
+    // connect is UrlConnect — a pure normalizer with no upstream fetch and
+    // therefore nothing to defer. The negative loop below now pins that.
+    $deferredKeys = ['spotify', 'bandcamp', 'vimeo', 'youtube-music', 'youtube'];
 
     foreach ($registry->all() as $key => $descriptor) {
         $strategy = $descriptor->connectStrategy();
@@ -74,7 +80,7 @@ it('pins deferredConnect() flag <=> DeferredConnect interface for every descript
         expect($d->connectFetchErrorMessage())->not->toBeNull("missing connectFetchErrorMessage: {$key}");
     }
 
-    // The five non-deferred connect implementers + every other descriptor
+    // The non-deferred connect implementers + every other descriptor
     // must NOT have declared the flag.
     foreach (array_diff($registry->keys(), $deferredKeys) as $key) {
         expect($registry->get($key)->supportsDeferredConnect())->toBeFalse("unexpected deferred flag: {$key}");
