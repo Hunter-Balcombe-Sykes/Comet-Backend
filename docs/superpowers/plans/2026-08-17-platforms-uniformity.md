@@ -212,6 +212,108 @@ Phase B does not touch the slice-7 drop-list tables — it competes for the same
 
 # PHASE B — brand route contract
 
+## CORRECTIONS (2026-08-17, from a five-agent read of the live code)
+
+Phase B was re-derived from source before implementation. **Seven things below
+supersede what the tasks originally said. Read this section before Task 3.**
+
+### C1 — The slug is `LegacyPlatformMap::legacyFor($surfaceKey)`, NOT `brand_key`
+
+`brand_key` is wrong and would have created duplicate platforms. 14 registry
+slugs spell their brand differently from the catalog (`apple_music` vs
+`apple-music`, `google_business` vs `google-business`, `ko_fi` vs `ko-fi`,
+`resident_advisor` vs `resident-advisor`, `apple_podcasts` vs `apple-podcast`,
+`bella_booking` vs `bella-booking`, `youtube_music` vs `youtube-music`).
+Deriving on `brand_key` registers a second descriptor beside each.
+
+`legacyFor()` resolves all of them through `SPECIAL_TO_LEGACY`, and it is the
+**same function the generated `platform` column computes** — so the slug matches
+storage by construction.
+
+### C2 — The multi-surface problem does not exist under C1. Delete that test.
+
+Task 4's "skip brands with 2+ connectable surfaces" rule and Task 8's assertion
+guarding it were written against `brand_key`. Under `legacyFor()`, **all 102
+URL-detected surfaces map to 102 distinct slugs — zero collisions** (verified by
+script, 2026-08-17). `SPECIAL_TO_LEGACY` already separates the only two
+multi-surface brands: `square.book` → `square`, `square.order` →
+`square-ordering`; `bandcamp.artist` and `bandcamp.store` both → `bandcamp`,
+which is already hand-written and therefore skipped.
+
+Do not build the 1:1 grouping logic. Derive per **surface**, key by
+`legacyFor()`, and skip any slug the registry already has.
+
+### C3 — Measured scope: 35 new slugs, not ~80
+
+102 URL-detected surfaces → 102 slugs; 77 already in the registry; **35 new.**
+All 35 lack a DSAR allowlist entry (none already have one).
+
+### C4 — `register()` is last-write-wins with NO guard
+
+`PlatformRegistry::register()` overwrites silently. A derived slug colliding with
+a hand-written one would replace a real descriptor with a stub. **Add a
+duplicate-key guard to `register()` before anything else lands** (Task 3), and
+skip on `has()` at the registration site as belt-and-braces.
+
+### C5 — Two allowlists must grow, and DSAR is privacy-facing
+
+- `DsarPayloadFilter::DSAR_ALLOWLIST` — 35 entries needed or
+  `DsarAllowlistCoverageTest` reports 35 `MissingDsarAllowlistException`.
+  **Use `['url', 'name', 'favicon', 'logo', 'provider']`** — the already-reviewed
+  shape for a link-only brand connection, identical to the existing `booksy`,
+  `vagaro`, `resy`, `ticketek`, `oztix`, `trybooking`, `ticketmaster`, `bopple`,
+  `square-ordering`, `hungrypanda`, `easi` entries.
+  **Do NOT use `[]`.** `[]` withholds the account holder's own pasted URL and
+  business name from their own Article 15 export. The only `[]` entry today is
+  `shop`, and it carries a written reason (payload vestigial, data held
+  relationally). Fail-closed already protects against leakage — the risk here is
+  under-disclosure, not over-disclosure.
+  **Exception to check individually:** `shopify`, `woocommerce`, `squarespace`,
+  `bigcartel` are storefronts. The `shop` entry's `[]` rationale cites
+  `site.shop_brands`, which the shop re-home has since DROPPED — re-read what the
+  storefront lane writes to `payload` now before choosing their shape.
+- `PublicIntegrationConnectionResource::ALLOWLIST` — 7 underscore brand keys.
+
+### C6 — The connect guard cannot be a `PlatformConnectRequest` subclass
+
+`GenericPlatformController::connect()` type-hints `PlatformConnectRequest`
+**concretely**, so Laravel will never inject a subclass there. And
+`ResolvesConnectRules::connectDescriptor()` **aborts 404 when
+`connectField()` is null** — so every derived descriptor MUST declare
+`connectInput('url', ['required','string','max:2048'])` or connect 404s before
+validation runs.
+
+Correct approach: add the brand check as an `after()` hook on
+`PlatformConnectRequest` itself, gated on `routeShape() === Brand` so no existing
+platform's behaviour changes. Laravel 12 supports `public function after(): array`
+on FormRequest. Do not re-`use ResolvesConnectRules` in any subclass — the trait's
+private property would collide.
+
+### C7 — Two brands classify to a pseudo-slug and would be wrongly rejected
+
+`WebsiteLinkHarvester::classify()` ends with a `classifyFromCatalog()` fallback,
+so most brands resolve correctly even without a host-table entry. But
+`partiful.com` and `ticketmaster.*` are matched by **inline regexes inside
+`classify()`** that return `platform => 'events-custom'`, never their own brand.
+The guard must special-case them or they 422 on a valid URL.
+
+Also note `tock`: the catalog detects `exploretock.com` AND `tock.com`, the
+harvester only `exploretock.com`.
+
+### C8 — `route:cache` is SAFE
+
+Descriptors never enter the serialised route graph — `Route::group` callbacks run
+at registration and are not stored, and no route uses a closure action. Confirmed
+by grep. **One ordering rule:** `catalog:compile` must run before `route:cache` in
+deploy, and every strategy must stay behind a `Closure` factory so nothing
+executes on a build machine with no DB.
+
+### Additional tests that will break
+
+`IntegrationContractGoldenMasterTest.php:562-563` holds an **exact route
+snapshot** — it must be regenerated. `PlatformControllerConvergenceTest.php:68-70`
+asserts per descriptor.
+
 ---
 
 ### Task 3: Re-base the registry freeze
