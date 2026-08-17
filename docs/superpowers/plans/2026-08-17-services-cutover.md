@@ -54,7 +54,7 @@ No code. The migration `supabase/migrations/20260817000000_public_site_payload_s
 
 **Files:** none modified. `docs/wire-changes/2026-08-17-services-cutover.md` created.
 
-- [ ] **Step 1: Confirm the pre-state**
+- [x] **Step 1: Confirm the pre-state**
 
 Run (Supabase MCP `execute_sql` against `glncumufgaqcmqhzwrxm`, or psql):
 
@@ -63,17 +63,24 @@ select version from supabase_migrations.schema_migrations where version = '20260
 -- expect: 0 rows (unapplied)
 ```
 
-- [ ] **Step 2: Dry-run, then apply**
+- [x] **Step 2: Dry-run, then apply**
 
 ```bash
 supabase link --project-ref glncumufgaqcmqhzwrxm
 supabase db push --dry-run    # MUST list exactly one migration: 20260817000000
-supabase db push
+supabase db push --include-all
 ```
 
 If the dry-run lists anything else, STOP — the migration set has drifted since 2026-08-17 and the owner decides.
 
-- [ ] **Step 3: Verify the view moved off the three tables**
+`--include-all` is required, not optional: `20260817000000` sorts BEFORE the
+already-applied `20260817000100`–`001100`, and a bare `db push` refuses
+out-of-order files ("Found local migration files to be inserted before the last
+migration on remote database") and applies nothing. Run
+`db push --dry-run --include-all` first and confirm it still lists exactly one
+file — that is what bounds the flag's blast radius to the intended migration.
+
+- [x] **Step 3: Verify the view moved off the three tables**
 
 ```sql
 SELECT DISTINCT dep.relname, src_ns.nspname||'.'||src.relname AS on_table
@@ -88,15 +95,36 @@ AND dep.relname <> src.relname;
 -- expect: 0 rows. Any row = the migration missed a reference; STOP.
 ```
 
-- [ ] **Step 4: Re-warm KV and spot-check one sitepage**
+- [x] **Step 4: Re-warm the payload cache and spot-check one sitepage**
+
+This step was written as a KV re-warm. That is the wrong lever and the command
+as drafted was a silent no-op — recorded here rather than quietly fixed:
+
+1. `SyncSubdomainToKvJob` writes only the `{type:"individual"}` routing pointer.
+   It never reads `PublicSitePayload`, so re-syncing KV refreshes nothing about
+   the `services` key. What caches the view's output is
+   `SiteCacheService::getPublicSitePayload()` (`site:payload:{subdomain}` + its
+   `:stale` SWR twin), read by `PublicSiteController`.
+2. The job's constructor takes a **user** id; the drafted command passed
+   `$s->id`, a **site** id. `User::withTrashed()->find()` would miss, fall to
+   `retire()`, find an empty handle and no-op — 22 jobs reporting success while
+   doing nothing.
+
+What actually re-warms it (invalidate first — `warmSiteCache()` returns the
+cached value and would not overwrite a still-fresh entry):
 
 ```bash
-cloud command:run development "php artisan tinker --execute=\"\App\Models\Core\Site\Site::query()->where('is_published', true)->each(fn (\$s) => \App\Jobs\Cloudflare\SyncSubdomainToKvJob::dispatch(\$s->id));\""
+cloud command:run development --cmd='php artisan tinker --execute="\$c = app(App\Services\Cache\SiteCacheService::class); \$n = 0; foreach (App\Models\Core\Site\Site::query()->where(\"is_published\", true)->get() as \$s) { \$c->invalidateSitePayload(\$s); \$c->warmSiteCache(\$s->subdomain); \$n++; } echo \"warmed=\" . \$n . PHP_EOL;"'
 ```
 
-Then fetch one published site's public profile (`GET https://dev-api.partna.au/api/public/profiles/{handle}`) and its rendered sitepage; the `services` arrays must agree (they carry `content.items` ids on both now — the migration header's own verification, re-run).
+`--cmd` needs the full `php artisan …`; a bare `tinker` gives
+`tinker: command not found`. Read the result with
+`cloud command:get <id> --json` and trust `exitCode`, not `status` — a failed
+run still reports `status: command.success` with `exitCode: 1`.
 
-- [ ] **Step 5: Record the wire change**
+Then fetch one published site's public profile (`GET https://dev-api.partna.au/api/public/profiles/{handle}`) and compare against the cached render payload (`getPublicSitePayload('{subdomain}')`); the `services` arrays must agree (they carry `content.items` ids on both now — the migration header's own verification, re-run).
+
+- [x] **Step 5: Record the wire change**
 
 Create `docs/wire-changes/2026-08-17-services-cutover.md`:
 
@@ -113,7 +141,7 @@ so KV and API now agree. Verified equal element-for-element across all 22
 published dev sites at apply time (re-run, not cited).
 ```
 
-- [ ] **Step 6: Check dev logs are clean, then commit the manifest**
+- [x] **Step 6: Check dev logs are clean, then commit the manifest**
 
 ```bash
 cloud env:logs partna development --minutes 10
