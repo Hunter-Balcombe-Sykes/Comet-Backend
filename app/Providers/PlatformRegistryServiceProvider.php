@@ -59,6 +59,7 @@ use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Payloads\ShopPayload;
 use App\Services\Platforms\Payloads\StandaloneEventPayload;
+use App\Services\Platforms\Registry\DerivedDescriptorFactory;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -629,6 +630,18 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, null, false);
+
+            // Derived LAST, and only into free slugs. Everything above is
+            // hand-written and authoritative: it carries connect strategies,
+            // resources and refresh wiring that a derived link-only stub does not.
+            // register() throws on a duplicate, so the has() check is what keeps
+            // this a no-op rather than a boot failure when a brand graduates to a
+            // hand-written descriptor. Pinned by RegistryCoverageTest's shadow test.
+            foreach (app(DerivedDescriptorFactory::class)->build() as $slug => $derived) {
+                if (! $r->has($slug)) {
+                    $r->register($derived);
+                }
+            }
 
             return $r;
         });

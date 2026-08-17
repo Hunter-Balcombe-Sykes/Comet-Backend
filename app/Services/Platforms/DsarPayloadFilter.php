@@ -161,7 +161,57 @@ final class DsarPayloadFilter
         // column, so there is nothing here to disclose. site.shop_brands
         // itself is NOT currently exported by DataExportPayloadBuilder at
         // all; that is a pre-existing gap, out of scope for this unit.
+        //
+        // NOTE 2026-08-17: site.shop_brands has since been DROPPED by the shop
+        // re-home; storefronts live in content.storefronts. The `[]` above is
+        // still correct for this legacy pseudo-platform key (its own payload
+        // remains vestigial), but the rationale's second sentence is now
+        // historical. The per-brand storefront slugs below are a different
+        // thing and do disclose.
         'shop' => [],
+
+        // ── Derived brand platforms (uniformity Phase B) ────────────────────
+        // Every connectable, URL-detected catalog brand that has no hand-written
+        // descriptor now carries platform routes, so each needs a DSAR entry or
+        // its payload renders EMPTY in the account holder's own export.
+        //
+        // All take the SAME shape as the already-reviewed link-only brand
+        // entries above (booksy, vagaro, resy, ticketek, oztix, trybooking,
+        // resident-advisor, ticketmaster, bopple, square-ordering, hungrypanda,
+        // easi): the connection is written by LinkRouter as a CardPayload and
+        // holds exactly the URL the account holder pasted plus the card metadata
+        // resolved from it.
+        //
+        // Deliberately NOT `[]`. These keys are the account holder's own data —
+        // their booking page, their store, the business name shown on it — and
+        // Article 15 entitles them to it. `[]` is reserved for a payload that
+        // genuinely holds nothing (the `shop` case above, which says so).
+        // DsarPayloadFilter already fails closed, so the risk on this list is
+        // under-disclosure, never leakage. None of these platforms can hold
+        // THIRD_PARTY_KEYS: a card carries no reviewer, organiser or venue.
+        //
+        // The brands still marked notConnectable() in the catalog get their
+        // entry in the same commit that flips them — an entry for an
+        // unregistered platform is itself a test failure (the stale-entry
+        // assertion in DsarAllowlistCoverageTest), and rightly so.
+        'acuity' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'calendly' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'chope' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'chownow' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'circle' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'deliveroo' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'doordash' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'eat_app' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'genbook' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'grubhub' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'just_eat' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'kajabi' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'luma' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'menulog' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'shopify' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'squarespace' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'uber_eats' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'woocommerce' => ['url', 'name', 'favicon', 'logo', 'provider'],
     ];
 
     /**
