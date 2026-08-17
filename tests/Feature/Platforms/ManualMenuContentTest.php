@@ -1038,6 +1038,122 @@ it('keeps an owner-edited dish the vendor dropped, and still retires an untouche
     expect($live->has('Soup'))->toBeTrue();
 });
 
+// DATA-LOSS REGRESSION, the WRITE half of the one above. There the vendor
+// dropped the edited dish; here it still lists it, so the scrape reaches the
+// write and would re-project the vendor's values straight over the owner's.
+//
+// WHOLE-DISH lock (owner ruling): any override detaches the dish from platform
+// sync entirely, restoring the legacy `is_manual` behaviour. So the frozen
+// description below is the point, not a side effect — the vendor's new copy is
+// refused on a column the owner never touched, because the DISH is locked, not
+// the column.
+//
+// Again a RENAME, so the dish's two identities disagree (headline_cache holds
+// 'House Burger', the coord still hashes 'Burger') and only a coord-keyed skip
+// passes. Fries is the control: same scrape, no owner edit, MUST take the
+// vendor's new price — otherwise this would pass on a job that had stopped
+// writing altogether.
+it('does not re-project the vendor over an owner-edited dish the vendor still lists', function () {
+    $user = mmcUser('mm16b');
+    mmcOrdering($user);
+
+    $run1 = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [['name' => 'Mains', 'items' => [
+            ['name' => 'Burger', 'description' => 'Vendor copy, run one.', 'pickupPrice' => 12.0, 'deliveryPrice' => 12.0],
+            ['name' => 'Fries', 'pickupPrice' => 5.0, 'deliveryPrice' => 5.0],
+        ]]],
+    ]];
+    // Run 2 keeps both dishes and re-prices them.
+    $run2 = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [['name' => 'Mains', 'items' => [
+            ['name' => 'Burger', 'description' => 'Vendor copy, run two.', 'pickupPrice' => 25.0, 'deliveryPrice' => 25.0],
+            ['name' => 'Fries', 'pickupPrice' => 7.0, 'deliveryPrice' => 7.0],
+        ]]],
+    ]];
+    $this->mock(MenuApifyScraper::class, function ($m) use ($run1, $run2) {
+        $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
+    });
+
+    mmcRunFetch($user);
+    $burgerId = (string) mmcDishes($user)['Burger']->id;
+
+    // Through the real verb, so this breaks if recordOwnerEdits() stops firing.
+    // Name + price only — the description is deliberately NOT sent, so it
+    // carries no override row of its own.
+    actingAsUser($user)->patchJson("/api/platforms/menu/items/{$burgerId}", [
+        'name' => 'House Burger', 'price' => 18.0,
+    ])->assertOk();
+    expect(mmcOverrides($burgerId))->not->toHaveCount(0);
+
+    mmcRunFetch($user, force: true);
+
+    $live = mmcDishes($user);
+    // The owner's name and price survived a scrape that offered its own.
+    expect($live->has('House Burger'))->toBeTrue();
+    expect($live->has('Burger'))->toBeFalse();
+    expect((string) $live['House Burger']->id)->toBe($burgerId);
+    expect((float) $live['House Burger']->base_price)->toBe(18.0);
+    // Whole-dish, not per-column: an untouched column stayed on run 1's value
+    // rather than following the vendor to run 2's.
+    expect($live['House Burger']->description)->toBe('Vendor copy, run one.');
+    // And the skip did not strand its coord: absentDishIds() saw the vendor
+    // still listing it, so it is live, not retired.
+    expect($live['House Burger']->removed_at)->toBeNull();
+
+    // Control: the untouched dish took the vendor's new price, so the scrape
+    // really did write this run.
+    expect((float) $live['Fries']->base_price)->toBe(7.0);
+});
+
+// THE PRICE EDIT, which has no override column of its own to hide behind.
+// content.offers is a SET resolved by union, so FacetRegistry admits no offer
+// override — a price-only PATCH can never freeze "price". What it does leave is
+// the f_text/headline row recordOwnerEdits() writes on EVERY owner write, and
+// the WHOLE-DISH lock is what turns that one row into a price that sticks. This
+// pins the pairing: weaken recordOwnerEdits() to only write when a name is sent,
+// or narrow the lock to the overridden columns, and the price reverts again.
+it('keeps an owner price-only edit across a scrape that re-prices the dish', function () {
+    $user = mmcUser('mm16c');
+    mmcOrdering($user);
+
+    $run1 = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [['name' => 'Mains', 'items' => [
+            ['name' => 'Burger', 'pickupPrice' => 12.0, 'deliveryPrice' => 12.0],
+            ['name' => 'Fries', 'pickupPrice' => 5.0, 'deliveryPrice' => 5.0],
+        ]]],
+    ]];
+    $run2 = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [['name' => 'Mains', 'items' => [
+            ['name' => 'Burger', 'pickupPrice' => 25.0, 'deliveryPrice' => 25.0],
+            ['name' => 'Fries', 'pickupPrice' => 7.0, 'deliveryPrice' => 7.0],
+        ]]],
+    ]];
+    $this->mock(MenuApifyScraper::class, function ($m) use ($run1, $run2) {
+        $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
+    });
+
+    mmcRunFetch($user);
+    $burgerId = (string) mmcDishes($user)['Burger']->id;
+
+    // Price ONLY — no name, no description. The dish keeps the vendor's name,
+    // so its coord and its headline still agree; nothing here is a rename.
+    actingAsUser($user)->patchJson("/api/platforms/menu/items/{$burgerId}", ['price' => 18.0])->assertOk();
+    expect(mmcOverrides($burgerId)->pluck('column_name')->all())->toContain('headline');
+
+    mmcRunFetch($user, force: true);
+
+    $live = mmcDishes($user);
+    expect((float) $live['Burger']->base_price)->toBe(18.0);
+    expect($live['Burger']->removed_at)->toBeNull();
+    expect((string) $live['Burger']->id)->toBe($burgerId);
+    // Control: the scrape still re-priced the dish nobody touched.
+    expect((float) $live['Fries']->base_price)->toBe(7.0);
+});
+
 it('preserves a manual dish when the last ordering link is removed (clearScrapedContent)', function () {
     $user = mmcUser('mm15');
     $menu = Menu::create([
