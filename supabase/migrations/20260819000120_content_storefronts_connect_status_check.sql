@@ -3,7 +3,7 @@
 -- Carry site.shop_brands' connect_status vocabulary onto its replacement,
 -- BEFORE the DROP takes the original away.
 --
--- site.shop_brands has three CHECK constraints; content.storefronts has none.
+-- site.shop_brands has three CHECK constraints; content.storefronts had none.
 -- Two of the three are dead and carry nothing:
 --
 --   shop_brands_selection_mode_check  ('manual' | 'latest')
@@ -27,19 +27,37 @@
 -- failure this constraint prevents. 20260813100000 declared the column bare
 -- text, so the guarantee did not come across with the data.
 --
--- Written now rather than after the DROP because after the DROP there is no
--- original left to compare against, and a lost invariant is not discoverable
--- by reading the replacement.
+-- Written before the DROP rather than after, because afterwards there is no
+-- original left to compare against and a lost invariant is not discoverable by
+-- reading the replacement.
 --
--- NOT VALID is not used: dev holds 15 rows and every one is NULL, so the
--- constraint validates instantly and a full-table check costs nothing here.
+-- ⚠️ HISTORY — dev ran an EARLIER, UNSAFE FORM of this file: a single
+-- `ADD CONSTRAINT ... CHECK (...)` with no NOT VALID, which the pre-push guard
+-- rejected (CONVENTIONS.md §2). Dev is NOT re-run: the version is already
+-- recorded in supabase_migrations.schema_migrations, and dev already holds the
+-- end state this file produces — the constraint present and convalidated, over
+-- 15 rows all of which are NULL. What follows is the form PRODUCTION and any
+-- from-zero apply will use.
 --
 -- ROLLBACK: ALTER TABLE content.storefronts
 --             DROP CONSTRAINT IF EXISTS storefronts_connect_status_check;
+
+-- Step A — NOT VALID: the catalog write releases its lock immediately and only
+-- new rows are checked. Existing rows are not scanned here.
 BEGIN;
 
 ALTER TABLE content.storefronts
     ADD CONSTRAINT storefronts_connect_status_check
-    CHECK (connect_status IS NULL OR connect_status IN ('pending', 'failed'));
+    CHECK (connect_status IS NULL OR connect_status IN ('pending', 'failed'))
+    NOT VALID;
+
+COMMIT;
+
+-- Step B — validate in its OWN transaction. SHARE UPDATE EXCLUSIVE, so reads
+-- and writes continue during the scan; bundling this with Step A would hold the
+-- heavier lock throughout and defeat the split (guard Check 8).
+BEGIN;
+
+ALTER TABLE content.storefronts VALIDATE CONSTRAINT storefronts_connect_status_check;
 
 COMMIT;
