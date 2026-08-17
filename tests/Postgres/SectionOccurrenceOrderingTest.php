@@ -93,6 +93,56 @@ beforeEach(function () {
         updated_at    timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (item_id, source_id)
     )');
+
+    // LiveSourceScope (W6, 2026-08-18) made every section/pool candidate query
+    // reach content.source_items -> content.sources -> site.platform_connections.
+    // This file inserts into none of them — an item with NO source_items is LIVE
+    // by the scope's first branch, which is exactly the shape these tests use —
+    // but the tables must EXIST or the whole query is a 42P01 before ordering is
+    // ever evaluated. That is what turned this file red on `development`.
+    //
+    // Additive and HEALED, never dropped: all three are shared across this lane
+    // and whoever runs first decides the shape (same trap as site.sites above).
+    // ItemTombstoneBackfillTest creates site.platform_connections with NO
+    // is_active, so a bare CREATE IF NOT EXISTS would inherit that and 42703 on
+    // `lpc.is_active` instead — the ADD COLUMN IF NOT EXISTS pass below is the
+    // load-bearing half, not decoration.
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.sources (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id       uuid NULL,
+        kind          text NOT NULL DEFAULT \'manual\',
+        connection_id uuid NULL,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        updated_at    timestamptz NOT NULL DEFAULT now()
+    )');
+
+    // No FKs: this file DROPs content.items CASCADE above, and a FK from here
+    // would just be dropped with it on the next run.
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.source_items (
+        id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        source_id  uuid NOT NULL,
+        coord      text NOT NULL DEFAULT \'\',
+        item_id    uuid NULL,
+        kind       text NOT NULL DEFAULT \'media\',
+        removed_at timestamptz NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS site.platform_connections (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     uuid NULL,
+        is_active   boolean NOT NULL DEFAULT true,
+        deleted_at  timestamptz NULL
+    )');
+
+    foreach ([
+        'content.sources' => ['connection_id' => 'uuid', 'kind' => "text NOT NULL DEFAULT 'manual'"],
+        'content.source_items' => ['item_id' => 'uuid', 'source_id' => 'uuid', 'removed_at' => 'timestamptz'],
+        'site.platform_connections' => ['is_active' => 'boolean NOT NULL DEFAULT true', 'deleted_at' => 'timestamptz'],
+    ] as $table => $columns) {
+        foreach ($columns as $col => $type) {
+            $pg->statement("ALTER TABLE {$table} ADD COLUMN IF NOT EXISTS {$col} {$type}");
+        }
+    }
 });
 
 /**
