@@ -1,19 +1,24 @@
 <?php
 
 use App\Models\Core\User\Service;
+use App\Services\Content\ServiceCollections;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 // PATCH /api/services/{service}/category (UserServiceController::updateCategory) —
-// re-files one manual service into a different category (or Uncategorized) and
-// appends it at max(sort_order)+1 across the owner's live services, under the
-// same advisory-lock key reorderLayout() uses.
+// re-files one service into a different category (or Uncategorized). Services
+// cutover Task 4: BOTH halves file into content.collections through
+// ServiceCollections' owner lane (source_id NULL), so the endpoint no longer
+// resolves a site.services id, no longer appends at max(sort_order)+1, and no
+// longer holds the ordering advisory lock — re-filing must not move a service
+// in the owner's chosen order.
 beforeEach(function () {
     tenantHelpersEnsureTables();
     setupServicesTable();
     setupServiceCategoriesTable();
-    // The "coexists with reorder-layout" test below also drives
-    // reorderLayout(), which reads content.*/site.sections regardless of
-    // whether the professional has any owner-authored services.
+    // The endpoint reads content.*/site.sections for every id it resolves;
+    // site.services survives here only for the legacy-id cases below, which
+    // pin that such an id resolves nowhere.
     setupIngestTables();
     setupContentTables();
     setupBlocksTable();
@@ -31,21 +36,50 @@ beforeEach(function () {
     );
 });
 
+/**
+ * One Fresha-landed service content item. Services cutover Task 4: both halves
+ * of updateCategory() file into content.collections, so the fixture is a
+ * content item, not a site.services row.
+ */
+function svcCutCatFreshaItem(string $userId, string $title = 'Fade', string $recordKey = 's:1'): string
+{
+    $sourceId = (string) Str::uuid();
+    $itemId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $userId, 'kind' => 'service',
+        'headline_cache' => $title, 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+
+    return $itemId;
+}
+
 it('assigns a service to one of the owner\'s categories', function () {
     $pro = createTenant('svc-cat-happy');
-    $cat = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    // Slice 3a: category assignment is Fresha-only until 3b (ServicePolicy::updateCategory).
-    $service = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0, 'source' => 'fresha']);
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Cuts');
+    $itemId = svcCutCatFreshaItem($pro->id);
 
-    $response = actingAsUser($pro)->patchJson("/api/services/{$service->id}/category", [
-        'category_id' => $cat->id,
+    $response = actingAsUser($pro)->patchJson("/api/services/{$itemId}/category", [
+        'category_id' => $collectionId,
     ]);
 
     $response->assertOk();
-    expect((string) $response->json('service.category_id'))->toBe((string) $cat->id);
+    expect((string) $response->json('service.category_id'))->toBe($collectionId);
 
-    $service->refresh();
-    expect($service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $cat->id]);
+    // And it round-trips on the read, not just the write's own response.
+    actingAsUser($pro)->getJson("/api/services/{$itemId}")
+        ->assertOk()
+        ->assertJsonPath('service.category_id', $collectionId);
 });
 
 it('422s two category_ids rather than silently storing one', function () {
@@ -77,54 +111,49 @@ it('still accepts a single-element category_ids', function () {
     // Positive control: max:1 must admit one, not reject the array spelling
     // outright. Without this the case above passes on a rule of 'max:0'.
     $pro = createTenant('svc-cat-single');
-    $cat = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $service = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0, 'source' => 'fresha']);
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Cuts');
+    $itemId = svcCutCatFreshaItem($pro->id);
 
     actingAsUser($pro)
-        ->patchJson("/api/services/{$service->id}/category", [
-            'category_ids' => [(string) $cat->id],
+        ->patchJson("/api/services/{$itemId}/category", [
+            'category_ids' => [$collectionId],
         ])
-        ->assertOk();
-
-    $service->refresh();
-    expect($service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())
-        ->toBe([(string) $cat->id]);
+        ->assertOk()
+        ->assertJsonPath('service.category_ids.0', $collectionId);
 });
 
 it('moves a service to Uncategorized when category_id is null', function () {
     $pro = createTenant('svc-cat-null');
-    $cat = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $service = createServiceFor($pro, ['category_id' => $cat->id, 'sort_order' => 0, 'source' => 'fresha']);
+    $collections = app(ServiceCollections::class);
+    $collectionId = $collections->create($pro->id, 'Cuts');
+    $itemId = svcCutCatFreshaItem($pro->id);
+    $collections->assign($pro->id, $itemId, $collectionId, null);
 
-    $response = actingAsUser($pro)->patchJson("/api/services/{$service->id}/category", [
+    $response = actingAsUser($pro)->patchJson("/api/services/{$itemId}/category", [
         'category_id' => null,
     ]);
 
     $response->assertOk();
     expect($response->json('service.category_id'))->toBeNull();
-
-    $service->refresh();
-    expect($service->categories()->count())->toBe(0);
+    expect(DB::table('content.collection_items')->where('item_id', $itemId)->count())->toBe(0);
 });
 
 it('rejects assigning the owner\'s service to another owner\'s category (422)', function () {
     $owner = createTenant('svc-cat-foreign-owner');
     $other = createTenant('svc-cat-foreign-other');
-    $foreignCat = createServiceCategoryFor($other, ['sort_order' => 0]);
-    // source='fresha': this test exercises the category-ownership 422, not
-    // the Fresha-only authorization gate — see the 'no live category' test
-    // below for that one.
-    $service = createServiceFor($owner, ['category_id' => null, 'sort_order' => 0, 'source' => 'fresha']);
+    $foreignCollectionId = app(ServiceCollections::class)->create($other->id, 'Theirs');
+    $itemId = svcCutCatFreshaItem($owner->id);
 
-    $response = actingAsUser($owner)->patchJson("/api/services/{$service->id}/category", [
-        'category_id' => $foreignCat->id,
+    $response = actingAsUser($owner)->patchJson("/api/services/{$itemId}/category", [
+        'category_id' => $foreignCollectionId,
     ]);
 
-    // assertCategoryBelongsToProfessional() aborts 422 — the category isn't the owner's.
+    // ServiceCollections::find() is owner-scoped, so a foreign collection is an
+    // invalid input, not a 404 — the same 422 vocabulary the legacy
+    // assertCategoryBelongsToProfessional() used.
     $response->assertStatus(422);
 
-    $service->refresh();
-    expect($service->categories()->count())->toBe(0);
+    expect(DB::table('content.collection_items')->where('item_id', $itemId)->count())->toBe(0);
 });
 
 it('rejects re-filing a service owned by another professional (404, no existence leak)', function () {
@@ -164,63 +193,44 @@ it('rejects category assignment on an owner-authored (manual) service (404)', fu
     expect($service->categories()->count())->toBe(0);
 });
 
-it('appends the moved service at global max(sort_order)+1', function () {
+it('does not move the service in the owner\'s order when it is re-filed', function () {
+    // Was: "appends the moved service at global max(sort_order)+1". That append
+    // existed only to keep the global services_user_sort_order_uq satisfiable
+    // and dies with the table (services cutover Task 4). Its successor property
+    // is the opposite one, and the stronger of the two: ordering lives on
+    // site.section_items.sort_key, and a re-file must not silently move a
+    // service in the order the owner chose (assignOwnerServiceCategory()'s
+    // docblock states this for the manual half; it holds for both now).
     $pro = createTenant('svc-cat-append');
-    $cat = createServiceCategoryFor($pro, ['sort_order' => 0]);
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Cuts');
+    $itemId = svcCutCatFreshaItem($pro->id);
 
-    // Three live services occupying 0,1,2 globally; the one at 0 moves into $cat.
-    $mover = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0, 'source' => 'fresha']);
-    createServiceFor($pro, ['category_id' => null, 'sort_order' => 1]);
-    createServiceFor($pro, ['category_id' => null, 'sort_order' => 2]);
+    $before = DB::table('site.section_items')->where('item_id', $itemId)->value('sort_key');
 
-    $response = actingAsUser($pro)->patchJson("/api/services/{$mover->id}/category", [
-        'category_id' => $cat->id,
-    ]);
-
-    $response->assertOk();
-
-    $mover->refresh();
-    expect($mover->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $cat->id]);
-    // max live sort_order was 2 → mover appends at 3.
-    expect($mover->sort_order)->toBe(3);
-
-    // No collision: every live service keeps a globally-unique sort_order.
-    $sortOrders = Service::query()->where('user_id', $pro->id)->pluck('sort_order');
-    expect($sortOrders->unique())->toHaveCount($sortOrders->count());
-});
-
-it('coexists with reorder-layout under the shared advisory-lock key', function () {
-    $pro = createTenant('svc-cat-coexist');
-    $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    // services_pro_sort_order_uq is GLOBAL per user — distinct starting sort_orders.
-    // Both Fresha-sourced: $s2 so the category endpoint allows it, $s1 because
-    // the reorder-layout payload below references it too, and owner-authored
-    // (source IS NULL) services carry no category concept post-cutover.
-    $s1 = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
-    $s2 = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1, 'source' => 'fresha']);
-
-    // 1) PATCH moves $s2 from A to B, appending at global max+1 = 2.
-    actingAsUser($pro)->patchJson("/api/services/{$s2->id}/category", [
-        'category_id' => $catB->id,
+    actingAsUser($pro)->patchJson("/api/services/{$itemId}/category", [
+        'category_id' => $collectionId,
     ])->assertOk();
 
-    $s2->refresh();
-    expect($s2->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catB->id]);
-    expect($s2->sort_order)->toBe(2);
+    expect(DB::table('site.section_items')->where('item_id', $itemId)->value('sort_key'))->toBe($before);
+});
 
-    // 2) A full layout save afterwards still succeeds and stays collision-free —
-    //    same lock key means the two write paths never interleave in production.
-    $response = actingAsUser($pro)->postJson('/api/services/reorder-layout', [
-        'categories' => [
-            ['id' => $catA->id, 'service_ids' => [$s1->id]],
-            ['id' => $catB->id, 'service_ids' => [$s2->id]],
-        ],
-    ]);
-    $response->assertOk();
+it('rejects re-filing a legacy site.services id (services cutover, ruling 1)', function () {
+    // Was: "coexists with reorder-layout under the shared advisory-lock key" —
+    // a guard on the two legacy sort_order writers never interleaving. The
+    // category endpoint renumbers nothing now, so it holds no ordering lock at
+    // all (pinned by ServiceLayoutLockUnificationTest's exact count) and the
+    // interleaving it guarded cannot occur. What replaces it is the break
+    // itself: a legacy row that still EXISTS resolves nowhere and is untouched.
+    $pro = createTenant('svc-cat-coexist');
+    $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
+    $legacy = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
 
-    $sortOrders = Service::query()->where('user_id', $pro->id)->pluck('sort_order');
-    expect($sortOrders->unique())->toHaveCount(2);
-    $s2->refresh();
-    expect($s2->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catB->id]);
+    actingAsUser($pro)->patchJson("/api/services/{$legacy->id}/category", [
+        'category_id' => $catA->id,
+    ])->assertNotFound();
+
+    $legacy->refresh();
+    expect($legacy->sort_order)->toBe(0);
+    expect($legacy->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())
+        ->toBe([(string) $catA->id]);
 });

@@ -152,13 +152,22 @@ it('no longer keys the three sort_order-renumbering sites on service-layout', fu
     // the file still holds the key, then update the number and this comment —
     // do NOT relax the assertion to an inequality, which is what would make it
     // stop catching the case it is here for.
-    expect(substr_count($userSource, 'AdvisoryLock::acquire("services:'))->toBe(5);
+    // Services cutover Task 4 lowered the USER count from 5 to 4, and the
+    // property above is why it is safe: updateCategory() held the key solely
+    // to serialise its max(sort_order)+1 append against the global
+    // services_user_sort_order_uq. Both halves file into content.collections
+    // now, that append is gone (assignOwnerServiceCategory()'s docblock: a
+    // re-file must not move a service in the owner's chosen order), and an
+    // endpoint that renumbers nothing must not hold an ordering lock.
+    // Remaining four, each still renumbering: store, update, reorder (manual
+    // half), reorderLayout.
+    expect(substr_count($userSource, 'AdvisoryLock::acquire("services:'))->toBe(4);
     expect(substr_count($staffSource, 'AdvisoryLock::acquire("services:'))->toBe(4);
 
     // Each migrated site catches the timeout and returns the same 423 every
     // other services:{user} writer does.
     expect(substr_count($userSource, 'catch (AdvisoryLockTimeoutException)'))
-        ->toBeGreaterThanOrEqual(4); // store, reorder, updateCategory, reorderLayout
+        ->toBeGreaterThanOrEqual(4); // store, update, reorder, reorderLayout
     expect(substr_count($staffSource, 'catch (AdvisoryLockTimeoutException)'))
         ->toBeGreaterThanOrEqual(4); // store, update, reorder, reorderLayout
 });
@@ -191,20 +200,26 @@ it('leaves the category-assignment-only service-layout site untouched, and keeps
     expect($userCategorySource)->toContain('catch (AdvisoryLockTimeoutException)');
 });
 
-it('updateCategory() still appends at max(sort_order)+1 under the unified key', function () {
+it('updateCategory() no longer renumbers sort_order at all — the legacy row is unaddressable', function () {
+    // Was: "updateCategory() still appends at max(sort_order)+1 under the
+    // unified key". Services cutover Task 4 retires that append with the
+    // legacy branch it belonged to: both halves file into content.collections,
+    // ordering lives on site.section_items.sort_key, and re-filing a service
+    // deliberately does not move it in the owner's chosen order. What is left
+    // to pin is that nothing renumbers — the legacy row is untouched because
+    // the id resolves nowhere.
     $pro = createTenant('layout-unify-user-cat');
     $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
     $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    // Fresha-sourced: category assignment is Fresha-only until 3b (Slice 3a).
     $mover = createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 0, 'source' => 'fresha']);
     createServiceFor($pro, ['category_id' => $catA->id, 'sort_order' => 1]);
 
     actingAsUser($pro)->patchJson("/api/services/{$mover->id}/category", [
         'category_id' => $catB->id,
-    ])->assertOk();
+    ])->assertNotFound();
 
     $mover->refresh();
-    expect($mover->sort_order)->toBe(2);
+    expect($mover->sort_order)->toBe(0);
     $sortOrders = Service::query()->where('user_id', $pro->id)->pluck('sort_order');
     expect($sortOrders->unique())->toHaveCount($sortOrders->count());
 });

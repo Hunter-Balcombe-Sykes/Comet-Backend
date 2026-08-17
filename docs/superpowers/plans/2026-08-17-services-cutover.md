@@ -987,7 +987,7 @@ git add -A && git commit -m "feat(services-cutover): user service verbs resolve 
 **Interfaces:**
 - Consumes: `FreshaServiceItems::findRow/toServiceModel/hiddenServiceIds` (Task 2), `ServiceCollections::assign(userId, itemId, ?collectionId, null)` (existing).
 
-- [ ] **Step 1: Failing tests** (append to the Task 3 file):
+- [x] **Step 1: Failing tests** (append to the Task 3 file):
 
 ```php
 it('files a Fresha service under an owner category via the owner membership lane', function () {
@@ -1018,9 +1018,9 @@ it('resync on a Fresha content item deletes its overrides and no legacy fallback
 });
 ```
 
-- [ ] **Step 2: Run; confirm the category case fails** (legacy branch resolves nothing → but current code 404s only after site.services miss — the assertion on `collection_items` is the teeth).
+- [x] **Step 2: Run; confirm the category case fails** (legacy branch resolves nothing → but current code 404s only after site.services miss — the assertion on `collection_items` is the teeth).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `updateCategory()` (`:618-702`): delete the entire legacy branch (the `$legacy = Service::query()...` resolve, the advisory-lock transaction with `categories()->sync()` and the `sort_order` append). The method becomes:
 
@@ -1125,12 +1125,33 @@ and `resyncBulk()`'s body becomes:
 
 Delete the three private helpers `freshaContentQuery()`, `freshaContentRow()`, `freshaServiceModel()` (`:1283-1344`) once nothing references them.
 
-- [ ] **Step 4: Run the file + `tests/Feature/Api/User/`; fix pre-existing cases as in Task 3 Step 5.**
-- [ ] **Step 5: `composer test:pg`; commit**
+- [x] **Step 4: Run the file + `tests/Feature/Api/User/`; fix pre-existing cases as in Task 3 Step 5.**
+- [x] **Step 5: `composer test:pg`; commit**
 
 ```bash
 git add -A && git commit -m "feat(services-cutover): updateCategory and resync verbs single-store — legacy branches and revert() call sites removed"
 ```
+
+**Reality corrections applied (rule zero, 2026-08-17):**
+
+1. **`ServiceResource` has no `categories` key on the wire** — it emits
+   `category_id` + `category_ids` off the loaded relation (`ServiceResource.php:35-36`),
+   so Step 1's `assertJsonPath('service.categories.0.id', …)` could never pass.
+   Asserts `service.category_id` / `service.category_ids.0` instead.
+2. **Removing `updateCategory()`'s advisory lock moves a pinned COUNT.**
+   `ServiceLayoutLockUnificationTest` asserts an EXACT
+   `AdvisoryLock::acquire("services:` occurrence count per controller — 5 → 4
+   for the user controller, since the lock existed solely to serialise the
+   `max(sort_order)+1` append. That test's own docblock demands the number be
+   updated with a justification rather than relaxed to an inequality; done.
+3. **`ServiceCategoryAssignmentTest` needed retargeting, not re-seeding.** Six
+   of its nine cases drove legacy `site.services` rows. Assign / single-element
+   `category_ids` / Uncategorised / foreign-category-422 are re-fixtured onto
+   content items (helper `svcCutCatFreshaItem`); the `max(sort_order)+1` append
+   case is replaced by its successor property — a re-file must NOT move the
+   service's `section_items.sort_key`; the reorder-layout lock-coexistence case
+   is replaced by the ruling-1 break, since the endpoint now holds no ordering
+   lock for the two writers to contend over.
 
 ---
 

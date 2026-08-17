@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Content\ServiceCollections;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -119,6 +120,36 @@ it('deleting a Fresha service sets items.removed_at and drops it from the bookin
 
     actingAsUser($pro)->postJson("/api/services/{$itemId}/restore")->assertOk();
     expect(DB::table('content.items')->where('id', $itemId)->value('removed_at'))->toBeNull();
+});
+
+it('files a Fresha service under an owner category via the owner membership lane', function () {
+    $pro = svcCutMgmtUser();
+    $itemId = svcCutMgmtFresha($pro, 'Fade', 's:1');
+    $collectionId = app(ServiceCollections::class)->create($pro->id, 'Cuts');
+
+    // ServiceResource emits category_id/category_ids off the loaded relation —
+    // it has no `categories` array on the wire.
+    actingAsUser($pro)->patchJson("/api/services/{$itemId}/category", ['category_id' => $collectionId])
+        ->assertOk()
+        ->assertJsonPath('service.category_id', $collectionId)
+        ->assertJsonPath('service.category_ids.0', $collectionId);
+
+    expect(DB::table('content.collection_items')->where('item_id', $itemId)
+        ->whereNull('source_id')->where('collection_id', $collectionId)->count())->toBe(1);
+});
+
+it('resync on a Fresha content item deletes its overrides and no legacy fallback remains', function () {
+    $pro = svcCutMgmtUser();
+    $itemId = svcCutMgmtFresha($pro, 'Vendor Name', 's:1');
+    actingAsUser($pro)->patchJson("/api/services/{$itemId}", ['title' => 'Owner Name'])->assertOk();
+
+    actingAsUser($pro)->postJson("/api/services/{$itemId}/resync")
+        ->assertOk()
+        ->assertJsonPath('service.is_manual', false);
+
+    expect(DB::table('content.manual_overrides')->where('item_id', $itemId)->count())->toBe(0);
+    // An id that resolves in neither store is a plain 404 — no legacy branch left to fall into.
+    actingAsUser($pro)->postJson('/api/services/'.(string) Str::uuid().'/resync')->assertNotFound();
 });
 
 it('never resurrects an owner-deleted Fresha service: removed_at survives a projection-style source_item touch', function () {

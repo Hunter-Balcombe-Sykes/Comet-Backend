@@ -302,6 +302,42 @@ class FreshaServiceItems
     }
 
     /**
+     * Item ids of this user's Fresha service items carrying at least one
+     * override — resyncBulk's candidate set, the content.* expression of the
+     * legacy `is_manual = true` filter. liveOnly is false so a departed item
+     * is still counted and can be reported as skipped rather than vanishing.
+     *
+     * @param  list<string>  $onlyIds
+     * @return list<string>
+     */
+    public function overriddenItemIds(string $userId, array $onlyIds = []): array
+    {
+        return $this->managementQuery($userId, null, liveOnly: false)
+            ->when($onlyIds !== [], fn ($q) => $q->whereIn('i.id', $onlyIds))
+            ->whereExists(fn ($q) => $q->selectRaw('1')
+                ->from('content.manual_overrides as mo')
+                ->whereColumn('mo.item_id', 'i.id'))
+            ->distinct()->pluck('i.id')->map(fn ($id) => (string) $id)->all();
+    }
+
+    /**
+     * The live (source_item not removed) subset of the given item ids.
+     *
+     * @param  list<string>  $ids
+     * @return list<string>
+     */
+    public function liveItemIds(string $userId, array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        return $this->managementQuery($userId, null)
+            ->whereIn('i.id', $ids)
+            ->distinct()->pluck('i.id')->map(fn ($id) => (string) $id)->all();
+    }
+
+    /**
      * The stored selection blob's hiddenServiceIds — the hidden state rides
      * the blob (D3a). Same connection scoping FreshaServiceProjector uses.
      *

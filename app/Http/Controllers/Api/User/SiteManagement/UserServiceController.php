@@ -454,51 +454,35 @@ class UserServiceController extends ApiController
         // Fresha content item. Resolved WITHOUT the live-source filter first
         // so a service that left the vendor's menu answers 422 (the real
         // outcome) rather than 404 (a nonexistent one).
-        $row = $this->freshaContentRow($pro->id, $service, liveOnly: false);
-        if ($row !== null) {
-            $liveRow = $this->freshaContentRow($pro->id, $service, liveOnly: true);
-            $this->authorizeForUser($pro, 'update', $this->freshaServiceModel($pro->id, $manual, $liveRow ?? $row));
-
-            if ($liveRow === null) {
-                return $this->error('This service is no longer offered on Fresha — keep your edited version or delete it.', 422);
-            }
-
-            // Already live-synced (no override) — idempotent success, same as
-            // the pre-cutover `! $service->is_manual` early return.
-            if (ManualOverride::query()->where('item_id', (string) $liveRow->id)->exists()) {
-                ManualOverride::query()->where('item_id', (string) $liveRow->id)->delete();
-                $this->invalidateAfterResync($pro);
-            }
-
-            // Re-hydrated from the same row, not re-read: deleting an
-            // override changes no column ON the row (headline_cache is
-            // recomputed by the projection path, not here) — only
-            // is_manual, which freshaServiceModel() derives live.
-            return $this->success(['service' => new ServiceResource($this->freshaServiceModel($pro->id, $manual, $liveRow))]);
-        }
-
-        // §C2: not a content item at all — the untouched legacy path.
-        $fresha = Service::query()->where('user_id', $pro->id)->find($service);
-        if ($fresha === null) {
+        $fresha = app(FreshaServiceItems::class);
+        $row = $fresha->findRow($pro->id, $service, null, liveOnly: false);
+        if ($row === null) {
             abort(404, 'Service not found.');
         }
 
-        $this->authorizeForUser($pro, 'update', $fresha);
+        $liveRow = $fresha->findRow($pro->id, $service, null);
+        $this->authorizeForUser($pro, 'update', $fresha->toServiceModel($pro->id, $liveRow ?? $row));
 
-        if ($fresha->source !== 'fresha') {
-            return $this->error('Only Fresha-synced services can be resynced.', 422);
-        }
-        if (! $fresha->is_manual) {
-            return $this->success(['service' => new ServiceResource($fresha)]);
-        }
-
-        $projector = app(FreshaServiceProjector::class);
-        if (! $projector->revert($pro, $fresha)) {
+        if ($liveRow === null) {
             return $this->error('This service is no longer offered on Fresha — keep your edited version or delete it.', 422);
         }
-        $projector->refreshBlob($pro);
 
-        return $this->success(['service' => new ServiceResource($fresha->fresh())]);
+        // Already live-synced (no override) — idempotent success, same as
+        // the pre-cutover `! $service->is_manual` early return.
+        if (ManualOverride::query()->where('item_id', (string) $liveRow->id)->exists()) {
+            ManualOverride::query()->where('item_id', (string) $liveRow->id)->delete();
+            // The blob folds overrides now (Task 2), so dropping them must
+            // recompose it — otherwise the booking wire keeps serving the
+            // owner's reverted text until the next refresh.
+            app(FreshaServiceProjector::class)->refreshBlob($pro);
+            $this->invalidateAfterResync($pro);
+        }
+
+        // Re-hydrated from the same row, not re-read: deleting an override
+        // changes no column ON the row (headline_cache is recomputed by the
+        // projection path, not here) — only is_manual, which toServiceModel()
+        // derives live from the override rows.
+        return $this->success(['service' => new ServiceResource($fresha->toServiceModel($pro->id, $liveRow))]);
     }
 
     // POST /services/resync — bulk revert: the given ids, or EVERY owner-edited
@@ -520,156 +504,78 @@ class UserServiceController extends ApiController
         ]);
         $ids = $validated['ids'] ?? [];
 
+        // Every Fresha service item this professional owns that carries at
+        // least one override. An item with no override was never detached and
+        // is not a candidate — the exact set the legacy `is_manual = true`
+        // filter selected.
+        $fresha = app(FreshaServiceItems::class);
+        $candidates = $fresha->overriddenItemIds($pro->id, $ids);
+        $live = array_flip($fresha->liveItemIds($pro->id, $candidates));
+
+        $revertable = array_values(array_filter($candidates, fn ($id) => isset($live[$id])));
+        $skipped = count($candidates) - count($revertable);
         $resynced = 0;
-        $skipped = 0;
 
-        // content.* half: every Fresha service item this professional owns
-        // that carries at least one override. An item with no override was
-        // never detached and is not a candidate — the exact set the legacy
-        // `is_manual = true` filter selected.
-        $candidates = $this->freshaContentQuery($pro->id, liveOnly: false)
-            ->when($ids !== [], fn ($query) => $query->whereIn('i.id', $ids))
-            ->whereExists(fn ($query) => $query->selectRaw('1')
-                ->from('content.manual_overrides as mo')
-                ->whereColumn('mo.item_id', 'i.id'))
-            ->distinct()
-            ->pluck('i.id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
-
-        if ($candidates !== []) {
-            $live = array_flip(
-                $this->freshaContentQuery($pro->id, liveOnly: true)
-                    ->whereIn('i.id', $candidates)
-                    ->distinct()
-                    ->pluck('i.id')
-                    ->map(fn ($id) => (string) $id)
-                    ->all()
-            );
-
-            $revertable = array_values(array_filter($candidates, fn ($id) => isset($live[$id])));
-            $skipped += count($candidates) - count($revertable);
-
-            if ($revertable !== []) {
-                ManualOverride::query()->whereIn('item_id', $revertable)->delete();
-                $resynced += count($revertable);
-                $this->invalidateAfterResync($pro);
-            }
+        if ($revertable !== []) {
+            ManualOverride::query()->whereIn('item_id', $revertable)->delete();
+            $resynced = count($revertable);
+            app(FreshaServiceProjector::class)->refreshBlob($pro);
+            $this->invalidateAfterResync($pro);
         }
-
-        // §C2: the untouched legacy half, unchanged.
-        $query = Service::query()
-            ->where('user_id', $pro->id)
-            ->where('source', 'fresha')
-            ->where('is_manual', true);
-        if ($ids !== []) {
-            $query->whereIn('id', $ids);
-        }
-
-        $projector = app(FreshaServiceProjector::class);
-        $legacyResynced = 0;
-        foreach ($query->get() as $row) {
-            $projector->revert($pro, $row) ? $legacyResynced++ : $skipped++;
-        }
-        if ($legacyResynced > 0) {
-            $projector->refreshBlob($pro);
-        }
-        $resynced += $legacyResynced;
 
         return $this->success(['resynced' => $resynced, 'skipped' => $skipped]);
     }
 
     // Move a single service into a category (or Uncategorized). Deliberately
-    // separate from update(): this endpoint's only writable input is category_id,
-    // so it never re-exposes the raw sort_order field update() accepts. The moved
-    // service is appended at max(sort_order)+1 across ALL of the owner's live
-    // services (services_user_sort_order_uq is global-per-user, not per-category),
-    // the same append restore() uses. The advisory lock shares reorderLayout()'s
-    // key so the two read-modify-write paths can never interleave.
+    // separate from update(): this endpoint's only writable input is
+    // category_id, so it never re-exposes the raw sort_order field update()
+    // accepts. Both halves file into content.collections now — the legacy
+    // append at max(sort_order)+1 went with the table, and with it the
+    // advisory lock that existed solely to serialise that append against the
+    // global services_user_sort_order_uq.
     public function updateCategory(UpdateServiceCategoryAssignmentRequest $request, string $service): JsonResponse
     {
         $pro = $this->currentUser($request);
+        $manual = app(ManualServiceItems::class);
 
-        // §C2: the legacy half, resolved FIRST and scoped to `source IS NOT
-        // NULL` exactly as show()/update()/destroy()/restore() scope theirs.
-        //
-        // Resolution order is inverted from those four deliberately, and it
-        // cannot change any answer: the two id spaces are disjoint (a
-        // content.items uuid is never a site.services uuid — a backfilled
-        // item carries its legacy id in the source_items COORD, not as its
-        // own id), so whichever store is asked first, exactly one of them
-        // ever matches. Asking site.services first is what keeps every id
-        // that worked before this slice on a byte-identical path, touching
-        // no content.* table at all.
-        //
-        // A legacy owner-authored (source IS NULL) row is superseded by its
-        // content.* projection and stays unaddressable here — it 404s by
-        // being unreachable, which is where 3a's policy gate's 404 went when
-        // the gate came off.
-        $legacy = Service::query()->where('user_id', $pro->id)->whereNotNull('source')->find($service);
-
-        if ($legacy === null) {
-            // Slice 3b: owner-authored services are assignable now that
-            // content.collections exists (ServicePolicy::updateCategory()'s
-            // gate came off in the same commit as
-            // ManualServiceItems::publicList()'s 'Services' constant — see
-            // that docblock; neither half may move alone).
-            $manual = app(ManualServiceItems::class);
-            $row = $manual->find($pro->id, $service, $manual->sectionId($pro->site));
-            if ($row === null) {
-                abort(404, 'Service not found.');
-            }
-
+        $row = $manual->find($pro->id, $service, $manual->sectionId($pro->site));
+        if ($row !== null) {
             return $this->assignOwnerServiceCategory($request, $pro, $manual, $row);
         }
 
-        $service = $legacy;
+        // Fresha half (spec §3.2): same collections space, same owner
+        // membership lane — a Fresha service may be filed under any of the
+        // owner's service-category collections now that both halves share one
+        // id space. The projector can never delete this row (its
+        // replace-by-source delete is scoped to the connection source), and
+        // the reads prefer it, so the choice survives every sync.
+        $fresha = app(FreshaServiceItems::class);
+        $freshaRow = $fresha->findRow($pro->id, $service, $manual->sectionId($pro->site));
+        if ($freshaRow === null) {
+            abort(404, 'Service not found.');
+        }
 
-        $this->authorizeForUser($pro, 'updateCategory', $service);
+        $this->authorizeForUser($pro, 'updateCategory', $fresha->toServiceModel($pro->id, $freshaRow));
 
+        $collections = app(ServiceCollections::class);
         $categoryIds = $this->assignmentCategoryIds($request->validated());
         foreach ($categoryIds as $categoryId) {
-            $this->assertCategoryBelongsToProfessional($pro->id, $categoryId);
+            if ($collections->find($pro->id, $categoryId) === null) {
+                abort(422, 'Category is invalid.');
+            }
         }
 
-        // Fix C (whole-branch review pt.2): unified onto the services:{user}
-        // advisory key (was service-layout:{user}) — this max(sort_order)+1
-        // append renumbers the SAME globally-unique (user_id, sort_order)
-        // constraint that FreshaServiceProjector::sync(), InsertWithSortOrder,
-        // and ReorderService's flat reorder already serialise on via that key;
-        // a different key on this side let a reorderLayout()/sync() race slip
-        // past both and hit the constraint. Routed through AdvisoryLock so it
-        // also inherits the 5s bound + typed AdvisoryLockTimeoutException
-        // (→ 423) the services key already has, instead of staying unbounded.
-        try {
-            DB::connection('pgsql')->transaction(function () use ($pro, $service, $categoryIds) {
-                AdvisoryLock::acquire("services:{$pro->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
+        $site = $this->currentSite($pro);
+        $collections->assign($pro->id, (string) $freshaRow->id, $categoryIds[0] ?? null, null);
 
-                $current = $service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->sort()->values()->all();
-                $target = collect($categoryIds)->sort()->values()->all();
+        app(ManualServiceWriter::class)->invalidate([(string) $site->id]);
+        app(UserCacheService::class)->invalidateServices($pro->id);
 
-                // No-op: nothing to reindex, keep the current sort_order.
-                if ($current === $target) {
-                    return;
-                }
+        $freshRow = $fresha->findRow($pro->id, (string) $freshaRow->id, $manual->sectionId($site));
 
-                $service->categories()->sync($categoryIds);
-
-                $max = Service::query()
-                    ->where('user_id', $pro->id)
-                    ->whereNull('deleted_at')
-                    ->max('sort_order');
-
-                $service->update([
-                    'sort_order' => is_null($max) ? 0 : ((int) $max + 1),
-                ]);
-            });
-        } catch (AdvisoryLockTimeoutException) {
-            // Same contention/423 as store()/reorder() above.
-            return $this->error('Another change is still saving — please retry in a moment.', 423);
-        }
-
-        return $this->success(['service' => new ServiceResource($service->fresh())]);
+        return $this->success(['service' => new ServiceResource(
+            $fresha->toServiceModel($pro->id, $freshRow ?? $freshaRow, $fresha->hiddenServiceIds($pro->id)),
+        )]);
     }
 
     /**
@@ -1301,81 +1207,6 @@ class UserServiceController extends ApiController
         return array_key_exists('category_ids', $validated) && is_array($validated['category_ids'])
             ? array_values(array_unique(array_map('strval', $validated['category_ids'])))
             : (($validated['category_id'] ?? null) !== null ? [(string) $validated['category_id']] : []);
-    }
-
-    /**
-     * The two-surface split's OTHER side, as a resolve-by-id.
-     *
-     * `ManualServiceItems` scopes to `content.sources.kind = 'manual'` and
-     * `FreshaServiceItems` to `'connection'`; both expose LIST reads only,
-     * and resync needs to resolve ONE id. This is that query, in one place,
-     * used by both resync() and resyncBulk() — not a per-call-site copy.
-     *
-     * `$liveOnly = false` still matches an item whose source_item has been
-     * removed_at'd: that is "no longer offered on Fresha", which must answer
-     * 422, and 422 requires finding the row first.
-     */
-    private function freshaContentQuery(string $userId, bool $liveOnly): Builder
-    {
-        $query = DB::connection('pgsql')->table('content.items as i')
-            ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
-            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-            ->where('i.user_id', $userId)
-            ->where('i.kind', 'service')
-            ->whereNull('i.removed_at')
-            ->where('cs.kind', 'connection');
-
-        if ($liveOnly) {
-            $query->whereNull('si.removed_at');
-        }
-
-        return $query;
-    }
-
-    /**
-     * One Fresha content item in `ManualServiceItems::rows()`' column shape,
-     * so its hydration can be reused rather than re-written. `sort_key` and
-     * `state` are literal NULLs: a Fresha item carries no `services` pool
-     * curation (it is not on that surface at all), and hydrate() reads both
-     * columns unconditionally.
-     *
-     * Those two NULLs are CAST rather than bare. A bare `null` in a SELECT
-     * list is type `unknown` to Postgres, and this SELECT is DISTINCT —
-     * unknown is exactly the kind of thing that resolves silently under
-     * SQLite and can fail to find an equality operator on the real database.
-     */
-    private function freshaContentRow(string $userId, string $itemId, bool $liveOnly): ?object
-    {
-        return $this->freshaContentQuery($userId, $liveOnly)
-            ->where('i.id', $itemId)
-            ->distinct()
-            ->first([
-                'i.id', 'i.headline_cache', 'i.removed_at', 'i.created_at', 'i.updated_at',
-                'cs.id as source_id',
-                DB::raw('CAST(null AS text) as sort_key'),
-                DB::raw('CAST(null AS text) as state'),
-            ]);
-    }
-
-    /**
-     * A Fresha content item as the legacy-shaped Service model
-     * ServiceResource maps to the wire.
-     *
-     * `source`/`is_manual` are restated after hydration because
-     * ManualServiceItems' mapping hardcodes the owner-authored answer
-     * (null/false) — correct for its own rows, wrong for a connection-sourced
-     * one. In content.* "detached from the sync" IS "carries a
-     * `content.manual_overrides` row", so `is_manual` is derived from that
-     * and nothing else; the dashboard's "sync broken" chip keeps reading the
-     * same two fields it always has.
-     */
-    private function freshaServiceModel(string $userId, ManualServiceItems $manual, object $row): Service
-    {
-        $model = $manual->toServiceModel($userId, $row);
-        $model->source = 'fresha';
-        $model->is_manual = ManualOverride::query()->where('item_id', (string) $row->id)->exists();
-
-        return $model;
     }
 
     /**
