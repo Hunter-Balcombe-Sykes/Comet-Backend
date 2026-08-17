@@ -486,6 +486,27 @@ class PoolResolver
             ])
             ->groupBy('item_id');
 
+        // A dish's per-platform links (W5): every offer that knows the store
+        // url it came from contributes a synced link for that ordering
+        // platform (host → roster platform), so a dish on Uber Eats AND
+        // DoorDash shows both. Menu items had no f_link at all before this.
+        $offerLinks = DB::connection('pgsql')->table('content.offers')
+            ->join('content.sources', 'content.sources.id', '=', 'content.offers.source_id')
+            ->whereIn('content.offers.item_id', $ids)
+            ->whereNotNull('content.offers.url')
+            ->orderByDesc('content.sources.priority')
+            ->get(['content.offers.item_id', 'content.offers.url'])
+            ->map(function (object $row): ?object {
+                $platform = ItemLinkRules::platformForUrl((string) $row->url);
+
+                return $platform === null ? null : (object) ['item_id' => $row->item_id, 'url' => (string) $row->url, 'source_kind' => 'connection', 'platform' => $platform];
+            })
+            ->filter()
+            ->groupBy('item_id');
+        foreach ($offerLinks as $itemId => $rows) {
+            $sourceLinks[$itemId] = ($sourceLinks[$itemId] ?? collect())->concat($rows);
+        }
+
         $manualLinks = DB::connection('pgsql')->table('content.item_links')
             ->whereIn('item_id', $ids)
             ->get(['item_id', 'platform', 'url'])
@@ -1074,10 +1095,27 @@ class PoolResolver
     private function cover(Collection $rows, array $resolved): ?string
     {
         foreach (['cover', 'poster', 'gallery'] as $role) {
-            $row = $rows->firstWhere('role', $role);
-            $url = $row !== null ? ($resolved[(string) $row->asset_id]['url'] ?? null) : null;
-            if ($url !== null && $url !== '') {
-                return $url;
+            // Best quality wins within a role (owner ruling, W5): when several
+            // sources gave this item a cover — Apple's 1200px art beside a
+            // 300px thumbnail from another platform — pick the largest known
+            // area; rows without dims keep the source-priority order they
+            // arrived in and only win when nothing measured exists.
+            $candidates = $rows->where('role', $role)->values();
+            $best = null;
+            $bestArea = -1;
+            foreach ($candidates as $row) {
+                $hit = $resolved[(string) $row->asset_id] ?? null;
+                if ($hit === null || ($hit['url'] ?? '') === '') {
+                    continue;
+                }
+                $area = ($hit['width'] ?? 0) * ($hit['height'] ?? 0);
+                if ($area > $bestArea) {
+                    $best = $hit['url'];
+                    $bestArea = $area;
+                }
+            }
+            if ($best !== null) {
+                return $best;
             }
         }
 

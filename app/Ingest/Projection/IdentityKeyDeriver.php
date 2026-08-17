@@ -142,7 +142,9 @@ final class IdentityKeyDeriver
         // registry rules the year out of the music key explicitly.
         $creator = $this->text($facets['f_authored']['creator'] ?? null);
         if ($creator !== null) {
-            $keys[] = [KeyClass::TitleRelease, $name.'|'.KeyClass::normalizeText($creator)];
+            // Primary artist only: a combined credit ("A, B, C" on Spotify)
+            // must still meet Apple's / SoundCloud's single-artist credit.
+            $keys[] = [KeyClass::TitleRelease, $name.'|'.KeyClass::primaryArtist($creator)];
         }
 
         $seconds = $this->positiveInt($facets['f_duration']['seconds'] ?? null);

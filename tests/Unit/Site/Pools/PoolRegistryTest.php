@@ -96,9 +96,9 @@ it('keeps the deferred kinds out of every pool', function (string $kind) {
     expect(PoolRegistry::poolForKind($kind))->toBeNull();
 })->with(['channel']);
 
-it('provisions media with a bare kind_is rule — a gallery wants every photo, not one per source', function () {
+it('provisions media opt-in — pins plus each source\'s N newest (R5, 2026-08-18), not every photo and not one per source', function () {
     $shape = PoolRegistry::sectionShape('media');
 
-    expect($shape['rule'])->toBe([['op' => 'kind_is', 'values' => ['media']]])
+    expect($shape['rule'])->toBe([['op' => 'kind_is', 'values' => ['media']], ['op' => 'latest_n_per_auto_source', 'values' => ['media']]])
         ->and($shape['order_by'])->toBe('recency');
 });

@@ -47,11 +47,11 @@ function appleMusicIo(array $responses): Io
     };
 }
 
-function appleMusicPull(string $artistId = 'INVENTEDARTIST0001'): Pull
+function appleMusicPull(string $artistId = 'INVENTEDARTIST0001', string $stream = 'listen'): Pull
 {
     return new Pull(
         identifier: $artistId,
-        stream: AppleMusicConnector::manifest()->stream('listen'),
+        stream: AppleMusicConnector::manifest()->stream($stream),
     );
 }
 
@@ -209,4 +209,30 @@ it('uses a Catalogue profile with an order field, so its absences can mean delet
     expect($spec->profile)->toBe(SourceProfile::Catalogue)
         ->and($spec->orderField)->toBe('releaseDate')
         ->and($spec->mayDelete())->toBeTrue();
+});
+
+it('yields the artist\'s songs as a `songs` stream of tracks with 1200px artwork, and a failed song lookup is a Note (R10)', function () {
+    $artistId = 'INVENTEDARTIST0002';
+    $songs = json_encode(['resultCount' => 3, 'results' => [appleArtistWrapper(),
+        ['wrapperType' => 'track', 'kind' => 'song', 'trackId' => 5001, 'trackName' => 'Dracula', 'trackViewUrl' => 'https://music.apple.com/au/album/dracula/1111?i=5001', 'artistName' => 'Invented Artist', 'collectionName' => 'First Record', 'trackTimeMillis' => 214000, 'releaseDate' => '2024-03-01T00:00:00Z', 'artworkUrl100' => 'https://a1.mzstatic.com/image/thumb/x/100x100bb.jpg'],
+        ['wrapperType' => 'track', 'kind' => 'music-video', 'trackId' => 5002, 'trackName' => 'Video', 'trackViewUrl' => 'https://music.apple.com/x'],
+    ]]);
+    $songUrl = 'https://itunes.apple.com/lookup?'.http_build_query(['id' => $artistId, 'entity' => 'song', 'limit' => 200]);
+    $io = appleMusicIo([$songUrl => ['status' => 200, 'body' => $songs, 'headers' => []]]);
+    $messages = iterator_to_array((new AppleMusicConnector)->pull(appleMusicPull($artistId, 'songs'), $io));
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->stream)->toBe('songs')
+        ->and($records[0]->key)->toBe('5001')
+        ->and($records[0]->doc['title'])->toBe('Dracula')
+        ->and($records[0]->doc['duration_seconds'])->toBe(214)
+        ->and($records[0]->doc['artwork'])->toBe('https://a1.mzstatic.com/image/thumb/x/1200x1200bb.jpg')
+        ->and(array_filter($messages, fn ($m) => $m instanceof Covered && $m->stream === 'songs'))->toHaveCount(1);
+
+    // Songs lookup down: a Note, never Unavailable, no coverage claim.
+    $io2 = appleMusicIo([]);
+    $m2 = iterator_to_array((new AppleMusicConnector)->pull(appleMusicPull($artistId, 'songs'), $io2));
+    expect(array_filter($m2, fn ($m) => $m instanceof \App\Ingest\Message\Unavailable))->toHaveCount(0)
+        ->and(array_filter($m2, fn ($m) => $m instanceof \App\Ingest\Message\Note && $m->code === 'songs_unavailable'))->toHaveCount(1)
+        ->and(array_filter($m2, fn ($m) => $m instanceof Covered))->toHaveCount(0);
 });

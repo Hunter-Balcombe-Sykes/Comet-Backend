@@ -173,6 +173,23 @@ enum KeyClass: string
      * would eat the separator. This enum stays the one owner of what
      * normalisation means; IdentityKeyDeriver calls it rather than repeating it.
      */
+    /**
+     * The FIRST credited artist, normalised — the half of TitleRelease that
+     * platforms actually agree on. Spotify credits "Tame Impala, JENNIE, Boys
+     * Noize"; Apple credits "Tame Impala"; SoundCloud credits the uploader.
+     * Splitting on the credit separators (",", "&", "and", "feat.", "ft.",
+     * "x", "with", "vs") before normalising lets the same song union across
+     * them (overnight 2026-08-18, W5).
+     */
+    public static function primaryArtist(string $creator): string
+    {
+        $first = preg_split('/\s*(?:,|&|\band\b|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b|\bwith\b|\bvs\.?\b|\bx\b|×|·|\/)\s*/iu', trim($creator), 2)[0] ?? $creator;
+
+        $normalized = self::normalizeText($first);
+
+        return $normalized !== '' ? $normalized : self::normalizeText($creator);
+    }
+
     public static function normalizeText(string $value): string
     {
         $value = mb_strtolower($value);
