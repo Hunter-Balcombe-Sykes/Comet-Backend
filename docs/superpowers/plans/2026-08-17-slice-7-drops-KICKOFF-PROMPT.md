@@ -162,7 +162,43 @@ reasoning about "what data do we still need?" does not, because the answer is
 - Re-grep for others before dropping. This shape appeared three times; assume a
   fourth.
 
-### 4b. A KNOWN, DEFERRED BUG you will meet — do not "fix" it in passing
+### 4b. FIXED 2026-08-17 — kept here because the fix has a fragile coupling
+
+**This bug is closed.** It is documented because the fix rests on something
+non-obvious that a later tidy-up could silently reopen.
+
+Owner ruling: **an owner edit locks the WHOLE dish** — the scrape stops touching
+it entirely, restoring the legacy `is_manual` semantics and matching
+`MenuScanApplier::lockedItemIds()`. Per-column locking was considered and
+rejected: a dish half owner-data and half vendor-data reads as incoherent.
+
+Implemented as a skip in `persist()`'s **write loop** (`MenuFetchJob.php:409-430`),
+keyed on `locked_coords` from `ownerLockedCoords()` — the same set the retirement
+exemption uses, so there is one derivation, not two.
+
+**Why the skip is in the write loop and not in `mergedDishes()`**, proven by
+experiment rather than argued: `$coords` is built from `$dishes` *before* the
+loop. Filtering `$dishes` first means the locked dish's coord never enters
+`$coords`, and `absentDishIds()` then treats it as vanished — **the naive fix
+deletes exactly the dishes it was meant to protect.** That was verified by
+neutralising the retirement exemption and running both shapes: write-loop skip
+passes, `mergedDishes()` filter fails.
+
+**The fragile coupling — do not "tidy" this.** A price-only edit is protected only
+because `recordOwnerEdits()` (`MenuContentController.php:759`) writes an
+`f_text/headline` override on **every** owner write, price-only included. That one
+row is the sole thing keeping a re-priced dish off the vendor's price. A
+reasonable-looking refactor to "only record the columns the request actually sent"
+would silently reopen the bug. It is commented at the method and guarded by
+`it('keeps an owner price-only edit across a scrape that re-prices the dish')`.
+
+There is **no** price override row, deliberately: `content.offers` is a SET
+resolved by union and never to a winner, and `FacetRegistry:16-19` excludes
+collections because they have no single value to override — its own docblock calls
+an unvalidated pair "a durable lie: a row nothing reads". The lock closes the gap
+instead of a new mechanism doing it.
+
+### 4b-hist. The bug as it stood before the fix — for context only
 
 The menu scrape still overwrites dishes the owner has edited by hand. When an
 owner edits a dish through the dashboard,
