@@ -300,7 +300,7 @@ git commit -m "feat(shop-rehome): StoreRecord carries its collection id"
 
 The old methods returned a query `Builder`, so callers chained `->where()`, `->max('position')`, `->count()`. A keyed `Collection` supports all three with `->where()`, `->max()`, `->count()` and needs no database round trip per call.
 
-- [ ] **Step 1: Write the failing test.**
+- [x] **Step 1: Write the failing test.**
 
 ```php
 it('lists every store the user owns, ordered, off content.*', function (): void {
@@ -329,8 +329,8 @@ it('issues no query naming shop_brands', function (): void {
 });
 ```
 
-- [ ] **Step 2: Run them, confirm they fail** — `./vendor/bin/pest tests/Feature/Shop/ShopStoreReadLaneTest.php`. Expected: FAIL, `Call to undefined method ShopConnections::stores()`.
-- [ ] **Step 3: Implement, mirroring `ShopContentReader::brandMap()`'s query exactly** — same join, same ordering, so the two never disagree about which store is first.
+- [x] **Step 2: Run them, confirm they fail** — `./vendor/bin/pest tests/Feature/Shop/ShopStoreReadLaneTest.php`. Expected: FAIL, `Call to undefined method ShopConnections::stores()`.
+- [x] **Step 3: Implement, mirroring `ShopContentReader::brandMap()`'s query exactly** — same join, same ordering, so the two never disagree about which store is first.
 
 ```php
     /**
@@ -372,15 +372,15 @@ it('issues no query naming shop_brands', function (): void {
     }
 ```
 
-- [ ] **Step 4: Run the tests, confirm they pass.**
-- [ ] **Step 5: Leave `brands()`/`brand()` in place, marked deprecated.** Tasks 5–9 move callers one lane at a time; deleting the old pair now breaks all seven `ShopController` touches in a single commit no reviewer can read.
+- [x] **Step 4: Run the tests, confirm they pass.**
+- [x] **Step 5: Leave `brands()`/`brand()` in place, marked deprecated.** Tasks 5–9 move callers one lane at a time; deleting the old pair now breaks all seven `ShopController` touches in a single commit no reviewer can read.
 
 ```php
     /** @deprecated Reads site.shop_brands. Use stores(). Deleted in Task 11. */
     public function brands(User $user): Builder
 ```
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add app/Services/Shop/ShopConnections.php tests/Feature/Shop/ShopStoreReadLaneTest.php
@@ -389,9 +389,19 @@ git commit -m "feat(shop-rehome): ShopConnections::stores() reads content.*"
 
 ### Task 5: Phase 1 gate
 
-- [ ] **Step 1:** `composer test`, then `./vendor/bin/pest --parallel --processes=4`.
-- [ ] **Step 2:** `composer test:pg` — `ShopStorefrontUpsertConflictTest` and `ShopUpsertStoreAtomicityTest` both live there.
-- [ ] **Step 3:** `php -d memory_limit=1G ./vendor/bin/phpstan analyse --no-progress` and `php artisan pint`.
+- [x] **Step 1:** `composer test`, then `./vendor/bin/pest --parallel --processes=4`.
+      → **8283 passed, 2 skipped, 0 failed** (baseline 8272; +11 net new tests).
+- [x] **Step 2 result:** PG lane **207 passed, 955 assertions**, run against a
+      throwaway `postgres:16` container on port 55437 (`.env`'s `DB_HOST` is a
+      dead ref, so a bare `composer test:pg` reports connection errors — see
+      the local-invocation recipe).
+- [x] **Step 3 result:** PHPStan at `-d memory_limit=1G` → **no errors**
+      (needed two baseline/annotation corrections, both real: a stale
+      `ShopBrand` `is_array()` ignore whose line was deleted with
+      `toBrandArray()`, and a `Collection` covariance error from using
+      `pipe()`). Pint → passed.
+- [x] **Step 2:** `composer test:pg` — `ShopStorefrontUpsertConflictTest` and `ShopUpsertStoreAtomicityTest` both live there.
+- [x] **Step 3:** `php -d memory_limit=1G ./vendor/bin/phpstan analyse --no-progress` and `php artisan pint`.
 - [ ] **Step 4: Independent review of the phase diff**, then merge to `development` and deploy dev. `stores()` is additive — nothing reads it yet, so this deploy changes no behaviour.
 
 ---

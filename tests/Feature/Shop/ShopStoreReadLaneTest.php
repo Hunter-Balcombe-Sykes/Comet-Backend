@@ -1,7 +1,10 @@
 <?php
 
+use App\Models\Core\Site\ShopBrand;
+use App\Models\Core\User\User;
 use App\Services\Migration\ShopBackfiller;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentReader;
 use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
@@ -183,4 +186,90 @@ it('defaults the collection id to null for a record built to be written', functi
     $record = new StoreRecord(externalRef: '75102060779', provider: 'shopify');
 
     expect($record->collectionId)->toBeNull();
+});
+
+// ── Task 4: ShopConnections::stores() / store() read content.* ───────────
+//
+// The old brands()/brand() pair returned a query Builder, so callers chained
+// ->where(), ->max('position') and ->count(). A keyed Collection supports all
+// three and costs one query for the whole family instead of one per call.
+
+it('lists every store the user owns, ordered, off content.*', function (): void {
+    [$user, $brandA] = makeShopBrand([
+        'brand_id' => 'alpha', 'url' => 'https://a.test', 'source_url' => 'https://a.test', 'position' => 0,
+    ], withSite: true);
+    ShopBrand::create([
+        'connection_id' => $brandA->connection_id,
+        'brand_id' => 'beta', 'provider' => 'shopify',
+        'url' => 'https://b.test', 'source_url' => 'https://b.test',
+        'is_individual' => false, 'position' => 1,
+    ]);
+
+    app(ShopBackfiller::class)->run();
+
+    $stores = app(ShopConnections::class)->stores($user);
+
+    expect($stores->keys()->all())->toBe(['alpha', 'beta'])
+        ->and($stores->get('alpha'))->toBeInstanceOf(StoreRecord::class)
+        ->and($stores->get('alpha')->collectionId)->not->toBeNull()
+        ->and($stores->get('beta')->position)->toBe(1);
+});
+
+it('returns an empty collection for a user with no shop at all', function (): void {
+    $handle = 'sbrnoshop';
+    $user = User::factory()->create(['handle' => $handle, 'handle_lc' => $handle]);
+
+    expect(app(ShopConnections::class)->stores($user))->toBeEmpty();
+});
+
+it('issues no query naming shop_brands when listing stores', function (): void {
+    [$user] = makeShopBrand([
+        'brand_id' => 'alpha', 'url' => 'https://a.test', 'source_url' => 'https://a.test',
+    ], withSite: true);
+    app(ShopBackfiller::class)->run();
+
+    $queries = [];
+    DB::listen(function ($q) use (&$queries): void {
+        $queries[] = $q->sql;
+    });
+
+    // Non-empty is asserted first: a stores() that returned nothing would
+    // satisfy the query assertion below for the wrong reason.
+    expect(app(ShopConnections::class)->stores($user))->toHaveCount(1)
+        ->and(collect($queries)->filter(fn (string $sql) => str_contains($sql, 'shop_brands')))
+        ->toBeEmpty();
+});
+
+it('resolves one store by its provider store id', function (): void {
+    [$user] = makeShopBrand([
+        'brand_id' => 'alpha', 'url' => 'https://a.test', 'source_url' => 'https://a.test',
+    ], withSite: true);
+    app(ShopBackfiller::class)->run();
+
+    $shop = app(ShopConnections::class);
+
+    expect($shop->store($user, 'alpha'))->toBeInstanceOf(StoreRecord::class)
+        ->and($shop->store($user, 'nope'))->toBeNull();
+});
+
+// stores() and ShopContentReader::brandMap() MUST agree on which store is
+// position 0 — they are two reads of the same rows, and a dashboard that
+// ordered them differently from the picker would be a real user-visible bug.
+it('orders stores identically to ShopContentReader::brandMap()', function (): void {
+    [$user, $brandA] = makeShopBrand([
+        'brand_id' => 'zeta', 'url' => 'https://z.test', 'source_url' => 'https://z.test', 'position' => 0,
+    ], withSite: true);
+    foreach ([['alpha', 1], ['mid', 1]] as [$id, $position]) {
+        ShopBrand::create([
+            'connection_id' => $brandA->connection_id,
+            'brand_id' => $id, 'provider' => 'shopify',
+            'url' => "https://{$id}.test", 'source_url' => "https://{$id}.test",
+            'is_individual' => false, 'position' => $position,
+        ]);
+    }
+
+    app(ShopBackfiller::class)->run();
+
+    expect(app(ShopConnections::class)->stores($user)->keys()->all())
+        ->toBe(array_keys(app(ShopContentReader::class)->brandMap($user)));
 });

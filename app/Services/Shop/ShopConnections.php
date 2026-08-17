@@ -7,6 +7,10 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\ShopProviderDetector;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use stdClass;
 
 /**
  * Convergence Phase 6, owner ruling 4: ONE CONNECTION PER STORE.
@@ -170,10 +174,77 @@ class ShopConnections
     }
 
     /**
+     * Every connected store this user owns, keyed by its provider store id.
+     *
+     * Replaces brands(), which queried site.shop_brands. Ordering mirrors
+     * ShopContentReader::brandMap() — c.position then s.external_ref — so the
+     * two reads can never disagree about which store is position 0. Pinned by
+     * ShopStoreReadLaneTest's "orders stores identically to
+     * ShopContentReader::brandMap()".
+     *
+     * Returns a Collection rather than a query Builder deliberately: the
+     * callers that chained ->where()/->max()/->count() all work unchanged on
+     * one, and the whole family costs a single query instead of one per call.
+     *
+     * @return Collection<string, StoreRecord>
+     */
+    public function stores(User $user): Collection
+    {
+        return self::keyByExternalRef(
+            $this->storeQuery()->where('c.user_id', (string) $user->id)->get()
+        );
+    }
+
+    /** One store by its provider store id, across the user's whole shop family. */
+    public function store(User $user, string $externalRef): ?StoreRecord
+    {
+        return $this->stores($user)->get($externalRef);
+    }
+
+    /**
+     * The shared SELECT behind stores()/store(). Column list and ordering are
+     * ShopContentReader::brandMap()'s, verbatim — one place to change if a
+     * column moves, and no way for the two to drift apart silently.
+     */
+    private function storeQuery(): QueryBuilder
+    {
+        return DB::table('content.storefronts as s')
+            ->join('content.collections as c', 'c.id', '=', 's.collection_id')
+            ->where('c.kind', 'storefront')
+            ->orderBy('c.position')
+            ->orderBy('s.external_ref')
+            ->select([
+                's.collection_id', 's.external_ref', 's.provider', 's.url', 's.source_url',
+                's.currency', 's.discount_code', 's.referral_query', 's.is_individual',
+                's.fetch_mode', 's.connect_status', 's.connect_error', 's.products_curated_at',
+                's.logo_url', 's.favicon_url', 's.logo_mark_url', 's.logo_mark_svg_url',
+                'c.label', 'c.position',
+            ]);
+    }
+
+    /**
+     * @param  Collection<int, stdClass>  $rows
+     * @return Collection<string, StoreRecord>
+     */
+    private static function keyByExternalRef(Collection $rows): Collection
+    {
+        return $rows
+            // A row with no external_ref has nothing to key on — skip rather
+            // than collide every such row onto ''. The same guard brandMap()
+            // applies, for the same reason.
+            ->reject(fn (object $row): bool => (string) ($row->external_ref ?? '') === '')
+            ->mapWithKeys(fn (object $row): array => [
+                (string) $row->external_ref => StoreRecord::fromStorefrontRow($row),
+            ]);
+    }
+
+    /**
      * Every ShopBrand row this user owns, across all their shop connections.
      *
      * The replacement for `ShopBrand::where('connection_id', $marker->id)`,
      * which now sees exactly one store instead of all of them.
+     *
+     * @deprecated Reads site.shop_brands. Use stores(). Deleted in Task 11.
      *
      * @return Builder<ShopBrand>
      */
@@ -186,7 +257,11 @@ class ShopConnections
         return ShopBrand::query()->whereIn('connection_id', $ids);
     }
 
-    /** One brand by its brand id, across the user's whole shop family. */
+    /**
+     * One brand by its brand id, across the user's whole shop family.
+     *
+     * @deprecated Reads site.shop_brands. Use store(). Deleted in Task 11.
+     */
     public function brand(User $user, string $brandId): ?ShopBrand
     {
         return $this->brands($user)->where('brand_id', $brandId)->first();
