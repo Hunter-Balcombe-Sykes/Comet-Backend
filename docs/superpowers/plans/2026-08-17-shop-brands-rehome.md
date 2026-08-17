@@ -55,7 +55,14 @@
 
 No code. This task exists because slice 7 was in flight across fourteen worktrees when the plan was written, and because the ruling that created this project also opened a gap that may not be this project's to close.
 
-- [ ] **Step 1: Re-derive the production inventory.**
+**BLOCKING GATE — CLEARED before any of the below.** The EXECUTE prompt's one gate
+was the services cutover's Task 1 migration. `select version from
+supabase_migrations.schema_migrations where version = '20260817000000'` returns
+**1 row** on the dev ref, so it is applied and a `db push` from this branch cannot
+carry it as a side effect. `origin/development` `44e257c28` is the services
+session recording that apply.
+
+- [x] **Step 1: Re-derive the production inventory.**
 
 ```bash
 grep -rln "ShopBrand" app/ | sort
@@ -64,7 +71,13 @@ grep -n "ShopBrand::query()" app/Services/Shop/ShopConnections.php
 
 Expected 2026-08-17: 34 files under `app/`, and `ShopConnections.php:186` returning `ShopBrand::query()->whereIn('connection_id', $ids)`. Record the real numbers. Any file in spec §4 that no longer appears is **struck with a note**, not silently dropped.
 
-- [ ] **Step 2: Find out what slice 7 changed in this family after the ruling.**
+**FINDING (re-derived against `origin/development` @ `44e257c28`, 2026-08-17):** both
+numbers hold exactly — **34** files under `app/` name `ShopBrand`, and
+`ShopConnections.php:186` is still `ShopBrand::query()->whereIn('connection_id', $ids)`.
+No spec §4 file has disappeared. The branch base for this project is
+`origin/development` `44e257c28`, not `feat/slice-7-teardown`.
+
+- [x] **Step 2: Find out what slice 7 changed in this family after the ruling.**
 
 ```bash
 git log --oneline development..feat/slice-7-teardown -- \
@@ -74,7 +87,13 @@ git log --oneline development..feat/slice-7-teardown -- \
 
 Anything already done is ticked below with its commit sha as evidence, not redone.
 
-- [ ] **Step 3: Confirm the drop phase did NOT take the `shop_products` call sites.**
+**FINDING:** `origin/development..feat/slice-7-teardown` over that path list is
+**empty** — slice 7 has nothing outstanding in the shop family; it all merged.
+`0c51885ca` ("re-home ShopContentWriter off the ShopBrand model" — their Task 24)
+is on `origin/development`, so `ShopContentWriter`/`StoreRecord` are already the
+shipped write side. Nothing to inherit, nothing to redo.
+
+- [x] **Step 3: Confirm the drop phase did NOT take the `shop_products` call sites.**
 
 Ownership moved twice on 2026-08-17 and settled with this plan (spec §2.2), but their §4d resolution was written while they still held it. Verify what actually shipped:
 
@@ -91,7 +110,31 @@ grep -n "function products()\|function toBrandArray()" app/Models/Core/Site/Shop
 
 Expected: table present, and all the call sites in Task 2's file list still there. **If the call sites are gone, Task 2 is already done** — tick it with their commit sha rather than redoing it. **If the table is gone and the call sites are not, dev is broken** — check `cloud env:logs partna development --minutes 30` and Nightwatch, and treat Task 2 as urgent rather than routine.
 
-- [ ] **Step 4: Record all three answers in this file**, then commit.
+**FINDING:** the drop phase did NOT take them. Both tables are live on dev
+(`site.shop_brands` 10, `site.shop_products` 51, `content.storefronts` 15 — the
+prompt's figures, confirmed by query, not assumed). Every call site is present.
+Task 2 is real work.
+
+**PLAN CORRECTIONS — Task 2's line list was incomplete.** Re-derived:
+
+| Task 2 step | Plan said | Reality |
+|---|---|---|
+| Step 3 — `?? …fresh('products')->toBrandArray()` fallbacks | `:468, 580, 664` (3) | **`:468, 580, 664, 947, 1096` (5)** — `947` (`setProducts`) and `1096` (the individual bucket, keyed `ShopBrand::INDIVIDUAL_BRAND_ID`) were never listed |
+| Step 4 — `->with('products')` eager loads | `:881, 895, 1291` | holds exactly |
+| Step 5 — `ShopProduct::…->delete()` | `:772, 985, 1113, 1141` | holds exactly |
+| Step 6 — `ShopBrand::products()` | `:114-117` | **`:115-118`** |
+| Step 6 — `ShopBrand::toBrandArray()` | `:171-175` | starts `:171`, body runs past `:175` |
+
+Two further `products` reads the plan does not name, both of which Step 4/6 must
+absorb or they become dangling callers of a deleted relation:
+`ShopController:655` `syncLatest($brand->fresh('products'))` and `:891`
+`providerProducts($brand->toBrandArray())`.
+
+**Also stale, for the record:** the EXECUTE prompt says `git grep -c ShopBrand`
+on `ShopController` returned **61**; against `origin/development` `44e257c28` it
+is **40**. Different refs, not a contradiction — but 40 is the live number.
+
+- [x] **Step 4: Record all three answers in this file**, then commit.
 
 ```bash
 git add docs/superpowers/plans/2026-08-17-shop-brands-rehome.md
@@ -101,7 +144,8 @@ git commit -m "docs(shop-rehome): entry gate — what slice 7 left"
 ### Task 2: `site.shop_products` — retire the legacy product reads
 
 **Files:**
-- Modify: `app/Http/Controllers/Api/Platforms/ShopController.php:468, 580, 664, 772, 881, 895, 985, 1113, 1141, 1291`, `app/Models/Core/Site/ShopBrand.php:114-117, 171-175`, `app/Services/Platforms/ShopCatalog.php`
+- Modify: `app/Http/Controllers/Api/Platforms/ShopController.php:468, 580, 655, 664, 772, 881, 891, 895, 947, 985, 1096, 1113, 1141, 1291`, `app/Models/Core/Site/ShopBrand.php:115-118, 171+`, `app/Services/Platforms/ShopCatalog.php:104`
+  *(Corrected by Task 1 Step 3 — `:655, 891, 947, 1096` were missing from the original list.)*
 - Test: `tests/Feature/Shop/ShopStoreReadLaneTest.php`
 
 Ordered as the drop-phase session's §4d resolution sets out, which is the right
