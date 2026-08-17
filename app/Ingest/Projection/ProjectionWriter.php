@@ -1668,6 +1668,15 @@ class ProjectionWriter
      * from here would issue one purge per written item instead of one per
      * request. The connector path has no such batching caller and uses
      * invalidateSiteLanes() below.
+     *
+     * Owner ruling (2026-08-17, #PGR-6): the three-lane contract IS required
+     * for owner-initiated pool mutations, and this method's single-lane split
+     * SURVIVES that ruling rather than being folded into it. bumpSite() is a
+     * per-item primitive — its batch callers (MenuScanApplier,
+     * ShopContentWriter::syncProducts, the backfillers) call writeManualItem()
+     * once PER ROW, so firing lanes 2+3 here would issue N sites.updated_at
+     * writes and N edge purges for one request where one of each is correct.
+     * The lanes are discharged once, at the request boundary, by the caller.
      */
     private function bumpSite(string $userId): void
     {

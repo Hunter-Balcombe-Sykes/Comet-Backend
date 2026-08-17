@@ -13,7 +13,9 @@ use Illuminate\Support\Facades\DB;
  *    (`IndividualProfilePayloadBuilder::cacheKey()` derives from this column, TTL
  *    60s). Skipping it means the origin keeps serving its previous payload from
  *    its own cache even after the edge has been purged.
- * 3. The Cloudflare edge purge.
+ * 3. The Cloudflare edge purge — pools serve LIVE (Option B), but the CDN in
+ *    front still holds the rendered page, so without it "the site follows
+ *    instantly" is true of the payload and false of what a visitor sees.
  *
  * Extracted because "fired two of the three" is this codebase's recurring
  * defect, not a hypothetical one: `6ab3028e8` fixed exactly that in

@@ -6,13 +6,12 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Ingest\Projection\ProjectionWriter;
-use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Content\ManualOverride;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Services\Shop\ProductPageAdder;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
 use App\Site\Pools\PoolSectionProvisioner;
@@ -240,14 +239,14 @@ class PoolItemCreateController extends ApiController
         }
         $pin->save();
 
-        // writeManualItem() already bumped the build state for the content
-        // write; this covers the curation write above. Both are cheap
-        // increments, and a missed bump is a stale public document.
-        BuildState::bump((string) $site->id);
-        if ($site->subdomain !== '') {
-            CloudflareCachePurgeJob::dispatch($site->subdomain);
-        }
-
+        // writeManualItem() already bumped lane 1 (build state only) for the
+        // content write via ProjectionWriter::bumpSite() — this bust() covers
+        // the curation write above, all three lanes. Correction (#PGR-6): a
+        // hand-add therefore bumps content_revision TWICE per request (once
+        // there, once here) while lanes 2+3 fire once — PoolCacheLanesTest
+        // pins that exact +2 delta, so don't "simplify" this to a single
+        // bust() call expecting +1.
+        SiteCacheLanes::bust([(string) $site->id]);
     }
 
     /**
