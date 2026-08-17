@@ -166,7 +166,7 @@ The resync verbs already resolve Fresha content items via three private helpers 
 - Produces: `FreshaServiceItems::hiddenServiceIds(string $userId): array` — the stored blob's `hiddenServiceIds` (list of vendor serviceIds), `[]` when no connection/selection
 - Consumes: `ManualServiceItems::facets()`, `ManualServiceItems::toServiceModel()` (existing, unchanged)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/Feature/Services/ServicesCutoverFreshaItemsTest.php`:
 
@@ -201,10 +201,12 @@ function svcCutItemsFresha(string $userId, string $title, string $recordKey): ar
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
+    // source_items carries observation timestamps (first_seen_at/last_seen_at)
+    // and a NOT NULL kind — it has no created_at/updated_at pair.
     DB::table('content.source_items')->insert([
         'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
-        'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey,
-        'created_at' => now(), 'updated_at' => now(),
+        'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
     ]);
 
     return [$itemId, $sourceId];
@@ -250,14 +252,13 @@ it('toServiceModel stamps source, external_id, is_manual from overrides, and is_
 it('selectionServices folds title, description and duration overrides over the vendor values', function () {
     $pro = svcCutItemsUser();
     [$itemId, $sourceId] = svcCutItemsFresha($pro->id, 'Vendor Name', 's:1');
+    // Singleton facets are keyed (item_id, source_id) — no id, no created_at.
     DB::table('content.f_text')->insert([
-        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
-        'headline' => 'Vendor Name', 'body' => 'Vendor description',
-        'created_at' => now(), 'updated_at' => now(),
+        'item_id' => $itemId, 'source_id' => $sourceId,
+        'headline' => 'Vendor Name', 'body' => 'Vendor description', 'updated_at' => now(),
     ]);
     DB::table('content.f_duration')->insert([
-        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
-        'seconds' => 1800, 'created_at' => now(), 'updated_at' => now(),
+        'item_id' => $itemId, 'source_id' => $sourceId, 'seconds' => 1800, 'updated_at' => now(),
     ]);
     foreach ([['f_text', 'headline', 'Owner Name'], ['f_text', 'body', 'Owner description'], ['f_duration', 'seconds', 3600]] as [$facet, $column, $value]) {
         DB::table('content.manual_overrides')->insert([
@@ -285,13 +286,13 @@ it('findRow with liveOnly=false still matches an item whose source_item is remov
 });
 ```
 
-- [ ] **Step 2: Run; confirm each fails on a missing method** (`findRow` undefined), not on setup.
+- [x] **Step 2: Run; confirm each fails on a missing method** (`findRow` undefined), not on setup.
 
 ```bash
 ./vendor/bin/pest tests/Feature/Services/ServicesCutoverFreshaItemsTest.php
 ```
 
-- [ ] **Step 3: Implement on `FreshaServiceItems`**
+- [x] **Step 3: Implement on `FreshaServiceItems`**
 
 Add to the class (keeping `selectionServices()`, `rows()`, `categories()` and the display helpers):
 
@@ -326,11 +327,21 @@ use App\Services\Platforms\Registry\Platform;
             ->when($liveOnly, fn ($q) => $q->whereNull('si.removed_at'));
     }
 
-    /** @return list<string> */
+    /**
+     * `si.id` rides along ALIASED and `i.first_seen_at` is selected because
+     * managementRows() both DISTINCTs and orders by them: Postgres rejects a
+     * SELECT DISTINCT whose ORDER BY expressions are absent from the select
+     * list (42P10) where SQLite accepts it silently. The alias is not cosmetic
+     * either — a bare `si.id` would land on the output column `id` and
+     * overwrite the item id on every row.
+     *
+     * @return list<string>
+     */
     private function managementColumns(): array
     {
         return ['i.id', 'i.headline_cache', 'i.removed_at', 'i.created_at', 'i.updated_at',
-            'cs.id as source_id', 'si.record_key', 'sec.sort_key', 'sec.state'];
+            'i.first_seen_at', 'cs.id as source_id', 'si.id as source_item_id', 'si.record_key',
+            'sec.sort_key', 'sec.state'];
     }
 
     /** @return Collection<int, \stdClass> */
@@ -400,9 +411,14 @@ use App\Services\Platforms\Registry\Platform;
         $itemIds = $rows->pluck('id')->map(fn ($id) => (string) $id)->all();
         $overrides = $this->overridesFor($itemIds);
         $categories = $this->managementCategories($userId, $itemIds, (string) $rows->first()->source_id);
+        // PLURAL, deliberately: the singular manual hydration re-queries three
+        // facet tables and the memberships PER ROW, and a 61-service Fresha
+        // dashboard is the normal case here, not the edge.
+        $hydrated = $this->manualServiceItems->toServiceModels($userId, $rows)
+            ->keyBy(fn (Service $model) => (string) $model->id);
 
-        return $rows->map(function ($row) use ($userId, $hidden, $overrides, $categories) {
-            $model = $this->manualServiceItems->toServiceModel($userId, $row);
+        return $rows->map(function ($row) use ($hydrated, $hidden, $overrides, $categories) {
+            $model = $hydrated->get((string) $row->id);
             $model->source = 'fresha';
             $model->external_id = (string) $row->record_key;
             $itemOverrides = $overrides[(string) $row->id] ?? [];
@@ -523,7 +539,7 @@ and use `$name`/`$description`/`$seconds` in the returned array (price/priceValu
 
 Also make `categories()` prefer the owner lane, mirroring `managementCategories()`: widen its membership query's filter from `->where('ci.source_id', $sourceId)` to `->where(fn ($q) => $q->whereNull('ci.source_id')->orWhere('ci.source_id', $sourceId))`, order owner-lane rows first (`->orderByRaw('ci.source_id IS NOT NULL')` before `->orderBy('ci.position')`) and keep first-wins.
 
-- [ ] **Step 4: Run the new file, the booking-surface pins, and the two-surface pins**
+- [x] **Step 4: Run the new file, the booking-surface pins, and the two-surface pins**
 
 ```bash
 ./vendor/bin/pest tests/Feature/Services/ServicesCutoverFreshaItemsTest.php tests/Feature/Platforms/FreshaBookingSurfaceTest.php tests/Feature/Content/ServiceTwoSurfaceTest.php
@@ -531,14 +547,35 @@ Also make `categories()` prefer the owner lane, mirroring `managementCategories(
 
 `FreshaBookingSurfaceTest`'s "reproduces the stored blob's service shape exactly" must stay green — override folding with no override rows present is a no-op.
 
-- [ ] **Step 5: `composer test:pg`** (content.* read shapes changed) — expect green.
+- [x] **Step 5: `composer test:pg`** (content.* read shapes changed) — expect green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/Services/Content/FreshaServiceItems.php tests/Feature/Services/ServicesCutoverFreshaItemsTest.php
 git commit -m "feat(services-cutover): FreshaServiceItems management read — find/rows/models, hidden list, override folding"
 ```
+
+**Reality corrections applied to this task's own snippets (rule zero, 2026-08-17):**
+
+1. **The fixture inserts named columns that do not exist.** `content.source_items`
+   has no `created_at`/`updated_at` — it timestamps observation
+   (`first_seen_at`/`last_seen_at`) — and its `kind` is NOT NULL. The singleton
+   facet tables (`f_text`, `f_duration`) have no `id` and no `created_at`; the PK
+   is `(item_id, source_id)`. Verified against live dev Postgres
+   (`information_schema.columns`), not only the SQLite stand-in, which agrees.
+   Both copies of the helper (Tasks 2 and 3) are fixed above.
+2. **`managementColumns()` would have failed on Postgres.** `managementRows()`
+   pairs `->distinct()` with `orderBy('i.first_seen_at')`/`orderBy('si.id')`, and
+   Postgres rejects a `SELECT DISTINCT` whose ORDER BY expressions are absent
+   from the select list — `ERROR 42P10`, reproduced against dev before the fix
+   and confirmed accepted after. SQLite runs it happily, so the SQLite lane would
+   never have caught it. `si.id` must be ALIASED (`as source_item_id`): unaliased
+   it lands on the output column `id` and overwrites the item id.
+3. **Hydration is batched.** `toServiceModels()` calls the PLURAL
+   `ManualServiceItems::toServiceModels()`, keyed by id, rather than the singular
+   per row — the singular re-queries three facet tables plus the memberships for
+   every row, which is ~5 queries × 61 services on the live dev dashboard.
 
 ---
 
@@ -596,10 +633,12 @@ function svcCutMgmtFresha(User $pro, string $title, string $recordKey): string
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
+    // source_items carries observation timestamps (first_seen_at/last_seen_at)
+    // and a NOT NULL kind — it has no created_at/updated_at pair.
     DB::table('content.source_items')->insert([
         'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
-        'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey,
-        'created_at' => now(), 'updated_at' => now(),
+        'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
     ]);
     DB::table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(), 'user_id' => $pro->id, 'platform' => 'fresha',
