@@ -4582,3 +4582,99 @@ legacy third.
 - `ShopConnections::LEGACY_SURFACE` and `EventsCatalog`'s dual-lane reads exist
   only for the deploy→migration window, which has now closed on dev. Both can go
   once prod is reconciled.
+
+## 27. Services cutover checkpoint — the last three legacy tables
+
+Spec: `2026-08-17-services-cutover-design.md`. Plan:
+`plans/2026-08-17-services-cutover.md` (Tasks 1–13, all ticked). Dev only;
+production still carries the legacy schema and is out of scope programme-wide.
+
+**The dual-id era for services is over.** `site.services`,
+`site.service_categories` and `site.service_category_assignments` are dropped on
+dev (`20260818000100`–`20260818000300`); every service surface — public
+sitepage, KV, booking blob, dashboard, staff — reads and writes `content.*`
+only, on one id space and one ordering scale.
+
+### 27.1 What moved, and where each semantic landed
+
+| Legacy | content.* home |
+|---|---|
+| owner delete (`deleted_at` + `deleted_origin='user'`) | `content.items.removed_at` — one-way; the projection path never clears it, so a re-listing vendor cannot resurrect it |
+| vendor removal (`deleted_origin='sync'`) | `content.source_items.removed_at` — cleared on reappearance, so restore-on-return is native; nothing was built for it |
+| `is_active` | pool exclude (manual half) / the connection blob's `hiddenServiceIds` (Fresha half) |
+| `is_manual` ("sync broken") | the presence of a `content.manual_overrides` row |
+| `sort_order` (+ `services_user_sort_order_uq`) | `site.section_items.sort_key` on the services section, ONE scale for both halves; no uniqueness constraint, so that whole class of 23505 collisions cannot recur |
+| `source` / `external_id` | `content.sources.kind` + `content.source_items.record_key` |
+| categories + the assignment pivot | `content.collections` kind `service_category` + `content.collection_items` (owner lane `source_id IS NULL` outranks the connection lane, which the projector replaces per run) |
+
+### 27.2 Verified on dev, re-run rather than cited
+
+Backup gate (2026-08-17 14:56 UTC+10): `pg_dump` of all three tables, restored
+into a scratch PG17 database, counts matched live EXACTLY — **services 79,
+service_categories 16, service_category_assignments 61**. Dump
+`services-teardown-202608171456.dump`, sha256 `26b3318b…65bae7`, at
+`~/partna-db-dumps/`. **The R2 copy was DEFERRED** (owner ruling): the upload
+path exists (`scripts/db/backup-to-r2.sh`, wrangler OAuth — the "no tooling"
+note is out of date) but encrypting needs `BACKUP_PASSPHRASE`, a GitHub Actions
+secret. The dump is on one laptop, exactly as the slice-7 drop phase recorded.
+
+Post-drop state:
+
+```
+legacy tables remaining     0      (to_regclass -> three NULLs)
+live service content items 77      = 59 connection-sourced + 18 manual
+service_category collections 16
+drop migrations recorded     3      (20260818000100/000200/000300, filename order)
+pg_depend over the three     0 rows
+```
+
+Through the deployed code, before and after the drop, identical both times:
+
+```
+ra33rty  dashboard=36 active=36 booking=36
+ollies   dashboard=25 active=25 booking=23   (23 Fresha + 2 owner-authored)
+public profile 200 for both; ollies' payload carries 2 services (manual half only)
+DSAR export builds: 23 sections, 28 service rows, all from content.*
+```
+
+`ra33rty` still held 36 legacy rows at gate time and its dashboard returned 36,
+not 72 — the merge was single-source before the tables went. Lanes: full suite
+8288 passed / 2 skipped / 0 failed; `test:pg` 207 passed; `composer analyse`
+clean; Pint clean; CI green on all nine required jobs at the phase gate.
+`cloud env:logs` 0 errors post-drop, Nightwatch no new issue.
+
+### 27.3 Accepted losses and residuals
+
+1. **Legacy ids break, deliberately** (ruling 1). No mapping minted; the wire
+   manifest (`docs/wire-changes/2026-08-17-services-cutover.md`) records every
+   verb that now 404s or 422s. The public wire was already single-id, so the
+   break lands only on authenticated management URLs.
+2. **The authenticated live-verification was NOT exercised** (owner ruling): no
+   owner JWT or staff token was available, so edit / resync / hide / delete /
+   restore / reorder are covered by test and by DB-side reads only. The DROPs
+   went in on that basis, knowingly. `site.section_items` rows for Fresha items
+   were still 0 at drop time because only a live reorder writes them — the
+   one-time tail-of-list effect this implies is recorded on the manifest.
+3. **Count drift, unexplained.** The spec's §1.2 census read 82 / 18 / 61 on
+   2026-08-17; the drop-time census read 79 / 16 / 61. Nothing in this project
+   writes those tables and no migration ran between the readings, so three
+   pre-`deleted_origin` soft-deleted services and two categories were removed
+   externally. The backup gate re-derived rather than trusting either figure.
+4. **`ServiceBackfiller` and `BackfillOwnerServices` survive** as the project's
+   single code residual. Deleting them forces a fixture change in
+   `ServiceTwoSurfaceTest`, which the plan's Global Constraints require to stay
+   green UNMODIFIED through every task. They are dead code — the only
+   invocation path, `php artisan content:backfill-owner-services`, would now
+   `42P01` — and their removal needs an owner decision on touching that file.
+5. **`anseo-studio`'s unprovisionable `book-now/…?pId=` URL** and the
+   **no-selection dashboard prompt** stay deferred (rulings 4 and 5), unchanged
+   by this project.
+
+### 27.4 What this closes, and what remains
+
+This was the LAST implementation work in the convergence programme. Five legacy
+tables have now been retired by this project and the shop re-home together.
+What remains is **phase-8-review-and-docs**, whose A2 legacy-zero sweep should
+now name zero remaining tables from this programme's drop list — and whose
+scope should include reconciling **production**, which still carries the full
+legacy schema for all of them.

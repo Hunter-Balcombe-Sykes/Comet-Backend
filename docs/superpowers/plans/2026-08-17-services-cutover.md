@@ -2149,10 +2149,10 @@ git commit -m "feat(services-cutover)!: drop site.services, site.service_categor
 
 ### Task 13: Close out
 
-- [ ] **Step 1: Wire manifest completed** — add to `docs/wire-changes/2026-08-17-services-cutover.md`: the management-surface id break (legacy `site.services`/`site.service_categories` uuids 404 on every verb), the price-edit 422 on Fresha services, the one-category-space change (a Fresha service may now be filed under any owner collection; the two cross-space 422s are gone), the reorder payloads' id domain.
-- [ ] **Step 2: Checkpoint** — append a "Services cutover checkpoint" section to the parent spec (`2026-08-11-content-pool-convergence-design.md`), pasting: the backup location + matched counts, the Task 11 live-verification outputs, the `to_regclass` nulls, `pg_depend` clean, suite/lane results. Every assertion re-run, not cited.
-- [ ] **Step 3: Update the A2 legacy-zero sweep list** — `phase-8-review-and-docs` should now name zero remaining legacy tables from this programme's drop list (the kickoff's closing note).
-- [ ] **Step 4: Commit docs; report to the owner.**
+- [x] **Step 1: Wire manifest completed** — add to `docs/wire-changes/2026-08-17-services-cutover.md`: the management-surface id break (legacy `site.services`/`site.service_categories` uuids 404 on every verb), the price-edit 422 on Fresha services, the one-category-space change (a Fresha service may now be filed under any owner collection; the two cross-space 422s are gone), the reorder payloads' id domain.
+- [x] **Step 2: Checkpoint** — append a "Services cutover checkpoint" section to the parent spec (`2026-08-11-content-pool-convergence-design.md`), pasting: the backup location + matched counts, the Task 11 live-verification outputs, the `to_regclass` nulls, `pg_depend` clean, suite/lane results. Every assertion re-run, not cited.
+- [x] **Step 3: Update the A2 legacy-zero sweep list** — `phase-8-review-and-docs` should now name zero remaining legacy tables from this programme's drop list (the kickoff's closing note).
+- [x] **Step 4: Commit docs; report to the owner.**
 
 ---
 
