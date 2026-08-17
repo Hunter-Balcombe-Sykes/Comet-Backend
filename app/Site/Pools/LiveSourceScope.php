@@ -29,7 +29,9 @@ final class LiveSourceScope
                     ->join('content.sources as lsrc', 'lsrc.id', '=', 'lss.source_id')
                     ->leftJoin('site.platform_connections as lpc', 'lpc.id', '=', 'lsrc.connection_id')
                     ->whereColumn('lss.item_id', $itemsTable.'.id')
-                    ->whereNull('lss.removed_at')
+                    // Any source_item, retired or not: a source that stopped
+                    // listing an item is absence folding's business, not this
+                    // scope's — only the CONNECTION's liveness hides here.
                     ->where(function (Builder $s) {
                         $s->where('lsrc.kind', 'manual')
                             ->orWhere(function (Builder $c) {

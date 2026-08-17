@@ -379,7 +379,7 @@ class IntegrationConnectionObserver
         if (! ($connection->wasRecentlyCreated || $connection->wasChanged('payload') || ($connection->wasChanged('is_active') && $connection->is_active))) {
             return;
         }
-        $url = (string) (($connection->payload['url'] ?? '') ?: '');
+        $url = (string) (\App\Services\Platforms\Payloads\CardPayload::fromArray((array) $connection->payload)->url() ?? '');
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         if ($host === '') {
             return;

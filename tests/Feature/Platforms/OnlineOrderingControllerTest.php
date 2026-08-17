@@ -152,11 +152,12 @@ it('addEntry sends a link with no ordering brand to the links pool', function ()
 // ── addEntry: MAX_ENTRIES enforced synchronously ──────────────────────────────
 
 it('still enforces MAX_ENTRIES synchronously — 422 before any job is pushed', function () {
-    Queue::fake();
-
     $user = ooUser('oo4');
-    // Seed 10 entries (the limit).
+    // Seed 10 entries (the limit) BEFORE faking the queue: seeding ordering
+    // rows now dispatches MenuFetchJob from the observer (F17), and this
+    // test is about the 422 path pushing nothing.
     seedOoEntries($user, 10);
+    Queue::fake();
 
     $res = actingAsUser($user)
         ->postJson('/api/platforms/online-ordering/entries', ['url' => 'https://www.doordash.com/store/z']);
