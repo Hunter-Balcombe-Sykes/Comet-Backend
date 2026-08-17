@@ -38,6 +38,7 @@ use App\Services\Platforms\WooCommerceScraper;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentReader;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use App\Site\Documents\BuildState;
 use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Http\JsonResponse;
@@ -332,9 +333,17 @@ class ShopController extends ApiController
             // resolved across the user's WHOLE shop family before the anchor is
             // minted, because minting first would leave an empty connection
             // behind on the 422 — a store slot occupied by nothing.
-            $existing = $this->shop->brand($user, $id);
+            //
+            // Re-home Task 6: all three reads below come off ONE stores() call.
+            // Each brands() call was its own query; stores() rebuilds the whole
+            // family per call, so three calls would be three full scans of it.
+            $stores = $this->shop->stores($user);
+            $existing = $stores->get($id);
             // The reserved individual-products bucket doesn't occupy a store slot.
-            $storeCount = $this->shop->brands($user)->where('is_individual', false)->count();
+            // Strict filter(), not ->where('isIndividual', false): Collection's
+            // where() compares loosely, so a falsey-but-not-false value would
+            // count as a store.
+            $storeCount = $stores->filter(fn (StoreRecord $s): bool => $s->isIndividual === false)->count();
             if (! $existing && $storeCount >= self::MAX_BRANDS) {
                 return $this->error('You can connect up to '.self::MAX_BRANDS.' stores.', 422);
             }
@@ -346,9 +355,15 @@ class ShopController extends ApiController
 
             $discount = array_key_exists('discountCode', $validated)
                 ? trim((string) $validated['discountCode'])
-                : ($existing?->discount_code ?? '');
+                // Not `?->`: on the left of ?? the nullsafe is redundant —
+                // ?? uses isset() semantics, so it already absorbs a null
+                // $existing without a warning. PHPStan rejects the pair.
+                : ($existing->discountCode ?? '');
 
-            $maxPosition = $this->shop->brands($user)->max('position');
+            // max() on a Collection of objects returns null for an empty set
+            // where the query Builder returned 0 — hence the coalesce, which the
+            // Builder version did not need.
+            $maxPosition = $stores->max('position');
             $position = $existing?->position ?? (($maxPosition === null ? -1 : $maxPosition) + 1);
 
             $values = [
@@ -402,7 +417,12 @@ class ShopController extends ApiController
             // nothing on the new anchor and CREATE A SECOND ROW for one store.
             // Repointing in place is also what migrates it — a re-add settles a
             // legacy row onto its brand surface without waiting for the command.
-            $brandRow = $existing ?? new ShopBrand(['brand_id' => $id]);
+            // $existing is a StoreRecord (Task 6 repointed the READS off
+            // content.*); the legacy identity row is still written here until
+            // Task 7 replaces this whole block with upsertStore(), so it is
+            // re-resolved rather than cast. One extra query on the connect path
+            // only, and it disappears with the write.
+            $brandRow = $this->shop->brand($user, $id) ?? new ShopBrand(['brand_id' => $id]);
             $brandRow->connection_id = $connection->id;
             $brandRow->fill($values)->save();
 
@@ -513,16 +533,17 @@ class ShopController extends ApiController
     public function connectStatus(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        // Convergence Phase 6: brands are resolved across the user's whole shop
-        // family, not off one marker connection. brands() scopes on the user's
-        // own connections, so another owner's brand is still never visible.
-        $brand = $this->shop->brand($user, $id);
+        // Convergence Phase 6: stores are resolved across the user's whole shop
+        // family, not off one marker connection. Re-home Task 6: off content.*
+        // rather than site.shop_brands. stores() scopes on the collection's
+        // user_id, so another owner's store is still never visible.
+        $store = $this->shop->store($user, $id);
 
-        if (! $brand) {
+        if (! $store) {
             return $this->error('Brand not found.', 404);
         }
 
-        if ($brand->connect_status === 'pending') {
+        if ($store->connectStatus === 'pending') {
             // Stale-pending backstop, ported from GenericPlatformController::
             // connectStatus() (NOT Instagram's connectStatus(), which has no
             // staleness check) — a worker that dies leaves the row 'pending'
@@ -530,80 +551,41 @@ class ShopController extends ApiController
             // StrandedPendingWindow. SYNTHETIC — never writes the row, so a
             // merely-slow (not dead) worker can still land its real settle
             // afterwards and the next poll reports 'ready'.
-            if ($brand->updated_at !== null && $brand->updated_at->lt(now()->subMinutes(StrandedPendingWindow::MINUTES))) {
+            //
+            // The clock is content.storefronts.updated_at now (spec §12.2).
+            // upsertStore() bumps it on every write including a byte-identical
+            // one — ON CONFLICT DO UPDATE has no dirty check — so addBrand()'s
+            // explicit ->touch(), which existed only to defeat Eloquent's,
+            // is gone rather than ported.
+            if ($store->updatedAt !== null && $store->updatedAt->lt(now()->subMinutes(StrandedPendingWindow::MINUTES))) {
                 return $this->success(['status' => 'failed', 'error' => FetchUnavailableException::STALE_CONNECT_ERROR]);
             }
 
             return $this->success(['status' => 'pending']);
         }
 
-        if ($brand->connect_status === 'failed') {
-            // Unlike the six bespoke platforms, a failed Shop brand IS still
-            // usable — brand_id/provider/url/source_url are all truthful, so
+        // The store resolved through content.*, so brandMap() has an entry for
+        // it by construction — same query, same scope. That is what retires the
+        // legacy fallback brandPayload() carried: the miss it guarded against
+        // now 404s five lines up.
+        $payload = (new ShopBrandResource($this->contentReader->brandMap($user)[$id] ?? []))->resolve();
+
+        if ($store->connectStatus === 'failed') {
+            // Unlike the six bespoke platforms, a failed Shop store IS still
+            // usable — external_ref/provider/url/source_url are all truthful, so
             // the picker and public render both work (§3g) — carry it.
             return $this->success([
                 'status' => 'failed',
-                'error' => $brand->connect_error ?: self::UNKNOWN_CONNECT_ERROR,
-                'brand' => (new ShopBrandResource($this->brandPayload($user, $brand)))->resolve(),
+                'error' => $store->connectError ?: self::UNKNOWN_CONNECT_ERROR,
+                'brand' => $payload,
             ]);
         }
 
         return $this->success([
             'status' => 'ready',
-            'id' => $brand->brand_id,
-            'brand' => (new ShopBrandResource($this->brandPayload($user, $brand)))->resolve(),
+            'id' => $store->externalRef,
+            'brand' => $payload,
         ]);
-    }
-
-    /**
-     * Task 7: the embedded brand payload for connectStatus()'s 'failed'/
-     * 'ready' branches, read from content.* (ShopContentReader).
-     *
-     * connectStatus() is a real-time poll of an in-flight/just-settled async
-     * job (ShopBrandConnectJob). As of Task 8 that job calls
-     * ShopContentWriter::upsertStore() on every settle (success or terminal
-     * failure) — same-request-cycle read-your-own-write — so content.* is
-     * current by the time any poll can observe a settled store.
-     *
-     * Re-home Task 2 dropped the legacy toBrandArray() fallback that used to
-     * sit here: it materialised site.shop_products, a table nothing has written
-     * since slice 5a, so it could only ever have served a frozen product list.
-     *
-     * What it CANNOT drop is a fallback altogether, and this is the one of the
-     * five repointed payload sites where that matters. The other four are each
-     * preceded by an upsertStore() in the same request, so their content.* row
-     * is guaranteed. This one is not: connectStatus() resolves $brand from
-     * site.shop_brands and never writes, so the guarantee lives in a different
-     * request or in ShopBrandConnectJob. A store with a legacy row and no
-     * content.* row — the reader's own KNOWN GAPS #1, "a DEPLOY ORDERING FACT"
-     * — would otherwise render as a card with id "" and no name, url, logo or
-     * connectStatus at all, which is strictly worse than the stale-products
-     * shape the old fallback returned.
-     *
-     * So the miss returns the identity this endpoint actually knows, from the
-     * legacy row it already holds, with an empty catalogue — honest, because
-     * content.* genuinely has no catalogue for this store. Products are the
-     * only thing lost, and a poll of an in-flight connect has none to show.
-     *
-     * This whole branch dies at Task 6: once connectStatus() resolves through
-     * ShopConnections::store(), a store absent from content.* 404s before this
-     * method is reached.
-     */
-    private function brandPayload(User $user, ShopBrand $brand): array
-    {
-        return $this->contentReader->brandMap($user)[$brand->brand_id] ?? [
-            'id' => $brand->brand_id,
-            'provider' => $brand->provider,
-            'url' => $brand->url,
-            'sourceUrl' => $brand->source_url,
-            'name' => $brand->name,
-            'currency' => $brand->currency,
-            'favicon' => $brand->favicon,
-            'logo' => $brand->logo,
-            'discountCode' => $brand->discount_code ?? '',
-            'referralQuery' => $brand->referral_query ?? '',
-            'products' => [],
-        ];
     }
 
     // PATCH /api/platforms/shop/brands/{id} — update PER-BRAND settings: the
@@ -1087,7 +1069,10 @@ class ShopController extends ApiController
             $this->assertPlatformAvailable($user);
             $connection = $this->shop->individualAnchor($user);
 
-            $maxPosition = $this->shop->brands($user)->max('position');
+            // Re-home Task 6: read off content.*. max() on a Collection returns
+            // null for an empty set where the query Builder returned 0, which
+            // the ($maxPosition === null ? -1 : …) below already handles.
+            $maxPosition = $this->shop->stores($user)->max('position');
             $individual = ShopBrand::firstOrCreate(
                 ['connection_id' => $connection->id, 'brand_id' => ShopBrand::INDIVIDUAL_BRAND_ID],
                 [

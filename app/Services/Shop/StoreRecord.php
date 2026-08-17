@@ -57,6 +57,23 @@ final readonly class StoreRecord
          * writes R2 objects under.
          */
         public ?string $collectionId = null,
+        /**
+         * Read-back only, like $collectionId — upsertStore() stamps its own
+         * now() and never takes one.
+         *
+         * This is connectStatus()'s stale-pending clock (spec §12.2): a worker
+         * that dies leaves a store 'pending' with nothing to flip it, so a poll
+         * past StrandedPendingWindow::MINUTES answers 'failed' synthetically.
+         * The clock lives on content.storefronts.updated_at.
+         *
+         * The spec doubted that upsertStore() would bump it for a byte-identical
+         * write, and therefore that the legacy `->touch()` would need a
+         * replacement. It does bump: Postgres's ON CONFLICT DO UPDATE writes the
+         * row unconditionally. The touch() existed because ELOQUENT's
+         * fill()->save() skips a no-op UPDATE — a model-layer dirty check with
+         * no database equivalent — so it disappears rather than moving.
+         */
+        public ?Carbon $updatedAt = null,
     ) {}
 
     /**
@@ -74,6 +91,7 @@ final readonly class StoreRecord
         $externalRef = (string) $row->external_ref;
         $label = isset($row->label) ? (string) $row->label : null;
         $curatedAt = $row->products_curated_at ?? null;
+        $updatedAt = $row->updated_at ?? null;
 
         return new self(
             externalRef: $externalRef,
@@ -95,6 +113,7 @@ final readonly class StoreRecord
             logoMarkSvgUrl: $row->logo_mark_svg_url,
             productsCuratedAt: $curatedAt === null ? null : Carbon::parse((string) $curatedAt),
             collectionId: isset($row->collection_id) ? (string) $row->collection_id : null,
+            updatedAt: $updatedAt === null ? null : Carbon::parse((string) $updatedAt),
         );
     }
 }

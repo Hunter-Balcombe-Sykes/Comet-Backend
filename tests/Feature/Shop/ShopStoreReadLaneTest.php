@@ -3,6 +3,7 @@
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Migration\ShopBackfiller;
+use App\Services\Platforms\StrandedPendingWindow;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentReader;
@@ -285,13 +286,20 @@ it('orders stores identically to ShopContentReader::brandMap()', function (): vo
         ->and($keys)->toBe(array_keys(app(ShopContentReader::class)->brandMap($user)));
 });
 
-// ── Review P1-1 ─────────────────────────────────────────────────────────
+// ── Review P1-1, superseded by Task 6 ───────────────────────────────────
 //
-// connectStatus() is the ONE repointed payload site with no upsertStore() in
-// its own request, so it is the one that can actually observe a store present
-// in site.shop_brands and absent from content.*. It must not answer that with
-// a blank card.
-it('serves a truthful store on a connect poll when content.* has no row yet', function (): void {
+// Phase 1 shipped a truthful-minimum fallback here: connectStatus() was the one
+// repointed payload site with no upsertStore() in its own request, so it could
+// observe a store present in site.shop_brands and absent from content.*, and
+// answering that with `?? []` emitted a card with id "" and no name or url.
+//
+// Task 6 made that state unreachable instead of merely survivable: the store is
+// resolved through ShopConnections::store(), which reads content.*, so a store
+// absent from content.* 404s before any payload is built. The fallback was
+// deleted with brandPayload(). This test now pins the REPLACEMENT contract —
+// keeping it as a 200-with-blank-card assertion would pin behaviour the code no
+// longer has.
+it('404s a connect poll for a store that content.* has never seen', function (): void {
     // Deliberately NO ShopBackfiller run — this IS the un-backfilled store.
     [$user, $brand] = makeShopBrand([
         'brand_id' => 'unbackfilled-store',
@@ -299,24 +307,69 @@ it('serves a truthful store on a connect poll when content.* has no row yet', fu
         'url' => 'https://unbackfilled.test',
         'source_url' => 'https://unbackfilled.test',
         'name' => 'Unbackfilled Store',
-        'currency' => 'AUD',
-        'discount_code' => 'SAVE5',
     ], withSite: true);
 
-    expect(DB::table('content.storefronts')->count())->toBe(0);
+    // Non-vacuous: the legacy row genuinely exists, so the 404 is content.*
+    // answering "no such store", not the fixture failing to build one.
+    expect($brand->exists)->toBeTrue()
+        ->and(DB::table('content.storefronts')->count())->toBe(0);
 
-    $response = actingAsUser($user)
+    actingAsUser($user)
         ->getJson("/api/platforms/shop/brands/{$brand->brand_id}/connect/status")
-        ->assertOk();
+        ->assertNotFound();
+});
 
-    // The identity the endpoint knows, not an empty shell. `id` in particular:
-    // a blank one makes the dashboard replace a real card with an anonymous
-    // store it can no longer address.
-    $response->assertJsonPath('brand.id', 'unbackfilled-store')
-        ->assertJsonPath('brand.name', 'Unbackfilled Store')
-        ->assertJsonPath('brand.url', 'https://unbackfilled.test')
-        ->assertJsonPath('brand.provider', 'shopify')
-        ->assertJsonPath('brand.currency', 'AUD')
-        ->assertJsonPath('brand.discountCode', 'SAVE5')
-        ->assertJsonPath('brand.products', []);
+// ── Task 6: the stale-pending clock moves to content.storefronts ─────────
+//
+// connectStatus()'s backstop reads updated_at: a worker that dies leaves the
+// row 'pending' forever with nothing to flip it, so a poll past the window
+// reports 'failed' synthetically. That clock has to survive the repoint, and
+// the only column that can carry it is content.storefronts.updated_at.
+//
+// Spec §12.2 left this open, doubting that upsertStore() would bump the column
+// for a byte-identical write. It does: Postgres's ON CONFLICT DO UPDATE writes
+// the row unconditionally. The legacy path needed an explicit ->touch() only
+// because ELOQUENT's fill()->save() skips a no-op UPDATE — a model-layer dirty
+// check, not a database one.
+
+it('carries updated_at when rebuilt from a storefront row', function (): void {
+    $record = StoreRecord::fromStorefrontRow((object) [
+        'collection_id' => '11111111-1111-4111-8111-111111111111',
+        'external_ref' => 'alpha', 'provider' => 'shopify', 'label' => 'Alpha',
+        'position' => 0, 'url' => null, 'source_url' => null, 'currency' => null,
+        'discount_code' => null, 'referral_query' => '', 'is_individual' => false,
+        'fetch_mode' => null, 'connect_status' => 'pending', 'connect_error' => null,
+        'logo_url' => null, 'favicon_url' => null, 'logo_mark_url' => null,
+        'logo_mark_svg_url' => null, 'products_curated_at' => null,
+        'updated_at' => '2026-08-17 01:00:00+00',
+    ]);
+
+    expect($record->updatedAt)->not->toBeNull()
+        ->and($record->updatedAt->toIso8601String())->toBe('2026-08-17T01:00:00+00:00');
+});
+
+it('reports a stranded pending connect as failed, clocked off content.*', function (): void {
+    [$user, $brand] = makeShopBrand([
+        'brand_id' => 'stranded-store',
+        'url' => 'https://stranded.test', 'source_url' => 'https://stranded.test',
+        'connect_status' => 'pending',
+    ], withSite: true);
+
+    app(ShopBackfiller::class)->run();
+
+    // Age the CONTENT row past the window; the legacy row keeps a fresh clock,
+    // so a backstop still reading site.shop_brands would report 'pending' and
+    // this test would fail.
+    DB::table('content.storefronts')
+        ->where('external_ref', 'stranded-store')
+        ->update([
+            'connect_status' => 'pending',
+            'updated_at' => now()->subMinutes(StrandedPendingWindow::MINUTES + 1),
+        ]);
+    $brand->forceFill(['updated_at' => now()])->saveQuietly();
+
+    actingAsUser($user)
+        ->getJson("/api/platforms/shop/brands/{$brand->brand_id}/connect/status")
+        ->assertOk()
+        ->assertJsonPath('status', 'failed');
 });

@@ -679,7 +679,7 @@ merge (see the review-fixes commit for the detail):
 
 `connectStatus`, `updateBrand`, `removeBrand`, `setProducts` and `removeProduct` all resolve a store through `$this->shop->brand($user, $id)`. `addBrand` additionally uses `brands($user)->where('is_individual', false)->count()` for the store cap and `brands($user)->max('position')` for placement.
 
-- [ ] **Step 1: Write the failing characterisation test FIRST, against the current legacy path** — this is what proves the repoint changed nothing observable.
+- [x] **Step 1: Write the failing characterisation test FIRST, against the current legacy path** — this is what proves the repoint changed nothing observable.
 
 ```php
 it('returns identical payloads for every store-resolving endpoint', function (string $verb, string $path): void {
@@ -695,8 +695,8 @@ it('returns identical payloads for every store-resolving endpoint', function (st
 ]);
 ```
 
-- [ ] **Step 2: Run it against the legacy path, confirm it PASSES.** A characterisation test that fails before the change is testing the wrong thing.
-- [ ] **Step 3: Repoint the five resolutions.** `store()` returns `?StoreRecord`, so the 404-on-miss shape is unchanged:
+- [x] **Step 2: Run it against the legacy path, confirm it PASSES.** A characterisation test that fails before the change is testing the wrong thing.
+- [x] **Step 3: Repoint the five resolutions.** `store()` returns `?StoreRecord`, so the 404-on-miss shape is unchanged:
 
 ```php
         $store = $this->shop->store($user, $id);
@@ -706,7 +706,7 @@ it('returns identical payloads for every store-resolving endpoint', function (st
         }
 ```
 
-- [ ] **Step 4: Repoint the two aggregate reads in `addBrand`.**
+- [x] **Step 4: Repoint the two aggregate reads in `addBrand`.**
 
 ```php
             $stores = $this->shop->stores($user);
@@ -716,9 +716,42 @@ it('returns identical payloads for every store-resolving endpoint', function (st
 
 Note the property names change with the type: `is_individual` → `isIndividual`, and `max('position')` on a `Collection` of objects returns `null` (not `0`) for an empty set — hence the coalesce, which the `Builder` version did not need.
 
-- [ ] **Step 5: Run the characterisation test again, confirm it still passes**, plus `./vendor/bin/pest tests/Feature/Platforms/ tests/Feature/Shop/`.
-- [ ] **Step 6: Commit.**
+- [x] **Step 5: Run the characterisation test again, confirm it still passes**, plus `./vendor/bin/pest tests/Feature/Platforms/ tests/Feature/Shop/`.
+- [x] **Step 6: Commit.**
 
+
+**SCOPE CORRECTION — Task 6/7's split was drawn in the wrong place.** The plan
+assigns all five store resolutions to Task 6, but three of them
+(`updateBrand`, `removeBrand`, `removeProduct`) resolve a row and then WRITE
+through it, and `setProducts` resolves one to build a `StoreRecord` for
+`upsertStore()`. Repointing those reads without their writes leaves a
+`StoreRecord` where an Eloquent model is required. The split actually taken:
+
+- **Task 6 — reads whose result never feeds a legacy write:** `connectStatus()`
+  (now `store()`, and it deleted `brandPayload()` outright — see below);
+  `addBrand`'s store-cap and max-position aggregates; `addProduct`'s
+  max-position. `addBrand`'s `$existing` is a `StoreRecord` for the read half
+  and re-resolves the legacy row for the write half, one extra query on the
+  connect path that disappears at Task 7.
+- **Task 7 — every resolution that feeds a write**, moved with its write.
+
+**The P1 fallback died here, exactly as its docblock promised.** With
+`connectStatus()` resolving through `store()`, a store absent from `content.*`
+404s before any payload is built, so `brandPayload()`'s truthful-minimum
+fallback became unreachable and was deleted. Its test was re-cut from
+"serves a truthful store" to "404s a store content.* has never seen" — keeping
+the old assertion would have pinned behaviour the code no longer has.
+
+**Three `ShopAsyncConnectTest` fixtures were pulled forward from Task 12** (T19,
+P1, T22): they built a legacy row and polled `connectStatus()` without ever
+writing `content.*`, so they 404'd the moment the resolution moved. Each now
+seeds via `upsertStore()`, and the two stale-pending tests age
+`content.storefronts.updated_at` rather than the legacy row's.
+
+**P1's test is now direct evidence for spec §12.2.** It re-POSTs an
+already-pending store — byte-identical values — and asserts the clock moved,
+with no explicit `touch()` anywhere. `addBrand`'s `$brandRow->touch()` is
+therefore vestigial and goes with the legacy write at Task 7.
 ### Task 7: The identity and lifecycle writes
 
 **Files:**

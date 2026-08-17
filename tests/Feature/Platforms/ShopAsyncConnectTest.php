@@ -16,6 +16,7 @@ use App\Services\Platforms\WooCommerceScraper;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -736,10 +737,17 @@ it('T19: a pending row stale for 6 minutes polls failed synthetically, without w
         'connection_id' => $conn->id, 'brand_id' => 'stale-brand', 'provider' => 'shopify',
         'url' => 'https://stale.example.com', 'position' => 0, 'connect_status' => 'pending',
     ]);
+    // Re-home Task 6: connectStatus() resolves the store from content.*, so
+    // the store must exist there and the stale-pending CLOCK is
+    // content.storefronts.updated_at — not the legacy row's.
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+
     // Deliberately a query-builder mass update, NOT $brand->save(): Eloquent's
     // save() re-touches updated_at to now(), silently discarding a manually
     // forceFill()'d value (mirrors DefersBespokeConnectTest's own idiom).
     ShopBrand::where('id', $brand->id)->update(['updated_at' => now()->subMinutes(6)]);
+    DB::table('content.storefronts')->where('external_ref', 'stale-brand')
+        ->update(['updated_at' => now()->subMinutes(6)]);
 
     $res = actingAsUser($user)->getJson('/api/platforms/shop/brands/stale-brand/connect/status')
         ->assertOk();
@@ -836,7 +844,11 @@ it('P1: a re-POST of an already-pending brand refreshes updated_at, so an immedi
     // Simulate a dead worker: age the row past the 5-minute stale-pending
     // threshold — a query-builder mass update, not $brand->save() (T19's own
     // idiom), since save() would re-touch updated_at and defeat the setup.
+    // addBrand() already wrote the content.* row; re-home Task 6 made THAT the
+    // clock the poll reads, so it is the one that has to be aged.
     ShopBrand::where('id', $brand->id)->update(['updated_at' => now()->subMinutes(6)]);
+    DB::table('content.storefronts')->where('external_ref', 'retry-brand')
+        ->update(['updated_at' => now()->subMinutes(6)]);
 
     actingAsUser($user)->getJson('/api/platforms/shop/brands/retry-brand/connect/status')
         ->assertOk()
@@ -849,8 +861,12 @@ it('P1: a re-POST of an already-pending brand refreshes updated_at, so an immedi
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://retrypending.example.com'])
         ->assertStatus(202);
 
-    $brand->refresh();
-    expect($brand->updated_at->gt(now()->subMinute()))->toBeTrue();
+    // The re-POST refreshed the clock the poll actually reads. Note this needs
+    // NO explicit touch(): upsertStore()'s ON CONFLICT DO UPDATE writes the row
+    // unconditionally, byte-identical values included, where Eloquent's
+    // fill()->save() would have skipped the UPDATE entirely (spec §12.2).
+    $refreshedAt = DB::table('content.storefronts')->where('external_ref', 'retry-brand')->value('updated_at');
+    expect(Carbon::parse((string) $refreshedAt)->gt(now()->subMinute()))->toBeTrue();
 
     actingAsUser($user)->getJson('/api/platforms/shop/brands/retry-brand/connect/status')
         ->assertOk()
@@ -963,7 +979,9 @@ it('T22: the poll route answers under /shop and the old /shopify alias 404s', fu
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'dual-brand', 'provider' => 'shopify', 'url' => 'https://d.example', 'position' => 0]);
+    $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'dual-brand', 'provider' => 'shopify', 'url' => 'https://d.example', 'position' => 0]);
+    // Re-home Task 6: the poll resolves off content.*.
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     actingAsUser($user)->getJson('/api/platforms/shop/brands/dual-brand/connect/status')
         ->assertOk()->assertJsonPath('status', 'ready');

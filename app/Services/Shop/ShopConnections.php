@@ -218,6 +218,8 @@ class ShopConnections
                 's.currency', 's.discount_code', 's.referral_query', 's.is_individual',
                 's.fetch_mode', 's.connect_status', 's.connect_error', 's.products_curated_at',
                 's.logo_url', 's.favicon_url', 's.logo_mark_url', 's.logo_mark_svg_url',
+                // connectStatus()'s stale-pending clock — see StoreRecord::$updatedAt.
+                's.updated_at',
                 'c.label', 'c.position',
             ]);
     }
