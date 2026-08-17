@@ -43,8 +43,14 @@ Order:
     predates slice 7 shipping at reduced scope and the two follow-on projects
     that finished it: `2026-08-17-programme-review-KICKOFF-PROMPT.md`. Run that
     file, not the §7b block.
-8. `phase-8-review-and-docs` (the §8 block below; every session since 2026-08-17
-   has referred to it by this name)
+8. `phase-8-review-and-docs` ✅ **DONE 2026-08-17 — closing checkpoint §31.**
+   The programme is closed on dev. 7b returned PASS (§30) and phase 8 ran on
+   that basis. Spec renumbered (the two `## 27`s resolved; slice 7's checkpoint
+   folded in as §27), four stale wire manifests corrected, CLAUDE.md rewritten
+   to the post-convergence reality. Two owner rulings recorded at §31.4.
+   **Not done by this phase, and deliberately so:** production reconciliation
+   (prod lacks four whole schemas), the three-lane cache defect, and the audit
+   backlog — all assigned at §31.6.
 
 ---
 

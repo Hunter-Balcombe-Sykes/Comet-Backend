@@ -565,11 +565,15 @@ split into 1a/1b on 2026-08-12 (`2026-08-12-media-pool-slice-1a-design.md`).
 | 5a | Shop data move → `content.*` | L | **Merged** — checkpoint §16 | — |
 | 5b | Shop pool + public render | M | **Merged** — checkpoint §18 | — |
 | 6 | Reviews → `content.*` | M | **Merged, CLOSED, live-verified** — checkpoint inline in §7 (commit `e82890b1e`) | — |
-| 7 | Legacy teardown | ~~M~~ **XL** | Entry gate run 2026-08-16 — **coverage green**, re-scoped to XL. Report: `plans/2026-08-16-slice-7-entry-gate-report.md` | — (unblocked; the menu and Fresha write lanes are this slice's own work, deferred here in writing by slices 4 and 3a) **+ standalone events**; frontend gate overridden by owner ruling 2026-08-14 (rebuild, not repair — see convergence-log F17) |
+| 7 | Legacy teardown | ~~M~~ **XL** | **Merged, live-verified — checkpoint §27.** Shipped at reduced scope (five tables of nine, `cef89ec5f`); the four it handed back were finished by the services cutover (§28) and the shop re-home (§29). Entry gate: `plans/2026-08-16-slice-7-entry-gate-report.md` | — |
 
-Everything except 7 is merged with a checkpoint on record (§12–§19, §23 and §25;
-slice 6's is inline in §7). **Slice 4 landed 2026-08-16 — 7 is unblocked**, with
-the carry-overs in §23.10.
+**Every slice and phase is merged with a checkpoint on record.** The programme
+closed on dev 2026-08-17 — see the closing checkpoint **§31**. Checkpoints run
+§12–§31; slice 6's is inline in §7, and slice 1a's in the 1a design doc.
+
+Ten legacy tables are dropped on dev and the seven pools serve the public wire.
+Production carries none of it and is scoped separately
+(`plans/2026-08-17-prod-schema-reconciliation.md`).
 
 **Sharpened 2026-08-16 by slice 7's entry gate — "unblocked" is true, "M" is
 not.** Slice 4 landing made the menu *data* available in `content.*`; it moved no
@@ -5251,3 +5255,147 @@ that fails when a mutating pool path misses a lane — not six separate patches.
   misplaced a `floor()`. Adjudication caught both independently — and correctly
   kept the second at P1 in its *true* form (a per-chunk ramp reset, not a no-op).
   CLAUDE.md's "never hand-write findings" is load-bearing in both directions.
+
+---
+
+## 31. Closing checkpoint — the programme is done on dev (2026-08-17)
+
+Phase 8, the documentation truth pass. It closes the Content Pool Convergence
+programme. **Docs only** — this phase changed no application code, and every
+figure below was re-derived rather than cited, with the time it was taken.
+
+Gate: prompt 7b (`programme-review`) returned **PASS** at §30, merged to
+`development`. Phase 8 ran on that basis.
+
+### 31.1 What the programme delivered
+
+`content.*` is the single store for curated content. Platforms are sources, not
+owners. Seven pools serve the public wire off one curation surface.
+
+| Work | Checkpoint |
+|---|---|
+| Slice 0b manual write lane · Slice 0 billed-effect driver seam | §12 · §13 |
+| Slice 2 events · Slice 1b Google/Instagram · Slice 1a media | §14 · §15 · (1a with 1b) |
+| Slice 5a shop data · Slice 5b shop pool + render | §16 · §18 |
+| Slice 3a owner services · Slice 3b Fresha services | §17 · §19 |
+| Phase 1 lean-out · Phase 2 identity keys · Phase 3 custom links | §20 · §21 · §22 |
+| Slice 4 menus · Phase 5 menu actor driver | §23 · §25 |
+| Phase 4 listen sourcing, `channel` retired | §24 |
+| Phase 6 pseudo-platforms retired | §26 |
+| **Slice 7 teardown** (five tables, at reduced scope) | **§27** |
+| Services cutover (last three legacy tables) | §28 |
+| Shop re-home (last two shop tables) | §29 |
+| Whole-programme review — PASS | §30 |
+| This closing checkpoint | §31 |
+
+### 31.2 A2 legacy-zero sweep — re-derived, not read off a list
+
+`to_regclass` against dev (`glncumufgaqcmqhzwrxm`), **2026-08-17 11:05 UTC**. All
+ten NULL:
+
+```
+site.menu_items  site.menu_categories  site.menu_item_categories
+site.menu_item_platforms  site.content_selection          <- slice 7  (§27)
+site.shop_brands  site.shop_products                      <- shop re-home (§29)
+site.services  site.service_categories
+site.service_category_assignments                         <- services cutover (§28)
+site.themes                                               <- (pre-programme, still gone)
+```
+
+**Not everything menu-shaped is on that list.** `site.menus` and
+`site.menu_platform_links` are present, live, and survive **by design** — they
+carry the fetch bookkeeping and the platform links, with readers in
+`PoolResolver`, `MenuFetchJob`, `MenuPayloadComposer`, `MenuScanApplier`,
+`ManualMenuItems` and `PlatformHealthNotifier`. Phase 8's own first sweep flagged
+`site.menus` as a residual before checking; it is not one.
+
+### 31.3 The live wire, read back off `dev-api.partna.au`
+
+`GET /api/public/profiles/ollies` → **200**, 241,570 bytes, read **11:11 UTC**.
+Pools sit at **`data.profile.pools`**, not top level:
+
+| Pool | items | collections |
+|---|---|---|
+| `custom_links` | 23 | — |
+| `events` | 4 | — |
+| `listen` | 3 | — |
+| `media` | 11 | — |
+| `menus` | 40 | 12 (+ `diningModes`) |
+| `services` | 25 (23 `auto` + 2 `manual`) | — |
+| `shop` | 30 | 5 |
+
+`content.items` live by kind, **11:12 UTC**: `menu_item` 323 · `media` 77 ·
+`service` 77 · `product` 52 · `link` 37 · `review` 20 · `event` 18.
+
+**These are samples, not invariants.** `pools.menus` read 65 at slice 7's drop
+and 40 here, after a deliberate owner menu replace. The shape is the contract.
+
+### 31.4 Two owner rulings, made during this phase
+
+1. **`pools.services` carrying Fresha services STANDS.** The pool is the union of
+   all service-kind items; `profile.services` stays owner-authored only; `origin`
+   is carried per item so consumers can tell them apart. The rebuild targets
+   `pools.*`, so avoiding a double-render is a render-side filter decision.
+   Recorded on `docs/wire-changes/2026-08-17-services-cutover.md`.
+2. **60s TTL-bounded staleness is NOT acceptable for owner-initiated pool
+   mutations.** All three cache lanes must fire. This overrules §12.6 and
+   promotes the review's R-1 to a real defect (§12.6's note; fix owned by a
+   fix-flow session, not by phase 8).
+
+### 31.5 What phase 8 changed
+
+- **Spec structure.** Two sections were numbered `## 27` with overlapping
+  subsection numbers, so `§27.3` resolved to two different things. Slice 7's
+  checkpoint had never been filed here at all. Slice 7 → §27, services → §28,
+  shop → §29, review → §30, every inbound reference carried with them.
+- **Stale claims corrected:** §28.3 residual 3 (the drift was
+  `partna:purge-soft-deletes`, not "external"); §26's gate (a `partna.*` wildcard
+  over a six-item enumeration); §12.6 (the cache ruling); slice 7's §10 footgun
+  (migration `20260817000000` **is** applied).
+- **Four wire manifests** carried stale STATUS headers — worst was slice 5b
+  reading "not yet merged" for a retirement live since 2026-08-13.
+- **CLAUDE.md** gained the Content pools section it never had, and a flag: its
+  line 5 pointed every session at `../CLAUDE.md`, which does not exist.
+- **`docs/2026-08-05-platforms-as-sources.md`** closed by claiming the media pool
+  never shipped and no `kind='media'` item had ever been written. 77 exist.
+
+### 31.6 Deferred and open — stated, not skipped
+
+| Item | Owner |
+|---|---|
+| **Production reconciliation** — prod lacks the `content`, `ingest`, `routing` and `catalog` schemas **outright**; ledger 4 rows (latest `20260803100001`) vs dev's 106, and all ten legacy tables still present. Not "behind": a different schema. | `plans/2026-08-17-prod-schema-reconciliation.md` |
+| **Three-lane cache defect** — `ProjectionWriter::bumpSite()` omits the `site.sites.updated_at` write, so four pool endpoints serve stale public payload for the TTL | fix-flow session |
+| **LEGAL-2** — Google reviewer PII, before pilot | owner |
+| **RLS accepted-posture revisit** · **Google aggregates cadence** | owner |
+| `content.item_merges` **still 0** — cross-platform identity unexercised (§25.6) | owner call |
+| `content.storefronts.user_id` NOT NULL — UPDATE arm proven live, **INSERT arm unexercised** (all five storefronts predate the migration); closing it needs a billed Apify scrape | owner call |
+| `anseo-studio`'s Fresha `book-now/…?pId=` URL still unprovisionable | open since slice 3b |
+| **Nightwatch not scanned** in the review (needs an OAuth grant); **authenticated verbs unproven** (no owner JWT) | carried from §30 |
+| Audit backlog from the review: 0 P0 · 6 P1 · 13 P2 · 15 P3, across `audits/sweeps/2026-08-17-*` | fix-flow sessions |
+| **#SEC-1 (auth lane, outside this programme)** — `POST /api/public/auth/resolve-identifier` is unauthenticated and returns `core.users.primary_email` for a public handle; its `bot.token` middleware is inert on both envs. Raised to the owner as a STOP by the review. Prod exposure nil (0 users); dev holds real addresses. | owner — auth, not convergence |
+
+### 31.7 Where the records live
+
+- **This spec** — the programme's authoritative record, checkpoints §12–§31.
+- `docs/wire-changes/` — one manifest per shipped contract change; the frontend
+  rebuild's input. Each describes the NEW wire on its own terms, never as a diff
+  from legacy.
+- `docs/2026-08-14-convergence-phases.md` · `docs/convergence-log.md` (F-numbered
+  findings) · `docs/convergence-HANDOFF.md` (W#↔Phase# mapping).
+- `docs/superpowers/plans/2026-08-14-convergence-session-prompts.md` — the
+  session index and standing rulings.
+- `audits/sweeps/2026-08-17-*` — the review's six audit runs.
+- Working records under `plans/`: the slice-7 drops gate report, the slice-7
+  phase-6 checkpoint (now folded into §27), the prod reconciliation scope.
+
+### 31.8 The one thing to carry forward
+
+**A live coverage gate is valid only until the next write.** This programme
+watched it happen five times: slice 7's 318/318 becoming 283/293 across a scrape
+(costing 23 rows); `ollies` menus 65→40 mid-review; `pool:watch` vanishing as
+four connections were soft-deleted; §26's `partna.*` count moving; and the dev
+ledger reading 105 during the review and 106 an hour later in this phase. None
+was a regression. Every one would read as one.
+
+Timestamp every reading. Gate on per-row derivation, never on totals — net counts
+can fall while uncovered rows appear, and the total conceals the hole.
