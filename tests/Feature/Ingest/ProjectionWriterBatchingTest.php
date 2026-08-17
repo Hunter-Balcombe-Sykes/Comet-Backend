@@ -2,6 +2,7 @@
 
 use App\Ingest\Projection\ProjectionWriter;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Jobs\Ingest\RunSourceJob;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -24,6 +25,17 @@ beforeEach(function () {
     setupSitesTable();
     setupIngestTables();
     setupContentTables();
+
+    // ONLY the eager connect run. bwtInstagramStream() creates a REAL instagram
+    // IntegrationConnection as a fixture, and instagram is the one connector
+    // with Manifest::eagerOnConnect — so the observer dispatches RunSourceJob,
+    // and phpunit.xml's QUEUE_CONNECTION=sync runs it INLINE. RunExecutor then
+    // inserts the source's `media` ingest.streams row before the helper inserts
+    // its own, violating streams(source_id, stream_name). In production that
+    // job is queued on Redis and the connect returns before it starts. Faking
+    // the one job keeps this file measuring the WRITER; everything else stays
+    // real, matching the CloudflareCachePurgeJob fake further down.
+    Queue::fake([RunSourceJob::class]);
 });
 
 /** @return array{0: string, 1: IntegrationConnection} user id + a bandcamp connection with a fixed, known resource_id. */

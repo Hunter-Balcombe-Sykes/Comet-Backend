@@ -86,6 +86,100 @@ afterAll(function () {
     }
 });
 
+it('claimOne lets exactly one of 8 concurrent processes win the same source (real fork)', function () {
+    // The eager-on-connect trigger (Manifest::runsEagerlyOnConnect) claims a
+    // KNOWN row rather than scoring for due ones, so it takes a different code
+    // path into the same conditional UPDATE. It needs its own proof: an
+    // instagram source is CostClass::Actor, so a second winner here is a second
+    // paid Apify call that the EffectLedger settles per digest and cannot
+    // refund. SQLite cannot demonstrate this — its concurrency model does not
+    // exercise READ COMMITTED row locking.
+    if (! function_exists('pcntl_fork')) {
+        $this->markTestSkipped('pcntl_fork is not available in this runtime');
+    }
+
+    $pg = DB::connection('pgsql');
+    $childCount = 8;
+
+    $sourceId = (string) Str::uuid();
+    $pg->table('ingest.sources')->insert([
+        'id' => $sourceId,
+        'user_id' => (string) Str::uuid(),
+        'source_key' => 'instagram',
+        'surface_key' => 'instagram.profile',
+        'identifier' => 'tobiasbalcombe',
+        // The row the scheduler is BARRED from claiming — which is precisely
+        // why claimOne() must not consult auto_sync.
+        'auto_sync' => false,
+        'cost_units' => 50,
+    ]);
+
+    $startAt = microtime(true) + 0.2;
+    $pids = [];
+
+    for ($i = 0; $i < $childCount; $i++) {
+        $pid = pcntl_fork();
+
+        if ($pid === -1) {
+            $this->fail('pcntl_fork failed');
+        }
+
+        if ($pid === 0) {
+            DB::purge('pgsql');
+            DB::reconnect('pgsql');
+
+            usleep((int) max(0, ($startAt - microtime(true)) * 1_000_000));
+
+            $runId = (string) Str::uuid();
+
+            try {
+                // Only WINNERS record a row — a loser writing nothing is the
+                // assertion. Sentinel on throw, so a crashed child cannot look
+                // identical to a child that simply lost the race.
+                if ((new SourceScheduler)->claimOne($sourceId, $runId)) {
+                    DB::connection('pgsql')->table('ingest.claim_probe')->insert([
+                        'child_idx' => $i,
+                        'source_id' => $sourceId,
+                        'run_id' => $runId,
+                    ]);
+                }
+            } catch (Throwable $e) {
+                DB::connection('pgsql')->table('ingest.claim_probe')->insert([
+                    'child_idx' => $i,
+                    'source_id' => '00000000-0000-0000-0000-000000000000',
+                    'run_id' => $runId,
+                ]);
+                fwrite(STDERR, "child {$i} exception: {$e->getMessage()}\n");
+            }
+
+            exit(0);
+        }
+
+        $pids[] = $pid;
+    }
+
+    foreach ($pids as $pid) {
+        pcntl_waitpid($pid, $status);
+    }
+
+    $probe = DB::connection('pgsql')->table('ingest.claim_probe')->get();
+
+    expect($probe->where('source_id', '00000000-0000-0000-0000-000000000000'))
+        ->toHaveCount(0, 'A child hit an exception instead of claiming.');
+
+    // Exactly one winner — not zero (which "nobody ever wins" would also
+    // satisfy), and not more than one.
+    expect($probe)->toHaveCount(1);
+
+    // Pin WHY the other seven lost: the row is claimed, and it is claimed by
+    // the child that believes it won. A test that only counted winners would
+    // pass if claimOne() returned true for everyone and the UPDATE silently
+    // no-opped.
+    $row = $pg->table('ingest.sources')->where('id', $sourceId)->first();
+    expect($row->in_flight_since)->not->toBeNull()
+        ->and($row->in_flight_run_id)->toBe($probe[0]->run_id);
+});
+
 it('never double-claims a source across 8 concurrent processes, and claims all of them between the 8 (25 sources, real fork)', function () {
     if (! function_exists('pcntl_fork')) {
         $this->markTestSkipped('pcntl_fork is not available in this runtime');

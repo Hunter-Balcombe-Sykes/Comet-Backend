@@ -53,6 +53,7 @@ class IndividualProfileResource extends ApiResource
      *     ordering?: array<string, mixed>,
      *     links?: list<array<string, mixed>>,
      *     pools?: array<string, array{items: list<array<string, mixed>>, latestItemId: string|null}>,
+     *     brand?: array{logoFull: array<string, mixed>|null, logoSquare: array<string, mixed>|null},
      *     services?: list<array<string, mixed>>,
      *     document?: array<string, mixed>|null,
      *     newsletter?: array<string, mixed>|null,

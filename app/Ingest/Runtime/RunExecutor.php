@@ -208,12 +208,32 @@ class RunExecutor
             }
         }
 
+        // What this run actually spent. Both columns existed from the baseline
+        // and NOTHING wrote either of them — every run row has read
+        // effects_count = 0, cost_claimed = 0 since the lane began, while
+        // ingest.effects carried the real figures (an instagram actor call
+        // shows 0 here and 50 units there).
+        //
+        // cost_claimed is not cosmetic: scoreDue() sums it per user as the
+        // fairness denominator (1 + spent/100), so a permanent 0 made the
+        // "stops one expensive user monopolising the lane" guard a no-op.
+        //
+        // Aggregated from ingest.effects rather than counted in-flight: the
+        // ledger is already the authority on what was claimed, and a separate
+        // tally in this class could only ever drift from it.
+        $spend = DB::table('ingest.effects')
+            ->where('run_id', $runId)
+            ->selectRaw('count(*) as n, coalesce(sum(cost_units), 0) as units')
+            ->first();
+
         DB::table('ingest.runs')->where('id', $runId)->update([
             'finished_at' => now(),
             'outcome' => $worstOutcome,
             'records_seen' => $totals['seen'],
             'records_changed' => $totals['changed'],
             'records_tombstoned' => $totals['tombstoned'],
+            'effects_count' => (int) ($spend->n ?? 0),
+            'cost_claimed' => (int) ($spend->units ?? 0),
             'detail' => json_encode(['streams' => $streamOutcomes, 'notes' => array_slice($notes, 0, 20)]),
         ]);
 

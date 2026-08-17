@@ -28,7 +28,29 @@ final readonly class Manifest
         public int $defaultIntervalSeconds = 86400,
         public array $redactions = [],
         public array $redactionScopes = [],
+        public bool $eagerOnConnect = false,
     ) {}
+
+    /**
+     * Whether provisioning a NEW source for this connector should run it once
+     * immediately, rather than leaving it for the scheduler.
+     *
+     * Only meaningful for connectors the scheduler cannot reach:
+     * SourceProvisioner sets auto_sync = (cost === Free), and
+     * SourceScheduler::scoreDue() selects only auto_sync = true, so a paid
+     * connector is never claimed and — absent this — never runs at all.
+     *
+     * Default FALSE on purpose. Seven connectors are paid (six Actor, one
+     * Metered); flipping them on together would start recurring third-party
+     * spend across all of them. Opting in is one visible line per connector.
+     *
+     * A Free connector has no need of it: it is provisioned with
+     * next_attempt_at = now() and the dispatcher picks it up within the tick.
+     */
+    public function runsEagerlyOnConnect(): bool
+    {
+        return $this->eagerOnConnect;
+    }
 
     public function stream(string $name): ?StreamSpec
     {
