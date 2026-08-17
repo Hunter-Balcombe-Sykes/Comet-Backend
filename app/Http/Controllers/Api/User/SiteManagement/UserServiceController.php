@@ -186,17 +186,12 @@ class UserServiceController extends ApiController
         $this->authorizeForUser($pro, 'create', $skeleton);
         $data = $request->validated();
 
-        // Category-at-creation is still not persisted. Ownership is asserted
-        // for wire-compat (a foreign category id still 422s), but the id is
-        // then dropped.
-        //
-        // The carried-forward question — which id space this endpoint accepts —
-        // is answered by the services cutover: there is one, content.collections,
-        // so the check goes through ServiceCollections like every other verb.
-        // The staff twin's store() has validated that way since 3b. Persisting
-        // the membership here remains a separate decision: a create + immediate
-        // PATCH reaches a state a create alone cannot, and closing that gap is
-        // the create path's own call, not the cutover's.
+        // Category-at-creation PERSISTS (owner, 2026-08-17): the add sheet
+        // now carries a category picker, so create + membership is one
+        // gesture. The id space is content.collections (the services
+        // cutover's answer), checked through ServiceCollections like every
+        // other verb; the membership itself is written after the item
+        // lands, below.
         $collections = app(ServiceCollections::class);
         $categoryIds = $this->requestedCategoryIds($data);
         foreach ($categoryIds as $categoryId) {
@@ -255,6 +250,13 @@ class UserServiceController extends ApiController
             // U2: a background write (or another dashboard write) held the
             // services lock past the bound — expected contention, not a bug.
             return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
+
+        // The membership, after the item is committed and curated — assign()
+        // is owner-scoped and validated above, so this cannot cross tenants.
+        // Written before the read-back so the response already carries it.
+        if ($categoryIds !== []) {
+            $collections->assign($pro->id, $itemId, $categoryIds[0], null);
         }
 
         $writer->invalidate([(string) $site->id]);
