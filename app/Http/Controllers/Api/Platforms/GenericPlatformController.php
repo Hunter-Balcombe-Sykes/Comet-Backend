@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Jobs\Platforms\ConnectFetchJob;
+use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\ConnectResolver;
@@ -90,6 +91,19 @@ class GenericPlatformController extends ApiController
         // per user, not per platform, so skipping it would weaken the others.
         return $this->withConnectionLock($user, function () use ($user, $descriptor, $surfaceKey, $result, $resourceClass): JsonResponse {
             $row = $this->writeBrandCard($user, $surfaceKey, $descriptor->key(), $result->selection);
+
+            // The card is written 'pending' and NOTHING used to flip it: 43 of
+            // the brand connects in the 2026-08-18 sweep sat pending forever
+            // with the brand label as their name (overnight F4). Booking /
+            // reservations / ordering already enrich their cards this way —
+            // og:title, description, favicon, logo → status ok → bell — so
+            // the generic brand path does the same. The job is unique per
+            // (family, resource) and re-reads the row, so a re-connect of the
+            // same URL is one enrichment, not two.
+            $url = (string) ($result->selection['url'] ?? '');
+            if ($url !== '') {
+                EnrichLinkCardJob::dispatch((string) $user->id, $descriptor->key(), $row->resource_id, $url, $surfaceKey)->afterCommit();
+            }
 
             return $this->success(['id' => $row->resource_id, ...(new $resourceClass($result->selection))->resolve()]);
         });

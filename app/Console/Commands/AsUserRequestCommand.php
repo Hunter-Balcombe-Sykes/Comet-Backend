@@ -51,6 +51,30 @@ class AsUserRequestCommand extends Command
             return self::FAILURE;
         }
 
+        self::actAs($user);
+
+        $method = strtoupper((string) $this->argument('method'));
+        $uri = (string) $this->argument('uri');
+        if ($q = $this->option('query')) {
+            $uri .= (str_contains($uri, '?') ? '&' : '?').$q;
+        }
+        $body = (string) ($this->option('json') ?? '');
+
+        $response = self::send($method, $uri, $body !== '' ? $body : null);
+
+        if (! $this->option('raw')) {
+            $this->line("HTTP {$response->getStatusCode()}");
+        }
+        $content = (string) $response->getContent();
+        $decoded = json_decode($content, true);
+        $this->line($decoded === null ? $content : json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        return $response->getStatusCode() < 400 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /** Bind the JWT stub so every kernel request in this process runs as $user. */
+    public static function actAs(User $user): void
+    {
         $uid = (string) ($user->auth_user_id ?? Str::uuid());
         $claims = [
             'sub' => $uid,
@@ -77,34 +101,24 @@ class AsUserRequestCommand extends Command
                 return $next($request);
             }
         });
+    }
 
-        $method = strtoupper((string) $this->argument('method'));
-        $uri = (string) $this->argument('uri');
-        if ($q = $this->option('query')) {
-            $uri .= (str_contains($uri, '?') ? '&' : '?').$q;
-        }
-        $body = (string) ($this->option('json') ?? '');
-
-        $request = Request::create($uri, $method, [], [], [], [
+    /** One request through the real kernel (after actAs()). */
+    public static function send(string $method, string $uri, ?string $jsonBody = null): \Symfony\Component\HttpFoundation\Response
+    {
+        $request = Request::create($uri, strtoupper($method), [], [], [], [
             'HTTP_ACCEPT' => 'application/json',
             'CONTENT_TYPE' => 'application/json',
             'HTTP_ORIGIN' => 'http://localhost:3000',
             'HTTP_USER_AGENT' => 'partna-as/overnight',
             'REMOTE_ADDR' => '127.0.0.1',
-        ], $body !== '' ? $body : null);
+        ], $jsonBody);
 
         /** @var Kernel $kernel */
         $kernel = app(Kernel::class);
         $response = $kernel->handle($request);
         $kernel->terminate($request, $response);
 
-        if (! $this->option('raw')) {
-            $this->line("HTTP {$response->getStatusCode()}");
-        }
-        $content = (string) $response->getContent();
-        $decoded = json_decode($content, true);
-        $this->line($decoded === null ? $content : json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-
-        return $response->getStatusCode() < 400 ? self::SUCCESS : self::FAILURE;
+        return $response;
     }
 }
