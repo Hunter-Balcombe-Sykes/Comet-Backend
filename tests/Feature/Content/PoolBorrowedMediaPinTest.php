@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Content\Item;
+use App\Site\Pools\BorrowedMedia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -104,8 +106,8 @@ it('still refuses a pin for a source registered as borrowed (the seam is kept)',
     $user = createTenant('brw-'.Str::lower(Str::random(6)));
     $itemId = borrowedFixtureItem($user->id, 'google_business');
     // Simulate a future churning source being registered.
-    expect(\App\Site\Pools\BorrowedMedia::BORROWED_SOURCE_KEYS)->toBe([]);
-    expect(\App\Site\Pools\BorrowedMedia::isBorrowed(\App\Models\Content\Item::query()->findOrFail($itemId)))->toBeFalse();
+    expect(BorrowedMedia::BORROWED_SOURCE_KEYS)->toBe([]);
+    expect(BorrowedMedia::isBorrowed(Item::query()->findOrFail($itemId)))->toBeFalse();
 });
 
 it('still surfaces that same item in the auto half', function () {

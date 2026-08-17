@@ -4,21 +4,23 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Ingest\Runtime\SourceScheduler;
+use App\Jobs\Ingest\RunSourceJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\RefreshConnectionJob;
-use Illuminate\Support\Str;
-use Illuminate\Support\Facades\DB;
-use App\Jobs\Ingest\RunSourceJob;
-use App\Ingest\Runtime\SourceScheduler;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\StrandedPendingWindow;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 // Manual, user-triggered refresh of a connected platform's data — the same
 // re-scrape the daily cron runs (PlatformRefresher), but on demand from the
@@ -145,14 +147,14 @@ class RefreshController extends ApiController
                     RunSourceJob::dispatch((string) $source->id);
                 }
             }
-        } catch (\Illuminate\Database\QueryException $e) {
+        } catch (QueryException $e) {
             // Only the "no such table" case (a test schema without ingest.*)
             // is tolerated; anything else is a real failure and propagates.
             $missingRelation = (string) $e->getCode() === '42P01' || str_contains($e->getMessage(), 'no such table');
             if (! $missingRelation) {
                 throw $e;
             }
-            \Illuminate\Support\Facades\Log::debug('refresh.ingest_run_skipped', ['connection_id' => $connectionId]);
+            Log::debug('refresh.ingest_run_skipped', ['connection_id' => $connectionId]);
         }
     }
 

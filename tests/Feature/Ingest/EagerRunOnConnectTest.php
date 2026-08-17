@@ -3,7 +3,10 @@
 use App\Ingest\ConnectorRegistry;
 use App\Ingest\Runtime\SourceScheduler;
 use App\Jobs\Ingest\RunSourceJob;
+use App\Jobs\Platforms\MenuFetchJob;
+use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -130,7 +133,7 @@ it('runs eagerly on connect for spotify, soundcloud and google_business (ruling 
         'payload' => ['url' => 'https://squareup.com/appointments/book/abc/xyz/start'],
     ]);
 
-    $auto = fn ($conn) => (bool) \Illuminate\Support\Facades\DB::table('ingest.sources')->where('connection_id', $conn->id)->value('auto_sync');
+    $auto = fn ($conn) => (bool) DB::table('ingest.sources')->where('connection_id', $conn->id)->value('auto_sync');
     expect($auto($spotify))->toBeTrue()
         ->and($auto($instagram))->toBeFalse()
         ->and($auto($ubereats))->toBeFalse();
@@ -191,42 +194,42 @@ it('claimOne wins once and refuses a second caller for the same row', function (
 });
 
 it('dispatches the shared menu fetch when an ordering connection on a menu platform is written by ANY path (F17)', function () {
-    Bus::fake([\App\Jobs\Platforms\MenuFetchJob::class, RunSourceJob::class]);
+    Bus::fake([MenuFetchJob::class, RunSourceJob::class]);
     $userId = eagerUser();
     connectFor($userId, [
         'surface_key' => 'uber_eats.order', 'routing_class' => 'ordering',
         'payload' => ['url' => 'https://www.ubereats.com/au/store/ruh/WNhZXiljTPCcV9eUbVU1cA', 'name' => 'Uber Eats', 'provider' => 'Uber Eats'],
     ]);
-    Bus::assertDispatched(\App\Jobs\Platforms\MenuFetchJob::class, fn ($job) => $job->userId === $userId);
+    Bus::assertDispatched(MenuFetchJob::class, fn ($job) => $job->userId === $userId);
 
     // A non-menu ordering brand (bopple) does not.
-    Bus::fake([\App\Jobs\Platforms\MenuFetchJob::class, RunSourceJob::class]);
+    Bus::fake([MenuFetchJob::class, RunSourceJob::class]);
     connectFor($userId, [
         'surface_key' => 'bopple.order', 'routing_class' => 'ordering',
         'payload' => ['url' => 'https://bopple.app/lower-east-by-ruh', 'name' => 'Bopple', 'provider' => 'Bopple'],
     ]);
-    Bus::assertNotDispatched(\App\Jobs\Platforms\MenuFetchJob::class);
+    Bus::assertNotDispatched(MenuFetchJob::class);
 });
 
 it('Resync claims and runs the connection\'s ingest sources, not only the legacy refresh (R8)', function () {
-    Bus::fake([RunSourceJob::class, \App\Jobs\Platforms\RefreshConnectionJob::class]);
+    Bus::fake([RunSourceJob::class, RefreshConnectionJob::class]);
     $userId = eagerUser();
     $connection = connectFor($userId, [
         'platform' => 'youtube',
         'payload' => ['handle' => 'someone'],
     ]);
-    $sourceId = (string) \Illuminate\Support\Facades\DB::table('ingest.sources')->where('connection_id', $connection->id)->value('id');
+    $sourceId = (string) DB::table('ingest.sources')->where('connection_id', $connection->id)->value('id');
     expect($sourceId)->not->toBe('');
 
-    $user = \App\Models\Core\User\User::query()->findOrFail($userId);
+    $user = User::query()->findOrFail($userId);
     actingAsUser($user)->postJson('/api/platforms/youtube/refresh')->assertStatus(202);
 
     Bus::assertDispatched(RunSourceJob::class, fn ($job) => $job->sourceId === $sourceId);
-    expect(\Illuminate\Support\Facades\DB::table('ingest.sources')->where('id', $sourceId)->value('in_flight_since'))->not->toBeNull();
+    expect(DB::table('ingest.sources')->where('id', $sourceId)->value('in_flight_since'))->not->toBeNull();
 
     // A second click while the first is in flight does not double-dispatch
     // (the per-user refresh cooldown 429s it anyway; the claim is the guard).
-    Bus::fake([RunSourceJob::class, \App\Jobs\Platforms\RefreshConnectionJob::class]);
+    Bus::fake([RunSourceJob::class, RefreshConnectionJob::class]);
     $second = actingAsUser($user)->postJson('/api/platforms/youtube/refresh');
     expect(in_array($second->status(), [202, 429], true))->toBeTrue();
     Bus::assertNotDispatched(RunSourceJob::class);

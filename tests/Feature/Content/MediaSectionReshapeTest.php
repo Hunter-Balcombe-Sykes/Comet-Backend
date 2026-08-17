@@ -2,6 +2,7 @@
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
+use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
@@ -127,5 +128,5 @@ it('reshapes stale kind_is shop sections to the pins+latest default (2026-08-17 
 
     $this->artisan('content:reshape-pool-sections', ['pool' => 'shop'])->expectsOutputToContain('reshaped 1')->assertExitCode(0);
     $rule = json_decode((string) DB::table('site.sections')->where('id', $section->id)->value('rule'), true);
-    expect($rule)->toBe(['all' => \App\Site\Pools\PoolRegistry::sectionShape('shop')['rule']]);
+    expect($rule)->toBe(['all' => PoolRegistry::sectionShape('shop')['rule']]);
 });

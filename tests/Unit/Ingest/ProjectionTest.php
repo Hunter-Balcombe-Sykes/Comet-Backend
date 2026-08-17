@@ -1,5 +1,6 @@
 <?php
 
+use App\Content\Identity\KeyClass;
 use App\Ingest\ConnectorRegistry;
 use App\Ingest\Projection\AppleMusicReleaseProjector;
 use App\Ingest\Projection\ApplePodcastsEpisodeProjector;
@@ -7,6 +8,7 @@ use App\Ingest\Projection\BandcampReleaseProjector;
 use App\Ingest\Projection\FreshaServiceProjector;
 use App\Ingest\Projection\GoogleBusinessMediaProjector;
 use App\Ingest\Projection\GoogleBusinessReviewProjector;
+use App\Ingest\Projection\IdentityKeyDeriver;
 use App\Ingest\Projection\InstagramMediaProjector;
 use App\Ingest\Projection\MenuItemProjector;
 use App\Ingest\Projection\ProjectorRegistry;
@@ -314,11 +316,11 @@ it('emits no offer for a priceless menu item rather than a zero', function () {
 });
 
 it('instagram projector emits a reel mp4 as a video frame beside the cover (R7)', function () {
-    $view = new \App\Ingest\Projection\RecordView([
+    $view = new RecordView([
         'shortcode' => 'REEL1', 'url' => 'https://www.instagram.com/reel/REEL1/', 'caption' => 'hi',
         'taken_at' => '2026-08-01T00:00:00Z', 'images' => ['https://cdn/cover.jpg'], 'video_url' => 'https://cdn/reel.mp4',
     ]);
-    $p = (new \App\Ingest\Projection\InstagramMediaProjector)->project($view);
+    $p = (new InstagramMediaProjector)->project($view);
     expect(array_column($p['media'], 'role'))->toBe(['cover', 'video'])
         ->and($p['media'][1]['ref'])->toBe('instagram:REEL1:video')
         ->and($p['media'][1]['url'])->toBe('https://cdn/reel.mp4')
@@ -326,13 +328,13 @@ it('instagram projector emits a reel mp4 as a video frame beside the cover (R7)'
 });
 
 it('derives TitleRelease from the PRIMARY artist so a combined credit still meets a single credit (W5)', function () {
-    expect(\App\Content\Identity\KeyClass::primaryArtist('Tame Impala, JENNIE, Boys Noize'))->toBe('tame impala')
-        ->and(\App\Content\Identity\KeyClass::primaryArtist('Flume feat. Toro y Moi'))->toBe('flume')
-        ->and(\App\Content\Identity\KeyClass::primaryArtist('Simon & Garfunkel'))->toBe('simon')
-        ->and(\App\Content\Identity\KeyClass::primaryArtist('Lil Nas X'))->toBe('lil nas x')
-        ->and(\App\Content\Identity\KeyClass::primaryArtist('Beyoncé'))->toBe('beyonce');
-    $deriver = app(\App\Ingest\Projection\IdentityKeyDeriver::class);
+    expect(KeyClass::primaryArtist('Tame Impala, JENNIE, Boys Noize'))->toBe('tame impala')
+        ->and(KeyClass::primaryArtist('Flume feat. Toro y Moi'))->toBe('flume')
+        ->and(KeyClass::primaryArtist('Simon & Garfunkel'))->toBe('simon')
+        ->and(KeyClass::primaryArtist('Lil Nas X'))->toBe('lil nas x')
+        ->and(KeyClass::primaryArtist('Beyoncé'))->toBe('beyonce');
+    $deriver = app(IdentityKeyDeriver::class);
     $keys = collect($deriver->derive('spotify:x', ['kind' => 'track', 'headline' => 'Dracula (Remix)', 'facets' => ['f_authored' => ['creator' => 'Tame Impala, JENNIE'], 'f_link' => ['url' => 'https://open.spotify.com/track/x']]]))
-        ->filter(fn ($k) => $k->class === \App\Content\Identity\KeyClass::TitleRelease)->map(fn ($k) => $k->value)->values()->all();
+        ->filter(fn ($k) => $k->class === KeyClass::TitleRelease)->map(fn ($k) => $k->value)->values()->all();
     expect($keys)->toBe(['dracula remix|tame impala']);
 });

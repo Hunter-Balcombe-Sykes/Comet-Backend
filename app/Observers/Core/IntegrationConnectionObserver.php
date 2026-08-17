@@ -7,9 +7,11 @@ use App\Ingest\Runtime\SourceScheduler;
 use App\Ingest\SourceProvisioner;
 use App\Jobs\Ingest\RunSourceJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
+use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
+use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
@@ -382,7 +384,7 @@ class IntegrationConnectionObserver
         if (! ($connection->wasRecentlyCreated || $connection->wasChanged('payload') || ($connection->wasChanged('is_active') && $connection->is_active))) {
             return;
         }
-        $url = (string) (\App\Services\Platforms\Payloads\CardPayload::fromArray((array) $connection->payload)->url() ?? '');
+        $url = (string) (CardPayload::fromArray((array) $connection->payload)->url() ?? '');
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         if ($host === '') {
             return;
@@ -390,7 +392,7 @@ class IntegrationConnectionObserver
         foreach ((array) config('partna.menu.platforms', []) as $slug => $spec) {
             $pattern = $spec['host_pattern'] ?? null;
             if (is_string($pattern) && $pattern !== '' && preg_match($pattern, $host)) {
-                \App\Jobs\Platforms\MenuFetchJob::dispatch((string) $connection->user_id)->afterCommit();
+                MenuFetchJob::dispatch((string) $connection->user_id)->afterCommit();
 
                 return;
             }

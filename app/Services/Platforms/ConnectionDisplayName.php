@@ -127,7 +127,7 @@ final class ConnectionDisplayName
      * profile picture / channel thumbnail / store logo / og image / favicon —
      * in that order, and only absolute http(s) URLs.
      *
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public static function avatarFor(array $payload): ?string
     {

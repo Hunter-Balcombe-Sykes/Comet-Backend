@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Support\Facades\Queue;
@@ -136,7 +137,7 @@ it('enriches a brand card after connect so it does not sit pending forever (F4)'
         ->postJson('/api/platforms/github/connect', ['url' => 'https://github.com/someone'])
         ->assertSuccessful();
 
-    Queue::assertPushed(\App\Jobs\Platforms\EnrichLinkCardJob::class, function ($job) use ($user) {
+    Queue::assertPushed(EnrichLinkCardJob::class, function ($job) use ($user) {
         return $job->userId === (string) $user->id
             && $job->platform === 'github'
             && $job->url === 'https://github.com/someone'

@@ -9,6 +9,7 @@ use Illuminate\Console\Command;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * DEV ONLY. Send one authenticated API request AS a user through the real
@@ -104,7 +105,7 @@ class AsUserRequestCommand extends Command
     }
 
     /** One request through the real kernel (after actAs()). */
-    public static function send(string $method, string $uri, ?string $jsonBody = null): \Symfony\Component\HttpFoundation\Response
+    public static function send(string $method, string $uri, ?string $jsonBody = null): Response
     {
         $request = Request::create($uri, strtoupper($method), [], [], [], [
             'HTTP_ACCEPT' => 'application/json',

@@ -6,6 +6,7 @@ use App\Ingest\Projection\RecordView;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Content\FreshaServiceItems;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 // Slice 3b Task 6: the projector turns Fresha's category into a
@@ -75,7 +76,7 @@ it('maps the real price shapes', function (string $price, string $qualifier, ?in
 function freshaProjectableSource(): array
 {
     // The eager on-connect run must not reach fresha.com from a test.
-    \Illuminate\Support\Facades\Http::fake();
+    Http::fake();
     setupUsersTable();
     setupSitesTable();
     setupIngestTables();

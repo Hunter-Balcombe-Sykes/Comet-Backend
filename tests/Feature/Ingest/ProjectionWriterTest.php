@@ -2,9 +2,11 @@
 
 use App\Ingest\Projection\ProjectionWriter;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Jobs\Ingest\RunSourceJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Site\Documents\BuildState;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -727,7 +729,7 @@ function projectableGoogleReviews(array $docs): array
     // google_business is eagerOnConnect since 2026-08-18 (R8): the observer
     // would run the connector inline under the sync queue and mint the
     // 'reviews' stream this helper builds by hand. Keep the eager run out.
-    \Illuminate\Support\Facades\Bus::fake([\App\Jobs\Ingest\RunSourceJob::class]);
+    Bus::fake([RunSourceJob::class]);
 
     $connection = IntegrationConnection::create([
         'user_id' => $userId,

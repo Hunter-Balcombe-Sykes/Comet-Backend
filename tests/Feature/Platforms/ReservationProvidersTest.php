@@ -491,7 +491,7 @@ it('nowbookit selection returns the exact 5-key shape and strips unknown stored 
 });
 
 it('accepts a NowBookit link whose accountid is a UUID, as every current booking link is (F9)', function () {
-    $svc = app(\App\Services\Platforms\NowBookitService::class);
+    $svc = app(NowBookitService::class);
     $ids = $svc->parseIds('https://bookings.nowbookit.com/?accountid=cd39dab2-e5b6-422d-80b2-b1703ad6f5c1&venueid=14544');
     expect($ids)->toBe(['accountId' => 'cd39dab2-e5b6-422d-80b2-b1703ad6f5c1', 'venueId' => '14544']);
     expect($svc->parseIds('https://bookings.nowbookit.com/?accountid=12&venueid=34'))->toBe(['accountId' => '12', 'venueId' => '34']);

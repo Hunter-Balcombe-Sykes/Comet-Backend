@@ -2,6 +2,7 @@
 
 namespace App\Site\Sections;
 
+use App\Site\Pools\LiveSourceScope;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -100,7 +101,7 @@ class SectionCandidates
             ->whereNull('content.items.removed_at');
         // Disconnect = hide: an item whose every source is a removed/inactive
         // connection leaves the auto half (overnight 2026-08-18, W2).
-        \App\Site\Pools\LiveSourceScope::apply($query);
+        LiveSourceScope::apply($query);
 
         foreach ($predicates as $predicate) {
             $this->applyPredicate($query, (array) $predicate);
@@ -323,8 +324,8 @@ class SectionCandidates
      * filters and any equal-timestamp row in the table — another user's
      * copy of the same video — made every candidate lose (overnight F1).
      *
-     * @param list<string> $values
-     * @param list<string> $toggles
+     * @param  list<string>  $values
+     * @param  list<string>  $toggles
      */
     private function connectionSourceLatestArm($q, array $values, int $n, array $toggles): void
     {
@@ -387,7 +388,7 @@ class SectionCandidates
      * to every latest_per_auto_source pool put storefront SQL in the WATCH
      * pool's query plan (ShopPoolPayloadTest's query-isolation guard).
      *
-     * @param list<string> $values
+     * @param  list<string>  $values
      */
     private function storefrontLatestArm($q, array $values): void
     {

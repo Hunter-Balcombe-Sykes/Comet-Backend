@@ -2,12 +2,11 @@
 
 namespace App\Http\Resources\Routing;
 
-use App\Services\Platforms\ConnectionDisplayName;
-
 use App\Catalog\CatalogNotCompiled;
 use App\Catalog\CompiledCatalog;
 use App\Http\Resources\ApiResource;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\ConnectionDisplayName;
 use Illuminate\Http\Request;
 
 /**

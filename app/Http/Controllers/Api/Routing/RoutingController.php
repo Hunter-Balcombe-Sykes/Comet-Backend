@@ -6,12 +6,12 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Routing\RouteLinkRequest;
 use App\Jobs\Platforms\LinkInBioScanJob;
-use App\Services\Accounts\AccountCapabilities;
-use App\Services\Platforms\LinkInBioDetector;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\CustomLinkSeeder;
+use App\Services\Platforms\LinkInBioDetector;
 use Illuminate\Http\JsonResponse;
 
 /**

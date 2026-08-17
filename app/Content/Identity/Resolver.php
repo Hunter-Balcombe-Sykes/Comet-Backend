@@ -138,6 +138,7 @@ class Resolver
                 }
             }
         }
+
         // Deliberately no tier()/minLength()/appliesTo() filter here, unlike
         // keyIndex() below — this poisons more broadly than the index
         // matches, which can only SUPPRESS merges, never create a false one.

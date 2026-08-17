@@ -17,6 +17,7 @@ use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -98,7 +99,7 @@ function mmcOrdering(User $user, string $url = 'https://www.ubereats.com/store/x
 {
     // F17 (2026-08-18): the observer dispatches MenuFetchJob for ordering rows on
     // menu-platform hosts; these tests drive the menu by hand.
-    \Illuminate\Support\Facades\Queue::fake([\App\Jobs\Platforms\MenuFetchJob::class]);
+    Queue::fake([MenuFetchJob::class]);
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
 
     return IntegrationConnection::create([

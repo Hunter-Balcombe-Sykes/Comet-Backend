@@ -3,6 +3,7 @@
 use App\Ingest\Projection\ProjectionWriter;
 use App\Jobs\Media\MirrorMediaAssetJob;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -160,7 +161,7 @@ it('dispatches a mirror for a PRE-EXISTING unmirrored asset on a later sync (F14
     // Release the ShouldBeUnique lock the first (faked, never-run) dispatch
     // still holds — in production the job's clean finish releases it.
     $assetId = (string) DB::table('content.media_assets')->where('user_id', $userId)->value('id');
-    \Illuminate\Support\Facades\Cache::lock('laravel_unique_job:'.MirrorMediaAssetJob::class.':'.$assetId)->forceRelease();
+    Cache::lock('laravel_unique_job:'.MirrorMediaAssetJob::class.':'.$assetId)->forceRelease();
     projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg'], '-again');
     Bus::assertDispatchedTimes(MirrorMediaAssetJob::class, 2);
 });

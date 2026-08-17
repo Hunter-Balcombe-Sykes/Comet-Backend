@@ -232,7 +232,7 @@ it('yields the artist\'s songs as a `songs` stream of tracks with 1200px artwork
     // Songs lookup down: a Note, never Unavailable, no coverage claim.
     $io2 = appleMusicIo([]);
     $m2 = iterator_to_array((new AppleMusicConnector)->pull(appleMusicPull($artistId, 'songs'), $io2));
-    expect(array_filter($m2, fn ($m) => $m instanceof \App\Ingest\Message\Unavailable))->toHaveCount(0)
-        ->and(array_filter($m2, fn ($m) => $m instanceof \App\Ingest\Message\Note && $m->code === 'songs_unavailable'))->toHaveCount(1)
+    expect(array_filter($m2, fn ($m) => $m instanceof Unavailable))->toHaveCount(0)
+        ->and(array_filter($m2, fn ($m) => $m instanceof Note && $m->code === 'songs_unavailable'))->toHaveCount(1)
         ->and(array_filter($m2, fn ($m) => $m instanceof Covered))->toHaveCount(0);
 });

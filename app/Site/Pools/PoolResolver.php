@@ -8,8 +8,11 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Services\Media\MediaUrlResolver;
+use App\Services\Platforms\ConnectionDisplayName;
 use App\Services\Platforms\DisplaySettingsFilter;
 use App\Site\Sections\SectionCandidates;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -561,7 +564,7 @@ class PoolResolver
                     ->unique('connection_id')
                     ->keyBy('connection_id')
                     ->all();
-            } catch (\Illuminate\Database\QueryException) {
+            } catch (QueryException) {
                 // No ingest schema in this environment: badges read "never".
                 $ingestByConnection = [];
             }
@@ -578,7 +581,7 @@ class PoolResolver
                 // Timestamps go out as ISO-8601 with zone: the query builder
                 // hands back naive "Y-m-d H:i:s" strings which a browser's
                 // Date() would read as LOCAL time (a +10h badge — review).
-                $iso = fn ($v) => $v === null ? null : \Illuminate\Support\Carbon::parse((string) $v)->toIso8601String();
+                $iso = fn ($v) => $v === null ? null : Carbon::parse((string) $v)->toIso8601String();
                 if ($row->source_kind === 'manual') {
                     $out[] = ['kind' => 'manual', 'platform' => null, 'accountName' => null, 'lastSeenAt' => $iso($row->last_seen_at), 'lastSyncedAt' => null, 'autoSync' => false, 'active' => true];
 
@@ -588,7 +591,7 @@ class PoolResolver
                 $out[] = [
                     'kind' => 'connection',
                     'platform' => (string) $row->platform,
-                    'accountName' => \App\Services\Platforms\ConnectionDisplayName::for((string) ($row->surface_key ?? ''), $payload),
+                    'accountName' => ConnectionDisplayName::for((string) ($row->surface_key ?? ''), $payload),
                     'lastSeenAt' => $iso($row->last_seen_at),
                     'lastSyncedAt' => $iso($ingestByConnection[(string) $row->connection_id]->last_run_at ?? null),
                     'autoSync' => (bool) ($ingestByConnection[(string) $row->connection_id]->auto_sync ?? false),

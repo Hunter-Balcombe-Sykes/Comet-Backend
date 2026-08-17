@@ -2,6 +2,8 @@
 
 namespace App\Ingest\Projection;
 
+use App\Ingest\Connectors\AppleMusicConnector;
+
 /**
  * iTunes Lookup album collection → the `release` item kind. Field names are
  * Apple's own (collectionId/collectionName/…) — the connector lands the
@@ -40,7 +42,7 @@ class AppleMusicReleaseProjector implements Projector
             // 1200x1200 (R10 best quality): mzstatic serves any square size by
             // path, and the lookup only hands us the 100px thumbnail.
             'media' => $view->string('artworkUrl100') === null ? [] : [
-                ['role' => 'cover', 'url' => \App\Ingest\Connectors\AppleMusicConnector::upscaleArtwork((string) $view->string('artworkUrl100'))],
+                ['role' => 'cover', 'url' => AppleMusicConnector::upscaleArtwork((string) $view->string('artworkUrl100'))],
             ],
         ];
     }
