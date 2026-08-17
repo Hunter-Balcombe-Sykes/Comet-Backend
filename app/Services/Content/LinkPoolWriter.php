@@ -32,11 +32,16 @@ use Illuminate\Support\Facades\DB;
  * url as a joining key for the whole resolution run (Resolver::poisonedKeys drops
  * a value a single source contributes twice).
  *
- * NOT carried: favicon and logo. Phase 3 declined to mint content.media_assets for
- * third-party image URLs because it pulls slice 1a's borrowed-asset lane in for
- * decoration, and that decision stands here — a pool link publishes
- * `thumbnail: null`. Consequence, stated rather than discovered later: dashboard
- * link cards lose their brand marks when a link moves to this lane.
+ * favicon and logo ARE carried (2026-08-17, reversing Phase 3's "not carried"):
+ * the owner wants the site's share image and favicon on every link card, in the
+ * dashboard and on the page. They ride the standard `media` projection —
+ * `logo` (og:image) as the `cover` role, `favicon` as the `logo` role — so they
+ * mint content.media_assets exactly the way a YouTube thumbnail does: a
+ * source_url-only asset that MediaUrlResolver passes through. That IS slice
+ * 1a's borrowed lane, and every connector thumbnail already lives there; the
+ * Phase 3 concern (a decoration pulling in a whole lane) no longer applies once
+ * the lane is the ordinary path. PoolResolver reads them back as `thumbnail`
+ * (cover) and `favicon` (logo).
  */
 class LinkPoolWriter
 {
@@ -58,8 +63,18 @@ class LinkPoolWriter
      * $headline falls back to the URL host, matching PoolItemCreateController's
      * hand-add contract: "it appears, titled what you called it".
      */
-    public function add(User $user, string $url, ?string $headline = null, ?string $description = null): string
-    {
+    /**
+     * @param  string|null  $logo  the page's share image (og:image) → cover role
+     * @param  string|null  $favicon  the site's icon → logo role
+     */
+    public function add(
+        User $user,
+        string $url,
+        ?string $headline = null,
+        ?string $description = null,
+        ?string $favicon = null,
+        ?string $logo = null,
+    ): string {
         $url = trim($url);
         $coord = self::coordFor($url);
         $userId = (string) $user->id;
@@ -84,6 +99,22 @@ class LinkPoolWriter
         $description = trim((string) $description);
         if ($description !== '') {
             $projection['facets']['f_text']['body'] = $description;
+        }
+
+        // Media only when there is something to say: writeFacets() REPLACES an
+        // item's media set per write, so an add carrying no images must not
+        // wipe the ones an earlier enrichment already landed.
+        $media = [];
+        $logo = trim((string) $logo);
+        $favicon = trim((string) $favicon);
+        if ($logo !== '') {
+            $media[] = ['role' => 'cover', 'url' => $logo];
+        }
+        if ($favicon !== '') {
+            $media[] = ['role' => 'logo', 'url' => $favicon];
+        }
+        if ($media !== []) {
+            $projection['media'] = $media;
         }
 
         $itemId = $this->writer->writeManualItem($userId, $coord, $projection);

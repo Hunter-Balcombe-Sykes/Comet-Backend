@@ -23,8 +23,10 @@ use Throwable;
  * every new link from "the page's real title" to "example.com" — the connection
  * lane had this enrichment and the pool hand-add never did.
  *
- * It upgrades the TITLE and BODY only. favicon/logo are not carried onto the pool
- * at all (LinkPoolWriter's docblock says why), so there is nothing to upgrade.
+ * It upgrades the TITLE (only off the host fallback), the BODY (only when
+ * empty) and, since 2026-08-17, the IMAGES — the page's share image and
+ * favicon — which LinkPoolWriter carries onto the pool as media. Images are
+ * written whenever the snapshot has them: nothing the owner typed lives there.
  *
  * A failed snapshot is a fine final state: the host-titled item is already usable,
  * which is the same posture EnrichLinkCardJob takes.
@@ -70,29 +72,42 @@ class EnrichPoolLinkJob implements ShouldBeUnique, ShouldQueue
             ->where('cs.user_id', $this->userId)
             ->where('cs.kind', 'manual')
             ->where('si.coord', $coord)
+            ->leftJoin('content.f_text as ft', 'ft.item_id', '=', 'i.id')
             ->whereNull('i.removed_at')
-            ->first(['i.id', 'i.headline_cache']);
+            ->first(['i.id', 'i.headline_cache', 'ft.body']);
 
         if ($current === null) {
             return; // removed between dispatch and run
+        }
+
+        $snapshot = $scraper->snapshot($this->url); // slow HTTP; null on failure
+        if ($snapshot === null) {
+            return;
         }
 
         // Only overwrite the HOST FALLBACK. If the headline is anything else the
         // owner either typed it or a previous run already enriched it, and the
         // manual source sits at priority 200 — it would win against every
         // connector headline product-wide, so clobbering here is not recoverable.
+        // Same posture for the body: fill an empty one, never replace a typed one.
+        // (`add()` keeps the stored headline when handed '' and omits an empty
+        // body rather than clearing it, so '' here means "leave it".)
         $host = (string) (parse_url($this->url, PHP_URL_HOST) ?: $this->url);
-        if ((string) $current->headline_cache !== $host) {
-            return;
-        }
-
-        $snapshot = $scraper->snapshot($this->url); // slow HTTP; null on failure
         $name = trim((string) ($snapshot['name'] ?? ''));
-        if ($name === '' || $name === $host) {
-            return;
+        $titleUpgrade = (string) $current->headline_cache === $host && $name !== '' && $name !== $host
+            ? $name
+            : '';
+        $bodyUpgrade = trim((string) ($current->body ?? '')) === ''
+            ? (string) ($snapshot['description'] ?? '')
+            : '';
+        $favicon = (string) ($snapshot['favicon'] ?? '');
+        $logo = (string) ($snapshot['logo'] ?? '');
+
+        if ($titleUpgrade === '' && $bodyUpgrade === '' && $favicon === '' && $logo === '') {
+            return; // nothing the page can add
         }
 
-        $writer->add($user, $this->url, $name, (string) ($snapshot['description'] ?? ''));
+        $writer->add($user, $this->url, $titleUpgrade, $bodyUpgrade, $favicon, $logo);
     }
 
     /**

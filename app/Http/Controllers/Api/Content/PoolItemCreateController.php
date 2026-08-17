@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Core\Site\SectionItem;
 use App\Site\Documents\BuildState;
 use App\Site\Pools\PoolRegistry;
@@ -42,7 +43,7 @@ class PoolItemCreateController extends ApiController
         private readonly ProjectionWriter $writer,
     ) {}
 
-    /** POST /api/content/pools/{pool}/items  { url, title?, kind? } */
+    /** POST /api/content/pools/{pool}/items  { url, title?, description?, favicon?, logo?, kind? } */
     public function store(Request $request, string $pool): JsonResponse
     {
         if (! PoolRegistry::isPool($pool)) {
@@ -62,6 +63,13 @@ class PoolItemCreateController extends ApiController
         $data = $request->validate([
             'url' => ['required', 'string', 'max:2048', 'url:https'],
             'title' => ['nullable', 'string', 'max:300'],
+            // The checked card from /content/links/preview (2026-08-17): the
+            // owner saw these and may have changed the words. Images are the
+            // page's own URLs, stored as borrowed media the way every
+            // connector thumbnail is.
+            'description' => ['nullable', 'string', 'max:2000'],
+            'favicon' => ['nullable', 'string', 'max:2048', 'url:https'],
+            'logo' => ['nullable', 'string', 'max:2048', 'url:https'],
             // The pool's own kinds only — "episode" can't land in Watch.
             'kind' => ['nullable', 'string', 'in:'.implode(',', $kinds)],
         ]);
@@ -122,11 +130,38 @@ class PoolItemCreateController extends ApiController
         // The returned id may be an item that already exists — a hand-typed
         // URL matching a synced one folds into it, which is the whole point
         // of routing hand-adds through the identity spine.
-        $itemId = $this->writer->writeManualItem($user->id, $coord, [
+        $projection = [
             'kind' => $kind,
             'headline' => $title,
             'facets' => ['f_link' => ['url' => $data['url']]],
-        ]);
+        ];
+        $description = trim((string) ($data['description'] ?? ''));
+        if ($description !== '') {
+            $projection['facets']['f_text'] = ['body' => $description];
+        }
+        $media = [];
+        $logo = trim((string) ($data['logo'] ?? ''));
+        $favicon = trim((string) ($data['favicon'] ?? ''));
+        if ($logo !== '') {
+            $media[] = ['role' => 'cover', 'url' => $logo];
+        }
+        if ($favicon !== '') {
+            $media[] = ['role' => 'logo', 'url' => $favicon];
+        }
+        if ($media !== []) {
+            $projection['media'] = $media;
+        }
+
+        $itemId = $this->writer->writeManualItem($user->id, $coord, $projection);
+
+        // A link added without a checked card (an older client, or a paste
+        // that skipped the preview) still gets the page read off-thread —
+        // title off the host fallback, body if empty, images always. The
+        // two-step dashboard flow sends the card itself, so nothing here
+        // races what the owner just checked.
+        if ($kind === 'link' && $media === [] && $description === '') {
+            EnrichPoolLinkJob::dispatch((string) $user->id, $data['url'])->afterCommit();
+        }
 
         // A hand-add is an explicit "I want this", so it un-deletes. The
         // deterministic coord means a re-add resolves to the SAME item, and
