@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
 use App\Services\Content\ServiceCollections;
@@ -13,9 +14,38 @@ beforeEach(function () {
     setupIngestTables();
     setupContentTables();
     setupBlocksTable();
+    setupPartnaStaffTable();
     shimPgAdvisoryLockForSqlite();
     Queue::fake();
+
+    // staff.audit middleware writes here on every staff request.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
+        id TEXT PRIMARY KEY,
+        staff_id TEXT,
+        staff_email_snapshot TEXT,
+        impersonator_staff_id TEXT,
+        impersonator_email_snapshot TEXT,
+        user_id TEXT,
+        professional_handle_snapshot TEXT,
+        route TEXT NOT NULL DEFAULT \'\',
+        http_method TEXT NOT NULL DEFAULT \'\',
+        status_code INTEGER NOT NULL DEFAULT 0,
+        payload_summary TEXT NOT NULL DEFAULT \'{}\',
+        ip_hash TEXT,
+        user_agent TEXT,
+        created_at TEXT
+    )');
 });
+
+function svcCutMgmtStaffAdmin(): PartnaStaff
+{
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $staff->primary_email = 'admin@partna.au';
+
+    return $staff;
+}
 
 function svcCutMgmtUser(): User
 {
@@ -202,4 +232,49 @@ it('a hidden Fresha service is excluded from the active list but present on the 
 
     actingAsUser($pro)->getJson('/api/services')
         ->assertJsonPath('services.0.is_active', false);
+});
+
+// ── the staff twins (Task 7) ────────────────────────────────────────────────
+
+it('staff show resolves a Fresha service by content id', function () {
+    $pro = svcCutMgmtUser();
+    $itemId = svcCutMgmtFresha($pro, 'Fade', 's:1');
+
+    actingAsStaff(svcCutMgmtStaffAdmin())->getJson("/api/staff/professionals/{$pro->id}/services/{$itemId}")
+        ->assertOk()->assertJsonPath('service.source', 'fresha');
+});
+
+it('a staff edit to a Fresha title lands as an override; price edits 422', function () {
+    $pro = svcCutMgmtUser();
+    $itemId = svcCutMgmtFresha($pro, 'Vendor Name', 's:1');
+    $staff = svcCutMgmtStaffAdmin();
+
+    actingAsStaff($staff)->patchJson("/api/staff/professionals/{$pro->id}/services/{$itemId}", ['title' => 'Staff Name'])
+        ->assertOk()->assertJsonPath('service.is_manual', true);
+    actingAsStaff($staff)->patchJson("/api/staff/professionals/{$pro->id}/services/{$itemId}", ['price_cents' => 500])
+        ->assertStatus(422);
+});
+
+it('staff forceDestroy on a Fresha content item hard-deletes the item row', function () {
+    $pro = svcCutMgmtUser();
+    $itemId = svcCutMgmtFresha($pro, 'Fade', 's:1');
+
+    actingAsStaff(svcCutMgmtStaffAdmin())->deleteJson("/api/staff/professionals/{$pro->id}/services/{$itemId}/hard")
+        ->assertOk();
+    expect(DB::table('content.items')->where('id', $itemId)->exists())->toBeFalse();
+});
+
+it('a legacy service-category uuid 404s on every staff by-id verb', function () {
+    // Services cutover Task 8: the legacy site.service_categories rows served
+    // only the by-id fall-backs, which are deleted. One id space now.
+    $pro = svcCutMgmtUser();
+    $staff = svcCutMgmtStaffAdmin();
+    $legacyId = (string) Str::uuid();   // no collection row — the dead id space
+
+    actingAsStaff($staff)->getJson("/api/staff/professionals/{$pro->id}/service-categories/{$legacyId}")->assertNotFound();
+    actingAsStaff($staff)->patchJson("/api/staff/professionals/{$pro->id}/service-categories/{$legacyId}", ['title' => 'X'])->assertNotFound();
+    actingAsStaff($staff)->deleteJson("/api/staff/professionals/{$pro->id}/service-categories/{$legacyId}")->assertNotFound();
+    actingAsStaff($staff)->deleteJson("/api/staff/professionals/{$pro->id}/service-categories/{$legacyId}/hard")->assertNotFound();
+    actingAsStaff($staff)->postJson("/api/staff/professionals/{$pro->id}/service-categories/{$legacyId}/restore")->assertNotFound();
+    actingAsStaff($staff)->postJson("/api/staff/professionals/{$pro->id}/service-categories/reorder", ['ids' => [$legacyId]])->assertStatus(422);
 });

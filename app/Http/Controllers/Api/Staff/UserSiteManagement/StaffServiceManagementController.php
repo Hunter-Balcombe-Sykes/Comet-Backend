@@ -10,15 +10,16 @@ use App\Http\Requests\Api\Staff\UserSite\Services\StaffStoreServiceRequest;
 use App\Http\Requests\Api\Staff\UserSite\Services\StaffUpdateServiceRequest;
 use App\Http\Resources\ServiceCategoryResource;
 use App\Http\Resources\ServiceResource;
+use App\Models\Content\ManualOverride;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\Service;
-use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
 use App\Services\Content\FreshaServiceItems;
 use App\Services\Content\ManualServiceItems;
 use App\Services\Content\ManualServiceWriter;
 use App\Services\Content\ServiceCollections;
+use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Site\AdvisoryLock;
 use App\Services\Site\AdvisoryLockTimeoutException;
 use App\Services\User\SectionVisibilityService;
@@ -237,15 +238,23 @@ class StaffServiceManagementController extends ApiController
             return $this->success(['service' => new ServiceResource($manual->toServiceModel($professional->id, $row))]);
         }
 
-        $legacy = $this->legacyService($professional, $service, withTrashed: true);
-        if ($legacy === null) {
+        // Fresha half: a connection-sourced content item (spec §3.2). A
+        // legacy site.services uuid resolves nowhere (ruling 1).
+        $fresha = app(FreshaServiceItems::class);
+        $freshaRow = $fresha->findRow(
+            $professional->id, $service, $manual->sectionId($professional->site),
+            includeRemoved: true, liveOnly: false,
+        );
+        if ($freshaRow === null) {
             abort(404);
         }
-        if (! $includeArchived && $legacy->trashed()) {
+        if (! $includeArchived && $freshaRow->removed_at !== null) {
             abort(404);
         }
 
-        return $this->success(['service' => new ServiceResource($legacy)]);
+        return $this->success(['service' => new ServiceResource(
+            $fresha->toServiceModel($professional->id, $freshaRow, $fresha->hiddenServiceIds($professional->id)),
+        )]);
     }
 
     public function update(StaffUpdateServiceRequest $request, User $professional, string $service): JsonResponse
@@ -259,7 +268,7 @@ class StaffServiceManagementController extends ApiController
         $row = $manual->find($professional->id, $service, $manual->sectionId($professional->site));
 
         if ($row === null) {
-            return $this->updateLegacy($request, $professional, $service);
+            return $this->updateFresha($request, $professional, $service);
         }
 
         $data = $request->validated();
@@ -355,14 +364,19 @@ class StaffServiceManagementController extends ApiController
         $row = $manual->find($professional->id, $service, $manual->sectionId($professional->site));
 
         if ($row === null) {
-            // §C2: the untouched legacy half. A trashed row 404s, as it did
-            // when route-model binding resolved it.
-            $legacy = $this->legacyService($professional, $service);
-            if ($legacy === null) {
+            // Fresha half: owner delete = items.removed_at, one-way (spec
+            // §3.3). NEVER source_items.removed_at, which a reappearing
+            // scrape clears.
+            $fresha = app(FreshaServiceItems::class);
+            $freshaRow = $fresha->findRow($professional->id, $service, $manual->sectionId($professional->site));
+            if ($freshaRow === null) {
                 abort(404);
             }
 
-            $legacy->delete();
+            $site = $this->currentSite($professional);
+            $writer->markRemoved((string) $freshaRow->id);
+            app(FreshaServiceProjector::class)->refreshBlob($professional);
+            $this->invalidate($professional, $site, $writer);
 
             return $this->success(['deleted' => true]);
         }
@@ -577,17 +591,20 @@ class StaffServiceManagementController extends ApiController
 
         $manual = app(ManualServiceItems::class);
         $writer = app(ManualServiceWriter::class);
-        $row = $manual->find($professional->id, $service, $manual->sectionId($professional->site), includeRemoved: true);
+        $sectionId = $manual->sectionId($professional->site);
+        $row = $manual->find($professional->id, $service, $sectionId, includeRemoved: true);
 
+        // ONE hard-delete path for both halves: the Fresha item is a
+        // content.items row like any other, so it resolves here and falls
+        // through to the same transaction rather than a second implementation.
         if ($row === null) {
-            $legacy = $this->legacyService($professional, $service);
-            if ($legacy === null) {
-                abort(404);
-            }
-
-            $legacy->forceDelete();
-
-            return $this->success(['deleted' => true, 'hard' => true]);
+            $row = app(FreshaServiceItems::class)->findRow(
+                $professional->id, $service, $sectionId,
+                includeRemoved: true, liveOnly: false,
+            );
+        }
+        if ($row === null) {
+            abort(404);
         }
 
         $itemId = (string) $row->id;
@@ -621,16 +638,38 @@ class StaffServiceManagementController extends ApiController
         $row = $manual->find($professional->id, $service, $sectionId, includeRemoved: true);
 
         if ($row === null) {
-            $legacy = $this->legacyService($professional, $service, withTrashed: true);
-            if ($legacy === null) {
+            // Fresha half. liveOnly: false so a service that ALSO departed the
+            // vendor's menu is still addressable — the two removals are
+            // independent and only this one is undoable here.
+            $fresha = app(FreshaServiceItems::class);
+            $freshaRow = $fresha->findRow(
+                $professional->id, $service, $sectionId,
+                includeRemoved: true, liveOnly: false,
+            );
+            if ($freshaRow === null) {
                 abort(404);
             }
 
-            if ($legacy->trashed()) {
-                $legacy->restore();
+            $hidden = $fresha->hiddenServiceIds($professional->id);
+            if ($freshaRow->removed_at === null) {
+                return $this->success(['restored' => true, 'service' => new ServiceResource(
+                    $fresha->toServiceModel($professional->id, $freshaRow, $hidden),
+                )]);
             }
 
-            return $this->success(['restored' => true, 'service' => new ServiceResource($legacy->fresh())]);
+            $site = $this->currentSite($professional);
+            $writer->clearRemoved((string) $freshaRow->id);
+            app(FreshaServiceProjector::class)->refreshBlob($professional);
+            $this->invalidate($professional, $site, $writer);
+
+            $freshRow = $fresha->findRow(
+                $professional->id, (string) $freshaRow->id, $sectionId,
+                includeRemoved: true, liveOnly: false,
+            );
+
+            return $this->success(['restored' => true, 'service' => new ServiceResource(
+                $fresha->toServiceModel($professional->id, $freshRow ?? $freshaRow, $hidden),
+            )]);
         }
 
         // Idempotent: restoring a live item is a no-op, and invalidating on it
@@ -657,50 +696,79 @@ class StaffServiceManagementController extends ApiController
     }
 
     /**
-     * §C2: the untouched, pre-cutover Fresha update path. Kept because editing
-     * a projected row detaches it from the live sync (is_manual), which is
-     * what makes the owner's resync verbs meaningful — without this branch
-     * nothing could ever set is_manual back to true.
+     * update()'s Fresha branch (spec §3.2), the staff twin of
+     * UserServiceController::updateFresha(). A staff edit IS a
+     * content.manual_overrides row per field; is_active rides the blob's
+     * hiddenServiceIds; price is vendor-owned (D3a) and an edit 422s rather
+     * than silently reverting on the public booking wire.
      */
-    private function updateLegacy(StaffUpdateServiceRequest $request, User $professional, string $service): JsonResponse
+    private function updateFresha(StaffUpdateServiceRequest $request, User $professional, string $service): JsonResponse
     {
-        $legacy = $this->legacyService($professional, $service);
-        if ($legacy === null) {
+        $manual = app(ManualServiceItems::class);
+        $writer = app(ManualServiceWriter::class);
+        $fresha = app(FreshaServiceItems::class);
+        $sectionId = $manual->sectionId($professional->site);
+
+        $row = $fresha->findRow($professional->id, $service, $sectionId);
+        if ($row === null) {
             abort(404);
         }
 
+        $hidden = $fresha->hiddenServiceIds($professional->id);
+        $current = $fresha->toServiceModel($professional->id, $row, $hidden);
         $data = $request->validated();
 
-        // Ownership of EVERY supplied id is asserted, not just the first —
-        // against site.service_categories, which is the space a legacy row's
-        // memberships live in.
+        // D3a (owner ruling 2026-08-16): an edited PRICE has no content.*
+        // home — offers are a set-union collection and FacetRegistry excludes
+        // collections from manual_overrides by design.
+        if (array_key_exists('price_cents', $data) && (int) $data['price_cents'] !== (int) $current->price_cents) {
+            return $this->error('Fresha prices come from Fresha and cannot be edited here.', 422);
+        }
+
+        $collections = app(ServiceCollections::class);
         if (array_key_exists('category_id', $data) || array_key_exists('category_ids', $data)) {
             $categoryIds = $this->assignmentCategoryIds($data);
             foreach ($categoryIds as $categoryId) {
-                $this->assertLegacyCategoryBelongsToProfessional($professional->id, $categoryId);
+                $this->assertCollectionBelongsToProfessional($collections, $professional->id, $categoryId);
             }
-
-            // Appends at global end when moving without an explicit
-            // sort_order, mirroring the old per-bucket move.
-            $target = collect($categoryIds)->sort()->values()->all();
-            $current = $legacy->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->sort()->values()->all();
-            if ($target !== $current) {
-                $legacy->categories()->sync($categoryIds);
-                if (! array_key_exists('sort_order', $data)) {
-                    $max = Service::query()
-                        ->where('user_id', $professional->id)
-                        ->whereNull('deleted_at')
-                        ->max('sort_order');
-                    $data['sort_order'] = is_null($max) ? 0 : ((int) $max + 1);
-                }
-            }
-            unset($data['category_id'], $data['category_ids']);
+            // Owner lane (null source): survives every projector run, and the
+            // reads prefer it over the connection lane's memberships.
+            $collections->assign($professional->id, (string) $row->id, $categoryIds[0] ?? null, null);
         }
 
-        $legacy->fill($data);
-        $legacy->save();
+        foreach ([
+            'title' => ['f_text', 'headline', fn ($v) => (string) $v],
+            'description' => ['f_text', 'body', fn ($v) => $v],
+            'duration_minutes' => ['f_duration', 'seconds', fn ($v) => $v === null ? null : ((int) $v) * 60],
+        ] as $field => [$facet, $column, $transform]) {
+            if (! array_key_exists($field, $data)) {
+                continue;
+            }
+            $override = ManualOverride::query()
+                ->where('item_id', (string) $row->id)
+                ->where('facet', $facet)
+                ->where('column_name', $column)
+                ->first() ?? new ManualOverride;
+            $override->item_id = (string) $row->id;
+            $override->facet = $facet;
+            $override->column_name = $column;
+            $override->value = $transform($data[$field]);
+            $override->save();
+        }
 
-        return $this->success(['service' => new ServiceResource($legacy->fresh())]);
+        if (array_key_exists('is_active', $data)) {
+            app(FreshaServiceProjector::class)->setHidden($professional, (string) $row->record_key, ! (bool) $data['is_active']);
+        }
+
+        $site = $this->currentSite($professional);
+        app(FreshaServiceProjector::class)->refreshBlob($professional);
+        $this->invalidate($professional, $site, $writer);
+
+        $freshRow = $fresha->findRow($professional->id, (string) $row->id, $sectionId);
+
+        return $this->success(['service' => new ServiceResource(
+            $fresha->toServiceModel($professional->id, $freshRow ?? $row, $fresha->hiddenServiceIds($professional->id)),
+        )]);
     }
 
     /**
@@ -759,17 +827,6 @@ class StaffServiceManagementController extends ApiController
 
             return $row;
         })->values();
-    }
-
-    /** A legacy (Fresha) service row for this professional, or null. */
-    private function legacyService(User $professional, string $service, bool $withTrashed = false): ?Service
-    {
-        $query = Service::query()->where('user_id', $professional->id)->whereNotNull('source');
-        if ($withTrashed) {
-            $query->withTrashed();
-        }
-
-        return $query->find($service);
     }
 
     /**
@@ -892,24 +949,6 @@ class StaffServiceManagementController extends ApiController
         }
 
         if ($collections->find($userId, $categoryId) === null) {
-            abort(422, 'Category is invalid.');
-        }
-    }
-
-    /** The same check against the legacy table, for the untouched Fresha branch. */
-    private function assertLegacyCategoryBelongsToProfessional(string $userId, ?string $categoryId): void
-    {
-        if ($categoryId === null) {
-            return;
-        }
-
-        $ok = ServiceCategory::query()
-            ->where('id', $categoryId)
-            ->where('user_id', $userId)
-            ->whereNull('deleted_at')
-            ->exists();
-
-        if (! $ok) {
             abort(422, 'Category is invalid.');
         }
     }
