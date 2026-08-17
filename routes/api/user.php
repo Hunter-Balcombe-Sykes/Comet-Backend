@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
 use App\Http\Controllers\Api\Content\ItemController;
 use App\Http\Controllers\Api\Content\ItemLinkController;
 use App\Http\Controllers\Api\Content\KindsController;
+use App\Http\Controllers\Api\Content\LinkPreviewController;
 use App\Http\Controllers\Api\Content\ManualOverrideController;
 use App\Http\Controllers\Api\Content\PoolController;
 use App\Http\Controllers\Api\Content\PoolItemCreateController;
@@ -181,6 +182,11 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->name('content.pools.reorder');
         Route::post('/content/pools/{pool}/items', [PoolItemCreateController::class, 'store'])
             ->name('content.pools.items.store');
+        // What a pasted link would become — read-only, per paste, so its own
+        // throttle like /routing/preview.
+        Route::post('/content/links/preview', [LinkPreviewController::class, 'show'])
+            ->middleware('throttle:60,1')
+            ->name('content.links.preview');
         Route::delete('/content/items/{item}', [ItemController::class, 'destroy'])
             ->whereUuid('item')->name('content.items.destroy');
 
