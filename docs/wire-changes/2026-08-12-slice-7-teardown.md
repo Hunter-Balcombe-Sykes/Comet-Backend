@@ -757,3 +757,104 @@ Unchanged from Task 5's manifest entry — the mapper never carried
 `badges`, `basePrice`, `pickupPrice`, `deliveryPrice`, `currency`,
 `categoryIds`, `platforms[]`, and every category's `id` / `name`. Dish order is
 still the owner's `pool:menus` pin order.
+
+---
+
+## Phase 6 — the DROPs (2026-08-17)
+
+Five tables dropped on dev, plus a scoped DELETE. **No public wire key changed
+in this phase** — every key had already moved in Phases 1–5; this is the removal
+of the storage those keys no longer read.
+
+Scope was cut from nine tables to five by owner ruling on the day. See
+"Deferred, and why" below — the short version is that two of the four remaining
+tables still had a live READ lane, which is the same seam `site.shop_brands` was
+deferred on the day before.
+
+### Dropped
+
+| Table | Rows at drop | Replaced by |
+|---|---|---|
+| `site.menu_item_categories` | 358 | `content.collection_items` on a `menu_category` collection |
+| `site.menu_item_platforms` | 310 | `content.offers` + the `order_platform` collection's `content.storefronts` sidecar |
+| `site.menu_items` | 293 | `content.items` kind `menu_item` |
+| `site.menu_categories` | 40 | `content.collections` kind `menu_category` |
+| `site.content_selection` | 95 | `site.section_items` pins on `pool:media` |
+
+Plus: `DELETE FROM site.item_slugs WHERE item_type = 'event'` — 6 rows. The
+table itself is NOT dropped; its 293 `menu_item` rows are left inert.
+
+### Accepted data loss — owner ruling 2026-08-17
+
+**23 rows existed only in legacy and are gone.** All on `ollies`, all minted by a
+`MenuFetchJob` scrape at `2026-08-16 23:03:42+00` — after the last
+`content:backfill-menus` run, and their coords were never written to
+`content.source_items` at all:
+
+- 10 dishes (`STRAWBERRY`, `BISCOFF & CHOCOLATE`, `BLUEBERRY`, `FILLET OF FISH`,
+  `LAMB RAGU`, `CHICKEN SCHNITZEL`, `EGGPLANT SCHNITZEL`,
+  `'23 DEEP WOODS CHARDONNAY WA`, `'23 MULLINE PINOT NOIR VIC`,
+  `MOONDOG OLD MATE PALE ALE`)
+- 2 categories (`Menu`, `EXPRESS LUNCH`)
+- 11 memberships binding them
+
+The owner was shown the loss and its cause and ruled it acceptable rather than
+reorder the phase around a re-backfill. **The general lesson is worth more than
+the rows: on a live environment a coverage gate is valid only until the next
+scrape.** The 2026-08-16 entry gate read 318/318; by 2026-08-17 the same
+derivation read 283/293. Net counts FELL (318→293) while uncovered rows
+appeared, so totals concealed the hole — only the per-row coord derivation found
+it.
+
+### Behaviour changes on the authenticated dashboard
+
+`GET /api/platforms/menu` and `/menu/status` keep their shape. Three signals
+change value because their legacy source no longer exists:
+
+| Key | Was | Now | Why |
+|---|---|---|---|
+| `categories[].id` | `site.menu_categories.id` | `content.collections.id` | The id space moved with the table. Still the id `PATCH`/`DELETE /menu/categories/{id}` addresses. |
+| `categories[].sourcePlatform` | `'uber-eats'` / `'scan'` / … | `null` | `content.collections` carries no source column. The dashboard's sync-detach warning has nothing to key off. **Recorded as a loss, not a bug.** |
+| `items[].pickupSource` / `deliverySource` | platform slug | `null` | `ManualMenuItems`' documented nulls — the projection has no target. |
+
+`items[].id` was already the `content.items` id from Task 5; unchanged here.
+
+### `MenuFetchJob.content_source` degrades where no category names a source
+
+`site.menu_categories.source_platform` was the precedence input for
+`'scan' > 'website-scan' > 'manual'`. `ownerSource()` now derives the same
+answer from the content category's `external_ref` (`menu:<source>:*`), and where
+no ref names a source it degrades to `'scan'` when `menus.scan_items` is
+non-empty, else `'manual'`. Named rather than papered over: `content.collections`
+carries only the insert-only `is_user_created` bit, which cannot tell three
+owner lanes apart.
+
+### `site.item_slugs` is now a write-free orphan
+
+Its last READER moved to `content.item_slugs` in slice 2 Task 9 — the three
+events platforms carry an empty public allowlist, events reach the wire through
+`profile.pools.events`, and `PoolResolver` serves slug/aliases from the content
+lane. The WRITER outlived the reader by five days: `EventSlugSync`, called from
+`IntegrationConnectionObserver` on every connect and refresh, kept minting rows
+nothing read. Retiring it is what makes the row delete stick — deleting first
+would have been undone by the next Eventbrite refresh.
+
+`ItemSlugAllocator`, `EventSlugSync` and `content:backfill-item-slugs` are gone.
+`slugs:prune-retired` survives untouched: it hits BOTH registries with raw
+queries and is the privacy-retention command (271-PRIV-1), not part of this lane.
+
+### Deferred, and why — four tables, not dropped
+
+| Table | Blocker |
+|---|---|
+| `site.services`, `site.service_categories`, `site.service_category_assignments` | The **Fresha half was never cut over**. ~30 live query sites across five files; `UserCacheService::professionalServices()`, both dashboards and the staff controllers merge a `content.*` half with a legacy one. The code says so: *"TWO id spaces are live during the transition."* Dropping them 42P01s the services list and the booking surface. |
+| `site.shop_products` | **A live READ**, found only by following `$brand->products`. `ShopController::brandMap()` eager-loads `with('products')` on the catalog re-warm endpoint, and `ShopCatalog::syncLatest()` requires the relation loaded — its own docblock records that assuming otherwise once broke every scheduled refresh of a multi-brand connection. It is one unit with `site.shop_brands`. |
+
+Both are planned: `docs/superpowers/plans/2026-08-17-shop-brands-rehome.md`
+(shop, both tables) and its spec §11 (the services sibling).
+
+**Method note.** The kickoff's residual sweep is
+`grep -rn "table('site\.<t>'" app/`, which returns exactly five sites and is
+correct as far as it goes — but it matches only raw query-builder calls and is
+blind to Eloquent. `ShopController::brandMap()` and the whole Fresha read half
+are invisible to it. A table is only inert when BOTH greps come back empty.
