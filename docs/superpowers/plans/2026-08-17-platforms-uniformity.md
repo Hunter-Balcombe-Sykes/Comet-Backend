@@ -201,10 +201,10 @@ PlatformRegistryServiceProvider.php:628-630)."
 
 ## GATE — do not start Phase B until all of these hold
 
-- [ ] The slice-7 drops have merged to `development`.
-- [ ] The pool / convergence work the owner is running has landed.
-- [ ] Task 7's keep/flip list (below) has been produced and **signed off by the owner**.
-- [ ] A fresh branch exists off latest `origin/development`: `git switch -c feat/platform-brand-routes origin/development`.
+- [x] The slice-7 drops have merged to `development`.
+- [x] The pool / convergence work the owner is running has landed.
+- [x] Task 7's keep/flip list (below) has been produced and **signed off by the owner**.
+- [x] A fresh branch exists off latest `origin/development`: `git switch -c feat/platform-brand-routes origin/development`.
 
 Phase B does not touch the slice-7 drop-list tables — it competes for the same head, not the same tables.
 
@@ -335,7 +335,7 @@ asserts per descriptor.
 
 **Do not touch `tests/Unit/Catalog/CatalogLegacyMapTest.php`.** It pins the `20260727110001` migration's backfill CASE, which is history and does not move.
 
-- [ ] **Step 1: Capture the frozen set as a constant**
+- [x] **Step 1: Capture the frozen set as a constant**
 
 In `app/Services/Platforms/Registry/PlatformRegistry.php`, add below `FAMILY_DESCRIPTOR`:
 
@@ -356,7 +356,7 @@ In `app/Services/Platforms/Registry/PlatformRegistry.php`, add below `FAMILY_DES
 
 Add `use App\Catalog\LegacyPlatformMap;` to the imports.
 
-- [ ] **Step 2: Rewrite the freeze assertion**
+- [x] **Step 2: Rewrite the freeze assertion**
 
 Replace the body of the `it('registers exactly the platforms the app accepts today', ...)` block with:
 
@@ -389,7 +389,7 @@ it('never registers a derived descriptor that shadows a hand-written one', funct
 });
 ```
 
-- [ ] **Step 3: Add the `derived` flag to `PlatformDescriptor`**
+- [x] **Step 3: Add the `derived` flag to `PlatformDescriptor`**
 
 The shadow assertion calls `isDerived()`, so it lands here — this task must deliver green. Task 4 is what first *sets* the flag.
 
@@ -412,12 +412,12 @@ In `app/Services/Platforms/Registry/PlatformDescriptor.php`, add the property be
     }
 ```
 
-- [ ] **Step 4: Run and confirm both tests pass**
+- [x] **Step 4: Run and confirm both tests pass**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/Registry/RegistryCoverageTest.php`
 Expected: both PASS. The freeze test passes because nothing derived exists yet, so the intersection is the whole set. The shadow test passes vacuously — every descriptor is hand-written today. Both become load-bearing in Task 5.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/Services/Platforms/Registry/PlatformRegistry.php app/Services/Platforms/Registry/PlatformDescriptor.php tests/Feature/Platforms/Registry/RegistryCoverageTest.php
@@ -459,7 +459,7 @@ migration backfill, which is history."
 
 **Hard constraint:** `build()` runs at boot. Read the compiled artefact only, never reflect `Definitions/`, and never resolve a strategy factory.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Feature/Platforms/Registry/DerivedDescriptorTest.php`:
 
@@ -522,12 +522,12 @@ it('carries the routing-class capability predicate', function () {
 
 **Before writing `userWith`/`userWithout`:** define them inline **in this file** — cross-file Pest helpers break the parallel runner in this repo. Build them on the existing `User` factory and whatever `AccountCapabilities` reads (check `AccountCapabilities::for()`); do not invent a capability setter.
 
-- [ ] **Step 2: Run and confirm it fails**
+- [x] **Step 2: Run and confirm it fails**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/Registry/DerivedDescriptorTest.php`
 Expected: FAIL — `Target class [App\Services\Platforms\Registry\DerivedDescriptorFactory] does not exist.`
 
-- [ ] **Step 3: Add the `Brand` route shape**
+- [x] **Step 3: Add the `Brand` route shape**
 
 In `app/Services/Platforms/Registry/PlatformRouteShape.php`, add:
 
@@ -540,7 +540,7 @@ In `app/Services/Platforms/Registry/PlatformRouteShape.php`, add:
     case Brand;
 ```
 
-- [ ] **Step 4: Write the factory**
+- [x] **Step 4: Write the factory**
 
 Create `app/Services/Platforms/Registry/DerivedDescriptorFactory.php`:
 
@@ -661,12 +661,12 @@ class DerivedDescriptorFactory
 
 **Verify before running:** the detector row's surface-key field name is a guess from `CompiledCatalog::detectors()`'s shape. Dump it once — `php artisan tinker --execute="print_r(array_slice(App\Catalog\CompiledCatalog::detectors(), 0, 2, true));"` (tinker cannot reach the DB in this repo, but pure-PHP evaluation works) — and correct `detectedSurfaceKeys()` to the real key name. Likewise confirm how `AccountCapabilities::for()` exposes each capability (property, method, or array access) and match it.
 
-- [ ] **Step 5: Run the test and iterate to green**
+- [x] **Step 5: Run the test and iterate to green**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/Registry/DerivedDescriptorTest.php`
 Expected: all pass. If `booksy` is absent, check that `Booksy.php` is not `notConnectable()` — it is not, as of 2026-08-17, which is why it is the fixture brand.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/Services/Platforms/Registry/ tests/Feature/Platforms/Registry/DerivedDescriptorTest.php
@@ -697,7 +697,7 @@ address two. Only Square and Bandcamp do today and both are hand-written."
 
 Register derived descriptors **after** every hand-written one, so `PlatformRegistry::register()`'s last-write-wins cannot let a derived descriptor shadow a hand-written slug. Task 3's shadow test pins this.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Feature/Platforms/BrandRouteContractTest.php`:
 
@@ -742,12 +742,12 @@ it('keeps the family-wide disconnect endpoints', function () {
 
 **Before running:** confirm the real URI prefix. The loop builds `Route::prefix("{$base}/{$slug}")`; read `$base` at the top of `routes/api/platforms.php` and correct the expected URIs if it is not `api/platforms`. The family-endpoint URIs likewise — read them off `Route::getRoutes()` rather than trusting this plan.
 
-- [ ] **Step 2: Run and confirm it fails**
+- [x] **Step 2: Run and confirm it fails**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/BrandRouteContractTest.php`
 Expected: the first test fails — `expect($derived)->not->toBeEmpty()` — because nothing registers derived descriptors yet. The second should already pass; if it does not, the family endpoints moved and that is a finding to report before continuing.
 
-- [ ] **Step 3: Register the derived descriptors**
+- [x] **Step 3: Register the derived descriptors**
 
 In `app/Providers/PlatformRegistryServiceProvider.php`, as the **last** statement of the closure that registers descriptors:
 
@@ -764,7 +764,7 @@ In `app/Providers/PlatformRegistryServiceProvider.php`, as the **last** statemen
 
 Add `use App\Services\Platforms\Registry\DerivedDescriptorFactory;` to the imports.
 
-- [ ] **Step 4: Let `Brand` reach the shared route tail**
+- [x] **Step 4: Let `Brand` reach the shared route tail**
 
 In `routes/api/platforms.php`, change the comment above the shared tail from
 
@@ -780,23 +780,23 @@ to
 
 No conditional change is needed — the `SingleSelection` branch returns early and `Bespoke` is skipped at the top, so `Brand` already falls through. **Confirm this by reading the loop rather than assuming**; if a later edit added a shape check to the tail, add `Brand` to it.
 
-- [ ] **Step 5: Run the test and confirm it passes**
+- [x] **Step 5: Run the test and confirm it passes**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/BrandRouteContractTest.php`
 Expected: 2 passed.
 
-- [ ] **Step 6: Run the registry and architecture suites**
+- [x] **Step 6: Run the registry and architecture suites**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/Registry/ tests/Feature/Architecture/`
 Expected: all pass, including Task 3's shadow assertion. `PlatformControllerConvergenceTest` may now fail if it enumerates registry keys against a hand-maintained list — if so, that is Task 8's work; note it and continue.
 
-- [ ] **Step 7: Measure the boot cost**
+- [x] **Step 7: Measure the boot cost**
 
 Run: `php artisan route:list --path=platforms | wc -l` before and after this task (use `git stash` to compare), and time a request with `php artisan route:cache && time php artisan route:list > /dev/null`.
 
 Record both numbers in the commit body. The spec flags boot cost as a risk precisely because it must be measured rather than assumed — the route file already carries two loops and this adds a third pass over ~86 entries. If the added time exceeds ~50ms, stop and report before continuing.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add app/Providers/PlatformRegistryServiceProvider.php routes/api/platforms.php tests/Feature/Platforms/BrandRouteContractTest.php
@@ -830,7 +830,7 @@ Route count: <before> -> <after>. route:list: <before>ms -> <after>ms."
 
 **Note for the reader:** `app/Catalog/Definitions/Booksy.php`'s docblock claims `WebsiteLinkHarvester` "always collapses it to the generic 'booking' pseudo-platform, never to this dedicated key". **That comment is stale** — it describes pre-Phase-6 behaviour, and `BOOKING_PLATFORM` now maps `'Booksy' => 'booksy'`. Task 7 corrects the comment.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Feature/Platforms/BrandConnectGuardTest.php`:
 
@@ -867,12 +867,12 @@ it('rejects a url the classifier does not recognise at all', function () {
 
 **Before running:** `actingAsUser` is a placeholder for this repo's auth helper — Supabase JWTs mean `Auth::user()` is always null and tests use a project-specific helper. Find it by reading an existing platform-connect feature test (`tests/Feature/Platforms/`) and copy that setup verbatim, including any capability grants `menulog` needs under `can_use_online_ordering`.
 
-- [ ] **Step 2: Run and confirm it fails**
+- [x] **Step 2: Run and confirm it fails**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/BrandConnectGuardTest.php`
 Expected: the first test fails — the mismatched URL is accepted or 404s rather than 422ing.
 
-- [ ] **Step 3: Write the request class**
+- [x] **Step 3: Write the request class**
 
 Create `app/Http/Requests/Platforms/BrandConnectRequest.php`:
 
@@ -930,7 +930,7 @@ class BrandConnectRequest extends FormRequest
 }
 ```
 
-- [ ] **Step 4: Wire it to the `Brand` connect route**
+- [x] **Step 4: Wire it to the `Brand` connect route**
 
 In `routes/api/platforms.php`, the shared tail currently wires connect before the shape branch. Give `Brand` its own connect line so only derived brands get the guard:
 
@@ -944,17 +944,17 @@ In `routes/api/platforms.php`, the shared tail currently wires connect before th
 
 `GenericPlatformController::connect()` type-hints `PlatformConnectRequest`. **Read that class first**: if `BrandConnectRequest` can extend it and add the `after` hook, do that and leave the controller signature alone. If it cannot, add a sibling `connectBrand(BrandConnectRequest $request)` method to `GenericPlatformController` that delegates to the same private write path — do **not** widen the existing method's type hint, which every other shape depends on.
 
-- [ ] **Step 5: Run the test and iterate to green**
+- [x] **Step 5: Run the test and iterate to green**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/BrandConnectGuardTest.php`
 Expected: 3 passed.
 
-- [ ] **Step 6: Confirm the family path still classifies freely**
+- [x] **Step 6: Confirm the family path still classifies freely**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/`
 Expected: all pass. `POST /online-ordering/entries` must still accept any ordering URL and classify it — the guard applies to per-brand routes only. If a family test fails, the guard leaked into the shared tail.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/Http/Requests/Platforms/BrandConnectRequest.php routes/api/platforms.php tests/Feature/Platforms/BrandConnectGuardTest.php
@@ -986,7 +986,7 @@ still classify freely — the guard is per-brand only."
 
 **This is the one part of Phase B where a wrong call is user-visible** — a brand made connectable whose connect does not work is a card the user taps into a dead end.
 
-- [ ] **Step 1: Produce the keep/flip list**
+- [x] **Step 1: Produce the keep/flip list**
 
 ```bash
 grep -rl "notConnectable()" app/Catalog/Definitions/ | xargs -n1 basename | sort
@@ -1000,15 +1000,15 @@ For each file, record in a scratch table: brand, surface key, routing class, whe
 
 **A brand with no `WebsiteLinkHarvester` host pattern cannot pass Task 6's guard** — its connect would 422 every URL. Mark those KEEP and list them separately; adding host patterns is follow-on work, not this task's.
 
-- [ ] **Step 2: STOP — get owner sign-off**
+- [x] **Step 2: STOP — get owner sign-off**
 
 Post the keep/flip table and wait. Do not edit any definition before it is approved. The spec makes this an explicit control.
 
-- [ ] **Step 3: Apply the approved flips**
+- [x] **Step 3: Apply the approved flips**
 
 Remove the `->notConnectable()` call from each approved file. Nothing else in the definition changes.
 
-- [ ] **Step 4: Fix the stale Booksy docblock (opportunistic)**
+- [x] **Step 4: Fix the stale Booksy docblock (opportunistic)**
 
 In `app/Catalog/Definitions/Booksy.php`, replace the sentence claiming `WebsiteLinkHarvester` "always collapses it to the generic 'booking' pseudo-platform, never to this dedicated key" with:
 
@@ -1019,7 +1019,7 @@ In `app/Catalog/Definitions/Booksy.php`, replace the sentence claiming `WebsiteL
  * and was stale.)
 ```
 
-- [ ] **Step 5: Recompile and format**
+- [x] **Step 5: Recompile and format**
 
 ```bash
 php artisan catalog:compile
@@ -1029,12 +1029,12 @@ php artisan routing:corpus
 
 Skipping pint makes the artefact diff thousands of formatting-only lines.
 
-- [ ] **Step 6: Run the catalog and platform suites**
+- [x] **Step 6: Run the catalog and platform suites**
 
 Run: `./vendor/bin/pest tests/Unit/Catalog/ tests/Feature/Platforms/ tests/Feature/Architecture/`
 Expected: all pass. `CatalogLegacyMapTest` must stay green — flipping a display flag does not touch the migration backfill it pins. If it goes red, a flip changed something structural; stop and investigate.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/Catalog/
@@ -1063,7 +1063,7 @@ square.order stay false. Corrects Booksy's stale pre-Phase-6 docblock."
 
 **Context the implementer needs:** the spec's §6.2 risk is that a third multi-surface brand appears, Task 4's factory silently skips it, and it loses its routes with nothing noticing. That is what these assertions exist to prevent — read them as the point of Phase B, not as paperwork.
 
-- [ ] **Step 1: Write the failing assertions**
+- [x] **Step 1: Write the failing assertions**
 
 Add to `tests/Feature/Platforms/Registry/RegistryConnectCoverageTest.php`:
 
@@ -1102,21 +1102,21 @@ it('routes every connectable url-detected brand, derived or hand-written', funct
 
 Match the detector field name to whatever Task 4 established.
 
-- [ ] **Step 2: Run and confirm it passes**
+- [x] **Step 2: Run and confirm it passes**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/Registry/RegistryConnectCoverageTest.php`
 Expected: PASS. If it fails, the named surfaces are genuinely unrouted — either their brand declares two connectable surfaces (give it a hand-written descriptor) or Task 7 flipped something that should have stayed `notConnectable()`.
 
-- [ ] **Step 3: Reconcile `PlatformControllerConvergenceTest`**
+- [x] **Step 3: Reconcile `PlatformControllerConvergenceTest`**
 
 Read it. If it enumerates registry keys against a hand-maintained list, that list is now stale. Replace the hard-coded list with a derived-aware assertion in the same style as Step 1 rather than appending ~86 names by hand — a hand list re-creates the freeze this phase just removed.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `composer test`
 Expected: green. Do not pass `--filter` — it is broken in this repo. This is the first full-suite run of Phase B; budget time for unrelated flakes and confirm any failure is genuinely yours before fixing it.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/
@@ -1139,25 +1139,25 @@ DerivedDescriptorFactory's 1:1 rule and lose its routes silently."
 - Consumes: everything above.
 - Produces: the wire contract the dashboard lane plans against.
 
-- [ ] **Step 1: Run the capability audit**
+- [x] **Step 1: Run the capability audit**
 
 Invoke the `account-capability-audit` skill over `app/Services/Platforms/Registry/DerivedDescriptorFactory.php`, `app/Http/Requests/Platforms/BrandConnectRequest.php` and `routes/api/platforms.php`.
 
 This is **not optional**. A derived descriptor missing its routing-class capability mapping opens a booking brand to an account that cannot use booking, and this skill exists for exactly the "new endpoint, forgot the capability gate" case.
 
-- [ ] **Step 2: Fix anything it finds, then re-run it**
+- [x] **Step 2: Fix anything it finds, then re-run it**
 
 Expected: clean.
 
-- [ ] **Step 3: Document the wire**
+- [x] **Step 3: Document the wire**
 
 In `docs/api.md`'s platforms section, add: the four per-brand endpoints and their slug rule (brand key, from the compiled catalog); that the family-wide `DELETE` endpoints remain and mean "remove all of this class"; the 422 shape `BrandConnectRequest` returns on a brand/URL mismatch; and that `GET /catalog/surfaces` is the roster feed, where `isConnectable` now means "has connect routes".
 
-- [ ] **Step 4: Update the spec status header**
+- [x] **Step 4: Update the spec status header**
 
 Change the spec's status line to record what shipped, with the date and the merge commit.
 
-- [ ] **Step 5: Commit and open the PR**
+- [x] **Step 5: Commit and open the PR**
 
 ```bash
 git add docs/

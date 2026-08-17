@@ -74,3 +74,47 @@ it('leaves hand-written platforms unguarded', function () {
         ->postJson('/api/platforms/tiktok/connect', ['username' => '@dancer'])
         ->assertOk();
 });
+
+it('403s a brand whose routing class the account cannot use', function () {
+    // A non-food business has booking but NOT online-ordering. menulog is an
+    // ordering brand, so its connect must be closed to them — the capability
+    // gate is the point of DerivedDescriptorFactory::CAPABILITY_BY_ROUTING_CLASS.
+    $user = brandGuardUser('bg-nofood', 'barber');
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/x'])
+        ->assertStatus(403);
+});
+
+it('403s an upgraded booking brand for an account without booking', function () {
+    // booksy was a hand-written descriptor UPGRADED to Brand. The upgrade path
+    // must attach the capability predicate too, not just the routes — a food
+    // business has ordering but not booking.
+    $user = brandGuardUser('bg-food-booking', 'restaurant');
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/booksy/connect', ['url' => 'https://booksy.com/x'])
+        ->assertStatus(403);
+});
+
+it('lets an eligible account connect an upgraded booking brand', function () {
+    $user = brandGuardUser('bg-barber-booking', 'barber');
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/booksy/connect', ['url' => 'https://booksy.com/en-gb/x'])
+        ->assertSuccessful();
+});
+
+it('leaves social brands ungated by any capability', function () {
+    // github is routing_class social — no capability applies, so a partna
+    // account with no sector must still be able to connect it.
+    $user = User::create([
+        'handle' => 'bg-social', 'handle_lc' => 'bg-social', 'display_name' => 'S',
+        'first_name' => 'S', 'account_type' => 'partna', 'sector' => null,
+        'auth_user_id' => (string) Str::uuid(), 'primary_email' => 'bg-social@example.com',
+    ]);
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/github/connect', ['url' => 'https://github.com/someone'])
+        ->assertSuccessful();
+});

@@ -662,6 +662,13 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                     continue;
                 }
 
+                // Most of these were detect-only cards and carry no Resource,
+                // which connectBrand() needs to shape its response. Only fill the
+                // gap — never overwrite one a hand-written descriptor already set.
+                if ($descriptor->resourceClass() === null) {
+                    $descriptor->resource(LinkConnectionResource::class);
+                }
+
                 $descriptor
                     ->surfaceKey($spec['surface'])
                     ->connect(

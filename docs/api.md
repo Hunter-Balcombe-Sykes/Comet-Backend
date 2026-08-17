@@ -970,6 +970,46 @@ HTTP 423 Locked
 - `pool` = every action currently available (score = stored blended score or null); `rankedActions` = what the sitepage lander currently serves (override-applied). Writes go through `PATCH /api/site` settings.
 - The public profile payload (`GET /api/public/profiles/{handle}`) carries the same data as top-level `rankedActions` (ordered, lander renders top 6) + `ordering`; its `pageOrder` reflects `manual_page_order` when `smart_page_order` is false.
 
+### Per-brand platform routes (uniformity Phase B, 2026-08-17)
+
+Every connectable, URL-detected catalog brand now carries the same four-endpoint
+contract, so the dashboard can render one row per connection and disconnect any
+row without special-casing. 67 brands take this shape.
+
+- `POST /api/platforms/{slug}/connect` — body `{ "url": "<the brand's own URL>" }`.
+  `200` on success, `422` if the URL belongs to a **different** brand (the message
+  names the brand it actually belongs to, e.g. posting a DoorDash link to
+  `/platforms/menulog/connect`), `422` if unrecognised entirely, `403` if the
+  account's capabilities do not cover the brand's routing class.
+- `GET /api/platforms/{slug}/selection` — the current selection, or `null`.
+- `DELETE /api/platforms/{slug}` — disconnects **this brand only**.
+- `GET /api/platforms/{slug}/accounts` and `DELETE .../accounts/{id}` — only where
+  the brand's catalog surface permits more than one store.
+
+**The slug is the brand key** (`menulog`, `booksy`, `doordash`), derived from the
+catalog via `LegacyPlatformMap::legacyFor()`. It matches the generated
+`platform` column, so a row written through `/platforms/menulog/connect` reads
+back as `platform = "menulog"` under `surface_key = "menulog.order"`.
+
+**Capability gating** follows the surface's routing class: ordering ⇒
+`can_use_online_ordering`, booking ⇒ `can_use_booking`, reservations ⇒
+`can_use_reservations`. Social, content and events brands are ungated.
+
+**The family-wide endpoints are unchanged and remain supported.** `DELETE
+/api/platforms/online-ordering`, `/booking` and `/reservations` still remove
+**every** connection of that class — that is a different operation from the
+per-brand `DELETE`, not a legacy alias for it. `POST /api/platforms/online-ordering/entries`
+still classifies a pasted URL and now lands on the same row the per-brand
+connect would.
+
+**Not covered by this shape:** storefront brands (Shopify, WooCommerce,
+Squarespace, Big Cartel) connect through the commerce probe and `ShopController`;
+Instagram, Apple Music/Podcasts, Eventbrite, Humanitix, Fresha, Square and
+Google Business keep their own bespoke connect flows.
+
+**Roster feed:** `GET /api/catalog/surfaces` lists every brand the picker may
+show. Its `isConnectable` flag now means exactly "has connect routes".
+
 ### Platform connect — booking XOR (Fresha / Square)
 
 Fresha and Square are mutually exclusive booking providers — only one may be connected at a time, enforced by a shared per-user lock (U1, 2026-07-25) covering both connect endpoints plus `BookingController`, `DELETE /api/platforms/fresha`, and the Google/Instagram "Change to" auto-sync actions.
