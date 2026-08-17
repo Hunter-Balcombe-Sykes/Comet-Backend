@@ -270,19 +270,33 @@ it('skool connect stores the normalized community link, not a scraped card', fun
         ->assertStatus(422);
 });
 
-// ── Removed link-only platforms (Ticketek / Timely) ──────────────────────────
-// Dropped in v3: neither could graduate past a bare URL (Ticketek's WAF blocks
-// automated reads; Timely booking pages are empty JS shells). The routes are
-// gone entirely. (Square was later re-added as a "Book now" link — see
-// SquareConnectionTest — so it is intentionally absent from this removed list.)
+// ── Ticketek / Timely: removed in v3, restored as link-only in Phase B ───────
+// v3 dropped both because neither could graduate past a bare URL — Ticketek's
+// WAF blocks automated reads, Timely booking pages are empty JS shells — and at
+// the time "cannot be scraped" meant "cannot be a platform".
+//
+// Owner ruling 1 (2026-08-17) severs those: a brand is a SOURCE iff a Connector
+// exists, and every other brand is link-only — connectable, disconnectable,
+// listed and routed, sourcing nothing. A bare URL is no longer a reason to drop
+// a brand; it is the definition of the link-only class. So both route again, and
+// the 404 this test used to assert is now a 422 from the brand-match guard.
+// (Square was re-added as a "Book now" link in v3 — see SquareConnectionTest.)
 
-it('no longer routes the removed link-only platforms', function () {
+it('routes ticketek and timely as link-only brands, rejecting a foreign url', function () {
     $user = iv2User('lk1');
 
     foreach (['ticketek', 'timely'] as $platform) {
         actingAsUser($user)->postJson("/api/platforms/{$platform}/connect", ['url' => 'https://example.com'])
-            ->assertNotFound();
+            ->assertStatus(422);
     }
+});
+
+it('accepts each brand its own url', function () {
+    $user = iv2User('lk2');
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/ticketek/connect', ['url' => 'https://premier.ticketek.com.au/shows/x'])
+        ->assertSuccessful();
 });
 
 // ── Auth gates on the new routes ─────────────────────────────────────────────
