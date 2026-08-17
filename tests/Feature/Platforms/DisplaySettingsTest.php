@@ -163,9 +163,26 @@ it('rejects unknown toggle keys and untoggleable platforms', function () {
         ])
         ->assertStatus(422);
 
+    // spotify gained auto_sync_latest on 2026-08-18 (it sources tracks into
+    // the listen pool); a platform with genuinely no toggles is the fixture.
     actingAsUser($pro)
-        ->getJson('/api/platforms/spotify/display-settings')
+        ->getJson('/api/platforms/x/display-settings')
         ->assertStatus(404);
+});
+
+it('reports a toggle ON when ANY live account of the platform has it on, matching AutoSyncSetting::isOn (W2)', function () {
+    $pro = createTenant('toggles-multi');
+    displaySeedConnection($pro->id, ['name' => 'Cafe']);
+    // Two youtube accounts: one explicitly off, one absent (= on).
+    displaySeedConnection($pro->id, ['handle' => 'c0'], 'youtube', ['auto_sync_latest' => false]);
+    displaySeedConnection($pro->id, ['handle' => 'c1'], 'youtube', null);
+    actingAsUser($pro)->getJson('/api/platforms/youtube/display-settings')
+        ->assertOk()->assertJsonPath('toggles.0.enabled', true);
+    // Now both off → OFF.
+    DB::table('site.platform_connections')->where('user_id', $pro->id)->where('surface_key', 'youtube.channel')
+        ->update(['display_settings' => json_encode(['auto_sync_latest' => false])]);
+    actingAsUser($pro)->getJson('/api/platforms/youtube/display-settings')
+        ->assertOk()->assertJsonPath('toggles.0.enabled', false);
 });
 
 it('suppresses toggled-off sections from the public integrations payload', function () {

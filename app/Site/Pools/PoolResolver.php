@@ -203,14 +203,33 @@ class PoolResolver
             }
         }
 
-        $libraryIds = DB::connection('pgsql')->table('content.items')
+        $libraryQuery = DB::connection('pgsql')->table('content.items')
             ->where('user_id', $site->user_id)
             ->whereIn('kind', PoolRegistry::kinds($pool))
-            ->whereNull('removed_at')
+            ->whereNull('removed_at');
+        // Disconnect = hide (W2): the library lists only items with a live
+        // source (manual, or a present + active connection).
+        LiveSourceScope::apply($libraryQuery);
+        $libraryIds = $libraryQuery
             ->orderByDesc('last_seen_at')
             ->limit(self::LIBRARY_LIMIT)
             ->pluck('id')
             ->all();
+
+        // Pins from a removed connection hide too — the pin row stays (a
+        // reconnect brings it back), but it does not publish.
+        if ($pinned !== []) {
+            $livePinsQuery = DB::connection('pgsql')->table('content.items')->whereIn('id', $pinned);
+            LiveSourceScope::apply($livePinsQuery);
+            $livePinned = $livePinsQuery->pluck('id')->flip()->all();
+            $pinned = array_values(array_filter($pinned, fn ($id) => isset($livePinned[$id])));
+            $selectionIds = [];
+            foreach ([...$pinned, ...$ruleIds] as $itemId) {
+                if (! isset($excluded[$itemId])) {
+                    $selectionIds[] = $itemId;
+                }
+            }
+        }
 
         // Tuple, not a private property: collectionsFor() needs the store rows
         // itemPayloads() already fetched, and stashing them on $this would make

@@ -33,6 +33,19 @@ function borrowedFixtureItem(string $userId, ?string $sourceKey): string
     $connectionId = $sourceKey === null ? null : (string) Str::uuid();
 
     if ($sourceKey !== null) {
+        // The connection row itself: since W2 (disconnect = hide) a pool only
+        // publishes items whose source connection is present and active.
+        DB::table('site.platform_connections')->insert([
+            'id' => $connectionId,
+            'user_id' => $userId,
+            'surface_key' => $sourceKey === 'google_business' ? 'google_business.location' : $sourceKey.'.profile',
+            'routing_class' => 'content',
+            'resource_id' => 'res-'.Str::random(6),
+            'payload' => json_encode([]),
+            'is_active' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         DB::table('ingest.sources')->insert([
             'id' => (string) Str::uuid(),
             'user_id' => $userId,

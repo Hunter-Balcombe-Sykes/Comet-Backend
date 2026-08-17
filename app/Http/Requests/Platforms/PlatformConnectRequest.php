@@ -62,13 +62,12 @@ class PlatformConnectRequest extends FormRequest
         }
 
         // A bare handle ("torvalds", "yourpub") is expanded through the
-        // surface's canonical template before the host check, and the
-        // expanded URL is merged back so the controller stores it (F12).
-        $expanded = BrandLinkConnect::normaliseInput($descriptor->getSurfaceKey(), $url);
-        if ($expanded !== $url) {
-            $this->merge([$descriptor->connectField() => $expanded]);
-            $url = $expanded;
-        }
+        // surface's canonical template before the host check (F12). Only the
+        // CHECK uses the expansion here: validated() snapshots the input
+        // before after() runs, so a merge() would not reach the controller —
+        // BrandLinkConnect::resolve() re-runs normaliseInput() on the raw
+        // value and stores the expanded URL itself.
+        $url = BrandLinkConnect::normaliseInput($descriptor->getSurfaceKey(), $url);
 
         $classified = app(WebsiteLinkHarvester::class)->classify($url);
 

@@ -112,8 +112,19 @@ class PoolRegistry
         // watch/listen rolling-latest semantics: one item per connection
         // source, which for media means one Google photo visible and nine
         // hidden (slice 1a §1.3 — the same pathology events hit in slice 2).
+        //
+        // MEDIA LEFT THIS SET 2026-08-18 (owner ruling R5, overnight run):
+        // a connected Instagram or Google listing used to publish EVERY photo
+        // (kind_is). Media is now opt-in like shop — pins, plus each source's
+        // N newest (config partna.pools.auto_latest_n, default 5) while that
+        // source's auto_sync_latest / photos toggles are on. Sync fills the
+        // LIBRARY; the owner picks; the N newest keep the page alive on day
+        // one. Existing sections are reshaped by content:reshape-pool-sections.
         'media' => [
-            'rule' => [['op' => 'kind_is']],
+            'rule' => [
+                ['op' => 'kind_is'],
+                ['op' => 'latest_n_per_auto_source'],
+            ],
             'order_by' => 'recency',
         ],
         // Priced, undated. Services (3a) and shop (5b) reconciled on ONE shape
