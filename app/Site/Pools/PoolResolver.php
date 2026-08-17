@@ -437,13 +437,20 @@ class PoolResolver
             $ranks = $this->popularityRanks($site);
         }
 
-        // Headline overrides: the user's edit beats every cache.
-        $overrides = DB::connection('pgsql')->table('content.manual_overrides')
+        // Manual overrides: the user's edit beats every cache. ONE read for
+        // every (facet, column) — this was headline-only until 2026-08-18,
+        // which meant every OTHER override the dashboard's item sheets wrote
+        // (description, duration, venue, dates, URL…) saved a row the wire
+        // silently never applied.
+        $overrideRows = DB::connection('pgsql')->table('content.manual_overrides')
             ->whereIn('item_id', $ids)
-            ->where('facet', 'f_text')
-            ->where('column_name', 'headline')
-            ->pluck('value', 'item_id')
-            ->map(fn ($v) => is_string($v) ? json_decode($v, true) : $v);
+            ->get(['item_id', 'facet', 'column_name', 'value']);
+        $overridesByKey = [];
+        foreach ($overrideRows as $row) {
+            $value = is_string($row->value) ? json_decode($row->value, true) : $row->value;
+            $overridesByKey[$row->facet.'.'.$row->column_name][(string) $row->item_id] = $value;
+        }
+        $overrides = collect($overridesByKey['f_text.headline'] ?? []);
 
         // Source links, each carrying its connection's platform key. Ordered
         // by source priority so ->first() per item IS the primary source.
@@ -647,6 +654,15 @@ class PoolResolver
                 )
                 : ($primary['url'] ?? null);
 
+            // The item's own override for one (facet, column) — a scalar, or
+            // $fallback when none is stored. Null stored IS a value (an
+            // explicit clear), matching the override endpoint's contract.
+            $ov = function (string $key, mixed $fallback) use ($overridesByKey, $itemId): mixed {
+                return array_key_exists((string) $itemId, $overridesByKey[$key] ?? [])
+                    ? $overridesByKey[$key][(string) $itemId]
+                    : $fallback;
+            };
+
             $out[$itemId] = [
                 'id' => (string) $itemId,
                 'kind' => $item->kind,
@@ -656,12 +672,16 @@ class PoolResolver
                     ? $overrideHeadline
                     : $item->headline_cache,
                 'headlineEdited' => is_string($overrideHeadline) && $overrideHeadline !== '',
-                'url' => $outboundUrl,
+                'url' => $ov('f_link.url', $outboundUrl),
                 'platform' => $primary['platform'] ?? null,
-                'creator' => $creators[$itemId]->creator ?? $channels[$itemId]->handle ?? null,
-                'publishedAt' => $published[$itemId] ?? null,
+                'creator' => $ov('f_authored.creator', $creators[$itemId]->creator ?? $channels[$itemId]->handle ?? null),
+                'publishedAt' => $ov('f_published.published_from', $published[$itemId] ?? null),
                 'firstSeenAt' => $item->first_seen_at,
-                'durationSeconds' => isset($durations[$itemId]) ? (int) $durations[$itemId] : null,
+                'durationSeconds' => (function () use ($ov, $durations, $itemId): ?int {
+                    $v = $ov('f_duration.seconds', isset($durations[$itemId]) ? (int) $durations[$itemId] : null);
+
+                    return is_numeric($v) ? (int) $v : null;
+                })(),
                 'thumbnail' => $this->cover($covers->get($itemId, collect()), $resolvedUrls),
                 // The site's icon, for link cards (2026-08-17). Null on
                 // every kind that carries no logo-role media — same
@@ -682,11 +702,11 @@ class PoolResolver
                 // and null off events, so the wire shape does not change with
                 // kind — same contract durationSeconds already has.
                 'startsAt' => $occursAt[$itemId] ?? null,
-                'startsAtLocal' => $occurrenceDetail[$itemId]->starts_at_local ?? null,
-                'endsAtLocal' => $occurrenceDetail[$itemId]->ends_at_local ?? null,
-                'timezone' => $occurrenceDetail[$itemId]->timezone ?? null,
-                'venue' => $places[$itemId]->venue_name ?? null,
-                'locality' => $places[$itemId]->locality ?? null,
+                'startsAtLocal' => $ov('f_occurrence.starts_at_local', $occurrenceDetail[$itemId]->starts_at_local ?? null),
+                'endsAtLocal' => $ov('f_occurrence.ends_at_local', $occurrenceDetail[$itemId]->ends_at_local ?? null),
+                'timezone' => $ov('f_occurrence.timezone', $occurrenceDetail[$itemId]->timezone ?? null),
+                'venue' => $ov('f_place.venue_name', $places[$itemId]->venue_name ?? null),
+                'locality' => $ov('f_place.locality', $places[$itemId]->locality ?? null),
                 'price' => isset($offers[$itemId]) ? [
                     'amountMinor' => $offers[$itemId]->amount_minor === null ? null : (int) $offers[$itemId]->amount_minor,
                     'amountMaxMinor' => $offers[$itemId]->amount_max_minor === null ? null : (int) $offers[$itemId]->amount_max_minor,
@@ -704,7 +724,7 @@ class PoolResolver
                 // Additive and nullable on EVERY item, never a kind-shaped
                 // sub-object — the same contract startsAt / venue / price
                 // already follow, so the wire shape does not vary with kind.
-                'description' => $texts[$itemId]->body ?? null,
+                'description' => $ov('f_text.body', $texts[$itemId]->body ?? null),
                 'vendor' => $catalog[$itemId]->vendor ?? null,
                 'variants' => $this->variants(
                     $variantsByItem->get($itemId, collect()),
