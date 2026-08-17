@@ -55,6 +55,30 @@ it('auto-selects exactly the newest item per auto source, rolling', function () 
     expect($old)->toBeString();
 });
 
+it('still auto-selects the newest item when another tenant holds the same video at the same timestamp (F1 tie-break precedence)', function () {
+    // Overnight 2026-08-18 F1: the tie-break in latest_per_auto_source was
+    // `A > B OR (A = B AND id > id)` without outer parentheses, so the OR
+    // escaped the same-source / not-removed / kind filters. Any row in the
+    // table with an equal timestamp and a greater id — another user's copy
+    // of the same YouTube video — made every candidate lose and the pool
+    // auto-selected nothing. Two tenants, same publish instant, ids ordered
+    // so the OTHER tenant's copy sorts higher.
+    [$pro] = poolTenant();
+    [$other] = poolTenant();
+    $when = now()->subDay()->toDateTimeString();
+
+    $mine = poolItem($pro->id, poolSource($pro->id, poolConnection($pro->id)), 'video', 'Shared video', $when);
+    $theirs = poolItem($other->id, poolSource($other->id, poolConnection($other->id)), 'video', 'Shared video', $when);
+    // Force the other tenant's item id to sort AFTER mine regardless of uuid luck.
+    DB::table('content.items')->where('id', $theirs)->update(['id' => 'ffffffff-ffff-4fff-8fff-ffffffffffff']);
+    DB::table('content.source_items')->where('item_id', $theirs)->update(['item_id' => 'ffffffff-ffff-4fff-8fff-ffffffffffff']);
+    DB::table('content.f_published')->where('item_id', $theirs)->update(['item_id' => 'ffffffff-ffff-4fff-8fff-ffffffffffff']);
+
+    $data = poolGet($pro);
+    expect(poolHeadlines($data))->toBe(['Shared video']);
+    expect($data['latestItemId'])->toBe($mine);
+});
+
 it('auto-selects nothing from a source whose auto_sync_latest is off', function () {
     [$pro] = poolTenant();
     $offSource = poolSource($pro->id, poolConnection($pro->id, 'youtube.channel', ['auto_sync_latest' => false]));

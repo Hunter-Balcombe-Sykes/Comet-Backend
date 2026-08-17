@@ -29,7 +29,7 @@ class ResetTestUserCommand extends Command
     private const USER_TABLES = [
         'routing.import_runs', 'routing.item_tombstones', 'routing.link_observations', 'routing.source_intents',
         'content.item_merges', 'content.identity_decisions', 'content.item_anchors', 'content.item_slugs',
-        'content.storefronts', 'content.collections', 'content.items', 'content.media_assets',
+        'content.storefronts', 'content.collections', 'content.items', 'content.sources', 'content.media_assets',
         'site.item_slugs', 'site.menus',
     ];
 
