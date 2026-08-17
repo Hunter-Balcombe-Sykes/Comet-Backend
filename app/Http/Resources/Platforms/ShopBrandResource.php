@@ -37,6 +37,9 @@ class ShopBrandResource extends ApiResource
             'logo' => $this->resource['logo'] ?? null,
             'discountCode' => $this->resource['discountCode'] ?? '',
             'selectionMode' => $this->resource['selectionMode'] ?? 'manual',
+            // Per-store auto-latest (2026-08-17, Sell opt-in): whether this
+            // store's newest product publishes automatically.
+            'autoLatest' => (bool) ($this->resource['autoLatest'] ?? true),
             'linkMode' => $this->resource['linkMode'] ?? 'product',
             'referralQuery' => $this->resource['referralQuery'] ?? '',
             // Reserved bucket of individually-added products (no parent store);

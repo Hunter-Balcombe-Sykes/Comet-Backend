@@ -21,6 +21,11 @@ class UpdateShopBrandRequest extends FormRequest
             // settings-only updates.
             'discountCode' => ['sometimes', 'nullable', 'string', 'max:100'],
             'selectionMode' => ['sometimes', 'string', 'in:manual,latest'],
+            // Per-store auto-latest (2026-08-17, Sell opt-in): whether THIS
+            // store's newest product publishes automatically. Distinct from
+            // the site-wide /shop/settings autoLatest, which writes every
+            // store at once.
+            'autoLatest' => ['sometimes', 'boolean'],
             'linkMode' => ['sometimes', 'string', 'in:product,checkout'],
             // Full URL or bare query — the controller parses out the query
             // suffix; empty/null clears the stored referral.
