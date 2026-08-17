@@ -8,7 +8,8 @@ use Illuminate\Http\Request;
 /**
  * @mixin Service
  */
-// V2: API resource for site.services rows. Explicit allowlist — future columns
+// V2: API resource for the Service DTO (content.*-hydrated since the services
+// cutover; site.services rows before it). Explicit allowlist — future columns
 // (e.g. internal_cost_cents, deleted_origin) don't auto-ship to dashboard/staff.
 class ServiceResource extends ApiResource
 {

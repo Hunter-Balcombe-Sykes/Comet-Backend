@@ -113,7 +113,7 @@ it('422s two category_ids rather than silently storing one', function () {
 
     // Refused, not partially applied.
     $service->refresh();
-    expect($service->categories()->pluck('site.service_categories.id')->all())->toBe([]);
+    expect(DB::table('site.service_category_assignments')->where('service_id', $service->id)->count())->toBe(0);
 });
 
 it('still accepts a single-element category_ids', function () {
@@ -178,8 +178,7 @@ it('rejects re-filing a service owned by another professional (404, no existence
     // ServicePolicy::update denies a non-owner via denyAsNotFound() → 404.
     $response->assertNotFound();
 
-    $service->refresh();
-    expect($service->categories()->count())->toBe(0);
+    expect(DB::table('site.service_category_assignments')->where('service_id', $service->id)->count())->toBe(0);
 });
 
 it('rejects category assignment on an owner-authored (manual) service (404)', function () {
@@ -198,8 +197,7 @@ it('rejects category assignment on an owner-authored (manual) service (404)', fu
 
     $response->assertNotFound();
 
-    $service->refresh();
-    expect($service->categories()->count())->toBe(0);
+    expect(DB::table('site.service_category_assignments')->where('service_id', $service->id)->count())->toBe(0);
 });
 
 it('does not move the service in the owner\'s order when it is re-filed', function () {
@@ -240,6 +238,6 @@ it('rejects re-filing a legacy site.services id (services cutover, ruling 1)', f
 
     $legacy->refresh();
     expect($legacy->sort_order)->toBe(0);
-    expect($legacy->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())
-        ->toBe([(string) $catA->id]);
+    expect(DB::table('site.service_category_assignments')->where('service_id', $legacy->id)
+        ->pluck('service_category_id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catA->id]);
 });

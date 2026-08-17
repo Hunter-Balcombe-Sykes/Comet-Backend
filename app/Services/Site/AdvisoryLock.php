@@ -24,11 +24,10 @@ use Illuminate\Support\Facades\DB;
  * feedback, claim-invite, pre_account_build_ip) still calls DB::select(...)
  * directly and is deliberately untouched here. service-layout:{user_id} was
  * one such site until Fix C (whole-branch review pt.2, 2026-07-25) moved its
- * three sort_order-renumbering writers onto the services:{user_id} key below
- * — the two remaining service-layout:{user_id} sites (UserServiceCategoryController::
- * destroy, StaffServiceCategoryManagementController::destroy) only delete
- * category-assignment rows, never site.services.sort_order, so they stay on
- * the untouched, unbounded raw DB::select(...) path.
+ * three sort_order-renumbering writers onto the services:{user_id} key below.
+ * The services cutover retired the last two service-layout:{user_id} sites with
+ * the category-assignment deletes they guarded, so nothing in the service lane
+ * takes that key any more.
  *
  * SQLite (the test driver — see tests/TestCase.php's connection swap) has
  * neither SET LOCAL nor pg_advisory_xact_lock/hashtext; Pest registers those

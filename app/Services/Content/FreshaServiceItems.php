@@ -30,7 +30,8 @@ use Illuminate\Support\Facades\DB;
  *
  * `FreshaSelectionResource::services()` is the sole consumer: the stored
  * selection blob's `services[]` shape, reproduced from the pool instead of
- * the legacy `site.services` projection.
+ * the legacy `site.services` projection — and, since the services cutover,
+ * the management surfaces too (findRow/managementRows/toServiceModels).
  */
 class FreshaServiceItems
 {

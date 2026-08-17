@@ -14,7 +14,6 @@ use App\Http\Resources\ServiceCategoryResource;
 use App\Http\Resources\ServiceResource;
 use App\Models\Content\ManualOverride;
 use App\Models\Core\User\Service;
-use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
 use App\Services\Content\FreshaServiceItems;
@@ -191,19 +190,19 @@ class UserServiceController extends ApiController
         // for wire-compat (a foreign category id still 422s), but the id is
         // then dropped.
         //
-        // CARRY FORWARD (Task 10 → whoever owns the create path next): the
-        // reason this was safe has changed. It used to be that
-        // ServicePolicy::updateCategory() blocked assignment outright, so
-        // accepting one only at creation would have been a one-way door;
-        // Task 10 opened assignment, so a create + immediate PATCH now
-        // reaches a state a create alone cannot. Wiring it here is NOT a
-        // one-liner: this validates against site.service_categories while
-        // updateCategory's content path validates against
-        // content.collections, and which id space the create endpoint
-        // accepts is Task 9's call, not this task's.
+        // The carried-forward question — which id space this endpoint accepts —
+        // is answered by the services cutover: there is one, content.collections,
+        // so the check goes through ServiceCollections like every other verb.
+        // The staff twin's store() has validated that way since 3b. Persisting
+        // the membership here remains a separate decision: a create + immediate
+        // PATCH reaches a state a create alone cannot, and closing that gap is
+        // the create path's own call, not the cutover's.
+        $collections = app(ServiceCollections::class);
         $categoryIds = $this->requestedCategoryIds($data);
         foreach ($categoryIds as $categoryId) {
-            $this->assertCategoryBelongsToProfessional($pro->id, $categoryId);
+            if ($collections->find($pro->id, $categoryId) === null) {
+                abort(422, 'Category is invalid.');
+            }
         }
 
         $site = $this->currentSite($pro);
@@ -1115,23 +1114,6 @@ class UserServiceController extends ApiController
 
         if ($provided !== $expected) {
             abort(422, 'Layout payload must include all category IDs (use one block with id=null for uncategorised).');
-        }
-    }
-
-    private function assertCategoryBelongsToProfessional(string $userId, ?string $categoryId): void
-    {
-        if ($categoryId === null) {
-            return;
-        }
-
-        $ok = ServiceCategory::query()
-            ->where('id', $categoryId)
-            ->where('user_id', $userId)
-            ->whereNull('deleted_at')
-            ->exists();
-
-        if (! $ok) {
-            abort(422, 'Category is invalid.');
         }
     }
 

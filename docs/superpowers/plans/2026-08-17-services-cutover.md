@@ -1800,7 +1800,7 @@ git add -A && git commit -m "feat(services-cutover): forget() maps disconnect on
 - Delete: `app/Observers/Core/ServiceObserver.php`, `app/Observers/Core/ServiceCategoryObserver.php`
 - Create: `tests/Feature/Architecture/LegacyServiceQuerySurfaceTest.php`
 
-- [ ] **Step 1: Write the failing guard test**
+- [x] **Step 1: Write the failing guard test**
 
 ```php
 <?php
@@ -1831,9 +1831,9 @@ it('no code queries the Service or ServiceCategory models', function () {
 });
 ```
 
-- [ ] **Step 2: Run it** — after Tasks 3–9 it should already pass; if it lists offenders, those are cutover stragglers: fix each (they are bugs in the earlier tasks, not exceptions to grant).
+- [x] **Step 2: Run it** — after Tasks 3–9 it should already pass; if it lists offenders, those are cutover stragglers: fix each (they are bugs in the earlier tasks, not exceptions to grant).
 
-- [ ] **Step 3: Slim the models.** In `Service.php`: replace the class docblock's table description with:
+- [x] **Step 3: Slim the models.** In `Service.php`: replace the class docblock's table description with:
 
 ```php
 // Services cutover (2026-08): site.services is DROPPED. This class survives
@@ -1844,11 +1844,11 @@ it('no code queries the Service or ServiceCategory models', function () {
 
 Delete the `categories()` belongsToMany relation (its pivot is dropped; every consumer reads the pre-set relation from `hydrate()`), any query scopes, and the `SoftDeletes` trait if nothing reads `trashed()` on a DTO instance (grep first: `grep -rn "->trashed()" app/ | grep -i service`). Same treatment for `ServiceCategory.php` (its `services()` relation, scopes). Keep `$fillable`/`$casts` — `fill()` is still used on DTO construction paths.
 
-- [ ] **Step 4: Retire the observers.** Delete the two `::observe` lines and imports from `EventServiceProvider`, then the two observer files. Their duties are already carried caller-side (both controllers' `invalidate()`/`reevaluateVisibility()` — the mirrors the observers' own docblocks name); no model-layer write path remains after Tasks 3–9. Grep `tests/` for `ServiceObserver|ServiceCategoryObserver` and delete/adjust direct-reference cases.
+- [x] **Step 4: Retire the observers.** Delete the two `::observe` lines and imports from `EventServiceProvider`, then the two observer files. Their duties are already carried caller-side (both controllers' `invalidate()`/`reevaluateVisibility()` — the mirrors the observers' own docblocks name); no model-layer write path remains after Tasks 3–9. Grep `tests/` for `ServiceObserver|ServiceCategoryObserver` and delete/adjust direct-reference cases.
 
-- [ ] **Step 5: Docblock sweep.** Update the stale `site.services` references left in: `ServicePolicy.php` (the two-store resolution notes — now one store), `ServiceResource.php`, `ManualServiceItems.php` (exportRows'/§C2 notes stay historical — annotate "dropped 2026-08" where they say "until slice 7 drops"), `ManualServiceWriter.php`, `ManualPoolWriter.php`, `AdvisoryLock.php`, `FreshaFetch.php`, `UserServiceCategoryController.php`, `Service.php`/`ServiceCategory.php` `@property` blocks. Comment-only — no behaviour.
+- [x] **Step 5: Docblock sweep.** Update the stale `site.services` references left in: `ServicePolicy.php` (the two-store resolution notes — now one store), `ServiceResource.php`, `ManualServiceItems.php` (exportRows'/§C2 notes stay historical — annotate "dropped 2026-08" where they say "until slice 7 drops"), `ManualServiceWriter.php`, `ManualPoolWriter.php`, `AdvisoryLock.php`, `FreshaFetch.php`, `UserServiceCategoryController.php`, `Service.php`/`ServiceCategory.php` `@property` blocks. Comment-only — no behaviour.
 
-- [ ] **Step 6: Full suite + statics**
+- [x] **Step 6: Full suite + statics**
 
 ```bash
 COMPOSER_PROCESS_TIMEOUT=0 ./vendor/bin/pest --parallel
@@ -1857,11 +1857,34 @@ php -d memory_limit=1G ./vendor/bin/phpstan analyse app tests --no-progress --de
 ./vendor/bin/pint --dirty
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A && git commit -m "feat(services-cutover): Service/ServiceCategory become DTOs, observers retired, query-surface guard added"
 ```
+
+**Reality corrections applied (rule zero, 2026-08-17):**
+
+1. **The guard test found a real straggler on its first run**, exactly as Step 2
+   anticipated: `UserServiceController::store()` validated `category_ids`
+   against `site.service_categories` (`assertCategoryBelongsToProfessional()`).
+   It now validates through `ServiceCollections`, which also answers the
+   CARRY-FORWARD note in that method — "which id space the create endpoint
+   accepts" — the only way the cutover leaves open. Persisting the membership
+   at creation stays a separate decision.
+2. **`SoftDeletes` and `$table` STAY on both models** until Task 12. The legacy
+   fixtures that still seed `site.services` soft-delete through the model
+   (`ServiceRestoreSortOrderTest`, `ServiceCategoryAssignmentTest` and others),
+   so removing the trait now would break tests whose whole subject is that the
+   legacy rows are left untouched. Both go with the table.
+3. **PHPStan's real gate is `composer analyse`, not `analyse app tests`.**
+   `phpstan.neon` sets `paths: app` with a baseline; pointing it at `tests` as
+   well reports 1000+ pre-existing Pest-idiom findings and says nothing about
+   this branch. `composer analyse` is [OK] No errors.
+4. **Deleting the observers emptied `tests/Feature/Core/`**, which
+   `scripts/audit/audit.sh`'s `codebase_chunks()` referenced — caught by
+   `AuditPipelineIntegrityTest`'s dead-path guard. The scope map is updated,
+   as that guard's own message instructs.
 
 ---
 

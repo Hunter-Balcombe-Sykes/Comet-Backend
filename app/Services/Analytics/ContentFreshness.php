@@ -18,7 +18,8 @@ use Illuminate\Support\Facades\DB;
  * age comes from the owning row's created_at — the only grains with a STABLE
  * per-entity created_at (recon 2026-07-10):
  *   - page      : newest ACTIVE platform connection mapping to the page
- *                 (PLATFORM_TO_PAGE), plus native site.services rows → 'services'.
+ *                 (PLATFORM_TO_PAGE), plus live service content items
+ *                 (content.items kind='service', either source) → 'services'.
  *                 Disconnect→reconnect resets created_at, which reads as
  *                 "re-added = fresh again" — acceptable semantics.
  *   - link_item : each custom link is its own connection row; payload.url is

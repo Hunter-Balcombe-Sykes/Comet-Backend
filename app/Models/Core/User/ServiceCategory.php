@@ -5,7 +5,6 @@ namespace App\Models\Core\User;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -19,7 +18,14 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $deleted_at
  * @property string|null $source
  */
-// V2: Sortable grouping for a professional's services. Auto-ordered by sort_order then created_at via a global scope.
+// Services cutover (2026-08): site.service_categories is DROPPED. Like
+// Service, this class survives ONLY as the in-memory shape
+// ServiceCategoryResource maps — unsaved instances built by the hydrators from
+// content.collections rows (id + title are the only fields they set). NEVER
+// query it: LegacyServiceQuerySurfaceTest pins that no code in app/ does. The
+// services() relation and the ordering global scope are gone with the pivot
+// and the table they addressed; $table and SoftDeletes stay only for the
+// legacy fixtures that live until the DROP unit.
 class ServiceCategory extends BaseModel
 {
     use HasUuids, SoftDeletes;
@@ -51,21 +57,5 @@ class ServiceCategory extends BaseModel
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
-    }
-
-    /** @return BelongsToMany<Service, $this> */
-    public function services(): BelongsToMany
-    {
-        return $this->belongsToMany(Service::class, 'site.service_category_assignments', 'service_category_id', 'service_id')
-            ->withTimestamps();
-    }
-
-    protected static function booted(): void
-    {
-        // Qualified columns: the multi-category pivot join (Service::categories)
-        // carries its own created_at, so the bare name is ambiguous there.
-        static::addGlobalScope('ordered', function ($q) {
-            $q->orderBy('site.service_categories.sort_order')->orderBy('site.service_categories.created_at');
-        });
     }
 }
