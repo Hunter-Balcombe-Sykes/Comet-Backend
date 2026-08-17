@@ -152,7 +152,7 @@ Ordered as the drop-phase session's §4d resolution sets out, which is the right
 shape: delete the redundant fallback FIRST, which makes the relation callerless,
 rather than migrating a branch that has no reason to exist.
 
-- [ ] **Step 1: Failing test** — no query naming `shop_products` on the read path.
+- [x] **Step 1: Failing test** — no query naming `shop_products` on the read path.
 
 ```php
 it('reads a brand payload without touching site.shop_products', function (): void {
@@ -168,12 +168,47 @@ it('reads a brand payload without touching site.shop_products', function (): voi
 });
 ```
 
-- [ ] **Step 2: Run it, confirm it fails** — `./vendor/bin/pest tests/Feature/Shop/ShopStoreReadLaneTest.php --filter="without touching"`. Expected: FAIL, the query list contains `shop_products`.
-- [ ] **Step 3: Delete the three `?? $brandRow->fresh('products')->toBrandArray()` fallbacks** at `ShopController:468, 580, 664`. `$this->contentReader->brandMap($user)[$id]` is the authoritative read and the controller's own comment at `:465-466` calls the legacy arm *"a theoretical read-your-own-write miss"*.
-- [ ] **Step 4: Replace the three `->with('products')` eager loads** at `:881, :895, :1291` with `brandMap()`, which already returns the full shape including products.
-- [ ] **Step 5: Delete the four `ShopProduct::...->delete()` calls** at `:772, 985, 1113, 1141`. Product teardown is `ShopContentWriter::retireStore()`/`syncStore()`'s job on `content.*` and has been since slice 5a.
-- [ ] **Step 6: Delete `ShopCatalog::syncLatest()`'s `loadMissing('products')`**, and then the now-callerless `ShopBrand::products()` (`:114-117`) and `::toBrandArray()` (`:171-175`). `productRanks` goes with them — `ShopContentReader::brandMap()` already takes `?array $productRanks`.
-- [ ] **Step 7: Run it, confirm it passes**, then `composer test` and commit. The `site.shop_products` DROP itself is Task 13, with `shop_brands`.
+- [x] **Step 2: Run it, confirm it fails** — `./vendor/bin/pest tests/Feature/Shop/ShopStoreReadLaneTest.php --filter="without touching"`. Expected: FAIL, the query list contains `shop_products`.
+- [x] **Step 3: Delete the three `?? $brandRow->fresh('products')->toBrandArray()` fallbacks** at `ShopController:468, 580, 664`. `$this->contentReader->brandMap($user)[$id]` is the authoritative read and the controller's own comment at `:465-466` calls the legacy arm *"a theoretical read-your-own-write miss"*.
+- [x] **Step 4: Replace the three `->with('products')` eager loads** at `:881, :895, :1291` with `brandMap()`, which already returns the full shape including products.
+- [x] **Step 5: Delete the four `ShopProduct::...->delete()` calls** at `:772, 985, 1113, 1141`. Product teardown is `ShopContentWriter::retireStore()`/`syncStore()`'s job on `content.*` and has been since slice 5a.
+- [x] **Step 6: Delete `ShopCatalog::syncLatest()`'s `loadMissing('products')`** and `ShopBrand::toBrandArray()` (`:171+`). `productRanks` goes with it — `ShopContentReader::brandMap()` already takes `?array $productRanks`.
+
+**PLAN CORRECTION (Task 1 Step 3) — `ShopBrand::products()` does NOT die here.**
+The plan calls it "now-callerless" after Steps 3-5. It is not. Two callers
+survive, and only one of them is removable in this task:
+
+- `ShopFetch:66` eager-loads `->with(['connection', 'products'])` — its own
+  comment says the relation is there solely to feed `toBrandArray()` through
+  `syncLatest()`. Once `toBrandArray()` is gone this eager load is pointless,
+  so it drops to `->with('connection')` **in this task**.
+- `ShopBackfiller::run()` (`:56`, `:73`, `:81`) genuinely **reads** the rows —
+  it IS the legacy→`content.*` migration, and `BackfillShopContentCommand`
+  wraps it. It cannot lose the relation while the table exists.
+
+So `products()`, the `ShopProduct` model, `ShopBackfiller` and
+`BackfillShopContentCommand` all die together at **Task 13**, with the DROP —
+the class is dead code the moment its source tables are gone. Task 13 Step 5's
+deletion list is amended accordingly.
+
+**PLAN GAP — Step 6 does not say what replaces `syncLatest()`'s `toBrandArray()`.**
+`ShopCatalog::syncLatest()` calls `providerProducts($brand->toBrandArray())`, so
+deleting the method forces a replacement the plan never names. Resolved here by
+building the dispatch array from `toStoreRecord()` plus a **read-only**
+`content.*` catalogue lookup (`collectionIdFor()`, which never mints a row),
+populated only for `fetchMode === 'client'` — the one branch of
+`providerProducts()` that reads `$brand['products']` (`ShopCatalog:59`). Two
+consequences worth stating:
+
+- Non-client providers issue **no** extra query; the lookup is lazy.
+- The client-mode fallback gets **better**, not merely different. It used to
+  read `site.shop_products`, which nothing has written since slice 5a, so it was
+  already serving a frozen list. It now reads the live `content.*` catalogue.
+- The `providerProducts()` call keeps its position **before** `storeCollectionId()`,
+  so a failed fetch still writes nothing. `collectionIdFor()` is read-only
+  precisely so this ordering survives.
+
+- [x] **Step 7: Run it, confirm it passes**, then `composer test` and commit. The `site.shop_products` DROP itself is Task 13, with `shop_brands`.
 
 ---
 
@@ -641,6 +676,21 @@ Expected: zero hits outside the two model files about to be deleted. A green sui
 
 - [ ] **Step 4: Write the DROP migration**, `db push --dry-run`, then `db push` against the dev ref only.
 - [ ] **Step 5: Delete `ShopBrand`, `ShopProduct`, `IntegrationConnection::shopBrands()` and `ShopProduct::brand()`.** Both models are yours (spec §2.2). Task 2 already made `ShopProduct` callerless; if it is not, Task 2 did not finish.
+
+**AMENDED by Task 1 Step 3 / Task 2 Step 6.** `ShopProduct` is NOT callerless
+after Task 2 and was never going to be: `ShopBackfiller` reads it, because it
+IS the legacy→`content.*` migration. Delete in this task, together:
+`ShopBrand::products()`, `app/Models/Core/Site/ShopProduct.php`,
+`app/Services/Migration/ShopBackfiller.php`,
+`app/Console/Commands/BackfillShopContentCommand.php`, and their tests
+(`tests/Feature/Shop/ShopBackfillerTest.php`). The backfiller is dead code the
+moment its source tables are gone — leaving it behind would be a class whose
+only queries name a dropped table.
+
+⚠️ `ShopEndpointParityTest`'s whole fixture builds `content.*` state by seeding
+the legacy tables and running `ShopBackfiller`. Task 12 must re-cut that fixture
+onto a direct `ShopContentWriter` path BEFORE this step, or the parity guard
+dies with the backfiller.
 - [ ] **Step 6: Run everything** — `composer test`, `./vendor/bin/pest --parallel --processes=4`, `composer test:pg`, `composer test:schema`, PHPStan, Pint.
 - [ ] **Step 7: Commit.**
 

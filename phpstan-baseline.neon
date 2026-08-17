@@ -1477,18 +1477,6 @@ parameters:
 			path: app/Models/Core/Gdpr/DataExportAudit.php
 
 		-
-			# Slice 5a Task 9: ShopProduct::$data is now typed array<string, mixed>
-			# via a model @property (was undefined before, masking this check).
-			# The is_array() guard here predates that annotation and defends
-			# against genuinely malformed jsonb (the column's own NOT NULL/array
-			# invariant is a DB constraint, not something PHPStan's PHPDoc-derived
-			# type can prove at runtime) — kept, not deleted.
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$disk\.$#'
 			identifier: property.notFound
 			count: 2

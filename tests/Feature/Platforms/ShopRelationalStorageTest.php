@@ -108,7 +108,13 @@ it('addBrand + setProducts persist the relational marker and child rows, not a J
     expect(orderedProductIdsFor('rel-brand'))->toBe(['p1', 'p2']);
 });
 
-it('removeBrand hard-deletes the brand row and its products', function () {
+// Re-home Task 2 retired the explicit site.shop_products child delete: that
+// table has not been WRITTEN since slice 5a, so the delete only ever cleared
+// pre-slice-5a rows, and those go with the DROP (Task 13). The assertion below
+// pins the new truth — the brand row goes, the legacy product row is left
+// where it is — rather than being deleted, so a re-introduction of the legacy
+// delete would show up as a failure rather than as silence.
+it('removeBrand hard-deletes the brand row and leaves legacy product rows for the DROP', function () {
     $user = shopStorageUser('rel2');
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
@@ -122,10 +128,10 @@ it('removeBrand hard-deletes the brand row and its products', function () {
         ->assertJsonPath('brands', []);
 
     expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(0);
-    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(0);
+    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(1);
 });
 
-it('forget deletes all shop child rows and soft-deletes the connection', function () {
+it('forget deletes the brand rows and soft-deletes the connection', function () {
     $user = shopStorageUser('rel3');
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
@@ -139,7 +145,8 @@ it('forget deletes all shop child rows and soft-deletes the connection', functio
         ->assertJsonPath('brands', []);
 
     expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(0);
-    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(0);
+    // Same as removeBrand above — the legacy product row survives until the DROP.
+    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(1);
     expect(IntegrationConnection::find($conn->id))->toBeNull(); // soft-deleted
     expect(IntegrationConnection::withTrashed()->find($conn->id))->not->toBeNull();
 });
@@ -303,26 +310,11 @@ it('publishes an empty shop payload even after a real connect + selection throug
     expect($body)->not->toContain('popularityRank');
 });
 
-it('keys public popularityRank by product HANDLE, matching the scoring pipeline', function () {
-    // content_popularity_scores keys shop_product rows by the product's handle
-    // slug (what beacons and click signals carry) — NEVER by productId. A map
-    // keyed by productId must not match; a handle-keyed map must.
-    $brand = new ShopBrand([
-        'brand_id' => 'b1', 'provider' => 'shopify', 'url' => 'https://x.example.com',
-    ]);
-    $brand->setRelation('products', collect([
-        new ShopProduct([
-            'product_id' => 'p1',
-            'data' => ['productId' => 'p1', 'handle' => 'mug', 'title' => 'Mug'],
-        ]),
-    ]));
-
-    $handleKeyed = $brand->toBrandArray(['mug' => 3]);
-    expect($handleKeyed['products'][0]['popularityRank'])->toBe(3);
-
-    $productIdKeyed = $brand->toBrandArray(['p1' => 3]);
-    expect($productIdKeyed['products'][0]['popularityRank'])->toBeNull();
-});
+// The handle-keyed popularityRank guard that lived here MOVED to
+// tests/Feature/Shop/ShopStoreReadLaneTest.php with re-home Task 2. It was
+// written against ShopBrand::toBrandArray(), which that task deleted; the rule
+// itself is unchanged and is now asserted through ShopContentReader::brandMap()
+// on real content.* rows instead of two in-memory models.
 
 // ── CCG-102 on this endpoint, RE-BASED by slice 5b Task 8 ─────────────────
 //

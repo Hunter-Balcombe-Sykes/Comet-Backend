@@ -18,7 +18,6 @@ use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
-use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Analytics\ContentPopularityReader;
@@ -462,10 +461,13 @@ class ShopController extends ApiController
             //
             // Built from ShopContentReader now (Task 8), matching brands()/
             // etc — the upsertStore() call just above guarantees a row exists
-            // to read; the legacy toBrandArray() fallback covers only a
-            // theoretical read-your-own-write miss.
+            // to read. Re-home Task 2 dropped the legacy toBrandArray()
+            // fallback: it read site.shop_products, which nothing has written
+            // since slice 5a. `?? []` keeps the never-fatal property that
+            // fallback also had (ShopBrandResource is wholly `??`-tolerant),
+            // rather than letting an impossible miss raise on array access.
             $resolved = (new ShopBrandResource(
-                $this->contentReader->brandMap($user)[$id] ?? $brandRow->fresh('products')->toBrandArray()
+                $this->contentReader->brandMap($user)[$id] ?? []
             ))->resolve();
 
             if (! $deferred) {
@@ -555,29 +557,26 @@ class ShopController extends ApiController
 
     /**
      * Task 7: the embedded brand payload for connectStatus()'s 'failed'/
-     * 'ready' branches, preferring content.* (ShopContentReader) but falling
-     * back to the live site.shop_brands row when content.* has no row yet.
+     * 'ready' branches, read from content.* (ShopContentReader).
      *
-     * Deliberately NOT a bare ShopContentReader::brandMap() call like brands()/
-     * brandProducts()/selection() below: connectStatus() is a real-time poll
-     * of an in-flight/just-settled async job (ShopBrandConnectJob). As of
-     * Task 8 that job DOES call ShopContentWriter::upsertStore() on every
-     * settle (success or terminal failure) — same-request-cycle read-your-
-     * own-write, so the content.* branch is what actually serves the
-     * overwhelming majority of polls now. The legacy fallback stays for two
-     * narrower cases this endpoint alone still needs to cover: (1) a brand
-     * connected before Task 8 shipped that was never backfilled/synced, and
-     * (2) addBrand()'s SYNCHRONOUS (non-deferred) branch settles the legacy
-     * row and calls upsertStore() itself inside the SAME lock — genuinely
-     * atomic — but this endpoint is never the one polled for a sync connect
-     * in practice (the 200 response already carries the full brand), so the
-     * fallback here is defence-in-depth rather than a load-bearing gap-
-     * closer the way it was pre-Task-8.
+     * connectStatus() is a real-time poll of an in-flight/just-settled async
+     * job (ShopBrandConnectJob). As of Task 8 that job calls
+     * ShopContentWriter::upsertStore() on every settle (success or terminal
+     * failure) — same-request-cycle read-your-own-write — so content.* is
+     * current by the time any poll can observe a settled store.
+     *
+     * Re-home Task 2 dropped the legacy site.shop_brands fallback that used to
+     * sit here. It rebuilt the payload through toBrandArray(), which reads
+     * site.shop_products — a table nothing has written since slice 5a, so the
+     * fallback could only ever have served a frozen product list. The one case
+     * it genuinely covered, a store present in site.shop_brands but never
+     * backfilled into content.*, stops being reachable at Task 6: once
+     * connectStatus() resolves through ShopConnections::store() the 404 fires
+     * before this method is called at all.
      */
     private function brandPayload(User $user, ShopBrand $brand): array
     {
-        return $this->contentReader->brandMap($user)[$brand->brand_id]
-            ?? $brand->fresh('products')->toBrandArray();
+        return $this->contentReader->brandMap($user)[$brand->brand_id] ?? [];
     }
 
     // PATCH /api/platforms/shop/brands/{id} — update PER-BRAND settings: the
@@ -652,7 +651,7 @@ class ShopController extends ApiController
                 // so it can message the delay instead of 500ing.
                 try {
                     $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
-                    $syncFailed = $this->budget->open($seconds, fn () => $this->catalog->syncLatest($brand->fresh('products'))) === null;
+                    $syncFailed = $this->budget->open($seconds, fn () => $this->catalog->syncLatest($brand)) === null;
                 } catch (HttpException) {
                     $syncFailed = true;
                 }
@@ -661,7 +660,7 @@ class ShopController extends ApiController
             $this->refreshShopCache($user);
 
             $payload = (new ShopBrandResource(
-                $this->contentReader->brandMap($user)[$id] ?? $brand->fresh('products')->toBrandArray()
+                $this->contentReader->brandMap($user)[$id] ?? []
             ))->resolve();
             // Fix round 1, I2: echo back the mode the client just set. The
             // content.* read path reports `selectionMode` as the derived
@@ -765,11 +764,6 @@ class ShopController extends ApiController
                 $this->content->retireStore((string) $user->id, $collectionId);
             }
 
-            // Explicit child delete (not just relying on the DB's ON DELETE
-            // CASCADE) — mirrors MenuFetchJob's pattern elsewhere in this
-            // codebase, and keeps this deterministic on SQLite in tests,
-            // which doesn't enforce FK cascade.
-            ShopProduct::where('brand_id', $brand->id)->delete();
             $anchorId = (string) $brand->connection_id;
             $brand->delete();
 
@@ -878,7 +872,7 @@ class ShopController extends ApiController
         // exactly the delete-between-read-and-write race this split closes.
         // This read exists only to produce the 404 and to give providerProducts()
         // a brand shape to dispatch on.
-        $brand = $this->shop->brands($user)->where('brand_id', $id)->with('products')->first();
+        $brand = $this->shop->brands($user)->where('brand_id', $id)->first();
         if (! $brand) {
             return $this->error('Brand not found.', 404);
         }
@@ -886,13 +880,21 @@ class ShopController extends ApiController
         // Prefer the catalog the picker just warmed; only re-scrape if it has
         // gone cold (a save long after the picker was opened). Outside the
         // lock — see the docblock above.
+        //
+        // Re-home Task 2: the dispatch shape is ShopCatalog::dispatchShapeFor()
+        // now, not $brand->toBrandArray() — same {url, provider, sourceUrl,
+        // currency, fetchMode} fields, but its `products` fallback reads
+        // content.* instead of the long-unwritten site.shop_products. Shared
+        // with syncLatest() rather than rebuilt here, so the two can't drift.
         $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
         $catalog = Cache::get($this->catalogKey($id))
-            ?? $this->budget->open($seconds, fn () => $this->providerProducts($brand->toBrandArray()));
+            ?? $this->budget->open($seconds, fn () => $this->catalog->providerProducts(
+                $this->catalog->dispatchShapeFor($brand->toStoreRecord(), fn (): string => (string) $user->id)
+            ));
 
         return $this->withConnectionLock($user, function () use ($user, $id, $validated, $catalog) {
             // Authoritative re-read — the pre-lock $brand above may be stale.
-            $brand = $this->shop->brands($user)->where('brand_id', $id)->with('products')->first();
+            $brand = $this->shop->brands($user)->where('brand_id', $id)->first();
             if (! $brand) {
                 return $this->error('Brand not found.', 404);
             }
@@ -944,7 +946,7 @@ class ShopController extends ApiController
             Cache::forget($this->catalogKey($id));
 
             return $this->success((new ShopBrandResource(
-                $this->contentReader->brandMap($user)[$id] ?? $brand->fresh('products')->toBrandArray()
+                $this->contentReader->brandMap($user)[$id] ?? []
             ))->resolve());
         });
     }
@@ -975,14 +977,13 @@ class ShopController extends ApiController
         $user = $this->currentUser($request);
 
         return $this->withConnectionLock($user, function () use ($user) {
-            // Drop brand/product rows BEFORE the soft-delete so nothing is left
-            // hanging off the tombstoned connection row (they'd otherwise orphan
-            // until the 30-day hard-delete purge). Explicit child delete (not just
-            // the DB's ON DELETE CASCADE) — see removeBrand() for why.
+            // Drop brand rows BEFORE the soft-delete so nothing is left hanging
+            // off the tombstoned connection row (they'd otherwise orphan until
+            // the 30-day hard-delete purge). The paired site.shop_products
+            // delete went with re-home Task 2 — that table has not been written
+            // since slice 5a, and its rows go with the DROP.
             $connectionIds = $this->shop->connectionIds($user);
             if ($connectionIds !== []) {
-                $brandIds = ShopBrand::whereIn('connection_id', $connectionIds)->pluck('id');
-                ShopProduct::whereIn('brand_id', $brandIds)->delete();
                 ShopBrand::whereIn('connection_id', $connectionIds)->delete();
             }
 
@@ -1093,7 +1094,7 @@ class ShopController extends ApiController
             $this->bumpSiteCache($user);
 
             return $this->success((new ShopBrandResource(
-                $this->contentReader->brandMap($user)[ShopBrand::INDIVIDUAL_BRAND_ID] ?? $individual->fresh('products')->toBrandArray()
+                $this->contentReader->brandMap($user)[ShopBrand::INDIVIDUAL_BRAND_ID] ?? []
             ))->resolve());
         });
     }
@@ -1109,8 +1110,6 @@ class ShopController extends ApiController
             if (! $individual) {
                 return $this->error('Product not found.', 404);
             }
-
-            ShopProduct::where('brand_id', $individual->id)->where('product_id', $productId)->delete();
 
             // Task 8: content.* side — reconstruct what remains (mirrors
             // addProduct()'s currentCatalogue() read), sync it, and if
@@ -1132,13 +1131,6 @@ class ShopController extends ApiController
                 // while content.* still held the remaining products, which
                 // stranded them (every later DELETE 404s on the missing
                 // anchor) while the dashboard kept listing them.
-                //
-                // Explicit legacy child delete, like removeBrand(): a bucket
-                // that predates this deploy can still hold site.shop_products
-                // rows this endpoint's single-row delete above didn't cover,
-                // and SQLite (tests) doesn't enforce the ON DELETE CASCADE
-                // Postgres would rely on.
-                ShopProduct::where('brand_id', $individual->id)->delete();
                 $individual->delete();
             }
             $this->refreshShopCache($user);
@@ -1264,34 +1256,17 @@ class ShopController extends ApiController
     }
 
     /**
-     * The stored brand map (id => brand), or empty. FOUND-25: reads the
-     * relational site.shop_brands/site.shop_products child tables (formerly
-     * a single JSONB map on the connection's payload).
+     * The stored brand map (id => brand), or empty.
      *
-     * catalog() is its ONLY remaining caller — every other read is
-     * ShopContentReader::brandMap() now. It stays on the legacy row
-     * deliberately: catalog() dispatches a LIVE re-scrape of the store off
-     * {url, provider, sourceUrl, fetchMode}, which site.shop_brands still
-     * carries and still has written to it (the anchor row is not retired by
-     * this slice).
+     * catalog() is its ONLY caller. Re-home Task 2 moved it off the legacy
+     * site.shop_brands/site.shop_products child tables onto content.*, which
+     * carries the same {url, provider, sourceUrl, fetchMode} dispatch shape
+     * catalog()'s live re-scrape reads — so this is now allBrands()'s keyed
+     * twin, not a second source of truth.
      */
     private function brandMap(User $user): array
     {
-        // Convergence Phase 6: across the user's whole shop family. Read off
-        // one connection this returned exactly ONE store per user — the one
-        // whose anchor happened to be found — so the catalog re-warm endpoint
-        // 404'd every store but that one.
-        //
-        // Fix round 3, Finding 4: $ranks is hoisted OUT of the map closure
-        // below — it used to be called PER BRAND, an N+1 on a path GET
-        // /selection (a public-feeding endpoint) shares. One value for the
-        // whole map, same as ShopContentReader::brandMap()'s own ranks parameter.
-        $ranks = $this->productRanksFor($user);
-
-        return $this->shop->brands($user)->with('products')->get()
-            ->keyBy('brand_id')
-            ->map(fn (ShopBrand $b) => $b->toBrandArray($ranks))
-            ->all();
+        return $this->contentReader->brandMap($user, $this->productRanksFor($user));
     }
 
     /**

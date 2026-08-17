@@ -6,6 +6,7 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\LogoProcessorClient;
+use App\Services\Shop\ShopContentReader;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -90,7 +91,8 @@ function logoJobBrand(User $user, array $overrides = []): ShopBrand
 it('stores processed mark urls on the brand row', function () {
     Storage::fake('media');
     config()->set('partna.media.disk', 'media');
-    $brand = logoJobBrand(logoJobUser('logojob1'));
+    $user = logoJobUser('logojob1');
+    $brand = logoJobBrand($user);
 
     Http::fake([
         'logo-processor.test/*' => Http::response([
@@ -107,10 +109,12 @@ it('stores processed mark urls on the brand row', function () {
     expect($brand->logo_mark_url)->not->toBeNull();
     expect($brand->logo_mark_svg_url)->not->toBeNull();
 
-    // The brand payload now carries the conditional mark keys.
-    $array = $brand->toBrandArray();
-    expect($array['logoMark'])->toBe($brand->logo_mark_url);
-    expect($array['logoMarkSvg'])->toBe($brand->logo_mark_svg_url);
+    // The brand payload now carries the conditional mark keys. Read through
+    // ShopContentReader since re-home Task 2 deleted toBrandArray() — same
+    // assertion, against the map the dashboard actually receives.
+    $payload = app(ShopContentReader::class)->brandMap($user)[$brand->brand_id];
+    expect($payload['logoMark'])->toBe($brand->logo_mark_url);
+    expect($payload['logoMarkSvg'])->toBe($brand->logo_mark_svg_url);
 
     // Fix round 1, I1: and so does content.storefronts — the dashboard reads
     // ShopContentReader with no legacy fallback since Task 8, and this job
@@ -138,7 +142,12 @@ it('no-ops when the store switch is off', function () {
 });
 
 it('leaves the row untouched when the processor fails', function () {
-    $brand = logoJobBrand(logoJobUser('logojob3'));
+    $user = logoJobUser('logojob3');
+    $brand = logoJobBrand($user);
+    // The store needs a content.* row for the payload assertion below to mean
+    // anything — asserting a key is absent from a map that has no entry for
+    // this brand at all would pass whatever the emission rule did.
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     Http::fake([
         'logo-processor.test/*' => Http::response('nope', 500),
@@ -149,7 +158,9 @@ it('leaves the row untouched when the processor fails', function () {
 
     $brand->refresh();
     expect($brand->logo_mark_url)->toBeNull();
-    expect($brand->toBrandArray())->not->toHaveKey('logoMark');
+
+    $payload = app(ShopContentReader::class)->brandMap($user)[$brand->brand_id];
+    expect($payload)->not->toHaveKey('logoMark');
 });
 
 // SSRF regression. favicon/logo are lifted verbatim from a <link rel="icon"> in
@@ -172,6 +183,13 @@ it('never fetches a private-network logo url (SSRF)', function () {
 });
 
 it('settled brands without marks emit no mark keys (byte identity)', function () {
-    $brand = logoJobBrand(logoJobUser('logojob4'));
-    expect($brand->toBrandArray())->not->toHaveKeys(['logoMark', 'logoMarkSvg']);
+    $user = logoJobUser('logojob4');
+    $brand = logoJobBrand($user);
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+
+    // The entry must EXIST for the absence of the two keys to be a real
+    // assertion rather than a vacuous one — pin the id first.
+    $payload = app(ShopContentReader::class)->brandMap($user)[$brand->brand_id];
+    expect($payload['id'])->toBe($brand->brand_id)
+        ->and($payload)->not->toHaveKeys(['logoMark', 'logoMarkSvg']);
 });

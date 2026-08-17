@@ -5,6 +5,8 @@ namespace App\Services\Platforms;
 use App\Models\Core\Site\ShopBrand;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
+use Closure;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -35,7 +37,8 @@ class ShopCatalog
 
     /**
      * Live product catalog for a stored brand (array shape from
-     * ShopBrand::toBrandArray()), dispatched by its provider.
+     * ShopContentReader::brandMap(), or dispatchShapeFor() below), dispatched
+     * by its provider.
      *
      * Client-mode brands: the store blocks our egress, so a live scrape
      * usually 502s. Try it anyway (blocks get lifted), then fall back to the
@@ -87,24 +90,22 @@ class ShopCatalog
      */
     public function syncLatest(ShopBrand $brand): ?int
     {
-        // #428: toBrandArray() materialises $brand->products unconditionally,
-        // so this method REQUIRES that relation loaded — 5a's claim that
-        // "syncLatest() no longer reads $brand->products" was never true, and
-        // ShopFetch stopped eager-loading it on the strength of that claim.
-        // Under Eloquent strict mode that threw LazyLoadingViolationException,
-        // which neither the catch below nor ShopFetch's catches, so every
-        // scheduled refresh of a MULTI-brand connection failed the job
-        // outright. (Multi-brand because Builder::hydrate() only arms the
-        // instance flag when a query returns more than one row — which is also
-        // why no test caught it.)
-        //
-        // Guaranteed here rather than at the call site: ShopController already
-        // passes fresh('products') and loadMissing() is a no-op for it, but a
-        // caller that forgets must not be able to kill a queue job.
-        $brand->loadMissing('products');
+        // Re-home Task 2: the dispatch shape is built from the StoreRecord +
+        // content.*, not from toBrandArray(). That method materialised
+        // $brand->products (site.shop_products), which is why #428 needed the
+        // relation eager-loaded here at all — a lazy load under Eloquent
+        // strict mode threw LazyLoadingViolationException and failed every
+        // scheduled refresh of a multi-brand connection. With the legacy read
+        // gone, so is the requirement: nothing below touches the relation.
+        // The owner stays UNRESOLVED until something actually needs it — see
+        // dispatchShapeFor()'s note. $brand->connection is a lazy relation on
+        // a strict-mode-armed row, so touching it before the empty-catalog
+        // return below would throw for every store that scrapes to nothing.
+        $store = $brand->toStoreRecord();
+        $owner = fn (): string => (string) $brand->connection->user_id;
 
         try {
-            $catalog = $this->providerProducts($brand->toBrandArray());
+            $catalog = $this->providerProducts($this->dispatchShapeFor($store, $owner));
         } catch (HttpException $e) {
             // OBS-2: previously swallowed here as a plain `return null`, which
             // is indistinguishable from a genuinely-empty catalog. ShopFetch's
@@ -124,7 +125,10 @@ class ShopCatalog
             return null;
         }
 
-        $collectionId = $this->storeCollectionId($brand);
+        // The brand's content.collections row (kind='storefront'), created with
+        // its storefront sidecar on first sync.
+        $ownerId = $owner();
+        $collectionId = $this->content()->upsertStore($store, $ownerId);
 
         // 5a §3.5: count-preserving selection, now sized from content.*'s
         // live link count instead of $brand->products()->count() — that
@@ -154,10 +158,10 @@ class ShopCatalog
         // state rather than a torn legacy table — an accepted trade already
         // made by Task 5's syncStore() implementation, not new here.
         $written = $this->content()->syncStore(
-            (string) $brand->connection->user_id,
+            $ownerId,
             $collectionId,
             $latest->all(),
-            $brand->currency,
+            $store->currency,
         );
 
         // Final review F4: lane 2. writeManualItem() bumps the build state for
@@ -165,7 +169,7 @@ class ShopCatalog
         // moved site.sites.updated_at, and IndividualProfilePayloadBuilder
         // composes its 60s cache key from exactly that column. A scheduled
         // resync therefore served the pre-sync payload for the full TTL.
-        $this->touchSite((string) $brand->connection->user_id);
+        $this->touchSite($ownerId);
 
         return $written;
     }
@@ -185,14 +189,55 @@ class ShopCatalog
     }
 
     /**
-     * The brand's content.collections row (kind='storefront'), created with
-     * its storefront sidecar on first sync. One implementation
-     * (ShopContentWriter::upsertStore()), two callers — ShopBackfiller's
-     * one-off migration and this scheduled resync.
+     * The {id, provider, url, sourceUrl, currency, fetchMode, products} shape
+     * providerProducts() dispatches on — formerly ShopBrand::toBrandArray()
+     * (re-home Task 2).
+     *
+     * `products` is populated ONLY for fetchMode 'client', the single branch
+     * of providerProducts() that reads it (its last-resort fallback when both
+     * the live fetch and the warmed cache come up empty). Every other provider
+     * therefore costs no extra query at all.
+     *
+     * That fallback also gets more truthful in the move: it used to read
+     * site.shop_products, which nothing has written since slice 5a, so it
+     * served whatever was frozen there. It now reads the live catalogue.
+     *
+     * collectionIdFor() is deliberately the read-only lookup, NOT
+     * upsertStore(): this runs BEFORE the upsert in syncLatest(), and a store
+     * whose fetch then fails must not have been minted into content.* as a
+     * side effect of dispatching that fetch.
+     *
+     * Public because ShopController::setProducts() needs the same shape for
+     * its own pre-lock scrape, and building it twice is how the two would
+     * drift.
+     *
+     * $ownerId is a CLOSURE, not a string, and that is load-bearing: syncLatest()
+     * resolves the owner through $brand->connection, and ShopFetch hands it
+     * brands straight off a multi-row get() — which arms Eloquent strict mode.
+     * Resolving eagerly would throw LazyLoadingViolationException for every
+     * non-client store, the same shape of failure as #428. Only the client
+     * branch below needs an owner, so only the client branch pays for one.
+     *
+     * @param  Closure(): string  $ownerId
+     * @return array<string,mixed>
      */
-    private function storeCollectionId(ShopBrand $brand): string
+    public function dispatchShapeFor(StoreRecord $store, Closure $ownerId): array
     {
-        return $this->content()->upsertStore($brand->toStoreRecord(), (string) $brand->connection->user_id);
+        $products = [];
+        if ($store->fetchMode === 'client') {
+            $collectionId = $this->content()->collectionIdFor($store, $ownerId());
+            $products = $collectionId === null ? [] : $this->content()->currentCatalogue($collectionId);
+        }
+
+        return [
+            'id' => $store->externalRef,
+            'provider' => $store->provider,
+            'url' => $store->url,
+            'sourceUrl' => $store->sourceUrl,
+            'currency' => $store->currency,
+            'fetchMode' => $store->fetchMode,
+            'products' => $products,
+        ];
     }
 
     /** Real ShopContentWriter, or the container's when constructed without one (see the constructor note). */

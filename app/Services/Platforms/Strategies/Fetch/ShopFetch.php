@@ -54,17 +54,18 @@ final readonly class ShopFetch implements FetchStrategy
         // see that method's docblock for why it isn't the content.storefronts
         // mirror).
         //
-        // #428: 'products' is eager-loaded again. 5a dropped it claiming
-        // "syncLatest() no longer reads $brand->products" — it does, through
+        // Re-home Task 2 dropped the 'products' eager load. #428 added it back
+        // because syncLatest() reached the relation through
         // ShopBrand::toBrandArray(), and the resulting
         // LazyLoadingViolationException failed this job on every multi-brand
-        // connection. syncLatest() now guarantees the relation itself, so this
-        // is purely to keep that guarantee to ONE query for the batch instead
-        // of one per brand.
+        // connection. That method is gone and syncLatest() no longer touches
+        // the relation at all, so eager-loading it now buys nothing. The
+        // 'connection' load stays — syncLatest() reads connection->user_id,
+        // and this IS the multi-row hydrate that arms strict mode.
         $content = $this->content ?? app(ShopContentWriter::class);
         $latestBrands = $connection->shopBrands()
             ->where('is_individual', false)
-            ->with(['connection', 'products'])
+            ->with('connection')
             ->get()
             ->reject(fn ($b) => $content->isCurated($b->toStoreRecord(), (string) $connection->user_id));
 
