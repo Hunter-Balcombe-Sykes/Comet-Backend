@@ -89,15 +89,11 @@ class StaffServiceManagementController extends ApiController
             ]);
         }
 
-        // Two id spaces, both live during the transition, and a service's
-        // memberships only ever point into one of them: an owner-authored
-        // (content.*) service is filed into `content.collections`, a Fresha
-        // (site.services) one into `site.service_categories`. Listing only one
-        // space is what put every categorised owner service into
-        // `uncategorised_services` — the gap Task 9 left open when the owner's
-        // category routes moved and this controller did not.
+        // ONE id space since the services cutover: every service's memberships
+        // point into content.collections, so listing that space is listing all
+        // of them. (The gap Task 9 left — a categorised owner service falling
+        // into `uncategorised_services` — needed two spaces to occur.)
         $categories = $this->collectionRows($professional, $includeArchived, $onlyArchived)
-            ->concat($this->legacyCategories($professional, $includeArchived, $onlyArchived))
             // mirrors the user-facing cap (config default 200)
             ->take((int) config('partna.limits.pagination.service_categories_max', 200))
             ->values();
@@ -720,21 +716,21 @@ class StaffServiceManagementController extends ApiController
     private function mergedServices(User $professional, bool $includeArchived, bool $onlyArchived): Collection
     {
         $manual = app(ManualServiceItems::class);
-        $rows = $manual->rows($professional->id, $manual->sectionId($professional->site), includeRemoved: $includeArchived || $onlyArchived);
+        $sectionId = $manual->sectionId($professional->site);
+        $rows = $manual->rows($professional->id, $sectionId, includeRemoved: $includeArchived || $onlyArchived);
         if ($onlyArchived) {
             $rows = $rows->filter(fn ($row) => $row->removed_at !== null)->values();
         }
         $manualServices = $manual->toServiceModels($professional->id, $rows);
 
-        $freshaQuery = Service::query()
-            ->where('user_id', $professional->id)
-            ->whereNotNull('source');
+        // Services cutover: the Fresha half is content.* too, and the staff
+        // list must stay identical to the owner's own — one dataset, one read.
+        $fresha = app(FreshaServiceItems::class);
+        $freshaRows = $fresha->managementRows($professional->id, $sectionId, includeRemoved: $includeArchived || $onlyArchived);
         if ($onlyArchived) {
-            $freshaQuery->onlyTrashed();
-        } elseif ($includeArchived) {
-            $freshaQuery->withTrashed();
+            $freshaRows = $freshaRows->filter(fn ($row) => $row->removed_at !== null)->values();
         }
-        $freshaServices = $freshaQuery->with('categories:id')->orderBy('sort_order')->orderBy('created_at')->get();
+        $freshaServices = $fresha->toServiceModels($professional->id, $freshaRows, $fresha->hiddenServiceIds($professional->id));
 
         // mirrors the user-facing cap (config default 500)
         return $manualServices->concat($freshaServices)
@@ -763,20 +759,6 @@ class StaffServiceManagementController extends ApiController
 
             return $row;
         })->values();
-    }
-
-    /** @return Collection<int, ServiceCategory> */
-    private function legacyCategories(User $professional, bool $includeArchived, bool $onlyArchived): Collection
-    {
-        $query = ServiceCategory::query()->where('user_id', $professional->id);
-
-        if ($onlyArchived) {
-            $query->onlyTrashed();
-        } elseif ($includeArchived) {
-            $query->withTrashed();
-        }
-
-        return $query->orderBy('sort_order')->orderBy('created_at')->get();
     }
 
     /** A legacy (Fresha) service row for this professional, or null. */

@@ -93,9 +93,12 @@ it('emits null (not the internal PHP_INT_MAX sentinel) for a hidden owner servic
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
 
-    $freshaId = ownerService($userId, ['title' => 'Fresha A', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0]);
     $manualId = actingAsUser($user)->postJson('/api/services', ['title' => 'Manual A', 'price_cents' => 1000])
         ->assertCreated()->json('service.id');
+    $freshaId = svcEndpointFreshaItem($userId, 'Fresha A', 's:1');
+    // Give the Fresha item a real position so the sort has something to
+    // order against — both halves ride section_items.sort_key now.
+    actingAsUser($user)->postJson('/api/services/reorder', ['ids' => [$freshaId, $manualId]])->assertOk();
 
     actingAsUser($user)->patchJson("/api/services/{$manualId}", ['is_active' => false])->assertOk();
 
@@ -335,9 +338,8 @@ it('a legacy site.services id resolves nowhere on any management verb (services 
 /**
  * One Fresha-landed service content item. Services cutover: the Fresha half is
  * content.* under a kind='connection' source, addressed by content.items.id.
- * Build it AFTER any manual write in the same test — a hand-built source_item
- * carries no content.identity_keys and writeManualItem() re-resolves the whole
- * (user, kind) set, which would re-point it.
+ * Anchored exactly as a connector-landed row is, so a later manual write's
+ * resolveItems() pass keeps the coord bound to this item.
  */
 function svcEndpointFreshaItem(string $userId, string $title, string $recordKey): string
 {
@@ -357,6 +359,15 @@ function svcEndpointFreshaItem(string $userId, string $title, string $recordKey)
         'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
         'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
         'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    // The anchor is what makes this stable: ProjectionWriter::resolveItems()
+    // binds a coord to its item through content.item_anchors, and it re-runs
+    // over EVERY live source item for the (user, kind) pair on any manual
+    // write. Without an anchor row this coord resolves as an unrelated
+    // singleton, gets a freshly minted item, and the id returned here is
+    // orphaned — which is exactly what a connector-landed row never does.
+    DB::table('content.item_anchors')->insert([
+        'coord' => 'fresha:'.$recordKey, 'user_id' => $userId, 'item_id' => $itemId, 'bound_at' => now(),
     ]);
 
     return $itemId;
@@ -522,11 +533,10 @@ it('a connector-shaped merge after the cutover backfill keeps the owner item ali
 
 // §NEW-C1 (review round 2): a professional holding both halves must not 500,
 // and the combined order must round-trip through GET.
-it('reorder mixing manual and Fresha ids does not 500 and lands them in the submitted order', function () {
-    // Was asserted through GET /api/services. The merged dashboard READ is
-    // Task 6's unit — until it is repointed it still reads the Fresha half
-    // from site.services, so this case asserts the ORDER Task 5 writes: one
-    // section_items scale, ascending in submitted order across both halves.
+it('reorder mixing manual and Fresha ids does not 500 and round-trips through GET in the submitted order', function () {
+    // Both halves ride one section_items scale (Task 5) and the merged read
+    // serves both from content.* (Task 6), so the submitted order survives
+    // the round-trip through the API — the property the two tasks exist for.
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
 
@@ -545,6 +555,10 @@ it('reorder mixing manual and Fresha ids does not 500 and lands them in the subm
 
     $keys = DB::table('site.section_items')->whereIn('item_id', $submitted)->pluck('sort_key', 'item_id');
     expect(collect($submitted)->map(fn ($id) => (float) $keys[$id])->all())->toBe([0.0, 1.0, 2.0, 3.0]);
+
+    $ids = collect(actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk()->json('services'))
+        ->pluck('id')->all();
+    expect($ids)->toBe($submitted);
 });
 
 // Services cutover Task 5: the defect this case was written for — a dense
@@ -570,6 +584,10 @@ it('round-trips two brand-new manual services sitting ahead of two Fresha ids', 
 
     $keys = DB::table('site.section_items')->whereIn('item_id', $submitted)->pluck('sort_key', 'item_id');
     expect(collect($submitted)->map(fn ($id) => (float) $keys[$id])->all())->toBe([0.0, 1.0, 2.0, 3.0]);
+
+    $ids = collect(actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk()->json('services'))
+        ->pluck('id')->all();
+    expect($ids)->toBe($submitted);
 });
 
 // §NEW-4 (review round 3): ManualServiceItems::hydrate() used to map a null
@@ -578,11 +596,10 @@ it('round-trips two brand-new manual services sitting ahead of two Fresha ids', 
 // sorts by — so a hidden manual service sorted to the HEAD instead of
 // somewhere sane. PHP_INT_MAX is the sentinel that fixes it.
 //
-// Services cutover Task 5: the fixture is content-side on both halves, and the
-// ORDER assertion is on the scale itself. The merged dashboard READ is Task 6's
-// unit — it still reads the Fresha half from site.services today, so a
-// content-side Fresha item would not appear in it yet.
-it('leaves a hidden manual service unpositioned rather than at the head of the scale', function () {
+// Services cutover: the fixture is content-side on both halves; the assertion
+// covers the scale AND the merged read, which serves both halves from
+// content.* since Task 6.
+it('leaves a hidden manual service unpositioned rather than at the head of the merged list', function () {
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
 
@@ -604,10 +621,11 @@ it('leaves a hidden manual service unpositioned rather than at the head of the s
         ->and((float) $keys[$freshaA])->toBe(0.0)
         ->and((float) $keys[$freshaB])->toBe(1.0);
 
-    // And the wire never carries the PHP_INT_MAX stand-in for it.
-    $hidden = collect(actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk()->json('services'))
-        ->firstWhere('id', $manualId);
-    expect($hidden['sort_order'])->toBeNull();
+    // On the merged list it sorts LAST (the PHP_INT_MAX sentinel), and the
+    // wire never carries that sentinel — ServiceResource maps it to null.
+    $services = collect(actingAsUser($user)->getJson('/api/services?include_archived=1')->assertOk()->json('services'));
+    expect($services->pluck('id')->all())->toBe([$freshaA, $freshaB, $manualId]);
+    expect($services->firstWhere('id', $manualId)['sort_order'])->toBeNull();
 });
 
 it('reorder 422s an id that belongs to neither the manual nor Fresha store', function () {

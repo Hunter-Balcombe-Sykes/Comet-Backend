@@ -63,9 +63,8 @@ beforeEach(function () {
  */
 /**
  * One Fresha-landed service content item — the id space every service verb
- * speaks after the services cutover. Build it AFTER any manual write in the
- * same test: a hand-built source_item carries no content.identity_keys and
- * writeManualItem() re-resolves the whole (user, kind) set.
+ * speaks after the services cutover, anchored exactly as a connector-landed
+ * row is.
  */
 function staffSvcFreshaItem(string $userId, string $title, string $recordKey): string
 {
@@ -85,6 +84,15 @@ function staffSvcFreshaItem(string $userId, string $title, string $recordKey): s
         'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
         'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
         'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    // The anchor is what makes this stable: ProjectionWriter::resolveItems()
+    // binds a coord to its item through content.item_anchors, and it re-runs
+    // over EVERY live source item for the (user, kind) pair on any manual
+    // write. Without an anchor row this coord resolves as an unrelated
+    // singleton, gets a freshly minted item, and the id returned here is
+    // orphaned — which is exactly what a connector-landed row never does.
+    DB::table('content.item_anchors')->insert([
+        'coord' => 'fresha:'.$recordKey, 'user_id' => $userId, 'item_id' => $itemId, 'bound_at' => now(),
     ]);
 
     return $itemId;
@@ -291,26 +299,26 @@ it('creates a service through the staff endpoint that the owner and the public r
 
 // ── the merged list: manual half AND Fresha half ────────────────────────────
 
-it('lists BOTH the owner-authored (content.*) and the Fresha (site.services) halves', function () {
+it('lists BOTH the owner-authored and the Fresha halves, now both from content.*', function () {
     [$pro] = staffSvcTenant();
 
-    $freshaId = ownerService($pro->id, [
-        'title' => 'Fresha Cut', 'source' => 'fresha', 'external_id' => 's:1', 'sort_order' => 0,
-    ]);
     $manualId = staffSvcOwnerCreate($pro, ['title' => 'Owner Colour']);
+    $freshaId = staffSvcFreshaItem($pro->id, 'Fresha Cut', 's:1');
 
-    $titles = collect(
+    $rows = collect(
         actingAsStaff(staffSvcAdmin())
             ->getJson("/api/staff/professionals/{$pro->id}/services")
             ->assertOk()
             ->json('services')
-    )->pluck('title');
+    );
 
-    // Both halves, through the same merge the owner's own list performs.
-    expect($titles)->toContain('Fresha Cut');
-    expect($titles)->toContain('Owner Colour');
-    expect(DB::table('site.services')->where('id', $freshaId)->exists())->toBeTrue();
-    expect(DB::table('content.items')->where('id', $manualId)->exists())->toBeTrue();
+    // Both halves, through the same merge the owner's own list performs —
+    // and both addressed by content.items ids (services cutover ruling 1).
+    expect($rows->pluck('title'))->toContain('Fresha Cut')
+        ->and($rows->pluck('title'))->toContain('Owner Colour');
+    expect($rows->firstWhere('id', $freshaId)['source'])->toBe('fresha');
+    expect($rows->firstWhere('id', $manualId)['source'])->toBeNull();
+    expect(DB::table('content.items')->whereIn('id', [$freshaId, $manualId])->count())->toBe(2);
 });
 
 it('archives filters read the content.* half, not site.services', function () {

@@ -43,8 +43,14 @@ use Illuminate\Support\Str;
 // Slice 3b (Task 10): resync/resyncBulk/updateCategory follow. An owner edit
 // is a content.manual_overrides row, so resync DELETES those rows;
 // category membership is content.collections/collection_items, written
-// through ServiceCollections. Each keeps a §C2 legacy branch for the
-// site.services rows that live on until slice 7 drops the table.
+// through ServiceCollections.
+//
+// Services cutover (2026-08-17): the §C2 legacy branches are GONE. Every verb
+// resolves content.items ids only — owner-authored through ManualServiceItems
+// (content.sources.kind='manual'), Fresha through FreshaServiceItems
+// ('connection') — and a legacy site.services uuid resolves nowhere (spec
+// ruling 1, recorded on the wire manifest). Ordering for both halves is
+// site.section_items.sort_key; there is one id space and one scale.
 class UserServiceController extends ApiController
 {
     use ResolveCurrentSite;
@@ -74,13 +80,11 @@ class UserServiceController extends ApiController
             ]);
         }
 
-        // §C2: the dashboard list is a MERGE of both halves — owner-authored
-        // from content.*, Fresha (site.services WHERE source IS NOT NULL,
-        // untouched, 3b's rows) from the legacy table. site.services still
-        // physically holds every pre-cutover manual row too, but those are
-        // superseded by their content.* projection and never read from here
-        // again — the `whereNull('source')` half of the old query is gone
-        // for good, not merged back in.
+        // The dashboard list is a MERGE of both halves, and since the services
+        // cutover both come from content.*: owner-authored through
+        // ManualServiceItems (kind='manual'), Fresha through
+        // FreshaServiceItems (kind='connection'). One id space, one ordering
+        // scale (site.section_items.sort_key), no legacy table.
         $manual = app(ManualServiceItems::class);
         $sectionId = $manual->sectionId($pro->site);
         $rows = $manual->rows($pro->id, $sectionId, includeRemoved: $includeArchived || $onlyArchived);
@@ -89,15 +93,12 @@ class UserServiceController extends ApiController
         }
         $manualServices = $manual->toServiceModels($pro->id, $rows);
 
-        $freshaQuery = Service::query()
-            ->where('user_id', $pro->id)
-            ->whereNotNull('source');
+        $fresha = app(FreshaServiceItems::class);
+        $freshaRows = $fresha->managementRows($pro->id, $sectionId, includeRemoved: $includeArchived || $onlyArchived);
         if ($onlyArchived) {
-            $freshaQuery->onlyTrashed();
-        } elseif ($includeArchived) {
-            $freshaQuery->withTrashed();
+            $freshaRows = $freshaRows->filter(fn ($row) => $row->removed_at !== null)->values();
         }
-        $freshaServices = $freshaQuery->with('categories:id')->orderBy('sort_order')->orderBy('created_at')->get();
+        $freshaServices = $fresha->toServiceModels($pro->id, $freshaRows, $fresha->hiddenServiceIds($pro->id));
 
         // §NEW-I1 (review round 2): sort the MERGED collection by
         // sort_order, not a blind manual-then-Fresha concatenation — a
@@ -121,19 +122,14 @@ class UserServiceController extends ApiController
             ]);
         }
 
-        // C1 (final review): TWO id spaces are live during the transition and
-        // a service's memberships only ever point into one of them — an
-        // owner-authored (content.*) service is filed into
-        // `content.collections` (updateCategory's content branch), a Fresha
-        // (site.services) one into `site.service_categories`. Listing only
-        // the legacy space made a categorised owner service match NO block
-        // AND fail the `=== []` uncategorised filter, so it appeared in
-        // neither list and vanished from the dashboard entirely.
-        //
-        // Both spaces are listed, exactly as StaffServiceManagementController
-        // ::index() does — the two dashboards must not disagree about the
-        // same data. ServiceCategoryResource already speaks both shapes
-        // (Task 9), so the wire is one contract either way.
+        // C1's two-id-space merge is retired with the space itself (services
+        // cutover): every service's memberships point into content.collections
+        // now, so listing that one space is listing all of them. The defect C1
+        // fixed — a categorised service matching NO block AND failing the
+        // `=== []` uncategorised filter, vanishing from the dashboard — cannot
+        // recur while there is one space. Mirrors
+        // StaffServiceManagementController::index(); the two dashboards must
+        // not disagree about the same data.
         $collectionRows = app(ServiceCollections::class)
             ->list($pro->id, includeRemoved: $includeArchived || $onlyArchived);
         if ($onlyArchived) {
@@ -147,21 +143,8 @@ class UserServiceController extends ApiController
             return $row;
         })->values();
 
-        $catQuery = ServiceCategory::query()
-            ->where('user_id', $pro->id);
-
-        if ($onlyArchived) {
-            $catQuery->onlyTrashed();
-        } elseif ($includeArchived) {
-            $catQuery->withTrashed();
-        }
-
         $categories = $collectionRows
-            ->concat($catQuery->orderBy('sort_order')->orderBy('created_at')->get())
             // The same cap /service-categories and both staff surfaces apply.
-            // It matters more here than it did before: this list is now the
-            // CONCATENATION of two stores, so the pre-merge "one store, no
-            // cap" reading could grow past what the dashboard renders.
             ->take((int) config('partna.limits.pagination.service_categories_max', 200))
             ->values();
 

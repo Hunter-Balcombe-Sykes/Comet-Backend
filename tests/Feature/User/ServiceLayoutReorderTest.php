@@ -52,6 +52,15 @@ function svcLayoutReorderFreshaItem(User $pro, string $title, string $recordKey)
         'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
         'first_seen_at' => now(), 'last_seen_at' => now(),
     ]);
+    // The anchor is what makes this stable: ProjectionWriter::resolveItems()
+    // binds a coord to its item through content.item_anchors, and it re-runs
+    // over EVERY live source item for the (user, kind) pair on any manual
+    // write. Without an anchor row this coord resolves as an unrelated
+    // singleton, gets a freshly minted item, and the id returned here is
+    // orphaned — which is exactly what a connector-landed row never does.
+    DB::table('content.item_anchors')->insert([
+        'coord' => 'fresha:'.$recordKey, 'user_id' => $pro->id, 'item_id' => $itemId, 'bound_at' => now(),
+    ]);
 
     return $itemId;
 }
@@ -153,8 +162,6 @@ it('reorders a manual service by sort_key alongside a Fresha layout in one reque
     $catA = app(ServiceCollections::class)->create($pro->id, 'Cat A');
     $manualId = actingAsUser($pro)->postJson('/api/services', ['title' => 'Manual', 'price_cents' => 1000])
         ->assertCreated()->json('service.id');
-    // After the manual write: a hand-built source_item carries no identity
-    // keys, and writeManualItem() re-resolves the whole (user, kind) set.
     $freshaId = svcLayoutReorderFreshaItem($pro, 'Fresha', 's:1');
 
     actingAsUser($pro)->postJson('/api/services/reorder-layout', [

@@ -1480,7 +1480,7 @@ git add -A && git commit -m "feat(services-cutover): one ordering scale — both
 - Modify: `app/Services/Analytics/ContentFreshness.php` (`:89-97`)
 - Test: extend `tests/Feature/Services/ServicesCutoverFreshaManagementTest.php`
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```php
 it('the dashboard index lists Fresha services from content.* with content ids', function () {
@@ -1516,9 +1516,9 @@ it('a hidden Fresha service is excluded from the active list but present on the 
 });
 ```
 
-- [ ] **Step 2: Run; confirm failures** (legacy merge returns nothing content-side for Fresha).
+- [x] **Step 2: Run; confirm failures** (legacy merge returns nothing content-side for Fresha).
 
-- [ ] **Step 3: Implement the merge swap** — the same replacement in all four places. In `UserServiceController::index()` replace `:91-99` with:
+- [x] **Step 3: Implement the merge swap** — the same replacement in all four places. In `UserServiceController::index()` replace `:91-99` with:
 
 ```php
         $fresha = app(FreshaServiceItems::class);
@@ -1560,12 +1560,34 @@ it('a hidden Fresha service is excluded from the active list but present on the 
 
 (add the `DB` facade import; the `Service` model import goes with the last reference).
 
-- [ ] **Step 4: Run** the test file plus `tests/Feature/Api/`, `tests/Feature/Cache/`, `tests/Feature/Analytics/`; fix pre-existing legacy-seeded cases as before.
-- [ ] **Step 5: `composer test:pg`; commit**
+- [x] **Step 4: Run** the test file plus `tests/Feature/Api/`, `tests/Feature/Cache/`, `tests/Feature/Analytics/`; fix pre-existing legacy-seeded cases as before.
+- [x] **Step 5: `composer test:pg`; commit**
 
 ```bash
 git add -A && git commit -m "feat(services-cutover): every merged list read serves the Fresha half from content.*"
 ```
+
+**Reality corrections applied (rule zero, 2026-08-17):**
+
+1. **The fixture rule from Task 5 was wrong in kind, not just in detail.** It is
+   not "build the Fresha item after the manual writes" — ANY manual write,
+   including an `update()` later in the same test, re-runs
+   `ProjectionWriter::resolveItems()` over every live source item for the
+   (user, kind) pair. What binds a coord to its item is a
+   **`content.item_anchors` row** (`bindGroup()`), which the connector writes
+   and a hand-built fixture did not. Every content-side Fresha fixture in this
+   project now inserts that anchor, and the ordering caveat is gone with it.
+2. **`ContentFreshness`'s legacy read was `is_active`-filtered**, which
+   content.* has no column for. Replaced by `removed_at IS NULL` — the same bar
+   the rest of the pool applies, and close enough for a freshness heuristic.
+   Its unit test seeded `site.services`; re-fixtured onto `content.items`.
+3. **Four more test files carried legacy-seeded list reads** beyond the ones
+   Step 4 names: `StaffServiceManagementIndexTest` (the 500/200 cap cases —
+   both bulk seeders re-pointed at `content.*`, and the category cap now bounds
+   ONE id space), `ServicesIsolationTest`, `StaffServiceManagementCutoverTest`
+   and `ContentFreshnessTest`.
+4. **The GET round-trip assertions Task 5 deferred are restored here**, as that
+   task's note promised.
 
 ---
 

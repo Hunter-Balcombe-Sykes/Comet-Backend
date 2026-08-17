@@ -133,9 +133,11 @@ function seedServiceReorderFixture(): array
 /**
  * The content.* side of the same fixture — services cutover Task 5: the reorder
  * verbs resolve content.items ids only, and file under content.collections.
- * The Fresha item is built AFTER the manual write on purpose: a hand-built
- * source_item carries no content.identity_keys, and writeManualItem() re-runs
- * resolveItems() across the whole (user, kind) set, which would re-point it.
+ * The Fresha item carries a content.item_anchors row, exactly as a
+ * connector-landed one does: ProjectionWriter::resolveItems() re-runs across
+ * every live source item for the (user, kind) pair on any manual write, and
+ * an unanchored coord would resolve as an unrelated singleton, get a freshly
+ * minted item, and orphan the id returned here.
  *
  * @return array{0: string, 1: string, 2: string} [manualItemId, freshaItemId, collectionId]
  */
@@ -163,6 +165,11 @@ function seedServiceReorderContentFixture(User $pro): array
         'id' => (string) Str::uuid(), 'item_id' => $freshaId, 'source_id' => $sourceId,
         'coord' => 'fresha:s:1', 'record_key' => 's:1', 'kind' => 'service',
         'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    // Anchored, so ProjectionWriter::resolveItems() keeps this coord bound to
+    // this item when a later manual write re-runs it (see the helper docblock).
+    DB::connection('pgsql')->table('content.item_anchors')->insert([
+        'coord' => 'fresha:s:1', 'user_id' => $pro->id, 'item_id' => $freshaId, 'bound_at' => now(),
     ]);
 
     return [$manualId, $freshaId, app(ServiceCollections::class)->create($pro->id, 'Cuts')];

@@ -20,6 +20,43 @@ beforeEach(function () {
     setupServicesTable();
 });
 
+/**
+ * One Fresha-landed service content item. Services cutover: the Fresha half is
+ * content.* under a kind='connection' source, anchored exactly as a
+ * connector-landed row is.
+ */
+function svcIsolationFreshaItem(string $userId, string $title, string $recordKey): string
+{
+    $sourceId = (string) Str::uuid();
+    $itemId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $userId, 'kind' => 'service',
+        'headline_cache' => $title, 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
+        'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    // The anchor is what makes this stable: ProjectionWriter::resolveItems()
+    // binds a coord to its item through content.item_anchors, and it re-runs
+    // over EVERY live source item for the (user, kind) pair on any manual
+    // write. Without an anchor row this coord resolves as an unrelated
+    // singleton, gets a freshly minted item, and the id returned here is
+    // orphaned — which is exactly what a connector-landed row never does.
+    DB::table('content.item_anchors')->insert([
+        'coord' => 'fresha:'.$recordKey, 'user_id' => $userId, 'item_id' => $itemId, 'bound_at' => now(),
+    ]);
+
+    return $itemId;
+}
+
 // Slice 3a Task 5: destroy() and show()/update()/restore() no longer bind an
 // implicit Service model (they resolve a raw string id against content.*
 // first, then fall back to site.services WHERE source IS NOT NULL) — a
@@ -43,11 +80,11 @@ it('destroy refuses a manual (content.*) service belonging to another profession
 
 it('destroy refuses a Fresha-sourced service belonging to another professional', function () {
     [$a, $b] = createTwoTenants();
-    $id = ownerService($a->id, ['title' => 'Secret Cut', 'source' => 'fresha', 'external_id' => 's:1']);
+    $id = svcIsolationFreshaItem($a->id, 'Secret Cut', 's:1');
 
     actingAsUser($b)->deleteJson("/api/services/{$id}")->assertNotFound();
 
-    expect(DB::table('site.services')->where('id', $id)->whereNull('deleted_at')->exists())->toBeTrue();
+    expect(DB::table('content.items')->where('id', $id)->value('removed_at'))->toBeNull();
 });
 
 it('index only returns services belonging to the authenticated professional, across both halves', function () {
@@ -55,8 +92,10 @@ it('index only returns services belonging to the authenticated professional, acr
 
     actingAsUser($a)->postJson('/api/services', ['title' => 'A Manual', 'price_cents' => 1000])->assertCreated();
     actingAsUser($b)->postJson('/api/services', ['title' => 'B Manual', 'price_cents' => 2000])->assertCreated();
-    ownerService($a->id, ['title' => 'A Fresha', 'source' => 'fresha', 'external_id' => 's:1']);
-    ownerService($b->id, ['title' => 'B Fresha', 'source' => 'fresha', 'external_id' => 's:2']);
+    // Services cutover: the Fresha half is content.* under a connection
+    // source. Built after the manual writes — see svcIsolationFreshaItem().
+    svcIsolationFreshaItem($a->id, 'A Fresha', 's:1');
+    svcIsolationFreshaItem($b->id, 'B Fresha', 's:2');
 
     $response = actingAsUser($b)->getJson('/api/services?include_archived=1')->assertOk();
 

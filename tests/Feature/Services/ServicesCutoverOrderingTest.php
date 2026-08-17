@@ -33,13 +33,8 @@ function svcCutOrdUser(): User
  * One Fresha-landed service content item (connection source + item +
  * source_item).
  *
- * CALL THIS AFTER any svcCutOrdManual() the test needs. A hand-built
- * source_item carries no content.identity_keys rows (the connector writes
- * those), and ProjectionWriter::writeManualItem() re-runs resolveItems() over
- * EVERY live source item for the (user, kind) pair — so a manual write landing
- * afterwards resolves this coord as an unrelated singleton, mints a fresh item
- * for it and orphans the id returned here. Fixture artefact, not a production
- * one: connector-landed rows always carry identity keys.
+ * Anchored exactly as a connector-landed row is — see the anchor insert
+ * below for why that matters.
  */
 function svcCutOrdFresha(User $pro, string $title, string $recordKey): string
 {
@@ -59,6 +54,15 @@ function svcCutOrdFresha(User $pro, string $title, string $recordKey): string
         'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
         'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
         'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    // The anchor is what makes this stable: ProjectionWriter::resolveItems()
+    // binds a coord to its item through content.item_anchors, and it re-runs
+    // over EVERY live source item for the (user, kind) pair on any manual
+    // write. Without an anchor row this coord resolves as an unrelated
+    // singleton, gets a freshly minted item, and the id returned here is
+    // orphaned — which is exactly what a connector-landed row never does.
+    DB::table('content.item_anchors')->insert([
+        'coord' => 'fresha:'.$recordKey, 'user_id' => $pro->id, 'item_id' => $itemId, 'bound_at' => now(),
     ]);
 
     return $itemId;

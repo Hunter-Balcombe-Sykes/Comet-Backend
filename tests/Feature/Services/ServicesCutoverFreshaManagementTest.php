@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\UserCacheService;
 use App\Services\Content\ServiceCollections;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -42,6 +43,15 @@ function svcCutMgmtFresha(User $pro, string $title, string $recordKey): string
         'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $sourceId,
         'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
         'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    // The anchor is what makes this stable: ProjectionWriter::resolveItems()
+    // binds a coord to its item through content.item_anchors, and it re-runs
+    // over EVERY live source item for the (user, kind) pair on any manual
+    // write. Without an anchor row this coord resolves as an unrelated
+    // singleton, gets a freshly minted item, and the id returned here is
+    // orphaned — which is exactly what a connector-landed row never does.
+    DB::table('content.item_anchors')->insert([
+        'coord' => 'fresha:'.$recordKey, 'user_id' => $pro->id, 'item_id' => $itemId, 'bound_at' => now(),
     ]);
     // Through the model, not a raw insert: platform_connections.platform is a
     // GENERATED column off surface_key, and there is no resource_kind column.
@@ -160,4 +170,36 @@ it('never resurrects an owner-deleted Fresha service: removed_at survives a proj
     // What a reappearing scrape does: clears source_items.removed_at. It must NOT touch items.removed_at.
     DB::table('content.source_items')->where('item_id', $itemId)->update(['removed_at' => null]);
     expect(DB::table('content.items')->where('id', $itemId)->value('removed_at'))->not->toBeNull();
+});
+
+it('the dashboard index lists Fresha services from content.* with content ids', function () {
+    $pro = svcCutMgmtUser();
+    $itemId = svcCutMgmtFresha($pro, 'Fade', 's:1');
+
+    actingAsUser($pro)->getJson('/api/services')
+        ->assertOk()
+        ->assertJsonPath('services.0.id', $itemId)
+        ->assertJsonPath('services.0.source', 'fresha');
+});
+
+it('only_archived surfaces an owner-deleted Fresha service', function () {
+    $pro = svcCutMgmtUser();
+    $itemId = svcCutMgmtFresha($pro, 'Fade', 's:1');
+    actingAsUser($pro)->deleteJson("/api/services/{$itemId}")->assertOk();
+
+    actingAsUser($pro)->getJson('/api/services?only_archived=1')
+        ->assertOk()
+        ->assertJsonPath('services.0.id', $itemId);
+});
+
+it('a hidden Fresha service is excluded from the active list but present on the dashboard list as inactive', function () {
+    $pro = svcCutMgmtUser();
+    $itemId = svcCutMgmtFresha($pro, 'Fade', 's:1');
+    actingAsUser($pro)->patchJson("/api/services/{$itemId}", ['is_active' => false])->assertOk();
+
+    $active = app(UserCacheService::class)->getActiveServices($pro->id);
+    expect(collect($active)->pluck('id')->all())->not->toContain($itemId);
+
+    actingAsUser($pro)->getJson('/api/services')
+        ->assertJsonPath('services.0.is_active', false);
 });

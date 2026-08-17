@@ -4,9 +4,9 @@ namespace App\Services\Analytics;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
-use App\Models\Core\User\Service;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Freshness boost — an ADDITIVE, decaying score term for newly-added content,
@@ -83,12 +83,17 @@ class ContentFreshness
                 }
             });
 
-        // Native services are their own rows with a stable created_at; a newly
-        // added service freshens the Book page. (Fresha-synced services live in
-        // a wholesale-rewritten payload array — excluded, see class docblock.)
-        $newestService = Service::query()
+        // Services are content items with a stable created_at; a newly added
+        // one freshens the Book page. Services cutover (carried open since
+        // 3a): this read moves to content.items and covers BOTH source kinds
+        // — the legacy row's created_at carried exactly this signal, and a
+        // connector-landed service is no less new than an owner-authored one.
+        // A removed item contributes nothing, matching the old is_active bar
+        // closely enough for a freshness heuristic.
+        $newestService = DB::connection('pgsql')->table('content.items')
             ->where('user_id', $site->user_id)
-            ->where('is_active', true)
+            ->where('kind', 'service')
+            ->whereNull('removed_at')
             ->max('created_at');
         if ($newestService !== null) {
             $serviceAt = Carbon::parse($newestService);
