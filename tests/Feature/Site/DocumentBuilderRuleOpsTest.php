@@ -175,7 +175,9 @@ it('from_source matches by exact source id and by channel kind, ignoring retired
     DB::table('site.sections')->where('site_id', $siteId)->update([
         'rule' => json_encode(['all' => [['op' => 'from_source', 'values' => ['manual'], 'not' => true]]]),
     ]);
-    expect(ruleOpsHeadlines($siteId))->toBe(['Retired', 'Synced']);
+    // W6 (2026-08-18): an item whose every source_item is retired is not live
+    // (LiveSourceScope) — a negated rule cannot resurrect it either.
+    expect(ruleOpsHeadlines($siteId))->toBe(['Synced']);
 });
 
 // ── in_collection ───────────────────────────────────────────────────────────

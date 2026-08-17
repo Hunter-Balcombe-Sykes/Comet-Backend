@@ -199,12 +199,16 @@ it('refuses to post to a host outside its own manifest', function () {
         ->toThrow(EffectRefused::class);
 });
 
-it('marks services exhaustive-or-nothing: a Catalogue profile with no order field can never delete', function () {
+it('marks services exhaustive-or-nothing: an unordered Catalogue that deletes only under exhaustive coverage', function () {
     $spec = FreshaConnector::manifest()->stream('services');
 
+    // W6 (2026-08-18): the one booking-flow call IS the whole menu, so a
+    // service it no longer lists is gone — deletesOnExhaustive opts this
+    // unordered stream back into absence folding.
     expect($spec->profile)->toBe(SourceProfile::Catalogue)
         ->and($spec->orderField)->toBeNull()
-        ->and($spec->mayDelete())->toBeFalse();
+        ->and($spec->deletesOnExhaustive)->toBeTrue()
+        ->and($spec->mayDelete())->toBeTrue();
 });
 
 it('lands nothing and makes no HTTP call when nothing has been chosen', function () {
