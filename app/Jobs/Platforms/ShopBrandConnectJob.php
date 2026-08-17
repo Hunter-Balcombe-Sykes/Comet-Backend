@@ -9,6 +9,7 @@ use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopBrandProfiler;
+use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\StoreRecord;
@@ -200,6 +201,29 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         // — never content.* — so nothing else will ever purge this settle.
         $refresher->refresh($connection);
         self::bumpSiteCache($store->userId);
+
+        // THE INITIAL CATALOGUE FILL (2026-08-17, Sell opt-in regression
+        // caught live: a fresh connect ended with ZERO products). The
+        // catalogue used to arrive via the scheduled ShopFetch, which is
+        // gated on auto_sync_latest — and anchors mint with that OFF now, so
+        // without this one-shot the library stays empty and the product
+        // picker has nothing to pick. This is a FILL, not auto-latest: it
+        // runs once regardless of the toggle, and nothing publishes — shop
+        // runs pins + the (toggle-gated) latest rule at read time.
+        // Best-effort: a blocked store is already a usable settle (the brand
+        // is named), and the fetch gate/circuit machinery owns retries.
+        try {
+            app(ShopCatalog::class)->syncLatest(
+                $shop->storeByCollection($this->collectionId) ?? $store,
+                (string) $store->userId,
+            );
+        } catch (Throwable $e) {
+            Log::warning('shop.brand_connect_job.initial_fill_failed', [
+                'collection_id' => $this->collectionId,
+                'user_id' => $store->userId,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         // The settle just stored the fetched favicon/logo — kick off the
         // best-effort processed mark (background removal + SVG).
