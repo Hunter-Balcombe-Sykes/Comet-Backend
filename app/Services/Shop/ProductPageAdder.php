@@ -42,7 +42,7 @@ class ProductPageAdder
 
     public const OUTCOME_UNREACHABLE = 'unreachable';
 
-    /** Mirrors ShopController::MAX_INDIVIDUAL_PRODUCTS. */
+    /** The individual-bucket cap. Source of truth; ShopProductSeeder reads it. */
     public const MAX_INDIVIDUAL_PRODUCTS = 20;
 
     /** Origins we connect as a store from a product paste. */

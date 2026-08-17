@@ -5,6 +5,7 @@ namespace App\Services\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Shop\ProductPageAdder;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
@@ -28,9 +29,6 @@ use Illuminate\Support\Facades\Log;
 // bucket anchor until slice 7 retires it.
 class ShopProductSeeder
 {
-    /** Mirrors ShopController::MAX_INDIVIDUAL_PRODUCTS — keep in lockstep. */
-    private const MAX_INDIVIDUAL_PRODUCTS = 20;
-
     public function __construct(
         private readonly IntegrationConnectionCacheRefresher $refresher,
         private readonly ShopContentWriter $content,
@@ -106,7 +104,7 @@ class ShopProductSeeder
                 $ordered = collect($this->content->currentCatalogue($collectionId))
                     ->reject(fn (array $p) => ($p['productId'] ?? null) === $productId)
                     ->prepend($product)
-                    ->take(self::MAX_INDIVIDUAL_PRODUCTS)
+                    ->take(ProductPageAdder::MAX_INDIVIDUAL_PRODUCTS)
                     ->values();
 
                 $this->content->syncStore((string) $user->id, $collectionId, $ordered->all(), $individual->currency);

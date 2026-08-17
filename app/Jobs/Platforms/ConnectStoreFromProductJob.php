@@ -19,6 +19,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Connect a store the owner never asked to connect — because they pasted one
@@ -132,5 +133,23 @@ class ConnectStoreFromProductJob implements ShouldBeUnique, ShouldQueue
         if ($collectionId !== null) {
             ShopBrandConnectJob::dispatch($collectionId);
         }
+    }
+
+    // R3-OBS-6: terminal visibility for Nightwatch.
+    //
+    // No terminal store write is owed here, unlike ShopBrandConnectJob::failed().
+    // Either upsertStore() never ran — there is no row to settle — or it did and
+    // the store is left 'pending', which connectStatus()'s StrandedPendingWindow
+    // backstop already answers as 'failed' on the next poll (StoreRecord::$updatedAt).
+    // The pasted product itself is added and pinned before this job runs; only the
+    // library is missing, so there is nothing the owner can act on either way.
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('shop.connect_store_from_product.failed', [
+            'user_id' => $this->userId,
+            'origin' => $this->detected['origin'] ?? null,
+            'error' => $e->getMessage(),
+        ]);
     }
 }
