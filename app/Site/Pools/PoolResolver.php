@@ -60,8 +60,11 @@ class PoolResolver
         'thumbnail', 'favicon', 'frames', 'startsAt', 'startsAtLocal', 'endsAtLocal',
         'timezone', 'venue', 'locality', 'price', 'availability', 'links',
         'popularityRank', 'description', 'vendor', 'variants', 'collectionIds',
-        'review', 'selected', 'origin',
+        'review', 'selected', 'origin', 'overrides', 'sources',
     ];
+
+    /** Dashboard-only item keys, stripped before the public wire. */
+    public const DASHBOARD_ONLY_ITEM_KEYS = ['selected', 'overrides', 'sources'];
 
     /** Public fields of one store card in a pool's `collections` map. */
     public const STORE_KEYS = [
@@ -278,6 +281,9 @@ class PoolResolver
             'collections' => $this->collectionsFor($selection, $stores),
             'stats' => $this->statsFor($pool, $selection),
             'diningModes' => $this->diningModesFor($pool, $site),
+            // W8: the platforms a manual link may be added for on this pool —
+            // ItemLinkRules::ROSTER, so the dashboard stops hand-copying it.
+            'linkRoster' => ItemLinkRules::rosterFor($pool),
         ];
     }
 
@@ -513,20 +519,84 @@ class PoolResolver
         // connection source so the source badge and the item sheet's platform
         // row can name it, and lend the connection's own url as the link
         // (overnight 2026-08-18 W6). Highest-priority connection wins.
-        $sourcePlatforms = DB::connection('pgsql')->table('content.source_items')
+        // Every source that lists the item (W8: the item sheet's "Sources"
+        // list with sync badges) — manual and connection, live only; the
+        // connection's platform + display name + last sync time ride along.
+        $sourceRows = DB::connection('pgsql')->table('content.source_items')
             ->join('content.sources', 'content.sources.id', '=', 'content.source_items.source_id')
-            ->join('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
+            ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->whereIn('content.source_items.item_id', $ids)
             ->whereNull('content.source_items.removed_at')
-            ->whereNull('site.platform_connections.deleted_at')
+            ->where(function ($w) {
+                $w->where('content.sources.kind', 'manual')
+                    ->orWhere(function ($c) {
+                        $c->whereNotNull('site.platform_connections.id')
+                            ->whereNull('site.platform_connections.deleted_at');
+                    });
+            })
             ->orderByDesc('content.sources.priority')
             ->get([
                 'content.source_items.item_id',
+                'content.source_items.last_seen_at',
+                'content.sources.kind as source_kind',
+                'site.platform_connections.id as connection_id',
                 'site.platform_connections.platform as platform',
+                'site.platform_connections.surface_key as surface_key',
                 'site.platform_connections.payload as payload',
+                'site.platform_connections.is_active as is_active',
             ])
-            ->groupBy('item_id')
+            ->groupBy('item_id');
+        // The connection's ingest cadence (last run, auto-sync) for the sync
+        // badge — a separate read because ingest.* is its own lane (many
+        // content-only fixtures do not create it) and the join would have
+        // fanned the row set out per stream anyway.
+        $connectionIds = $sourceRows->flatten(1)->pluck('connection_id')->filter()->unique()->values()->all();
+        $ingestByConnection = [];
+        if ($connectionIds !== []) {
+            try {
+                $ingestByConnection = DB::connection('pgsql')->table('ingest.sources')
+                    ->whereIn('connection_id', $connectionIds)
+                    ->orderByDesc('last_run_at')
+                    ->get(['connection_id', 'last_run_at', 'auto_sync'])
+                    ->unique('connection_id')
+                    ->keyBy('connection_id')
+                    ->all();
+            } catch (\Illuminate\Database\QueryException) {
+                // No ingest schema in this environment: badges read "never".
+                $ingestByConnection = [];
+            }
+        }
+        $sourcesByItem = $sourceRows->map(function ($rows) use ($ingestByConnection): array {
+            $seen = [];
+            $out = [];
+            foreach ($rows as $row) {
+                $key = $row->source_kind === 'manual' ? 'manual' : (string) $row->connection_id;
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                if ($row->source_kind === 'manual') {
+                    $out[] = ['kind' => 'manual', 'platform' => null, 'accountName' => null, 'lastSeenAt' => $row->last_seen_at, 'lastSyncedAt' => null, 'autoSync' => false, 'active' => true];
+
+                    continue;
+                }
+                $payload = is_string($row->payload) ? (json_decode($row->payload, true) ?: []) : (array) ($row->payload ?? []);
+                $out[] = [
+                    'kind' => 'connection',
+                    'platform' => (string) $row->platform,
+                    'accountName' => \App\Services\Platforms\ConnectionDisplayName::for((string) ($row->surface_key ?? ''), $payload),
+                    'lastSeenAt' => $row->last_seen_at,
+                    'lastSyncedAt' => $ingestByConnection[(string) $row->connection_id]->last_run_at ?? null,
+                    'autoSync' => (bool) ($ingestByConnection[(string) $row->connection_id]->auto_sync ?? false),
+                    'active' => (bool) $row->is_active,
+                ];
+            }
+
+            return $out;
+        });
+        $sourcePlatforms = $sourceRows
             ->map(function ($rows): ?object {
+                $rows = $rows->filter(fn ($r) => $r->source_kind !== 'manual' && $r->connection_id !== null);
                 $row = $rows->first();
                 if ($row === null || ! is_string($row->platform) || $row->platform === '') {
                     return null;
@@ -821,6 +891,14 @@ class PoolResolver
                 // and the DSAR omission all reach. Do NOT source it from
                 // headline: that copy was the §2.2 defect, and the projector
                 // now nulls it by contract.
+                // W8: which (facet.column) fields the owner has overridden —
+                // the sheet reads this to lock/mark those fields instead of
+                // guessing from headlineEdited alone.
+                'overrides' => array_values(array_filter(
+                    array_keys($overridesByKey),
+                    fn (string $key) => array_key_exists((string) $itemId, $overridesByKey[$key]),
+                )),
+                'sources' => $sourcesByItem[$itemId] ?? [],
                 'review' => isset($reviews[$itemId]) ? [
                     'rating' => $reviews[$itemId]->rating === null ? null : (float) $reviews[$itemId]->rating,
                     'text' => $reviews[$itemId]->text,

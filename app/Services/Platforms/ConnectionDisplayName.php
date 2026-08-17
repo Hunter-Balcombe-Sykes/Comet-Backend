@@ -34,6 +34,14 @@ final class ConnectionDisplayName
             return $displayName;
         }
 
+        // Fresha's connected thing is the venue; its name lives on the saved
+        // selection ("Vision Hair Studio"), never at payload.name — without
+        // this the row read as the URL slug (W8).
+        $storeName = self::text($payload['selection']['storeName'] ?? ($payload['storeName'] ?? null));
+        if ($storeName !== null) {
+            return $storeName;
+        }
+
         $brand = self::brandLabel($surfaceKey);
         // Feed platforms store the LATEST ITEM's title under payload.name
         // (legacy shape) — a channel is its handle, not its newest video.

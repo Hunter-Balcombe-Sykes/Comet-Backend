@@ -253,7 +253,9 @@ class IndividualProfilePayloadBuilder
                 'items' => array_map(
                     // The dashboard-only flags stay off the public wire.
                     static function (array $item): array {
-                        unset($item['selected']);
+                        foreach (\App\Site\Pools\PoolResolver::DASHBOARD_ONLY_ITEM_KEYS as $key) {
+                            unset($item[$key]);
+                        }
 
                         return $item;
                     },
