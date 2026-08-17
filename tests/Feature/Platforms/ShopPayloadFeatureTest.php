@@ -1,21 +1,22 @@
 <?php
 
-use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
-use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
-use App\Services\Migration\ShopBackfiller;
+use App\Services\Shop\ShopConnections;
+use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    // Task 7: selection() now reads content.storefronts (ShopContentReader)
-    // with a fallback to the legacy site.shop_brands map — attach the
-    // stand-in schema so the content.* half of that read doesn't 500 on
-    // SQLite's real absence of the table.
+    // Task 7: selection() reads content.storefronts (ShopContentReader) —
+    // attach the stand-in schema so that read doesn't 500 on SQLite's real
+    // absence of the table. (The legacy site.shop_brands fallback it briefly
+    // had is gone with the table: 20260819000210.)
     setupContentTables();
+    // makeShopStoreProduct() writes through ProjectionWriter::writeManualItem().
+    setupIngestTables();
 });
 
 function shopPayloadUser(string $h): User
@@ -31,30 +32,49 @@ function shopPayloadUser(string $h): User
     ]);
 }
 
+/**
+ * One connected store for $user, plus its own anchor connection.
+ *
+ * Replaces the `site.shop_brands` row + `ShopBackfiller::run()` these fixtures
+ * used to build: the table is dropped (20260819000210) and the backfiller went
+ * with it, so content.collections + content.storefronts is the only storage a
+ * store has. Written through the real ShopContentWriter — the same lane
+ * addBrand() uses — so the fixture cannot drift from what production writes.
+ *
+ * $overrides are StoreRecord property names, not the legacy column names.
+ */
+function shopPayloadStore(User $user, string $externalRef, array $overrides = []): StoreRecord
+{
+    $record = (new StoreRecord(
+        externalRef: $externalRef,
+        provider: 'shopify',
+        position: 0,
+        url: 'https://'.$externalRef,
+        discountCode: '',
+    ))->with($overrides);
+
+    app(ShopConnections::class)->anchor($user, $record->provider, $externalRef);
+    app(ShopContentWriter::class)->upsertStore($record, (string) $user->id);
+
+    return app(ShopConnections::class)->store($user, $externalRef);
+}
+
 it('shop updateBrand preserves other brands fields verbatim', function () {
     $user = shopPayloadUser('shp1');
-    // FOUND-25: two brands as separate site.shop_brands rows. brand-1 carries
-    // internal fields (fetch_mode, source_url) the product dispatch depends on.
-    // Updating brand-2's discount must not touch brand-1's row at all.
-    $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
-        'payload' => ['storage' => 'relational'],
-        'is_active' => true, 'last_refresh_status' => 'ok',
+    // FOUND-25: two brands as separate stores. brand-1 carries internal fields
+    // (fetch_mode, source_url) the product dispatch depends on. Updating
+    // brand-2's discount must not touch brand-1's row at all — which is exactly
+    // the risk upsertStore() carries, since it rewrites every column of the row
+    // it targets.
+    $brand1 = shopPayloadStore($user, 'brand-1', [
+        'provider' => 'woocommerce',
+        'url' => 'https://b1', 'sourceUrl' => 'https://b1/shop', 'fetchMode' => 'client',
+        'discountCode' => 'A', 'position' => 0,
     ]);
-    $brand1 = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'brand-1', 'provider' => 'woocommerce',
-        'url' => 'https://b1', 'source_url' => 'https://b1/shop', 'fetch_mode' => 'client',
-        'discount_code' => 'A', 'position' => 0,
+    makeShopStoreProduct($brand1, ['productId' => 'p1', 'url' => 'https://b1/p1']);
+    shopPayloadStore($user, 'brand-2', [
+        'url' => 'https://b2', 'discountCode' => 'B', 'position' => 1,
     ]);
-    ShopProduct::create(['brand_id' => $brand1->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1', 'url' => 'https://b1/p1']]);
-    ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'brand-2', 'provider' => 'shopify',
-        'url' => 'https://b2', 'discount_code' => 'B', 'position' => 1,
-    ]);
-    // Re-home Task 7: updateBrand() reads AND writes the store through
-    // content.* — land both fixtures there via the real migration path, same
-    // as the sibling selection test below.
-    app(ShopBackfiller::class)->run();
 
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/brand-2', ['discountCode' => 'NEW'])
         ->assertOk()
@@ -75,30 +95,21 @@ it('shop updateBrand preserves other brands fields verbatim', function () {
 
 it('shop selection returns the compat flat view of the first brand with products', function () {
     $user = shopPayloadUser('shp2');
-    $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
-        'payload' => ['storage' => 'relational'],
-        'is_active' => true, 'last_refresh_status' => 'ok',
-    ]);
-    ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'empty', 'provider' => 'shopify',
-        'url' => 'https://e', 'discount_code' => '', 'position' => 0,
-    ]);
-    $full = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'full', 'provider' => 'shopify',
-        'url' => 'https://f', 'discount_code' => 'SAVE', 'position' => 1,
+    shopPayloadStore($user, 'empty', ['url' => 'https://e', 'position' => 0]);
+    $full = shopPayloadStore($user, 'full', [
+        'url' => 'https://f', 'discountCode' => 'SAVE', 'position' => 1,
     ]);
     // createdAt supplied so the content.* round-trip below is deterministic
     // (ShopContentWriter::cataloguesFor() falls back to items.first_seen_at —
-    // now() at backfill time — when a blob has none, which this assertion
-    // can't pin).
-    ShopProduct::create(['brand_id' => $full->id, 'product_id' => 'p1', 'position' => 0, 'data' => [
+    // now() at write time — when a blob has none, which this assertion
+    // can't pin). title/price are explicitly null, NOT merely omitted: the
+    // legacy fixture was a bare {productId, url, createdAt} blob, and the
+    // expected body below is what that reads back as. makeShopStoreProduct()
+    // otherwise merges its own title/price defaults over them.
+    makeShopStoreProduct($full, [
         'productId' => 'p1', 'url' => 'https://f/p1', 'createdAt' => '2026-01-01T00:00:00Z',
-    ]]);
-    // Task 8: selection() reads ShopContentReader with no legacy fallback
-    // (hybridBrandMap() is gone) — land this fixture in content.* via the
-    // real migration path, same as ShopEndpointParityTest's parityFixture().
-    app(ShopBackfiller::class)->run();
+        'title' => null, 'price' => null,
+    ]);
 
     actingAsUser($user)->getJson('/api/platforms/shop/selection')
         ->assertOk()
@@ -126,10 +137,10 @@ it('shop selection returns the compat flat view of the first brand with products
 
 it('shop selection surfaces a seeded popularityRank keyed by product handle', function () {
     // Covers the dashboard route (shop_product ranks were ALREADY correctly
-    // keyed by handle — ShopBrand::toBrandArray():135 — unlike custom/links'
-    // resource_id mismatch, RANK-1). ShopRelationalStorageTest pins the same
-    // keying on the PUBLIC wire only; this is the /api/platforms/shop/selection
-    // half.
+    // keyed by handle — the rule ShopContentReader::brandMap() owns now that
+    // ShopBrand::toBrandArray() is gone — unlike custom/links' resource_id
+    // mismatch, RANK-1). ShopRelationalStorageTest pins the same keying on the
+    // PUBLIC wire only; this is the /api/platforms/shop/selection half.
     setupContentPopularityScoresTable();
     $user = shopPayloadUser('shp4');
     $siteId = (string) Str::uuid();
@@ -140,23 +151,12 @@ it('shop selection surfaces a seeded popularityRank keyed by product handle', fu
         'created_at' => now(),
         'updated_at' => now(),
     ]);
-    $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
-        'payload' => ['storage' => 'relational'],
-        'is_active' => true, 'last_refresh_status' => 'ok',
+    $brand = shopPayloadStore($user, 'full', [
+        'url' => 'https://f', 'discountCode' => 'SAVE', 'position' => 0,
     ]);
-    $brand = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'full', 'provider' => 'shopify',
-        'url' => 'https://f', 'discount_code' => 'SAVE', 'position' => 0,
-    ]);
-    ShopProduct::create([
-        'brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0,
-        'data' => ['productId' => 'p1', 'handle' => 'mug', 'url' => 'https://f/p1'],
-    ]);
-    // Task 8: selection() reads ShopContentReader with no legacy fallback —
-    // land this fixture in content.* (handle='mug' round-trips through
-    // content.f_catalog) via the real migration path.
-    app(ShopBackfiller::class)->run();
+    // handle='mug' round-trips through content.f_catalog, which is where
+    // brandMap() looks the rank up.
+    makeShopStoreProduct($brand, ['productId' => 'p1', 'handle' => 'mug', 'url' => 'https://f/p1']);
 
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
         'id' => (string) Str::uuid(),
@@ -175,15 +175,16 @@ it('shop selection surfaces a seeded popularityRank keyed by product handle', fu
 
 it('shop selection is null when no brand has products', function () {
     $user = shopPayloadUser('shp3');
-    $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
-        'payload' => ['storage' => 'relational'],
-        'is_active' => true, 'last_refresh_status' => 'ok',
-    ]);
-    ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'b', 'provider' => 'shopify',
-        'url' => 'https://b', 'position' => 0,
-    ]);
+    // The store is written into content.* deliberately. The legacy version of
+    // this fixture built a site.shop_brands row and never backfilled it, so
+    // brandMap() saw NOTHING and selection() answered null because the user had
+    // no store at all — a weaker fact than the one the name promises. With the
+    // store really present and merely empty, primaryWithProducts() returning
+    // null is the behaviour actually under test.
+    $store = shopPayloadStore($user, 'b', ['url' => 'https://b', 'position' => 0]);
+
+    expect(DB::table('content.storefronts')->where('external_ref', 'b')->exists())->toBeTrue()
+        ->and(DB::table('content.collection_items')->where('collection_id', $store->collectionId)->count())->toBe(0);
 
     actingAsUser($user)->getJson('/api/platforms/shop/selection')
         ->assertOk()
@@ -210,23 +211,14 @@ it('calls analytics.content_popularity_scores at most once per brand-map build, 
         'id' => $siteId, 'user_id' => $user->id, 'subdomain' => 'shp5',
         'created_at' => now(), 'updated_at' => now(),
     ]);
-    $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
-        'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
-    ]);
     foreach (['b1', 'b2', 'b3', 'b4'] as $i => $brandId) {
-        $brand = ShopBrand::create([
-            'connection_id' => $conn->id, 'brand_id' => $brandId, 'provider' => 'shopify',
+        $brand = shopPayloadStore($user, $brandId, [
             'url' => "https://{$brandId}.example.com", 'position' => $i,
         ]);
-        ShopProduct::create([
-            'brand_id' => $brand->id, 'product_id' => "p-{$brandId}", 'position' => 0,
-            'data' => ['productId' => "p-{$brandId}", 'handle' => $brandId, 'url' => "https://{$brandId}.example.com/p"],
+        makeShopStoreProduct($brand, [
+            'productId' => "p-{$brandId}", 'handle' => $brandId, 'url' => "https://{$brandId}.example.com/p",
         ]);
     }
-    // Task 8: land all 4 brands in content.* — selection() reads
-    // ShopContentReader with no legacy fallback now.
-    app(ShopBackfiller::class)->run();
 
     DB::connection('pgsql')->enableQueryLog();
     actingAsUser($user)->getJson('/api/platforms/shop/selection')->assertOk();

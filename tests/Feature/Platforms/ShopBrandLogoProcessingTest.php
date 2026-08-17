@@ -1,14 +1,13 @@
 <?php
 
 use App\Jobs\Platforms\ProcessShopBrandLogoJob;
-use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\LogoProcessorClient;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentReader;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -71,38 +70,35 @@ function logoJobUser(string $h): User
     ]);
 }
 
-function logoJobBrand(User $user, array $overrides = []): ShopBrand
-{
-    $connection = IntegrationConnection::create([
-        'user_id' => $user->id,
-        'platform' => 'shopify.store', 'resource_id' => 'shop',
-        'payload' => ['storage' => 'relational'],
-        'is_active' => true,
-    ]);
-
-    return ShopBrand::create(array_merge([
-        'connection_id' => $connection->id,
-        'brand_id' => 'test-store.example',
-        'provider' => 'shopify',
-        'url' => 'https://test-store.example',
-        'name' => 'Test Store',
-        'favicon' => 'https://test-store.example/favicon.png',
-        'logo' => 'https://test-store.example/logo.png',
-        'is_individual' => false,
-    ], $overrides));
-}
-
 /**
- * logoJobBrand() plus the content.* pair upsertStore() mirrors it into — the
- * store the job actually resolves, and the collection id it is dispatched with.
+ * The store the job resolves, and the collection id it is dispatched with.
  *
- * @return array{0: ShopBrand, 1: string}
+ * Was logoJobBrand() (a site.shop_brands row) plus a mirroring upsertStore().
+ * The re-home dropped that table, so content.collections + content.storefronts
+ * IS the store — one write, through the production writer. $overrides take
+ * StoreRecord property names (logoUrl/faviconUrl, not logo/favicon).
+ *
+ * @return array{0: StoreRecord, 1: string}
  */
 function logoJobStore(User $user, array $overrides = []): array
 {
-    $brand = logoJobBrand($user, $overrides);
+    $record = (new StoreRecord(
+        externalRef: 'test-store.example',
+        provider: 'shopify',
+        name: 'Test Store',
+        url: 'https://test-store.example',
+        isIndividual: false,
+        logoUrl: 'https://test-store.example/logo.png',
+        faviconUrl: 'https://test-store.example/favicon.png',
+    ))->with($overrides);
 
-    return [$brand, app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id)];
+    // The store's own anchor connection — one connection per store, keyed on
+    // the store id (convergence Phase 6, owner ruling 4).
+    app(ShopConnections::class)->anchor($user, $record->provider, $record->externalRef);
+
+    $collectionId = app(ShopContentWriter::class)->upsertStore($record, (string) $user->id);
+
+    return [app(ShopConnections::class)->store($user, $record->externalRef), $collectionId];
 }
 
 /** The store's content.storefronts row — where the two mark columns live. */
@@ -115,7 +111,7 @@ it('stores processed mark urls on the storefront row', function () {
     Storage::fake('media');
     config()->set('partna.media.disk', 'media');
     $user = logoJobUser('logojob1');
-    [$brand, $collectionId] = logoJobStore($user);
+    [$store, $collectionId] = logoJobStore($user);
 
     Http::fake([
         'logo-processor.test/*' => Http::response([
@@ -140,7 +136,7 @@ it('stores processed mark urls on the storefront row', function () {
     // The brand payload now carries the conditional mark keys. Read through
     // ShopContentReader since re-home Task 2 deleted toBrandArray() — same
     // assertion, against the map the dashboard actually receives.
-    $payload = app(ShopContentReader::class)->brandMap($user)[$brand->brand_id];
+    $payload = app(ShopContentReader::class)->brandMap($user)[$store->externalRef];
     expect($payload['logoMark'])->toBe($storefront->logo_mark_url);
     expect($payload['logoMarkSvg'])->toBe($storefront->logo_mark_svg_url);
 });
@@ -165,7 +161,7 @@ it('leaves the store untouched when the processor fails', function () {
     // The store needs a content.* row for the payload assertion below to mean
     // anything — asserting a key is absent from a map that has no entry for
     // this brand at all would pass whatever the emission rule did.
-    [$brand, $collectionId] = logoJobStore($user);
+    [$store, $collectionId] = logoJobStore($user);
 
     Http::fake([
         'logo-processor.test/*' => Http::response('nope', 500),
@@ -176,7 +172,7 @@ it('leaves the store untouched when the processor fails', function () {
 
     expect(logoJobStorefront($collectionId)->logo_mark_url)->toBeNull();
 
-    $payload = app(ShopContentReader::class)->brandMap($user)[$brand->brand_id];
+    $payload = app(ShopContentReader::class)->brandMap($user)[$store->externalRef];
     expect($payload)->not->toHaveKey('logoMark');
 });
 
@@ -186,8 +182,8 @@ it('leaves the store untouched when the processor fails', function () {
 // literal private IP is rejected on inspection, no DNS and no network needed.
 it('never fetches a private-network logo url (SSRF)', function () {
     [, $collectionId] = logoJobStore(logoJobUser('logojob5'), [
-        'logo' => 'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
-        'favicon' => null,
+        'logoUrl' => 'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
+        'faviconUrl' => null,
     ]);
 
     Http::fake();
@@ -201,11 +197,11 @@ it('never fetches a private-network logo url (SSRF)', function () {
 
 it('settled brands without marks emit no mark keys (byte identity)', function () {
     $user = logoJobUser('logojob4');
-    [$brand] = logoJobStore($user);
+    [$store] = logoJobStore($user);
 
     // The entry must EXIST for the absence of the two keys to be a real
     // assertion rather than a vacuous one — pin the id first.
-    $payload = app(ShopContentReader::class)->brandMap($user)[$brand->brand_id];
-    expect($payload['id'])->toBe($brand->brand_id)
+    $payload = app(ShopContentReader::class)->brandMap($user)[$store->externalRef];
+    expect($payload['id'])->toBe($store->externalRef)
         ->and($payload)->not->toHaveKeys(['logoMark', 'logoMarkSvg']);
 });

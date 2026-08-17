@@ -100,7 +100,10 @@ const COLLECTION_WRITE_REGISTRY = [
     'ShopContentWriter::syncStore' => 'SHOP',
     'ShopContentWriter::retireStore' => 'SHOP',
     'ShopContentWriter::retireAbsent' => 'SHOP',
-    'ShopBackfiller::linkToCollection' => 'SHOP',
+    // ShopBackfiller::linkToCollection was registered here until the shop
+    // re-home deleted the backfiller with the legacy tables it migrated off
+    // (site.shop_brands / site.shop_products). Nothing inherited the write:
+    // the four ShopContentWriter entries above are the whole shop lane now.
     // Re-home Task 9. The deferred-connect settle writes the store's display
     // name, which lives on the parent collection's `label`, not on
     // content.storefronts. A guarded UPDATE rather than upsertStore() because

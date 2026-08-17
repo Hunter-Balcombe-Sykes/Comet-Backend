@@ -19,9 +19,9 @@ use Illuminate\Support\Facades\DB;
  * connectStatus()'s embedded brand payload (with a documented fallback — see
  * that call site), and — since Task 8 fix round 1 — the PUBLIC sitepage's
  * shop card: PublicIntegrationController builds the map once per profile and
- * threads it into PublicIntegrationConnectionResource. `catalog()` is the one
- * endpoint still reading site.shop_brands (the live store's url/provider),
- * deliberately — see the class docblock on ShopController for the boundary.
+ * threads it into PublicIntegrationConnectionResource. `catalog()` reads this
+ * map too since the re-home: it dispatches a live re-scrape off
+ * {url, provider, sourceUrl, fetchMode}, all of which content.* carries.
  *
  * KNOWN GAPS — read this before trusting a value this class returns:
  *

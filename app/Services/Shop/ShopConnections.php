@@ -3,10 +3,8 @@
 namespace App\Services\Shop;
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\ShopProviderDetector;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -24,14 +22,20 @@ use stdClass;
  *
  * Now each store carries its own connection on its real brand surface —
  * `shopify.store`, `woocommerce.store`, `squarespace.store`, `bigcartel.store`,
- * or `generic.store` for a storefront whose platform has no name. The
- * `site.shop_brands` row points at ITS OWN connection, which the existing
- * UNIQUE (connection_id, brand_id) still allows.
+ * or `generic.store` for a storefront whose platform has no name.
+ *
+ * The shop re-home then took the storage with it: `site.shop_brands` is DROPPED
+ * (20260819000210) and a store is a `content.collections` row (kind='storefront')
+ * with a `content.storefronts` sidecar, keyed (user_id, provider, external_ref).
+ * The connection row survives as the lifecycle/authorization anchor, and its
+ * `resource_id` IS the store id — which is the only bridge between the two, and
+ * what anchorFor() below exists to walk.
  *
  * This class is the single place that knows the mapping, so no caller has to
  * re-derive it — and, more importantly, so `where('connection_id', $one->id)`
- * cannot survive anywhere as a silently-narrowing read. Every brand lookup goes
- * through brands()/brandsFor(), which span the user's whole shop family.
+ * cannot survive anywhere as a silently-narrowing read. Every store lookup goes
+ * through stores()/store()/storeByCollection(), which span the user's whole
+ * shop family.
  *
  * The RESOURCE ID is the brand id (`75102060779`, `fearnoevil-com-au`), which
  * is already unique per store and already what every read keys on. That keeps
@@ -41,9 +45,11 @@ class ShopConnections
 {
     /**
      * The surface this controller's family used to occupy, kept as a READ key
-     * only. Rows written before the split are live until the retirement command
-     * runs, and a read that missed them would blank an owner's shop between
-     * deploy and migration.
+     * only. The retirement command that cleared it is gone with the shop
+     * re-home, and live dev carries ZERO rows on this surface — but the key
+     * stays because removeBrand() guards on it: a marker row is the one anchor
+     * several stores could share, so it must never be deleted out from under
+     * them. Production has not been reconciled and is the reason to keep it.
      */
     public const LEGACY_SURFACE = 'partna.storefront';
 
@@ -276,34 +282,5 @@ class ShopConnections
             ->mapWithKeys(fn (object $row): array => [
                 (string) $row->external_ref => StoreRecord::fromStorefrontRow($row),
             ]);
-    }
-
-    /**
-     * Every ShopBrand row this user owns, across all their shop connections.
-     *
-     * The replacement for `ShopBrand::where('connection_id', $marker->id)`,
-     * which now sees exactly one store instead of all of them.
-     *
-     * @deprecated Reads site.shop_brands. Use stores(). Deleted in Task 11.
-     *
-     * @return Builder<ShopBrand>
-     */
-    public function brands(User $user): Builder
-    {
-        $ids = $this->connectionIds($user);
-
-        // whereIn on an empty list yields `in ()` — valid, matches nothing,
-        // which is the correct answer for a user with no shop at all.
-        return ShopBrand::query()->whereIn('connection_id', $ids);
-    }
-
-    /**
-     * One brand by its brand id, across the user's whole shop family.
-     *
-     * @deprecated Reads site.shop_brands. Use store(). Deleted in Task 11.
-     */
-    public function brand(User $user, string $brandId): ?ShopBrand
-    {
-        return $this->brands($user)->where('brand_id', $brandId)->first();
     }
 }

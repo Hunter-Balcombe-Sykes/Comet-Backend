@@ -56,11 +56,11 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 // a content.collections row (kind='storefront') with a content.storefronts
 // sidecar per brand, and one content.items row per product, written through
 // ShopContentWriter and read back through ShopContentReader. NOT in the
-// connection's JSONB payload. site.shop_brands survives as the per-brand
-// identity/lifecycle anchor this controller still writes; site.shop_products
-// is neither written NOR read here any more — re-home Task 2 removed the last
-// of both, and its remaining rows go with the DROP (Task 13), which is also
-// where site.shop_brands and the writes above it go.
+// connection's JSONB payload, and no longer in site.shop_brands /
+// site.shop_products either — the shop re-home moved every read and write off
+// both and DROPPED them (20260819000200 / 20260819000210). The connection row
+// survives as the lifecycle/authorization anchor; the store itself is
+// content.* and nothing else.
 //
 // Convergence Phase 6 (owner ruling 4): there is no longer a single 'shop'
 // marker row. Each connected store carries its OWN connection on its real
@@ -1265,11 +1265,9 @@ class ShopController extends ApiController
      * public wire carries — the dashboard's Smart order switch sorts on
      * popularityRank, and until 2026-08-04 the dashboard path omitted the
      * key entirely, so "engagement order" silently meant "stored order".
-     * Fail-open: a read fault degrades to null ranks. Shared by the legacy
-     * (site.shop_brands) brandMap() above and Task 7's ShopContentReader
-     * call sites below — both must pass an array (never null) here so
-     * popularityRank stays PRESENT (not omitted) on every dashboard read,
-     * matching ShopContentReader::brandMap()'s own contract.
+     * Fail-open: a read fault degrades to null ranks. Every caller must pass an
+     * array (never null) so popularityRank stays PRESENT (not omitted) on every
+     * dashboard read, matching ShopContentReader::brandMap()'s own contract.
      */
     private function productRanksFor(User $user): array
     {
@@ -1293,8 +1291,9 @@ class ShopController extends ApiController
      * Every write endpoint below now bypasses Eloquent for its content.*
      * writes (ShopContentWriter is raw DB::table(), no model, no observer),
      * so nothing else fires BuildState::bump()/site.sites.updated_at for
-     * them — mirrors ShopBackfiller::invalidate()'s identical "raw-write
-     * seam, all three lanes by hand" discipline. Site-nullable: a fixture/
+     * them. The same "raw-write seam, all three lanes by hand" discipline
+     * ShopBackfiller::invalidate() established before it was deleted with the
+     * legacy tables. Site-nullable: a fixture/
      * connection with no site row simply skips both (mirrors the
      * refresher's own nullable subdomain lookup).
      */

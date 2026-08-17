@@ -13,9 +13,9 @@
 // resource_id (= the store's external_ref) — content.storefronts carries no
 // connection column at all.
 
-use App\Models\Core\Site\ShopBrand;
 use App\Services\Brand\StoreBrandProfiler;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -48,30 +48,35 @@ function profilerConnection(): string
 }
 
 /**
- * The store the profiler reads: the legacy site.shop_brands row (still written
- * until that table is dropped) mirrored into content.* by upsertStore().
+ * The store the profiler reads: a content.collections + content.storefronts
+ * pair, written by upsertStore(). It used to be seeded as a site.shop_brands
+ * row and mirrored across; that table is gone (20260819000210) and content.*
+ * is the only storage a store has, so the fixture writes it directly.
  *
- * brand_id is pinned to the connection's own resource_id rather than randomised
- * — that pairing IS the connection→store bridge the profiler resolves through
- * since Task 10, so a random id would leave the store unreachable.
+ * externalRef is pinned to the connection's own resource_id rather than
+ * randomised — that pairing IS the connection→store bridge the profiler
+ * resolves through since Task 10 (content.storefronts carries no connection
+ * column), so a random id would leave the store unreachable.
+ *
+ * $overrides keys are StoreRecord property names: the legacy row's `logo`
+ * is `logoUrl`, `source_url` is `sourceUrl`, `brand_id` is `externalRef`.
  */
-function profilerBrand(string $connectionId, array $overrides = []): ShopBrand
+function profilerStore(string $connectionId, array $overrides = []): StoreRecord
 {
     $connection = DB::table('site.platform_connections')->where('id', $connectionId)->first();
 
-    $brand = ShopBrand::create(array_merge([
-        'connection_id' => $connectionId,
-        'brand_id' => (string) $connection->resource_id,
-        'provider' => 'shopify',
-        'url' => 'https://example.com',
-        'source_url' => 'https://example.com',
-        'is_individual' => false,
-        'position' => 0,
-    ], $overrides));
+    $store = (new StoreRecord(
+        externalRef: (string) $connection->resource_id,
+        provider: 'shopify',
+        position: 0,
+        url: 'https://example.com',
+        sourceUrl: 'https://example.com',
+        isIndividual: false,
+    ))->with($overrides);
 
-    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $connection->user_id);
+    app(ShopContentWriter::class)->upsertStore($store, (string) $connection->user_id);
 
-    return $brand;
+    return $store;
 }
 
 function ownedLogo(string $connectionId, string $role, string $path, ?string $attribution = null): void
@@ -125,7 +130,7 @@ function offerFor(string $connectionId, ?string $currency, string $updatedAt = '
 
 it('profiles a store from stored data without a single request', function () {
     $connectionId = profilerConnection();
-    profilerBrand($connectionId, ['name' => 'The Store', 'currency' => 'AUD', 'logo' => 'https://cdn.example.com/logo.png']);
+    profilerStore($connectionId, ['name' => 'The Store', 'currency' => 'AUD', 'logoUrl' => 'https://cdn.example.com/logo.png']);
 
     $profile = app(StoreBrandProfiler::class)->profile($connectionId);
 
@@ -140,7 +145,7 @@ it('serves the owned sanitised logo over the hotlinked one', function () {
     // A CDN URL rots and is a live third-party channel onto the page; the
     // bytes the pipeline sanitised are neither. Owned always wins.
     $connectionId = profilerConnection();
-    profilerBrand($connectionId, ['logo' => 'https://cdn.example.com/theirs.png']);
+    profilerStore($connectionId, ['logoUrl' => 'https://cdn.example.com/theirs.png']);
     ownedLogo($connectionId, 'logo_full', 'brand-assets/u/abc.webp');
 
     $profile = app(StoreBrandProfiler::class)->profile($connectionId);
@@ -151,7 +156,7 @@ it('serves the owned sanitised logo over the hotlinked one', function () {
 
 it('prefers the full mark over the square one', function () {
     $connectionId = profilerConnection();
-    profilerBrand($connectionId);
+    profilerStore($connectionId);
     ownedLogo($connectionId, 'logo_square', 'brand-assets/u/square.webp');
     ownedLogo($connectionId, 'logo_full', 'brand-assets/u/full.webp');
 
@@ -161,7 +166,7 @@ it('prefers the full mark over the square one', function () {
 
 it('derives the trading currency from the catalog when the row has none', function () {
     $connectionId = profilerConnection();
-    profilerBrand($connectionId, ['currency' => null]);
+    profilerStore($connectionId, ['currency' => null]);
     offerFor($connectionId, 'AUD');
     offerFor($connectionId, 'AUD');
     offerFor($connectionId, 'USD');
@@ -180,7 +185,7 @@ it('derives the trading currency from the catalog when the row has none', functi
 
 it('derives name and currency from the catalog when the store carries neither, fill-if-empty only', function () {
     $connectionId = profilerConnection();
-    profilerBrand($connectionId, ['name' => null, 'currency' => null]);
+    profilerStore($connectionId, ['name' => null, 'currency' => null]);
     offerFor($connectionId, 'NZD');
     ownedLogo($connectionId, 'logo_full', 'brand-assets/u/x.webp', 'Acme Prints');
 
@@ -192,7 +197,7 @@ it('derives name and currency from the catalog when the store carries neither, f
 
 it('never competes with a value the probe already earned', function () {
     $connectionId = profilerConnection();
-    profilerBrand($connectionId, ['name' => 'Probe Name', 'currency' => 'AUD']);
+    profilerStore($connectionId, ['name' => 'Probe Name', 'currency' => 'AUD']);
     offerFor($connectionId, 'USD');
 
     $profile = app(StoreBrandProfiler::class)->profile($connectionId);
@@ -203,7 +208,7 @@ it('never competes with a value the probe already earned', function () {
 
 it('does not promote a URL-shaped attribution to a store name', function () {
     $connectionId = profilerConnection();
-    profilerBrand($connectionId, ['name' => null]);
+    profilerStore($connectionId, ['name' => null]);
     ownedLogo($connectionId, 'logo_full', 'brand-assets/u/y.webp', 'https://example.com');
 
     expect(app(StoreBrandProfiler::class)->profile($connectionId)['name'])->toBeNull();

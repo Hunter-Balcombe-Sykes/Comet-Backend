@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
@@ -9,8 +8,13 @@ use Illuminate\Support\Str;
 
 // Slice 7 Task 24: ShopContentWriter's identity anchor is content.* data, NOT
 // the site.shop_brands Eloquent model. These tests exercise the writer with a
-// hand-built StoreRecord and ZERO legacy rows in existence — the state the
-// codebase is in the moment 20260817000900_drop_site_shop_brands.sql lands.
+// hand-built StoreRecord and ZERO legacy rows in existence.
+//
+// That was a forward-looking state when this file was written; it is simply
+// the world now — 20260819000210_drop_site_shop_brands.sql landed (slice 7 had
+// numbered it 20260817000900 and never wrote the file), so the model and the
+// table are both gone. What survives is the part that can still go red: the
+// writer producing the whole content.* shape from a record alone.
 //
 // Helpers are prefixed `ssrw*`: cross-file helper name collisions are fatal
 // under --parallel in this repo (PHP has no per-file function scope).
@@ -47,7 +51,7 @@ function ssrwRecord(array $overrides = []): StoreRecord
     ], $overrides));
 }
 
-it('upsertStore writes the storefront with no site.shop_brands row in existence', function () {
+it('upsertStore writes the whole storefront shape from a record alone', function () {
     $user = ssrwUser();
     $record = ssrwRecord();
 
@@ -56,8 +60,7 @@ it('upsertStore writes the storefront with no site.shop_brands row in existence'
     $collection = DB::table('content.collections')->where('id', $collectionId)->first();
     $storefront = DB::table('content.storefronts')->where('collection_id', $collectionId)->first();
 
-    expect(ShopBrand::count())->toBe(0)
-        ->and($collection->label)->toBe('Fear No Evil')
+    expect($collection->label)->toBe('Fear No Evil')
         ->and($collection->kind)->toBe('storefront')
         ->and((int) $collection->position)->toBe(3)
         ->and($storefront->provider)->toBe('shopify')
@@ -74,7 +77,12 @@ it('upsertStore writes the storefront with no site.shop_brands row in existence'
         ->and($storefront->favicon_url)->toBe('https://cdn.test/favicon.ico');
 });
 
-it('upsertStore issues no query against site.shop_brands', function () {
+// Was "upsertStore issues no query against site.shop_brands". With that table
+// dropped no query can name it, so the original could not fail. The live half
+// is the positive one: BOTH content.* tables are written, in one call. A writer
+// that silently stopped writing the storefronts sidecar would leave an orphan
+// collection — the exact 2026-08-12 incident shape — and go red here.
+it('upsertStore writes both content.collections and content.storefronts', function () {
     $user = ssrwUser();
 
     $seen = [];
@@ -84,8 +92,8 @@ it('upsertStore issues no query against site.shop_brands', function () {
 
     app(ShopContentWriter::class)->upsertStore(ssrwRecord(), (string) $user->id);
 
-    expect($seen)->not->toBeEmpty()
-        ->and(array_filter($seen, fn (string $sql) => str_contains($sql, 'shop_brands')))->toBe([]);
+    expect(array_filter($seen, fn (string $sql) => str_contains($sql, 'collections')))->not->toBe([])
+        ->and(array_filter($seen, fn (string $sql) => str_contains($sql, 'storefronts')))->not->toBe([]);
 });
 
 it('keys the store on provider + external_ref, so a rename reuses the same collection', function () {
@@ -140,7 +148,7 @@ it('collectionIdFor and isCurated read the store off content.* alone', function 
     expect($writer->isCurated($record, (string) $user->id))->toBeTrue();
 });
 
-it('syncStore reconciles a catalogue for a store that has no legacy row', function () {
+it('syncStore reconciles a catalogue built entirely from content.*', function () {
     $user = ssrwUser();
     $writer = app(ShopContentWriter::class);
     $collectionId = $writer->upsertStore(ssrwRecord(), (string) $user->id);

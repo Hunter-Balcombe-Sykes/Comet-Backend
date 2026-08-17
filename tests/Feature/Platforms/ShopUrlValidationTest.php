@@ -1,10 +1,10 @@
 <?php
 
-use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -21,10 +21,10 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    // Task 7: brandProducts() now reads content.storefronts (ShopContentReader)
-    // with a fallback to the legacy site.shop_brands map — attach the
-    // stand-in schema so the content.* half of that read doesn't 500 on
-    // SQLite's real absence of the table.
+    // Task 7/8: brandProducts() reads content.storefronts (ShopContentReader)
+    // and nothing else — the legacy site.shop_brands fallback is gone with the
+    // table. Attach the stand-in schema so that read has something to resolve
+    // against on SQLite.
     setupContentTables();
 });
 
@@ -163,19 +163,18 @@ it('returns the coded store_catalog_blocked 422 when a connected store 429s its 
     // to surface as a raw 502 in the picker; the dashboard needs the same
     // coded-422 contract as the add flows to render it inline.
     $user = shopValidationUser('b14blocked');
-    $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
-        'payload' => ['storage' => 'relational'],
-        'is_active' => true, 'last_refresh_status' => 'ok',
-    ]);
-    $brand = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'blockedstore-example', 'provider' => 'shopify',
-        'url' => 'https://blockedstore.example', 'discount_code' => '', 'position' => 0,
-    ]);
-    // Task 8: brandProducts() now reads ShopContentReader with no legacy
-    // fallback (hybridBrandMap() is gone) — land this fixture in content.*
-    // the same way a real addBrand() connect would.
-    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+    // Task 8: brandProducts() reads ShopContentReader with no legacy fallback
+    // (hybridBrandMap() is gone, and so is site.shop_brands) — land this
+    // fixture in content.* the same way a real addBrand() connect would: the
+    // store's own anchor connection, then the storefront row.
+    $store = new StoreRecord(
+        externalRef: 'blockedstore-example',
+        provider: 'shopify',
+        url: 'https://blockedstore.example',
+        discountCode: '',
+    );
+    app(ShopConnections::class)->anchor($user, $store->provider, $store->externalRef);
+    app(ShopContentWriter::class)->upsertStore($store, (string) $user->id);
 
     fakeShopFetcher([
         '/products.json' => [429, 'Too Many Requests'],

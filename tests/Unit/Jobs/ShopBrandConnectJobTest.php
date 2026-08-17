@@ -4,10 +4,10 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Platforms\ShopBrandProfiler;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
 use Illuminate\Contracts\Cache\Lock;
@@ -25,10 +25,10 @@ uses(TestCase::class)->in(__FILE__);
 // W9 §4 Unit 3 — ShopBrandConnectJob completes a `pending` store that
 // addBrand()'s deferred branch wrote synchronously. Re-home Task 9: the job
 // carries a content.collections id and settles content.storefronts /
-// content.collections, NOT the legacy site.shop_brands row — so every
-// assertion below reads content.*. These tests call handle() DIRECTLY,
-// mirroring ConnectFetchJobTest's own idiom — never rely on the sync queue
-// driver to prove queued behaviour.
+// content.collections — which, since the re-home dropped site.shop_brands, is
+// the only place a store exists, so every assertion below reads content.*.
+// These tests call handle() DIRECTLY, mirroring ConnectFetchJobTest's own
+// idiom — never rely on the sync queue driver to prove queued behaviour.
 
 beforeEach(function () {
     setupUsersTable();
@@ -79,45 +79,61 @@ function sbcjConnection(User $user, array $overrides = []): IntegrationConnectio
     ], $overrides));
 }
 
-/** A pending brand row exactly as addBrand()'s deferred branch would write it (plan §3c). */
-function sbcjBrand(IntegrationConnection $connection, array $overrides = []): ShopBrand
+/**
+ * A pending store exactly as addBrand()'s deferred branch would write it
+ * (plan §3c).
+ *
+ * Was sbcjBrand(), which built a `site.shop_brands` row. That table is dropped
+ * (20260819000210) and its model deleted, so the fixture builds the StoreRecord
+ * upsertStore() consumes directly — $overrides keys are the record's camelCase
+ * property names, not the legacy snake_case columns.
+ *
+ * `selection_mode`/`link_mode` are deliberately absent rather than translated:
+ * they have no content.storefronts column at all (slice 5a fix round 1,
+ * Finding 4 — selection_mode was always the default in practice, and link_mode
+ * is one global site.sites.shop_link_mode setting).
+ */
+function sbcjRecord(array $overrides = []): StoreRecord
 {
-    return ShopBrand::create(array_merge([
-        'connection_id' => $connection->id,
-        'brand_id' => 'brand-'.Str::random(8),
-        'provider' => 'shopify',
-        'url' => 'https://store.example.com',
-        'source_url' => null,
-        'connect_status' => 'pending',
-        'connect_error' => null,
-        'is_individual' => false,
-        'position' => 0,
-        'selection_mode' => 'manual',
-        'link_mode' => 'product',
-        'referral_query' => '',
-    ], $overrides));
+    return (new StoreRecord(
+        externalRef: 'brand-'.Str::random(8),
+        provider: 'shopify',
+        position: 0,
+        url: 'https://store.example.com',
+        sourceUrl: null,
+        referralQuery: '',
+        isIndividual: false,
+        connectStatus: 'pending',
+        connectError: null,
+    ))->with($overrides);
 }
 
 /**
  * One connected store as a deferred addBrand() leaves it: its own anchor
- * connection, the legacy site.shop_brands row (still written until that table
- * is dropped), and the content.* pair upsertStore() mirrors it into — which is
- * what the job actually reads and writes since re-home Task 9.
+ * connection plus the content.collections + content.storefronts pair
+ * upsertStore() writes — which is all the job reads and writes since re-home
+ * Task 9, and, since the DROP, all a store is.
  *
  * The anchor's resource_id IS the store id (ShopConnections::anchor()), which
  * is how anchorFor() reaches the connection from a record that carries no
  * connection linkage column at all.
  *
- * @return array{0: ShopBrand, 1: string, 2: IntegrationConnection}
+ * Slot 0 is the record READ BACK off content.*, so it carries collectionId and
+ * userId — not the record that was written, which carries neither.
+ *
+ * @return array{0: StoreRecord, 1: string, 2: IntegrationConnection}
  */
 function sbcjStore(User $user, array $overrides = []): array
 {
-    $brandId = (string) ($overrides['brand_id'] ?? 'brand-'.Str::random(8));
-    $connection = sbcjConnection($user, ['resource_id' => $brandId]);
-    $brand = sbcjBrand($connection, array_merge($overrides, ['brand_id' => $brandId]));
-    $collectionId = app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+    $record = sbcjRecord($overrides);
+    $connection = sbcjConnection($user, ['resource_id' => $record->externalRef]);
+    $collectionId = app(ShopContentWriter::class)->upsertStore($record, (string) $user->id);
 
-    return [$brand, $collectionId, $connection];
+    return [
+        app(ShopConnections::class)->storeByCollection($collectionId),
+        $collectionId,
+        $connection,
+    ];
 }
 
 /** The store's content.storefronts row — where the settle/terminal writes land. */
@@ -155,7 +171,7 @@ it('defines the required queue-hygiene properties, keyed on the store not the co
 
 it('settles a pending store: profile written, connect_status cleared', function () {
     $user = sbcjUser('settle1');
-    [, $collectionId] = sbcjStore($user, ['brand_id' => 'settle-brand']);
+    [, $collectionId] = sbcjStore($user, ['externalRef' => 'settle-brand']);
 
     $this->mock(ShopBrandProfiler::class, function ($m) use ($collectionId) {
         $m->shouldReceive('forRow')->once()
@@ -189,7 +205,7 @@ it('settles a pending store: profile written, connect_status cleared', function 
 
 it('a degraded null currency from the fetch does not clobber the currency already stored on the store', function () {
     $user = sbcjUser('currnull');
-    [, $collectionId] = sbcjStore($user, ['brand_id' => 'currnull-brand', 'currency' => 'AUD']);
+    [, $collectionId] = sbcjStore($user, ['externalRef' => 'currnull-brand', 'currency' => 'AUD']);
 
     $this->mock(ShopBrandProfiler::class, fn ($m) => $m->shouldReceive('forRow')->once()->andReturn([
         'id' => 'currnull-brand', 'name' => 'Curr Null Store', 'currency' => null, 'favicon' => null, 'logo' => null,
@@ -203,7 +219,7 @@ it('a degraded null currency from the fetch does not clobber the currency alread
 
 it('a genuine currency change from the fetch still overwrites the stored value', function () {
     $user = sbcjUser('currchange');
-    [, $collectionId] = sbcjStore($user, ['brand_id' => 'currchange-brand', 'currency' => 'AUD']);
+    [, $collectionId] = sbcjStore($user, ['externalRef' => 'currchange-brand', 'currency' => 'AUD']);
 
     $this->mock(ShopBrandProfiler::class, fn ($m) => $m->shouldReceive('forRow')->once()->andReturn([
         'id' => 'currchange-brand', 'name' => 'Curr Change Store', 'currency' => 'USD', 'favicon' => null, 'logo' => null,
@@ -217,7 +233,7 @@ it('a genuine currency change from the fetch still overwrites the stored value',
 
 it('does not recompute external_ref when the profiler resolves a different id — no key-shift, no second row', function () {
     $user = sbcjUser('norecompute');
-    [, $collectionId] = sbcjStore($user, ['brand_id' => 'original-id']);
+    [, $collectionId] = sbcjStore($user, ['externalRef' => 'original-id']);
 
     // Simulates Shopify's meta.json drifting between the synchronous addBrand()
     // detection and this job's re-fetch — forRow() re-derives from the STORED
@@ -243,13 +259,13 @@ it('does not recompute external_ref when the profiler resolves a different id �
 it('a stale job cannot clobber an already-settled store (P1 compare-and-set)', function () {
     $user = sbcjUserWithSite('staleclobber');
     [, $collectionId] = sbcjStore($user, [
-        'brand_id' => 'settled-brand',
-        'connect_status' => null,
-        'connect_error' => null,
+        'externalRef' => 'settled-brand',
+        'connectStatus' => null,
+        'connectError' => null,
         'name' => 'Real Settled Store',
         'currency' => 'AUD',
-        'favicon' => 'https://real/favicon.ico',
-        'logo' => 'https://real/logo.png',
+        'faviconUrl' => 'https://real/favicon.ico',
+        'logoUrl' => 'https://real/logo.png',
     ]);
 
     // A stale attempt still fetches (the budget/profiler call is unconditional)
@@ -281,9 +297,9 @@ it('a stale job cannot clobber an already-settled store (P1 compare-and-set)', f
 it('a late failure cannot un-settle an already-settled store (P1 compare-and-set on markTerminal)', function () {
     $user = sbcjUser('lateunsettle');
     [, $collectionId] = sbcjStore($user, [
-        'brand_id' => 'settled-brand2',
-        'connect_status' => null,
-        'connect_error' => null,
+        'externalRef' => 'settled-brand2',
+        'connectStatus' => null,
+        'connectError' => null,
         'name' => 'Already Settled',
         'currency' => 'AUD',
     ]);
@@ -299,12 +315,18 @@ it('a late failure cannot un-settle an already-settled store (P1 compare-and-set
 
 it('a removed store is a silent no-op', function () {
     $user = sbcjUser('deletedbrand');
-    [$brand, $collectionId] = sbcjStore($user);
+    [, $collectionId] = sbcjStore($user);
     // retireStore() is what removeBrand()/forget() run — it deletes the
     // storefront outright, which is the "the user removed the store while this
-    // job sat in the queue" case storeByCollection()'s null covers.
+    // job sat in the queue" case storeByCollection()'s null covers. It is now
+    // the WHOLE removal: the legacy site.shop_brands row this test also had to
+    // delete by hand is gone with its table.
     app(ShopContentWriter::class)->retireStore((string) $user->id, $collectionId);
-    $brand->delete(); // site.shop_brands is hard-delete-only — no soft-delete column
+
+    // Non-vacuous: prove the store really left content.*, so the no-op below is
+    // storeByCollection() answering null rather than the fixture never building
+    // a store at all.
+    expect(DB::table('content.storefronts')->where('collection_id', $collectionId)->exists())->toBeFalse();
 
     $this->mock(ShopBrandProfiler::class, fn ($m) => $m->shouldNotReceive('forRow'));
 
@@ -344,7 +366,7 @@ it('a soft-deleted anchor connection is a silent no-op', function () {
 it('a staff-disabled integration.shop terminally fails at write time without writing the profile', function () {
     setupFeatureAvailabilityTable();
     $user = sbcjUser('disabledshop');
-    [, $collectionId] = sbcjStore($user, ['brand_id' => 'disabled-brand']);
+    [, $collectionId] = sbcjStore($user, ['externalRef' => 'disabled-brand']);
 
     FeatureAvailabilityRule::query()->create(['feature_key' => 'integration.shop', 'mode' => 'disabled']);
     FeatureAvailability::flush();
@@ -379,7 +401,7 @@ it('a lock held by another writer terminally fails with the stale sentence — n
     // this assertion even though the two state assertions below still pass.
     Log::spy();
     $user = sbcjUser('lockheld');
-    [, $collectionId, $connection] = sbcjStore($user, ['brand_id' => 'lock-brand']);
+    [, $collectionId, $connection] = sbcjStore($user, ['externalRef' => 'lock-brand']);
 
     $this->mock(ShopBrandProfiler::class, fn ($m) => $m->shouldReceive('forRow')->once()->andReturn([
         'id' => 'lock-brand', 'name' => 'Lock Store', 'currency' => null, 'favicon' => null, 'logo' => null,
@@ -429,7 +451,7 @@ it('a lock held by another writer terminally fails with the stale sentence — n
 it('the failed() callback terminally fails with the unknown-failure sentence', function () {
     Exceptions::fake();
     $user = sbcjUser('failedcb');
-    [, $collectionId] = sbcjStore($user, ['brand_id' => 'failed-brand']);
+    [, $collectionId] = sbcjStore($user, ['externalRef' => 'failed-brand']);
 
     $job = new ShopBrandConnectJob($collectionId);
     $job->failed(new RuntimeException('boom'));
@@ -443,7 +465,7 @@ it('the failed() callback terminally fails with the unknown-failure sentence', f
 it('fires all three cache lanes on the success write — the observer never watches content.storefronts', function () {
     Bus::fake();
     $user = sbcjUserWithSite('purgeuser');
-    [, $collectionId] = sbcjStore($user, ['brand_id' => 'purge-brand']);
+    [, $collectionId] = sbcjStore($user, ['externalRef' => 'purge-brand']);
     // Backdate so the touch below is observable.
     DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)
         ->update(['updated_at' => now()->subDay()->toDateTimeString()]);
@@ -480,7 +502,7 @@ it('fires the edge purge on a real pending→failed transition', function () {
     Exceptions::fake();
     Bus::fake();
     $user = sbcjUserWithSite('terminalpurge');
-    [, $collectionId] = sbcjStore($user, ['brand_id' => 'terminal-brand', 'connect_status' => 'pending']);
+    [, $collectionId] = sbcjStore($user, ['externalRef' => 'terminal-brand', 'connectStatus' => 'pending']);
 
     // Creating the connection row purges via IntegrationConnectionObserver
     // (wasRecentlyCreated). Discard that and release the ShouldBeUnique lock it
@@ -499,11 +521,18 @@ it('fires the edge purge on a real pending→failed transition', function () {
 // The compare-and-set half: a store already settled is a genuine no-op and
 // owes no purge. Pins that the fix above did not start purging on every
 // late/stale retry attempt.
+//
+// The settled state is connect_status NULL, which is what settle() itself
+// writes. This fixture said 'connected' until the re-home — a value no write
+// path has ever produced, and one that migration 20260819000120 now positively
+// forbids on content.storefronts (CHECK: NULL | 'pending' | 'failed'). SQLite
+// has no such CHECK in the stand-in, so it passed here while being a row
+// Postgres would reject outright.
 it('does not purge when the compare-and-set finds the store already settled', function () {
     Exceptions::fake();
     Bus::fake();
     $user = sbcjUserWithSite('terminalnoop');
-    [, $collectionId] = sbcjStore($user, ['brand_id' => 'settled-brand', 'connect_status' => 'connected']);
+    [, $collectionId] = sbcjStore($user, ['externalRef' => 'settled-brand', 'connectStatus' => null]);
 
     // See the note in the test above — the fixture's own connect purge must not
     // be mistaken for markTerminal()'s.
@@ -513,7 +542,9 @@ it('does not purge when the compare-and-set finds the store already settled', fu
     $job = new ShopBrandConnectJob($collectionId);
     $job->failed(new RuntimeException('boom'));
 
-    expect(sbcjStorefront($collectionId)->connect_status)->toBe('connected');
+    // markTerminal() guards on connect_status = 'pending'; a settled (NULL)
+    // store never matches, so it is left exactly as it was.
+    expect(sbcjStorefront($collectionId)->connect_status)->toBeNull();
     Bus::assertNotDispatched(CloudflareCachePurgeJob::class);
 });
 
@@ -525,8 +556,8 @@ it('does not purge when the compare-and-set finds the store already settled', fu
 // rename — rather than on the legacy uuid PK.
 it('uniqueId() differs for two stores of one user', function () {
     $user = sbcjUser('uniqcheck');
-    [, $collectionA] = sbcjStore($user, ['brand_id' => 'brand-a']);
-    [, $collectionB] = sbcjStore($user, ['brand_id' => 'brand-b']);
+    [, $collectionA] = sbcjStore($user, ['externalRef' => 'brand-a']);
+    [, $collectionB] = sbcjStore($user, ['externalRef' => 'brand-b']);
 
     $jobA = new ShopBrandConnectJob($collectionA);
     $jobB = new ShopBrandConnectJob($collectionB);

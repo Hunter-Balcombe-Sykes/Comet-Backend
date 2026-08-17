@@ -16,8 +16,6 @@ use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\MenuPlatformLink;
 use App\Models\Core\Site\SectionGroup;
 use App\Models\Core\Site\SectionItem;
-use App\Models\Core\Site\ShopBrand;
-use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Staff\StaffAuditEntry;
 use App\Models\Moderation\ActionLogEntry;
@@ -64,17 +62,19 @@ const POLICY_EXEMPT = [
     // the manual-content writes (MenuContentController's category/item CRUD) both
     // resolve them strictly through the caller's own menu (user-scoped queries →
     // 404 for anything not theirs), so there is no direct IDOR surface — the same
-    // precedent as ShopBrand/ShopProduct below. Rebuilt wholesale by MenuFetchJob.
+    // precedent as SectionItem/SectionGroup below. Rebuilt wholesale by MenuFetchJob.
     MenuCategory::class,
     MenuItem::class,
     MenuPlatformLink::class,    // per-platform sync state; access flows through parent Menu
     MenuItemPlatform::class,    // per-platform item availability; access flows through parent Menu
 
-    // FOUND-25: children of the shop IntegrationConnection. Authorized via the
-    // parent IntegrationConnectionPolicy through ShopController; no direct API
-    // surface (same precedent as MenuItem above).
-    ShopBrand::class,
-    ShopProduct::class,
+    // ShopBrand and ShopProduct were exempt here (FOUND-25 children of the shop
+    // IntegrationConnection, authorized via the parent through ShopController).
+    // Both models are gone with site.shop_brands / site.shop_products; a store
+    // is content.collections + content.storefronts now, written through
+    // ShopContentWriter with no Eloquent model of its own — so there is no
+    // class left to exempt, and this test's "every POLICY_EXEMPT entry resolves
+    // to a real model class" arm would fail on a stale entry.
 
     // OPS-2: Append-only staff audit log. Never exposed over the API — support
     // queries via SQL only. No tenant ownership; staff actor and target professional

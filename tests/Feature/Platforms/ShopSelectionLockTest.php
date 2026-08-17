@@ -24,7 +24,6 @@
 // would observe the key already held and record false.
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\ShopifyScraper;
@@ -261,9 +260,15 @@ it('T16d: a scraper HttpException still surfaces as 502, same body', function ()
     // Never reached the write — the store's collection carries no items. (The
     // collection itself exists: the fixture minted it, and a failed scrape
     // must not retire a store that is merely temporarily unreachable.)
+    //
+    // The collection id is asserted non-null FIRST, which is what the legacy
+    // `ShopProduct::count()` line here used to buy: with site.shop_products
+    // dropped that assertion could not fail any more, and without this one a
+    // missing storefront would give $collectionId = null and make the
+    // items-count assertion below pass for the wrong reason.
     $collectionId = DB::table('content.storefronts')->where('external_ref', 'lockbrand')->value('collection_id');
+    expect($collectionId)->not->toBeNull();
     expect(DB::table('content.collection_items')->where('collection_id', $collectionId)->count())->toBe(0);
-    expect(ShopProduct::count())->toBe(0);
 });
 
 it('T16e: a brand deleted between the pre-lock read and the locked write yields 404, not 500', function () {
@@ -308,11 +313,15 @@ it('T16e: a brand deleted between the pre-lock read and the locked write yields 
 // tests below still exercise at 250 products — no failure observed in this
 // suite's run). Restructuring ShopContentWriter::syncStore() into a genuine
 // bulk write is out of this task's scope (that class is Task 5's deliverable,
-// shared by every syncStore() caller, not just this endpoint). What this
-// test can still usefully pin: site.shop_products stays untouched (0 rows,
-// 0 inserts) and the selection lands correctly in content.*.
+// shared by every syncStore() caller, not just this endpoint).
+//
+// SHOP RE-HOME UPDATE: site.shop_products is DROPPED (20260819000200), so the
+// half of this test that pinned "0 rows, 0 inserts there" could no longer fail
+// and has been replaced by its content.* counterpart — the write really does
+// land one collection_items upsert per product, which is the N-round-trip
+// shape recorded above.
 
-it('setProducts writes zero rows to the legacy site.shop_products table (was F1: single bulk INSERT)', function () {
+it('setProducts writes the selection into content.*, one collection_items upsert per product (was F1: single bulk INSERT)', function () {
     $user = shopSelLockUser('lockqc1');
     shopSelLockBrand($user, 'lockbrand');
 
@@ -332,16 +341,15 @@ it('setProducts writes zero rows to the legacy site.shop_products table (was F1:
     $res->assertOk();
     expect($res->json('products'))->toHaveCount(6);
 
-    // Matched by statement shape (starts with INSERT, touches shop_products),
-    // not an exact SQL string — robust to quoting differences between the
-    // real pgsql driver and the SQLite test mirror.
+    // Matched by statement shape (starts with INSERT, touches the table), not
+    // an exact SQL string — robust to quoting differences between the real
+    // pgsql driver and the SQLite test mirror.
     $insertQueries = array_values(array_filter(
         $log,
         fn ($q) => str_starts_with(strtolower(ltrim((string) $q['query'])), 'insert')
-            && str_contains($q['query'], 'shop_products'),
+            && str_contains($q['query'], 'collection_items'),
     ));
-    expect($insertQueries)->toHaveCount(0);
-    expect(ShopProduct::count())->toBe(0);
+    expect($insertQueries)->toHaveCount(6);
 
     expect(orderedProductIdsFor('lockbrand'))->toBe(['p1', 'p2', 'p3', 'p4', 'p5', 'p6']);
 });
@@ -368,10 +376,11 @@ it('a 250-product selection round-trips correctly through content.* (was F1: sin
     expect(array_column($responseProducts, 'productId'))->toBe($productIds);
 
     // content.* replacement for the old ShopProduct-row assertions —
-    // position ordering preserved, matching the requested order, and
-    // site.shop_products stays entirely untouched.
+    // position ordering preserved, matching the requested order. (The
+    // companion `site.shop_products stays untouched` assertion went with the
+    // table itself, dropped by 20260819000200; content.collection_items IS
+    // the storage now, so this line is the whole guarantee.)
     expect(orderedProductIdsFor('lockbrand'))->toBe($productIds);
-    expect(ShopProduct::count())->toBe(0);
 
     $first = collect($responseProducts)->firstWhere('productId', $productIds[0]);
     expect($first['title'])->toBe('Title for '.$productIds[0]);

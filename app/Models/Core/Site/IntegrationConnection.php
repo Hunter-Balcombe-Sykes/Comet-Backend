@@ -7,10 +7,8 @@ use App\Exceptions\Platforms\TenantAnchorImmutableException;
 use App\Exceptions\Platforms\UnregisteredPlatformException;
 use App\Models\BaseModel;
 use App\Models\Core\User\User;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
@@ -44,7 +42,6 @@ use Illuminate\Validation\ValidationException;
  * @property Carbon $updated_at NOT NULL in Postgres, same migration as created_at above.
  * @property Carbon|null $deleted_at
  * @property-read User|null $user
- * @property-read Collection<int, ShopBrand> $shopBrands
  */
 // A user's connection to an external platform — a Shopify store, an Apple
 // artist, an Instagram username, a Fresha salon, and so on. The per-user store
@@ -290,17 +287,6 @@ class IntegrationConnection extends BaseModel
     public function ownerIsUnclaimed(): bool
     {
         return $this->user()->withTrashed()->value('status') === 'unclaimed';
-    }
-
-    /**
-     * FOUND-25: the shop connection's brands (child table, formerly the payload map).
-     *
-     * @return HasMany<ShopBrand, $this>
-     */
-    public function shopBrands(): HasMany
-    {
-        return $this->hasMany(ShopBrand::class, 'connection_id')
-            ->orderBy('position')->orderBy('brand_id');
     }
 
     public function scopeActive($query)

@@ -39,7 +39,6 @@
 // to 37), so provisioning outside a rolled-back transaction is not safe
 // here.
 
-use App\Models\Core\Site\ShopBrand;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
 use Illuminate\Database\QueryException;
@@ -138,27 +137,28 @@ afterEach(function () {
 });
 
 /**
- * An in-memory ShopBrand — deliberately never persisted. upsertStore() only
- * reads attributes off the object it's handed; it never queries
- * site.shop_brands itself. Not saving it means this file doesn't need to
- * provision that table (or site.integration_connections) at all.
+ * The store these tests upsert. Was an in-memory (never persisted) ShopBrand
+ * folded through toStoreRecord(); the model and site.shop_brands are both gone
+ * (20260819000210), so the record is built directly. upsertStore() only ever
+ * read data off that object, never the table, so nothing about what this file
+ * exercises changes — it still provisions neither site.shop_brands nor
+ * site.integration_connections.
  */
-function shopUpsertConflictTestBrand(string $externalRef): ShopBrand
+function shopUpsertConflictTestStore(string $externalRef): StoreRecord
 {
-    return new ShopBrand([
-        'connection_id' => (string) Str::uuid(),
-        'brand_id' => $externalRef,
-        'provider' => 'shopify',
-        'url' => 'https://store.test',
-        'source_url' => 'https://store.test',
-        'name' => 'Test Store',
-        'currency' => 'AUD',
-        'discount_code' => '',
-        'referral_query' => '',
-        'is_individual' => false,
-        'position' => 0,
-        'products_curated_at' => null,
-    ]);
+    return new StoreRecord(
+        externalRef: $externalRef,
+        provider: 'shopify',
+        name: 'Test Store',
+        position: 0,
+        url: 'https://store.test',
+        sourceUrl: 'https://store.test',
+        currency: 'AUD',
+        discountCode: '',
+        referralQuery: '',
+        isIndividual: false,
+        productsCuratedAt: null,
+    );
 }
 
 /** A StoreRecord for the identity tests below — provider and external_ref are the identity. */
@@ -185,7 +185,7 @@ function shopUpsertConflictTestUser(): string
 
 it('upserts the same store twice against real Postgres without SQLSTATE 42702', function () {
     $userId = shopUpsertConflictTestUser();
-    $brand = shopUpsertConflictTestBrand('store-1');
+    $store = shopUpsertConflictTestStore('store-1');
     $writer = app(ShopContentWriter::class);
 
     // The FIRST call already emits the full ON CONFLICT DO UPDATE statement
@@ -195,11 +195,11 @@ it('upserts the same store twice against real Postgres without SQLSTATE 42702', 
     // brand-new row with nothing to conflict with, which is exactly why all
     // 9 real stores failed on their first-ever backfill rather than only on
     // a resync.
-    $first = $writer->upsertStore($brand->toStoreRecord(), $userId);
+    $first = $writer->upsertStore($store, $userId);
 
     // The SECOND call is the genuine ON CONFLICT DO UPDATE path: same
     // provider+external_ref, so collectionIdFor() finds the existing row.
-    $second = $writer->upsertStore($brand->toStoreRecord(), $userId);
+    $second = $writer->upsertStore($store, $userId);
 
     expect($second)->toBe($first)
         ->and(DB::connection('pgsql')->table('content.storefronts')->where('collection_id', $first)->count())->toBe(1);
@@ -207,23 +207,23 @@ it('upserts the same store twice against real Postgres without SQLSTATE 42702', 
 
 it('keeps an already-stamped products_curated_at when the incoming value is null', function () {
     $userId = shopUpsertConflictTestUser();
-    $brand = shopUpsertConflictTestBrand('store-2'); // products_curated_at null
+    $store = shopUpsertConflictTestStore('store-2'); // products_curated_at null
     $writer = app(ShopContentWriter::class);
-    $collectionId = $writer->upsertStore($brand->toStoreRecord(), $userId);
+    $collectionId = $writer->upsertStore($store, $userId);
 
-    // Simulate Task 8 having stamped the content-side column directly,
-    // independent of the (in this test, still-null) legacy column the
-    // in-memory $brand represents.
+    // Simulate setProducts() having stamped the content-side column directly,
+    // independent of the (in this test, still-null) productsCuratedAt the
+    // record carries.
     $stamp = now()->subMinute();
     DB::connection('pgsql')->table('content.storefronts')->where('collection_id', $collectionId)
         ->update(['products_curated_at' => $stamp]);
 
     // A routine resync calls upsertStore() again with the SAME (still-null)
-    // brand — this must NOT reset the stamp back to null. Getting the
+    // record — this must NOT reset the stamp back to null. Getting the
     // COALESCE arguments the wrong way round (or losing the qualification
     // that made the statement runnable at all) reinstates exactly the sync-
     // clobbers-curation bug this column was written to prevent.
-    $writer->upsertStore($brand->toStoreRecord(), $userId);
+    $writer->upsertStore($store, $userId);
 
     $after = DB::connection('pgsql')->table('content.storefronts')->where('collection_id', $collectionId)->value('products_curated_at');
     expect($after)->not->toBeNull();
@@ -231,17 +231,16 @@ it('keeps an already-stamped products_curated_at when the incoming value is null
 
 it('fills a null products_curated_at from a non-null incoming value', function () {
     $userId = shopUpsertConflictTestUser();
-    $brand = shopUpsertConflictTestBrand('store-3'); // products_curated_at null
+    $store = shopUpsertConflictTestStore('store-3'); // products_curated_at null
     $writer = app(ShopContentWriter::class);
-    $collectionId = $writer->upsertStore($brand->toStoreRecord(), $userId);
+    $collectionId = $writer->upsertStore($store, $userId);
 
     expect(DB::connection('pgsql')->table('content.storefronts')->where('collection_id', $collectionId)->value('products_curated_at'))
         ->toBeNull();
 
     // The row has never recorded a curation event — the incoming value must
     // be taken this time.
-    $brand->products_curated_at = now();
-    $writer->upsertStore($brand->toStoreRecord(), $userId);
+    $writer->upsertStore($store->with(['productsCuratedAt' => now()]), $userId);
 
     expect(DB::connection('pgsql')->table('content.storefronts')->where('collection_id', $collectionId)->value('products_curated_at'))
         ->not->toBeNull();

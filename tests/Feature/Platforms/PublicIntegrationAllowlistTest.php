@@ -2,9 +2,9 @@
 
 use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -18,13 +18,19 @@ beforeEach(function () {
     setupContentTables();
 });
 
-/** Land a brand + its products in content.*, the way the endpoints do. */
-function allowlistStore(ShopBrand $brand, string $userId, array $products = []): void
+/**
+ * Land a store + its products in content.*, the way the endpoints do.
+ *
+ * Took a site.shop_brands row and mirrored it across until that table was
+ * dropped (20260819000210). It takes the StoreRecord directly now — content.*
+ * is the only storage a store has, so there is nothing left to mirror FROM.
+ */
+function allowlistStore(StoreRecord $store, string $userId, array $products = []): void
 {
     $writer = app(ShopContentWriter::class);
-    $collectionId = $writer->upsertStore($brand->toStoreRecord(), $userId);
+    $collectionId = $writer->upsertStore($store, $userId);
     if ($products !== []) {
-        $writer->syncStore($userId, $collectionId, $products, $brand->currency);
+        $writer->syncStore($userId, $collectionId, $products, $store->currency);
     }
 }
 
@@ -84,10 +90,12 @@ it('strips the internal _folder key from the public Instagram payload', function
 it('publishes an empty payload for a shop connection — no brand fields at all', function () {
     $user = allowlistUser('allow2');
 
-    // FOUND-25: brands are relational site.shop_brands rows. The fields below
-    // used to be split into public (name/discountCode/provider) and private
+    // A store is a content.collections + content.storefronts pair (it was a
+    // relational site.shop_brands row under FOUND-25 until that table was
+    // dropped). The fields below used to be split into public
+    // (name/discountCode/provider) and private
     // (source_url/fetch_mode/is_individual/position). None reach the wire now.
-    $conn = IntegrationConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'shopify.store',
         'resource_id' => 'shop',
@@ -95,18 +103,17 @@ it('publishes an empty payload for a shop connection — no brand fields at all'
         'is_active' => true,
         'last_refresh_status' => 'ok',
     ]);
-    allowlistStore(ShopBrand::create([
-        'connection_id' => $conn->id,
-        'brand_id' => 'brand-123',
-        'provider' => 'shopify',
-        'url' => 'https://shop.example',
-        'source_url' => 'https://shop.example/internal-rescrape-input', // must stay private
-        'name' => 'Example Shop',
-        'currency' => 'AUD',
-        'favicon' => 'https://shop.example/favicon.ico',
-        'logo' => 'https://shop.example/logo.png',
-        'discount_code' => 'SAVE10',
-    ]), (string) $user->id);
+    allowlistStore(new StoreRecord(
+        externalRef: 'brand-123',
+        provider: 'shopify',
+        name: 'Example Shop',
+        url: 'https://shop.example',
+        sourceUrl: 'https://shop.example/internal-rescrape-input', // must stay private
+        currency: 'AUD',
+        discountCode: 'SAVE10',
+        logoUrl: 'https://shop.example/logo.png',
+        faviconUrl: 'https://shop.example/favicon.ico',
+    ), (string) $user->id);
 
     $response = $this->getJson('/api/public/profiles/allow2/integrations')->assertOk();
 
@@ -135,17 +142,17 @@ it('keeps each product gallery, per-variant image and variantId OFF the /integra
     // reaches the legacy wire any more.
     $user = allowlistUser('allowvimg');
 
-    $conn = IntegrationConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    $brand = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'brand-x', 'provider' => 'shopify',
-        'url' => 'https://shop.example', 'discount_code' => 'SAVE10', 'referral_query' => 'ref=abc',
-    ]);
+    $store = new StoreRecord(
+        externalRef: 'brand-x', provider: 'shopify',
+        url: 'https://shop.example', discountCode: 'SAVE10', referralQuery: 'ref=abc',
+    );
     // The exact shape ShopifyScraper::fetchProducts() produces, landed the way
     // setProducts() lands it.
-    allowlistStore($brand, (string) $user->id, [[
+    allowlistStore($store, (string) $user->id, [[
         'productId' => '111', 'title' => 'Wool Runner', 'handle' => 'wool-runner',
         'vendor' => 'Allbirds', 'image' => 'https://cdn.shopify.com/grey.jpg',
         'images' => ['https://cdn.shopify.com/grey.jpg', 'https://cdn.shopify.com/navy.jpg'],
@@ -183,17 +190,17 @@ it('keeps each product gallery, per-variant image and variantId OFF the /integra
 it('publishes no shop product at all on the public wire, unvetted keys included (#API-1)', function () {
     $user = allowlistUser('allowprodfilter');
 
-    $conn = IntegrationConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    $brand = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'brand-filter', 'provider' => 'shopify',
-        'url' => 'https://shop.example', 'position' => 0,
-    ]);
+    $store = new StoreRecord(
+        externalRef: 'brand-filter', provider: 'shopify',
+        position: 0, url: 'https://shop.example',
+    );
     // The legitimate ShopifyScraper shape PLUS three keys a future fetcher (or a
     // careless merge) might store. None are on SHOP_PRODUCT_ALLOWLIST.
-    allowlistStore($brand, (string) $user->id, [[
+    allowlistStore($store, (string) $user->id, [[
         'productId' => '111', 'title' => 'Wool Runner', 'handle' => 'wool-runner',
         'vendor' => 'Allbirds', 'description' => 'Merino wool.',
         'image' => 'https://cdn.shopify.com/grey.jpg',
@@ -240,15 +247,15 @@ it('publishes not one former SHOP_PRODUCT_ALLOWLIST key on this wire (#API-1)', 
     // non-null values and prove NONE of them reaches /integrations.
     $user = allowlistUser('allowprodkeys');
 
-    $conn = IntegrationConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    $brand = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'brand-keys', 'provider' => 'shopify',
-        'url' => 'https://shop.example', 'position' => 0,
-    ]);
-    allowlistStore($brand, (string) $user->id, [[
+    $store = new StoreRecord(
+        externalRef: 'brand-keys', provider: 'shopify',
+        position: 0, url: 'https://shop.example',
+    );
+    allowlistStore($store, (string) $user->id, [[
         'productId' => '111',
         'title' => 'Wool Runner',
         'handle' => 'wool-runner',
@@ -311,20 +318,24 @@ it('keeps the GLOBAL shop link mode off this wire — the pool composes the URL 
         'created_at' => now(),
         'updated_at' => now(),
     ]);
-    $conn = IntegrationConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    // Two brands whose STORED per-brand link_mode is 'product' — the global must
-    // override both to 'checkout'.
-    allowlistStore(ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'b1', 'provider' => 'shopify',
-        'url' => 'https://b1.example', 'link_mode' => 'product', 'position' => 0,
-    ]), (string) $user->id);
-    allowlistStore(ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'b2', 'provider' => 'woocommerce',
-        'url' => 'https://b2.example', 'link_mode' => 'product', 'position' => 1,
-    ]), (string) $user->id);
+    // Two stores under that global. They carried a per-brand `link_mode` column
+    // when this case was written, set to 'product' so the global overriding it
+    // to 'checkout' was visible; content.storefronts has no such column (slice
+    // 5a fix round 1, Finding 4 — link_mode was already one global setting in
+    // practice), so the site-level 'checkout' above is the only link mode in
+    // play. It is still the one that must not reach this wire: brandMap()
+    // stamps it onto every DASHBOARD brand from site.sites.shop_link_mode, so
+    // a resource that published the brand map here would leak it.
+    allowlistStore(new StoreRecord(
+        externalRef: 'b1', provider: 'shopify', position: 0, url: 'https://b1.example',
+    ), (string) $user->id);
+    allowlistStore(new StoreRecord(
+        externalRef: 'b2', provider: 'woocommerce', position: 1, url: 'https://b2.example',
+    ), (string) $user->id);
 
     $response = $this->getJson('/api/public/profiles/allowshop/integrations')->assertOk();
 

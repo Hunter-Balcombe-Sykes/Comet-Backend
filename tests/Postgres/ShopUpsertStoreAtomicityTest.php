@@ -43,8 +43,8 @@
 // table's shape for every later file in the same run), so provisioning
 // outside a rolled-back transaction is not safe here.
 
-use App\Models\Core\Site\ShopBrand;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -120,22 +120,27 @@ afterEach(function () {
     DB::connection('pgsql')->rollBack();
 });
 
-function atomicityTestBrand(string $externalRef): ShopBrand
+/**
+ * The store these tests upsert. Was an in-memory (never persisted) ShopBrand
+ * folded through toStoreRecord(); the model and site.shop_brands are both gone
+ * (20260819000210), so the record is built directly — upsertStore() only ever
+ * read data off that object, never the table.
+ */
+function atomicityTestStore(string $externalRef): StoreRecord
 {
-    return new ShopBrand([
-        'connection_id' => (string) Str::uuid(),
-        'brand_id' => $externalRef,
-        'provider' => 'shopify',
-        'url' => 'https://store.test',
-        'source_url' => 'https://store.test',
-        'name' => 'Test Store',
-        'currency' => 'AUD',
-        'discount_code' => '',
-        'referral_query' => '',
-        'is_individual' => false,
-        'position' => 0,
-        'products_curated_at' => null,
-    ]);
+    return new StoreRecord(
+        externalRef: $externalRef,
+        provider: 'shopify',
+        name: 'Test Store',
+        position: 0,
+        url: 'https://store.test',
+        sourceUrl: 'https://store.test',
+        currency: 'AUD',
+        discountCode: '',
+        referralQuery: '',
+        isIndividual: false,
+        productsCuratedAt: null,
+    );
 }
 
 function atomicityTestUser(): string
@@ -148,13 +153,13 @@ function atomicityTestUser(): string
 
 it('rolls back the collections write when the storefronts write fails', function () {
     $userId = atomicityTestUser();
-    $brand = atomicityTestBrand('store-atomic-1');
+    $store = atomicityTestStore('store-atomic-1');
 
     // Force a genuine Postgres statement-level error on the SECOND write —
     // logo_url is a real, nullable column upsertStore() writes on every call.
     DB::connection('pgsql')->statement('ALTER TABLE content.storefronts DROP COLUMN logo_url');
 
-    expect(fn () => app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), $userId))
+    expect(fn () => app(ShopContentWriter::class)->upsertStore($store, $userId))
         ->toThrow(QueryException::class);
 
     // The incident's actual failure mode: without the transaction, this
@@ -171,14 +176,14 @@ it('leaves both tables untouched, not just collections, on the same failure', fu
     // write). Two stores: the first succeeds normally: the second's
     // storefronts write is forced to fail. Only the first must survive.
     $userId = atomicityTestUser();
-    $goodBrand = atomicityTestBrand('store-atomic-good');
+    $goodStore = atomicityTestStore('store-atomic-good');
     $writer = app(ShopContentWriter::class);
-    $goodCollectionId = $writer->upsertStore($goodBrand->toStoreRecord(), $userId);
+    $goodCollectionId = $writer->upsertStore($goodStore, $userId);
 
     DB::connection('pgsql')->statement('ALTER TABLE content.storefronts DROP COLUMN logo_url');
 
-    $badBrand = atomicityTestBrand('store-atomic-bad');
-    expect(fn () => $writer->upsertStore($badBrand->toStoreRecord(), $userId))
+    $badStore = atomicityTestStore('store-atomic-bad');
+    expect(fn () => $writer->upsertStore($badStore, $userId))
         ->toThrow(QueryException::class);
 
     expect(DB::connection('pgsql')->table('content.collections')->count())->toBe(1)

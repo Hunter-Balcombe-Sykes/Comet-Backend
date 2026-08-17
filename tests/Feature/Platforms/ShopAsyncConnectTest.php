@@ -3,7 +3,6 @@
 use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
@@ -283,12 +282,20 @@ it('T2/T3: the pending row satisfies every NOT NULL column with correct values, 
     // deferred connect until ShopBrandConnectJob settles it.
     expect($store->label)->toBe('t2-brand');
 
-    // CHECK vocabulary. The CONSTRAINT itself did not come across —
-    // content.storefronts.connect_status carries no CHECK (migration
-    // 20260813100000), where shop_brands_connect_status_check pinned the
-    // two-value vocabulary — so this assertion is now the only thing standing
-    // between a third status and a silent landing.
-    expect(in_array($store->connect_status, ShopBrand::CONNECT_STATUSES, true))->toBeTrue();
+    // CHECK vocabulary. 20260813100000 declared connect_status bare text, so
+    // for a while this assertion WAS the only thing standing between a third
+    // status and a silent landing; 20260819000120 closed that by carrying
+    // shop_brands_connect_status_check onto the replacement column as
+    // storefronts_connect_status_check, before the DROP took the original away.
+    //
+    // The vocabulary is pinned literally here because there is no app-side
+    // constant left to read it from: ShopBrand::CONNECT_STATUSES went with the
+    // model, and the values now live as literals at their write sites —
+    // ShopController::addBrand ('pending' or null) and ShopBrandConnectJob's
+    // settle (null) and markTerminal ('failed'). The migration-vs-hardcoded
+    // lockstep for the same vocabulary is in ConstraintVocabularyLockstepTest;
+    // this is the runtime half, on a row the endpoint actually wrote.
+    expect(in_array($store->connect_status, [null, 'pending', 'failed'], true))->toBeTrue();
     expect($store->connect_status)->toBe('pending');
     expect($store->connect_error)->toBeNull();
 });
@@ -718,23 +725,27 @@ it('T13: the public payload carries no brand at all and never exposes connectSta
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    $pending = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'pend-brand', 'provider' => 'shopify',
-        'url' => 'https://pend.example.com', 'source_url' => 'https://pend.example.com',
-        'position' => 0, 'connect_status' => 'pending',
-    ]);
-    $failed = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'fail-brand', 'provider' => 'shopify',
-        'url' => 'https://fail.example.com', 'source_url' => 'https://fail.example.com',
-        'position' => 1, 'connect_status' => 'failed',
-        'connect_error' => 'We could not load that account. Please try again.',
-    ]);
     // Both brands land through the writer addBrand()/ShopBrandConnectJob use,
     // exactly as production would have them — so the empty payload asserted
     // below is a retirement rather than an unwritten fixture.
     $writer = app(ShopContentWriter::class);
-    $writer->upsertStore($pending->toStoreRecord(), (string) $user->id);
-    $failedCollectionId = $writer->upsertStore($failed->toStoreRecord(), (string) $user->id);
+    $writer->upsertStore(new StoreRecord(
+        externalRef: 'pend-brand',
+        provider: 'shopify',
+        position: 0,
+        url: 'https://pend.example.com',
+        sourceUrl: 'https://pend.example.com',
+        connectStatus: 'pending',
+    ), (string) $user->id);
+    $failedCollectionId = $writer->upsertStore(new StoreRecord(
+        externalRef: 'fail-brand',
+        provider: 'shopify',
+        position: 1,
+        url: 'https://fail.example.com',
+        sourceUrl: 'https://fail.example.com',
+        connectStatus: 'failed',
+        connectError: 'We could not load that account. Please try again.',
+    ), (string) $user->id);
     $writer->syncStore((string) $user->id, $failedCollectionId, [[
         'productId' => 'p1', 'title' => 'Still usable', 'url' => 'https://fail.example.com/p1',
         'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
@@ -828,18 +839,20 @@ it('T20: a failed brand is retained, still returns products, and re-POSTing its 
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    $brand = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 't20-brand', 'provider' => 'shopify',
-        'url' => 'https://t20.example.com', 'source_url' => 'https://t20.example.com',
-        'position' => 0, 'connect_status' => 'failed',
-        'connect_error' => 'We could not load that account. Please try again.',
-    ]);
-    // Task 8: brandProducts() now reads ShopContentReader with no legacy
-    // fallback (hybridBrandMap() is gone) — a brand this test builds by hand
-    // needs the content.* row a real deferred connect would already have
-    // (ShopBrandConnectJob::markTerminal() upserts one on every 'failed'
-    // transition; see that job's own docblock).
-    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+    // Task 8: brandProducts() reads ShopContentReader with no legacy fallback
+    // (hybridBrandMap() is gone, and so is site.shop_brands) — a brand this
+    // test builds by hand needs the content.* row a real deferred connect
+    // would already have (ShopBrandConnectJob::markTerminal() upserts one on
+    // every 'failed' transition; see that job's own docblock).
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: 't20-brand',
+        provider: 'shopify',
+        position: 0,
+        url: 'https://t20.example.com',
+        sourceUrl: 'https://t20.example.com',
+        connectStatus: 'failed',
+        connectError: 'We could not load that account. Please try again.',
+    ), (string) $user->id);
 
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
@@ -1056,9 +1069,13 @@ it('T22: the poll route answers under /shop and the old /shopify alias 404s', fu
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'dual-brand', 'provider' => 'shopify', 'url' => 'https://d.example', 'position' => 0]);
     // Re-home Task 6: the poll resolves off content.*.
-    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: 'dual-brand',
+        provider: 'shopify',
+        position: 0,
+        url: 'https://d.example',
+    ), (string) $user->id);
 
     actingAsUser($user)->getJson('/api/platforms/shop/brands/dual-brand/connect/status')
         ->assertOk()->assertJsonPath('status', 'ready');

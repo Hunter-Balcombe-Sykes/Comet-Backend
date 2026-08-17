@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
@@ -9,16 +8,17 @@ use App\Services\Platforms\EventsPayload;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    // Task 7: GET /api/platforms/shop/brands now reads content.storefronts
-    // (ShopContentReader) with a fallback to the legacy site.shop_brands map
-    // — attach the stand-in schema so the content.* half of that read
-    // doesn't 500 on SQLite's real absence of the table.
+    // Task 7: GET /api/platforms/shop/brands reads content.storefronts
+    // (ShopContentReader). The legacy site.shop_brands fallback it once had is
+    // gone with the table — attach the stand-in schema so that read has
+    // something to resolve against on SQLite.
     setupContentTables();
 });
 
@@ -433,8 +433,9 @@ it('shopify addBrand returns the canonical brand object shape', function () {
             // (matching GET /brands) — linkMode is derived from site.sites.
             // shop_link_mode, and platformContractUser() has no site row, so
             // it falls to Site::DEFAULT_SHOP_LINK_MODE ('checkout') rather
-            // than ShopBrand's own per-brand column default ('product'). Same
-            // documented divergence as ShopEndpointParityTest's GET /brands.
+            // than the 'product' default the retired per-brand link_mode
+            // column carried. Same documented divergence as
+            // ShopEndpointParityTest's GET /brands.
             'linkMode' => 'checkout',
             'referralQuery' => '',
             'individual' => false,
@@ -444,19 +445,19 @@ it('shopify addBrand returns the canonical brand object shape', function () {
 
 it('shopify brands list strips unknown per-brand keys', function () {
     $user = platformContractUser('sh2');
-    // FOUND-25: brands are relational rows now — fixed columns mean there is no
-    // "unknown key" to leak, but ShopBrandResource must still shape the row into
-    // exactly this contract (no internal columns like source_url/fetch_mode).
-    $conn = seedPlatformConnection($user, 'shopify.store', ['storage' => 'relational']);
-    $brand = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'brand-1', 'provider' => 'shopify',
-        'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
-        'favicon' => null, 'logo' => null, 'discount_code' => 'SAVE',
-    ]);
-    // Task 8: brands() now reads ShopContentReader with no legacy fallback
+    // FOUND-25: a store is a content.collections + content.storefronts pair —
+    // fixed columns mean there is no "unknown key" to leak, but
+    // ShopBrandResource must still shape the row into exactly this contract
+    // (no internal columns like source_url/fetch_mode).
+    seedPlatformConnection($user, 'shopify.store', ['storage' => 'relational']);
+    // Task 8: brands() reads ShopContentReader with no legacy fallback
     // (hybridBrandMap() is gone) — land this fixture in content.* the same
     // way a real addBrand() connect would.
-    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: 'brand-1', provider: 'shopify',
+        name: 'B', url: 'https://b', currency: 'AUD',
+        discountCode: 'SAVE', logoUrl: null, faviconUrl: null,
+    ), (string) $user->id);
 
     actingAsUser($user)->getJson('/api/platforms/shop/brands')
         ->assertOk()
