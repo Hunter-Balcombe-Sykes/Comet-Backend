@@ -16,6 +16,16 @@ enum PlatformRouteShape
 
     // connect on the platform's own controller; selection + DELETE (and /accounts when
     // multiAccount()) on GenericPlatformController (the former $migratedReads group).
+    //
+    // The name describes the EMISSION PATTERN, not an account cardinality. A
+    // descriptor may be MultiAccount with multiAccount() === false — nowbookit,
+    // opentable and resdiary all are — and that combination is correct: it emits
+    // connect + selection + forget on GenericPlatformController and no /accounts
+    // routes, which is exactly what a single-account registry-driven provider
+    // needs. Do NOT "fix" it by reclassifying to SingleSelection: all three
+    // declare connectController = null (PlatformRegistryServiceProvider.php:628-630,
+    // FOUND-24), and SingleSelection wires selection + forget to that controller.
+    // Branch on multiAccount(), never on this enum.
     case MultiAccount;
 
     // Not emitted by the loop — the platform keeps its standalone route group. Default.
