@@ -227,7 +227,54 @@ it('pins an item shared across two of the owner\'s stores exactly once, at its e
     expect($pins)->toBe([$shared, $onlyB]);
 });
 
-it('fires all three cache-invalidation lanes per site', function () {
+it('fires all three cache-invalidation lanes per site, exactly once per touched site', function () {
+    [$pro, $siteId] = poolTenant();
+    $store = storefront($pro->id, 0, 'Store');
+    productIn($pro->id, $store, 0, 'Only');
+
+    // A second, fully independent tenant+site+store — proves the lanes fire
+    // PER SITE, not once globally for the whole run.
+    [$proB, $siteBId] = poolTenant();
+    $storeB = storefront($proB->id, 0, 'Store B');
+    productIn($proB->id, $storeB, 0, 'Only B');
+
+    $subdomain = (string) DB::table('site.sites')->where('id', $siteId)->value('subdomain');
+    $subdomainB = (string) DB::table('site.sites')->where('id', $siteBId)->value('subdomain');
+
+    $before = DB::table('site.sites')->where('id', $siteId)->value('updated_at');
+    $beforeB = DB::table('site.sites')->where('id', $siteBId)->value('updated_at');
+    $revisionBefore = (int) (DB::table('site.site_build_state')->where('site_id', $siteId)->value('content_revision') ?? 0);
+    $revisionBeforeB = (int) (DB::table('site.site_build_state')->where('site_id', $siteBId)->value('content_revision') ?? 0);
+    $this->travelTo(now()->addMinute());
+
+    $this->artisan('content:provision-shop-pins')->assertSuccessful();
+
+    // Lane 2: the payload cache key composes from sites.updated_at.
+    expect(DB::table('site.sites')->where('id', $siteId)->value('updated_at'))->not->toBe($before)
+        ->and(DB::table('site.sites')->where('id', $siteBId)->value('updated_at'))->not->toBe($beforeB);
+
+    // Lane 1: the document build state, an EXACT +1 delta — the command
+    // visits each site's storefronts once per run, so a bare ->exists()
+    // check (the previous version of this assertion) cannot tell "bumped
+    // once" from "bumped every time the command re-derived $userIds".
+    expect((int) DB::table('site.site_build_state')->where('site_id', $siteId)->value('content_revision'))
+        ->toBe($revisionBefore + 1)
+        ->and((int) DB::table('site.site_build_state')->where('site_id', $siteBId)->value('content_revision'))
+        ->toBe($revisionBeforeB + 1);
+
+    // Lane 3: the CDN outlives the origin write. CloudflareCachePurgeJob
+    // implements ShouldBeUnique keyed on the handle (subdomain), and that
+    // lock is honoured under Queue::fake() (PendingDispatch::shouldDispatch()
+    // + QueueFake both respect it) — so a bare/integer assertPushed count
+    // cannot distinguish "dispatched once" from "dispatched twice and
+    // deduped". What it CAN prove, and what matters here, is that each
+    // site's own subdomain shows up at least once — the per-site CARDINALITY
+    // claim is carried by the exact content_revision deltas above instead.
+    Queue::assertPushed(CloudflareCachePurgeJob::class, fn ($job) => $job->handle === $subdomain);
+    Queue::assertPushed(CloudflareCachePurgeJob::class, fn ($job) => $job->handle === $subdomainB);
+});
+
+it('--dry-run fires none of the three cache-invalidation lanes', function () {
     [$pro, $siteId] = poolTenant();
     $store = storefront($pro->id, 0, 'Store');
     productIn($pro->id, $store, 0, 'Only');
@@ -235,12 +282,14 @@ it('fires all three cache-invalidation lanes per site', function () {
     $before = DB::table('site.sites')->where('id', $siteId)->value('updated_at');
     $this->travelTo(now()->addMinute());
 
-    $this->artisan('content:provision-shop-pins')->assertSuccessful();
+    $this->artisan('content:provision-shop-pins', ['--dry-run' => true])->assertSuccessful();
 
-    // Lane 2: the payload cache key composes from sites.updated_at.
-    expect(DB::table('site.sites')->where('id', $siteId)->value('updated_at'))->not->toBe($before);
-    // Lane 1: the document build state.
-    expect(DB::table('site.site_build_state')->where('site_id', $siteId)->exists())->toBeTrue();
-    // Lane 3: the CDN outlives the origin write.
-    Queue::assertPushed(CloudflareCachePurgeJob::class);
+    // Lane 2: unconditional touch would still show up here even with travelTo
+    // in between and nothing else changing site.sites.
+    expect(DB::table('site.sites')->where('id', $siteId)->value('updated_at'))->toBe($before);
+    // Lane 1: no build-state row at all on a fresh tenant — null-safe, since
+    // a fresh tenant's site.site_build_state row may never have existed.
+    expect((int) (DB::table('site.site_build_state')->where('site_id', $siteId)->value('content_revision') ?? 0))->toBe(0);
+    // Lane 3.
+    Queue::assertNotPushed(CloudflareCachePurgeJob::class);
 });

@@ -5,11 +5,10 @@ namespace App\Http\Controllers\Api\Content;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Content\Item;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
 use App\Site\Pools\PoolSectionProvisioner;
@@ -212,24 +211,20 @@ class PoolController extends ApiController
      * Option B serves pools LIVE, but the CDN in front still holds the rendered
      * page — without the purge, "the site follows instantly" was true of the
      * payload and false of what a visitor saw (found verifying P2: the deploy's
-     * edge cache outlived a pool edit). ShouldBeUnique per handle, so bursts
-     * coalesce.
+     * edge cache outlived a pool edit).
      *
-     * The sites.updated_at write is lane 2 and was MISSING until 2026-08-14:
-     * the public payload cache key is derived from that column, so a reorder
-     * bumped the build state and purged the CDN while the origin happily
-     * re-served the stale order from its own cache for the remainder of the
-     * TTL. Mirrors ShopController::bumpSiteCache(). A raw update rather than
-     * touch() on purpose — touch() fires SiteObserver's full invalidation and
-     * KV-sync chain, which the two explicit lanes here already cover.
+     * INCIDENT HISTORY: the sites.updated_at write is lane 2 and was MISSING
+     * until 2026-08-14 — the public payload cache key is derived from that
+     * column, so a reorder bumped the build state and purged the CDN while
+     * the origin happily re-served the stale order from its own cache for
+     * the remainder of the TTL. Mirrors ShopController::bumpSiteCache().
+     *
+     * Mechanism now lives in SiteCacheLanes::bust() (#PGR-6), the shared
+     * seam every pool-mutating write path adopts.
      */
     private function poolChanged(Site $site): void
     {
-        BuildState::bump((string) $site->id);
-        DB::connection('pgsql')->table('site.sites')->where('id', $site->id)->update(['updated_at' => now()]);
-        if ($site->subdomain !== '') {
-            CloudflareCachePurgeJob::dispatch($site->subdomain);
-        }
+        SiteCacheLanes::bust([(string) $site->id]);
     }
 
     private function assertPool(string $pool): void

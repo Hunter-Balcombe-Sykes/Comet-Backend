@@ -15,7 +15,7 @@ new public surface.
 |---|---|
 | P0 — blockers | 0 |
 | P1 — high     | 6 |
-| P2 — medium   | 14 |
+| P2 — medium   | 15 |
 | P3 — low      | 15 |
 
 ## READ THIS BEFORE TICKING ANYTHING — ids were renumbered
@@ -47,15 +47,16 @@ Never script a tick keyed on id alone.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 6 complete
-- P2 Medium: 0 of 14 complete
+- P1 High: 3 of 6 complete
+- P2 Medium: 0 of 15 complete
 - P3 Low: 0 of 15 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#PGR-1** · P1 — `ProvisionShopPinsCommand`'s three-lane invalidation is unguarded by CI
+- [x] **#PGR-1** · P1 — `ProvisionShopPinsCommand`'s three-lane invalidation is unguarded by CI
+    - **Resolution (2026-08-18, `audit-fix/programme-review-p1-2026-08-17`):** DONE, premise partly restated. "No CI check enforces this" was **stale** — `ShopPinProvisioningTest.php:230-246` already asserted three lanes. But its lane-1 check was `->exists()`, a row-existence test that still passes with `BuildState::bump()` deleted, and no case asserted `--dry-run` stays silent. Both of the finding's actual asks are now real tests: exact per-site `content_revision` deltas across **two independent sites**, plus a new `--dry-run` fires-none case. `invalidate()` now routes through `SiteCacheLanes::bust()`, and the new `tests/Feature/Architecture/PoolCacheLaneSeamTest.php` fails if this command or the four Content controllers re-roll the lanes by hand. Every lane assertion was proven non-vacuous by deleting its lane and observing the failure.
     - **Source:** migration-commands — was `#TEST-1`
     - **Where:** app/Console/Commands/ProvisionShopPinsCommand.php
     - **Affects:** Shop-page owners after pin backfill; if any invalidation lane is dropped in a refactor, pinned products may not appear on the live/edge sitepage.
@@ -159,7 +160,13 @@ Never script a tick keyed on id alone.
         ]);
         ```
 
-- [ ] **#PGR-6** · P1 — Three pool-mutation endpoints reproduce the pre-2026-08-14 stale-origin-cache bug
+- [x] **#PGR-6** · P1 — Three pool-mutation endpoints reproduce the pre-2026-08-14 stale-origin-cache bug
+    - **Resolution (2026-08-18, `audit-fix/programme-review-p1-2026-08-17`):** DONE for the four controller call sites; the `bumpSite()` half is **WONTFIX — premise disproved** (owner ruling, 2026-08-18).
+        - *The controllers:* `PoolItemCreateController::pin()`, `ItemController::destroy()` and `ItemLinkController::upsert()/destroy()` were confirmed still two-lane on `293aff38b` and now fire all three. `PoolController::poolChanged()` and `ProvisionShopPinsCommand::invalidate()` were collapsed onto the same seam, so no hand-rolled copy of the contract remains in the pool lane.
+        - *No helper was extracted:* the finding asked for one, but `App\Site\Documents\SiteCacheLanes::bust()` (`app/Site/Documents/SiteCacheLanes.php:35`) already existed and was already used by 8 call sites. The work was **adoption, not extraction**.
+        - *Why `bumpSite()` is WONTFIX:* the finding's rationale — "the method every connector/manual-write path funnels through" — is false. `grep -rn "bumpSite(" app/` returns exactly **one** caller (`ProjectionWriter.php:422`, `writeManualItem()`); the second hit is a comment in `PruneOrphanedReviewPiiCommand`. The connector seam is `projectStream()` → `invalidateSiteLanes()` (`:258` → `:1688-1694`), which already fires all three lanes (shipped `30240ce19`). `bumpSite()` is a **per-item primitive** whose batch callers (`MenuScanApplier`, `ShopContentWriter::syncProducts`, the backfillers) invoke `writeManualItem()` once per row — a 318-dish menu scan would issue 318 `UPDATE site.sites` and 318 purge dispatches where one of each is correct, and would turn `ProjectionWriterBatchingTest`'s ≤140-query budget red. Its own docblock stated this design deliberately. The owner ruling is satisfied **at the request boundary**, which is where a lane belongs; `bumpSite()` now carries a docblock note recording the ruling and why the split survives it. Behaviour unchanged — the diff on that file is comments only.
+        - *Scope found and deferred:* three further owner-initiated lane-1-only paths the finding missed are filed as **#PGR-36** (P2).
+        - *Guards:* `tests/Feature/Content/PoolCacheLanesTest.php` extended with hand-add (exact **+2** delta — one bump from `writeManualItem()`, one from `pin()`), item delete, link upsert and link delete; the pre-existing reorder case hardened off `toBeGreaterThan()` to an exact delta. New `tests/Feature/Architecture/PoolCacheLaneSeamTest.php` pins the five files to the seam. `CLAUDE.md` corrected — it wrongly said `bumpSite()` "fires only lanes 1+3"; it fires **lane 1 only**.
     - **Source:** wire-resources — was `#TEST-1`. Independently re-verified in code by the review gate (this was its finding R-10) and **upgraded from a question to a confirmed defect by owner ruling, 2026-08-17.**
     - **Verified, not taken from the draft.** Read directly: `PoolController::poolChanged()` (`:226-233`) fires all three lanes; `PoolItemCreateController::pin()` (`:246-249`) fires lanes 1+3 only; `ProjectionWriter::bumpSite()` (`:1672-1679`) calls `BuildState::bump()` and nothing else. `grep -c "site.sites')"` returns **0** for `PoolItemCreateController`, `ItemController` and `ItemLinkController`. Lane 2 is the load-bearing one — the 60s public-profile payload cache key is composed from `site.sites.updated_at`, so the CDN is correctly purged while the ORIGIN keeps re-serving its own stale payload behind it.
     - **The split the original finding did not make, which changes the fix.** `store()` (hand-add → `writeManualItem()` → `bumpSite()`) is NOT a regression: spec §12.6 explicitly accepted it — *"60s public-profile payload cache — Not busted. A content write does not move `site.sites.updated_at`… TTL-bounded staleness only (default 60s)."* `pin()`, `ItemController::destroy()` and `ItemLinkController::upsert()/destroy()` ARE, because they are owner-initiated mutations inconsistent with a sibling in the same controller family that was deliberately fixed on 2026-08-14, and §17.2 shows the owner-write convention is the opposite (`ManualServiceWriter::invalidate()` DOES touch `site.sites.updated_at`).
@@ -516,6 +523,27 @@ Never script a tick keyed on id alone.
         longitude: $this->detectLongitude($request),
         ```
 
+- [ ] **#PGR-36** · P2 — Three further owner-initiated write paths fire lane 1 only, the same defect class as #PGR-6
+    - **Source:** found during the execution of #PGR-6, 2026-08-18 (`audit-fix/programme-review-p1-2026-08-17`) — not from a scan run. Owner ruled it a follow-up rather than folding it into #PGR-6, to keep that unit's diff tight and to avoid dragging `ItemMerger`'s concurrency story into a cache unit.
+    - **Where:** `app/Http/Controllers/Api/Content/ManualOverrideController.php:107-112` (`bumpSites()`); `app/Services/Content/ItemMerger.php:368-373` (`bumpSites()`); `app/Http/Controllers/Api/Site/SectionItemController.php:103` (`upsert()`) and `:126` (`destroy()`)
+    - **Affects:** Public sitepage visitors. Each is an owner-initiated curation write that bumps the build state and then stops — no `site.sites.updated_at`, no edge purge — so the origin re-serves its stale payload for the 60s TTL *and* the CDN is never purged at all. `ManualOverrideController` is the sharpest of the three: an override changes the rendered headline/body, so the visible text is what goes stale.
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Route all four through `App\Site\Documents\SiteCacheLanes::bust()`, the seam #PGR-6 established.
+        - Decide `SectionItemController` deliberately: it is the *other* pin path onto `site.section_items` (named as such at `PoolController.php:57`), so it should almost certainly match the pool lane. The site-builder controllers (`SectionController`, `SectionGroupController`, `PageController`) are also lane-1-only and may warrant a different judgement — settle whether the builder lane is in or out before writing code.
+        - Add the five files to `POOL_CACHE_LANE_FILES` in `tests/Feature/Architecture/PoolCacheLaneSeamTest.php` (and bump its count assertion) so the guard covers them once they adopt the seam. That test's docblock currently names these three as deliberately excluded — update it.
+    - **Technical:** Verified by reading each method on `293aff38b`: all three call `BuildState::bump()` in a loop over the user's sites and nothing else. `SectionItemController::destroy()` uses Eloquent `->delete()` on `SectionItem`, but there is no `SectionItemObserver`, so no observer discharges the other two lanes either. Distinct from `ShopController::bumpSiteCache()` (`:1266-1275`), which fires lanes 1+2 but deliberately not 3 because `IntegrationConnectionCacheRefresher` owns the edge purge on that lane — that one is **not** a defect and should not be swept in.
+    - **Plain English:** The same "only cleared two of the three caches" bug that #PGR-6 fixed for adding, deleting and linking items is still present in three more places an owner can edit their page — including the one that changes the actual wording shown on the page. The fix is the same one-line swap onto the shared helper that #PGR-6 introduced.
+    - **Evidence:**
+        ```php
+        // ManualOverrideController::bumpSites() — an override changes what the page SAYS
+        private function bumpSites(User $user): void
+        {
+            foreach (DB::table('site.sites')->where('user_id', $user->id)->pluck('id') as $siteId) {
+                BuildState::bump((string) $siteId);
+            }
+        }
+        ```
 
 ## P3 — Nice to have
 
