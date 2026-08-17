@@ -309,57 +309,26 @@ it('an explicit PATCH {"duration_minutes": null} actually clears the duration', 
     expect(DB::table('content.f_duration')->where('item_id', $id)->where('source_id', $sourceId)->value('seconds'))->toBeNull();
 });
 
-it('falls back to the untouched Fresha row when the id is not a manual content item', function () {
-    // §C2 (review correction): "cut over fully rather than dual-writing"
-    // meant owner-authored writes go ONLY to content.*, not that a Fresha id
-    // stops being addressable — site.services holds 61 untouched Fresha rows
-    // until 3b, and these endpoints must still reach them.
+it('a legacy site.services id resolves nowhere on any management verb (services cutover, ruling 1)', function () {
+    // This replaces the four §C2 cases that pinned the legacy fall-back:
+    // show/update/destroy/restore reaching site.services by legacy id.
+    // Services-cutover ruling 1 ends that deliberately — the management
+    // surface addresses Fresha services by content.items.id, no mapping is
+    // minted, and the wire manifest records the break. The row below still
+    // EXISTS in site.services, which is what makes this a real proof rather
+    // than an absent-row 404. Positive coverage of each verb's content-side
+    // behaviour lives in ServicesCutoverFreshaManagementTest.
     [$userId, $siteId] = seedUserWithSite();
     $user = User::query()->with('site')->findOrFail($userId);
-    $freshaId = ownerService($userId, ['title' => 'Cut', 'source' => 'fresha', 'external_id' => 's:1']);
+    $legacyId = ownerService($userId, ['title' => 'Cut', 'source' => 'fresha', 'external_id' => 's:1']);
 
-    $response = actingAsUser($user)->getJson("/api/services/{$freshaId}")->assertOk();
-    expect($response->json('service.id'))->toBe($freshaId);
-    expect($response->json('service.source'))->toBe('fresha');
-});
+    actingAsUser($user)->getJson("/api/services/{$legacyId}")->assertNotFound();
+    actingAsUser($user)->patchJson("/api/services/{$legacyId}", ['title' => 'Owner Name'])->assertNotFound();
+    actingAsUser($user)->postJson("/api/services/{$legacyId}/restore")->assertNotFound();
+    actingAsUser($user)->deleteJson("/api/services/{$legacyId}")->assertNotFound();
 
-it('editing a Fresha service through PATCH detaches it from the live sync (is_manual)', function () {
-    // Without this legacy branch resync/resyncBulk become dead code — nothing
-    // else can ever set is_manual=true again.
-    [$userId, $siteId] = seedUserWithSite();
-    $user = User::query()->with('site')->findOrFail($userId);
-    $freshaId = ownerService($userId, ['title' => 'Cut', 'source' => 'fresha', 'external_id' => 's:1', 'is_manual' => 0]);
-
-    $response = actingAsUser($user)->patchJson("/api/services/{$freshaId}", ['title' => 'Owner-edited price'])->assertOk();
-
-    expect($response->json('service.is_manual'))->toBeTrue();
-    expect(DB::table('site.services')->where('id', $freshaId)->value('is_manual'))->toBeTruthy();
-});
-
-it('deleting a Fresha service records deleted_origin=user so a sync never resurrects it', function () {
-    [$userId, $siteId] = seedUserWithSite();
-    $user = User::query()->with('site')->findOrFail($userId);
-    $freshaId = ownerService($userId, ['title' => 'Cut', 'source' => 'fresha', 'external_id' => 's:1']);
-
-    actingAsUser($user)->deleteJson("/api/services/{$freshaId}")->assertOk()->assertJson(['deleted' => true]);
-
-    expect(DB::table('site.services')->where('id', $freshaId)->value('deleted_origin'))->toBe('user');
-    expect(DB::table('site.services')->where('id', $freshaId)->value('deleted_at'))->not->toBeNull();
-});
-
-it('restoring a Fresha service clears deleted_origin and recomputes sort_order', function () {
-    [$userId, $siteId] = seedUserWithSite();
-    $user = User::query()->with('site')->findOrFail($userId);
-    $freshaId = ownerService($userId, [
-        'title' => 'Cut', 'source' => 'fresha', 'external_id' => 's:1',
-        'deleted_at' => now(), 'deleted_origin' => 'user',
-    ]);
-
-    $response = actingAsUser($user)->postJson("/api/services/{$freshaId}/restore")->assertOk();
-
-    expect($response->json('restored'))->toBeTrue();
-    expect(DB::table('site.services')->where('id', $freshaId)->value('deleted_at'))->toBeNull();
-    expect(DB::table('site.services')->where('id', $freshaId)->value('deleted_origin'))->toBeNull();
+    // Untouched: a 404 must not have half-written anything to the legacy row.
+    expect(DB::table('site.services')->where('id', $legacyId)->value('deleted_at'))->toBeNull();
 });
 
 it('reorder routes a Fresha id to sort_order and a manual id to sort_key in one request', function () {

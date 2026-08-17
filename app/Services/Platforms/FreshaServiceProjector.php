@@ -233,6 +233,38 @@ class FreshaServiceProjector
     }
 
     /**
+     * Toggle one service's hidden state on the stored blob. The hidden list IS
+     * the record (D3a — content.* has no is_active); compose() prunes it to
+     * live ids. The dashboard's is_active toggle maps here.
+     */
+    public function setHidden(User $user, string $serviceId, bool $hidden): void
+    {
+        $connection = IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('platform', Platform::Fresha->value)
+            ->first();
+        $payload = is_array($connection?->payload) ? $connection->payload : [];
+        $selection = $payload['selection'] ?? null;
+        if ($connection === null || ! is_array($selection)) {
+            return;
+        }
+
+        $list = array_values(array_filter($selection['hiddenServiceIds'] ?? [], 'is_string'));
+        $list = $hidden
+            ? array_values(array_unique([...$list, $serviceId]))
+            : array_values(array_filter($list, fn ($id) => $id !== $serviceId));
+
+        $rawServices = is_array($payload['raw']['services'] ?? null) ? $payload['raw']['services'] : [];
+        $composed = $this->compose($user, $rawServices, $list);
+        $connection->payload = [...$payload, 'selection' => [
+            ...$selection,
+            'services' => $composed['services'],
+            'hiddenServiceIds' => $composed['hiddenServiceIds'],
+        ]];
+        $connection->save();
+    }
+
+    /**
      * Re-project one LEGACY `site.services` row from the stored raw scrape
      * ("revert to synced"). Returns false when the connection carries no raw
      * entry for it (the service no longer exists on Fresha — nothing to revert

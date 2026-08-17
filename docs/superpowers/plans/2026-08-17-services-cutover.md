@@ -592,7 +592,7 @@ Replace the four §C2 legacy branches with resolution through `FreshaServiceItem
 - Consumes: everything Task 2 produced.
 - Produces: `FreshaServiceProjector::setHidden(User $user, string $serviceId, bool $hidden): void` — updates the blob's `hiddenServiceIds` and recomposes (Task 6 reuses it for the staff twin).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/Feature/Services/ServicesCutoverFreshaManagementTest.php` (helpers prefixed `svcCutMgmt`; reuse the fixture shape from Task 2's `svcCutItemsFresha` under the new prefix — file-local helpers may not be shared across Pest files):
 
@@ -640,15 +640,18 @@ function svcCutMgmtFresha(User $pro, string $title, string $recordKey): string
         'coord' => 'fresha:'.$recordKey, 'record_key' => $recordKey, 'kind' => 'service',
         'first_seen_at' => now(), 'last_seen_at' => now(),
     ]);
-    DB::table('site.platform_connections')->insert([
-        'id' => (string) Str::uuid(), 'user_id' => $pro->id, 'platform' => 'fresha',
-        'resource_kind' => 'booking', 'is_active' => true,
-        'payload' => json_encode([
+    // Through the model, not a raw insert: platform_connections.platform is a
+    // GENERATED column off surface_key, and there is no resource_kind column.
+    IntegrationConnection::create([
+        'user_id' => $pro->id,
+        'platform' => 'fresha',
+        'resource_id' => 'fresha',
+        'is_active' => true,
+        'payload' => [
             'url' => 'https://www.fresha.com/a/test',
             'selection' => ['mode' => 'employee', 'services' => [['serviceId' => $recordKey, 'name' => $title]], 'hiddenServiceIds' => []],
             'raw' => ['services' => [['serviceId' => $recordKey, 'name' => $title]]],
-        ]),
-        'created_at' => now(), 'updated_at' => now(),
+        ],
     ]);
 
     return $itemId;
@@ -727,9 +730,9 @@ it('never resurrects an owner-deleted Fresha service: removed_at survives a proj
 });
 ```
 
-- [ ] **Step 2: Run; confirm the failures are the legacy branches 404ing content-shaped expectations**, not fixture errors.
+- [x] **Step 2: Run; confirm the failures are the legacy branches 404ing content-shaped expectations**, not fixture errors.
 
-- [ ] **Step 3: Add `FreshaServiceProjector::setHidden()`**
+- [x] **Step 3: Add `FreshaServiceProjector::setHidden()`**
 
 In `app/Services/Platforms/FreshaServiceProjector.php`, after `refreshBlob()`:
 
@@ -767,7 +770,7 @@ In `app/Services/Platforms/FreshaServiceProjector.php`, after `refreshBlob()`:
     }
 ```
 
-- [ ] **Step 4: Replace the four legacy branches**
+- [x] **Step 4: Replace the four legacy branches**
 
 In `UserServiceController`, replace `show()`'s legacy branch (`:309-321`) with:
 
@@ -939,7 +942,7 @@ Replace `restore()`'s legacy branch (`:1167-1209`) with:
 
 Add the imports the new code needs (`App\Services\Content\FreshaServiceItems` — `ManualOverride`, `FreshaServiceProjector`, `ServiceCollections` are already imported).
 
-- [ ] **Step 5: Run**
+- [x] **Step 5: Run**
 
 ```bash
 ./vendor/bin/pest tests/Feature/Services/ServicesCutoverFreshaManagementTest.php tests/Feature/Api/User/ tests/Feature/Content/ServiceTwoSurfaceTest.php
@@ -947,11 +950,31 @@ Add the imports the new code needs (`App\Services\Content\FreshaServiceItems` �
 
 Pre-existing user-service tests that seeded `site.services` Fresha rows and asserted the legacy branches will fail — update each to seed the content-side fixture instead (the `svcCutMgmtFresha` shape) and address by content id. Do NOT delete a case without a content-side replacement covering the same behaviour; list every renamed/re-seeded case in the commit body.
 
-- [ ] **Step 6: `composer test:pg`; commit**
+- [x] **Step 6: `composer test:pg`; commit**
 
 ```bash
 git add -A && git commit -m "feat(services-cutover): user service verbs resolve Fresha via content.* — legacy site.services branches retired"
 ```
+
+**Reality corrections applied (rule zero, 2026-08-17):**
+
+1. **The fixture's `site.platform_connections` insert names two columns wrongly.**
+   `platform` is a GENERATED column off `surface_key` (so it cannot be
+   inserted), and there is no `resource_kind` column — `resource_id` is the
+   NOT NULL one. The row goes through `IntegrationConnection::create()`
+   instead, matching every other Fresha test. Fixed in the snippet above.
+2. **The fixture deliberately omits `setupServicesTable()`.** In the SQLite
+   lane an uncreated table is a hard error, so the six cases passing IS the
+   proof that no verb reads `site.services` — a fixture that seeds the legacy
+   table can only show the new path works, never that the old one is
+   unreachable.
+3. **Two pre-existing test files needed retargeting, not just re-seeding.**
+   `ServiceEndpointCutoverTest`'s four §C2 cases and
+   `ServiceRestoreSortOrderTest`'s Fresha case pinned behaviour ruling 1
+   deliberately ends, so each was replaced by a case pinning the BREAK (a
+   legacy row that still exists 404s), with the positive coverage moved to
+   `ServicesCutoverFreshaManagementTest`. Note for Task 12: both replacements
+   still seed `site.services`, so they retire with the table.
 
 ---
 

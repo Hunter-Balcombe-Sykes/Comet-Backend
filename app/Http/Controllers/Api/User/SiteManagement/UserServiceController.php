@@ -17,6 +17,7 @@ use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
+use App\Services\Content\FreshaServiceItems;
 use App\Services\Content\ManualServiceItems;
 use App\Services\Content\ManualServiceWriter;
 use App\Services\Content\ServiceCollections;
@@ -306,18 +307,21 @@ class UserServiceController extends ApiController
             return $this->success(['service' => new ServiceResource($model)]);
         }
 
-        // §C2: not a manual content item — fall back to the untouched Fresha
-        // half (site.services WHERE source IS NOT NULL). Not withTrashed():
-        // matches the pre-cutover implicit route-model-binding, which never
-        // resolved a soft-deleted row for GET either.
-        $fresha = Service::query()->where('user_id', $pro->id)->whereNotNull('source')->find($service);
-        if ($fresha === null) {
+        // Fresha half: a connection-sourced content item (spec §3.2). Legacy
+        // site.services uuids are gone — ruling 1: they 404 by being
+        // unaddressable, and the wire manifest records the break. Not
+        // includeRemoved: matches the pre-cutover implicit route-model
+        // binding, which never resolved a soft-deleted row for GET either.
+        $fresha = app(FreshaServiceItems::class);
+        $row = $fresha->findRow($pro->id, $service, $manual->sectionId($pro->site));
+        if ($row === null) {
             abort(404, 'Service not found.');
         }
 
-        $this->authorizeForUser($pro, 'view', $fresha);
+        $model = $fresha->toServiceModel($pro->id, $row, $fresha->hiddenServiceIds($pro->id));
+        $this->authorizeForUser($pro, 'view', $model);
 
-        return $this->success(['service' => new ServiceResource($fresha)]);
+        return $this->success(['service' => new ServiceResource($model)]);
     }
 
     public function update(UpdateServiceRequest $request, string $service): JsonResponse
@@ -329,40 +333,7 @@ class UserServiceController extends ApiController
         $row = $manual->find($pro->id, $service, $manual->sectionId($pro->site));
 
         if ($row === null) {
-            // §C2: not a manual content item — fall back to the untouched,
-            // pre-cutover Fresha path (site.services WHERE source IS NOT
-            // NULL). Kept byte-for-byte: editing content detaches a
-            // projected row from the live sync (is_manual), which is what
-            // makes the resync/resyncBulk verbs meaningful — without this
-            // branch nothing could ever set is_manual=true again.
-            $fresha = Service::query()->where('user_id', $pro->id)->whereNotNull('source')->find($service);
-            if ($fresha === null) {
-                abort(404, 'Service not found.');
-            }
-
-            $this->authorizeForUser($pro, 'update', $fresha);
-
-            $data = $request->validated();
-
-            if (array_key_exists('category_id', $data)) {
-                $this->assertCategoryBelongsToProfessional($pro->id, $data['category_id']);
-            }
-
-            $fresha->fill($data);
-
-            $contentFields = ['title', 'description', 'price_cents', 'currency_code', 'duration_minutes'];
-            $contentChanged = array_intersect(array_keys($fresha->getDirty()), $contentFields) !== [];
-            if ($fresha->source === 'fresha' && ! $fresha->is_manual && $contentChanged) {
-                $fresha->is_manual = true;
-            }
-
-            $fresha->save();
-
-            if ($fresha->source === 'fresha') {
-                app(FreshaServiceProjector::class)->refreshBlob($pro);
-            }
-
-            return $this->success(['service' => new ServiceResource($fresha->fresh())]);
+            return $this->updateFresha($request, $pro, $service);
         }
 
         $current = $manual->toServiceModel($pro->id, $row);
@@ -762,6 +733,85 @@ class UserServiceController extends ApiController
         return $this->success(['service' => new ServiceResource($freshModel)]);
     }
 
+    /**
+     * update()'s Fresha branch (spec §3.2). An owner edit IS a
+     * content.manual_overrides row per field (the C2-compliant lock);
+     * is_active rides the blob's hiddenServiceIds; price is vendor-owned
+     * (D3a) and an edit 422s explicitly rather than silently reverting on the
+     * public booking wire. Categories go through the owner membership lane
+     * exactly as updateCategory()'s branch does.
+     */
+    private function updateFresha(UpdateServiceRequest $request, User $pro, string $service): JsonResponse
+    {
+        $manual = app(ManualServiceItems::class);
+        $fresha = app(FreshaServiceItems::class);
+        $sectionId = $manual->sectionId($pro->site);
+
+        $row = $fresha->findRow($pro->id, $service, $sectionId);
+        if ($row === null) {
+            abort(404, 'Service not found.');
+        }
+
+        $current = $fresha->toServiceModel($pro->id, $row, $fresha->hiddenServiceIds($pro->id));
+        $this->authorizeForUser($pro, 'update', $current);
+
+        $data = $request->validated();
+
+        // D3a (owner ruling 2026-08-16): an edited PRICE has no content.*
+        // home — offers are a set-union collection and FacetRegistry excludes
+        // collections from manual_overrides by design. An echo of the current
+        // price passes; a change is an explicit 422, never a silent revert.
+        if (array_key_exists('price_cents', $data) && (int) $data['price_cents'] !== (int) $current->price_cents) {
+            return $this->error('Fresha prices come from Fresha and cannot be edited here.', 422);
+        }
+
+        if (array_key_exists('category_id', $data) || array_key_exists('category_ids', $data)) {
+            $collections = app(ServiceCollections::class);
+            $categoryIds = $this->assignmentCategoryIds($data);
+            foreach ($categoryIds as $categoryId) {
+                if ($collections->find($pro->id, $categoryId) === null) {
+                    abort(422, 'Category is invalid.');
+                }
+            }
+            // Owner lane (null source): survives every projector run, and the
+            // reads prefer it over the connection lane's memberships.
+            $collections->assign($pro->id, (string) $row->id, $categoryIds[0] ?? null, null);
+        }
+
+        foreach ([
+            'title' => ['f_text', 'headline', fn ($v) => (string) $v],
+            'description' => ['f_text', 'body', fn ($v) => $v],
+            'duration_minutes' => ['f_duration', 'seconds', fn ($v) => $v === null ? null : ((int) $v) * 60],
+        ] as $field => [$facet, $column, $transform]) {
+            if (! array_key_exists($field, $data)) {
+                continue;
+            }
+            $override = ManualOverride::query()
+                ->where('item_id', (string) $row->id)
+                ->where('facet', $facet)
+                ->where('column_name', $column)
+                ->first() ?? new ManualOverride;
+            $override->item_id = (string) $row->id;
+            $override->facet = $facet;
+            $override->column_name = $column;
+            $override->value = $transform($data[$field]);
+            $override->save();
+        }
+
+        if (array_key_exists('is_active', $data)) {
+            app(FreshaServiceProjector::class)->setHidden($pro, (string) $row->record_key, ! (bool) $data['is_active']);
+        }
+
+        app(FreshaServiceProjector::class)->refreshBlob($pro);
+        $this->invalidateAfterResync($pro);
+
+        $freshRow = $fresha->findRow($pro->id, (string) $row->id, $sectionId);
+
+        return $this->success(['service' => new ServiceResource(
+            $fresha->toServiceModel($pro->id, $freshRow ?? $row, $fresha->hiddenServiceIds($pro->id)),
+        )]);
+    }
+
     public function destroy(Request $request, string $service): JsonResponse
     {
         $pro = $this->currentUser($request);
@@ -770,30 +820,25 @@ class UserServiceController extends ApiController
         $row = $manual->find($pro->id, $service, $manual->sectionId($pro->site));
 
         if ($row === null) {
-            // §C2: not a manual content item — fall back to the untouched
-            // Fresha path (site.services WHERE source IS NOT NULL). Kept
-            // byte-for-byte: spec §3.7 — deleted_origin='user' IS load-
-            // bearing, FreshaServiceProjector:180-195 reads it to decide
-            // whether a returning service is restored or stays suppressed.
-            // Without this branch a scraped service the owner deletes comes
-            // back on the next sync.
-            $fresha = Service::query()->where('user_id', $pro->id)->whereNotNull('source')->find($service);
-            if ($fresha === null) {
+            // Fresha half: owner delete = items.removed_at (one-way — the
+            // projection path never touches it, so a reappearing scrape
+            // cannot resurrect it; spec §3.3, the content.* home of what
+            // deleted_origin='user' used to carry). NEVER
+            // source_items.removed_at, which IS cleared on reappearance.
+            $fresha = app(FreshaServiceItems::class);
+            $freshaRow = $fresha->findRow($pro->id, $service, $manual->sectionId($pro->site));
+            if ($freshaRow === null) {
                 abort(404, 'Service not found.');
             }
 
-            $this->authorizeForUser($pro, 'delete', $fresha);
+            $this->authorizeForUser($pro, 'delete', $fresha->toServiceModel($pro->id, $freshaRow));
 
-            if ($fresha->source === 'fresha') {
-                $fresha->deleted_origin = 'user';
-                $fresha->saveQuietly();
-            }
-
-            $fresha->delete();
-
-            if ($fresha->source === 'fresha') {
-                app(FreshaServiceProjector::class)->refreshBlob($pro);
-            }
+            $site = $this->currentSite($pro);
+            app(ManualServiceWriter::class)->markRemoved((string) $freshaRow->id);
+            app(FreshaServiceProjector::class)->refreshBlob($pro);
+            app(ManualServiceWriter::class)->invalidate([(string) $site->id]);
+            app(UserCacheService::class)->invalidateServices($pro->id);
+            $this->reevaluateVisibility($pro->id, (string) $site->id);
 
             return $this->success(['deleted' => true]);
         }
@@ -1165,47 +1210,37 @@ class UserServiceController extends ApiController
         $row = $manual->find($pro->id, $service, $sectionId, includeRemoved: true);
 
         if ($row === null) {
-            // §C2: not a manual content item — fall back to the untouched
-            // Fresha path (site.services WHERE source IS NOT NULL),
-            // withTrashed() since the row is soft-deleted by definition here.
-            $fresha = Service::query()->where('user_id', $pro->id)->whereNotNull('source')->withTrashed()->find($service);
-            if ($fresha === null) {
+            // Fresha half: clearing items.removed_at is the owner explicitly
+            // un-deleting. liveOnly: false so a service that ALSO departed
+            // the vendor's menu (source_items.removed_at) is still
+            // addressable here — the two removals are independent, and only
+            // this one is the owner's to undo.
+            $fresha = app(FreshaServiceItems::class);
+            $freshaRow = $fresha->findRow($pro->id, $service, $sectionId, includeRemoved: true, liveOnly: false);
+            if ($freshaRow === null) {
                 abort(404, 'Service not found.');
             }
 
-            $this->authorizeForUser($pro, 'update', $fresha);
+            $model = $fresha->toServiceModel($pro->id, $freshaRow);
+            $this->authorizeForUser($pro, 'update', $model);
 
-            if (! $fresha->trashed()) {
-                return $this->success(['restored' => true, 'service' => new ServiceResource($fresha->fresh())]);
+            if ($freshaRow->removed_at === null) {
+                return $this->success(['restored' => true, 'service' => new ServiceResource($model)]);
             }
 
-            DB::transaction(function () use ($pro, $fresha) {
-                // Compute the next sort_order BEFORE restoring. The partial
-                // unique index (user_id, sort_order) WHERE deleted_at IS
-                // NULL is global per professional — another service may
-                // have claimed this slot while this one was soft-deleted.
-                $max = Service::query()
-                    ->where('user_id', $pro->id)
-                    ->whereNull('deleted_at')
-                    ->max('sort_order');
+            $site = $this->currentSite($pro);
+            $freshaWriter = app(ManualServiceWriter::class);
+            $freshaWriter->clearRemoved((string) $freshaRow->id);
+            app(FreshaServiceProjector::class)->refreshBlob($pro);
+            $freshaWriter->invalidate([(string) $site->id]);
+            app(UserCacheService::class)->invalidateServices($pro->id);
+            $this->reevaluateVisibility($pro->id, (string) $site->id);
 
-                $fresha->sort_order = is_null($max) ? 0 : ((int) $max + 1);
-                // Restoring a suppressed Fresha service is the owner
-                // explicitly un-deleting it — clear the suppression so sync
-                // treats it live again.
-                if ($fresha->source === 'fresha') {
-                    $fresha->deleted_origin = null;
-                }
-                $fresha->saveQuietly();
+            $freshRow = $fresha->findRow($pro->id, (string) $freshaRow->id, $sectionId, includeRemoved: true, liveOnly: false);
 
-                $fresha->restore();
-            });
-
-            if ($fresha->source === 'fresha') {
-                app(FreshaServiceProjector::class)->refreshBlob($pro);
-            }
-
-            return $this->success(['restored' => true, 'service' => new ServiceResource($fresha->fresh())]);
+            return $this->success(['restored' => true, 'service' => new ServiceResource(
+                $fresha->toServiceModel($pro->id, $freshRow ?? $freshaRow, $fresha->hiddenServiceIds($pro->id)),
+            )]);
         }
 
         $model = $manual->toServiceModel($pro->id, $row);
