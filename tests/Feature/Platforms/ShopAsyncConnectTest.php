@@ -4,7 +4,6 @@ use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
-use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
@@ -16,6 +15,7 @@ use App\Services\Platforms\WooCommerceScraper;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -256,24 +256,41 @@ it('T2/T3: the pending row satisfies every NOT NULL column with correct values, 
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://t2.example.com'])
         ->assertStatus(202);
 
-    $brand = ShopBrand::where('brand_id', 't2-brand')->firstOrFail();
+    // Re-home Task 7: the pending row is a content.collections +
+    // content.storefronts pair now — site.shop_brands is written by nothing.
+    // brand_id → external_ref, position lives on the collection, and
+    // referral_query/connect_status/connect_error keep their names.
+    // selection_mode and link_mode have NO content.* equivalent to proxy:
+    // linkMode is one site-wide setting (site.sites.shop_link_mode) and
+    // selectionMode is a derived constant ('manual'), so the columns those
+    // two assertions covered are gone rather than moved.
+    $store = DB::table('content.storefronts as s')
+        ->join('content.collections as c', 'c.id', '=', 's.collection_id')
+        ->where('s.external_ref', 't2-brand')
+        ->first(['s.*', 'c.position', 'c.label', 'c.user_id as collection_user_id']);
+    expect($store)->not->toBeNull();
 
     // NOT NULL columns, with the right values (content-proxy — SQLite enforces
     // no NOT NULL/CHECK here; see CheckConstraintsTest for the Postgres real thing).
-    expect($brand->brand_id)->toBe('t2-brand');
-    expect($brand->provider)->toBe('shopify');
-    expect($brand->is_individual)->toBeFalse();
-    expect($brand->position)->toBe(0);
-    expect($brand->selection_mode)->toBe('manual');
-    expect($brand->link_mode)->toBe('product');
-    expect($brand->referral_query)->toBe('');
+    expect($store->external_ref)->toBe('t2-brand');
+    expect($store->provider)->toBe('shopify');
+    expect((bool) $store->is_individual)->toBeFalse();
+    expect((int) $store->position)->toBe(0);
+    expect($store->referral_query)->toBe('');
+    expect($store->collection_user_id)->toBe((string) $user->id);
+    // content.collections.label is NOT NULL and upsertStore() falls back to the
+    // external ref when the store has no display name yet — which is every
+    // deferred connect until ShopBrandConnectJob settles it.
+    expect($store->label)->toBe('t2-brand');
 
-    // CHECK vocabularies.
-    expect(in_array($brand->selection_mode, ['manual', 'latest'], true))->toBeTrue();
-    expect(in_array($brand->link_mode, ['product', 'checkout'], true))->toBeTrue();
-    expect(in_array($brand->connect_status, ShopBrand::CONNECT_STATUSES, true))->toBeTrue();
-    expect($brand->connect_status)->toBe('pending');
-    expect($brand->connect_error)->toBeNull();
+    // CHECK vocabulary. The CONSTRAINT itself did not come across —
+    // content.storefronts.connect_status carries no CHECK (migration
+    // 20260813100000), where shop_brands_connect_status_check pinned the
+    // two-value vocabulary — so this assertion is now the only thing standing
+    // between a third status and a silent landing.
+    expect(in_array($store->connect_status, ShopBrand::CONNECT_STATUSES, true))->toBeTrue();
+    expect($store->connect_status)->toBe('pending');
+    expect($store->connect_error)->toBeNull();
 });
 
 // ── T4 — GET /brands/{id}/products succeeds during the pending window ───────
@@ -381,7 +398,10 @@ it('a deferred Shopify connect writes a truthful currency on the pending row', f
         ->assertStatus(202);
 
     expect($res->json('currency'))->toBe('AUD');
-    expect(ShopBrand::where('brand_id', 'curr-shopify')->firstOrFail()->currency)->toBe('AUD');
+    // Re-home Task 7: the pending row is content.storefronts, where `currency`
+    // keeps its name.
+    expect(DB::table('content.storefronts')->where('external_ref', 'curr-shopify')->value('currency'))
+        ->toBe('AUD');
 });
 
 it('a deferred Squarespace connect leaves currency untouched, and re-adding a settled Squarespace brand does not blank its existing currency', function () {
@@ -420,7 +440,13 @@ it('a deferred Squarespace connect leaves currency untouched, and re-adding a se
         ->assertStatus(202);
 
     expect($res->json('currency'))->toBe('USD');
-    expect(ShopBrand::where('brand_id', 'curr-sq')->firstOrFail()->currency)->toBe('USD');
+    // Re-home Task 7: read the store off content.storefronts — and note the
+    // omit-don't-null discipline is now a CARRY-FORWARD discipline instead
+    // (ShopController folds $existing->currency onto the record), because
+    // upsertStore() writes every column unconditionally where the legacy
+    // updateOrCreate() simply omitted absent keys.
+    expect(DB::table('content.storefronts')->where('external_ref', 'curr-sq')->value('currency'))
+        ->toBe('USD');
 });
 
 it('GET /brands/{id}/products during the pending window returns Shopify products with a non-null currency fallback (real scraper, no doubles)', function () {
@@ -546,8 +572,14 @@ it('T7: pasting the same store URL twice while deferred updates the ONE row, not
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://t7.example.com'])->assertStatus(202);
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://t7.example.com'])->assertStatus(202);
 
-    $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
-    expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(1);
+    // Re-home Task 7: the ONE row is the content.* store — site.shop_brands is
+    // written by nothing. Store identity is (user, provider, external_ref), so
+    // a second paste of the same URL upserts it rather than minting a twin.
+    // The per-store anchor is asserted alongside it: two rows there would be
+    // the same duplicate bug wearing a different table.
+    expect(DB::table('content.storefronts')->where('user_id', (string) $user->id)->count())->toBe(1);
+    expect(IntegrationConnection::where('user_id', $user->id)
+        ->whereIn('surface_key', ShopConnections::surfaces())->count())->toBe(1);
 });
 
 // ── T10 — the 5-brand cap does not move ──────────────────────────────────────
@@ -580,7 +612,13 @@ it('T10: the 6th store still 422s synchronously, and dispatches nothing new', fu
 
 // ── T11 — re-adding a settled brand while deferred is non-destructive ───────
 
-it('T11: re-adding an already-settled brand while deferred does not blank its profile, and preserves position/discount/selectionMode/products', function () {
+// Re-home Task 7 renamed this: `selectionMode` has no content.* home at all
+// (it is a derived constant now — ShopContentReader gap 3), so the field whose
+// survival across a re-add still MATTERS is the curation stamp
+// products_curated_at, which is what #SEM-1 actually gates the scheduled sync
+// on. Same property under test — a deferred re-add must not clobber state the
+// owner set — asserted on the field that still carries it.
+it('T11: re-adding an already-settled brand while deferred does not blank its profile, and preserves position/discount/curation/products', function () {
     $user = shopAsyncUser('t11readd');
 
     $this->mock(ShopifyScraper::class, function ($m) {
@@ -601,9 +639,16 @@ it('T11: re-adding an already-settled brand while deferred does not blank its pr
     ])->assertOk();
 
     $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
-    $brand = ShopBrand::where('brand_id', 't11-brand')->firstOrFail();
-    $brand->update(['selection_mode' => 'latest']);
-    ShopProduct::create(['brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1', 'title' => 'Existing']]);
+    // Owner-set state the re-add must not clobber, written where the endpoints
+    // themselves write it: the curation stamp setProducts() lands on
+    // content.storefronts, and a real product through the writer.
+    $collectionId = (string) app(ShopConnections::class)->store($user, 't11-brand')->collectionId;
+    DB::table('content.storefronts')->where('collection_id', $collectionId)
+        ->update(['products_curated_at' => now()]);
+    app(ShopContentWriter::class)->syncStore((string) $user->id, $collectionId, [[
+        'productId' => 'p1', 'title' => 'Existing', 'url' => 'https://t11.example.com/p1',
+        'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
+    ]], null);
 
     Bus::fake();
 
@@ -619,16 +664,20 @@ it('T11: re-adding an already-settled brand while deferred does not blank its pr
     expect($res->json('discountCode'))->toBe('SAVE15');
     expect($res->json('connectStatus'))->toBe('pending');
 
-    $brand->refresh();
-    expect($brand->name)->toBe('T11 Store');
-    expect($brand->currency)->toBe('AUD');
-    expect($brand->favicon)->toBe('https://t11.example.com/favicon.ico');
-    expect($brand->logo)->toBe('https://t11.example.com/logo.png');
-    expect($brand->position)->toBe(0);
-    expect($brand->discount_code)->toBe('SAVE15');
-    expect($brand->selection_mode)->toBe('latest');
-    expect($brand->connect_status)->toBe('pending');
-    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(1);
+    // Read back off content.*: name/currency/position live there,
+    // favicon → favicon_url, logo → logo_url, discount_code → discountCode,
+    // and the curation stamp survives because upsertStore()'s ON CONFLICT
+    // clause COALESCEs products_curated_at rather than overwriting it.
+    $store = app(ShopConnections::class)->store($user, 't11-brand');
+    expect($store->name)->toBe('T11 Store');
+    expect($store->currency)->toBe('AUD');
+    expect($store->faviconUrl)->toBe('https://t11.example.com/favicon.ico');
+    expect($store->logoUrl)->toBe('https://t11.example.com/logo.png');
+    expect($store->position)->toBe(0);
+    expect($store->discountCode)->toBe('SAVE15');
+    expect($store->productsCuratedAt)->not->toBeNull();
+    expect($store->connectStatus)->toBe('pending');
+    expect(orderedProductIdsFor('t11-brand'))->toBe(['p1']);
 });
 
 // ── T12 — a settled brand's dashboard body stays byte-identical ─────────────
@@ -717,10 +766,16 @@ it('T14: presentPageIds still excludes Shop when the only brand is pending (zero
         'user_id' => $pro->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'pending-page-brand', 'provider' => 'shopify',
-        'url' => 'https://p.example.com', 'position' => 0, 'connect_status' => 'pending',
-    ]);
+    // Re-home Task 7: the pending store is a content.* row — a fixture that
+    // only wrote site.shop_brands would be invisible to every reader now, and
+    // this guard would pass on an empty database rather than on a real
+    // product-less store.
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: 'pending-page-brand',
+        provider: 'shopify',
+        url: 'https://p.example.com',
+        connectStatus: 'pending',
+    ), (string) $pro->id);
 
     $pages = app(SitepageDataResolverService::class)
         ->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
@@ -736,19 +791,19 @@ it('T19: a pending row stale for 6 minutes polls failed synthetically, without w
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    $brand = ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'stale-brand', 'provider' => 'shopify',
-        'url' => 'https://stale.example.com', 'position' => 0, 'connect_status' => 'pending',
-    ]);
-    // Re-home Task 6: connectStatus() resolves the store from content.*, so
-    // the store must exist there and the stale-pending CLOCK is
-    // content.storefronts.updated_at — not the legacy row's.
-    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
+    // Re-home Task 6/7: connectStatus() resolves the store from content.*, and
+    // the stale-pending CLOCK is content.storefronts.updated_at. There is no
+    // legacy row to build or age alongside it any more — nothing writes one.
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: 'stale-brand',
+        provider: 'shopify',
+        url: 'https://stale.example.com',
+        connectStatus: 'pending',
+    ), (string) $user->id);
 
-    // Deliberately a query-builder mass update, NOT $brand->save(): Eloquent's
+    // Deliberately a query-builder mass update, not an Eloquent save():
     // save() re-touches updated_at to now(), silently discarding a manually
     // forceFill()'d value (mirrors DefersBespokeConnectTest's own idiom).
-    ShopBrand::where('id', $brand->id)->update(['updated_at' => now()->subMinutes(6)]);
     DB::table('content.storefronts')->where('external_ref', 'stale-brand')
         ->update(['updated_at' => now()->subMinutes(6)]);
 
@@ -760,9 +815,9 @@ it('T19: a pending row stale for 6 minutes polls failed synthetically, without w
         'error' => "We couldn't save your connection just then — please try again.",
     ]);
 
-    $brand->refresh();
-    expect($brand->connect_status)->toBe('pending'); // never written — synthetic.
-    expect($brand->connect_error)->toBeNull();
+    $store = DB::table('content.storefronts')->where('external_ref', 'stale-brand')->first();
+    expect($store->connect_status)->toBe('pending'); // never written — synthetic.
+    expect($store->connect_error)->toBeNull();
 });
 
 // ── T20 — a failed brand is retained and retry re-uses the same row ─────────
@@ -809,11 +864,16 @@ it('T20: a failed brand is retained, still returns products, and re-POSTing its 
 
     // Convergence Phase 6: the retried store lands on its OWN anchor, not the
     // pre-made marker $conn — so the count that matters is the user's, not one
-    // connection's. Still exactly one row: a retry updates in place.
-    expect(ShopBrand::whereIn('connection_id',
-        IntegrationConnection::where('user_id', $user->id)->pluck('id'))->count())->toBe(1);
-    $brand = ShopBrand::where('brand_id', 't20-brand')->firstOrFail();
-    expect($brand->connect_status)->toBe('pending');
+    // connection's. Re-home Task 7: that count is content.storefronts now.
+    // Still exactly one row: a retry upserts in place.
+    expect(DB::table('content.storefronts')->where('user_id', (string) $user->id)->count())->toBe(1);
+    expect(DB::table('content.storefronts')->where('external_ref', 't20-brand')->value('connect_status'))
+        ->toBe('pending');
+    // …and the retry cleared the stale failure text with it (upsertStore()
+    // writes connect_error unconditionally, so a settle/retry cannot leave the
+    // previous attempt's message stranded on a now-pending store).
+    expect(DB::table('content.storefronts')->where('external_ref', 't20-brand')->value('connect_error'))
+        ->toBeNull();
 });
 
 // ── P1 review fix — a retry of an ALREADY-pending brand refreshes updated_at ──
@@ -843,13 +903,11 @@ it('P1: a re-POST of an already-pending brand refreshes updated_at, so an immedi
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://retrypending.example.com'])
         ->assertStatus(202);
 
-    $brand = ShopBrand::where('brand_id', 'retry-brand')->firstOrFail();
     // Simulate a dead worker: age the row past the 5-minute stale-pending
-    // threshold — a query-builder mass update, not $brand->save() (T19's own
-    // idiom), since save() would re-touch updated_at and defeat the setup.
-    // addBrand() already wrote the content.* row; re-home Task 6 made THAT the
-    // clock the poll reads, so it is the one that has to be aged.
-    ShopBrand::where('id', $brand->id)->update(['updated_at' => now()->subMinutes(6)]);
+    // threshold — a query-builder mass update, not an Eloquent save() (T19's
+    // own idiom), since save() would re-touch updated_at and defeat the setup.
+    // addBrand() wrote the content.* row; re-home Task 6 made THAT the clock
+    // the poll reads, and Task 7 left no legacy row to age alongside it.
     DB::table('content.storefronts')->where('external_ref', 'retry-brand')
         ->update(['updated_at' => now()->subMinutes(6)]);
 
@@ -907,9 +965,9 @@ it('P3: a brand deleted the instant the connection lock releases does not crash 
     $key = CacheKeyGenerator::platformConnectionLock('shop', (string) $user->id);
     $real = Cache::getFacadeRoot();
 
-    Cache::swap(new class($real, $key)
+    Cache::swap(new class($real, $key, (string) $user->id)
     {
-        public function __construct(private $real, private string $target) {}
+        public function __construct(private $real, private string $target, private string $ownerId) {}
 
         public function lock($name, $seconds = 0, $owner = null)
         {
@@ -918,18 +976,25 @@ it('P3: a brand deleted the instant the connection lock releases does not crash 
                 return $realLock;
             }
 
-            return new class($realLock)
+            return new class($realLock, $this->ownerId)
             {
-                public function __construct(private $inner) {}
+                public function __construct(private $inner, private string $ownerId) {}
 
                 public function __call($method, $args)
                 {
                     $result = $this->inner->{$method}(...$args);
                     if ($method === 'block') {
                         // Fires the instant the lock has released — see the
-                        // header comment above.
-                        ShopProduct::whereHas('brand', fn ($q) => $q->where('brand_id', 'race-brand'))->delete();
-                        ShopBrand::where('brand_id', 'race-brand')->delete();
+                        // header comment above. Re-home Task 7: it retires the
+                        // CONTENT.* store, because that is what a concurrent
+                        // removeBrand()/forget() deletes now and what the
+                        // response build reads. Deleting the legacy row here
+                        // would delete nothing and leave the guard vacuous.
+                        $collectionId = DB::table('content.storefronts')
+                            ->where('external_ref', 'race-brand')->value('collection_id');
+                        if ($collectionId !== null) {
+                            app(ShopContentWriter::class)->retireStore($this->ownerId, (string) $collectionId);
+                        }
                     }
 
                     return $result;
@@ -951,7 +1016,7 @@ it('P3: a brand deleted the instant the connection lock releases does not crash 
 
     // The delete DID happen (proves the decorator actually fired) — but only
     // AFTER the response above was already fully built and returned.
-    expect(ShopBrand::where('brand_id', 'race-brand')->exists())->toBeFalse();
+    expect(DB::table('content.storefronts')->where('external_ref', 'race-brand')->exists())->toBeFalse();
 });
 
 // ── T21 — poll 404s, never 403 ───────────────────────────────────────────────
@@ -963,7 +1028,16 @@ it('T21: poll 404s for an unknown brand id and for another users brand, never 40
         'user_id' => $owner->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'owner-brand', 'provider' => 'shopify', 'url' => 'https://o.example', 'position' => 0]);
+    // Re-home Task 7: the owner's store lives in content.* — without it the
+    // stranger's 404 below would prove nothing (an id that exists for NOBODY
+    // 404s trivially), and this test is specifically about tenant scoping.
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: 'owner-brand',
+        provider: 'shopify',
+        url: 'https://o.example',
+    ), (string) $owner->id);
+    // Non-vacuous: the id really does resolve — for its owner.
+    actingAsUser($owner)->getJson('/api/platforms/shop/brands/owner-brand/connect/status')->assertOk();
 
     actingAsUser($owner)->getJson('/api/platforms/shop/brands/no-such-brand/connect/status')
         ->assertStatus(404)

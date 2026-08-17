@@ -4,6 +4,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Services\Migration\ShopBackfiller;
 use App\Services\Platforms\ShopCatalog;
+use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -214,7 +215,12 @@ it('syncLatest writes content.* and leaves shop_products untouched', function ()
     ]);
     $legacyBefore = DB::table('site.shop_products')->count();
 
-    expect(app(ShopCatalog::class)->syncLatest($brand))->toBe(2)
+    // Re-home Task 7: syncLatest() takes the StoreRecord and its owner, read
+    // back off content.* exactly as ShopFetch reads it — the backfill above is
+    // what put the store there.
+    $store = app(ShopConnections::class)->store($user, $brand->brand_id);
+
+    expect(app(ShopCatalog::class)->syncLatest($store, (string) $user->id))->toBe(2)
         ->and(DB::table('site.shop_products')->count())->toBe($legacyBefore)
         ->and(DB::table('content.items')->where('kind', 'product')
             ->whereNull('removed_at')->count())->toBe(2);
@@ -224,7 +230,12 @@ it('syncLatest still returns null for a reachable but empty store', function () 
     [$user, $brand] = makeShopBrand();
     fakeProviderCatalog($brand, []);
 
-    expect(app(ShopCatalog::class)->syncLatest($brand))->toBeNull();
+    // No content.* row on purpose: an empty catalogue returns BEFORE
+    // upsertStore(), so a store that has never synced must not be minted as a
+    // side effect of a fruitless fetch. toStoreRecord() is the adapter for
+    // exactly this — a record built from data, with no content.* row behind it.
+    expect(app(ShopCatalog::class)->syncLatest($brand->toStoreRecord(), (string) $user->id))->toBeNull();
+    expect(DB::table('content.collections')->where('kind', 'storefront')->count())->toBe(0);
 });
 
 // ── Task 6: ShopContentWriter::isCurated() ─────────────────────────────────

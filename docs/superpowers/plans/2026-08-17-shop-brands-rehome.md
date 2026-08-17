@@ -760,7 +760,7 @@ therefore vestigial and goes with the legacy write at Task 7.
 
 `addBrand` mints `new ShopBrand(['brand_id' => $id])` and saves it as the identity row; `addProduct` `firstOrCreate`s the reserved individual bucket; `removeBrand`/`forget` delete.
 
-- [ ] **Step 1: Write the failing test** — a full connect with no `site.shop_brands` row present anywhere.
+- [x] **Step 1: Write the failing test** — a full connect with no `site.shop_brands` row present anywhere.
 
 ```php
 it('connects a store end to end with no legacy row', function (): void {
@@ -778,8 +778,8 @@ it('connects a store end to end with no legacy row', function (): void {
 });
 ```
 
-- [ ] **Step 2: Run it, confirm it fails** — the legacy insert still fires and the count is 1.
-- [ ] **Step 3: Replace the identity write with `upsertStore()`.** `ShopContentWriter::upsertStore(StoreRecord $store, string $ownerId): string` already returns the collection id and is already the writer of record. Note the argument order — the record first, the owner id as a plain string second, not a `User`:
+- [x] **Step 2: Run it, confirm it fails** — the legacy insert still fires and the count is 1.
+- [x] **Step 3: Replace the identity write with `upsertStore()`.** `ShopContentWriter::upsertStore(StoreRecord $store, string $ownerId): string` already returns the collection id and is already the writer of record. Note the argument order — the record first, the owner id as a plain string second, not a `User`:
 
 ```php
             $store = new StoreRecord(
@@ -798,11 +798,68 @@ it('connects a store end to end with no legacy row', function (): void {
             $collectionId = $this->content->upsertStore($store, (string) $user->id);
 ```
 
-- [ ] **Step 4: Replace `addProduct`'s individual-bucket `firstOrCreate`** with the same call, `isIndividual: true` and `externalRef` taken from a new `StoreRecord::INDIVIDUAL_BRAND_ID = 'individual'` const — the same value as `ShopBrand::INDIVIDUAL_BRAND_ID:94` today, moved off the doomed model rather than referenced on it (leaving a const behind on a class scheduled for deletion is how Task 24's adapter had to be untangled twice).
-- [ ] **Step 5: Replace the deletes** with `ShopContentWriter::retireStore(string $userId, string $collectionId): void` — note it takes the owner id and collection id, so the store must be resolved through `store()` first to get its `collectionId`. Do NOT leave `$brand->delete()` behind — a store removed from `content.*` but left in the legacy table reappears on the next `stores()` read only if something still reads the legacy table, which after Task 11 nothing does; the risk is the reverse, a legacy orphan surviving the DROP audit.
-- [ ] **Step 6: Delete the legacy fallback in the response path** (`:467-469`) — `$this->contentReader->brandMap($user)[$id] ?? $brandRow->fresh('products')->toBrandArray()` becomes the `brandMap()` read alone. The `upsertStore()` call two lines above guarantees the row exists.
-- [ ] **Step 7: Run it, confirm it passes**, plus the full `tests/Feature/Platforms/` suite. Commit.
+- [x] **Step 4: Replace `addProduct`'s individual-bucket `firstOrCreate`** with the same call, `isIndividual: true` and `externalRef` taken from a new `StoreRecord::INDIVIDUAL_BRAND_ID = 'individual'` const — the same value as `ShopBrand::INDIVIDUAL_BRAND_ID:94` today, moved off the doomed model rather than referenced on it (leaving a const behind on a class scheduled for deletion is how Task 24's adapter had to be untangled twice).
+- [x] **Step 5: Replace the deletes** with `ShopContentWriter::retireStore(string $userId, string $collectionId): void` — note it takes the owner id and collection id, so the store must be resolved through `store()` first to get its `collectionId`. Do NOT leave `$brand->delete()` behind — a store removed from `content.*` but left in the legacy table reappears on the next `stores()` read only if something still reads the legacy table, which after Task 11 nothing does; the risk is the reverse, a legacy orphan surviving the DROP audit.
+- [x] **Step 6: Delete the legacy fallback in the response path** (`:467-469`) — `$this->contentReader->brandMap($user)[$id] ?? $brandRow->fresh('products')->toBrandArray()` becomes the `brandMap()` read alone. The `upsertStore()` call two lines above guarantees the row exists.
+- [x] **Step 7: Run it, confirm it passes**, plus the full `tests/Feature/Platforms/` suite. Commit.
 
+
+**`site.shop_brands` is now written by NOTHING in `app/`.** After this task the
+only three files that still import the model are `ShopBackfiller`,
+`PseudoPlatformRetirer` and `ShopConnections`' deprecated `brands()`/`brand()`
+pair — and that pair has **zero callers in `app/`**. All three go together at
+Task 13; see the amended deletion list there.
+
+**What the plan did not say, and had to be worked out per call site.** Every
+legacy write was an Eloquent `updateOrCreate`/`fill()->save()`/`firstOrCreate`,
+all of which OMIT absent keys. `upsertStore()` writes every column
+unconditionally. So each write path needed its omission rule spelled out as an
+explicit fold, or it would silently blank whatever it did not mention:
+
+- `addBrand`'s deferred branch omits name/favicon/logo so a re-add of a settled
+  store keeps its display profile for the pending window (§3c). Those are now
+  carried from `$existing`, along with `referralQuery` (owner-set, never touched
+  by a connect) and the processed logo marks (the logo job's to write).
+  `currency` is the documented exception and coalesces onto the stored value
+  rather than overwriting it with a null.
+- `addProduct` and `ShopProductSeeder` relied on `firstOrCreate`'s create-only
+  semantics for the reserved bucket. An existing bucket now keeps its own
+  position and currency; only a brand-new one takes the defaults. Without that,
+  adding a second individual product would renumber the bucket and overwrite the
+  currency the first one set.
+
+`StoreRecord::with()` was added so that fold lives in ONE place with the full
+field list, rather than each caller remembering all twenty arguments.
+
+**`addBrand`'s `->touch()` is deleted, not ported.** It existed solely because a
+retry of an already-pending store wrote byte-identical values, so Eloquent's
+dirty check skipped the UPDATE and left `updated_at` stale — which the poll then
+read as a failure. `upsertStore()`'s `ON CONFLICT DO UPDATE` has no dirty check.
+Verified against real Postgres and pinned by `ShopAsyncConnectTest`'s P1.
+
+**`addBrand`'s sentinel collapsed from two out-parameters to one.** The lock
+closure signalled "I produced a terminal response" via `$brandRow`; the jobs
+needed `$collectionId`. `upsertStore()`'s return value is both.
+
+**`removeBrand`'s anchor guard changed shape.** It was "no `ShopBrand` rows left
+on this connection", which existed for ONE case: the retired
+`partna.storefront` marker, the only surface where stores shared an anchor.
+`content.*` has no connection linkage to count through, and live dev carries
+zero such markers. It now guards on the SURFACE — a per-store anchor is empty by
+definition once its own store is retired, and a marker row that somehow survived
+is left alone rather than deleted out from under other stores.
+
+**Two files outside the plan's list had to move with `syncLatest()`'s signature:**
+`ShopFetch` (its whole selection loop was `$connection->shopBrands()`, and its
+third constructor argument changed from `?ShopContentWriter` to
+`?ShopConnections` — `isCurated()`'s per-store lookup is gone because
+`productsCuratedAt` rides on the record) and
+`PlatformRegistryServiceProvider`, which constructs it.
+
+**`ShopBrand::INDIVIDUAL_BRAND_ID` moved to `StoreRecord::INDIVIDUAL_REF`.** The
+model keeps an alias, not a copy, so the two cannot drift before Task 13 deletes
+it. Task 7 Step 4 asked for exactly this and named the reason: slice 7's Task 24
+had already had to untangle an adapter left on a doomed model twice.
 ### Task 8: Phase 2 gate
 
 - [ ] **Step 1:** `composer test`, `./vendor/bin/pest --parallel --processes=4`, `composer test:pg`, PHPStan, Pint.
@@ -1078,11 +1135,62 @@ a rule that engine cannot enforce.
 
 **26 files create rows; `tests/Pest.php` is one of them.** It is a shared helper: changing it touches every lane at once, and cross-file test helper names collide at load time and fatal a `--parallel` run.
 
-- [ ] **Step 1: Change `tests/Pest.php` alone.** Replace its `ShopBrand` minting with a `content.*` equivalent under the `sbr*` prefix.
-- [ ] **Step 2: Run the parallel suite before touching anything else** — `./vendor/bin/pest --parallel --processes=4`. A load-time collision shows up here and nowhere else. Commit this file on its own.
-- [ ] **Step 3: Convert the remaining 25 files in batches of five**, running `composer test` after each batch. Listed by Task 1 Step 1's re-derived grep; as of 2026-08-17 they are the `tests/Feature/Platforms/`, `tests/Feature/Shop/`, `tests/Feature/Brand/`, `tests/Feature/Content/`, `tests/Unit/Jobs/` and `tests/Postgres/` files named in spec §7.
-- [ ] **Step 4: Commit each batch separately** — a 26-file test commit is unreviewable.
+- [x] **Step 1: Change `tests/Pest.php` alone.** Replace its `ShopBrand` minting with a `content.*` equivalent under the `sbr*` prefix.
+- [x] **Step 2: Run the parallel suite before touching anything else** — `./vendor/bin/pest --parallel --processes=4`. A load-time collision shows up here and nowhere else. Commit this file on its own.
+- [x] **Step 3: Convert the remaining 25 files in batches of five**, running `composer test` after each batch. Listed by Task 1 Step 1's re-derived grep; as of 2026-08-17 they are the `tests/Feature/Platforms/`, `tests/Feature/Shop/`, `tests/Feature/Brand/`, `tests/Feature/Content/`, `tests/Unit/Jobs/` and `tests/Postgres/` files named in spec §7.
+- [x] **Step 4: Commit each batch separately** — a 26-file test commit is unreviewable.
 
+
+**Done, but not in the shape the plan describes.** Step 1 says change
+`tests/Pest.php` alone, first, because it mints `ShopBrand` rows and is a shared
+helper. In the event `tests/Pest.php` needed **no** `ShopBrand` change at all —
+its `makeShopBrand()`/`makeShopProduct()` helpers are still the right way to
+build a LEGACY row, and the tests that need a content.* store mirror it with
+`upsertStore($brand->toStoreRecord(), …)` or build a `StoreRecord` directly. The
+only edit it took was additive (Task 11's `user_id` on the SQLite stand-in and
+in `seedOrderPlatformSidecar()`), which is why the parallel-collision hazard the
+plan warns about never arose.
+
+The conversion happened in waves as each task broke its own callers, rather than
+as one 26-file sweep: Tasks 6 and 9/10 took their own test files with them, and
+Task 7 — which stopped the legacy writes — took the remaining 50 failures across
+15 files.
+
+**Four tests were VACUOUS and were repaired, not just re-pointed.** They were
+still passing, which is why nothing flagged them: they asserted a
+`site.shop_brands` row was ABSENT (now trivially true) or seeded a fixture no
+reader could see. `ShopEndpointParityTest`'s C1 bucket guard and
+`ShopAsyncConnectTest`'s P3, T14 and T21 can now fail again — P3's lock
+decorator retires the real content.* store, T14's pending store actually exists,
+and T21 first proves the id resolves for its owner before proving it 404s for a
+stranger.
+
+**Two guards were INVERTED rather than deleted**, because their subject reversed:
+- `ShopEndpointParityTest`'s *"site.shop_brands keeps being written"* is now
+  *"no shop endpoint writes site.shop_brands either"*. It asserts both
+  `max(updated_at)` AND the row count are unchanged across the full nine-endpoint
+  exercise — the count matters because that helper runs a whole
+  addBrand+removeBrand cycle for a second store. The original comment explaining
+  why the legacy write was deliberate is kept verbatim as history, followed by
+  where each of its reasons went.
+- `ShopGlobalSettingsTest`'s #428 lazy-load pair became a **reflection guard**:
+  with the model gone from `syncLatest()`, the old test could only ever catch one
+  forgotten eager-load and had become unfalsifiable. It now pins that
+  `syncLatest`/`dispatchShapeFor` take `StoreRecord` + `string` and that
+  `StoreRecord` is readonly and not a `Model` — the property that makes the whole
+  class of bug impossible rather than one instance of it detectable.
+
+**Two dead CHECK constraints and one live one.** `site.shop_brands` carries three;
+`content.storefronts` carried none. `selection_mode` and `link_mode` carry
+nothing — neither column exists on the replacement, deliberately. But
+`connect_status`'s vocabulary (`NULL | 'pending' | 'failed'`) is live and is read
+by `PublicIntegrationConnectionResource`, which rejects only `'pending'` — so a
+third value silently reaching the wire is exactly what it prevents. Carried by a
+new migration **`20260819000120`**, applied to dev and pinned in the PG lane with
+both a refusal-reason test and a positive test (a constraint that refused
+everything would satisfy the negative one alone). Found by review, not by the
+plan; had it not been, the guarantee would have vanished with the DROP and been
+undiscoverable by reading the replacement.
 ### Task 13: Check `pg_depend`, then DROP
 
 **Files:**
@@ -1102,9 +1210,23 @@ Expected: zero hits outside the two model files about to be deleted. A green sui
 - [ ] **Step 4: Write the DROP migration**, `db push --dry-run`, then `db push` against the dev ref only.
 - [ ] **Step 5: Delete `ShopBrand`, `ShopProduct`, `IntegrationConnection::shopBrands()` and `ShopProduct::brand()`.** Both models are yours (spec §2.2). Task 2 already made `ShopProduct` callerless; if it is not, Task 2 did not finish.
 
-**AMENDED by Task 1 Step 3 / Task 2 Step 6.** `ShopProduct` is NOT callerless
-after Task 2 and was never going to be: `ShopBackfiller` reads it, because it
-IS the legacy→`content.*` migration. Delete in this task, together:
+**AMENDED TWICE.** First by Task 1 Step 3 / Task 2 Step 6: `ShopProduct` is NOT
+callerless after Task 2 and never was going to be — `ShopBackfiller` reads it,
+because it IS the legacy→`content.*` migration. Then by Task 7, which left
+exactly three importers of the model, all of them spent one-off migration
+machinery or its last read helper:
+
+- `ShopBackfiller` + `BackfillShopContentCommand` — the legacy→content.*
+  backfill. Dead the moment its source tables are gone.
+- `PseudoPlatformRetirer` (+ `tests/Feature/Content/PseudoPlatformRetirementTest`)
+  — convergence Phase 6's `partna.storefront` marker retirement. Live dev
+  carries **zero** `partna.storefront` connections, so it has already done its
+  work; it reads `ShopBrand` to migrate those markers and cannot outlive them.
+- `ShopConnections::brands()`/`brand()` — the deprecated pair. **Zero callers in
+  `app/` as of Task 7**; the only remaining caller anywhere is
+  `PseudoPlatformRetirementTest`, which goes with the retirer.
+
+Delete in this task, together:
 `ShopBrand::products()`, `app/Models/Core/Site/ShopProduct.php`,
 `app/Services/Migration/ShopBackfiller.php`,
 `app/Console/Commands/BackfillShopContentCommand.php`, and their tests
@@ -1134,7 +1256,7 @@ kickoff prompt as last read named only the deletion.
 
 ### Task 14: Verify the event lane actually retired
 
-- [ ] **Step 1: Check the writer is gone.**
+- [x] **Step 1: Check the writer is gone.**
 
 ```bash
 ls app/Services/Platforms/EventSlugSync.php          # expect: not found
@@ -1143,7 +1265,7 @@ grep -c "EventSlugSync" app/Observers/Core/IntegrationConnectionObserver.php   #
 
 State at 10:20 on 2026-08-17: file present, 13 references in the observer. If that is still true, the retirement has not shipped.
 
-- [ ] **Step 2: Check the rows are gone AND stay gone.**
+- [x] **Step 2: Check the rows are gone AND stay gone.**
 
 ```sql
 SELECT count(*) FROM site.item_slugs WHERE item_type = 'event';
@@ -1151,11 +1273,44 @@ SELECT count(*) FROM site.item_slugs WHERE item_type = 'event';
 
 Then trigger a real Eventbrite refresh on dev and re-run it. **A count taken without forcing a refresh proves nothing** — the re-mint only happens on connect/refresh, which is the entire finding.
 
-- [ ] **Step 3: If either check fails, raise to the drop-phase session.** Do not fix here — `IntegrationConnectionObserver` is theirs this week, and the content lane already covers `event` via `ContentItemSlugAllocator::SLUGGED_KINDS`.
-- [ ] **Step 4: Record the outcome and their commit sha.**
+- [x] **Step 3: If either check fails, raise to the drop-phase session.** Do not fix here — `IntegrationConnectionObserver` is theirs this week, and the content lane already covers `event` via `ContentItemSlugAllocator::SLUGGED_KINDS`.
+- [x] **Step 4: Record the outcome and their commit sha.**
 
 ---
 
+
+**VERIFIED 2026-08-17 — the drop-phase session shipped it. Both halves.**
+
+*The writer is gone.* `app/Services/Platforms/EventSlugSync.php` does not exist,
+and `IntegrationConnectionObserver` carries **0** references to it (the plan
+recorded 13 at 10:20 that morning). The only mentions left anywhere in `app/`
+are historical comments — `ProjectionWriter:1645` explaining what the code used
+to do.
+
+*The rows are gone.* `select item_type, count(*) from site.item_slugs group by 1`
+returns **`menu_item` 293 and nothing else** — zero `item_type='event'`.
+
+**Step 2's caveat is discharged by construction, not by a refresh.** The plan
+warns that "a count taken without forcing a refresh proves nothing — the re-mint
+only happens on connect/refresh, which is the entire finding." That was the
+right worry while the writer still existed. With `EventSlugSync` deleted and no
+observer reference to it, there is no code path that can re-mint an event slug
+at all — which is a stronger guarantee than watching one refresh not do it. No
+live Eventbrite refresh was triggered, deliberately: it would have been a weaker
+test of a claim the absent writer already settles.
+
+Nothing to raise to the drop-phase session.
+
+**Spec §10.1 / Task 15 Step 5, answered here since the evidence is the same
+query: does anything still write `site.item_slugs`? No.** The only code in
+`app/` that names the table is `PruneRetiredItemSlugs`, and it only DELETES from
+it. Every live write goes to `content.item_slugs` (`ProjectionWriter`,
+`ItemMerger`). The 293 surviving `menu_item` rows are residue from the menu
+lane's own migration, not a live lane.
+
+So the table is inert and belongs in the drop phase's sweep. **It is NOT dropped
+here** — it is not one of the nine this project's DROP covers, and the plan says
+so explicitly.
 ## Closing
 
 *(Deliberately not numbered "Phase 6" — the convergence programme, slice 7's

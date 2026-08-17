@@ -85,13 +85,14 @@ class ShopBrand extends BaseModel
 
     /**
      * The reserved brand id for individually-added products — a bucket, not a
-     * connected store, so it never occupies a store slot. Lifted off
-     * ShopController (where it was a private const) in convergence Phase 6:
-     * ShopConnections needs it to route that bucket to its own anchor
-     * (`partna.manual_product`), and two copies of a reserved id is how the two
-     * lanes would drift apart.
+     * connected store, so it never occupies a store slot.
+     *
+     * @deprecated Re-home Task 7 moved the canonical copy to
+     * StoreRecord::INDIVIDUAL_REF, which outlives this class. Nothing in app/
+     * reads this one; it is aliased rather than duplicated so the two cannot
+     * drift, and it goes with the model at Task 13.
      */
-    public const INDIVIDUAL_BRAND_ID = 'individual';
+    public const INDIVIDUAL_BRAND_ID = StoreRecord::INDIVIDUAL_REF;
 
     protected $casts = [
         'is_individual' => 'boolean',

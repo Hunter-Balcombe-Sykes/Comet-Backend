@@ -100,11 +100,17 @@ it('addBrand + setProducts persist the relational marker and child rows, not a J
     // The row itself is now just the lifecycle/authorization anchor.
     expect($conn->payload)->toBe(['storage' => 'relational']);
 
-    $brand = ShopBrand::where('brand_id', 'rel-brand')->firstOrFail();
-    expect($brand->provider)->toBe('shopify');
+    // Re-home Task 7: addBrand() writes content.collections +
+    // content.storefronts through ShopContentWriter::upsertStore(), and
+    // site.shop_brands is written by NOTHING — brand_id is `external_ref`
+    // there. Both halves are asserted: the store landed, and the legacy table
+    // stayed empty (it is dropped by 20260819000210_drop_site_shop_brands.sql).
+    expect(DB::table('content.storefronts')->where('external_ref', 'rel-brand')->value('provider'))
+        ->toBe('shopify');
+    expect(ShopBrand::where('brand_id', 'rel-brand')->exists())->toBeFalse();
     // Task 8: setProducts() writes the selection to content.* only —
     // site.shop_products is no longer touched (see the Task 8 report).
-    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(0);
+    expect(ShopProduct::count())->toBe(0);
     expect(orderedProductIdsFor('rel-brand'))->toBe(['p1', 'p2']);
 });
 
@@ -119,7 +125,7 @@ it('addBrand + setProducts persist the relational marker and child rows, not a J
 // doesn't enforce FKs, which is exactly what the (now deleted) "keeps this
 // deterministic on SQLite in tests" comment was about. Asserting the count
 // would pin the opposite of what production does.
-it('removeBrand hard-deletes the brand row and issues no delete against shop_products', function () {
+it('removeBrand retires the content.* store row and issues no delete against shop_products', function () {
     $user = shopStorageUser('rel2');
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
@@ -127,6 +133,11 @@ it('removeBrand hard-deletes the brand row and issues no delete against shop_pro
     ]);
     $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'brand-x', 'provider' => 'shopify', 'url' => 'https://x', 'position' => 0]);
     ShopProduct::create(['brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1']]);
+    // Re-home Task 7: the endpoint resolves the store off content.* now, so
+    // the legacy rows above are no longer enough to reach it — mirror them
+    // through the real writer, the same lane addBrand() uses. The legacy rows
+    // stay because this test's whole point is which tables get a DELETE.
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     $deletes = [];
     DB::listen(function ($q) use (&$deletes): void {
@@ -139,16 +150,20 @@ it('removeBrand hard-deletes the brand row and issues no delete against shop_pro
         ->assertOk()
         ->assertJsonPath('brands', []);
 
-    expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(0)
-        // Non-vacuous: the endpoint DOES delete (the brand row), so an empty
-        // $deletes would mean the listener never fired rather than that the
-        // shop_products delete is gone.
+    expect(DB::table('content.storefronts')->where('external_ref', 'brand-x')->count())->toBe(0)
+        ->and(DB::table('content.collections')->where('kind', 'storefront')->count())->toBe(0)
+        // The legacy row is neither updated nor deleted — site.shop_brands is
+        // out of every write path, which is what makes its DROP safe.
+        ->and(ShopBrand::where('brand_id', 'brand-x')->exists())->toBeTrue()
+        // Non-vacuous: the endpoint DOES delete (the content.* store rows), so
+        // an empty $deletes would mean the listener never fired rather than
+        // that the shop_products delete is gone.
         ->and($deletes)->not->toBeEmpty()
         ->and(collect($deletes)->filter(fn (string $sql) => str_contains($sql, 'shop_products')))
         ->toBeEmpty();
 });
 
-it('forget deletes the brand rows, soft-deletes the connection, and never touches shop_products', function () {
+it('forget deletes the content.* stores, soft-deletes the connection, and never touches shop_products', function () {
     $user = shopStorageUser('rel3');
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
@@ -156,6 +171,10 @@ it('forget deletes the brand rows, soft-deletes the connection, and never touche
     ]);
     $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'b1', 'provider' => 'shopify', 'url' => 'https://b1', 'position' => 0]);
     ShopProduct::create(['brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0, 'data' => ['productId' => 'p1']]);
+    // Re-home Task 7: forget() clears content.* storefronts, not the legacy
+    // rows — mirror the fixture there so there is something to clear (same
+    // reasoning as removeBrand's fixture above).
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
 
     $deletes = [];
     DB::listen(function ($q) use (&$deletes): void {
@@ -168,7 +187,10 @@ it('forget deletes the brand rows, soft-deletes the connection, and never touche
         ->assertOk()
         ->assertJsonPath('brands', []);
 
-    expect(ShopBrand::where('connection_id', $conn->id)->count())->toBe(0);
+    expect(DB::table('content.collections')->where('kind', 'storefront')->count())->toBe(0);
+    // The legacy row survives untouched — nothing writes or deletes
+    // site.shop_brands any more (see removeBrand's identical note).
+    expect(ShopBrand::where('brand_id', 'b1')->exists())->toBeTrue();
     // Same as removeBrand above — a query assertion, not a row count, because
     // Postgres's ON DELETE CASCADE removes the child rows and SQLite does not.
     expect($deletes)->not->toBeEmpty()
@@ -200,8 +222,12 @@ it('re-adding a brand after forget creates a fresh row with no orphaned products
         ->assertJsonPath('id', 'again-brand');
 
     $active = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
-    $brand = ShopBrand::where('brand_id', 'again-brand')->firstOrFail();
-    expect(ShopProduct::where('brand_id', $brand->id)->count())->toBe(0);
+    // Re-home Task 7: the re-added store is a content.* row, so "no orphaned
+    // products" reads as "its fresh collection carries no items" — the first
+    // forget() retired whatever the first connect had linked.
+    $collectionId = DB::table('content.storefronts')->where('external_ref', 'again-brand')->value('collection_id');
+    expect($collectionId)->not->toBeNull();
+    expect(DB::table('content.collection_items')->where('collection_id', $collectionId)->count())->toBe(0);
 });
 
 it('addProduct dedupes by productId, keeps newest first, and caps at 20', function () {
@@ -225,12 +251,18 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
     }
 
     $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
-    $individual = ShopBrand::where('brand_id', 'individual')->firstOrFail();
-    expect($individual->is_individual)->toBeTrue();
+    // Re-home Task 7: the reserved bucket is a content.* store like any other
+    // — is_individual keeps its name there. Cast because SQLite hands the
+    // column back as 0/1 where Postgres returns a real boolean.
+    $individual = DB::table('content.storefronts')->where('external_ref', 'individual')->first();
+    expect($individual)->not->toBeNull();
+    expect((bool) $individual->is_individual)->toBeTrue();
     // Task 8: addProduct() writes content.* only — site.shop_products is no
     // longer touched (mirrors ShopProductSeeder::seed(), the already-shipped
-    // reference implementation for this same reserved-bucket pattern).
-    expect(ShopProduct::where('brand_id', $individual->id)->count())->toBe(0);
+    // reference implementation for this same reserved-bucket pattern), and
+    // Task 7 stopped the site.shop_brands anchor write too.
+    expect(ShopProduct::count())->toBe(0);
+    expect(ShopBrand::where('brand_id', 'individual')->exists())->toBeFalse();
 
     $ids = orderedProductIdsFor('individual');
     expect($ids)->toHaveCount(20);
@@ -260,14 +292,19 @@ it('removeProduct drops the individual bucket once it has no products left', fun
     actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => 'https://example.com/only'])->assertOk();
 
     $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
-    $individual = ShopBrand::where('brand_id', 'individual')->firstOrFail();
+    // Re-home Task 7: the bucket is a content.collections + content.storefronts
+    // pair now — capture its id before the delete so the assertion below is
+    // about THAT row disappearing, not merely about a lookup missing.
+    $collectionId = DB::table('content.storefronts')->where('external_ref', 'individual')->value('collection_id');
+    expect($collectionId)->not->toBeNull();
 
     actingAsUser($user)->deleteJson('/api/platforms/shop/products/only')
         ->assertOk()
         ->assertJsonPath('brands', []);
 
-    expect(ShopBrand::where('id', $individual->id)->exists())->toBeFalse();
-    expect(ShopProduct::where('brand_id', $individual->id)->count())->toBe(0);
+    expect(DB::table('content.storefronts')->where('collection_id', $collectionId)->exists())->toBeFalse();
+    expect(DB::table('content.collections')->where('id', $collectionId)->exists())->toBeFalse();
+    expect(ShopProduct::count())->toBe(0);
 });
 
 // RE-BASED by slice 5b Task 8 (2026-08-13). This case used to freeze the whole
@@ -530,10 +567,14 @@ it('updateBrand persists selectionMode/linkMode and parses the referral URL to i
         ->assertJsonPath('linkMode', 'checkout')
         ->assertJsonPath('referralQuery', 'ref=abc123&utm_source=friend');
 
-    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
-    expect($brand->link_mode)->toBe('checkout')
-        ->and($brand->referral_query)->toBe('ref=abc123&utm_source=friend')
-        ->and($brand->selection_mode)->toBe('manual');
+    // Re-home Task 7: of the three, only referral_query still has storage —
+    // it keeps its name on content.storefronts. linkMode is one SITE-wide
+    // setting (site.sites.shop_link_mode) and selectionMode is a derived
+    // constant ('manual', ShopContentReader gap 3), so the legacy per-store
+    // columns had nothing left reading them even before the DROP; the wire
+    // assertions above are what still pins those two.
+    expect(DB::table('content.storefronts')->where('external_ref', 'modes-brand')->value('referral_query'))
+        ->toBe('ref=abc123&utm_source=friend');
 
     // Bare query form + clearing.
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['referralUrl' => 'ref=zzz'])
@@ -560,7 +601,7 @@ it('updateBrand strips referral params that would override the composed link', f
         'referralUrl' => 'ref=abc&discount=FREE',
     ])->assertOk()->assertJsonPath('referralQuery', 'ref=abc');
 
-    expect(ShopBrand::where('brand_id', 'modes-brand')->firstOrFail()->referral_query)
+    expect(DB::table('content.storefronts')->where('external_ref', 'modes-brand')->value('referral_query'))
         ->toBe('ref=abc');
 
     // Case-insensitive: Shopify does not care, so neither do we.
@@ -652,8 +693,9 @@ it('a non-curated brand still syncs to the newest products on a scheduled ShopFe
     modesBrandFor($user);
 
     $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
-    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
-    expect($brand->products_curated_at)->toBeNull();
+    // #SEM-1's flag lives on content.storefronts now (curatedAtFor()) — the
+    // legacy site.shop_brands column is written by nothing.
+    expect(curatedAtFor('modes-brand'))->toBeNull();
 
     // Not mocking ShopCatalog away and asserting the flag instead of the rows
     // is exactly the failure mode this pins: a fix that (wrongly) blocks every

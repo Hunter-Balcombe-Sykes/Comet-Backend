@@ -5,6 +5,7 @@ use App\Services\Migration\ShopBackfiller;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\WooCommerceScraper;
+use App\Services\Shop\ShopContentWriter;
 use Illuminate\Support\Facades\DB;
 
 // Slice 5a Task 7 §Step 1-2. A response-shape diff, not a shape review: the
@@ -604,15 +605,20 @@ it('removeProduct retires one item and leaves its siblings alone', function () {
     expect(DB::table('content.items')->whereNull('removed_at')->count())->toBe(2);
 });
 
-// Fix round 1, C1 regression. The anchor row's lifetime is the whole bug:
+// Fix round 1, C1 regression. The bucket row's lifetime is the whole bug:
 // removeProduct() used to ask site.shop_products "is this bucket empty now?",
 // a table addProduct() had stopped writing, so the FIRST removal always
-// deleted the anchor and stranded the surviving content.* products — the
+// deleted the bucket and stranded the surviving content.* products — the
 // dashboard still listed them and every later DELETE 404'd on the missing
-// anchor. Both halves are asserted here: the anchor SURVIVES a partial
+// bucket. Both halves are asserted here: the bucket SURVIVES a partial
 // removal (with the siblings still listed and still removable), and is still
 // cleaned up exactly as before once the last product goes.
-it('removeProduct keeps the individual anchor row until the last product is gone', function () {
+//
+// Re-home Task 7: the bucket IS its content.storefronts row now — the legacy
+// site.shop_brands twin this used to check is written by nothing, so asking
+// that table would answer "gone" from the very first call and make the guard
+// vacuous, which is the same failure mode C1 was.
+it('removeProduct keeps the individual bucket row until the last product is gone', function () {
     [$user] = makeShopBrand();
 
     mockShopService(GenericShopScraper::class, function ($m) {
@@ -627,12 +633,12 @@ it('removeProduct keeps the individual anchor row until the last product is gone
         actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => "https://s.test/{$pid}"])->assertSuccessful();
     }
 
-    $anchorExists = fn (): bool => ShopBrand::where('brand_id', 'individual')->exists();
-    expect($anchorExists())->toBeTrue();
+    $bucketExists = fn (): bool => DB::table('content.storefronts')->where('external_ref', 'individual')->exists();
+    expect($bucketExists())->toBeTrue();
 
-    // One of three removed: the bucket is NOT empty, so the anchor must stay.
+    // One of three removed: the bucket is NOT empty, so it must stay.
     actingAsUser($user)->deleteJson('/api/platforms/shop/products/p2')->assertOk();
-    expect($anchorExists())->toBeTrue()
+    expect($bucketExists())->toBeTrue()
         ->and(orderedProductIdsFor('individual'))->toBe(['p3', 'p1']);
 
     // The siblings are still listed by the dashboard AND still removable —
@@ -644,15 +650,15 @@ it('removeProduct keeps the individual anchor row until the last product is gone
         ->assertJsonPath('brands.0.products.1.productId', 'p1');
 
     actingAsUser($user)->deleteJson('/api/platforms/shop/products/p3')->assertOk();
-    expect($anchorExists())->toBeTrue()
+    expect($bucketExists())->toBeTrue()
         ->and(orderedProductIdsFor('individual'))->toBe(['p1']);
 
-    // Last one out: the anchor and the content.* store are both cleaned up,
+    // Last one out: the bucket and its collection are both cleaned up,
     // exactly as before this fix.
     actingAsUser($user)->deleteJson('/api/platforms/shop/products/p1')
         ->assertOk()
         ->assertJsonPath('brands', []);
-    expect($anchorExists())->toBeFalse()
+    expect($bucketExists())->toBeFalse()
         ->and(DB::table('content.storefronts')->where('external_ref', 'individual')->count())->toBe(0)
         ->and(DB::table('content.collections')->where('kind', 'storefront')->count())->toBe(0)
         // Retired, never hard-deleted.
@@ -674,23 +680,33 @@ it('forget removes every store for the user and retires their items', function (
 // site.shop_products is fully retired — no write endpoint touches it anymore
 // (setProducts/addProduct/removeProduct all moved to ShopContentWriter).
 //
-// site.shop_brands is a DELIBERATE deviation from the brief's "written by
-// nothing" framing, reported in the Task 8 report rather than silently
-// forced green: it stays the operational anchor row MAX_BRANDS/dedup/
-// position/ShopBrandConnectJob/ProcessShopBrandLogoJob depend on (none of
-// those are Task 8's to rewrite), AND — more importantly — it is still what
-// PublicIntegrationConnectionResource reads for the LIVE, CDN-cached public
-// sitepage (app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php
-// eager-loads `shopBrands.products` and never touches content.*). Stopping
-// those writes would make a visitor's shop card go stale the moment a user
-// edits their store, with nothing in this slice's scope to fix it. The two
-// tests below assert the real, verified state of both tables rather than one
-// aspirational claim that doesn't hold for both.
+// site.shop_brands WAS a deliberate deviation from the brief's "written by
+// nothing" framing, reported in the Task 8 report rather than silently forced
+// green: it stayed the operational anchor row MAX_BRANDS/dedup/position/
+// ShopBrandConnectJob/ProcessShopBrandLogoJob depended on (none of those were
+// Task 8's to rewrite), AND — more importantly — it was still what
+// PublicIntegrationConnectionResource read for the LIVE, CDN-cached public
+// sitepage, so stopping those writes would have made a visitor's shop card go
+// stale with nothing in that slice's scope to fix it.
+//
+// INVERTED by the re-home (2026-08-17), kept rather than deleted, because the
+// new fact deserves the same guard the old one had. Every dependency listed
+// above has moved: the two async jobs key on StoreRecord::$collectionId, the
+// cap/dedup/position read ShopConnections::stores(), and the public wire is
+// served from the shop POOL off content.*. So site.shop_brands is now written
+// by NOTHING — and that is the precondition for
+// 20260819000210_drop_site_shop_brands.sql. After the DROP a resurrected write
+// path is a hard 500, not a stale card, which is exactly why it is worth
+// pinning as hard in this direction as it was in the other.
 
 it('no shop endpoint writes site.shop_products — the JSONB blob table is fully retired', function () {
     // exerciseAllShopWrites() calls updateSettings(), which hard-requires a
     // current site.
     [$user, $brand] = makeShopBrand(withSite: true);
+    // Re-home Task 7: every shop endpoint resolves its store off content.*, so
+    // the fixture has to exist there or the writes 404 before proving
+    // anything. Mirrored through the real writer — the lane addBrand() uses.
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
     $before = DB::table('site.shop_products')->max('updated_at');
 
     exerciseAllShopWrites($this, $user, $brand);
@@ -698,11 +714,19 @@ it('no shop endpoint writes site.shop_products — the JSONB blob table is fully
     expect(DB::table('site.shop_products')->max('updated_at'))->toBe($before);
 });
 
-it('site.shop_brands keeps being written — the anchor row + live public-wire read source', function () {
+it('no shop endpoint writes site.shop_brands either — the last legacy write is gone, clearing the DROP', function () {
     [$user, $brand] = makeShopBrand(withSite: true);
+    app(ShopContentWriter::class)->upsertStore($brand->toStoreRecord(), (string) $user->id);
     $before = DB::table('site.shop_brands')->max('updated_at');
+    $rowsBefore = DB::table('site.shop_brands')->count();
 
     exerciseAllShopWrites($this, $user, $brand);
 
-    expect(DB::table('site.shop_brands')->max('updated_at'))->not->toBe($before);
+    // Neither updated nor inserted nor deleted. The row count matters as much
+    // as the timestamp: exerciseAllShopWrites() runs a full addBrand() +
+    // removeBrand() cycle for a SECOND store, so a surviving legacy write
+    // would show up here as an extra row even if it never touched the
+    // fixture's own.
+    expect(DB::table('site.shop_brands')->max('updated_at'))->toBe($before)
+        ->and(DB::table('site.shop_brands')->count())->toBe($rowsBefore);
 });

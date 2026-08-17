@@ -51,17 +51,25 @@ it('shop updateBrand preserves other brands fields verbatim', function () {
         'connection_id' => $conn->id, 'brand_id' => 'brand-2', 'provider' => 'shopify',
         'url' => 'https://b2', 'discount_code' => 'B', 'position' => 1,
     ]);
+    // Re-home Task 7: updateBrand() reads AND writes the store through
+    // content.* — land both fixtures there via the real migration path, same
+    // as the sibling selection test below.
+    app(ShopBackfiller::class)->run();
 
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/brand-2', ['discountCode' => 'NEW'])
         ->assertOk()
         ->assertJsonPath('discountCode', 'NEW');
 
-    // brand-1's fields + products survive verbatim; brand-2's discount updated.
-    $brand1->refresh();
-    expect($brand1->fetch_mode)->toBe('client');
-    expect($brand1->source_url)->toBe('https://b1/shop');
-    expect($brand1->products->map->data->all())->toBe([['productId' => 'p1', 'url' => 'https://b1/p1']]);
-    expect(ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'brand-2')->value('discount_code'))
+    // brand-1's fields + products survive verbatim; brand-2's discount
+    // updated. Every assertion reads content.storefronts, where the old
+    // brand_id is `external_ref` and fetch_mode/source_url/discount_code keep
+    // their names — that is the row upsertStore() rewrites wholesale on every
+    // write, so "did brand-2's edit blank a sibling?" is asked there now.
+    $store1 = DB::table('content.storefronts')->where('external_ref', 'brand-1')->first();
+    expect($store1->fetch_mode)->toBe('client');
+    expect($store1->source_url)->toBe('https://b1/shop');
+    expect(orderedProductIdsFor('brand-1'))->toBe(['p1']);
+    expect(DB::table('content.storefronts')->where('external_ref', 'brand-2')->value('discount_code'))
         ->toBe('NEW');
 });
 

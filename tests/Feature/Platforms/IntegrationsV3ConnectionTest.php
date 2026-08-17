@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\GoogleBusinessService;
@@ -12,6 +11,7 @@ use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\Shop\ShopConnections;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -68,8 +68,11 @@ it('detects a Squarespace store and stores its provider + products source', func
 
     $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->first();
     // The discovered products-collection URL is kept privately for refreshes.
-    // FOUND-25: brands live in site.shop_brands now, not the connection payload.
-    expect(ShopBrand::where('brand_id', 'hester-example')->value('source_url'))
+    // FOUND-25: brands never lived in the connection payload. Re-home Task 7:
+    // they no longer live in site.shop_brands either — addBrand() writes
+    // content.storefronts, where external_ref is the old brand_id column and
+    // source_url keeps its name.
+    expect(DB::table('content.storefronts')->where('external_ref', 'hester-example')->value('source_url'))
         ->toBe('https://hester.example/shop');
 });
 

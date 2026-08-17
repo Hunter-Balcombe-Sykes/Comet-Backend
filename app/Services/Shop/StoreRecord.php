@@ -30,6 +30,19 @@ use Illuminate\Support\Carbon;
  */
 final readonly class StoreRecord
 {
+    /**
+     * The reserved bucket holding individually-added products — not a connected
+     * store, so it never occupies a store slot, and it anchors on its own
+     * surface (`partna.manual_product`).
+     *
+     * Re-home Task 7 moved this off ShopBrand. It had been lifted onto that
+     * model in convergence Phase 6 so ShopConnections could route the bucket,
+     * but the model is scheduled for deletion — and slice 7 Task 24 already had
+     * to untangle an adapter left on it for exactly that reason. A const whose
+     * readers outlive its host is how that happens twice.
+     */
+    public const INDIVIDUAL_REF = 'individual';
+
     public function __construct(
         public string $externalRef,
         public string $provider,
@@ -87,6 +100,53 @@ final readonly class StoreRecord
          */
         public ?string $userId = null,
     ) {}
+
+    /**
+     * A copy with selected fields replaced.
+     *
+     * This exists because ShopContentWriter::upsertStore() writes EVERY column
+     * unconditionally in its ON CONFLICT clause, where the legacy Eloquent
+     * writes simply omitted absent keys. Every write path therefore has to fold
+     * its edit onto the record content.* already holds, or it silently blanks
+     * whatever it did not mention — the fault that would have wiped a favicon
+     * on every re-scan in StoreBrandSeeder. Putting the field list in ONE place
+     * makes that fold mechanical instead of something each caller has to
+     * remember; PHP has no `clone with` before 8.5.
+     *
+     * Keys are the camelCase property names. array_key_exists, not `??`, so an
+     * override CAN set a field to null — clearing connectError on a settle is
+     * exactly that.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public function with(array $overrides): self
+    {
+        $v = fn (string $key, mixed $current): mixed => array_key_exists($key, $overrides) ? $overrides[$key] : $current;
+
+        return new self(
+            externalRef: $v('externalRef', $this->externalRef),
+            provider: $v('provider', $this->provider),
+            name: $v('name', $this->name),
+            position: $v('position', $this->position),
+            url: $v('url', $this->url),
+            sourceUrl: $v('sourceUrl', $this->sourceUrl),
+            currency: $v('currency', $this->currency),
+            discountCode: $v('discountCode', $this->discountCode),
+            referralQuery: $v('referralQuery', $this->referralQuery),
+            isIndividual: $v('isIndividual', $this->isIndividual),
+            fetchMode: $v('fetchMode', $this->fetchMode),
+            connectStatus: $v('connectStatus', $this->connectStatus),
+            connectError: $v('connectError', $this->connectError),
+            logoUrl: $v('logoUrl', $this->logoUrl),
+            faviconUrl: $v('faviconUrl', $this->faviconUrl),
+            logoMarkUrl: $v('logoMarkUrl', $this->logoMarkUrl),
+            logoMarkSvgUrl: $v('logoMarkSvgUrl', $this->logoMarkSvgUrl),
+            productsCuratedAt: $v('productsCuratedAt', $this->productsCuratedAt),
+            collectionId: $v('collectionId', $this->collectionId),
+            updatedAt: $v('updatedAt', $this->updatedAt),
+            userId: $v('userId', $this->userId),
+        );
+    }
 
     /**
      * Rebuild from a `content.storefronts` row joined to its

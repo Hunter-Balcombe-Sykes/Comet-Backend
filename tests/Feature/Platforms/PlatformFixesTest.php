@@ -2,13 +2,14 @@
 
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ShopifyScraper;
+use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -151,15 +152,21 @@ it('keeps an event with no dates at all in the Eventbrite selection', function (
 function seedShopifyBrand(): User
 {
     $user = fbActingUser();
-    $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'b1',
         'payload' => ['storage' => 'relational'],
     ]);
-    ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'b1', 'provider' => 'shopify',
-        'url' => 'https://shop.example.com', 'name' => 'Shop', 'currency' => 'USD',
-        'discount_code' => '',
-    ]);
+    // Re-home Task 7: setProducts() resolves the store off content.* via
+    // ShopConnections::store(), and nothing writes site.shop_brands any more —
+    // seed through the real writer, the lane addBrand() uses.
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: 'b1',
+        provider: 'shopify',
+        name: 'Shop',
+        url: 'https://shop.example.com',
+        currency: 'USD',
+        discountCode: '',
+    ), (string) $user->id);
 
     return $user;
 }

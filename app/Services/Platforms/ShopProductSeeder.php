@@ -3,11 +3,11 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -70,18 +70,24 @@ class ShopProductSeeder
                 // which is exactly this case. `partna.storefront` is retired.
                 $connection = $this->shop->individualAnchor($user);
 
-                $maxPosition = $this->shop->brands($user)->max('position');
-                $individual = ShopBrand::firstOrCreate(
-                    ['connection_id' => $connection->id, 'brand_id' => ShopBrand::INDIVIDUAL_BRAND_ID],
-                    [
-                        'provider' => ShopProviderDetector::PROVIDER_GENERIC,
-                        'url' => '',
-                        'source_url' => '',
-                        'currency' => $product['currency'] ?? null,
-                        'discount_code' => '',
-                        'is_individual' => true,
-                        'position' => ($maxPosition === null ? -1 : $maxPosition) + 1,
-                    ],
+                // Re-home Task 10: the bucket is a content.* store. The
+                // firstOrCreate this replaces had "create only if absent"
+                // semantics that upsertStore() does not — it writes every
+                // column — so an EXISTING bucket keeps its own position and
+                // currency and only a brand-new one takes the defaults.
+                // Without that fold, a second seed() for the same user would
+                // renumber the bucket and overwrite the currency the first set.
+                $stores = $this->shop->stores($user);
+                $maxPosition = $stores->max('position');
+                $individual = $stores->get(StoreRecord::INDIVIDUAL_REF) ?? new StoreRecord(
+                    externalRef: StoreRecord::INDIVIDUAL_REF,
+                    provider: ShopProviderDetector::PROVIDER_GENERIC,
+                    position: ($maxPosition === null ? -1 : $maxPosition) + 1,
+                    url: '',
+                    sourceUrl: '',
+                    currency: $product['currency'] ?? null,
+                    discountCode: '',
+                    isIndividual: true,
                 );
 
                 $productId = $product['productId'] ?? null;
@@ -96,7 +102,7 @@ class ShopProductSeeder
                 // FIRST call wrote, and syncStore()'s retire-absent would
                 // silently drop it. Newest first, de-duped by productId,
                 // capped — byte-for-byte the addProduct() ordering contract.
-                $collectionId = $this->content->upsertStore($individual->toStoreRecord(), (string) $user->id);
+                $collectionId = $this->content->upsertStore($individual, (string) $user->id);
                 $ordered = collect($this->content->currentCatalogue($collectionId))
                     ->reject(fn (array $p) => ($p['productId'] ?? null) === $productId)
                     ->prepend($product)

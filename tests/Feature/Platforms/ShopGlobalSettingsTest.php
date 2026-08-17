@@ -2,7 +2,6 @@
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\GenericShopScraper;
@@ -15,7 +14,9 @@ use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
 use App\Site\Pools\AutoSyncSetting;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -134,25 +135,30 @@ it('the legacy /shopify alias prefix is gone', function () {
 
 // ── ShopFetch: the global auto-latest gate drives the scheduled sync ──────────
 
-/** A shop connection + a non-individual brand for the ShopFetch strategy. */
+/** A shop connection + a non-individual content.* store for the ShopFetch strategy. */
 function shopFetchConnection(User $user, bool $autoLatest): IntegrationConnection
 {
     $conn = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'shop',
+        'user_id' => $user->id, 'platform' => 'shopify.store', 'resource_id' => 'sf-brand',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
         // 2026-08-05: the auto-latest gate reads the connection's own sparse
         // display_settings (absent = ON) — the site column is gone.
         'display_settings' => $autoLatest ? null : ['auto_sync_latest' => false],
     ]);
-    ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'sf-brand', 'provider' => 'shopify',
-        // #SEM-1: per-brand selection_mode is 'manual' by DB default and
-        // addBrand() never sets it, so it can't distinguish "curated" from
-        // "never touched". This brand STILL syncs when the global auto-latest
-        // is on because it has no products_curated_at on record — that
-        // column, not selection_mode, is what ShopFetch actually reads.
-        'url' => 'https://sf.example', 'selection_mode' => 'manual', 'position' => 0,
-    ]);
+    // Re-home Task 7: the store is a content.* row (site.shop_brands is
+    // written by nothing), landed through the real writer.
+    //
+    // #SEM-1: selection_mode is not set because it no longer exists anywhere.
+    // It never could distinguish "curated" from "never touched" — 'manual' was
+    // its DB default and addBrand() never set it — which is exactly why the
+    // gate is products_curated_at, left null here so this store DOES sync when
+    // the global auto-latest is on.
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: 'sf-brand',
+        provider: 'shopify',
+        position: 0,
+        url: 'https://sf.example',
+    ), (string) $user->id);
 
     return $conn;
 }
@@ -188,7 +194,9 @@ it('ShopFetch syncs nothing when the global auto-latest is off', function () {
 it('ShopFetch skips a brand with products_curated_at set even when the global auto-latest is on', function () {
     $user = shopSettingsUser('sfcurated');
     $conn = shopFetchConnection($user, autoLatest: true);
-    ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'sf-brand')
+    // #SEM-1's stamp lives on content.storefronts now — setProducts() writes
+    // it there directly, and it is what ShopFetch's filter reads.
+    DB::table('content.storefronts')->where('external_ref', 'sf-brand')
         ->update(['products_curated_at' => now()]);
 
     $catalog = Mockery::mock(ShopCatalog::class);
@@ -204,24 +212,25 @@ it('ShopFetch skips a brand with products_curated_at set even when the global au
 
 // ── #428: the scheduled refresh died on a lazy load ───────────────────────────
 //
-// Every test above mocks ShopCatalog, so syncLatest() never runs and
-// toBrandArray() is never reached — which is exactly why the suite stayed green
-// while every scheduled shop refresh on dev failed (36 in 24h). These two use
-// the REAL ShopCatalog.
+// THE INCIDENT (kept, because the reasoning still governs what these tests are
+// for): every test above mocks ShopCatalog, so syncLatest() never ran and
+// ShopBrand::toBrandArray() was never reached — which is exactly why the suite
+// stayed green while every scheduled shop refresh on dev failed, 36 in 24h.
+// toBrandArray() materialised $this->products unconditionally; every caller
+// loaded that relation first except ShopFetch, which stopped eager-loading it
+// in 5a on the stated belief that "syncLatest() no longer reads
+// $brand->products". It did. Eloquent's strict mode only arms per INSTANCE and
+// Builder::hydrate() sets that flag `if (count($items) > 1)`, so a one-brand
+// connection could not reproduce it at all — the failing account held five
+// storefronts. That is why the fixtures below still use TWO stores.
 //
-// toBrandArray() materialises $this->products unconditionally. Every caller in
-// the codebase loads that relation first — ShopController via ->with('products')
-// or ->fresh('products') — except ShopFetch, which stopped eager-loading it in
-// 5a on the stated belief that "syncLatest() no longer reads $brand->products".
-// It does.
-//
-// TWO OR MORE BRANDS PER CONNECTION IS LOAD-BEARING IN THESE FIXTURES.
-// Eloquent's strict mode only arms per INSTANCE, and Builder::hydrate() sets
-// that flag `if (count($items) > 1)` — a single-row result can lazy-load
-// freely. So a one-brand connection cannot reproduce this no matter what
-// Model::preventLazyLoading() is set to, which is why the whole suite stayed
-// green while dev burned: the failing account holds five storefronts on one
-// connection. Do not "simplify" these fixtures down to one brand.
+// RE-HOME TASK 7 CLOSED THE SHAPE, not merely this instance of it:
+// syncLatest() takes a StoreRecord — a readonly DTO with no relations at all —
+// plus the owner id as a plain string. There is nothing left to lazy-load
+// from, and no relation a caller can forget. The tests below are kept and
+// rewritten to pin THAT: the structural guarantee, and a real multi-store run
+// through the real ShopCatalog. Asserting a hazard that can no longer occur
+// would be asserting nothing.
 
 /** Real ShopCatalog whose Shopify scrape returns an empty catalogue. */
 function shopCatalogWithEmptyScrape(): ShopCatalog
@@ -239,52 +248,54 @@ function shopCatalogWithEmptyScrape(): ShopCatalog
     );
 }
 
-/** A second non-individual brand, so the brands query hydrates >1 row. */
+/** A second non-individual store, so the fixture is genuinely multi-store. */
 function shopFetchSecondBrand(IntegrationConnection $conn): void
 {
-    ShopBrand::create([
-        'connection_id' => $conn->id, 'brand_id' => 'sf-brand-2', 'provider' => 'shopify',
-        'url' => 'https://sf2.example', 'selection_mode' => 'manual', 'position' => 1,
-    ]);
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: 'sf-brand-2',
+        provider: 'shopify',
+        position: 1,
+        url: 'https://sf2.example',
+    ), (string) $conn->user_id);
 }
 
-it('runs the scheduled sync end to end without tripping the lazy-loading guard', function () {
+it('runs the scheduled sync end to end for a multi-store user', function () {
     $user = shopSettingsUser('sflazy');
     $conn = shopFetchConnection($user, autoLatest: true);
     shopFetchSecondBrand($conn);
 
     // Reaching FetchNotModifiedException means syncLatest() ran to completion
-    // for both brands: reachable, and genuinely empty. Before the fix this threw
-    // LazyLoadingViolationException from ShopBrand::toBrandArray() instead, and
-    // that exception is caught by nothing in the chain — it failed the job.
+    // for BOTH stores: reachable, and genuinely empty. Before #428's fix this
+    // threw LazyLoadingViolationException from ShopBrand::toBrandArray()
+    // instead, and that exception is caught by nothing in the chain — it
+    // failed the job. It cannot throw from there any more (there is no model
+    // in the path), so what this now pins is the loop itself: every store the
+    // user owns is visited, not just the one whose connection was handed in.
     expect(fn () => (new ShopFetch(shopCatalogWithEmptyScrape(), Mockery::mock(IntegrationConnectionCacheRefresher::class)))
         ->fetch($conn->fresh()))
         ->toThrow(FetchNotModifiedException::class);
 });
 
-// Re-home Task 2 sibling of the test below. syncLatest() no longer reads
-// $brand->products at all, but it DOES need the owner id — and it resolves it
-// through $brand->connection, another lazy relation on the same strict-mode
-// row. ShopCatalog::dispatchShapeFor() therefore takes the owner as a CLOSURE
-// so only the fetchMode='client' branch pays for it.
+// Re-home Task 2 sibling of the test below. syncLatest() had stopped reading
+// $brand->products, but it still needed the owner id — and it resolved that
+// through $brand->connection, ANOTHER lazy relation on the same strict-mode
+// row. dispatchShapeFor() briefly took the owner as a CLOSURE so only the
+// fetchMode='client' branch would pay for it, because 'client' is the branch
+// that reaches storage before the empty-catalog return.
 //
-// 'client' is the branch that DOES invoke the closure, and it invokes it
-// before the empty-catalog return — so this is the case that would throw if
-// ShopFetch ever stopped eager-loading `connection`, exactly as 5a stopped
-// eager-loading `products` and produced #428. Nothing else pins it.
-it('syncLatest tolerates a CLIENT-mode brand handed to it with connection unloaded', function () {
+// Task 7 removed the model from the path entirely, so the owner is now a plain
+// string the caller already holds and the closure is gone. What still deserves
+// a test is the branch itself: client mode is the one that reads content.*
+// mid-sync, and it must survive an empty scrape without minting anything.
+it('syncLatest handles a CLIENT-mode store, whose fallback reads content.*, without minting a collection', function () {
     $user = shopSettingsUser('sflazy3');
     $conn = shopFetchConnection($user, autoLatest: true);
     shopFetchSecondBrand($conn);
-    ShopBrand::where('connection_id', $conn->id)->update(['fetch_mode' => 'client']);
+    DB::table('content.storefronts')->where('user_id', (string) $user->id)
+        ->update(['fetch_mode' => 'client']);
 
-    // Straight off a multi-row get(), with NEITHER relation loaded — this is
-    // what arms Eloquent strict mode (Builder::hydrate only sets the flag for
-    // >1 row).
-    $brand = ShopBrand::query()->where('connection_id', $conn->id)->get()->firstOrFail();
-    expect($brand->relationLoaded('connection'))->toBeFalse()
-        ->and($brand->relationLoaded('products'))->toBeFalse()
-        ->and($brand->preventsLazyLoading)->toBeTrue();
+    $store = app(ShopConnections::class)->store($user, 'sf-brand');
+    expect($store->fetchMode)->toBe('client');
 
     // Client mode dispatches through WooCommerceScraper::fetchProducts, and an
     // empty return sends it down the cached/stored fallback — the path that
@@ -300,20 +311,31 @@ it('syncLatest tolerates a CLIENT-mode brand handed to it with connection unload
         app(ShopContentWriter::class),
     );
 
-    expect($catalog->syncLatest($brand))->toBeNull();
+    expect($catalog->syncLatest($store, (string) $user->id))->toBeNull();
+    // dispatchShapeFor() deliberately uses the READ-ONLY collectionIdFor()
+    // lookup, never upsertStore() — a store whose fetch then comes up empty
+    // must not have been minted as a side effect of dispatching that fetch.
+    expect(DB::table('content.collections')->where('kind', 'storefront')->count())->toBe(2);
 });
 
-it('syncLatest tolerates a brand handed to it with products unloaded', function () {
-    $user = shopSettingsUser('sflazy2');
-    $conn = shopFetchConnection($user, autoLatest: true);
-    shopFetchSecondBrand($conn);
+// The structural half of #428, replacing "tolerates a brand handed to it with
+// products unloaded": that test could only ever catch ONE forgotten
+// eager-load. This catches the reintroduction of the whole hazard class — a
+// model back on syncLatest()/dispatchShapeFor() is the only way a relation can
+// return to this path.
+it('syncLatest takes a StoreRecord and a plain owner id — no Eloquent model to lazy-load from', function () {
+    $sync = (new ReflectionMethod(ShopCatalog::class, 'syncLatest'))->getParameters();
+    expect($sync[0]->getType()?->getName())->toBe(StoreRecord::class)
+        ->and($sync[1]->getType()?->getName())->toBe('string');
 
-    // Straight off a multi-row get(), exactly as ShopFetch hands it over — no
-    // ->with('products'), no ->fresh('products'). syncLatest() must not depend
-    // on its caller having remembered.
-    $brand = ShopBrand::query()->where('connection_id', $conn->id)->get()->firstOrFail();
-    expect($brand->relationLoaded('products'))->toBeFalse()
-        ->and($brand->preventsLazyLoading)->toBeTrue();
+    // dispatchShapeFor() is the other half — see the note above on why its
+    // second argument was briefly a Closure.
+    $shape = (new ReflectionMethod(ShopCatalog::class, 'dispatchShapeFor'))->getParameters();
+    expect($shape[0]->getType()?->getName())->toBe(StoreRecord::class)
+        ->and($shape[1]->getType()?->getName())->toBe('string');
 
-    expect(shopCatalogWithEmptyScrape()->syncLatest($brand))->toBeNull();
+    // And StoreRecord itself carries no relations to forget: readonly data,
+    // not an Eloquent model.
+    expect((new ReflectionClass(StoreRecord::class))->isReadOnly())->toBeTrue()
+        ->and(is_subclass_of(StoreRecord::class, Model::class))->toBeFalse();
 });

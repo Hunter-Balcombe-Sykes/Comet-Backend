@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\Normalizers\SkoolNormalizer;
@@ -11,6 +10,7 @@ use App\Services\Platforms\PlatformInput;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Shop\ShopConnections;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -231,9 +231,13 @@ it('connects a WAF-blocked WooCommerce store via the client-assisted payload', f
         ->assertJsonPath('name', 'FEAR NO EVIL');
 
     $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->first();
-    $brand = ShopBrand::where('brand_id', 'fearnoevil-example')->firstOrFail();
-    expect($brand->fetch_mode)->toBe('client');
-    expect($brand->url)->toBe('https://fearnoevil.example');
+    // Re-home Task 7: addBrand() writes content.storefronts, not
+    // site.shop_brands — brand_id is external_ref there; fetch_mode/url keep
+    // their names.
+    $store = DB::table('content.storefronts')->where('external_ref', 'fearnoevil-example')->first();
+    expect($store)->not->toBeNull();
+    expect($store->fetch_mode)->toBe('client');
+    expect($store->url)->toBe('https://fearnoevil.example');
 
     // The browser-fetched catalog was warmed for the picker — host-pinned, so
     // the spoofed foreign product is gone and the price is decimalised.

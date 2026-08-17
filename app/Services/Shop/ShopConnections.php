@@ -136,7 +136,7 @@ class ShopConnections
             [
                 'user_id' => $user->id,
                 'surface_key' => self::INDIVIDUAL_SURFACE,
-                'resource_id' => ShopBrand::INDIVIDUAL_BRAND_ID,
+                'resource_id' => StoreRecord::INDIVIDUAL_REF,
             ],
             [
                 'payload' => ['storage' => 'relational'],

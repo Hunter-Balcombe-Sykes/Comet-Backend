@@ -113,7 +113,12 @@ beforeEach(function () {
         -- (collections.user_id, provider, external_ref) and Postgres has no
         -- cross-table unique index — 20260813100001 named exactly this as
         -- the fix and deferred it.
-        user_id             uuid        REFERENCES core.users(id) ON DELETE CASCADE
+        user_id             uuid        REFERENCES core.users(id) ON DELETE CASCADE,
+        -- Re-home Task 13 pre-flight (20260819000120): the vocabulary carried
+        -- over from shop_brands_connect_status_check before the DROP took the
+        -- original away.
+        CONSTRAINT storefronts_connect_status_check
+            CHECK (connect_status IS NULL OR connect_status IN (\'pending\', \'failed\'))
     )');
 
     // Re-home Task 11 (20260819000110). PARTIAL on external_ref IS NOT NULL:
@@ -305,4 +310,49 @@ it('writes the denormalised owner onto every storefront it upserts', function ()
 
     expect(DB::connection('pgsql')->table('content.storefronts')
         ->where('collection_id', $collectionId)->value('user_id'))->toBe($userId);
+});
+
+// ── The connect_status vocabulary, carried before the DROP ───────────────
+//
+// site.shop_brands enforced NULL | 'pending' | 'failed' in the DATABASE
+// (shop_brands_connect_status_check). content.storefronts declared the column
+// bare text, so that guarantee did not come across with the data —
+// 20260819000120 carries it, and this pins it before the DROP removes anything
+// to compare against.
+//
+// It matters on the wire, not just in the schema:
+// PublicIntegrationConnectionResource rejects only 'pending', so a third value
+// reaching the column would render publicly as though the store had connected.
+
+it('refuses a connect_status outside the vocabulary', function (): void {
+    $userId = shopUpsertConflictTestUser();
+    $collectionId = app(ShopContentWriter::class)->upsertStore(
+        shopUpsertConflictStoreRecord('shopify', 'alpha'),
+        $userId,
+    );
+
+    // Pin the REFUSAL REASON, not merely that something threw.
+    expect(fn () => DB::connection('pgsql')->table('content.storefronts')
+        ->where('collection_id', $collectionId)
+        ->update(['connect_status' => 'connected']))
+        ->toThrow(QueryException::class, 'storefronts_connect_status_check');
+});
+
+it('accepts every value the vocabulary does allow', function (): void {
+    // The negative test above passes just as well against a constraint that
+    // refuses EVERYTHING, so pin the accepted set too.
+    $userId = shopUpsertConflictTestUser();
+    $collectionId = app(ShopContentWriter::class)->upsertStore(
+        shopUpsertConflictStoreRecord('shopify', 'alpha'),
+        $userId,
+    );
+
+    foreach (['pending', 'failed', null] as $status) {
+        DB::connection('pgsql')->table('content.storefronts')
+            ->where('collection_id', $collectionId)
+            ->update(['connect_status' => $status]);
+
+        expect(DB::connection('pgsql')->table('content.storefronts')
+            ->where('collection_id', $collectionId)->value('connect_status'))->toBe($status);
+    }
 });

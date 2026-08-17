@@ -7,7 +7,8 @@ use App\Models\Core\Site\Site;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
-use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\ShopConnections;
+use App\Services\Shop\StoreRecord;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // Scheduled shop refresh: re-syncs every non-individual store's selection to
@@ -33,8 +34,17 @@ final readonly class ShopFetch implements FetchStrategy
         // ShopGlobalSettingsTest construct ShopFetch by hand with just
         // ($catalog, $refresher) — a required 3rd param would fail
         // construction for every one of those, not just the curation ones.
-        private ?ShopContentWriter $content = null,
+        // Re-home Task 7 dropped the ShopContentWriter that used to sit here:
+        // its only use was isCurated(), and the curation stamp now rides on the
+        // record the read already returns.
+        private ?ShopConnections $shop = null,
     ) {}
+
+    /** Real ShopConnections, or the container's when constructed without one. */
+    private function shop(): ShopConnections
+    {
+        return $this->shop ?? app(ShopConnections::class);
+    }
 
     public function fetch(IntegrationConnection $connection): array
     {
@@ -46,30 +56,29 @@ final readonly class ShopFetch implements FetchStrategy
         }
 
         // Auto-latest ON → every non-individual store tracks its newest
-        // products EXCEPT a brand the user hand-curated (#SEM-1) — that
-        // per-brand fact is products_curated_at, not selection_mode (see the
+        // products EXCEPT a store the user hand-curated (#SEM-1) — that
+        // per-store fact is products_curated_at, not selection_mode (see the
         // class docblock for why selection_mode can't carry it).
-        // ShopContentWriter::isCurated() replaces the whereNull() column
-        // filter as of Task 6 (still reads the same live ShopBrand column —
-        // see that method's docblock for why it isn't the content.storefronts
-        // mirror).
         //
-        // Re-home Task 2 dropped the 'products' eager load. #428 added it back
-        // because syncLatest() reached the relation through
-        // ShopBrand::toBrandArray() (since deleted), and the resulting
-        // LazyLoadingViolationException failed this job on every multi-brand
-        // connection. That method is gone and syncLatest() no longer touches
-        // the relation at all, so eager-loading it now buys nothing. The
-        // 'connection' load stays — syncLatest() reads connection->user_id,
-        // and this IS the multi-row hydrate that arms strict mode.
-        $content = $this->content ?? app(ShopContentWriter::class);
-        $latestBrands = $connection->shopBrands()
-            ->where('is_individual', false)
-            ->with('connection')
-            ->get()
-            ->reject(fn ($b) => $content->isCurated($b->toStoreRecord(), (string) $connection->user_id));
+        // Re-home Task 7: the family comes off content.* via
+        // ShopConnections::stores(), not $connection->shopBrands(). Three
+        // hazards go with that relation. #428's eager-load requirement is moot
+        // (nothing lazy-loads from a DTO). isCurated()'s own lookup is moot —
+        // products_curated_at is ON the record now, so the filter is a property
+        // read rather than a query per store. And the read is USER-scoped where
+        // it used to be connection-scoped, which is what it always wanted:
+        // one connection per store means a connection-scoped read saw exactly
+        // one of the user's stores.
+        $user = $connection->user;
+        if ($user === null) {
+            throw new FetchNotModifiedException('shop');
+        }
 
-        if ($latestBrands->isEmpty()) {
+        $ownerId = (string) $connection->user_id;
+        $latestStores = $this->shop()->stores($user)
+            ->filter(fn (StoreRecord $s): bool => $s->isIndividual === false && $s->productsCuratedAt === null);
+
+        if ($latestStores->isEmpty()) {
             throw new FetchNotModifiedException('shop');
         }
 
@@ -80,9 +89,9 @@ final readonly class ShopFetch implements FetchStrategy
         // the batch from syncing.
         $synced = 0;
         $failed = 0;
-        foreach ($latestBrands as $brand) {
+        foreach ($latestStores as $store) {
             try {
-                if ($this->catalog->syncLatest($brand) !== null) {
+                if ($this->catalog->syncLatest($store, $ownerId) !== null) {
                     $synced++;
                 }
             } catch (HttpException) {

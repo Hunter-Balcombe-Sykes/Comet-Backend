@@ -2,13 +2,13 @@
 
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\YoutubeScraper;
 use App\Services\Shop\ShopConnections;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -249,11 +249,14 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://f.example.com'])
         ->assertStatus(422);
 
-    // FOUND-25: brands live in site.shop_brands, not the connection payload.
-    // Convergence Phase 6: and each of the five stores carries its OWN
-    // connection, so the count spans the family rather than one marker row.
+    // FOUND-25: brands never lived in the connection payload. Convergence
+    // Phase 6: each of the five stores carries its OWN connection, so the
+    // count spans the family rather than one marker row. Re-home Task 7: the
+    // stores themselves are content.storefronts rows now (owner-scoped
+    // through their content.collections parent), not site.shop_brands.
     $connectionIds = IntegrationConnection::where('user_id', $user->id)
         ->whereIn('surface_key', ShopConnections::surfaces())->pluck('id');
     expect($connectionIds)->toHaveCount(5);
-    expect(ShopBrand::whereIn('connection_id', $connectionIds)->where('is_individual', false)->count())->toBe(5);
+    expect(DB::table('content.storefronts')->where('user_id', (string) $user->id)
+        ->where('is_individual', false)->count())->toBe(5);
 });
