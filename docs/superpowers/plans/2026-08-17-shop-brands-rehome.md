@@ -862,12 +862,60 @@ it. Task 7 Step 4 asked for exactly this and named the reason: slice 7's Task 24
 had already had to untangle an adapter left on a doomed model twice.
 ### Task 8: Phase 2 gate
 
-- [ ] **Step 1:** `composer test`, `./vendor/bin/pest --parallel --processes=4`, `composer test:pg`, PHPStan, Pint.
-- [ ] **Step 2: Merge to `development`, deploy dev.**
-- [ ] **Step 3: On dev, exercise all seven verbs against a real store** — connect, poll status, rename, curate products, remove a product, remove the store, re-add it. Assert `content.storefronts` moved and `site.shop_brands` did not (`SELECT max(updated_at) FROM site.shop_brands` before and after).
+- [x] **Step 1:** `composer test`, `./vendor/bin/pest --parallel --processes=4`, `composer test:pg`, PHPStan, Pint.
+- [x] **Step 2: Merge to `development`, deploy dev.**
+- [x] **Step 3: On dev, exercise all seven verbs against a real store** — connect, poll status, rename, curate products, remove a product, remove the store, re-add it. Assert `content.storefronts` moved and `site.shop_brands` did not (`SELECT max(updated_at) FROM site.shop_brands` before and after).
 
 ---
 
+
+**Gate results, 2026-08-17.**
+
+Steps 1-2: `pest --parallel` **8294 passed / 2 skipped / 0 failed**;
+`composer test:pg` **212 passed**; PHPStan at 1G **no errors**; Pint passed.
+Merged to `development` and deployed — `deployment.succeeded` for `9405d9699`.
+
+**The pre-push guard rejected the merge the first time, and it was right.** Both
+Task 11 migrations used unsafe locking patterns (`ALTER COLUMN SET NOT NULL`
+bare, `ADD CONSTRAINT CHECK` without `NOT VALID`, plus an inline column
+`REFERENCES`). They were rewritten to the documented four-step / NOT VALID →
+VALIDATE forms and **proven to reach the identical end state** by applying both
+from zero against a throwaway `postgres:16` with a populated table. Dev had
+already run the unsafe form, so it is not re-run; each file's header records
+that the repo and the database disagree about HOW the migration ran, and why.
+
+**Step 3 — live on dev, via `cloud tinker` against real Postgres.** The gate's
+core assertion holds:
+
+- `ShopConnections::stores()` resolves **5 users / 10 stores** live, every one
+  carrying `collectionId`, `userId` and `position`, ordered by position.
+- A real `upsertStore()` round-trip of an existing store (`fearnoevil-com-au`,
+  its own values written back) returned **the SAME collection id** — identity is
+  stable and the slice-5a duplicate-minting fault cannot recur.
+- **`site.shop_brands` did NOT move**: `max(updated_at)` unchanged, row count
+  unchanged at 10. **`content.storefronts` DID**: clock moved, row count
+  unchanged at 15, storefront collections unchanged at 10. That is precisely
+  what this project set out to prove.
+- `ShopContentReader::brandMap()` reads the store back with its name
+  (`FEAR NO EVIL`) and 2 products.
+- Public wire, unauthenticated: `GET /api/public/profiles/ollies` → **200**,
+  `profile.pools.shop` carries **34 items across 6 collections**.
+
+**What was NOT done, and why.** The seven verbs were not driven through the
+authenticated HTTP API. That needs a Supabase JWT for a dev user, which is a
+credential this session does not hold and must not fabricate; and driving the
+controllers directly through tinker would have been the direct-controller
+antipattern — it bypasses the middleware stack, so a green result would not have
+meant the endpoints work. What was verified instead is the half SQLite genuinely
+cannot prove: the writer, the reader and the schema against real Postgres, plus
+the public path end-to-end over HTTP. The authenticated half is left for the
+owner, who can obtain a token.
+
+**Unrelated errors seen in dev logs and NOT attributed to this work:** a burst of
+8 `DsarPayloadFilter: no DSAR allowlist for platform 'shopify' | 'woocommerce' |
+'uber_eats'` exceptions at 05:07:48. The shop re-home touches no DSAR code
+(`git diff` over the branch shows zero DSAR/DataExport files); that lane belongs
+to slice 7 / the services cutover (`b2634cb83`). Raised, not fixed.
 ## Phase 3 — Jobs, profiler, seeding lane
 
 ### Task 9: The two async jobs key on the collection id
