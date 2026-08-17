@@ -52,10 +52,10 @@ it('provisions the settled priced-undated shape, not latest_per_auto_source', fu
     ]);
 });
 
-it('reuses the shape services and shop reconciled on, rather than inventing a third', function () {
+it('reuses the shape services carries, rather than inventing a third', function () {
+    // Shop left this pair 2026-08-17 (opt-in) — see ShopPoolTest.
     expect(PoolRegistry::SECTION_SHAPE['menus'])
-        ->toBe(PoolRegistry::SECTION_SHAPE['services'])
-        ->toBe(PoolRegistry::SECTION_SHAPE['shop']);
+        ->toBe(PoolRegistry::SECTION_SHAPE['services']);
 });
 
 it('is a full-curation pool — a dish is the owner\'s own content', function () {

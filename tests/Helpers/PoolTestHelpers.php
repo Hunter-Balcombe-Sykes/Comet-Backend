@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Content\PoolController;
 use App\Models\Core\Site\Site;
 use App\Services\Content\ManualServiceWriter;
+use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -250,5 +251,27 @@ if (! function_exists('ownerServiceItem')) {
         }
 
         return $itemId;
+    }
+}
+
+if (! function_exists('poolPin')) {
+    /**
+     * Pin one item into a site's pool section — the owner's "put it on the
+     * site" (2026-08-17). Shop is opt-in now (pins + latest-per-source), so a
+     * shopProduct() fixture is in the LIBRARY only until it is pinned; the
+     * payload-contract tests pin theirs to keep asserting the selection wire.
+     */
+    function poolPin(string $siteId, string $pool, string $itemId): void
+    {
+        $site = Site::query()->findOrFail($siteId);
+        $section = app(PoolSectionProvisioner::class)->ensure($site, $pool);
+        DB::connection('pgsql')->table('site.section_items')->insert([
+            'id' => (string) Str::uuid(),
+            'section_id' => (string) $section->id,
+            'item_id' => $itemId,
+            'state' => 'pinned',
+            'sort_key' => 1,
+            'created_at' => now(),
+        ]);
     }
 }

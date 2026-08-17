@@ -90,9 +90,14 @@ it('drops the shop page from presence when a brand is connected with zero produc
     expect($pages)->not->toContain('shop');
 });
 
+// Opt-in (2026-08-17): presence needs a PUBLISHED product, not a synced one.
+// These three anchor the connection to the brand (resource_id = external_ref)
+// with auto_sync_latest absent (= ON), so the storefront arm publishes the
+// store's newest — which is what makes the page present.
 it('keeps the shop page present once the connected brand has a chosen product', function () {
     $pro = createTenant('shop-with-product');
-    spConnection($pro, 'shop', ['storage' => 'relational']);
+    $cid = spConnection($pro, 'shop', ['storage' => 'relational']);
+    DB::connection('pgsql')->table('site.platform_connections')->where('id', $cid)->update(['resource_id' => 'b1']);
     $collectionId = spBrand($pro);
     spProduct($pro, $collectionId);
 
@@ -121,7 +126,8 @@ it('keeps the shop page present once the connected brand has a chosen product', 
 
 it('keeps the shop page present for a pending brand with a saved product — the pool renders it', function () {
     $pro = createTenant('shop-pending-with-product');
-    spConnection($pro, 'shop', ['storage' => 'relational']);
+    $cid = spConnection($pro, 'shop', ['storage' => 'relational']);
+    DB::connection('pgsql')->table('site.platform_connections')->where('id', $cid)->update(['resource_id' => 'b1']);
     $collectionId = spBrand($pro, 'pending');
     spProduct($pro, $collectionId);
 
@@ -133,7 +139,8 @@ it('keeps the shop page present for a pending brand with a saved product — the
 
 it('keeps the shop page present for a failed brand with a chosen product — failed is deliberately public (plan §3g)', function () {
     $pro = createTenant('shop-failed-with-product');
-    spConnection($pro, 'shop', ['storage' => 'relational']);
+    $cid = spConnection($pro, 'shop', ['storage' => 'relational']);
+    DB::connection('pgsql')->table('site.platform_connections')->where('id', $cid)->update(['resource_id' => 'b1']);
     $collectionId = spBrand($pro, 'failed');
     spProduct($pro, $collectionId);
 

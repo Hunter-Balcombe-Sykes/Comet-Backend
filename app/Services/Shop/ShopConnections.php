@@ -5,6 +5,7 @@ namespace App\Services\Shop;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\ShopProviderDetector;
+use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -100,7 +101,7 @@ class ShopConnections
      */
     public function anchor(User $user, ?string $provider, string $brandId): IntegrationConnection
     {
-        return IntegrationConnection::updateOrCreate(
+        $connection = IntegrationConnection::updateOrCreate(
             [
                 'user_id' => $user->id,
                 'surface_key' => self::surfaceFor($provider),
@@ -114,6 +115,20 @@ class ShopConnections
                 'consecutive_failures' => 0,
             ],
         );
+
+        // Auto-latest OFF for a store (owner, 2026-08-17): the toggle is
+        // sparse — absent means ON — and with shop on the latest_per_auto_source
+        // shape now, an absent key would publish the newest product of every
+        // store the moment it connects. Written ONCE, on mint (the key still
+        // absent), never over an owner's later choice; explicit connect and
+        // connect-via-product-paste both land here.
+        $settings = (array) ($connection->display_settings ?? []);
+        if (! array_key_exists(AutoSyncSetting::KEY, $settings)) {
+            $connection->display_settings = $settings + [AutoSyncSetting::KEY => false];
+            $connection->save();
+        }
+
+        return $connection;
     }
 
     /**

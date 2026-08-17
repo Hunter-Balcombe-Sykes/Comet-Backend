@@ -473,9 +473,13 @@ it('GET /settings — matches the pre-Task-7 dump', function () {
 
     $res = actingAsUser($user)->getJson('/api/platforms/shop/settings')->assertOk();
 
+    // autoLatest FALSE (owner, 2026-08-17): a store's auto-latest toggle is
+    // written OFF on mint (ShopConnections::anchor) now that shop runs the
+    // pins + latest-per-source shape — otherwise every store would publish
+    // its newest product the moment it connects.
     $res->assertExactJson([
         'linkMode' => 'checkout',
-        'autoLatest' => true,
+        'autoLatest' => false,
     ]);
 });
 

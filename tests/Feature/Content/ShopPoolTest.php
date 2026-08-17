@@ -10,9 +10,15 @@ it('registers shop as a pool owning the product kind', function () {
         ->and(PoolRegistry::poolForKind('product'))->toBe('shop');
 });
 
-it('shapes the shop section as bare kind_is ordered by recency', function () {
+// Opt-in (owner, 2026-08-17): a connected store fills the LIBRARY, and only
+// pins plus each store's newest-while-auto-latest-is-on publish — the
+// watch/listen default. kind_is alone put a whole catalogue on the page.
+it('shapes the shop section as pins plus latest-per-source, not the whole catalogue', function () {
     expect(PoolRegistry::sectionShape('shop'))->toBe([
-        'rule' => [['op' => 'kind_is', 'values' => ['product']]],
+        'rule' => [
+            ['op' => 'kind_is', 'values' => ['product']],
+            ['op' => 'latest_per_auto_source', 'values' => ['product']],
+        ],
         'order_by' => 'recency',
     ]);
 });

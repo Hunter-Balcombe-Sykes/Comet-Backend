@@ -8,7 +8,10 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Content\EnrichPoolLinkJob;
+use App\Models\Content\ManualOverride;
 use App\Models\Core\Site\SectionItem;
+use App\Models\Core\Site\Site;
+use App\Services\Shop\ProductPageAdder;
 use App\Site\Documents\BuildState;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
@@ -41,6 +44,7 @@ class PoolItemCreateController extends ApiController
         private readonly PoolResolver $resolver,
         private readonly PoolSectionProvisioner $provisioner,
         private readonly ProjectionWriter $writer,
+        private readonly ProductPageAdder $products,
     ) {}
 
     /** POST /api/content/pools/{pool}/items  { url, title?, description?, favicon?, logo?, kind? } */
@@ -76,6 +80,26 @@ class PoolItemCreateController extends ApiController
 
         $user = $this->currentUser($request);
         $site = $this->currentSite($user);
+
+        // STORE-FIRST for a product (owner, 2026-08-17): read the page as a
+        // PRODUCT (JSON-LD/OG — title, price, variants, gallery), write it
+        // through the shop lane's own projection, and connect its store off-
+        // thread if it's one we can read. Falls through to the plain card
+        // path only when the page carries no product markup at all — then it
+        // is a link with a picture, which is what the card path stores.
+        if ($pool === 'shop' && ($data['kind'] ?? 'product') === 'product') {
+            $added = $this->products->add($user, $data['url']);
+            if ($added['outcome'] === ProductPageAdder::OUTCOME_STORE_PAGE) {
+                abort(422, "That looks like a store's homepage, not a product page. Connect it as a platform to bring in its products, or paste a specific product's page.");
+            }
+            if ($added['outcome'] === ProductPageAdder::OUTCOME_PRODUCT && $added['itemId'] !== null) {
+                $this->applyCheckedWords($user->id, $added['itemId'], $data);
+                $this->pin($site, $pool, $added['itemId']);
+
+                return $this->success($this->resolver->resolve($site, $pool), 201);
+            }
+            // no_product / unreachable → the card path below.
+        }
 
         // ONE coord per url, never a fresh uuid per request. Two manual coords
         // carrying the same url poison it for the whole resolution run —
@@ -179,6 +203,21 @@ class PoolItemCreateController extends ApiController
             ->whereNotNull('removed_at')
             ->update(['removed_at' => null, 'updated_at' => now()]);
 
+        $this->pin($site, $pool, $itemId);
+
+        return $this->success($this->resolver->resolve($site, $pool), 201);
+    }
+
+    /**
+     * A hand-add is a pick by definition — pin it at the end. Find-or-new and
+     * FORCE the state, mirroring PoolController::select(): the fold-in can
+     * hand back an item that already has a curation row, and
+     * site.section_items carries UNIQUE (section_id, item_id) across BOTH
+     * states. Testing only for existence would skip an `excluded` row and
+     * leave the item excluded — a hand-add that silently does nothing.
+     */
+    private function pin(Site $site, string $pool, string $itemId): void
+    {
         $section = $this->provisioner->ensure($site, $pool);
 
         // A hand-add is a pick by definition — pin it at the end. Find-or-new
@@ -209,7 +248,49 @@ class PoolItemCreateController extends ApiController
             CloudflareCachePurgeJob::dispatch($site->subdomain);
         }
 
-        return $this->success($this->resolver->resolve($site, $pool), 201);
+    }
+
+    /**
+     * The owner's checked title/description from the two-step Add (they saw
+     * the page's words and may have changed them) land as OVERRIDES on the
+     * product the page became — the store's own values stay underneath, so a
+     * later sync doesn't clobber what was typed and a reset brings them back.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function applyCheckedWords(string $userId, string $itemId, array $data): void
+    {
+        $title = trim((string) ($data['title'] ?? ''));
+        $description = trim((string) ($data['description'] ?? ''));
+        $current = DB::connection('pgsql')->table('content.items as i')
+            ->leftJoin('content.f_text as ft', 'ft.item_id', '=', 'i.id')
+            ->where('i.id', $itemId)
+            ->where('i.user_id', $userId)
+            ->first(['i.headline_cache', 'ft.body']);
+        if ($current === null) {
+            return;
+        }
+        if ($title !== '' && $title !== (string) $current->headline_cache) {
+            $this->writeOverride($itemId, 'headline', $title);
+        }
+        if ($description !== '' && $description !== trim((string) ($current->body ?? ''))) {
+            $this->writeOverride($itemId, 'body', $description);
+        }
+    }
+
+    /** One f_text override row — the same write ManualOverrideController::upsert makes. */
+    private function writeOverride(string $itemId, string $column, string $value): void
+    {
+        $override = ManualOverride::query()
+            ->where('item_id', $itemId)
+            ->where('facet', 'f_text')
+            ->where('column_name', $column)
+            ->first() ?? new ManualOverride;
+        $override->item_id = $itemId;
+        $override->facet = 'f_text';
+        $override->column_name = $column;
+        $override->value = $value;
+        $override->save();
     }
 
     /** The headline this item already carries, so a title-less re-add does not clobber it. */

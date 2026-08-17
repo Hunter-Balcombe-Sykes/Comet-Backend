@@ -21,7 +21,7 @@ beforeEach(function () {
 it('emits exactly the declared item keys, no more and no fewer', function () {
     [$pro, $siteId] = poolTenant();
     $store = shopStore($pro->id);
-    shopProduct($pro->id, $store, 'Hat');
+    poolPin($siteId, 'shop', shopProduct($pro->id, $store, 'Hat'));
 
     $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop');
 
@@ -31,7 +31,7 @@ it('emits exactly the declared item keys, no more and no fewer', function () {
 it('emits exactly the declared store keys', function () {
     [$pro, $siteId] = poolTenant();
     $store = shopStore($pro->id);
-    shopProduct($pro->id, $store, 'Hat');
+    poolPin($siteId, 'shop', shopProduct($pro->id, $store, 'Hat'));
 
     $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop');
     $card = $out['collections'][$store] ?? null;
@@ -65,7 +65,7 @@ it('emits exactly the declared variant keys', function () {
 it('never publishes referralQuery or linkMode on a store card', function () {
     [$pro, $siteId] = poolTenant();
     $store = shopStore($pro->id, ['referral_query' => 'ref=secret']);
-    shopProduct($pro->id, $store, 'Hat');
+    poolPin($siteId, 'shop', shopProduct($pro->id, $store, 'Hat'));
 
     $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop');
 

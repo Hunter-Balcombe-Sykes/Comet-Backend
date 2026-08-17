@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\Content;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Services\Http\FetchBudget;
+use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\LinkCardScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,18 +24,59 @@ class LinkPreviewController extends ApiController
 {
     use ResolveCurrentUser;
 
-    public function __construct(private readonly LinkCardScraper $scraper) {}
+    public function __construct(
+        private readonly LinkCardScraper $scraper,
+        private readonly GenericShopScraper $shop,
+        private readonly FetchBudget $budget,
+    ) {}
 
-    /** POST /api/content/links/preview  { url } */
+    /** POST /api/content/links/preview  { url, intent? }  intent: "link" (default) | "product" */
     public function show(Request $request): JsonResponse
     {
         $data = $request->validate([
             'url' => ['required', 'string', 'min:3', 'max:2048'],
+            'intent' => ['nullable', 'string', 'in:link,product'],
         ]);
 
         $url = $this->scraper->normalizeUrl($data['url']);
         if ($url === null) {
             return $this->error('Enter a valid link (https://...).', 422);
+        }
+
+        // PRODUCT intent (2026-08-17, the Sell pool's Add): the same page read
+        // the create endpoint will make — JSON-LD Product/Offer, OG fallback
+        // — so step 2 shows the price, stock and gallery BEFORE anything is
+        // created, and a store homepage is caught here rather than on Add.
+        if (($data['intent'] ?? 'link') === 'product') {
+            $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+            $read = $this->budget->open($seconds, fn () => $this->shop->readProductPage($url));
+            if ($read['outcome'] === GenericShopScraper::OUTCOME_STORE_PAGE) {
+                return $this->error(
+                    "That looks like a store's homepage, not a product page. Connect it as a platform to bring in its products, or paste a specific product's page.",
+                    422,
+                    extra: ['code' => 'store_homepage', 'storeUrl' => $read['storeUrl']],
+                );
+            }
+            $product = $read['product'];
+            if ($product !== null) {
+                $images = array_values(array_filter((array) ($product['images'] ?? []), 'is_string'));
+
+                return $this->success([
+                    'url' => $product['url'] ?? $url,
+                    'name' => $product['title'] ?? null,
+                    'description' => $product['description'] ?? null,
+                    'favicon' => null,
+                    'logo' => $product['image'] ?? ($images[0] ?? null),
+                    'fetched' => true,
+                    'product' => [
+                        'price' => $product['price'] ?? null,
+                        'currency' => $product['currency'] ?? null,
+                        'availability' => ($product['available'] ?? true) ? 'in_stock' : 'out_of_stock',
+                        'images' => $images,
+                    ],
+                ]);
+            }
+            // No product markup: fall through to the link card, product null.
         }
 
         // snapshotOrMinimal, never a 404: a bot-blocked or JS-only page still
@@ -50,6 +93,7 @@ class LinkPreviewController extends ApiController
             // The dashboard shows a quieter "we couldn't read the page" when
             // the snapshot itself failed and only the minimal card came back.
             'fetched' => $card['description'] !== null || $card['logo'] !== null || $card['name'] !== (parse_url($url, PHP_URL_HOST) ?: $url),
+            'product' => null,
         ]);
     }
 }

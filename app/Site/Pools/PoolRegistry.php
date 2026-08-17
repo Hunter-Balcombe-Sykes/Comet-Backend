@@ -117,24 +117,28 @@ class PoolRegistry
             'order_by' => 'recency',
         ],
         // Priced, undated. Services (3a) and shop (5b) reconciled on ONE shape
-        // 2026-08-12 so slice 4 inherits a single convention — these two
-        // entries are deliberately identical and should stay that way.
+        // 2026-08-12 so slice 4 inherits a single convention.
         // order_by governs only UNPINNED items; owner ordering is carried by
         // pins, which is why no `position` operator exists and none should be
         // added — the rule DSL spans four registries and missing one is a 500,
         // not a red test.
+        //
+        // SHOP LEFT THIS SET 2026-08-17 (owner: "B — opt-in"). A connected
+        // store used to put its WHOLE catalogue on the site (kind_is), which
+        // is 300 products on a page nobody chose. Shop now takes the
+        // watch/listen DEFAULT below — pins, plus each store's newest product
+        // while that store's auto_sync_latest is on (and new store
+        // connections write that toggle OFF). Sync fills the LIBRARY; the
+        // owner picks what publishes. Existing sites were grandfathered by
+        // migration 20260817_shop_grandfather_pins.
         'services' => [
             'rule' => [['op' => 'kind_is']],
             'order_by' => 'recency',
         ],
-        'shop' => [
-            'rule' => [['op' => 'kind_is']],
-            'order_by' => 'recency',
-        ],
-        // Slice 4 makes it three. Deliberately identical to the two above —
-        // a menu is priced and undated exactly as a service and a product are,
-        // and dev's largest menu carries 156 dishes, so the default's
-        // latest_per_auto_source would publish ONE of them.
+        // Slice 4 makes it three (now two — shop left, see above).
+        // Deliberately identical to services — a menu is priced and undated
+        // exactly as a service is, and dev's largest menu carries 156 dishes,
+        // so the default's latest_per_auto_source would publish ONE of them.
         'menus' => [
             'rule' => [['op' => 'kind_is']],
             'order_by' => 'recency',
