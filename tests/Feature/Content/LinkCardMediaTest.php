@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Content\PoolController;
 use App\Http\Controllers\Api\Content\PoolItemCreateController;
 use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Services\Content\LinkPoolWriter;
+use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\LinkCardScraper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Queue;
@@ -46,7 +47,38 @@ it('previews what a pasted link would become', function () {
         'favicon' => 'https://example.com/favicon.ico',
         'logo' => 'https://example.com/og.png',
         'fetched' => true,
+        'product' => null,
     ]);
+});
+
+it('previews a product page with its price when asked for a product', function () {
+    [$pro] = poolTenant();
+
+    $this->mock(LinkCardScraper::class, function ($m) {
+        $m->shouldReceive('normalizeUrl')->andReturn('https://shop.test/products/hat');
+    });
+    $this->mock(GenericShopScraper::class, function ($m) {
+        $m->shouldReceive('readProductPage')->with('https://shop.test/products/hat')->andReturn([
+            'outcome' => GenericShopScraper::OUTCOME_PRODUCT,
+            'storeUrl' => null,
+            'product' => [
+                'title' => 'The Hat', 'description' => 'A hat.', 'url' => 'https://shop.test/products/hat',
+                'price' => '45.00', 'currency' => 'AUD', 'available' => false,
+                'image' => 'https://shop.test/hat.jpg', 'images' => ['https://shop.test/hat.jpg', 'https://shop.test/hat-2.jpg'],
+            ],
+        ]);
+    });
+
+    $request = Request::create('/api/content/links/preview', 'POST', ['url' => 'shop.test/products/hat', 'intent' => 'product']);
+    $request->attributes->set('professional', $pro);
+    $data = app(LinkPreviewController::class)->show($request)->getData(true);
+
+    expect($data['name'])->toBe('The Hat')
+        ->and($data['logo'])->toBe('https://shop.test/hat.jpg')
+        ->and($data['product'])->toBe([
+            'price' => '45.00', 'currency' => 'AUD', 'availability' => 'out_of_stock',
+            'images' => ['https://shop.test/hat.jpg', 'https://shop.test/hat-2.jpg'],
+        ]);
 });
 
 it('stores the checked card on create and serves its images on the pool wire', function () {

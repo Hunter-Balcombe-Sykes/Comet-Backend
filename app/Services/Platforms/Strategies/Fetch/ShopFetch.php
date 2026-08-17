@@ -48,9 +48,15 @@ final readonly class ShopFetch implements FetchStrategy
 
     public function fetch(IntegrationConnection $connection): array
     {
-        // Auto-latest gate (2026-08-05: moved off the dropped site column and
-        // onto the connection's own sparse display_settings — absent = ON,
-        // the same predicate every fetch gate uses).
+        // Auto-latest gate, KEPT under the 2026-08-17 opt-in shape — and it
+        // now guards something new as well: this fetch reconciles each store
+        // to its newest-N window and RETIRES what fell out (retireAbsent), so
+        // with pins as the publish mechanism a scheduled run could pull a
+        // pinned old product off the site. OFF (the new connect default)
+        // means the catalogue stays as connected; the connect-time fill
+        // (ShopBrandConnectJob) does not come through here, so the library
+        // still populates. ON means the store tracks its newest — and the
+        // read-time storefront arm (SectionCandidates) publishes that newest.
         if (data_get($connection->display_settings, 'auto_sync_latest') === false) {
             throw new FetchNotModifiedException('shop');
         }

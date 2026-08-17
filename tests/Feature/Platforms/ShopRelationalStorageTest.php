@@ -703,6 +703,11 @@ it('a non-curated brand still syncs to the newest products on a scheduled ShopFe
     modesBrandFor($user);
 
     $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
+    // Opt-in (2026-08-17): stores mint with auto_sync_latest OFF now, and the
+    // scheduled fetch is gated on it — this test is about the SYNC path, so
+    // the fixture opts the store in the way an owner would.
+    $conn->display_settings = ['auto_sync_latest' => true] + (array) ($conn->display_settings ?? []);
+    $conn->save();
     // #SEM-1's flag lives on content.storefronts now (curatedAtFor()) — the
     // legacy site.shop_brands column is written by nothing.
     expect(curatedAtFor('modes-brand'))->toBeNull();
@@ -745,6 +750,11 @@ it('selectionMode=latest clears products_curated_at, opting the brand back into 
     // would have thrown FetchNotModifiedException instead (see the sibling
     // "survives a scheduled ShopFetch run" test above).
     $conn = IntegrationConnection::where('user_id', $user->id)->whereIn('surface_key', ShopConnections::surfaces())->firstOrFail();
+    // Opt-in (2026-08-17): the fetch is also gated on auto_sync_latest and
+    // stores mint with it OFF — opted in here so this asserts the
+    // products_curated_at gate alone, as it always did.
+    $conn->display_settings = ['auto_sync_latest' => true] + (array) ($conn->display_settings ?? []);
+    $conn->save();
     $result = app(ShopFetch::class)->fetch($conn->fresh());
     expect($result)->toBe(['storage' => 'relational']);
 });

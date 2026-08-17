@@ -136,7 +136,7 @@ it('composes the outbound URL into url and leaves links bare', function () {
 it('keeps referralQuery, linkMode, sourceUrl and connectStatus off the wire', function () {
     [$pro, $siteId] = poolTenant();
     $store = shopStore($pro->id, ['referral_query' => 'ref=abc', 'source_url' => 'https://scrape.example.com', 'connect_status' => 'connected']);
-    shopProduct($pro->id, $store, 'Hat');
+    poolPin($siteId, 'shop', shopProduct($pro->id, $store, 'Hat'));
 
     $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop');
     $json = json_encode($out);
@@ -169,7 +169,7 @@ it('keeps referralQuery, linkMode, sourceUrl and connectStatus off the wire', fu
 it('publishes the collections map beside the items', function () {
     [$pro, $siteId] = poolTenant();
     $store = shopStore($pro->id, ['label' => 'Above the Ground', 'external_ref' => '75102060779', 'discount_code' => 'ALEX10']);
-    shopProduct($pro->id, $store, 'Hat');
+    poolPin($siteId, 'shop', shopProduct($pro->id, $store, 'Hat'));
 
     $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop');
 
@@ -199,7 +199,7 @@ it('publishes a null store name when the label is just the external ref', functi
     [$pro, $siteId] = poolTenant();
     // upsertStore()'s no-name outcome, reproduced exactly: label === external_ref.
     $store = shopStore($pro->id, ['label' => '75102060779', 'external_ref' => '75102060779']);
-    shopProduct($pro->id, $store, 'Hat');
+    poolPin($siteId, 'shop', shopProduct($pro->id, $store, 'Hat'));
 
     $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop');
 

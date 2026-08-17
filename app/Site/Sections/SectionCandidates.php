@@ -300,6 +300,55 @@ class SectionCandidates
                             );
                         });
                 });
+
+                // THE STOREFRONT ARM (2026-08-17, shop opt-in). Shop products
+                // hang off the user's MANUAL source (the identity spine), so
+                // the connection-source arm above can never see them. A store
+                // is a content.storefronts collection whose ANCHOR connection
+                // (resource_id = external_ref, ShopConnections::anchor) holds
+                // the same sparse auto_sync_latest toggle — this arm publishes
+                // each live store's NEWEST catalogue row (collection_items
+                // position 0, ShopFetch writes newest-first) while the toggle
+                // is on. The individual-products bucket is excluded: those
+                // are hand-adds the owner pins one by one, and "the newest
+                // thing you pasted" is not a store's newest release.
+                //
+                // PRODUCT POOLS ONLY: the arm exists for shop, and adding
+                // storefront joins to every latest_per_auto_source pool put
+                // storefront SQL in the WATCH pool's query plan
+                // (ShopPoolPayloadTest's query-isolation guard).
+                if (in_array('product', $values, true)) {
+                    $q->orWhereExists(function ($e) use ($values) {
+                        $e->from('content.collection_items as sci')
+                            ->join('content.collections as scol', 'scol.id', '=', 'sci.collection_id')
+                            ->join('content.storefronts as sf', 'sf.collection_id', '=', 'scol.id')
+                            ->join('site.platform_connections as spc', function ($j) {
+                                $j->on('spc.resource_id', '=', 'sf.external_ref')
+                                    ->whereColumn('spc.user_id', 'scol.user_id');
+                            })
+                            ->whereColumn('sci.item_id', 'content.items.id')
+                            ->whereColumn('scol.user_id', 'content.items.user_id')
+                            ->where('scol.kind', 'storefront')
+                            ->where('sf.is_individual', false)
+                            ->whereNull('spc.deleted_at')
+                            ->where('spc.is_active', true)
+                            ->where(fn ($w) => $w
+                                ->whereNull('spc.display_settings->auto_sync_latest')
+                                ->orWhere('spc.display_settings->auto_sync_latest', '!=', false))
+                            // Newest = the smallest position in its own store:
+                            // ShopFetch/syncStore write the catalogue newest-first.
+                            ->whereNotExists(function ($newer) {
+                                $newer->from('content.collection_items as sci2')
+                                    ->join('content.items as si2', 'si2.id', '=', 'sci2.item_id')
+                                    ->whereColumn('sci2.collection_id', 'sci.collection_id')
+                                    ->whereNull('si2.removed_at')
+                                    ->whereRaw('sci2.position < sci.position');
+                            });
+                        if ($values !== []) {
+                            $e->whereIn('content.items.kind', $values);
+                        }
+                    });
+                }
             }),
 
             // See RuleOperator::UpcomingOccurrence. `values` is ignored: kind
