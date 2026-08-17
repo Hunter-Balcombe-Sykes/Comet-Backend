@@ -2,7 +2,6 @@
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
-use App\Services\Migration\ServiceBackfiller;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\Cache;
@@ -831,14 +830,13 @@ it('services engine returns a flat ProfileService[] with camelCase keys', functi
     // legacy row and run the backfiller, the same way production's 21
     // owner-authored services landed, rather than writing site.services and
     // expecting the public read to see it directly (it no longer does).
-    ownerService($pro->id, [
+    ownerServiceItem($pro->id, [
         'title' => 'Haircut',
         'description' => 'A nice haircut',
         'price_cents' => 5500,
         'currency_code' => 'AUD',
         'duration_minutes' => 45,
     ]);
-    app(ServiceBackfiller::class)->run();
 
     $services = $this->getJson('/api/public/profiles/svc-live')->assertOk()->json('data.profile.services');
 

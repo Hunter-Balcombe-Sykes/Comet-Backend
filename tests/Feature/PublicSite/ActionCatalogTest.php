@@ -1,7 +1,6 @@
 <?php
 
 use App\Catalog\LegacyPlatformMap;
-use App\Services\Migration\ServiceBackfiller;
 use App\Services\PublicSite\SiteActionsService;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\DB;
@@ -187,8 +186,7 @@ it('D1: booking-services is a page action to /services when the services page is
     setupContentTables();
 
     $tenant = createTenant('cat-d1-page');
-    ownerService($tenant->id, ['title' => 'Haircut']);
-    app(ServiceBackfiller::class)->run();
+    ownerServiceItem($tenant->id, ['title' => 'Haircut']);
 
     $pool = collect(actionsPool($tenant))->keyBy('id');
 

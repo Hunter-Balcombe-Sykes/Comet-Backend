@@ -4,7 +4,6 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
-use App\Services\Migration\ServiceBackfiller;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
@@ -441,17 +440,18 @@ it('reorder moves a Fresha item past another Fresha item on the staff surface', 
     expect([staffSvcSortKey($freshaB), staffSvcSortKey($freshaA)])->toBe([0.0, 1.0]);
 });
 
-it('positions a backfilled manual item by its content id and leaves its legacy row alone', function () {
-    // Was: "renumbers a backfilled manual item's legacy row from the staff
-    // surface" — the staff copy of the renumber had to reach the legacy row
-    // through the 'manual:{legacy_uuid}' coord. Services cutover Task 5 ends
-    // that: ordering is written on the content item alone, and the legacy row
-    // is inert until Task 12 drops it.
+it('positions an owner-authored manual item by its content id, interleaved with Fresha items', function () {
+    // Two rewrites deep, and worth naming both. It began as "renumbers a
+    // backfilled manual item's LEGACY ROW from the staff surface" — the staff
+    // renumber had to reach site.services through the 'manual:{legacy_uuid}'
+    // coord. Cutover Task 5 moved ordering onto the content item alone, so it
+    // became "…and leaves its legacy row alone". The table is dropped now and
+    // ServiceBackfiller with it, so there is no backfilled PAIR to observe:
+    // what remains, and what this asserts, is that the manual half takes its
+    // position on the same scale as the Fresha half.
     [$pro] = staffSvcTenant();
 
-    $legacyManualId = ownerService($pro->id, ['title' => 'Legacy Manual', 'source' => null, 'sort_order' => 0]);
-    app(ServiceBackfiller::class)->run();
-    $itemId = (string) DB::table('content.source_items')->where('coord', 'manual:'.$legacyManualId)->value('item_id');
+    $itemId = ownerServiceItem($pro->id, ['title' => 'Owner Manual']);
 
     $freshaA = staffSvcFreshaItem($pro->id, 'Fresha A', 's:1');
     $freshaB = staffSvcFreshaItem($pro->id, 'Fresha B', 's:2');
@@ -462,8 +462,6 @@ it('positions a backfilled manual item by its content id and leaves its legacy r
 
     expect([staffSvcSortKey($itemId), staffSvcSortKey($freshaB), staffSvcSortKey($freshaA)])
         ->toBe([0.0, 1.0, 2.0]);
-    // Untouched: nothing renumbers site.services any more.
-    expect((int) DB::table('site.services')->where('id', $legacyManualId)->value('sort_order'))->toBe(0);
 });
 
 it('reorderLayout orders both halves and repositions content collections', function () {

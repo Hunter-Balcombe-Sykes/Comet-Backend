@@ -8,7 +8,6 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Content\ManualServiceWriter;
 use App\Services\Content\ServiceCollections;
-use App\Services\Migration\ServiceBackfiller;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
@@ -441,17 +440,20 @@ it('fires all three invalidation lanes on a raw content write', function () {
     Queue::assertPushed(CloudflareCachePurgeJob::class);
 });
 
-it('a connector-shaped merge after the cutover backfill keeps the owner item alive (§8.3 regression)', function () {
+it('a connector-shaped merge keeps the curated owner item alive (§8.3 regression)', function () {
     // I2 fix: the previous version of this test never ran the resolver — it
     // only re-read an untouched `coord` column, so it stayed green with
     // ProjectionWriter::preferOwnerAnchored()/mergeInto()'s hasCuration
     // protection entirely removed. This version actually forces a merge.
     [$userId, $siteId] = seedUserWithSite();
-    $legacyId = ownerService($userId, ['title' => 'Legacy Owner Service', 'price_cents' => 6500, 'duration_minutes' => 45]);
-    app(ServiceBackfiller::class)->run();
-
-    $manualSourceItemId = DB::table('content.source_items')->where('coord', 'manual:'.$legacyId)->value('id');
-    $manualItemId = DB::table('content.source_items')->where('coord', 'manual:'.$legacyId)->value('item_id');
+    // Was seeded as a site.services row + ServiceBackfiller::run(); both are
+    // gone with the services cutover, so the owner item is written through the
+    // manual lane directly. The subject is unchanged — this case is about the
+    // identity resolver, not about how the item got there.
+    $manualItemId = ownerServiceItem($userId, ['title' => 'Legacy Owner Service', 'price_cents' => 6500, 'duration_minutes' => 45]);
+    $manualRow = DB::table('content.source_items')->where('item_id', $manualItemId)->first(['id', 'coord']);
+    $manualSourceItemId = $manualRow?->id;
+    $manualCoord = (string) $manualRow?->coord;
     expect($manualSourceItemId)->not->toBeNull();
 
     // Simulate a connector landing a DIFFERENT-sourced record the identity
@@ -505,7 +507,7 @@ it('a connector-shaped merge after the cutover backfill keeps the owner item ali
     // canonical-url identity key as the synthetic connector row, forcing the
     // union this test exists to exercise.
     $writer = app(ManualServiceWriter::class);
-    $writer->write($userId, 'manual:'.$legacyId, [
+    $writer->write($userId, $manualCoord, [
         'kind' => 'service',
         'headline' => 'Legacy Owner Service',
         'facets' => [

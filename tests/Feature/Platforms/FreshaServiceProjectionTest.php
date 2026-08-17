@@ -28,7 +28,6 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
-use App\Services\Migration\ServiceBackfiller;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
@@ -167,8 +166,7 @@ it('keeps the Fresha menu out of the public services section and its visibility 
     // The public read serves owner-authored services from content.*'s MANUAL
     // lane; the Fresha item above sits on the connection lane and must not
     // cross over. Positive control: the owner's own service does appear.
-    ownerService($user->id, ['title' => 'Manual Massage', 'price_cents' => 9000, 'is_active' => 1]);
-    app(ServiceBackfiller::class)->run();
+    ownerServiceItem($user->id, ['title' => 'Manual Massage', 'price_cents' => 9000]);
 
     $data = app(SitepageDataResolverService::class)->buildServicesData($user->site, (string) $user->id);
     expect(array_column($data['services'], 'title'))->toBe(['Manual Massage']);
