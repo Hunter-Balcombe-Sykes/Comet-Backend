@@ -1,4 +1,7 @@
 -- Slice 7 Phase 6 — retire site.content_selection (unit E).
+-- ROLLBACK: NONE. A DROP TABLE has no reverse. The 92 non-upload rows were a
+-- deliberate drop decided in checkpoint §15, so a restore would reinstate data
+-- the owner ruled out. Pre-image: the pg_dump in the checkpoint.
 --
 -- The ordered "Content Selection" (<=15 picks) and its four owner verbs were
 -- retired under the 2026-08-14 owner override: media curation is pool:media

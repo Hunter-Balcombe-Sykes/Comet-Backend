@@ -1,4 +1,7 @@
 -- Slice 7 Phase 6 — legacy teardown, 1 of 4 menu tables. Children first.
+-- ROLLBACK: NONE. A DROP TABLE has no reverse: the pivot rows are gone with
+-- the table. The pre-image is the pg_dump taken immediately before this ran,
+-- recorded in the slice checkpoint; restore from there, not from a migration.
 --
 -- site.menu_item_categories is the dish<->category pivot. Its content.* twin is
 -- content.collection_items on a `menu_category` collection, live since slice 4

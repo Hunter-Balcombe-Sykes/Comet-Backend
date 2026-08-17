@@ -1,4 +1,7 @@
 -- Slice 7 Phase 6 — legacy teardown, 4 of 4 menu tables. Parent last.
+-- ROLLBACK: NONE. A DROP TABLE has no reverse. `source_platform` has no
+-- content.* twin at all, so even a restore of the rows would not restore the
+-- column's meaning to a caller. Pre-image: the pg_dump in the checkpoint.
 --
 -- site.menu_categories' content.* twin is content.collections kind
 -- 'menu_category', keyed (user_id, kind, external_ref) with the ref derived

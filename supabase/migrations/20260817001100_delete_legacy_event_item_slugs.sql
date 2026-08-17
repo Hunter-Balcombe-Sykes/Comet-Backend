@@ -1,4 +1,8 @@
 -- Slice 7 Phase 6 — delete the legacy event slugs from site.item_slugs.
+-- ROLLBACK: NONE. A DELETE with no recorded pre-image in-band. The rows are
+-- in the pg_dump taken immediately before this ran (checkpoint), but restoring
+-- them would only re-squat slugs nothing reads -- the readers moved to
+-- content.item_slugs in slice 2 Task 9.
 --
 -- DML, not DDL: site.item_slugs is NOT dropped by this slice. Its menu_item
 -- rows are left in place, inert.
