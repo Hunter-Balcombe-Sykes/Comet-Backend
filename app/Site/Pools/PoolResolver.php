@@ -361,11 +361,15 @@ class PoolResolver
         $hasProduct = $items->contains(fn (object $i): bool => $i->kind === 'product');
 
         // Menus group too (slice 4): a dish belongs to its categories and to
-        // the ordering platforms it is sold on. The COLLECTIONS read is gated
-        // on either kind; the catalogue, variant and popularity reads below
-        // stay shop-only, because menus have none of those.
+        // the ordering platforms it is sold on. Services group too (owner,
+        // 2026-08-17): their kind='service_category' collections existed since
+        // slice 3b but never reached the wire, so the services pool shipped
+        // flat. The COLLECTIONS read is gated on any of the three kinds; the
+        // catalogue, variant and popularity reads below stay shop-only,
+        // because menus and services have none of those.
         $hasMenuItem = $items->contains(fn (object $i): bool => $i->kind === 'menu_item');
-        $groupsIntoCollections = $hasProduct || $hasMenuItem;
+        $hasService = $items->contains(fn (object $i): bool => $i->kind === 'service');
+        $groupsIntoCollections = $hasProduct || $hasMenuItem || $hasService;
 
         $storesByItem = collect();
         $stores = collect();
