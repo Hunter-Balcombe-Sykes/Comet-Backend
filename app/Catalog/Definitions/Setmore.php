@@ -37,7 +37,6 @@ class Setmore
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('setmore.com')->strength(EvidenceStrength::ProfileLink),
                 )

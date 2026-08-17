@@ -32,7 +32,6 @@ class Shortcuts
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('shortcuts.com.au')->strength(EvidenceStrength::ProfileLink),
                     Detector::url('shortcuts.net')->strength(EvidenceStrength::ProfileLink),

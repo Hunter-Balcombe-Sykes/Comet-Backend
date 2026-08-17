@@ -29,7 +29,6 @@ class Sevenrooms
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('sevenrooms.com')->strength(EvidenceStrength::ProfileLink),
                 )

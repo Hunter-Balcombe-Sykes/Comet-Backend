@@ -38,7 +38,6 @@ class Whatsapp
                 ->refreshEvery(0)
                 ->note("identifier is a phone number (7-15 digits, optional leading +) per config('partna.social_platforms.whatsapp').handle_pattern — not detector-captured")
                 ->canonicalUrl('https://wa.me/{handle}')
-                ->notConnectable()
                 ->detect(
                     Detector::url('whatsapp.com')
                         ->path('#^/(?:send|message)#')

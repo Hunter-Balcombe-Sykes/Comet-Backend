@@ -29,7 +29,6 @@ class Vagaro
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('vagaro.com')->strength(EvidenceStrength::ProfileLink),
                 )

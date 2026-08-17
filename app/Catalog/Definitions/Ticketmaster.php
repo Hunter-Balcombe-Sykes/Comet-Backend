@@ -42,7 +42,6 @@ class Ticketmaster
                 ->shelf(Shelf::Events)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     ...array_map(
                         fn (string $tld) => Detector::url("ticketmaster.{$tld}")->strength(EvidenceStrength::MarketplaceListing),

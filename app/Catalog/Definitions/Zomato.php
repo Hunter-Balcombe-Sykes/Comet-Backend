@@ -32,7 +32,6 @@ class Zomato
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('zomato.com')->strength(EvidenceStrength::ProfileLink),
                 )

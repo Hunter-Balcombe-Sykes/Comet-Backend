@@ -190,6 +190,11 @@ final class DsarPayloadFilter
         // under-disclosure, never leakage. None of these platforms can hold
         // THIRD_PARTY_KEYS: a card carries no reviewer, organiser or venue.
         //
+        // Storefront brands (shopify, woocommerce, squarespace, bigcartel) are
+        // deliberately ABSENT: they are not derivable platforms at all. A store
+        // is connected by the commerce probe, and registering 'shopify' would
+        // steal the family fallback that scheduled product refresh depends on.
+        //
         // The brands still marked notConnectable() in the catalog get their
         // entry in the same commit that flips them — an entry for an
         // unregistered platform is itself a test failure (the stale-entry
@@ -208,10 +213,22 @@ final class DsarPayloadFilter
         'kajabi' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'luma' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'menulog' => ['url', 'name', 'favicon', 'logo', 'provider'],
-        'shopify' => ['url', 'name', 'favicon', 'logo', 'provider'],
-        'squarespace' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'uber_eats' => ['url', 'name', 'favicon', 'logo', 'provider'],
-        'woocommerce' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'noterro' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'order_online' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'ordermate' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'partiful' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'schedulicity' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'setmore' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'simplybook_me' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'skipthedishes' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'slice' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'tablein' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'thefork' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'toast' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'treatwell' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'wolt' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'zomato' => ['url', 'name', 'favicon', 'logo', 'provider'],
     ];
 
     /**

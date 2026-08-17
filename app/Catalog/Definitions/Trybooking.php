@@ -29,7 +29,6 @@ class Trybooking
                 ->shelf(Shelf::Events)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('trybooking.com')->strength(EvidenceStrength::MarketplaceListing),
                 )

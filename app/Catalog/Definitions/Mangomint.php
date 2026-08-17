@@ -29,7 +29,6 @@ class Mangomint
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('mangomint.com')->strength(EvidenceStrength::ProfileLink),
                 )

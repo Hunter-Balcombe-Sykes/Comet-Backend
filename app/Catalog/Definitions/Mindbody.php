@@ -32,7 +32,6 @@ class Mindbody
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('mindbodyonline.com')->strength(EvidenceStrength::ProfileLink),
                 )

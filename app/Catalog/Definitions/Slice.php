@@ -33,7 +33,6 @@ class Slice
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('slicelife.com')->strength(EvidenceStrength::ProfileLink),
                 )

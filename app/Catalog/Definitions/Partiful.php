@@ -40,7 +40,6 @@ class Partiful
                 ->identifier(IdentifierKind::Handle)
                 ->refreshEvery(0)
                 ->canonicalUrl('https://partiful.com/u/{handle}')
-                ->notConnectable()
                 ->detect(
                     Detector::url('partiful.com')
                         ->path('#^/u/(?<handle>[A-Za-z0-9-]{3,40})/?$#')

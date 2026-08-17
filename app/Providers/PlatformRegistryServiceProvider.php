@@ -67,6 +67,7 @@ use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
+use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
 use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
@@ -637,9 +638,44 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // register() throws on a duplicate, so the has() check is what keeps
             // this a no-op rather than a boot failure when a brand graduates to a
             // hand-written descriptor. Pinned by RegistryCoverageTest's shadow test.
-            foreach (app(DerivedDescriptorFactory::class)->build() as $slug => $derived) {
+            $factory = app(DerivedDescriptorFactory::class);
+
+            foreach ($factory->build() as $slug => $derived) {
                 if (! $r->has($slug)) {
                     $r->register($derived);
+                }
+            }
+
+            // Then UPGRADE the hand-written descriptors that were declared but
+            // routeless. ~50 slugs are shaped Bespoke, which the route loop reads
+            // as "keeps its own standalone group" — for most of them no group was
+            // ever written, so booksy, resy, vagaro, ticketek and their kind have
+            // no connect or per-brand disconnect at all. That is the defect this
+            // shape exists to fix, and skipping them as "already registered" would
+            // have left it exactly where it was.
+            //
+            // Mutated in place, not re-registered: the existing descriptor keeps
+            // its label, category and resource, and register() would throw anyway.
+            foreach ($factory->upgrades($r) as $slug => $spec) {
+                $descriptor = $r->get($slug);
+                if ($descriptor === null) {
+                    continue;
+                }
+
+                $descriptor
+                    ->surfaceKey($spec['surface'])
+                    ->connect(
+                        fn () => new BrandLinkConnect($slug, $spec['label']),
+                        'Enter a valid '.$spec['label'].' link.'
+                    )
+                    ->connectInput('url', ['required', 'string', 'max:2048'])
+                    ->routes(PlatformRouteShape::Brand, null, $spec['multi']);
+
+                if ($spec['capability'] !== null) {
+                    $capability = $spec['capability'];
+                    $descriptor->requiresCapability(
+                        static fn (User $user): bool => (bool) AccountCapabilities::for($user)->{$capability}
+                    );
                 }
             }
 

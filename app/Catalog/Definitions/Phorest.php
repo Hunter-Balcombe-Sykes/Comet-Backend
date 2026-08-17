@@ -29,7 +29,6 @@ class Phorest
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('phorest.com')->strength(EvidenceStrength::ProfileLink),
                 )

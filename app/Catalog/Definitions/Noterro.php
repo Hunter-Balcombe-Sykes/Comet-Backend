@@ -33,7 +33,6 @@ class Noterro
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('noterro.com')->strength(EvidenceStrength::ProfileLink),
                 )

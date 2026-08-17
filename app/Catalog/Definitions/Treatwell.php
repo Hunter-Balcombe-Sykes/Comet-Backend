@@ -36,7 +36,6 @@ class Treatwell
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     ...array_map(
                         fn (string $tld) => Detector::url("treatwell.{$tld}")->strength(EvidenceStrength::ProfileLink),

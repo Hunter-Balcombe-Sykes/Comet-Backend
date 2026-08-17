@@ -32,7 +32,6 @@ class Ordermate
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('ordermate.online')->strength(EvidenceStrength::ProfileLink),
                 )

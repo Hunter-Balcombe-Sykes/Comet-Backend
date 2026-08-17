@@ -33,7 +33,6 @@ class SimplybookMe
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('simplybook.me')->strength(EvidenceStrength::ProfileLink),
                 )

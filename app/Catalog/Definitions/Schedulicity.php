@@ -33,7 +33,6 @@ class Schedulicity
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('schedulicity.com')->strength(EvidenceStrength::ProfileLink),
                 )

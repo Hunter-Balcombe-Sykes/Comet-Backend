@@ -36,7 +36,6 @@ class Thefork
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     ...array_map(
                         fn (string $tld) => Detector::url("thefork.{$tld}")->strength(EvidenceStrength::ProfileLink),

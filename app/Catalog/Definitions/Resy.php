@@ -29,7 +29,6 @@ class Resy
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('resy.com')->strength(EvidenceStrength::ProfileLink),
                 )

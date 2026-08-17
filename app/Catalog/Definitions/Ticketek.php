@@ -35,7 +35,6 @@ class Ticketek
                 ->shelf(Shelf::Events)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     ...array_map(
                         fn (string $tld) => Detector::url("ticketek.{$tld}")->strength(EvidenceStrength::MarketplaceListing),

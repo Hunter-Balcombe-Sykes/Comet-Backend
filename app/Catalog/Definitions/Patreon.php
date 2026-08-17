@@ -35,7 +35,6 @@ class Patreon
                 ->shelf(Shelf::Social)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('patreon.com')->strength(EvidenceStrength::ProfileLink),
                 )

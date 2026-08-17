@@ -34,7 +34,6 @@ class Oztix
                 ->shelf(Shelf::Events)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('oztix.com.au')->strength(EvidenceStrength::MarketplaceListing),
                 )

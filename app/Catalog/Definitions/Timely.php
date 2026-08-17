@@ -34,7 +34,6 @@ class Timely
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('gettimely.com')->strength(EvidenceStrength::ProfileLink),
                 )

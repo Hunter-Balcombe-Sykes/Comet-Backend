@@ -34,7 +34,6 @@ class Tock
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('exploretock.com')->strength(EvidenceStrength::ProfileLink),
                     Detector::url('tock.com')->strength(EvidenceStrength::ProfileLink),

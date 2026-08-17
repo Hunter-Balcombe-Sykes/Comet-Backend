@@ -29,7 +29,6 @@ class Ovatu
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('ovatu.com')->strength(EvidenceStrength::ProfileLink),
                 )

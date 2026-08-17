@@ -63,10 +63,28 @@ class DerivedDescriptorFactory
     public const CLASSIFIER_ALIASES = [
         'partiful' => ['events-custom'],
         'ticketmaster' => ['events-custom'],
+        'luma' => ['events-custom'],
     ];
 
-    /** @return array<string, PlatformDescriptor> slug => descriptor */
-    public function build(): array
+    /**
+     * Hand-written slugs that must NEVER be upgraded to the Brand shape, even
+     * though they look routeless by the connectField() test.
+     *
+     * instagram is Bespoke with no connectField because its connect group is
+     * hand-written in routes/api/platforms.php and backed by a real scraper —
+     * the declared-flag test cannot see that, so it is named here.
+     *
+     * @var list<string>
+     */
+    public const NEVER_UPGRADE = ['instagram'];
+
+    /**
+     * Every connectable, URL-detected catalog surface, as slug => [surface key,
+     * surface row, brand row]. The shared spine of build() and upgrades().
+     *
+     * @return array<string, array{0: string, 1: array<string, mixed>, 2: array<string, mixed>}>
+     */
+    private function candidates(): array
     {
         try {
             $surfaces = CompiledCatalog::surfaces();
@@ -78,8 +96,7 @@ class DerivedDescriptorFactory
             return [];
         }
 
-        $frozen = array_flip(PlatformRegistry::handWrittenFreeze());
-        $derived = [];
+        $out = [];
 
         foreach ($surfaces as $key => $surface) {
             if (! in_array($surface['lifecycle'] ?? '', ['active', 'sunset'], true)) {
@@ -91,16 +108,112 @@ class DerivedDescriptorFactory
             if (! isset($detected[$key])) {
                 continue;
             }
-
-            $slug = LegacyPlatformMap::legacyFor($key);
-            if ($slug === '' || isset($frozen[$slug]) || isset($derived[$slug])) {
+            // Shop brands are NOT derivable. Two independent reasons:
+            //
+            // 1. PlatformRegistry::forConnection() falls back to the 'shop'
+            //    family descriptor precisely BECAUSE get('shopify') is null —
+            //    its docblock says so. Registering 'shopify' silently steals
+            //    that lookup and hands scheduled product refresh a descriptor
+            //    with no fetch strategy, so every store refresh starts erroring.
+            // 2. A storefront is connected by the commerce probe and
+            //    ShopController, never by pasting a link into a brand route.
+            //    WebsiteLinkHarvester::classifyFromCatalog() returns null for
+            //    this routing class on purpose, to keep the probe running — so a
+            //    brand connect guard would reject every URL anyway.
+            if (($surface['routing_class'] ?? null) === 'shop') {
                 continue;
             }
 
-            $derived[$slug] = $this->descriptorFor($slug, $key, $surface, $brands[$surface['brand_key']] ?? []);
+            $slug = LegacyPlatformMap::legacyFor($key);
+            if ($slug === '' || isset($out[$slug])) {
+                continue;
+            }
+
+            $out[$slug] = [$key, $surface, $brands[$surface['brand_key']] ?? []];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Brand-new descriptors, for catalog brands the registry has never carried.
+     *
+     * @return array<string, PlatformDescriptor> slug => descriptor
+     */
+    public function build(): array
+    {
+        $frozen = array_flip(PlatformRegistry::handWrittenFreeze());
+        $derived = [];
+
+        foreach ($this->candidates() as $slug => [$key, $surface, $brand]) {
+            if (isset($frozen[$slug])) {
+                continue;
+            }
+
+            $derived[$slug] = $this->descriptorFor($slug, $key, $surface, $brand);
         }
 
         return $derived;
+    }
+
+    /**
+     * Hand-written descriptors that are declared but ROUTELESS — the actual
+     * defect this whole shape exists to fix.
+     *
+     * Roughly fifty registry slugs are shaped Bespoke, which the route loop reads
+     * as "this platform keeps its own standalone group". For most of them no such
+     * group was ever written: booksy, resy, vagaro, ticketek, patreon and their
+     * kind are listed, validated and disconnectable only through a family-wide
+     * endpoint. Skipping them because they are "already registered" would have
+     * left the original problem exactly where it was.
+     *
+     * The discriminator is `connectField() === null` on a Bespoke descriptor — a
+     * declared flag, safe to read at boot. It correctly excludes apple-music and
+     * apple-podcast (they DO declare a connect field; their routes just live under
+     * /apple/*), and NEVER_UPGRADE covers the one case a declared flag cannot see.
+     *
+     * The registry is PASSED IN, never resolved: this runs inside the container
+     * closure that builds the PlatformRegistry singleton, so app(PlatformRegistry::class)
+     * here would recurse until the process died.
+     *
+     * @return array<string, array{surface: string, label: string, multi: bool, capability: ?string}>
+     */
+    public function upgrades(PlatformRegistry $registry): array
+    {
+        $upgrades = [];
+
+        foreach ($this->candidates() as $slug => [$key, $surface, $brand]) {
+            if (in_array($slug, self::NEVER_UPGRADE, true)) {
+                continue;
+            }
+
+            $descriptor = $registry->get($slug);
+            if ($descriptor === null
+                || $descriptor->routeShape() !== PlatformRouteShape::Bespoke
+                || $descriptor->connectField() !== null) {
+                continue;
+            }
+
+            $upgrades[$slug] = [
+                'surface' => $key,
+                'label' => $this->labelFor($slug, $surface, $brand),
+                'multi' => ($surface['is_multi_account'] ?? false) === true,
+                'capability' => self::CAPABILITY_BY_ROUTING_CLASS[$surface['routing_class'] ?? ''] ?? null,
+            ];
+        }
+
+        return $upgrades;
+    }
+
+    /**
+     * @param  array<string, mixed>  $surface
+     * @param  array<string, mixed>  $brand
+     */
+    public function labelFor(string $slug, array $surface, array $brand): string
+    {
+        return is_string($brand['display_name'] ?? null)
+            ? $brand['display_name']
+            : (is_string($surface['display_name'] ?? null) ? $surface['display_name'] : $slug);
     }
 
     /**
@@ -134,9 +247,7 @@ class DerivedDescriptorFactory
      */
     private function descriptorFor(string $slug, string $surfaceKey, array $surface, array $brand): PlatformDescriptor
     {
-        $label = is_string($brand['display_name'] ?? null)
-            ? $brand['display_name']
-            : ($surface['display_name'] ?? $slug);
+        $label = $this->labelFor($slug, $surface, $brand);
 
         $descriptor = PlatformDescriptor::make($slug)
             ->label($label)

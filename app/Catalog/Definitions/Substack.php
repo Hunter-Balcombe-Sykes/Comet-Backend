@@ -35,7 +35,6 @@ class Substack
                 ->shelf(Shelf::Media)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('substack.com')->strength(EvidenceStrength::ProfileLink),
                 )

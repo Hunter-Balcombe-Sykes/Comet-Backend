@@ -32,7 +32,6 @@ class Wolt
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('wolt.com')->strength(EvidenceStrength::ProfileLink),
                 )

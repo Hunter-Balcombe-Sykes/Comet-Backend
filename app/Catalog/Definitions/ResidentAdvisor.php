@@ -33,7 +33,6 @@ class ResidentAdvisor
                 ->shelf(Shelf::Events)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->notConnectable()
                 ->detect(
                     Detector::url('ra.co')->strength(EvidenceStrength::MarketplaceListing),
                 )
