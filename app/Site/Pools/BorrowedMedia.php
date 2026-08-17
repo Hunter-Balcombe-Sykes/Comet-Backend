@@ -24,8 +24,18 @@ use Illuminate\Support\Facades\DB;
  */
 final class BorrowedMedia
 {
-    /** Source keys whose media may be displayed but never pinned. */
-    public const BORROWED_SOURCE_KEYS = ['google_business'];
+    /**
+     * Source keys whose media may be displayed but never pinned.
+     *
+     * EMPTY since 2026-08-18 (owner ruling R6): google_business photo items are
+     * now keyed on a stable per-photo id (GoogleBusinessConnector::
+     * stablePhotoKey — googleMapsUri / flagContentUri postId, both constant
+     * across Details calls; only `photos[].name` rotates), so a pin survives
+     * a refetch and D5's reason for refusing it is gone. The class stays as
+     * the seam: a future borrowed source with churning identity registers
+     * here and is refused again.
+     */
+    public const BORROWED_SOURCE_KEYS = [];
 
     public static function isBorrowed(Model $item): bool
     {

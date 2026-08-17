@@ -66,7 +66,8 @@ class SafeUrlFetcher
 
     private readonly int $timeoutSeconds;
 
-    private readonly int $maxBytes;
+    /** Not readonly: withMaxBytes() clones with a per-call cap (video mirror, R7). */
+    private int $maxBytes;
 
     private readonly int $connectTimeoutSeconds;
 
@@ -99,6 +100,19 @@ class SafeUrlFetcher
      * @throws SafeUrlException
      * @throws ConnectionException
      */
+    /**
+     * A copy of this fetcher with a different body cap — for the one caller
+     * (MediaMirror's reel mp4) that legitimately needs more than the 10 MB
+     * page/image default. Everything else about the fetch is unchanged.
+     */
+    public function withMaxBytes(int $maxBytes): static
+    {
+        $clone = clone $this;
+        $clone->maxBytes = max(1, $maxBytes);
+
+        return $clone;
+    }
+
     public function fetch(string $url, array $headers = []): array
     {
         $merged = array_merge([

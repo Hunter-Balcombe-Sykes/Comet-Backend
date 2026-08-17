@@ -41,8 +41,8 @@ it('ships ordered frames with dims for a multi-frame media item, omitting the un
     $item = collect($out['library'])->firstWhere('id', $itemId);
 
     expect($item['frames'])->toBe([
-        ['url' => 'https://cdn.example.com/a.jpg', 'width' => 800, 'height' => 600, 'role' => 'cover', 'alt' => 'first'],
-        ['url' => 'https://cdn.example.com/b.jpg', 'width' => 640, 'height' => 480, 'role' => 'gallery', 'alt' => 'second'],
+        ['url' => 'https://cdn.example.com/a.jpg', 'width' => 800, 'height' => 600, 'role' => 'cover', 'kind' => 'image', 'poster' => null, 'alt' => 'first'],
+        ['url' => 'https://cdn.example.com/b.jpg', 'width' => 640, 'height' => 480, 'role' => 'gallery', 'kind' => 'image', 'poster' => null, 'alt' => 'second'],
     ])->and($item['thumbnail'])->toBe('https://cdn.example.com/a.jpg');
 });
 
@@ -172,4 +172,23 @@ it('resolves an upload-backed frame through the variant pipeline', function () {
     expect($item['frames'][0]['url'])->toContain('optimized')
         ->and($item['frames'][0]['width'])->toBe(2400)
         ->and($item['thumbnail'])->toBe($item['frames'][0]['url']); // frames[0] IS what thumbnail resolves to
+});
+
+it('emits a reel as a video frame with the cover as its poster (R7)', function () {
+    [$pro, $siteId] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id, 'instagram.profile'));
+    $item = poolItem($pro->id, $source, 'media', 'Reel', '2026-08-01T00:00:00Z');
+    $cover = frameAsset($pro->id, ['source_url' => 'https://cdn.example.com/cover.jpg', 'width' => 1080, 'height' => 1350]);
+    $video = frameAsset($pro->id, ['source_url' => 'https://cdn.example.com/reel.mp4', 'mime_type' => 'video/mp4', 'width' => null, 'height' => null]);
+    DB::table('content.item_media')->insert([
+        ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $cover, 'role' => 'cover', 'position' => 0, 'created_at' => now()],
+        ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $video, 'role' => 'video', 'position' => 1, 'created_at' => now()],
+    ]);
+
+    $frames = collect(poolGet($pro, 'media')['selection'])->firstWhere('id', $item)['frames'];
+    expect($frames)->toHaveCount(2)
+        ->and($frames[0]['kind'])->toBe('image')
+        ->and($frames[1]['kind'])->toBe('video')
+        ->and($frames[1]['url'])->toBe('https://cdn.example.com/reel.mp4')
+        ->and($frames[1]['poster'])->toBe('https://cdn.example.com/cover.jpg');
 });

@@ -928,7 +928,7 @@ return [
                 // parse_url PHP_URL_HOST), so anchor on $ -- a trailing slash
                 // both closed the ~ delimiter early, making the rest of the
                 // pattern parse as modifiers, and could never match a host.
-                'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com$|^order\.~',
+                'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com$|^order\.(?!online$|toasttab\.com$|ubereats\.com$|doordash\.com$|menulog\.com\.au$)~',
                 'driver' => SquareMenuDriver::class,
             ],
             'uber-eats' => [

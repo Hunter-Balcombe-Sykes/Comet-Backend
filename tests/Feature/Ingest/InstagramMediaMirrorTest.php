@@ -145,3 +145,22 @@ it('is unique per asset so a retried run cannot pile up mirrors', function () {
         ->and((new ReflectionProperty($job, 'afterCommit'))->hasType())->toBeFalse()
         ->and($job->afterCommit)->toBeTrue();
 });
+
+it('dispatches a mirror for a PRE-EXISTING unmirrored asset on a later sync (F14)', function () {
+    // The legacy Instagram seeder mints the same fingerprints before the
+    // ingest projection runs, so on the first projection every asset already
+    // exists and `missing` is empty — the mirror pass used to be skipped
+    // entirely (86 of 88 frames stayed on hotlinked CDN urls).
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg']);
+    Bus::assertDispatchedTimes(MirrorMediaAssetJob::class, 1);
+
+    // Same fingerprints again, still unmirrored → dispatched again (unique lock
+    // is the queue-level guard, not the writer's).
+    // Release the ShouldBeUnique lock the first (faked, never-run) dispatch
+    // still holds — in production the job's clean finish releases it.
+    $assetId = (string) DB::table('content.media_assets')->where('user_id', $userId)->value('id');
+    \Illuminate\Support\Facades\Cache::lock('laravel_unique_job:'.MirrorMediaAssetJob::class.':'.$assetId)->forceRelease();
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg'], '-again');
+    Bus::assertDispatchedTimes(MirrorMediaAssetJob::class, 2);
+});

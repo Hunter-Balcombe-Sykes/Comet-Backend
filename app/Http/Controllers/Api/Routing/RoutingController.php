@@ -64,8 +64,19 @@ class RoutingController extends ApiController
         // via LinkInBioScanJob) and keep the page itself as a link card, so
         // nothing the owner pasted is lost (overnight 2026-08-18 F15).
         if (app(LinkInBioDetector::class)->matches($url)) {
-            LinkInBioScanJob::dispatch((string) $user->id, trim($url), AccountCapabilities::for($user)->can_use_booking);
             $write = $this->links->addManual($user, trim($url));
+            if ($write['status'] === 'cap_full') {
+                return $this->error('You can add up to '.CustomLinkSeeder::MAX_LINKS.' links.', 422, extra: ['code' => 'link_cap_reached']);
+            }
+            if ($write['status'] === 'busy') {
+                return $this->error('Another change is still saving — please retry in a moment.', 423);
+            }
+            if ($write['status'] === 'unavailable') {
+                return $this->error('This integration is currently unavailable.', 503);
+            }
+            // Dispatched AFTER the card write settled: a cap-full page must not
+            // still fan out (review W3).
+            LinkInBioScanJob::dispatch((string) $user->id, trim($url), AccountCapabilities::for($user)->can_use_booking);
 
             return $this->success([
                 'status' => 'pending',

@@ -199,7 +199,15 @@ class GoogleBusinessConnector implements Connector
         }
 
         foreach ($items as $item) {
-            yield new Record('media', $item['ref'], $item);
+            // Keyed on a STABLE per-photo id, not the `name` ref (overnight
+            // 2026-08-18 R6). Places reissues `photos[].name` on every Details
+            // call (probed live: 0/10 overlap across two calls seconds apart),
+            // which is why every refetch used to mint new items and pins could
+            // never survive (slice 1b D5). `googleMapsUri` and the postId inside
+            // `flagContentUri` are the same across calls (10/10 live), so the
+            // record key — and therefore the content item — is now durable, and
+            // the ref travels in the doc for the URL resolution only.
+            yield new Record('media', $item['key'], $item);
         }
 
         // Unknown, not exhaustive: Places photos are themselves a
@@ -241,6 +249,25 @@ class GoogleBusinessConnector implements Connector
     }
 
     /** @return array<string, mixed>|null */
+    /**
+     * A per-photo identity that survives the ref rotation: the postId inside
+     * flagContentUri (`postId=!1e10!2s<ID>`), else googleMapsUri, else the ref
+     * itself (old behaviour) so nothing is ever dropped for want of a key.
+     */
+    private function stablePhotoKey(array $photo, string $ref): string
+    {
+        $flag = is_string($photo['flagContentUri'] ?? null) ? $photo['flagContentUri'] : '';
+        if ($flag !== '' && preg_match('~postId=!1e10!2s([A-Za-z0-9_-]{6,})~', $flag, $m)) {
+            return 'gphoto:'.$m[1];
+        }
+        $maps = is_string($photo['googleMapsUri'] ?? null) ? $photo['googleMapsUri'] : '';
+        if ($maps !== '') {
+            return 'gphoto:maps:'.substr(sha1($maps), 0, 24);
+        }
+
+        return $ref;
+    }
+
     private function mapPhoto(mixed $photo): ?array
     {
         if (! is_array($photo)) {
@@ -273,6 +300,7 @@ class GoogleBusinessConnector implements Connector
         ], static fn ($v) => $v !== null);
 
         return array_filter([
+            'key' => $this->stablePhotoKey($photo, $ref),
             'ref' => $ref,
             // Populated by PlacesDetailsDriver inside the SAME billed fetch: a
             // ref and a url are only consistent within one Details call, since

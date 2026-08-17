@@ -96,6 +96,9 @@ function mmcMedia(User $user): SiteMedia
 /** An Uber Eats online-ordering link, so MenuSource::resolveAll() is non-null. */
 function mmcOrdering(User $user, string $url = 'https://www.ubereats.com/store/x'): IntegrationConnection
 {
+    // F17 (2026-08-18): the observer dispatches MenuFetchJob for ordering rows on
+    // menu-platform hosts; these tests drive the menu by hand.
+    \Illuminate\Support\Facades\Queue::fake([\App\Jobs\Platforms\MenuFetchJob::class]);
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
 
     return IntegrationConnection::create([

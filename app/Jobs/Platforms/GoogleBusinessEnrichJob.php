@@ -137,19 +137,21 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         // (food places: menu + google reserve/food links) or the harvest
         // came back empty.
         $gbp = GoogleBusinessPayload::fromArray($connection->payload);
-        $harvest = $harvester->harvest($gbp->website());
 
         // A listing whose "website" is a link-in-bio page (linktr.ee, beacons,
         // msha.ke, stan.store) has nothing for the anchor harvest to find —
         // those pages render their links from JSON — but it is exactly the
         // page that bundles the business's ordering / booking / socials.
         // Unroll it through the same job Instagram bio links use (overnight
-        // 2026-08-18 F15: Top Choice Wollongong's linktree produced 0 links).
+        // 2026-08-18 F15: Top Choice Wollongong's linktree produced 0 links)
+        // and skip the anchor harvest for it.
         $website = $gbp->website();
-        if (is_string($website) && $website !== '' && app(LinkInBioDetector::class)->matches($website)) {
+        $isLinkInBio = is_string($website) && $website !== '' && app(LinkInBioDetector::class)->matches($website);
+        if ($isLinkInBio) {
             LinkInBioScanJob::dispatch($this->userId, $website, $this->autoConnectBooking);
             Log::info('google_business.enrich_job.link_in_bio_unroll', ['user_id' => $this->userId, 'place_id' => $this->placeId]);
         }
+        $harvest = $isLinkInBio ? [] : $harvester->harvest($website);
 
         $enrichment = null;
         // OBS-6 context: which of three states produced a null enrichment —

@@ -1400,6 +1400,13 @@ class ProjectionWriter
 
         $missing = array_diff_key($entryByFingerprint, $byFingerprint);
         if ($missing === []) {
+            // Nothing to mint — but the mirror pass still runs: an asset can
+            // pre-exist unmirrored (the legacy Instagram seeder mints the same
+            // fingerprints first), and returning here left 86 of 88 Instagram
+            // frames on hotlinked CDN urls forever (overnight 2026-08-18 F14).
+            // dispatchMirrors() re-checks storage_path IS NULL itself.
+            $this->dispatchMirrors($userId, $entryByFingerprint, $byFingerprint, $chunk);
+
             return $byFingerprint;
         }
 

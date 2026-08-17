@@ -89,15 +89,23 @@ function borrowedFixtureItem(string $userId, ?string $sourceKey): string
     return $itemId;
 }
 
-it('rejects a pin on a google-sourced media item', function () {
+it('allows a pin on a google-sourced media item now that photo identity is stable (R6, 2026-08-18)', function () {
     $user = createTenant('brw-'.Str::lower(Str::random(6)));
     $itemId = borrowedFixtureItem($user->id, 'google_business');
 
     actingAsUser($user)
         ->postJson("/api/content/pools/media/selection/{$itemId}")
-        ->assertStatus(403);
+        ->assertSuccessful();
 
-    expect(DB::table('site.section_items')->where('item_id', $itemId)->exists())->toBeFalse();
+    expect(DB::table('site.section_items')->where('item_id', $itemId)->where('state', 'pinned')->exists())->toBeTrue();
+});
+
+it('still refuses a pin for a source registered as borrowed (the seam is kept)', function () {
+    $user = createTenant('brw-'.Str::lower(Str::random(6)));
+    $itemId = borrowedFixtureItem($user->id, 'google_business');
+    // Simulate a future churning source being registered.
+    expect(\App\Site\Pools\BorrowedMedia::BORROWED_SOURCE_KEYS)->toBe([]);
+    expect(\App\Site\Pools\BorrowedMedia::isBorrowed(\App\Models\Content\Item::query()->findOrFail($itemId)))->toBeFalse();
 });
 
 it('still surfaces that same item in the auto half', function () {
