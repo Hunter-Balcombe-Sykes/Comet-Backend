@@ -896,7 +896,7 @@ it('seeds a pre-account store into content.* only', function (): void {
 unique index, so enforcing it needs `user_id` on `content.storefronts`. Slice 5b
 §8 deferred this to slice 7; slice 7 never picked it up.
 
-- [ ] **Step 1: Write the failing PG-lane test** — two concurrent `upsertStore()` calls for one store.
+- [x] **Step 1: Write the failing PG-lane test** — two concurrent `upsertStore()` calls for one store.
 
 ```php
 it('refuses a duplicate store under concurrent upserts', function (): void {
@@ -916,8 +916,8 @@ it('refuses a duplicate store under concurrent upserts', function (): void {
 
 Pin the refusal REASON (the constraint name), not merely that it threw — a test asserting only `QueryException` passes on a typo in the table name.
 
-- [ ] **Step 2: Run it in the PG lane, confirm it fails** — `composer test:pg`. Expected: no exception; the duplicate inserts cleanly.
-- [ ] **Step 3: Write the migration.** One concern, no `CONCURRENTLY` paired with anything else:
+- [x] **Step 2: Run it in the PG lane, confirm it fails** — `composer test:pg`. Expected: no exception; the duplicate inserts cleanly.
+- [x] **Step 3: Write the migration.** One concern, no `CONCURRENTLY` paired with anything else:
 
 ```sql
 -- 20260819000100_content_storefronts_user_id.sql
@@ -945,10 +945,45 @@ COMMIT;
 
 Then the index, in its **own** file `20260819000110_content_storefronts_identity_unique.sql`, because a unique index built `CONCURRENTLY` cannot share a file with anything else (CLAUDE.md, one-`CONCURRENTLY`-per-file).
 
-- [ ] **Step 4: `supabase link --project-ref glncumufgaqcmqhzwrxm`, `db push --dry-run`, then `db push`.** Dev ref only.
-- [ ] **Step 5: Make `upsertStore()` write `user_id`**, then run the PG lane and confirm the test passes.
-- [ ] **Step 6: Commit.**
+- [x] **Step 4: `supabase link --project-ref glncumufgaqcmqhzwrxm`, `db push --dry-run`, then `db push`.** Dev ref only.
+- [x] **Step 5: Make `upsertStore()` write `user_id`**, then run the PG lane and confirm the test passes.
+- [x] **Step 6: Commit.**
 
+
+**ORDERING CORRECTION — Task 11 was pulled ahead of Tasks 7, 9 and 10.**
+Task 9 keys the two async jobs on the collection id, and both then need the
+OWNER: for the lock key, for `FeatureAvailability`, for the cache refresher.
+`StoreRecord` had no way to carry one, and resolving it meant a second query
+through `content.collections` on every job run. Task 11 puts `user_id` on
+`content.storefronts`, so the owner arrives with the store on the read that was
+already happening. Doing 11 last would have meant building that second query
+and then deleting it. New order: **11 → 9 → 7 → 10**.
+
+**Index named `storefronts_user_provider_ref_uq`**, not `…_unique` as Step 1's
+snippet said — the sibling unique index on `content.collections` is
+`collections_user_kind_external_ref_uq`, and an index-naming scheme is worth
+more than matching a draft. The test pins the real name.
+
+**The index is PARTIAL on `external_ref IS NOT NULL`.** The column is nullable
+and Postgres treats NULLs as distinct, so a plain unique index would silently
+permit unlimited `(user_id, provider, NULL)` rows while looking like it enforced
+identity. `idx_content_storefronts_external_ref` is already partial the same way.
+
+**Applied to dev** (`glncumufgaqcmqhzwrxm`) — `db push --dry-run` listed exactly
+these two files and nothing else, because every earlier migration was already
+recorded. Post-apply verification: 15 rows, **0** null owners, **0** rows whose
+`user_id` disagrees with their collection, `user_id` NOT NULL, and the partial
+unique index present with the expected definition.
+
+**Three test stand-ins had to move with the writer**, which is the drift CLAUDE.md
+warns about — the PG lane's DDL is hand-written and does not follow migrations:
+`tests/Postgres/ShopStorefrontUpsertConflictTest.php` (which also grew the
+index), `tests/Postgres/ShopUpsertStoreAtomicityTest.php` (found by the lane
+going red, not by inspection), and `tests/Pest.php`'s SQLite stand-in. The
+SQLite one leaves `user_id` NULLABLE deliberately: SQLite cannot express the
+partial unique index that gives the column its meaning, so the constraint is
+pinned in the PG lane and tightening the stand-in would only fail fixtures over
+a rule that engine cannot enforce.
 ### Task 12: The test tail — `tests/Pest.php` first, alone
 
 **Files:**

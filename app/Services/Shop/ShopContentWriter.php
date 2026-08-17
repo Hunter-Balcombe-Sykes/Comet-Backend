@@ -84,6 +84,14 @@ class ShopContentWriter
 
             DB::table('content.storefronts')->upsert([[
                 'collection_id' => $collectionId,
+                // Re-home Task 11 / spec §6: the owner is denormalised onto this
+                // table so store identity (user_id, provider, external_ref) is
+                // enforceable by a single unique index —
+                // storefronts_user_provider_ref_uq. Before that, this method's
+                // own collectionIdFor() read-then-write was the ONLY thing
+                // between two concurrent writers and a duplicated store, which
+                // is how slice 5a minted 18 collections for 9 stores.
+                'user_id' => $ownerId,
                 'provider' => $store->provider,
                 'external_ref' => $externalRef,
                 'url' => $store->url,
@@ -110,6 +118,7 @@ class ShopContentWriter
                 'created_at' => now(),
                 'updated_at' => now(),
             ]], ['collection_id'], [
+                'user_id',
                 'provider', 'external_ref', 'url', 'source_url', 'currency', 'discount_code',
                 'referral_query', 'is_individual', 'fetch_mode', 'connect_status',
                 'connect_error', 'logo_url', 'favicon_url',

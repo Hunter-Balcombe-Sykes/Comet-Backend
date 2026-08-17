@@ -106,7 +106,13 @@ beforeEach(function () {
         logo_mark_url       text,
         logo_mark_svg_url   text,
         created_at          timestamptz NOT NULL DEFAULT now(),
-        updated_at          timestamptz NOT NULL DEFAULT now()
+        updated_at          timestamptz NOT NULL DEFAULT now(),
+        -- Re-home Task 11 (20260819000100) — kept in step with the other
+        -- stand-in of this table in this lane (ShopStorefrontUpsertConflictTest).
+        -- These are hand-written and drift silently from the writer: omitting
+        -- this column made upsertStore() throw here the moment it started
+        -- writing it.
+        user_id             uuid        REFERENCES core.users(id) ON DELETE CASCADE
     )');
 });
 

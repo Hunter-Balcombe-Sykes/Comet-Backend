@@ -2100,8 +2100,11 @@ function seedOrderPlatformSidecar(
         return;
     }
 
+    // Mirrors MenuFetchJob::syncOrderPlatforms()'s own upsert, user_id
+    // included — that column is NOT NULL in production since re-home Task 11.
     DB::connection('pgsql')->table('content.storefronts')->upsert([[
         'collection_id' => (string) $collectionId,
+        'user_id' => $userId,
         'provider' => $platform,
         'url' => $storeUrl,
         'external_ref' => $ref,
@@ -2110,7 +2113,7 @@ function seedOrderPlatformSidecar(
         'is_individual' => false,
         'created_at' => now(),
         'updated_at' => now(),
-    ]], ['collection_id'], ['url', 'currency', 'updated_at']);
+    ]], ['collection_id'], ['user_id', 'url', 'currency', 'updated_at']);
 }
 
 /**
@@ -3178,7 +3181,15 @@ function setupContentTables(): void
         logo_mark_svg_url TEXT NULL,
         external_ref TEXT NULL,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        -- Re-home Task 11 (20260819000100): the owner is denormalised here so
+        -- store identity (user_id, provider, external_ref) is enforceable in
+        -- one table. NULLABLE in this stand-in where production is NOT NULL —
+        -- SQLite cannot express the partial unique index that makes it
+        -- meaningful either, so the real constraint is pinned in the PG lane
+        -- (tests/Postgres/ShopStorefrontUpsertConflictTest.php). Tightening it
+        -- here would only fail fixtures over a rule this engine cannot enforce.
+        user_id TEXT NULL
     )');
 }
 

@@ -41,6 +41,8 @@
 
 use App\Models\Core\Site\ShopBrand;
 use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
@@ -105,8 +107,25 @@ beforeEach(function () {
         logo_mark_url       text,
         logo_mark_svg_url   text,
         created_at          timestamptz NOT NULL DEFAULT now(),
-        updated_at          timestamptz NOT NULL DEFAULT now()
+        updated_at          timestamptz NOT NULL DEFAULT now(),
+        -- Re-home Task 11 (20260819000100). The owner is denormalised onto
+        -- this table because true store identity is
+        -- (collections.user_id, provider, external_ref) and Postgres has no
+        -- cross-table unique index — 20260813100001 named exactly this as
+        -- the fix and deferred it.
+        user_id             uuid        REFERENCES core.users(id) ON DELETE CASCADE
     )');
+
+    // Re-home Task 11 (20260819000110). PARTIAL on external_ref IS NOT NULL:
+    // the column is nullable and Postgres treats NULLs as distinct, so a plain
+    // unique index would silently permit unlimited (user_id, provider, NULL)
+    // rows while LOOKING like it enforced identity. Not CONCURRENTLY here —
+    // this lane runs inside a transaction, where CONCURRENTLY is illegal; the
+    // real migration builds it concurrently because content.storefronts is on
+    // the live public read path.
+    $pg->statement('CREATE UNIQUE INDEX storefronts_user_provider_ref_uq
+        ON content.storefronts (user_id, provider, external_ref)
+        WHERE external_ref IS NOT NULL');
 });
 
 afterEach(function () {
@@ -135,6 +154,20 @@ function shopUpsertConflictTestBrand(string $externalRef): ShopBrand
         'position' => 0,
         'products_curated_at' => null,
     ]);
+}
+
+/** A StoreRecord for the identity tests below — provider and external_ref are the identity. */
+function shopUpsertConflictStoreRecord(string $provider, string $externalRef): StoreRecord
+{
+    return new StoreRecord(
+        externalRef: $externalRef,
+        provider: $provider,
+        name: 'Test Store',
+        url: 'https://store.test',
+        sourceUrl: 'https://store.test',
+        currency: 'AUD',
+        discountCode: '',
+    );
 }
 
 function shopUpsertConflictTestUser(): string
@@ -207,4 +240,69 @@ it('fills a null products_curated_at from a non-null incoming value', function (
 
     expect(DB::connection('pgsql')->table('content.storefronts')->where('collection_id', $collectionId)->value('products_curated_at'))
         ->not->toBeNull();
+});
+
+// ── Re-home Task 11: store identity is enforced by the DATABASE ──────────
+//
+// Spec §6. Until now upsertStore()'s application-level collectionIdFor()
+// lookup was the ONLY thing standing between two concurrent writers and a
+// duplicated store — read-then-write, with no constraint behind it. That is
+// the same fault that minted 18 collections for 9 stores during slice 5a.
+//
+// This lane, not the SQLite suite, because a partial unique index over a
+// nullable column behaves differently on the two engines and the SQLite
+// mirror cannot reproduce a real 23505.
+
+it('refuses a duplicate store identity under a second concurrent writer', function (): void {
+    $userId = shopUpsertConflictTestUser();
+
+    // Writer one wins the race and lands the store.
+    $collectionId = app(ShopContentWriter::class)->upsertStore(
+        shopUpsertConflictStoreRecord('shopify', 'alpha'),
+        $userId,
+    );
+    expect($collectionId)->not->toBeEmpty();
+
+    // Writer two got a null from collectionIdFor() before writer one committed,
+    // so it is about to INSERT a SECOND collection for the same store. Before
+    // Task 11 this succeeded and the user had the store twice.
+    $secondCollectionId = (string) Str::uuid();
+    DB::connection('pgsql')->table('content.collections')->insert([
+        'id' => $secondCollectionId, 'user_id' => $userId,
+        'label' => 'alpha', 'kind' => 'storefront', 'position' => 0,
+    ]);
+
+    // Pin the REFUSAL REASON, not merely that something threw: a test asserting
+    // only QueryException passes on a typo in the table name.
+    expect(fn () => DB::connection('pgsql')->table('content.storefronts')->insert([
+        'collection_id' => $secondCollectionId,
+        'user_id' => $userId,
+        'provider' => 'shopify',
+        'external_ref' => 'alpha',
+    ]))->toThrow(QueryException::class, 'storefronts_user_provider_ref_uq');
+});
+
+it('still allows the same external_ref for a different owner and a different provider', function (): void {
+    // The index is (user_id, provider, external_ref) — narrowing it to
+    // (provider, external_ref) would be a cross-tenant collision, and five real
+    // dev users share the Shopify store id 75102060779 today.
+    $userA = shopUpsertConflictTestUser();
+    $userB = shopUpsertConflictTestUser();
+
+    $writer = app(ShopContentWriter::class);
+
+    expect($writer->upsertStore(shopUpsertConflictStoreRecord('shopify', '75102060779'), $userA))->not->toBeEmpty()
+        ->and($writer->upsertStore(shopUpsertConflictStoreRecord('shopify', '75102060779'), $userB))->not->toBeEmpty()
+        ->and($writer->upsertStore(shopUpsertConflictStoreRecord('woocommerce', '75102060779'), $userA))->not->toBeEmpty();
+
+    expect(DB::connection('pgsql')->table('content.storefronts')->count())->toBe(3);
+});
+
+it('writes the denormalised owner onto every storefront it upserts', function (): void {
+    $userId = shopUpsertConflictTestUser();
+
+    $collectionId = app(ShopContentWriter::class)->upsertStore(shopUpsertConflictStoreRecord('shopify', 'alpha'), $userId);
+
+    expect(DB::connection('pgsql')->table('content.storefronts')
+        ->where('collection_id', $collectionId)->value('user_id'))->toBe($userId);
 });

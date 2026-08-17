@@ -636,8 +636,18 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
             // url IS vendor-owned and must be followed — a store that moves
             // would otherwise leave the order button pointing at a dead page.
+            //
+            // user_id: content.storefronts is NOT the shop lane's alone — this
+            // job writes it too, for the order-platform store cards. The shop
+            // re-home denormalised the owner onto the table and made it NOT
+            // NULL (20260819000100), so an insert without it fails. The failure
+            // would have been deferred and silent: the backfill filled every
+            // EXISTING row through its collection, so the migration passes and
+            // only the next scrape that creates a NEW order-platform storefront
+            // breaks.
             DB::connection('pgsql')->table('content.storefronts')->upsert([[
                 'collection_id' => (string) $collectionId,
+                'user_id' => $userId,
                 'provider' => $platform,
                 'url' => trim((string) $link->store_url) ?: null,
                 'external_ref' => $ref,
@@ -646,7 +656,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 'is_individual' => false,
                 'created_at' => now(),
                 'updated_at' => now(),
-            ]], ['collection_id'], ['url', 'currency', 'updated_at']);
+            ]], ['collection_id'], ['user_id', 'url', 'currency', 'updated_at']);
         }
     }
 
