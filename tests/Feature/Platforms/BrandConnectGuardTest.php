@@ -118,3 +118,47 @@ it('leaves social brands ungated by any capability', function () {
         ->postJson('/api/platforms/github/connect', ['url' => 'https://github.com/someone'])
         ->assertSuccessful();
 });
+
+it('enriches a brand card after connect so it does not sit pending forever (F4)', function () {
+    // Overnight 2026-08-18 F4: writeBrandCard() stores last_refresh_status
+    // 'pending' and connectBrand dispatched nothing to flip it — 43 brand
+    // connects in the sweep were pending with the brand label as their name.
+    // Booking/reservations/ordering already dispatch EnrichLinkCardJob; the
+    // generic brand path must too.
+    Queue::fake();
+    $user = User::create([
+        'handle' => 'bg-enrich', 'handle_lc' => 'bg-enrich', 'display_name' => 'S',
+        'first_name' => 'S', 'account_type' => 'partna', 'sector' => null,
+        'auth_user_id' => (string) Str::uuid(), 'primary_email' => 'bg-enrich@example.com',
+    ]);
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/github/connect', ['url' => 'https://github.com/someone'])
+        ->assertSuccessful();
+
+    Queue::assertPushed(\App\Jobs\Platforms\EnrichLinkCardJob::class, function ($job) use ($user) {
+        return $job->userId === (string) $user->id
+            && $job->platform === 'github'
+            && $job->url === 'https://github.com/someone'
+            && $job->surfaceKey !== null;
+    });
+});
+
+it('accepts a bare handle for brands whose surface has a canonical template (F12)', function () {
+    Queue::fake();
+    $user = User::create([
+        'handle' => 'bg-handle', 'handle_lc' => 'bg-handle', 'display_name' => 'S',
+        'first_name' => 'S', 'account_type' => 'partna', 'sector' => null,
+        'auth_user_id' => (string) Str::uuid(), 'primary_email' => 'bg-handle@example.com',
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/github/connect', ['url' => '@torvalds'])
+        ->assertSuccessful()->assertJsonPath('url', 'https://github.com/torvalds');
+    actingAsUser($user)->postJson('/api/platforms/substack/connect', ['url' => 'astralcodexten'])
+        ->assertSuccessful()->assertJsonPath('url', 'https://astralcodexten.substack.com');
+    actingAsUser($user)->postJson('/api/platforms/substack/connect', ['url' => 'astralcodexten.substack.com'])
+        ->assertSuccessful()->assertJsonPath('url', 'https://astralcodexten.substack.com');
+    // A brand without a template still needs a URL.
+    actingAsUser($user)->postJson('/api/platforms/menulog/connect', ['url' => 'somerestaurant'])
+        ->assertStatus(422);
+});

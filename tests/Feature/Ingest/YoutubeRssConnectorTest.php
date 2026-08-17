@@ -223,6 +223,37 @@ it('resolves a bare handle to the channel id via the channel page and caches it 
         ->and($bookmarks[0]->cursor)->toBe(['channel_id' => $channelId]);
 });
 
+it('resolves the handle to the page\'s OWN channel (externalId), not the first related channelId in the markup (F3)', function () {
+    // Overnight 2026-08-18 F3: real channel pages list featured/related
+    // channels' "channelId" BEFORE the page's own; the connector took the
+    // first match and pulled a stranger's uploads. externalId is the page's
+    // own id and must win.
+    $related = 'UCrelated00000000000000R';
+    $own = 'UCown0000000000000000000';
+    $io = youtubeIo([
+        'https://www.youtube.com/@mkbhd' => [
+            'status' => 200,
+            'body' => '<html><script>{"channelId":"'.$related.'"}…{"externalId":"'.$own.'","channelId":"'.$own.'"}</script></html>',
+            'headers' => [],
+        ],
+        youtubeFeedUrl($own) => [
+            'status' => 200,
+            'body' => youtubeFeedXml([
+                ['id' => 'ownVid', 'title' => 'Own Video', 'published' => '2025-03-03T00:00:00+00:00'],
+            ], $own),
+            'headers' => [],
+        ],
+    ]);
+
+    $messages = iterator_to_array((new YoutubeRssConnector)->pull(youtubePull('mkbhd'), $io));
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+    $bookmarks = array_values(array_filter($messages, fn ($m) => $m instanceof Bookmark));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->doc['title'])->toBe('Own Video')
+        ->and($bookmarks[0]->cursor)->toBe(['channel_id' => $own]);
+});
+
 it('reuses a cursor-cached channel id without re-fetching the channel page', function () {
     $channelId = 'UCcached000000000000000B';
     // No @handle page in the map: touching it would 404 and the run would

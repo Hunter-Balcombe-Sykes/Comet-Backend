@@ -29,7 +29,12 @@ class NowBookitService
         $query = (string) parse_url(PlatformInput::urlish($url), PHP_URL_QUERY);
         parse_str($query, $params);
 
-        $accountId = $this->digits($params['accountid'] ?? $params['accountId'] ?? null);
+        // accountid is a UUID on every current NowBookit link (both real
+        // fixtures in the 2026-08-18 sweep: bookings.nowbookit.com/?accountid=
+        // cd39dab2-…&venueid=14544); legacy links carry digits. Both are ids
+        // we pass straight back into the widget URL, so accept either shape.
+        // venueid stays numeric.
+        $accountId = $this->accountId($params['accountid'] ?? $params['accountId'] ?? null);
         $venueId = $this->digits($params['venueid'] ?? $params['venueId'] ?? null);
 
         return ($accountId !== null && $venueId !== null)
@@ -57,6 +62,16 @@ class NowBookitService
         ]);
 
         return "https://booking.nowbookit.com/steps/sitting-details?{$params}";
+    }
+
+    private function accountId(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+        $v = trim($value);
+
+        return preg_match('~^(\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$~i', $v) === 1 ? $v : null;
     }
 
     private function digits(mixed $value): ?string

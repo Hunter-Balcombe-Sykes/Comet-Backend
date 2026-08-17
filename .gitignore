@@ -71,3 +71,4 @@ scripts/dast/.env
 # truncated/redacted at the source.
 audits/launch-check/
 .env.drill
+.env.testing

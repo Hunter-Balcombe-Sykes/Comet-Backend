@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -33,7 +34,14 @@ class Codepen
                 ->shelf(Shelf::Social)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                ->canonicalUrl('https://codepen.io/{handle}')
                 ->detect(
+                    Detector::url('codepen.io')
+                        ->path('#^/(?<handle>[A-Za-z0-9_-]{2,64})/?$#')
+                        ->captures('handle')
+                        ->from(IdentifierSource::Path)
+                        ->reject('#^/(?:pen|pens|features|pricing|login|signup|challenges|topics|collections|spark|trending|picked|search|settings|accounts|pro|teams|support|about|legal|pattern)(?:/|$)#i')
+                        ->strength(EvidenceStrength::ProfileLink),
                     Detector::url('codepen.io')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

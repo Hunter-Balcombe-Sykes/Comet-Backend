@@ -293,10 +293,17 @@ class SectionCandidates
                             // order NOTHING is "newer", so EVERY item won
                             // (live smoke, ollies: 15 undated releases all
                             // wearing auto). Exactly one item must win a tie.
+                            // Outer parentheses are load-bearing: without
+                            // them the OR escaped every preceding AND
+                            // (same-source, not-removed, kind), so ANY row
+                            // in the table with an equal timestamp and a
+                            // greater id — another user's copy of the same
+                            // video — made every candidate lose and the
+                            // pool auto-selected nothing (overnight F1).
                             $newer->whereRaw(
-                                'COALESCE(p2.published_from, i2.first_seen_at) > COALESCE(p1.published_from, content.items.first_seen_at)'
+                                '(COALESCE(p2.published_from, i2.first_seen_at) > COALESCE(p1.published_from, content.items.first_seen_at)'
                                 .' OR (COALESCE(p2.published_from, i2.first_seen_at) = COALESCE(p1.published_from, content.items.first_seen_at)'
-                                .' AND i2.id > content.items.id)'
+                                .' AND i2.id > content.items.id))'
                             );
                         });
                 });

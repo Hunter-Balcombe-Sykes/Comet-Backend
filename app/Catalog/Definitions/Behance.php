@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -36,7 +37,14 @@ class Behance
                 ->shelf(Shelf::Social)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                ->canonicalUrl('https://www.behance.net/{handle}')
                 ->detect(
+                    Detector::url('behance.net')
+                        ->path('#^/(?<handle>[A-Za-z0-9_-]{2,64})/?$#')
+                        ->captures('handle')
+                        ->from(IdentifierSource::Path)
+                        ->reject('#^/(?:galleries|gallery|search|joblist|jobs|assets|livestreams|live|hire|login|signup|onboarding|collection|collections|misc|about|careers|contact|pro|projects|for_you|discover|settings)(?:/|$)#i')
+                        ->strength(EvidenceStrength::ProfileLink),
                     Detector::url('behance.net')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

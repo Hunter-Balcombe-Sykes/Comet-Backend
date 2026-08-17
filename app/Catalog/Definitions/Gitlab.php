@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -33,7 +34,14 @@ class Gitlab
                 ->shelf(Shelf::Social)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                ->canonicalUrl('https://gitlab.com/{handle}')
                 ->detect(
+                    Detector::url('gitlab.com')
+                        ->path('#^/(?<handle>[A-Za-z0-9_.][A-Za-z0-9_.-]{1,254})/?$#')
+                        ->captures('handle')
+                        ->from(IdentifierSource::Path)
+                        ->reject('#^/(?:explore|users|help|dashboard|projects|groups|pricing|about|features|solutions|sign_in|login|admin|api|search)(?:/|$)#i')
+                        ->strength(EvidenceStrength::ProfileLink),
                     Detector::url('gitlab.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

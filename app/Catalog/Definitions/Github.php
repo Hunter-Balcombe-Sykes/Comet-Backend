@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -35,7 +36,14 @@ class Github
                 ->shelf(Shelf::Social)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                ->canonicalUrl('https://github.com/{handle}')
                 ->detect(
+                    Detector::url('github.com')
+                        ->path('#^/(?<handle>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))/?$#')
+                        ->captures('handle')
+                        ->from(IdentifierSource::Path)
+                        ->reject('#^/(?:features|pricing|login|join|about|explore|marketplace|sponsors|topics|trending|settings|orgs|enterprise|security|customer\-stories|readme|collections|events|apps|site|contact|new|notifications|issues|pulls|codespaces)(?:/|$)#i')
+                        ->strength(EvidenceStrength::ProfileLink),
                     Detector::url('github.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

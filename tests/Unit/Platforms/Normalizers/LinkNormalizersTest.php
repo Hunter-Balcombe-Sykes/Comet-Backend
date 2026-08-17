@@ -99,6 +99,11 @@ it('Medium accepts a 2-char handle — its own founder is @ev', function () {
         ->toBe(['username' => 'ev', 'url' => 'https://medium.com/@ev']);
     expect((new MediumNormalizer)('https://medium.com/@ev'))
         ->toBe(['username' => 'ev', 'url' => 'https://medium.com/@ev']);
+    // Dotted handles are real on Medium (@julie.zhuo) — overnight F10.
+    expect((new MediumNormalizer)('https://medium.com/@julie.zhuo'))
+        ->toBe(['username' => 'julie.zhuo', 'url' => 'https://medium.com/@julie.zhuo']);
+    expect((new MediumNormalizer)('julie.zhuo'))
+        ->toBe(['username' => 'julie.zhuo', 'url' => 'https://medium.com/@julie.zhuo']);
 });
 
 it('Medium still rejects a 1-char handle', function () {

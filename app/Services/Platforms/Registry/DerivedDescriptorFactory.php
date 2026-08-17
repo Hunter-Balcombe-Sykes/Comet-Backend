@@ -260,7 +260,7 @@ class DerivedDescriptorFactory
             // strategy eagerly here is a trap. BrandLinkConnect is cheap, but the
             // rule is the rule.
             ->connect(
-                fn () => new BrandLinkConnect($slug, $label),
+                fn () => new BrandLinkConnect($slug, $label, $surfaceKey),
                 'Enter a valid '.$label.' link.'
             )
             // connectInput is NOT optional: ResolvesConnectRules::connectDescriptor()

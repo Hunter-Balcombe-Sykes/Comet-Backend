@@ -151,6 +151,20 @@ class YoutubeRssConnector implements Connector
             return null;
         }
 
-        return preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $response['body'], $m) ? $m[1] : null;
+        // Same precedence as YoutubeScraper::resolveChannelId(). A channel
+        // page carries MANY "channelId" values — featured/related channels
+        // come FIRST in the markup — so the bare channelId regex resolved
+        // @mkbhd to a related channel and the pool filled with the wrong
+        // uploads (overnight 2026-08-18 F3). "externalId" is the page's own
+        // channel; the RSS alternate link and /channel/ path agree with it.
+        $body = $response['body'];
+        if (preg_match('/"externalId":"(UC[A-Za-z0-9_-]{22})"/', $body, $m)
+            || preg_match('~feeds/videos\.xml\?channel_id=(UC[A-Za-z0-9_-]{22})~', $body, $m)
+            || preg_match('~/channel/(UC[A-Za-z0-9_-]{22})~', $body, $m)
+            || preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $body, $m)) {
+            return $m[1];
+        }
+
+        return null;
     }
 }
