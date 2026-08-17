@@ -1,35 +1,33 @@
 <?php
 
-// Regression sentinel for commit 3cd4ff63: ItemSlugAllocator::insertUnique()
-// must isolate a slug-collision from the OUTER transaction a caller may
-// already hold (e.g. MenuScanApplier::apply(), which wraps the
-// MenuItem::create() that reaches the allocator through MenuItemObserver).
+// Regression sentinel for commit 3cd4ff63, re-pointed at the surviving
+// allocator in slice 7 Phase 6.
 //
-// Unlike tests/Feature/Site/ItemSlugAllocatorSavepointTest.php (now moved to
-// tests/Postgres/ItemSlugAllocatorSavepointTest.php), which reproduces just the
-// insertOrIgnore-in-a-savepoint MECHANISM against a scratch table, this test
-// drives the REAL production App\Services\Site\ItemSlugAllocator end to end
-// against a real site.item_slugs table (schema replicated from
-// supabase/migrations/20260724120000_create_item_slugs.sql), inside a genuine
-// outer transaction, exactly the shape MenuScanApplier::apply() creates. It
-// proves the fix at the call-site the bug actually shipped through, not just
-// at the mechanism it relies on.
+// ORIGINALLY this drove App\Services\Site\ItemSlugAllocator (site.item_slugs)
+// end to end, because that is where the bug shipped: MenuScanApplier::apply()
+// wrapped a MenuItem::create() that reached the allocator through
+// MenuItemObserver, all inside one outer transaction. That class, that
+// observer and that table's menu lane are all gone.
+//
+// The BUG SHAPE is not gone, and that is why this file still exists.
+// App\Services\Content\ContentItemSlugAllocator does the same insert-unique
+// dance against content.item_slugs, is reached inside a caller's transaction
+// the same way (ProjectionWriter::refreshItemCaches, ManualPoolWriter), and
+// carries the identical protection — insertOrIgnore rather than
+// insert-and-catch, so an expected collision returns 0 rows affected instead
+// of raising (see that class's own note at the `insertOrIgnore` call).
 //
 // PostgreSQL aborts the WHOLE transaction on any statement error (SQLSTATE
 // 25P02 on every later statement). SQLite does not, so this can only run for
 // real against Postgres — see Tests\PostgresTestCase for the skip-without-
 // Postgres guard. Runs via `composer test:pg` / phpunit.pg.xml.
 //
-// Pre-fix (insert-and-catch, no savepoint — see 3cd4ff63's diff), the second
-// ensureCurrent() call below raises a 23505 on the colliding base slug, and
-// the very next statement in the SAME transaction fails with 25P02 — either
-// the transaction() closure throws (propagating out of this test) or, if
-// caught somewhere, the third ensureCurrent() call / the final assertions
-// observe a poisoned/rolled-back transaction. Post-fix, insertOrIgnore behind
-// a nested transaction (savepoint) absorbs the collision with zero rows
-// affected, the outer transaction stays healthy, and all three items commit.
+// What it proves: two DIFFERENT items whose names slugify identically collide
+// on the (user_id, slug) unique index inside a caller's transaction; the
+// collision resolves to a `-2` suffix, the outer transaction stays usable for
+// a third write, and all three rows commit.
 
-use App\Services\Site\ItemSlugAllocator;
+use App\Services\Content\ContentItemSlugAllocator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
@@ -39,28 +37,26 @@ uses(PostgresTestCase::class)->in(__FILE__);
 beforeEach(function () {
     $pg = DB::connection('pgsql');
 
-    // Isolate this test from any prior run's residue — drop and recreate the
-    // real table shape (see supabase/migrations/20260724120000) rather than
+    // Isolate from any prior run's residue — recreate the real table shape
+    // (supabase/migrations/20260731210000 + 20260812040000) rather than
     // relying on cross-test state.
     $pg->statement('CREATE SCHEMA IF NOT EXISTS core');
-    $pg->statement('CREATE SCHEMA IF NOT EXISTS site');
-    $pg->statement('DROP TABLE IF EXISTS site.item_slugs');
+    $pg->statement('CREATE SCHEMA IF NOT EXISTS content');
+    $pg->statement('DROP TABLE IF EXISTS content.item_slugs');
     $pg->statement('CREATE TABLE IF NOT EXISTS core.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid())');
-    $pg->statement('CREATE TABLE site.item_slugs (
+    $pg->statement('CREATE TABLE content.item_slugs (
         id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id    uuid NOT NULL,
-        item_type  text NOT NULL,
-        item_key   text NOT NULL,
+        item_id    uuid NOT NULL,
         slug       text NOT NULL,
         is_current boolean NOT NULL DEFAULT true,
         created_at timestamptz NOT NULL DEFAULT now(),
-        retired_at timestamptz NULL,
-        CONSTRAINT item_slugs_user_fk FOREIGN KEY (user_id) REFERENCES core.users(id) ON DELETE CASCADE,
-        CONSTRAINT item_slugs_type_check CHECK (item_type IN (\'event\',\'menu_item\'))
+        retired_at timestamptz NULL
     )');
-    $pg->statement('CREATE UNIQUE INDEX item_slugs_unique_slug ON site.item_slugs (user_id, slug)');
-    $pg->statement('CREATE UNIQUE INDEX item_slugs_one_current ON site.item_slugs (user_id, item_type, item_key) WHERE is_current');
-    $pg->statement('CREATE INDEX item_slugs_lookup ON site.item_slugs (user_id, item_type, item_key)');
+    // The collision surface under test.
+    $pg->statement('CREATE UNIQUE INDEX content_item_slugs_unique_slug ON content.item_slugs (user_id, slug)');
+    // Mirrors idx_content_item_slugs_one_current (20260812040000).
+    $pg->statement('CREATE UNIQUE INDEX content_item_slugs_one_current ON content.item_slugs (item_id) WHERE is_current');
 
     $this->userId = (string) Str::uuid();
     $pg->table('core.users')->insert(['id' => $this->userId]);
@@ -70,49 +66,43 @@ it('survives a real slug collision inside an outer transaction and keeps the tra
     $pg = DB::connection('pgsql');
     $userId = $this->userId;
 
-    $pg->transaction(function () use ($userId) {
-        $allocator = app(ItemSlugAllocator::class);
+    $itemA = (string) Str::uuid();
+    $itemB = (string) Str::uuid();
+    $itemC = (string) Str::uuid();
+
+    $pg->transaction(function () use ($userId, $itemA, $itemB, $itemC) {
+        $allocator = app(ContentItemSlugAllocator::class);
 
         // Mints the base slug for the first item.
-        $first = $allocator->ensureCurrent($userId, ItemSlugAllocator::TYPE_MENU_ITEM, 'key-1', 'Fish Tacos');
+        $first = $allocator->ensureCurrent($userId, $itemA, 'Fish Tacos');
 
         // Same base ("fish-tacos") for a DIFFERENT item — collides at
-        // item_slugs_unique_slug. This is where insertUnique()'s savepoint is
-        // exercised: pre-fix, this collision aborts the whole outer
-        // transaction (25P02); post-fix, insertOrIgnore + savepoint resolve
-        // it cleanly to "fish-tacos-2".
-        $second = $allocator->ensureCurrent($userId, ItemSlugAllocator::TYPE_MENU_ITEM, 'key-2', 'Fish Tacos');
+        // content_item_slugs_unique_slug. This is the savepoint/insertOrIgnore
+        // path: pre-fix, this collision aborts the whole outer transaction
+        // (25P02); post-fix it resolves cleanly to "fish-tacos-2".
+        $second = $allocator->ensureCurrent($userId, $itemB, 'Fish Tacos');
 
         // Proves the outer transaction is STILL healthy after the collision —
-        // pre-fix this statement would fail with 25P02 because the whole
-        // transaction is already aborted.
-        $third = $allocator->ensureCurrent($userId, ItemSlugAllocator::TYPE_MENU_ITEM, 'key-3', 'Nachos');
+        // pre-fix this statement fails with 25P02 because the transaction is
+        // already aborted.
+        $third = $allocator->ensureCurrent($userId, $itemC, 'Nachos');
 
         expect($first)->toBe('fish-tacos');
         expect($second)->toBe('fish-tacos-2');
         expect($third)->toBe('nachos');
     });
 
-    // Re-read after commit: if the transaction had actually been aborted/rolled
-    // back, none of these rows would exist and these assertions would fail —
-    // that's the pre-fix red this sentinel is built to catch.
-    $rows = $pg->table('site.item_slugs')
+    // Re-read after commit: if the transaction had actually been aborted or
+    // rolled back, none of these rows would exist — that is the pre-fix red
+    // this sentinel is built to catch.
+    $rows = $pg->table('content.item_slugs')
         ->where('user_id', $userId)
-        ->orderBy('item_key')
-        ->get(['item_key', 'slug', 'is_current']);
+        ->get(['item_id', 'slug', 'is_current']);
 
     expect($rows)->toHaveCount(3);
 
-    $byKey = $rows->keyBy('item_key');
-    expect((string) $byKey['key-1']->slug)->toBe('fish-tacos');
-    expect((string) $byKey['key-2']->slug)->toBe('fish-tacos-2');
-    expect((string) $byKey['key-3']->slug)->toBe('nachos');
-
-    // Assert is_current in SQL, not PHP: pdo_pgsql returns the boolean as the
-    // string 't'/'f', and (bool) 'f' === true would make a PHP-side check vacuous.
-    $currentCount = $pg->table('site.item_slugs')
-        ->where('user_id', $userId)
-        ->where('is_current', true)
-        ->count();
-    expect($currentCount)->toBe(3);
+    $byItem = $rows->keyBy('item_id');
+    expect((string) $byItem[$itemA]->slug)->toBe('fish-tacos');
+    expect((string) $byItem[$itemB]->slug)->toBe('fish-tacos-2');
+    expect((string) $byItem[$itemC]->slug)->toBe('nachos');
 });

@@ -125,8 +125,6 @@
   fixture: { id: unknown }
 - route: "api/platforms/spotify/accounts/{id}"
   fixture: { id: unknown }
-- route: "api/platforms/twitch/accounts/{id}"
-  fixture: { id: unknown }
 - route: "api/platforms/vimeo/accounts/{id}"
   fixture: { id: unknown }
 - route: "api/platforms/youtube-music/accounts/{id}"
