@@ -22,6 +22,8 @@
 - **Wire manifest:** `docs/wire-changes/2026-08-17-services-cutover.md` — every key/id-domain/behaviour change lands there in the same commit that ships it.
 - **Branch:** `feat/services-cutover` off current `origin/development`, in a worktree (superpowers:using-git-worktrees).
 - **Two-surface rule is inviolable:** `tests/Feature/Content/ServiceTwoSurfaceTest.php` must stay green UNMODIFIED through every task.
+- **This project owns the `20260818*` migration band. The shop re-home owns `20260819*`.** Both plans originally claimed `20260818000100` and `20260818000200`; `schema_migrations` keys on the numeric prefix alone, so the second to merge would have had its files silently skipped by `db push`. The shop plan was renumbered, not this one — keep your three DROPs where they are.
+- **A sibling project runs in parallel: the shop re-home** (`2026-08-17-shop-brands-rehome.md`), owning `site.shop_brands`/`site.shop_products`, `content.storefronts` and every `Shop*`/`StoreBrand*` file, with helper prefix `sbr*`. Confirmed disjoint on 2026-08-17: no file appears in both plans, `tests/Pest.php` is theirs alone, and nothing depends on the shop tables in `pg_depend`. **Your Task 1 gates their whole project** — they are instructed to stop and wait until `20260817000000` is recorded in `schema_migrations`, so run it early and say so.
 
 ## File Structure
 
