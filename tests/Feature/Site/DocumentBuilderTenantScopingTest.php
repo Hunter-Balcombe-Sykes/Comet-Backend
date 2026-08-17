@@ -9,7 +9,10 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    setupSectionsTables();
+    // Full content schema: SectionCandidates now reads source_items /
+    // f_published for every section (disconnect = hide, recency by published
+    // date — W2 2026-08-18), exactly as the real DB always has them.
+    setupContentTables();
 });
 
 /**

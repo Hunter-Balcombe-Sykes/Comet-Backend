@@ -59,9 +59,21 @@ function ruleOpsItem(string $userId, string $kind, string $headline): string
 function ruleOpsContentSource(string $userId, string $kind = 'connection'): string
 {
     $id = (string) Str::uuid();
+    // A connection source points at a LIVE connection row: since W2
+    // (disconnect = hide) an item whose only source is a missing/removed
+    // connection leaves every section.
+    $connectionId = null;
+    if ($kind === 'connection') {
+        $connectionId = (string) Str::uuid();
+        DB::table('site.platform_connections')->insert([
+            'id' => $connectionId, 'user_id' => $userId, 'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+            'resource_id' => 'res-'.Str::random(6), 'payload' => json_encode([]), 'is_active' => 1,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
     DB::table('content.sources')->insert([
         'id' => $id, 'user_id' => $userId, 'kind' => $kind,
-        'connection_id' => $kind === 'connection' ? (string) Str::uuid() : null,
+        'connection_id' => $connectionId,
         'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
     ]);
 

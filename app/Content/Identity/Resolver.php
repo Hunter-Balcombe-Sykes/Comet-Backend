@@ -103,8 +103,23 @@ class Resolver
     {
         $seen = [];
         $poisoned = [];
-
+        // TitleRelease exception (overnight 2026-08-18, W5): a music catalogue
+        // routinely lists ONE song twice within a source — album cut and
+        // single, both "Dracula | Tame Impala". That is not unreliable data,
+        // it is two editions of one recording, and poisoning the key on it
+        // blocked nearly every Apple↔Spotify union. When every same-source
+        // duplicate of a title_release value also agrees on duration (±2s,
+        // via its title_duration key), the value still identifies one song
+        // and stays live; duplicates with DIFFERENT durations (a demo and the
+        // song, an intro and the track) poison as before.
+        $durationsBySourceKey = [];
         foreach ($items as $item) {
+            $durations = [];
+            foreach ($item->keys as $key) {
+                if ($key->class === KeyClass::TitleDuration && preg_match('/\|(\d+)$/', $key->value, $m)) {
+                    $durations[] = (int) $m[1];
+                }
+            }
             foreach ($item->keys as $key) {
                 // Canonicalise before signing, matching keyIndex() below —
                 // otherwise the same value spelled two different ways (raw)
@@ -113,17 +128,38 @@ class Resolver
                 $signature = $key->class->value.'|'.$key->class->canonicalise($key->value);
                 $sourceKey = $signature.'|'.$item->sourceId;
                 if (isset($seen[$sourceKey])) {
-                    $poisoned[$signature] = true;
+                    if (! ($key->class === KeyClass::TitleRelease && $this->sameEdition($durationsBySourceKey[$sourceKey] ?? [], $durations))) {
+                        $poisoned[$signature] = true;
+                    }
                 }
                 $seen[$sourceKey] = true;
+                if ($key->class === KeyClass::TitleRelease) {
+                    $durationsBySourceKey[$sourceKey] = array_merge($durationsBySourceKey[$sourceKey] ?? [], $durations);
+                }
             }
         }
-
         // Deliberately no tier()/minLength()/appliesTo() filter here, unlike
         // keyIndex() below — this poisons more broadly than the index
         // matches, which can only SUPPRESS merges, never create a false one.
         // Do not "symmetrise" this into a weaker guard.
         return $poisoned;
+    }
+
+    /** Both records carry a duration and they agree within 2 seconds. */
+    private function sameEdition(array $seenDurations, array $durations): bool
+    {
+        if ($seenDurations === [] || $durations === []) {
+            return false;
+        }
+        foreach ($seenDurations as $a) {
+            foreach ($durations as $b) {
+                if (abs($a - $b) <= 2) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -37,8 +37,10 @@ class AppleMusicReleaseProjector implements Projector
                 'f_authored' => $view->string('artistName') === null ? null : ['creator' => $view->string('artistName')],
             ]),
             'tags' => $genre === null ? [] : [['tag' => $genre, 'tag_type' => 'genre']],
+            // 1200x1200 (R10 best quality): mzstatic serves any square size by
+            // path, and the lookup only hands us the 100px thumbnail.
             'media' => $view->string('artworkUrl100') === null ? [] : [
-                ['role' => 'cover', 'url' => $view->string('artworkUrl100')],
+                ['role' => 'cover', 'url' => \App\Ingest\Connectors\AppleMusicConnector::upscaleArtwork((string) $view->string('artworkUrl100'))],
             ],
         ];
     }

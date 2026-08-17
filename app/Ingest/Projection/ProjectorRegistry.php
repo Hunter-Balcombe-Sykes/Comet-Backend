@@ -24,7 +24,7 @@ final class ProjectorRegistry
 {
     /** @var array<string, array<string, class-string<Projector>>> */
     private const MAP = [
-        'apple_music' => ['listen' => AppleMusicReleaseProjector::class],
+        'apple_music' => ['listen' => AppleMusicReleaseProjector::class, 'songs' => AppleMusicTrackProjector::class],
         'apple_podcasts' => ['listen' => ApplePodcastsEpisodeProjector::class],
         'bandcamp' => ['releases' => BandcampReleaseProjector::class],
         // The three menu platforms land the SAME doc shape (MenuRecords) —

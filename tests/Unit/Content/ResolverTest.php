@@ -313,3 +313,21 @@ it('applies a user cut even when the key evidence arrived from the same source',
 
     expect($result->sameItem('a:1', 'b:1'))->toBeFalse();
 });
+
+it('does not poison title_release on same-source EDITION duplicates (same duration), so the Spotify track still unions with the Apple song (W5)', function () {
+    // Apple lists "Dracula" on the album AND as a single — same duration.
+    $apple1 = idItem('apple:1', 'src-apple', 'track', [idKey(KeyClass::TitleRelease, 'dracula|tame impala'), idKey(KeyClass::TitleDuration, 'dracula|214')]);
+    $apple2 = idItem('apple:2', 'src-apple', 'track', [idKey(KeyClass::TitleRelease, 'dracula|tame impala'), idKey(KeyClass::TitleDuration, 'dracula|215')]);
+    $spotify = idItem('spotify:1', 'src-spotify', 'track', [idKey(KeyClass::TitleRelease, 'dracula|tame impala'), idKey(KeyClass::TitleDuration, 'dracula|213')]);
+    $groups = (new Resolver)->resolve([$apple1, $apple2, $spotify], [])->groups;
+    $find = fn (string $coord) => collect($groups)->first(fn ($g) => in_array($coord, $g, true));
+    expect($find('spotify:1'))->toContain('apple:1');
+
+    // But a same-name DIFFERENT recording (a 30s intro vs the song) still poisons.
+    $appleIntro = idItem('apple:3', 'src-apple', 'track', [idKey(KeyClass::TitleRelease, 'let it happen|tame impala'), idKey(KeyClass::TitleDuration, 'let it happen|30')]);
+    $appleSong = idItem('apple:4', 'src-apple', 'track', [idKey(KeyClass::TitleRelease, 'let it happen|tame impala'), idKey(KeyClass::TitleDuration, 'let it happen|467')]);
+    $spotify2 = idItem('spotify:2', 'src-spotify', 'track', [idKey(KeyClass::TitleRelease, 'let it happen|tame impala')]);
+    $groups2 = (new Resolver)->resolve([$appleIntro, $appleSong, $spotify2], [])->groups;
+    $find2 = fn (string $coord) => collect($groups2)->first(fn ($g) => in_array($coord, $g, true));
+    expect($find2('spotify:2'))->toBe(['spotify:2']);
+});

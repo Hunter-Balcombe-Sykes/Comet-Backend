@@ -27,6 +27,11 @@ class ItemLinkRules
         ],
         'media' => ['instagram'],
         'events' => ['eventbrite', 'humanitix'],
+        // Menus (overnight 2026-08-18, W5): a dish carries one link per
+        // ordering platform — the store page on each. Synced links come from
+        // the dish's offers (each offer knows the store url it was scraped
+        // from); the owner may add a platform the scrape did not.
+        'menus' => ['uber-eats', 'doordash', 'menulog', 'square-online', 'bopple', 'mr-yum'],
     ];
 
     /** @var array<string, list<string>> platform → accepted host suffixes */
@@ -48,6 +53,12 @@ class ItemLinkRules
         // one is refused. Add the TLD when a user turns up on it. Humanitix
         // serves events off a subdomain, which the suffix arm below covers.
         'eventbrite' => ['eventbrite.com', 'eventbrite.com.au'],
+        'uber-eats' => ['ubereats.com'],
+        'doordash' => ['doordash.com'],
+        'menulog' => ['menulog.com.au'],
+        'square-online' => ['square.site', 'squareup.com'],
+        'bopple' => ['bopple.app', 'bopple.me', 'bopple.com'],
+        'mr-yum' => ['mryum.com'],
         'humanitix' => ['humanitix.com'],
     ];
 
@@ -81,6 +92,18 @@ class ItemLinkRules
     }
 
     /** Host check: the URL must sit on the platform's own domain(s). */
+    /** The roster platform a URL belongs to (by host suffix), or null. */
+    public static function platformForUrl(string $url): ?string
+    {
+        foreach (array_keys(self::HOSTS) as $platform) {
+            if (self::urlBelongsTo($platform, $url)) {
+                return $platform;
+            }
+        }
+
+        return null;
+    }
+
     public static function urlBelongsTo(string $platform, string $url): bool
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
