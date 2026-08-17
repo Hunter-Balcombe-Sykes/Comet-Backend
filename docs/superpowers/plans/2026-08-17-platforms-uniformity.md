@@ -67,7 +67,7 @@ Additive only. Touches no slice-7 drop-list table. Safe to merge while other con
 
 **Context the implementer needs:** `payload` is a `jsonb` column on `site.platform_connections`. Nothing constrains its shape, so `payload['name']` may be absent, a string, or any other JSON type. The existing `url` key immediately above uses `is_string(...) ? ... : null` for exactly this reason — match it rather than inventing a cast.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Feature/Routing/RoutingConnectionResourceTest.php`:
 
@@ -108,12 +108,12 @@ it('emits null rather than casting a non-string name', function () {
 });
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 Run: `./vendor/bin/pest tests/Feature/Routing/RoutingConnectionResourceTest.php`
 Expected: three failures. The first two report a missing `name` key; the third also reports a missing key (not a wrong value) — that is correct at this stage.
 
-- [ ] **Step 3: Add the key**
+- [x] **Step 3: Add the key**
 
 In `app/Http/Resources/Routing/RoutingConnectionResource.php`, inside `toArray()`, add directly below the existing `'url' => ...` line:
 
@@ -121,17 +121,17 @@ In `app/Http/Resources/Routing/RoutingConnectionResource.php`, inside `toArray()
 'name' => is_string($this->payload['name'] ?? null) ? $this->payload['name'] : null,
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 Run: `./vendor/bin/pest tests/Feature/Routing/RoutingConnectionResourceTest.php`
 Expected: 3 passed.
 
-- [ ] **Step 5: Run the routing suite for regressions**
+- [x] **Step 5: Run the routing suite for regressions**
 
 Run: `./vendor/bin/pest tests/Feature/Routing/`
 Expected: all pass. `PrimaryConnectionTest` exercises the same resource through `/routing/connections` and the set-primary response; a purely additive key must not disturb it. If it asserts an exact array shape, extend that assertion to include `name` rather than removing it.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/Http/Resources/Routing/RoutingConnectionResource.php tests/Feature/Routing/RoutingConnectionResourceTest.php
@@ -160,7 +160,7 @@ constrains its shape. Mirrors the url key directly above."
 
 The wiring is already correct. Only the enum case's name misdescribes it. This task records that so the next reader does not repeat the same wrong inference.
 
-- [ ] **Step 1: Amend the `MultiAccount` docblock**
+- [x] **Step 1: Amend the `MultiAccount` docblock**
 
 In `app/Services/Platforms/Registry/PlatformRouteShape.php`, replace the comment above `case MultiAccount;` with:
 
@@ -179,12 +179,12 @@ In `app/Services/Platforms/Registry/PlatformRouteShape.php`, replace the comment
     case MultiAccount;
 ```
 
-- [ ] **Step 2: Confirm nothing broke**
+- [x] **Step 2: Confirm nothing broke**
 
 Run: `./vendor/bin/pest tests/Feature/Platforms/Registry/`
 Expected: all pass — this step changes no executable code, so a failure here means the working tree was already red. Investigate before continuing.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add app/Services/Platforms/Registry/PlatformRouteShape.php
