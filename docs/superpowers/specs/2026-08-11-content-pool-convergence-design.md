@@ -1662,8 +1662,29 @@ no `RuntimeException: Manual coord … did not resolve to an item`, no
 | Lane | This slice |
 |---|---|
 | `site.site_build_state` build state | **Bumped** — `writeManualItem()` → `bumpSite()`, and the controller bumps again for the curation write |
-| 60s public-profile payload cache | **Not busted.** A content write does not move `site.sites.updated_at`, so the key does not roll. TTL-bounded staleness only (default 60s) |
+| 60s public-profile payload cache | **Not busted** *(as shipped — since OVERRULED, see below)*. A content write does not move `site.sites.updated_at`, so the key does not roll. TTL-bounded staleness only (default 60s) |
 | Cloudflare edge | **Purged on the endpoint only** — the controller's existing `CloudflareCachePurgeJob`. The `bindGroup()` change lands on the connector path, which has no edge purge, so a connector-triggered survivor change is visible at the edge only after TTL. Accepted: already true of every projection run |
+
+> **OVERRULED for owner-initiated writes — owner ruling, 2026-08-17 (phase 8).**
+> The middle row's "TTL-bounded staleness only" is **not** an acceptable posture
+> when the owner is the one making the change. It also could not coexist with
+> the 2026-08-14 `poolChanged()` fix, which added exactly the missing lane-2
+> write (`site.sites.updated_at`) for reorder because 60s of stale public
+> payload was judged a bug there. Both could not be true for `pin()`.
+>
+> **The ruling: every owner-initiated pool mutation fires all three lanes** —
+> build state, `site.sites.updated_at`, and the conditional edge purge.
+>
+> This makes the programme review's P1 (§30.5, R-1) a real defect rather than a
+> documentation mismatch. Four endpoints currently fire two of three —
+> `PoolItemCreateController::pin()`, `ItemController::destroy()`, and
+> `ItemLinkController::upsert()`/`destroy()` — and the shared cause is
+> `ProjectionWriter::bumpSite()`, which calls `BuildState::bump()` without the
+> `site.sites.updated_at` write. Fixing it there closes the whole
+> projection-write surface at once rather than the four call sites individually.
+> **This is a code fix, not a docs fix: it belongs to a fix-flow session, not to
+> phase 8.** `tests/Feature/Content/PoolCacheLanesTest.php` already pins the
+> three-lane contract for reorder and is the natural place to add the siblings.
 
 ---
 
@@ -4300,10 +4321,30 @@ repointed 7, pooled 5, retired 34, shop brands repointed 9
   | skipped: no url 0, no site 0 | already done 0
 
 Coverage gate — derived twice, independently:
-  PHP (model layer)  live partna.* connections: 0
-  SQL (database)     live partna.* connections: 0
+  PHP (model layer)  live RETIRED_SURFACES connections: 0
+  SQL (database)     live RETIRED_SURFACES connections: 0
 0 live pseudo-platform connections remain.
 ```
+
+**The gate counts the six retired surfaces, NOT `partna.*` (restated by phase 8,
+2026-08-17).** As originally written this gate read "live `partna.*`
+connections: 0", a wildcard over a guard that is a six-item enumeration —
+`IntegrationConnection::RETIRED_SURFACES` lists `partna.custom_link`,
+`partna.order_link`, `partna.storefront`, `partna.reserve_link`,
+`partna.booking_link` and `partna.manual_event`, and nothing else. The wildcard
+now reads **1**, and that 1 is legitimate: a `partna.manual_product` connection
+created 2026-08-16 22:59:28 UTC, the surface the shop's individual-products
+bucket anchors on. `RETIRED_SURFACES`' own docblock already says so — *"hidden
+and dormant but NOT retired (§16) … conflating them would close a lane nobody
+decided to close."* Re-derived 2026-08-17 11:09 UTC: all six retired surfaces
+**0 live** (25 / 3 / 6 / 3 / 0 / 1 rows respectively, every one soft-deleted),
+`partna.manual_product` **1 live**. Phase 6's substance is intact; only the
+gate's phrasing was wrong.
+
+One trap for anyone re-running it: the `partna.*` identity lives in
+`site.platform_connections.**surface_key**`, not in `platform` — `platform`
+holds `custom` / `shop` / `online-ordering` / `partna`. A gate filtered on
+`platform LIKE 'partna.%'` returns 0 for the wrong reason and reads as a pass.
 
 **The dry run and the real run disagree by one row, and that is correct rather
 than a defect.** A dry run writes nothing, so its occupied-brand check sees the
@@ -4316,7 +4357,8 @@ same-brand collisions; it is a lower bound on `pooled`, not an equality.
 ### 26.2 Exit state on dev
 
 ```sql
-live partna.* connections        0     (was 41)
+live RETIRED_SURFACES conns      0     (was 41; partna.manual_product is
+                                       NOT retired and stands at 1 — see 26.1)
 orphaned shop_brands             0     (rows whose connection was soft-deleted)
 content.items kind=link live    28     (23 from Phase 3 + the 5 newly pooled)
 shopify.store connections        9     8 with a brand + 1 pre-existing placeholder
@@ -4346,8 +4388,7 @@ ollies   shopify.store      10233455           (culturekings.com.au)
 ollies   woocommerce.store  fearnoevil-com-au  (fearnoevil.com.au)
 ```
 
-### 26.3 Two departures from the plan's disposition table, both recorded rather
-### than forced
+### 26.3 Two departures from the plan's disposition table, both recorded rather than forced
 
 1. **broken-oven's `square.site` link went to the POOL, not `square.order`.** The
    table predicted the brand surface. `WebsiteLinkHarvester` classifies
@@ -4583,7 +4624,185 @@ legacy third.
   only for the deploy→migration window, which has now closed on dev. Both can go
   once prod is reconciled.
 
-## 27. Services cutover checkpoint — the last three legacy tables
+## 27. Slice 7 checkpoint — the teardown, at reduced scope
+
+Folded into this spec by phase 8 on 2026-08-17. It was written to
+`plans/2026-08-17-slice-7-phase-6-checkpoint.md` and never filed here, so for a
+day the spec carried no record of the largest teardown in the programme — nor of
+its accepted data loss. Evidence for the decisions is in
+`plans/2026-08-17-slice-7-drops-gate-report.md` (the WHY); the wire changes are in
+`docs/wire-changes/2026-08-12-slice-7-teardown.md` §"Phase 6". Dev only
+(`glncumufgaqcmqhzwrxm`); production was not touched and is not named in any
+executed statement.
+
+**Shipped at reduced scope: five tables of nine.** Merged to `development` at
+`cef89ec5f`, deployed, migrations applied, live-verified. Two owner rulings on the
+day shaped it: the 23-row loss was **accepted** (§27.2), which cleared the gate
+report's coverage stop; and scope was **cut to five tables** on a finding the gate
+report had not made — `site.shop_products` is a live READ target, not inert.
+
+### 27.1 Dropped
+
+| Table | Rows at drop |
+|---|---|
+| `site.menu_item_categories` | 358 |
+| `site.menu_item_platforms` | 310 |
+| `site.menu_items` | 293 |
+| `site.menu_categories` | 40 |
+| `site.content_selection` | 95 |
+
+Plus `DELETE FROM site.item_slugs WHERE item_type='event'` — 6 rows, verified 0
+after. Migrations `20260817000100`…`20260817001100`.
+
+**Ledger repaired.** MCP `apply_migration` stamped its own versions
+(`20260817005915`…) rather than the repo filenames — the fourth consecutive
+occurrence of that drift. Repo versions were inserted, MCP strays deleted, and the
+ledger re-read and confirmed aligned.
+
+`site.menus` and `site.menu_platform_links` **survive by design** and are not part
+of this teardown — they remain the bookkeeping row and the platform-link carrier,
+with live readers in `PoolResolver`, `MenuFetchJob`, `MenuPayloadComposer`,
+`MenuScanApplier`, `ManualMenuItems` and `PlatformHealthNotifier`. Six code
+docblocks say so explicitly; a sweep that reads "the menu tables are gone" and
+expects zero is reading the drop list wrong.
+
+### 27.2 Accepted data loss — 23 rows
+
+23 rows on `ollies`, minted by a scrape at `2026-08-16 23:03:42+00`, whose coords
+were never written to `content.source_items`: 10 dishes, 2 categories, 11
+memberships. The owner ruled the loss acceptable rather than reorder the phase
+around a re-backfill.
+
+**The lesson outlives the rows: on a live environment a coverage gate is valid
+only until the next scrape.** 2026-08-16 read 318/318; 2026-08-17 read 283/293.
+Net counts FELL (318→293) while uncovered rows appeared — the totals concealed the
+hole, and only a per-row coord derivation found it. Never gate on counts.
+
+### 27.3 Backup gate — GREEN, with one step not completed as specified
+
+`pg_dump` (PG17, via the Supavisor pooler — the direct host is IPv6-only and
+unreachable from Docker), restored into a throwaway `postgres:17` container and
+counted there. **Not an `ls`.**
+
+| Table | Live | Dumped → restored |
+|---|---|---|
+| `site.menu_items` | 293 | 293 ✓ |
+| `site.menu_item_categories` | 358 | 358 ✓ |
+| `site.menu_item_platforms` | 310 | 310 ✓ |
+| `site.menu_categories` | 40 | 40 ✓ |
+| `site.content_selection` | 95 | 95 ✓ |
+| `site.item_slugs` (all / event) | 299 / 6 | 299 / 6 ✓ |
+
+🔴 **The R2 copy was NOT taken.** The gate's *assertion* — a verified, restorable
+pre-image with exact per-table counts — is satisfied; its *offsite durability* is
+not. The dump lives on one laptop, with Supabase Pro daily managed backups as the
+second line. Anyone repeating this should get the R2 upload working first; it is
+the one step of the backup gate that was not completed as specified. (The route is
+now recorded: `scripts/db/backup-to-r2.sh` reaches bucket `partna-db-backups` via
+the existing wrangler OAuth session through `npx --yes wrangler@4` — not via
+`AWS_*`/`R2_*` keys, which is why the attempt on the day failed.)
+
+### 27.4 Code retired — and the three models deliberately kept
+
+Retired: the menu read arms (`MenuPayloadComposer`'s legacy eager-load,
+`hasOwnerContent` legacy half and `legacyCategories()`;
+`MenuDashboardPayload::itemCount`; `MenuFetchJob::hasOwnerContent`;
+`FoodContentProbe`'s SLICE 4 SWAP POINT); `legacyOwnerSource()` → `ownerSource()`;
+the observers `MenuItemObserver` and `Core\MenuObserver`; the slug lane
+(`EventSlugSync`, `ItemSlugAllocator`, `IntegrationConnectionObserver`'s four
+event-slug methods, `BackfillItemSlugs`); and the migration
+services/commands `MenuBackfiller`/`BackfillMenus`,
+`ContentSelectionMigrator`/`MigrateContentSelectionCommand`,
+`ProvisionMenuPinsCommand`, `BackfillClaimedGoogleBusinessReviewsCommand`.
+
+**Models KEPT — a correction to the plan.** Task 27 step 5 said "delete the nine
+dropped tables' models". `MenuItem`, `MenuCategory` and `MenuItemPlatform` must
+**survive**: `ManualMenuItems` hydrates all three unpersisted (`exists = false`) as
+DTO carriers for the dashboard shape, exactly as `ManualServiceItems` does with
+`Service`. Deleting them breaks the surviving content lane rather than tidying it —
+the same shape as `ShopBrand` surviving its own deferral.
+
+### 27.5 Three observers were NOT retired, and should not have been
+
+The kickoff said "retire the five observers". Two key off tables that are not
+dropped — `ServiceObserver` and `ServiceCategoryObserver` (deferred at the time;
+retired later by §28) — and `SiteMediaObserver` observes `site.site_media`, which
+survives and touches nothing on the drop list. The §9.4 list was wrong to include
+it. Only `MenuItemObserver` and `MenuObserver` retired. Likewise policies:
+`ContentSelectionPolicy` was already gone, and `ServicePolicy` stayed while its
+table was deferred.
+
+### 27.6 Deferred — the four tables that became two follow-on projects
+
+| Table(s) | Blocker at the time | Closed by |
+|---|---|---|
+| `site.services`, `site.service_categories`, `site.service_category_assignments` | The Fresha half was never cut over; ~30 live query sites over five files, and two dashboards merging a `content.*` half with a legacy one — *"TWO id spaces are live during the transition."* | §28 |
+| `site.shop_products` (with `site.shop_brands`) | Live READ via `$brand->products`: `ShopController::brandMap()` eager-loads `with('products')`, and `ShopCatalog::syncLatest()` requires the relation | §29 |
+
+**Method finding, worth more than the deferral:** the kickoff's residual sweep
+(`grep -rn "table('site\.<t>'" app/`) matches only raw query-builder calls and is
+**blind to Eloquent**. It returned a clean five sites while `ShopController` and
+the entire Fresha read half sat invisible to it. A table is inert only when BOTH
+greps come back empty.
+
+### 27.7 Verification
+
+- `pest --parallel` — **8271 passed, 2 skipped, 0 failed**; `phpstan analyse app`
+  — **[OK] No errors**; `pint` passed.
+- Schema + Postgres lanes updated for the dropped tables (`PlatformAndMenuRlsTest`,
+  `CheckConstraintsTest`, `MenuForceDeleteCascadeTest` reduced to the surviving
+  `menu_platform_links` cascade).
+- Live on dev after the drop: `GET /api/public/profiles/ollies` → **200**, with
+  `pools.menus` serving **65 items / 16 collections** (a figure that has since
+  moved — see §27.2's lesson; it read 40 items hours later after a deliberate menu
+  replace).
+- `cloud env:logs --minutes 15`: one error, the known Cache SLO violation (#371),
+  expected on a cold post-deploy cache. **No `42P01`, no "does not exist".**
+- Nightwatch: 16 open exceptions, all pre-existing; none from the teardown.
+- `content:backfill-standalone-events` run for real (had only ever been dry-run):
+  backfilled 1; `content.items` kind `event` 17 → 18.
+
+**Not run: `content:backfill-menus`.** It reads three dropped tables and was
+deleted in the same change. Step 8 of the kickoff asked for it; that instruction is
+unexecutable by construction, and is the ordering contradiction the gate report
+recorded at its §4.
+
+### 27.8 Post-drop state
+
+```
+content.items live   menu_item=323 release=225 video=135 episode=115
+                     service=77 media=77 track=75 product=52 link=34
+                     review=20 event=18
+content.collections  menu_category=53 service_category=16 storefront=10
+                     order_platform=5
+content.item_slugs   380
+site.item_slugs      293 total, 0 event        <- write-free orphan
+site.menus / menu_platform_links   5 / 5       <- survive by design
+DEFERRED  site.services 82 | shop_products 51 | shop_brands 10
+```
+
+Read as of the drop. The DEFERRED line is now historical — all three were dropped
+by §28 and §29.
+
+### 27.9 Carried open questions
+
+- `content.item_merges` is **still 0** — cross-platform identity remains
+  unexercised (§25.6), as slice 7 intended.
+- `anseo-studio`'s Fresha connection still has no ingest source
+  (`SourceProvisioner::freshaSlug()` doesn't match a `book-now/…?pId=` URL). Widen
+  the matcher or write it off — still unanswered.
+- The fourth pin path on exclusion-only pools (slice 6) is untouched and still
+  inert; nothing in this phase made a custom-section lane publicly readable.
+
+**Superseded.** This checkpoint's §10 carried a footgun —
+`20260817000000_public_site_payload_services_from_content.sql` "committed and
+deliberately unapplied", warning that the next `supabase db push` would apply it
+unannounced. It **was applied**, and is recorded in the dev ledger as version
+`20260817000000` (verified 2026-08-17 11:06 UTC). The warning no longer applies.
+
+---
+
+## 28. Services cutover checkpoint — the last three legacy tables
 
 Spec: `2026-08-17-services-cutover-design.md`. Plan:
 `plans/2026-08-17-services-cutover.md` (Tasks 1–13, all ticked). Dev only;
@@ -4595,7 +4814,7 @@ dev (`20260818000100`–`20260818000300`); every service surface — public
 sitepage, KV, booking blob, dashboard, staff — reads and writes `content.*`
 only, on one id space and one ordering scale.
 
-### 27.1 What moved, and where each semantic landed
+### 28.1 What moved, and where each semantic landed
 
 | Legacy | content.* home |
 |---|---|
@@ -4607,7 +4826,7 @@ only, on one id space and one ordering scale.
 | `source` / `external_id` | `content.sources.kind` + `content.source_items.record_key` |
 | categories + the assignment pivot | `content.collections` kind `service_category` + `content.collection_items` (owner lane `source_id IS NULL` outranks the connection lane, which the projector replaces per run) |
 
-### 27.2 Verified on dev, re-run rather than cited
+### 28.2 Verified on dev, re-run rather than cited
 
 Backup gate (2026-08-17 14:56 UTC+10): `pg_dump` of all three tables, restored
 into a scratch PG17 database, counts matched live EXACTLY — **services 79,
@@ -4643,7 +4862,7 @@ not 72 — the merge was single-source before the tables went. Lanes: full suite
 clean; Pint clean; CI green on all nine required jobs at the phase gate.
 `cloud env:logs` 0 errors post-drop, Nightwatch no new issue.
 
-### 27.3 Accepted losses and residuals
+### 28.3 Accepted losses and residuals
 
 1. **Legacy ids break, deliberately** (ruling 1). No mapping minted; the wire
    manifest (`docs/wire-changes/2026-08-17-services-cutover.md`) records every
@@ -4655,11 +4874,24 @@ clean; Pint clean; CI green on all nine required jobs at the phase gate.
    went in on that basis, knowingly. `site.section_items` rows for Fresha items
    were still 0 at drop time because only a live reorder writes them — the
    one-time tail-of-list effect this implies is recorded on the manifest.
-3. **Count drift, unexplained.** The spec's §1.2 census read 82 / 18 / 61 on
-   2026-08-17; the drop-time census read 79 / 16 / 61. Nothing in this project
-   writes those tables and no migration ran between the readings, so three
-   pre-`deleted_origin` soft-deleted services and two categories were removed
-   externally. The backup gate re-derived rather than trusting either figure.
+3. **Count drift — EXPLAINED (phase 8, 2026-08-17). It was ours, not external.**
+   The spec's §1.2 census read 82 / 18 / 61; the drop-time census read
+   79 / 16 / 61. This checkpoint originally concluded that three
+   pre-`deleted_origin` soft-deleted services and two categories "were removed
+   externally". They were not: **`partna:purge-soft-deletes` did it**, on its
+   daily 03:20 schedule. `Service::class` and `ServiceCategory::class` sat in
+   `PurgeSoftDeleted::PURGE_HANDLED` until `d8beab929` (2026-08-17 16:03 +10:00)
+   moved them to `PURGE_EXEMPT` — so at 03:20 that morning the command was still
+   entitled to hard-delete their soft-deleted rows, and the two censuses
+   straddled that run. The assignment pivot is untouched at 61 because the purge
+   walks models, not the pivot.
+
+   This is the same defect residual 4 found from the other end — the purge
+   command was still querying these tables — so the drift needs **no code fix**;
+   `d8beab929` already closed the cause. What it retires is the phrase "removed
+   externally", which implied an actor outside the system and would have sent the
+   next reader hunting for one. The backup gate re-derived rather than trusting
+   either figure, which is why the drift cost nothing.
 4. **`ServiceBackfiller` and `BackfillOwnerServices` are GONE** — owner lifted
    the protection on `ServiceTwoSurfaceTest` once it was clear the change was
    fixture-only. The replacement is `ownerServiceItem()` in
@@ -4682,7 +4914,7 @@ clean; Pint clean; CI green on all nine required jobs at the phase gate.
    **no-selection dashboard prompt** stay deferred (rulings 4 and 5), unchanged
    by this project.
 
-### 27.4 What this closes, and what remains
+### 28.4 What this closes, and what remains
 
 This was the LAST implementation work in the convergence programme. Five legacy
 tables have now been retired by this project and the shop re-home together.
@@ -4693,7 +4925,7 @@ legacy schema for all of them.
 
 ---
 
-## 27. Shop re-home checkpoint — the last two shop tables are gone
+## 29. Shop re-home checkpoint — the last two shop tables are gone
 
 Executed 2026-08-17, dev only, as a project of its own rather than a slice-7
 unit: slice 7 shipped "five tables of nine" and handed `site.shop_brands` +
@@ -4706,7 +4938,7 @@ storage outside `content.*`. Both legacy tables are DROPPED, both models are
 deleted, and a `grep` for them across `app/ routes/ config/` returns only
 historical comments.
 
-### 27.1 Exit state on dev
+### 29.1 Exit state on dev
 
 ```
 site.shop_brands          DROPPED (was 10 rows)
@@ -4720,7 +4952,7 @@ Migration band `20260819*`: `…000100` denormalised `user_id`, `…000110` the
 partial unique identity index, `…000120` carried the `connect_status`
 vocabulary across, `…000200` dropped the child, `…000210` the parent.
 
-### 27.2 What the plan got wrong, and what that cost
+### 29.2 What the plan got wrong, and what that cost
 
 Every one of these was found by re-deriving rather than by trusting the plan,
 which is why Rule Zero is in the kickoff prompt:
@@ -4741,9 +4973,9 @@ which is why Rule Zero is in the kickoff prompt:
   `upsertStore()` has no partial-write semantics, and the connect job's writes
   are CAS.
 - The stale-pending clock and the R2 prefix were left as open questions for the
-  end; both were answerable on day one (§27.4).
+  end; both were answerable on day one (§29.4).
 
-### 27.3 The asymmetry that shaped the whole project
+### 29.3 The asymmetry that shaped the whole project
 
 Every legacy write was an Eloquent `updateOrCreate` / `firstOrCreate` /
 `fill()->save()`, all of which **omit absent keys**. `upsertStore()` writes every
@@ -4764,7 +4996,7 @@ would silently blank what it did not mention:
 `StoreRecord::with()` exists so that fold lives in one place with the full field
 list rather than in four call sites' memory.
 
-### 27.4 Two open questions closed with evidence, not deferral
+### 29.4 Two open questions closed with evidence, not deferral
 
 **The R2 prefix (spec §12.1).** Nothing outside `app/` references
 `shop-brands/<uuid>`; the only code occurrence anywhere is
@@ -4779,7 +5011,7 @@ writes the row unconditionally; the `touch()` existed only to defeat *Eloquent's
 dirty check, which has no database equivalent. The clock is
 `content.storefronts.updated_at` and the touch is deleted, not ported.
 
-### 27.5 Two things the DROP would have taken silently
+### 29.5 Two things the DROP would have taken silently
 
 **A cross-lane NOT NULL break.** `content.storefronts` is not the shop lane's
 alone — `MenuFetchJob` writes order-platform store cards into it (5 of the 15
@@ -4799,7 +5031,7 @@ afterwards there is no original left to compare against. A test fixture was then
 found seeding exactly `connect_status = 'connected'`; it had passed only because
 the SQLite stand-in carries no CHECK.
 
-### 27.6 Verification
+### 29.6 Verification
 
 Four lanes green at the merge: `pest --parallel` 8269 passed / 2 skipped / 0
 failed, `composer test:pg` 212 passed, PHPStan (1G) no errors, Pint passed.
@@ -4820,7 +5052,7 @@ Both tables were dumped, restored into a scratch database, and matched to live
 by md5 over the sorted id set — re-confirmed unchanged immediately before the
 DROP ran.
 
-### 27.7 What was NOT done
+### 29.7 What was NOT done
 
 - **The seven verbs were not driven through the authenticated HTTP API.** That
   needs a Supabase JWT this session did not hold, and driving the controllers
@@ -4838,7 +5070,7 @@ DROP ran.
   `PseudoPlatformRetirer` lost nothing: it repoints `partna.storefront` markers,
   and prod has no connections to hold any.
 
-### 27.8 Residuals
+### 29.8 Residuals
 
 - `ConstraintVocabularyLockstepTest` still parses archived migration
   `20260720100200` for `shop_brands_selection_mode_check` and
@@ -4856,7 +5088,7 @@ DROP ran.
 
 ---
 
-## 28. Whole-programme review — 2026-08-17
+## 30. Whole-programme review — 2026-08-17
 
 The verification gate for the Content Pool Convergence programme, run cold
 against `origin/development` @ `ce890848b` in an isolated worktree. Rule zero
@@ -4865,7 +5097,7 @@ observed: every claim below was re-derived, not cited. Live readings against
 until the next write to dev** — three checkpoint readings had already gone stale
 inside that same window, which is the point.
 
-### 28.1 Verdict
+### 30.1 Verdict
 
 **PASS — `phase-8-review-and-docs` may run.**
 
@@ -4875,14 +5107,14 @@ migration ledger is clean, every remaining checkpoint gate re-runs green, all
 eight test lanes pass, and the live wire serves what the manifests describe.
 
 The verdict is PASS **with two rulings owed before phase 8 can finalise the wire
-manifests** (§28.4), and a named list of findings assigned to owners (§28.5).
+manifests** (§30.4), and a named list of findings assigned to owners (§30.5).
 None of them is a phase-8 blocker; all of them are phase-8 or fix-session inputs.
 
-### 28.2 What was run
+### 30.2 What was run
 
 | Step | Result |
 |---|---|
-| Checkpoint re-verification §12–§26, both §27s, slice 7 phase 6 | every gate green except §26's, which is a wording defect (§28.5 R-9) |
+| Checkpoint re-verification §12–§29 (slice 7, services and shop re-home included) | every gate green except §26's, which is a wording defect (§30.5 R-9) |
 | Legacy-zero sweep (DB + code + Eloquent) | 10/10 tables absent; no live query surface on any retired model |
 | `composer test` serial | 8292 passed, 0 failed |
 | `pest --parallel --processes=4` | 8293 passed, 0 failed |
@@ -4892,13 +5124,13 @@ None of them is a phase-8 blocker; all of them are phase-8 or fix-session inputs
 | PHPStan (1G) · Pint | no errors · passed |
 | From-zero migration apply | all 106 files clean |
 | Audit pipeline — 5 targeted scopes + 1 security bundle | 0 P0 · 5 P1 · 8 P2 · 11 P3 |
-| Live wire, 5 handles · dev logs 30 min · prod schema | see §28.3 |
+| Live wire, 5 handles · dev logs 30 min · prod schema | see §30.3 |
 
 Nightwatch was **not** scanned — the MCP needs an OAuth grant this session did
 not hold. Recorded as a gap rather than skipped silently, matching §13.5's
 precedent.
 
-### 28.3 Live state, re-derived
+### 30.3 Live state, re-derived
 
 - **Drops:** `menu_items`, `menu_categories`, `menu_item_categories`,
   `menu_item_platforms`, `content_selection`, `services`, `service_categories`,
@@ -4939,7 +5171,7 @@ precedent.
   carries the dropped tables" (it does) but "prod has none of the schemas this
   programme is built on". `core.users` = 0.
 
-### 28.4 Two rulings owed before phase 8 finalises the wire manifests
+### 30.4 Two rulings owed before phase 8 finalises the wire manifests
 
 1. **Does `pools.services` carrying Fresha services stand?** It does today, on
    the live wire (R-3). The frontend rebuild targets `pools.*`, so this decides
@@ -4948,7 +5180,7 @@ precedent.
    mutations?** §12.6 says yes for the write lane; the 2026-08-14 `poolChanged()`
    fix says no for reorder. Both cannot be right for `pin()` (R-10).
 
-### 28.5 Findings, by owner
+### 30.5 Findings, by owner
 
 | # | Finding | Owner |
 |---|---|---|
@@ -4962,7 +5194,7 @@ precedent.
 | — | Two `## 27` sections; slice 7's checkpoint misfiled under `plans/` | phase 8 (as the kickoff already assigned) |
 | audit | 5 P1 / 8 P2 / 11 P3 across six runs, in `audits/sweeps/2026-08-17-*` | per-finding, via `fix-flow.md` |
 
-### 28.6 Holes the last three projects recorded against themselves
+### 30.6 Holes the last three projects recorded against themselves
 
 - **(a) authenticated verbs — STILL UNPROVEN.** No owner JWT was available here
   either. Unchanged from the services-cutover record.
@@ -4982,7 +5214,7 @@ precedent.
   (present and validated); `selection_mode` dead, with the reasoning in migration
   `20260819000120`'s own header.
 
-### 28.7 The cross-cutting theme, and the one recommendation
+### 30.7 The cross-cutting theme, and the one recommendation
 
 Six findings across three audit scopes and two recorded incidents are a single
 shape: **a write commits, and its invalidation is a separate, unguarded, later
@@ -4997,7 +5229,7 @@ again from the code without reading the checkpoints. **That convergence is the
 strongest signal in this review.** The fix is one shared helper plus a CI guard
 that fails when a mutating pool path misses a lane — not six separate patches.
 
-### 28.8 Method notes worth keeping
+### 30.8 Method notes worth keeping
 
 - **A live coverage gate is valid only until the next write.** Three checkpoint
   readings went stale inside this review's own window: `ollies` menus 65→40 (a
@@ -5006,7 +5238,7 @@ that fails when a mutating pool path misses a lane — not six separate patches.
   count. None was a regression; all three would read as one.
 - **Both programme gates are blind to owner deletion.** `source_items.removed_at`
   = 0 and orphan items = 0 held while 35 dishes left a public menu, because the
-  owner-delete semantic (§27.1) sets `items.removed_at` and leaves the source
+  owner-delete semantic (§28.1) sets `items.removed_at` and leaves the source
   item live. A gate on the source side cannot see it.
 - **Two flags, similar names, different tables.** `ingest.sources.auto_sync` (the
   scheduler flag Phase 4's paid-source rule turns off) is NOT what

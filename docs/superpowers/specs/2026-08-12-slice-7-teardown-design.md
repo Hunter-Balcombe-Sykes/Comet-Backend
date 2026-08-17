@@ -334,7 +334,7 @@ deferred to its own follow-up.**
 > blocker, and the project needed its own schema work first — a denormalised
 > `user_id` on `content.storefronts` behind a partial unique index, which is what
 > made `upsertStore()` safe as the sole writer. Full checkpoint: convergence
-> spec §27.
+> spec §29.
 
 Sized before deciding. `site.shop_brands` has a materially bigger tail than any
 other table on the list: **17 production files still read or write it**, and the

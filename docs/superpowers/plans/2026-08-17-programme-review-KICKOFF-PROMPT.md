@@ -67,7 +67,7 @@ WHAT CHANGED SINCE THIS PROMPT WAS WRITTEN (2026-08-16) — verify, do not trust
   * BOTH wrote a checkpoint numbered "## 27" into the parent spec. There are two §27s.
     That is a real defect — record it, leave it for phase 8.
   * ServiceBackfiller and BackfillOwnerServices were retired in bb9f103eb, so the parent
-    spec's §27.3 residual 4 ("survive as the project's single code residual") is already
+    spec's §28.3 residual 4 ("survive as the project's single code residual") is already
     stale. Expect more of this: prefer to_regclass, live SQL and grep over any list.
 
 1. CHECKPOINT RE-VERIFICATION (rule zero — trust nothing, cite nothing). For every
@@ -93,11 +93,11 @@ WHAT CHANGED SINCE THIS PROMPT WAS WRITTEN (2026-08-16) — verify, do not trust
    b. `site.section_items` held 0 Fresha rows at drop time because only a live reorder
       writes them — so the first real reorder has a one-time tail-of-list effect. Confirm
       the current row count and whether the effect is still pending.
-   c. The unexplained services count drift (§27.3 residual 3: 82/18/61 on one reading,
+   c. The unexplained services count drift (§28.3 residual 3: 82/18/61 on one reading,
       79/16/61 at drop time, no migration between). Something outside this programme
       writes dev. Identify the writer or record it as an unresolved unknown.
    d. `content.storefronts.user_id` NOT NULL is a cross-lane hazard: MenuFetchJob writes
-      order-platform store cards there and was not setting user_id (shop re-home §27.5).
+      order-platform store cards there and was not setting user_id (shop re-home §29.5).
       The fix needs a LIVE proof — a NEW order-platform storefront created by a menu
       scrape, not a passing test.
    e. `site.shop_brands` carried three CHECK constraints the DROP would have taken

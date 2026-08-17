@@ -671,13 +671,13 @@ The A2 legacy-zero sweep should now find NOTHING left from this programme's drop
 Retired on dev, with a checkpoint each: the four menu tables and site.content_selection
 (slice 7 phase 6), site.shop_brands and site.shop_products (shop re-home), and
 site.services, site.service_categories, site.service_category_assignments (services
-cutover, parent spec §27). Verify with to_regclass rather than by reading this list.
+cutover, parent spec §28). Verify with to_regclass rather than by reading this list.
 
 One thing the sweep must NOT read as clean: PRODUCTION still carries every one of those
 tables — the whole programme was dev only. Prod reconciliation is phase 8's to scope, not
 to assume done.
 
-The services cutover's own code residuals are CLOSED (parent spec §27.3 item 4):
+The services cutover's own code residuals are CLOSED (parent spec §28.3 item 4):
 ServiceBackfiller and BackfillOwnerServices are deleted, and PurgeSoftDeleted no longer
 lists the two table-less DTOs — that one was scheduled nightly and would have started
 failing on its own.

@@ -1,5 +1,13 @@
 # Slice 7 Phase 6 — checkpoint (2026-08-17)
 
+> **FOLDED INTO THE PARENT SPEC — cite `§27` there, not this file.** Phase 8
+> filed this checkpoint into
+> `docs/superpowers/specs/2026-08-11-content-pool-convergence-design.md` §27 on
+> 2026-08-17; until then the spec carried no record of the programme's largest
+> teardown. This file is kept as the original working record. Where the two
+> differ, the spec is current — in particular §10 below is **superseded** (see
+> the note there).
+
 What shipped, what was dropped, what was deliberately left behind, **and that
 production still carries the legacy schema.**
 
@@ -184,11 +192,22 @@ Nothing in the content-pool convergence programme has been applied to
 `edplucmvkcnokyygxqsb`. Prod is hundreds of commits behind, its schema diverged
 from the 2026-07-26 baseline, and prod DB access remains **unconfirmed**.
 
-The follow-up is `2026-08-17-prod-schema-reconciliation.md`. Its §4 carries a
-live footgun worth repeating here: **`20260817000000_public_site_payload_services_from_content.sql`
-is committed and deliberately unapplied**, and its version sorts *before* the
-five applied drops — so the next `supabase db push` against dev will apply it
-unannounced, changing the KV render payload. It belongs to the services re-home.
+The follow-up is `2026-08-17-prod-schema-reconciliation.md`.
+
+> **SUPERSEDED 2026-08-17 (phase 8).** This section used to warn that
+> `20260817000000_public_site_payload_services_from_content.sql` was "committed
+> and deliberately unapplied", and that the next `supabase db push` against dev
+> would apply it unannounced. **It has been applied** — dev's ledger carries
+> version `20260817000000` (verified 2026-08-17 11:06 UTC, alongside
+> `…000100`–`…001100`). The footgun no longer exists; do not carry the warning
+> forward.
+
+The prod position is also **stronger than "still carries the legacy schema"**:
+production is missing the `content`, `ingest`, `routing` **and** `catalog`
+schemas outright — `content.items` does not exist there — and its ledger holds 4
+rows (latest `20260803100001`) against dev's 106. Verified 2026-08-17 11:06 UTC.
+Prod DB access via MCP **works**; the previously recorded `28P01` breakage is
+stale.
 
 ## 11. Carried open questions
 
