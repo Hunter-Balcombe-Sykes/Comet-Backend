@@ -278,15 +278,28 @@ class BookingController extends ApiController
     }
 
     /**
-     * The catalog surface a pasted booking URL belongs to, or null when nothing
-     * recognises it. Only a 'booking' classification counts — a URL that
-     * classifies as something else entirely (a social profile pasted into the
-     * booking box) has no booking home either, and belongs in the pool.
+     * The catalog surface a pasted booking URL belongs to.
+     *
+     * Three arms, in order:
+     *   1. a real booking brand (18/18 of the hosts the harvester knows);
+     *   2. NOTHING recognised it — `direct.book`, the booking page no brand
+     *      claims, which is nearly always the business's own site. Owner ruling
+     *      2026-08-16: that link deserves a working Book button, and it had one
+     *      before Phase 6;
+     *   3. it classified as something else entirely (a social profile pasted
+     *      into the booking box) — null, and the caller pools it. Deliberately
+     *      NOT arm 2: the owner pasted a thing that is demonstrably not a
+     *      booking page, and calling it one would be us being wrong on purpose.
      */
     private function bookingSurfaceFor(string $url): ?string
     {
         $classified = $this->harvester->classify($url);
-        if ($classified === null || $classified['category'] !== 'booking') {
+
+        if ($classified === null) {
+            return 'direct.book';
+        }
+
+        if ($classified['category'] !== 'booking') {
             return null;
         }
 

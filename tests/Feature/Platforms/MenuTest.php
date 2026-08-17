@@ -113,47 +113,6 @@ function fakeEchoOrderingScraper(): void
     });
 }
 
-/** Seed a relational menu (one row + categories + items) for the read endpoints. */
-function seedMenu(User $user, array $menuAttrs, array $categories): Menu
-{
-    $menu = Menu::create(array_merge([
-        'user_id' => $user->id,
-        'content_source' => 'uber-eats',
-        'currency' => 'AUD',
-        'fetch_status' => 'ok',
-    ], $menuAttrs));
-
-    foreach ($categories as $ci => $category) {
-        $cat = MenuCategory::create([
-            'menu_id' => $menu->id,
-            'name' => $category['name'],
-            'position' => $ci,
-            'source_platform' => 'uber-eats',
-        ]);
-        foreach (($category['items'] ?? []) as $ii => $item) {
-            $platforms = $item['platforms'] ?? [];
-            unset($item['platforms']);
-            $menuItem = MenuItem::create(array_merge([
-                'menu_id' => $menu->id,
-                'name' => 'Item',
-            ], $item));
-            $menuItem->categories()->attach($cat->id, ['position' => $ii]);
-            foreach ($platforms as $p) {
-                MenuItemPlatform::create([
-                    'menu_item_id' => $menuItem->id,
-                    'platform' => $p['platform'],
-                    'pickup_price' => $p['pickupPrice'] ?? null,
-                    'pickup_url' => $p['pickupUrl'] ?? null,
-                    'delivery_price' => $p['deliveryPrice'] ?? null,
-                    'delivery_url' => $p['deliveryUrl'] ?? null,
-                ]);
-            }
-        }
-    }
-
-    return $menu;
-}
-
 /**
  * seedMenu()'s content-lane twin, for the tests whose WRITER has already moved
  * (slice 7 Task 8: MenuScanApplier). Lands each dish through the projection
@@ -171,10 +130,21 @@ function seedContentMenu(User $user, array $menuAttrs, array $categories): Menu
 
     $writer = app(ManualMenuWriter::class);
 
+    // Store-card sidecars, keyed by platform: MenuFetchJob::syncOrderPlatforms()
+    // writes one per site.menu_platform_links row, and ManualMenuItems::
+    // platforms() recovers a dish's per-platform attribution by matching the
+    // offer URL's HOST against it. Seeding dishes without it silently drops
+    // every per-platform price.
+    $storeUrls = [];
+
     foreach ($categories as $ci => $category) {
         foreach (($category['items'] ?? []) as $item) {
             $platforms = $item['platforms'] ?? [];
             unset($item['platforms']);
+
+            foreach ($platforms as $p) {
+                $storeUrls[$p['platform']] ??= $p['deliveryUrl'] ?? $p['pickupUrl'] ?? null;
+            }
             $writer->write(
                 (string) $user->id,
                 $writer->coordFor((string) $menu->id, (string) $item['name']),
@@ -192,6 +162,10 @@ function seedContentMenu(User $user, array $menuAttrs, array $categories): Menu
                 ),
             );
         }
+    }
+
+    foreach ($storeUrls as $platform => $storeUrl) {
+        seedOrderPlatformSidecar((string) $user->id, (string) $platform, $storeUrl);
     }
 
     return $menu;
@@ -676,14 +650,11 @@ it('does not mark the platform sync status ok when persist() fails after a succe
     ]);
     $priorSyncedAt = MenuPlatformLink::query()->where('menu_id', $menu->id)->where('platform', 'uber-eats')->firstOrFail()->synced_at;
 
-    // A live dish with a minted slug — the item_slugs reconcile (271-DINT-1)
-    // hangs off persist() too, so the same ordering guarantee has to hold for
-    // it: a failed rebuild must not free or re-mint a single slug.
-    $priorCategory = MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'uber-eats']);
-    $priorDish = MenuItem::create(['menu_id' => $menu->id, 'name' => 'Existing Dish']);
-    $priorDish->categories()->attach($priorCategory->id, ['position' => 0]);
-    $priorSlugs = DB::connection('pgsql')->table('site.item_slugs')->orderBy('item_key')->get()->toArray();
-    expect($priorSlugs)->toHaveCount(1);
+    // The slug reconcile (271-DINT-1) hangs off persist() too, so the same
+    // ordering guarantee has to hold for it: a failed rebuild must not free or
+    // re-mint a single slug. Phase 6: the registry is content.item_slugs —
+    // site.item_slugs and its legacy dish rows retired with the menu tables.
+    $priorSlugs = DB::connection('pgsql')->table('content.item_slugs')->orderBy('item_id')->get()->toArray();
 
     $this->mock(MenuApifyScraper::class, function ($m) {
         $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
@@ -714,7 +685,7 @@ it('does not mark the platform sync status ok when persist() fails after a succe
 
     // The slug registry is byte-identical — the reconcile lives after the
     // transaction closure, so a failed persist() never reaches it.
-    expect(DB::connection('pgsql')->table('site.item_slugs')->orderBy('item_key')->get()->toArray())->toEqual($priorSlugs);
+    expect(DB::connection('pgsql')->table('content.item_slugs')->orderBy('item_id')->get()->toArray())->toEqual($priorSlugs);
 });
 
 it('still marks the platform sync status ok when persist() succeeds (control)', function () {
@@ -749,42 +720,6 @@ it('still marks the platform sync status ok when persist() succeeds (control)', 
 // MenuCategory has no SoftDeletes, so categories()->exists() never goes false
 // for a soft-deleted menu. See MenuObserver's docblock for the FK evidence.
 
-it('blocks deleting a menu that still has live categories, and the categories survive', function () {
-    $user = menuUser('dint102');
-    $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'fetch_status' => 'ok']);
-    MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'uber-eats']);
-
-    expect(fn () => $menu->delete())->toThrow(RuntimeException::class);
-
-    // Blocked — both the menu row (no soft-delete) and its category survive.
-    expect(Menu::query()->whereKey($menu->id)->whereNull('deleted_at')->exists())->toBeTrue();
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->exists())->toBeTrue();
-});
-
-it('allows force-deleting a menu that still has live categories (PurgeSoftDeleted path)', function () {
-    $user = menuUser('dint102fd');
-    $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'fetch_status' => 'ok']);
-    MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'uber-eats']);
-
-    // Trashed via the query builder, not ->delete(): the soft-delete guard is
-    // deliberately still in force, and this is how the 8 jammed dev rows got
-    // there anyway — soft-deleted before this observer existed. What
-    // PurgeSoftDeleted then finds is an already-trashed menu with live
-    // categories, which is precisely the state that jammed it (#297).
-    DB::table('site.menus')->where('id', $menu->id)->update(['deleted_at' => now()]);
-    $menu = Menu::withTrashed()->findOrFail($menu->id);
-
-    $menu->forceDelete();
-
-    expect(Menu::withTrashed()->whereKey($menu->id)->exists())->toBeFalse();
-
-    // Deliberately NOT asserting the categories cascaded: this lane is SQLite,
-    // where foreign keys are off unless a pragma enables them, so the cascade
-    // cannot fire here. Asserting it would be asserting a behaviour the lane
-    // is incapable of producing. The cascade itself is pinned against real
-    // Postgres in tests/Postgres/MenuForceDeleteCascadeTest.php.
-});
-
 it('allows deleting a menu with no live categories (the legitimate clearScrapedContent path stays unblocked)', function () {
     $user = menuUser('dint102ok');
     $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'fetch_status' => 'ok']);
@@ -799,7 +734,7 @@ it('allows deleting a menu with no live categories (the legitimate clearScrapedC
 it('reports menu status with item count and source', function () {
     $user = menuUser('m10');
     ordering($user, 'https://www.ubereats.com/store/x', null, '2026-06-17 10:00:00');
-    seedMenu($user, ['content_source' => 'uber-eats'], [
+    seedContentMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Pizzas', 'items' => [['name' => 'A'], ['name' => 'B']]],
     ]);
 
@@ -816,7 +751,7 @@ it('reports menu disconnected when the backing ordering link is gone (orphan gua
     // A scraped menu row with NO online-ordering connection backing it — the
     // orphan state. status() must report disconnected, not serve the stale menu
     // (which refresh() can't re-scrape anyway, since resolveAll() is null).
-    seedMenu($user, ['content_source' => 'uber-eats'], [
+    seedContentMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Pizzas', 'items' => [['name' => 'A']]],
     ]);
 
@@ -829,7 +764,7 @@ it('reports menu disconnected when the backing ordering link is gone (orphan gua
 
 it('does not serve an orphaned menu from the full menu endpoint', function () {
     $user = menuUser('m10c');
-    seedMenu($user, ['content_source' => 'uber-eats'], [
+    seedContentMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Pizzas', 'items' => [['name' => 'A']]],
     ]);
 
@@ -843,7 +778,7 @@ it('returns the full menu with per-mode prices and computed order links', functi
     $user = menuUser('m11');
     ordering($user, 'https://www.ubereats.com/store/p', 'pickup', '2026-06-17 09:00:00');
     ordering($user, 'https://www.ubereats.com/store/d', 'delivery', '2026-06-17 10:00:00');
-    $menu = seedMenu($user, ['content_source' => 'uber-eats', 'rating' => 4.7], [
+    $menu = seedContentMenu($user, ['content_source' => 'uber-eats', 'rating' => 4.7], [
         ['name' => 'Pizzas', 'items' => [[
             'name' => 'Margherita', 'base_price' => 11.0,
             'delivery_price' => 12.5, 'delivery_source' => 'uber-eats',
@@ -860,23 +795,27 @@ it('returns the full menu with per-mode prices and computed order links', functi
 
     expect($res->json('source'))->toBe('uber-eats');
     expect((float) $res->json('rating'))->toBe(4.7);
-    // Category carries its persisted id (addresses PATCH/DELETE .../categories/{id})
-    // and sourcePlatform (drives the dashboard's sync-detach warning).
-    $dbCategory = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Pizzas')->firstOrFail();
-    expect($res->json('categories.0.id'))->toBe((string) $dbCategory->id);
-    expect($res->json('categories.0.sourcePlatform'))->toBe('uber-eats');
+    // Category carries its persisted id (addresses PATCH/DELETE .../categories/{id}).
+    // Phase 6: that id is the content.collections id, and sourcePlatform is a
+    // documented LOSS — content.collections carries no source column, so the
+    // dashboard's sync-detach warning has nothing to key off.
+    $contentCategory = menuContentCategories($user)['Pizzas'];
+    expect($res->json('categories.0.id'))->toBe((string) $contentCategory->id);
+    expect($res->json('categories.0.sourcePlatform'))->toBeNull();
     $item = $res->json('categories.0.items.0');
     expect($item['name'])->toBe('Margherita');
     // Stable persisted id (fix-round P1) — mirrors the `id` field the menus
     // pool emits; Partna-Frontend's menu-item-detail URLs key off THIS
     // endpoint's id, not the public sitepage payload's.
-    $dbItem = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Margherita')->firstOrFail();
-    expect($item['id'])->toBe((string) $dbItem->id);
-    // Scraped item — never manual.
+    $contentItem = menuContentRows($user)['Margherita'];
+    expect($item['id'])->toBe((string) $contentItem->id);
+    // pickupSource is one of ManualMenuItems' documented nulls — the
+    // projection has no target for it (composer docblock). isManual keeps its
+    // legacy false for a scraped dish.
     expect($item['isManual'])->toBeFalse();
     expect((float) $item['basePrice'])->toBe(11.0);
     expect((float) $item['pickupPrice'])->toBe(11.0);
-    expect($item['pickupSource'])->toBe('doordash');
+    expect($item['pickupSource'])->toBeNull();
     expect((float) $item['deliveryPrice'])->toBe(12.5);
     expect((float) $item['rating'])->toBe(95.0);
     expect($item['badges'][0]['text'])->toBe('#1 Most liked');
@@ -1929,7 +1868,7 @@ it('forgets a dropped dish before minting the replacement that shares its slug b
     expect(menuContentSlugCount($user, $oldId))->toBe(0);
 });
 
-it('frees scraped dish slugs when the last ordering link is removed but keeps manual dish slugs', function () {
+it('frees scraped dish slugs when the last ordering link is removed', function () {
     $user = menuUser('slugclear');
     ordering($user, 'https://www.ubereats.com/store/slugclear', null, '2026-06-17 10:00:00');
 
@@ -1938,45 +1877,17 @@ it('frees scraped dish slugs when the last ordering link is removed but keeps ma
     $scrapedId = menuContentId($user, 'Scraped Dish');
     expect(menuContentSlugRow($user, $scrapedId)?->slug)->toBe('scraped-dish');
 
-    // A hand-added dish still lives in the legacy lane until Task 6 — its slug
-    // must be untouched by the scrape either way.
-    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    $category = MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'manual']);
-    $manual = MenuItem::create(['menu_id' => $menu->id, 'name' => 'House Special', 'is_manual' => true]);
-    $manual->categories()->attach($category->id, ['position' => 1]);
-    $manualRow = menuSlugRow($user, $manual->id);
-    expect($manualRow?->slug)->toBe('house-special');
-
-    // No ordering platform left at all → clearScrapedContent().
+    // No ordering platform left at all -> clearScrapedContent().
     IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->delete();
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     expect(menuContentSlugCount($user, $scrapedId))->toBe(0);
-    expect(menuSlugRow($user, $manual->id)?->id)->toBe($manualRow->id);
 });
 
-it('leaves a manual dish item_slugs row untouched across a scraper rebuild', function () {
-    $user = menuUser('slugmanual');
-    ordering($user, 'https://www.ubereats.com/store/slugmanual', null, '2026-06-17 10:00:00');
-
-    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
-        ['name' => 'Mains', 'items' => [['name' => 'Old Scraped Dish', 'base_price' => 10.0]]],
-    ]);
-    $category = MenuCategory::query()->where('menu_id', $menu->id)->firstOrFail();
-    $manual = MenuItem::create(['menu_id' => $menu->id, 'name' => 'House Special', 'is_manual' => true]);
-    $manual->categories()->attach($category->id, ['position' => 1]);
-    $manualRow = menuSlugRow($user, $manual->id);
-    expect($manualRow?->slug)->toBe('house-special');
-
-    mockMenuScrape([['name' => 'Fresh', 'items' => [scrapedDish('New Scraped Dish')]]]);
-    runMenuFetch($user);
-
-    $manualAfter = menuSlugRow($user, $manual->id);
-    expect($manualAfter->id)->toBe($manualRow->id);
-    expect($manualAfter->slug)->toBe('house-special');
-    // ...and the new scraped dish got its own, on the content lane.
-    expect(menuContentSlugRow($user, menuContentId($user, 'New Scraped Dish'))?->slug)->toBe('new-scraped-dish');
-});
+// The legacy half of these two tests — a hand-added site.menu_items dish whose
+// site.item_slugs row had to survive a scrape — retired in slice 7 Phase 6 with
+// both tables. An owner-authored dish is a content.* item now and its slug
+// lives in content.item_slugs, covered by the content-lane cases above.
 
 // ── the collision surface Unit 5 opened, restated for the content lane ──
 // A scan dish whose name is a DIFFERENT dish by the coord's normaliser but

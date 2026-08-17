@@ -1079,12 +1079,9 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
      * all three land as `menu_item` content items on this menu's coord) or an
      * owner-created category with nothing in it yet.
      *
-     * The legacy arm is TRANSITIONAL, the same concession MenuPayloadComposer
-     * makes for the same reason: Phase 2 moves the four menu write paths one
-     * task at a time, and until Tasks 6 and 8 land, MenuContentController and
-     * MenuScanApplier still write site.menu_*. Reading only content.* here
-     * would soft-delete the menu row out from under a scan-only owner. Deleted
-     * in Phase 5 with the tables.
+     * The transitional legacy arm was deleted in Phase 6 with site.menu_* —
+     * all four write paths land in content.* now, so reading only content.*
+     * can no longer soft-delete the menu row out from under a scan-only owner.
      */
     private function hasOwnerContent(Menu $menu): bool
     {
@@ -1111,43 +1108,40 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             return true;
         }
 
-        return $this->legacyOwnerSource($menu) !== null
-            || DB::connection('pgsql')->table('site.menu_items')
-                ->where('menu_id', $menu->id)->where('is_manual', true)->exists();
+        return $this->ownerSource($menu) !== null;
     }
 
     /**
      * The content_source to stamp on a menu whose scraped content was just
      * cleared but that still has owner-authored content.
      *
-     * The legacy source_platform answer ('scan' > 'website-scan' > 'manual')
-     * while those rows still exist — see hasOwnerContent()'s note. Once they
-     * are gone the answer DEGRADES to 'scan' (a photo scan ran —
-     * menus.scan_items is the only per-source marker that survives the
-     * teardown) or 'manual'. `website-scan` has no replacement: content
-     * .collections carries no source column, only the insert-only
-     * `is_user_created` bit, which cannot tell three owner lanes apart, and
-     * inventing a fourth home here would disagree with whatever
-     * MenuScanApplier records in Task 8. Named as a deliberate drop.
+     * Answers 'scan' > 'website-scan' > 'manual' from the content lane's
+     * category refs (ownerSource()). With site.menu_categories dropped the
+     * answer DEGRADES where no owner category carries a source ref: 'scan' if a
+     * photo scan ran (menus.scan_items is the only per-source marker surviving
+     * the teardown), else 'manual'. A deliberate drop, named rather than
+     * papered over — content.collections carries no source column, only the
+     * insert-only `is_user_created` bit, which cannot tell three owner lanes
+     * apart.
      */
     private function remainingContentSource(Menu $menu): string
     {
-        return $this->legacyOwnerSource($menu)
+        return $this->ownerSource($menu)
             ?? (($menu->scan_items['items'] ?? []) !== [] ? 'scan' : 'manual');
     }
 
-    /** Transitional — see hasOwnerContent(). Null when no owner-lane legacy category remains. */
-    private function legacyOwnerSource(Menu $menu): ?string
+    /**
+     * The owner-lane source for this menu, highest-precedence first. Null when
+     * no owner category remains.
+     *
+     * Slice 7 Phase 6: the `site.menu_categories.source_platform` half is gone
+     * with the table. An owner category is a `content.collections` row whose
+     * `external_ref` names its source (MenuScanApplier::categoryRefFor), so the
+     * answer is derived from the ref rather than a dropped column.
+     */
+    private function ownerSource(Menu $menu): ?string
     {
-        $remaining = DB::connection('pgsql')->table('site.menu_categories')
-            ->where('menu_id', $menu->id)
-            ->whereIn('source_platform', ['scan', 'website-scan', 'manual'])
-            ->pluck('source_platform')
-            // The content-lane half: since slice 7 Task 8 an owner category is a
-            // content.collections row whose external_ref names its source
-            // (MenuScanApplier::categoryRefFor), so the same two answers are
-            // derivable from the ref rather than a dropped column.
-            ->merge($this->ownerContentSources($menu));
+        $remaining = collect($this->ownerContentSources($menu));
 
         foreach (['scan', 'website-scan', 'manual'] as $source) {
             if ($remaining->contains($source)) {

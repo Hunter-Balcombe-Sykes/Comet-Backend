@@ -10,13 +10,9 @@ use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
-use App\Services\Platforms\Strategies\Fetch\StravaFetch;
-use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
-use App\Services\Platforms\StravaClubScraper;
-use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeMusicItems;
 use App\Services\Platforms\YoutubeScraper;
@@ -226,92 +222,6 @@ it('BandcampFetch throws FetchUnavailableException when profile is null (refresh
     expect(fn () => (new BandcampFetch(app(BandcampScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
 });
 
-it('TwitchFetch produces the same success payload as the refresher (no latest/items — card only)', function () {
-    $channel = ['name' => 'StreamerName', 'image' => 'https://static-cdn.jtvnw.net/avatar.jpg', 'description' => 'Gaming streamer.'];
-    $this->mock(TwitchScraper::class, fn ($m) => $m->shouldReceive('fetchChannel')->andReturn($channel));
-
-    // Stored payload includes login + existing stale fields; refresher overwrites name/image/description.
-    $stored = ['url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer', 'name' => 'Old Name', 'image' => null, 'description' => null];
-
-    $refresherRow = gmSeed(gmUser('gmtw1'), 'twitch', $stored);
-    app(PlatformRefresher::class)->refresh($refresherRow);
-
-    $strategyRow = gmSeed(gmUser('gmtw2'), 'twitch', $stored);
-    $result = (new TwitchFetch(app(TwitchScraper::class)))->fetch($strategyRow);
-
-    expect($result)->toEqual($refresherRow->fresh()->payload);
-    expect($result['name'])->toBe('StreamerName');
-    expect($result['image'])->toBe('https://static-cdn.jtvnw.net/avatar.jpg');
-    expect($result['description'])->toBe('Gaming streamer.');
-    expect($result)->not->toHaveKey('latest'); // Twitch is a card; embed is sitepage-side
-    expect($result)->not->toHaveKey('items');
-});
-
-it('TwitchFetch throws FetchShapeException when login is missing (refresher status=error)', function () {
-    $row = gmSeed(gmUser('gmtw3'), 'twitch', ['url' => 'https://www.twitch.tv/streamer', 'name' => 'no login']);
-    app(PlatformRefresher::class)->refresh($row);
-    expect($row->fresh()->last_refresh_status)->toBe('error');
-
-    $strategyRow = gmSeed(gmUser('gmtw4'), 'twitch', ['url' => 'https://www.twitch.tv/streamer', 'name' => 'no login']);
-    expect(fn () => (new TwitchFetch(app(TwitchScraper::class)))->fetch($strategyRow))->toThrow(FetchShapeException::class);
-});
-
-it('TwitchFetch throws FetchUnavailableException when channel is null (refresher status=unavailable)', function () {
-    $this->mock(TwitchScraper::class, fn ($m) => $m->shouldReceive('fetchChannel')->andReturn(null));
-
-    $row = gmSeed(gmUser('gmtw5'), 'twitch', ['url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer']);
-    app(PlatformRefresher::class)->refresh($row);
-    expect($row->fresh()->last_refresh_status)->toBe('unavailable');
-
-    $strategyRow = gmSeed(gmUser('gmtw6'), 'twitch', ['url' => 'https://www.twitch.tv/streamer', 'login' => 'streamer']);
-    expect(fn () => (new TwitchFetch(app(TwitchScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
-});
-
-it('StravaFetch produces the same success payload as the refresher (null scrape fields fall back to stored)', function () {
-    $this->mock(StravaClubScraper::class, function ($m) {
-        $m->shouldReceive('fetchClub')->andReturn([
-            'name' => 'Fresh Club Name', 'location' => null, 'image' => 'https://example.com/new.jpg', 'description' => null, 'members' => 250,
-        ]);
-    });
-
-    $stored = ['url' => 'https://www.strava.com/clubs/myclub', 'name' => 'Old Name', 'location' => 'Old City', 'image' => 'https://example.com/old.jpg', 'description' => 'Old description', 'members' => 100];
-
-    $refresherRow = gmSeed(gmUser('gmsv1'), 'strava', $stored);
-    app(PlatformRefresher::class)->refresh($refresherRow);
-
-    $strategyRow = gmSeed(gmUser('gmsv2'), 'strava', $stored);
-    $result = (new StravaFetch(app(StravaClubScraper::class)))->fetch($strategyRow);
-
-    expect($result)->toEqual($refresherRow->fresh()->payload);
-    expect($result['name'])->toBe('Fresh Club Name');
-    expect($result['location'])->toBe('Old City'); // null scrape value keeps the stored one
-    expect($result['image'])->toBe('https://example.com/new.jpg');
-    expect($result['description'])->toBe('Old description'); // null scrape value keeps the stored one
-    expect($result['members'])->toBe(250);
-});
-
-it('StravaFetch throws FetchShapeException when url is missing (refresher status=error)', function () {
-    $row = gmSeed(gmUser('gmsv3'), 'strava', ['name' => 'no url']);
-    app(PlatformRefresher::class)->refresh($row);
-    expect($row->fresh()->last_refresh_status)->toBe('error');
-
-    $strategyRow = gmSeed(gmUser('gmsv4'), 'strava', ['name' => 'no url']);
-    expect(fn () => (new StravaFetch(app(StravaClubScraper::class)))->fetch($strategyRow))->toThrow(FetchShapeException::class);
-});
-
-it('StravaFetch throws FetchUnavailableException when the club page is unreadable (refresher status=unavailable)', function () {
-    $this->mock(StravaClubScraper::class, function ($m) {
-        $m->shouldReceive('fetchClub')->andReturn(null);
-    });
-
-    $row = gmSeed(gmUser('gmsv5'), 'strava', ['url' => 'https://www.strava.com/clubs/myclub']);
-    app(PlatformRefresher::class)->refresh($row);
-    expect($row->fresh()->last_refresh_status)->toBe('unavailable');
-
-    $strategyRow = gmSeed(gmUser('gmsv6'), 'strava', ['url' => 'https://www.strava.com/clubs/myclub']);
-    expect(fn () => (new StravaFetch(app(StravaClubScraper::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
-});
-
 it('AppleMusicFetch produces the same success payload as the refresher (preserves input)', function () {
     $albums = [
         ['collectionId' => 'c1', 'name' => 'Album One', 'thumbnail' => 'nt', 'releaseDate' => '2026-03-01T00:00:00+00:00', 'link' => 'https://music.apple.com/au/album/1'],
@@ -470,3 +380,8 @@ it('GoogleBusinessFetch throws FetchUnavailableException when placeId is missing
     $strategyRow = gmSeed(gmUser('gmgb6'), 'google-business', ['url' => 'https://g.co/maps/abc', 'name' => 'No Place ID']);
     expect(fn () => (new GoogleBusinessFetch(app(GoogleBusinessService::class)))->fetch($strategyRow))->toThrow(FetchUnavailableException::class);
 });
+
+// Twitch and Strava had six parity cases here until 2026-08-16, when Phase 1.2's
+// demotion made them link-only: with no fetch strategy and no refresher path,
+// "the strategy agrees with the refresher" has nothing left to compare. The
+// parity mechanism itself is unaffected and still covered by the 24 cases above.

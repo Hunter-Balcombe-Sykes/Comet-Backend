@@ -35,10 +35,9 @@ class Twitch
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Video)
                 ->identifier(IdentifierKind::Handle)
-                ->refreshEvery(43200)
+                ->refreshEvery(0)
                 ->canonicalUrl('https://www.twitch.tv/{login}')
                 ->connect('connect.twitch.url.v1')
-                ->fetch('fetch.twitch.scrape.v1')
                 ->embed('https://player.twitch.tv/?channel={login}&parent={host}', 'ratio:wide', ['autoplay', 'fullscreen'], true)
                 ->multiAccount(5)
                 ->detect(

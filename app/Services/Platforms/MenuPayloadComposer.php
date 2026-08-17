@@ -3,7 +3,6 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\SectionItem;
@@ -66,11 +65,9 @@ class MenuPayloadComposer
         return Menu::query()
             ->where('user_id', $user->id)
             ->with([
-                'categories' => fn ($q) => $q->orderBy('position'),
-                // Items order by their per-membership pivot position (baked into
-                // the MenuCategory::items() relation).
-                'categories.items.platformLinks',
                 // Menu-level store links — the base each item's deep link derives from.
+                // The `categories` tree is gone with site.menu_categories /
+                // site.menu_items (slice 7 Phase 6); dishes come from ManualMenuItems.
                 'platformLinks',
             ])
             ->first();
@@ -87,20 +84,9 @@ class MenuPayloadComposer
             return false;
         }
 
-        $legacy = $menu->relationLoaded('categories')
-            ? $menu->categories->contains(function (MenuCategory $c) {
-                return in_array($c->source_platform, ['scan', 'manual', 'website-scan'], true)
-                    || ($c->relationLoaded('items') && $c->items->contains(fn (MenuItem $i) => $i->is_manual));
-            })
-            : MenuCategory::query()->where('menu_id', $menu->id)
-                ->whereIn('source_platform', ['scan', 'manual', 'website-scan'])->exists()
-                || MenuItem::query()->where('menu_id', $menu->id)->where('is_manual', true)->exists();
-
-        // The content-lane half is asked on BOTH branches. load() eager-loads
-        // `categories`, so a check that only hung off the unloaded branch would
-        // never run for the dashboard read — which is the exact call that
-        // decides whether a scan-only menu is shown at all.
-        return $legacy || $this->hasOwnerContentInContentLane($menu);
+        // Slice 7 Phase 6: the legacy half of this question went with
+        // site.menu_categories / site.menu_items. content.* is now the only lane.
+        return $this->hasOwnerContentInContentLane($menu);
     }
 
     /**
@@ -171,19 +157,11 @@ class MenuPayloadComposer
         // bookkeeping, not a dish, and only dishes moved in this task.
         $storeUrls = $menu->platformLinks->pluck('store_url', 'platform')->all();
 
-        // includeRemoved is the fallback GATE, not a display choice — see the
-        // class docblock. The live set is filtered back out immediately below.
-        $rows = $this->items->rows((string) $user->id, includeRemoved: true);
+        // Slice 7 Phase 6: the legacy fallback is gone with the tables it read,
+        // so the removed rows are no longer a gate — ask for the live set directly.
+        $rows = $this->items->rows((string) $user->id);
 
-        if ($rows->isEmpty()) {
-            return $this->legacyCategories($menu, $storeUrls);
-        }
-
-        return $this->contentCategories(
-            (string) $user->id,
-            $rows->filter(fn (object $row) => $row->removed_at === null)->values(),
-            $storeUrls,
-        );
+        return $this->contentCategories((string) $user->id, $rows, $storeUrls);
     }
 
     /**
@@ -318,46 +296,10 @@ class MenuPayloadComposer
     }
 
     /**
-     * The pre-cutover read, kept for an owner with no content-lane menu at all.
-     * Deleted in Phase 5 along with site.menu_categories / menu_items.
-     *
-     * @param  array<string, string|null>  $storeUrls
-     * @return list<array{id:string, name:string, sourcePlatform:?string, items:list<array<string,mixed>>}>
-     */
-    private function legacyCategories(Menu $menu, array $storeUrls): array
-    {
-        // item id => every category id it's a member of. A dish in several
-        // categories appears under EACH of them below (sharing its id) — this
-        // map lets the dashboard's flat items view dedupe by id and render/edit
-        // the full membership set (category_ids on the write side).
-        $categoryIdsByItem = [];
-        foreach ($menu->categories as $category) {
-            foreach ($category->items as $item) {
-                $categoryIdsByItem[(string) $item->id][] = (string) $category->id;
-            }
-        }
-
-        return $menu->categories->map(fn (MenuCategory $category) => [
-            // Stable persisted id — addresses PATCH/DELETE /menu/categories/{id}
-            // and is the value an item write sends as category_id.
-            'id' => (string) $category->id,
-            'name' => $category->name,
-            // Drives the dashboard's "this will no longer stay synced" warning —
-            // only 'manual'/'scan' categories are owner-editable (MenuContentController::EDITABLE_SOURCES).
-            'sourcePlatform' => $category->source_platform,
-            'items' => $category->items->map(fn (MenuItem $item) => $this->item(
-                $item,
-                $categoryIdsByItem[(string) $item->id] ?? [(string) $category->id],
-                $storeUrls,
-            ))->all(),
-        ])->all();
-    }
-
-    /**
-     * One dish, shaped for the dashboard grid. Shared by both reads on purpose:
-     * the cutover's whole contract is that the payload does not change, and one
-     * shape function is what makes that true by construction rather than by two
-     * lists someone has to keep in step.
+     * One dish, shaped for the dashboard grid. The shape function the content
+     * read builds through — it was shared with the legacy read (deleted in
+     * Phase 6 with site.menu_categories / menu_items), and the payload contract
+     * it pinned still holds by construction.
      *
      * @param  list<string>  $categoryIds
      * @param  array<string, string|null>  $storeUrls

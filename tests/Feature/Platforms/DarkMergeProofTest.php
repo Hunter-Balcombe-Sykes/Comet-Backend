@@ -8,7 +8,6 @@ use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\EventsPayload;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\HumanitixScraper;
-use App\Services\Platforms\SkoolScraper;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -219,68 +218,27 @@ it('DELIBERATELY VACUOUS — flag off: apple podcast connect is a 200 with today
     expect(array_keys($row->payload))->toBe(['input', 'name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest']);
 });
 
-// ── 3/7. Skool (single-selection; a vendor miss is a 404 TODAY) ─────────────
-
-it('DELIBERATELY VACUOUS — flag off: skool connect is a 200 with today\'s exact body and pushes nothing', function () {
-    config(['partna.connect.deferred' => []]);
-    $user = darkMergeUser('dmskool');
-
-    $this->mock(SkoolScraper::class, function ($m) {
-        $m->shouldReceive('normalizeUrl')->once()->andReturn('https://www.skool.com/some-community');
-        $m->shouldReceive('fetchCommunity')->once()->andReturn([
-            'url' => 'https://www.skool.com/some-community',
-            'name' => 'Some Community',
-            'image' => 'https://img.example/avatar.jpg',
-            'description' => 'A great community',
-        ]);
-    });
-
-    Queue::fake();
-
-    actingAsUser($user)->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/some-community'])
-        ->assertStatus(200)
-        ->assertExactJson([
-            'url' => 'https://www.skool.com/some-community',
-            'name' => 'Some Community',
-            'image' => 'https://img.example/avatar.jpg',
-            'description' => 'A great community',
-        ]);
-
-    Queue::assertNothingPushed();
-
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'skool')->firstOrFail();
-    expect($row->last_refresh_status)->toBe('ok');
-    expect(array_keys($row->payload))->toBe(['url', 'name', 'image', 'description']);
-});
-
-it('DELIBERATELY VACUOUS — flag off: a skool vendor miss is still a 404 (not 422, not 502) and writes no row', function () {
-    // Skool is the one converted endpoint whose vendor-miss status is 404 —
-    // every other one 422s. Pinned separately because the deferred path CANNOT
-    // reproduce a 404 (the vendor is not called at 202 time), so if activation
-    // ever silently became the default, this is the assertion that changes.
-    config(['partna.connect.deferred' => []]);
-    $user = darkMergeUser('dmskoolmiss');
-
-    $this->mock(SkoolScraper::class, function ($m) {
-        $m->shouldReceive('normalizeUrl')->once()->andReturn('https://www.skool.com/gone');
-        $m->shouldReceive('fetchCommunity')->once()->andReturn(null);
-    });
-
-    Queue::fake();
-
-    actingAsUser($user)->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/gone'])
-        ->assertStatus(404)
-        ->assertExactJson(['message' => 'Could not read that Skool community — check the URL.']);
-
-    Queue::assertNothingPushed();
-    expect(IntegrationConnection::where('user_id', $user->id)->exists())->toBeFalse();
-});
+// ── 3/7. Skool — REMOVED, surface no longer exists ─────────────────────────
+//
+// Two cases sat here and are deleted, not re-pointed:
+//   1. 'flag off: skool connect is a 200 with today's exact body'
+//   2. 'flag off: a skool vendor miss is still a 404 (not 422, not 502)'
+// Both pinned the SkoolScraper-driven connect ({url, name, image, description},
+// and the 404-on-miss that made skool unique among the converted endpoints).
+// Skool is now PD::linkOnly(): its connect is a UrlConnect normalizer that
+// never calls a vendor, so there is no fetch to defer, no 404-on-miss to
+// preserve, and skool is no longer one of the surfaces the dark-merge claim
+// covers. Nothing to re-point to — the other single-selection converted
+// surface (fresha) is already pinned below in its own section.
+// The remaining sections keep their original n/7 numbering so this file still
+// maps 1:1 onto the CA-W2..CA-W7 unit reports.
 
 // ── 4/7 + 5/7. Eventbrite + Humanitix (multi-account) ───────────────────────
 
 it('DELIBERATELY VACUOUS — flag off: eventbrite connect is a 200 with today\'s exact body and pushes nothing', function () {
     // PlatformResourceContractTest already pins this body; repeated here so the
-    // seven-surface dark-merge argument is verifiable in ONE file, and with the
+    // surface-by-surface dark-merge argument is verifiable in ONE file (six
+    // surfaces now that skool has left the set — see section 3/7), and with the
     // queue assertion that contract test does not make.
     config(['partna.connect.deferred' => []]);
     $user = darkMergeUser('dmeventbrite');
@@ -561,21 +519,27 @@ it('a pending row renders publicly with allowlisted keys ONLY — none of the de
     // teamMenu and connectPendingAt, and its public allowlist is exactly
     // ['url', 'selection']. Driven through the REAL flag-on endpoints rather
     // than seeded, so this asserts what the controllers actually write.
-    config(['partna.connect.deferred' => ['fresha', 'skool', 'eventbrite', 'apple-music']]);
+    //
+    // Skool was the fourth surface driven here; dropped when it became
+    // PD::linkOnly() — it has no deferred path left, so it can no longer
+    // produce a pending row to render. Not re-pointed: the three survivors
+    // already span both archetypes (fresha = single-selection with private
+    // bookkeeping keys, eventbrite = multi-account with an EMPTY allowlist,
+    // apple-music = multi-account with a NON-empty one), which is the full
+    // contrast skool was contributing.
+    config(['partna.connect.deferred' => ['fresha', 'eventbrite', 'apple-music']]);
     $user = darkMergeUser('dmpublicpending');
     $ebUrl = 'https://www.eventbrite.com/o/pending-org';
 
     // Pure/parse-only doubles: any call to a real fetch method throws
     // (Mockery strict mock), which is itself part of the proof.
     $this->mock(FreshaScraper::class, fn ($m) => $m->shouldReceive('stripLocale')->andReturnUsing(fn ($u) => $u));
-    $this->mock(SkoolScraper::class, fn ($m) => $m->shouldReceive('normalizeUrl')->andReturn('https://www.skool.com/pending-community'));
     $this->mock(EventbriteScraper::class, fn ($m) => $m->shouldReceive('normalizeOrgUrl')->andReturn($ebUrl));
     $this->mock(AppleSearch::class, function ($m) {});
 
     Queue::fake();
 
     actingAsUser($user)->postJson('/api/platforms/fresha/connect', ['url' => 'https://www.fresha.com/a/ollies-salon'])->assertStatus(202);
-    actingAsUser($user)->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/pending-community'])->assertStatus(202);
     actingAsUser($user)->postJson('/api/platforms/eventbrite/connect', ['url' => $ebUrl])->assertStatus(202);
     actingAsUser($user)->postJson('/api/platforms/apple/music/connect', ['artist' => 'Pending Artist'])->assertStatus(202);
 
@@ -600,9 +564,8 @@ it('a pending row renders publicly with allowlisted keys ONLY — none of the de
     ]);
     expect($platforms['fresha'][0]['lastRefreshedAt'])->toBeNull();
 
-    expect($platforms['skool'][0]['payload'])->toBe(['url' => 'https://www.skool.com/pending-community']);
     // eventbrite publishes {} since slice 2 Task 9 retired the legacy events
-    // lane — its public allowlist is empty, unlike skool's above.
+    // lane — its public allowlist is empty, unlike apple-music's below.
     expect($platforms['eventbrite'][0]['payload'])->toBe([]);
     expect($platforms['apple-music'][0]['payload'])->toBe(['input' => 'Pending Artist']);
 

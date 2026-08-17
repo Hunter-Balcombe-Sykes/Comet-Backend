@@ -29,15 +29,10 @@ class FoodContentProbe
             ->select('id')
             ->where('user_id', $userId);
 
-        // SLICE 4 SWAP POINT — the content-pool convergence retires
-        // site.menus/site.menu_items onto content.items where kind='menu_item'.
-        // Isolated here so that migration replaces one expression.
-        $hasMenuItems = DB::connection($connection)
-            ->table('site.menu_items')
-            ->join('site.menus', 'site.menus.id', '=', 'site.menu_items.menu_id')
-            ->where('site.menus.user_id', $userId)
-            ->whereNull('site.menus.deleted_at');
-
+        // SLICE 4 SWAP POINT, taken in slice 7 Phase 6: the legacy
+        // site.menu_items clause that stood here is gone with the table. Its
+        // replacement is $hasFoodItems below — content.items kind='menu_item',
+        // already OR'd into the same result, so this is a deletion not a swap.
         $hasOrderingConnection = DB::connection($connection)
             ->table('site.platform_connections')
             ->where('user_id', $userId)
@@ -74,8 +69,7 @@ class FoodContentProbe
         return DB::connection($connection)
             ->query()
             ->selectRaw('1')
-            ->whereExists($hasMenuItems)
-            ->orWhereExists($hasOrderingConnection)
+            ->whereExists($hasOrderingConnection)
             ->orWhereExists($hasFoodPage)
             ->orWhereExists($hasFoodItems)
             ->exists();

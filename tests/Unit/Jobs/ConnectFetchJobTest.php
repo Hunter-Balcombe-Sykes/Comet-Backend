@@ -13,7 +13,6 @@ use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
-use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -213,20 +212,24 @@ it('handle() does not throw when it meets an expected upstream failure (sync-dri
     // phpunit.xml pins queue.default=sync, so dispatch()->afterCommit()
     // executes handle() INLINE in the request — a throw here becomes a 500
     // with no failed() callback. Every Fetch*Exception must be swallowed.
+    // Re-pointed off twitch 2026-08-16: it was standing in for "a platform with
+    // a fetch strategy that can fail", and Phase 1.2's demotion made it
+    // link-only — with no fetch strategy there is no upstream failure to meet.
+    // bandcamp is what the rest of this file already uses.
     $user = cfjUser('cfj5');
     $connection = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'twitch',
+        'platform' => 'bandcamp',
         'resource_id' => 'acct-cfj5',
-        'payload' => ['login' => 'someuser', 'url' => 'https://www.twitch.tv/someuser'],
+        'payload' => ['url' => 'https://someband.bandcamp.com'],
         'is_active' => true,
         'last_refresh_status' => 'pending',
         'last_refreshed_at' => null,
     ]);
 
-    $this->mock(TwitchScraper::class, fn ($m) => $m->shouldReceive('fetchChannel')->once()->andReturn(null));
+    $this->mock(BandcampScraper::class, fn ($m) => $m->shouldReceive('fetchProfile')->once()->andReturn(null));
 
-    $job = new ConnectFetchJob($connection->id, 'twitch');
+    $job = new ConnectFetchJob($connection->id, 'bandcamp');
 
     $threw = false;
     try {

@@ -173,20 +173,12 @@ class MenuDashboardPayload
     /**
      * The dish count the integrations card reads.
      *
-     * Same fallback GATE `MenuPayloadComposer::categories()` uses — the content
-     * lane wins iff it holds anything for this owner, live or removed — so the
-     * count and the rendered menu can never disagree about which lane is
-     * authoritative.
+     * Slice 7 Phase 6: the legacy fallback went with site.menu_items, so there
+     * is no gate left to keep in step — this and the rendered menu read the one
+     * lane, which is what made them agree in the first place.
      */
     public function itemCount(User $user, ?Menu $menu): int
     {
-        $rows = $this->items->rows((string) $user->id, includeRemoved: true);
-
-        if ($rows->isNotEmpty()) {
-            return $rows->filter(fn (object $row) => $row->removed_at === null)->count();
-        }
-
-        return $menu === null ? 0 : DB::connection('pgsql')->table('site.menu_items')
-            ->where('menu_id', $menu->id)->count();
+        return $this->items->rows((string) $user->id)->count();
     }
 }

@@ -244,39 +244,27 @@ it('humanitix connect stores the host events and selection drops elapsed ones', 
 
 // ── Skool ────────────────────────────────────────────────────────────────────
 
-it('skool connect stores the og-scraped community card', function () {
+it('skool connect stores the normalized community link, not a scraped card', function () {
+    // Was two tests: "stores the og-scraped community card" and "404s when the
+    // community cannot be read". Phase 1.2's demotion (2026-08-16) made skool
+    // link-only — SkoolScraper is no longer wired, so there is no fetch to
+    // succeed or fail and therefore no 404 path left to assert. Connect now
+    // resolves through SkoolNormalizer and stores {username, url}.
+    //
+    // The refusal that DOES survive is the chrome guard: skool.com/signup parses
+    // as a valid-looking slug, and saving it as somebody's "community" is the
+    // mistake worth keeping a test on.
     $user = iv2User('sk1');
-
-    $this->mock(SkoolScraper::class, function ($m) {
-        $m->shouldReceive('normalizeUrl')->andReturn('https://www.skool.com/mock-community');
-        $m->shouldReceive('fetchCommunity')->andReturn([
-            'url' => 'https://www.skool.com/mock-community',
-            'name' => 'Mock Community',
-            'image' => 'https://assets.skool.com/x.jpg',
-            'description' => 'A community.',
-        ]);
-    });
 
     actingAsUser($user)->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/mock-community'])
         ->assertOk()
         ->assertExactJson([
+            'username' => 'mock-community',
             'url' => 'https://www.skool.com/mock-community',
-            'name' => 'Mock Community',
-            'image' => 'https://assets.skool.com/x.jpg',
-            'description' => 'A community.',
         ]);
-});
 
-it('skool connect 404s when the community cannot be read', function () {
-    $user = iv2User('sk2');
-
-    $this->mock(SkoolScraper::class, function ($m) {
-        $m->shouldReceive('normalizeUrl')->andReturn('https://www.skool.com/private');
-        $m->shouldReceive('fetchCommunity')->andReturn(null);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/private'])
-        ->assertStatus(404);
+    actingAsUser($user)->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/signup'])
+        ->assertStatus(422);
 });
 
 // ── Removed link-only platforms (Ticketek / Timely) ──────────────────────────

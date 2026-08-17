@@ -14,13 +14,13 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Content\LinkPoolReader;
+use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\OEmbedService;
-use App\Services\Platforms\SkoolScraper;
 use App\Services\Shop\ShopConnections;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -122,14 +122,19 @@ it('DELIBERATELY VACUOUS — a connection created outside the dashboard trait do
     expect(icwRows($user))->toHaveCount(0);
 });
 
+// Skool was the deferred-connect fixture in both tests below until Phase 1.2
+// demoted it to link-only (no DeferredConnect strategy, no fetch strategy, so
+// ConnectFetchJob can no longer complete it). Bandcamp is the surviving
+// equivalent: BandcampConnect implements DeferredConnect and BandcampFetch is
+// what the job runs to finish the row.
 it('does not notify while a deferred connect is still pending', function () {
     $user = icwUser('icw4');
 
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'skool',
-        'resource_id' => 'skool',
-        'payload' => ['url' => 'https://www.skool.com/example'],
+        'platform' => 'bandcamp',
+        'resource_id' => 'https://demo.bandcamp.com',
+        'payload' => ['url' => 'https://demo.bandcamp.com'],
         'is_active' => true,
         'last_refresh_status' => 'pending',
     ]);
@@ -142,30 +147,32 @@ it('notifies once ConnectFetchJob completes a deferred connect', function () {
 
     $row = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'skool',
-        'resource_id' => 'skool',
-        'payload' => ['url' => 'https://www.skool.com/example'],
+        'platform' => 'bandcamp',
+        'resource_id' => 'https://demo.bandcamp.com',
+        'payload' => ['url' => 'https://demo.bandcamp.com'],
         'is_active' => true,
         'last_refresh_status' => 'pending',
     ]);
 
-    // Copied from SkoolAsyncConnectTest.php's poll-to-ready test: handle()
-    // resolves SkoolScraper fresh from the container, and SkoolFetch::fetch()
-    // only ever calls fetchCommunity() (normalizeUrl() is connect-time only).
-    $this->mock(SkoolScraper::class, fn ($m) => $m->shouldReceive('fetchCommunity')->once()->andReturn([
-        'url' => 'https://www.skool.com/example',
-        'name' => 'Some Community',
-        'image' => 'https://img.example/avatar.jpg',
-        'description' => 'A great community',
-    ]));
+    // handle() resolves BandcampScraper fresh from the container; BandcampFetch
+    // only ever calls fetchProfile()/enrichPrices() (normalizeOrigin() is
+    // connect-time only).
+    $this->mock(BandcampScraper::class, function ($m) {
+        $m->shouldReceive('fetchProfile')->once()->andReturn([
+            'name' => 'Some Artist',
+            'thumbnail' => 'https://img.example/avatar.jpg',
+            'items' => [['name' => 'A Release', 'thumbnail' => null, 'link' => 'https://demo.bandcamp.com/album/x']],
+        ]);
+        $m->shouldReceive('enrichPrices')->andReturnUsing(fn (array $items) => $items);
+    });
 
-    app()->call([new ConnectFetchJob($row->id, 'skool'), 'handle']);
+    app()->call([new ConnectFetchJob($row->id, 'bandcamp'), 'handle']);
 
     expect($row->fresh()->last_refresh_status)->toBe('ok');
 
     $rows = icwRows($user);
     expect($rows)->toHaveCount(1);
-    expect($rows->first()->title)->toContain('Skool');
+    expect($rows->first()->title)->toContain('Bandcamp');
 });
 
 it('does not notify when ConnectFetchJob fails terminally', function () {

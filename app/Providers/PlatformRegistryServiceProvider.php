@@ -3,7 +3,6 @@
 namespace App\Providers;
 
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
-use App\Http\Controllers\Api\Platforms\SkoolController;
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
@@ -16,10 +15,7 @@ use App\Http\Resources\Platforms\NowBookitConnectionResource;
 use App\Http\Resources\Platforms\OpenTableConnectionResource;
 use App\Http\Resources\Platforms\ResDiaryConnectionResource;
 use App\Http\Resources\Platforms\ShopBrandResource;
-use App\Http\Resources\Platforms\SkoolConnectionResource;
-use App\Http\Resources\Platforms\StravaConnectionResource;
 use App\Http\Resources\Platforms\TileConnectionResource;
-use App\Http\Resources\Platforms\TwitchConnectionResource;
 use App\Http\Resources\Platforms\VimeoConnectionResource;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
@@ -44,10 +40,13 @@ use App\Services\Platforms\Normalizers\KickNormalizer;
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
 use App\Services\Platforms\Normalizers\MediumNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
+use App\Services\Platforms\Normalizers\SkoolNormalizer;
 use App\Services\Platforms\Normalizers\SnapchatNormalizer;
+use App\Services\Platforms\Normalizers\StravaNormalizer;
 use App\Services\Platforms\Normalizers\TelegramNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
+use App\Services\Platforms\Normalizers\TwitchNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\NowBookitService;
 use App\Services\Platforms\OEmbedService;
@@ -66,15 +65,12 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\ShopCatalog;
-use App\Services\Platforms\SkoolScraper;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
 use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
-use App\Services\Platforms\Strategies\Connect\StravaConnect;
-use App\Services\Platforms\Strategies\Connect\TwitchConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Connect\VimeoConnect;
 use App\Services\Platforms\Strategies\Connect\YoutubeConnect;
@@ -91,14 +87,9 @@ use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
-use App\Services\Platforms\Strategies\Fetch\SkoolFetch;
-use App\Services\Platforms\Strategies\Fetch\StravaFetch;
-use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
-use App\Services\Platforms\StravaClubScraper;
-use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
 use App\Services\Shop\ShopContentWriter;
@@ -149,37 +140,30 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('kick')->connect(new UrlConnect(new KickNormalizer), 'Enter your Kick username or channel URL (kick.com/yourname).');
             $r->get('medium')->connect(new UrlConnect(new MediumNormalizer), 'Enter your Medium username or profile URL (medium.com/@yourname).');
 
-            // Skool + Strava are link/card style under their own resources.
-            $r->register(PD::make('skool')->label('Skool')->category(Cat::Education)->resource(SkoolConnectionResource::class));
-            // CA-W4: attach the fetch strategy so ConnectFetchJob can complete a
-            // pending row. Consumed ONLY by that job — skool stays non-refreshable
-            // (no ->refreshable() call above), so ScheduledRefresh/the manual
-            // refresh button never resolve this (PlatformDescriptor::refreshStrategy()
-            // requires BOTH flags).
-            $r->get('skool')->fetch(fn () => new SkoolFetch(app(SkoolScraper::class)));
-            // The message ConnectFetchJob stores on the row when the deferred
-            // fetch fails — verbatim from connect()'s own synchronous 404
-            // message. Deliberately NOT ->deferredConnect(): that flag means
-            // "this descriptor's ConnectStrategy implements DeferredConnect"
-            // (RegistryConnectCoverageTest pins flag<=>instanceof for every
-            // descriptor), but Skool has no ConnectStrategy at all — its
-            // connect is bespoke (SkoolController::connect(), via
-            // DefersBespokeConnect), never routed through
-            // ConnectResolver/GenericPlatformController. Mirrors apple-music's
-            // identical note above.
-            $r->get('skool')->connectFetchError('Could not read that Skool community — check the URL.');
-            $r->register(PD::make('strava')->label('Strava')->category(Cat::Content)->resource(StravaConnectionResource::class)->refreshable());
-            // Attach the live fetch strategy (Plan 6). Consumed by the registry-driven refresher.
-            $r->get('strava')->fetch(fn () => new StravaFetch(app(StravaClubScraper::class)));
-            // Connect strategy + read-path DTO (FOUND-24) — parse-fail message is the
-            // frozen 422 contract, copied verbatim from the deleted StravaController.
-            // Strava's reads now go through FeedPayload too (it gained location/members).
-            $r->get('strava')->connect(fn () => new StravaConnect(app(StravaClubScraper::class)), 'Enter your Strava club URL (strava.com/clubs/yourclub).');
-            $r->get('strava')->payload(FeedPayload::class);
-            // Deferred-connect seam (Phase 2, W4) — StravaConnect implements
-            // DeferredConnect. Message copied verbatim from resolve()'s
-            // fetch-stage failure.
-            $r->get('strava')->deferredConnect()->connectFetchError('Could not read that Strava club page.');
+            // Skool, Strava and Twitch: link-only, but NOT Social — each keeps
+            // its own category so the dashboard grouping does not move. This is
+            // the second half of Phase 1.2's demotion (convergence-phases §1.2:
+            // "leaving a PD::linkOnly() registration plus its detector so the
+            // platform still connects as a link"). Phase 1 removed the ingest
+            // half — connector, projectors, provisioner branch — and stopped
+            // there because these three, unlike gumroad and substack, still had
+            // fetch strategies, scrapers, bespoke resources and route shapes
+            // behind live connections. Those are gone now: no scrape, no
+            // refresh, no card decoration, just the link and its handle.
+            //
+            // Twitch's live indicator is unaffected. CheckStreamingLiveStatusJob
+            // reads `Block` rows (block_group='links', live_check_enabled) and
+            // never consults this registry or platform_connections.
+            foreach ([
+                'skool' => ['Skool', Cat::Education],
+                'strava' => ['Strava', Cat::Content],
+                'twitch' => ['Twitch', Cat::Streaming],
+            ] as $key => [$label, $category]) {
+                $r->register(PD::linkOnly($key, $label, LinkConnectionResource::class)->category($category));
+            }
+            $r->get('skool')->connect(new UrlConnect(new SkoolNormalizer), 'Enter your Skool community URL (skool.com/yourcommunity).');
+            $r->get('strava')->connect(new UrlConnect(new StravaNormalizer), 'Enter your Strava club URL (strava.com/clubs/yourclub).');
+            $r->get('twitch')->connect(new UrlConnect(new TwitchNormalizer), 'Enter your Twitch channel (twitch.tv/yourname).');
 
             // ── oEmbed music (MusicEmbedConnectionResource, refreshable) ──
             foreach (['spotify' => 'Spotify', 'soundcloud' => 'SoundCloud'] as $key => $label) {
@@ -251,19 +235,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // DeferredConnect. Message copied verbatim from resolve()'s
             // fetch-stage failure.
             $r->get('vimeo')->deferredConnect()->connectFetchError('Could not find that Vimeo profile.');
-            $r->register(PD::make('twitch')->label('Twitch')->category(Cat::Streaming)->resource(TwitchConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b / Task 6). Consumed by Plan 6's registry-driven refresher.
-            $r->get('twitch')->fetch(fn () => new TwitchFetch(
-                app(TwitchScraper::class),
-            ));
-            // Connect strategy (FOUND-24) — parse-fail message is the frozen 422
-            // contract, copied verbatim from the deleted TwitchController.
-            $r->get('twitch')->connect(fn () => new TwitchConnect(app(TwitchScraper::class)), 'Enter your Twitch channel (twitch.tv/yourname).');
-            // Deferred-connect seam (Phase 2, W4) — TwitchConnect implements
-            // DeferredConnect. Message copied verbatim from resolve()'s
-            // fetch-stage failure.
-            $r->get('twitch')->deferredConnect()->connectFetchError('Could not find that Twitch channel.');
             $r->register(PD::make('bandcamp')->label('Bandcamp')->category(Cat::Music)->resource(BandcampConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
@@ -515,12 +486,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('nowbookit')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('opentable')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('resdiary')->connectInput('url', ['required', 'string', 'max:2048']);
-            $r->get('skool')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('soundcloud')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('spotify')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('square')->connectInput('url', ['required', 'string', 'max:1000', 'regex:#^https?://([a-z0-9-]+\.)*(squareup\.com|square\.site)(/[^\s]*)?$#i'], ['url.regex' => 'Enter a valid Square booking link (a squareup.com or square.site URL).'], true);
-            $r->get('strava')->connectInput('url', ['required', 'string', 'max:300']);
-            $r->get('twitch')->connectInput('url', ['required', 'string', 'max:120']);
             $r->get('vimeo')->connectInput('url', ['required', 'string', 'max:300']);
             $r->get('youtube-music')->connectInput('url', ['required', 'string', 'max:300']);
 
@@ -531,6 +499,16 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook', 'snapchat', 'discord', 'telegram', 'kick', 'medium'] as $social) {
                 $r->get($social)->connectInput('username', ['required', 'string', 'max:200']);
             }
+            // skool/strava/twitch are link-only as of 2026-08-16 but keep the
+            // `url` input field they have always taken: their connect prompts
+            // ask for a community/club/channel URL, their normalizers accept
+            // one, and renaming the field to `username` would break the
+            // dashboard's connect body to no end. The field name and the stored
+            // {username, url} shape are independent — UrlConnect normalises
+            // whatever string it is handed.
+            $r->get('skool')->connectInput('url', ['required', 'string', 'max:500']);
+            $r->get('strava')->connectInput('url', ['required', 'string', 'max:300']);
+            $r->get('twitch')->connectInput('url', ['required', 'string', 'max:120']);
 
             // ── Public display toggles ───────────────────────────────────────────
             // What parts of a platform's synced content the owner can hide from
@@ -563,9 +541,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest upload joins your site automatically.'],
             ]);
             $r->get('vimeo')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest video joins your site automatically.'],
-            ]);
-            $r->get('twitch')->displayToggles([
                 ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest video joins your site automatically.'],
             ]);
             $r->get('youtube-music')->displayToggles([
@@ -615,7 +590,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('humanitix')->refreshEvery((int) config('partna.refresh.intervals.humanitix', 6 * 3600));
             $r->get('youtube')->refreshEvery((int) config('partna.refresh.intervals.youtube', 12 * 3600));
             $r->get('vimeo')->refreshEvery((int) config('partna.refresh.intervals.vimeo', 12 * 3600));
-            $r->get('twitch')->refreshEvery((int) config('partna.refresh.intervals.twitch', 12 * 3600));
             $r->get('youtube-music')->refreshEvery((int) config('partna.refresh.intervals.youtube-music', 12 * 3600));
             $r->get('spotify')->refreshEvery((int) config('partna.refresh.intervals.spotify', 12 * 3600));
             $r->get('soundcloud')->refreshEvery((int) config('partna.refresh.intervals.soundcloud', 12 * 3600));
@@ -629,12 +603,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // platforms (the default) keep their standalone groups and are skipped.
 
             // Link-only socials: connect/selection/forget all via GenericPlatformController.
-            foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook', 'snapchat', 'discord', 'telegram', 'kick', 'medium'] as $social) {
+            foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook', 'snapchat', 'discord', 'telegram', 'kick', 'medium', 'skool', 'strava', 'twitch'] as $social) {
                 $r->get($social)->routes(PlatformRouteShape::LinkOnly);
             }
 
             // Single-selection (connect/selection/forget all on the bespoke controller).
-            $r->get('skool')->routes(PlatformRouteShape::SingleSelection, SkoolController::class);
             $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
 
             // Migrated reads: bespoke connect + generic reads. multiAccount gates /accounts.
@@ -648,12 +621,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // which this generic shape has no seam for.
             $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('twitch')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('vimeo')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube-music')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('bandcamp')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('strava')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, null, false);

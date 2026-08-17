@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Core\Site\Site;
-use App\Services\Migration\MenuBackfiller;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
 use App\Site\Pools\PoolSectionProvisioner;
@@ -83,7 +82,6 @@ it('publishes menu categories in the collections map, not as dangling ids', func
     // would have published collectionIds pointing at collections absent from
     // the map.
     [$userId, $siteId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks']);
-    app(MenuBackfiller::class)->run();
     pinEveryMenuItem($siteId);
 
     $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'menus');
@@ -95,7 +93,6 @@ it('publishes menu categories in the collections map, not as dangling ids', func
 
 it('carries the same key set on a sidecar-less collection as on a store card', function () {
     [$userId, $siteId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks']);
-    app(MenuBackfiller::class)->run();
     pinEveryMenuItem($siteId);
 
     $entry = collect(app(PoolResolver::class)
@@ -111,7 +108,7 @@ it('nulls the store-only fields on a category and fills them on an order platfor
         'store_url' => 'https://ubereats.com/store/x', 'status' => 'ok',
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
     ]);
-    app(MenuBackfiller::class)->run();
+    seedOrderPlatformSidecar($userId, 'uber_eats', 'https://ubereats.com/store/x');
     pinEveryMenuItem($siteId);
 
     $collections = collect(app(PoolResolver::class)
@@ -131,7 +128,6 @@ it('serves the menu dining modes on the pool envelope and null everywhere else',
     [$userId, $siteId, $menuId] = seedMenuWithDishes(['Iced Latte']);
     DB::connection('pgsql')->table('site.menus')->where('id', $menuId)
         ->update(['dining_modes' => json_encode(['DELIVERY', 'PICKUP'])]);
-    app(MenuBackfiller::class)->run();
     pinEveryMenuItem($siteId);
 
     $site = Site::query()->findOrFail($siteId);
@@ -143,7 +139,6 @@ it('serves the menu dining modes on the pool envelope and null everywhere else',
 it('treats an empty dining_modes array as absent rather than publishing nothing', function () {
     [$userId, $siteId, $menuId] = seedMenuWithDishes(['Iced Latte']);
     DB::connection('pgsql')->table('site.menus')->where('id', $menuId)->update(['dining_modes' => json_encode([])]);
-    app(MenuBackfiller::class)->run();
     pinEveryMenuItem($siteId);
 
     expect(app(PoolResolver::class)
@@ -155,7 +150,6 @@ it('hides a collection the owner deleted, even while its dishes stay selected', 
     // removed_at is one-way on a collection. A group header reappearing because
     // its members are still on the page is the failure this guards.
     [$userId, $siteId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks']);
-    app(MenuBackfiller::class)->run();
     pinEveryMenuItem($siteId);
 
     DB::connection('pgsql')->table('content.collections')
@@ -180,7 +174,7 @@ it('does not publish a raw platform slug as a store-card name', function () {
         'store_url' => 'https://ubereats.com/store/x', 'status' => 'ok',
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
     ]);
-    app(MenuBackfiller::class)->run();
+    seedOrderPlatformSidecar($userId, 'uber-eats', 'https://ubereats.com/store/x');
     pinEveryMenuItem($siteId);
 
     $platform = collect(app(PoolResolver::class)
@@ -197,7 +191,6 @@ it('still publishes a real category name', function () {
     // "Drinks" has ref menu:drinks, whose suffix differs from the label by
     // case and would slip through a sloppier comparison.
     [$userId, $siteId] = seedMenuWithDishes(['Iced Latte'], categories: ['Drinks']);
-    app(MenuBackfiller::class)->run();
     pinEveryMenuItem($siteId);
 
     $category = collect(app(PoolResolver::class)

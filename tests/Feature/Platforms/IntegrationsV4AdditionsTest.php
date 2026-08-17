@@ -4,10 +4,10 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BandcampScraper;
+use App\Services\Platforms\Normalizers\SkoolNormalizer;
+use App\Services\Platforms\Normalizers\StravaNormalizer;
+use App\Services\Platforms\Normalizers\TwitchNormalizer;
 use App\Services\Platforms\PlatformInput;
-use App\Services\Platforms\SkoolScraper;
-use App\Services\Platforms\StravaClubScraper;
-use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Shop\ShopConnections;
 use Illuminate\Support\Facades\Cache;
@@ -292,23 +292,28 @@ it('normalises scheme-less and bare-token inputs across platform parsers', funct
     expect(PlatformInput::urlish('@handle'))->toBe('@handle');
     expect(PlatformInput::urlish('plainname'))->toBe('plainname');
 
-    expect(app(SkoolScraper::class)->normalizeUrl('skool.com/my-community?ref=1'))
-        ->toBe('https://www.skool.com/my-community');
-    expect(app(SkoolScraper::class)->normalizeUrl('my-community'))
-        ->toBe('https://www.skool.com/my-community');
+    // Skool/Strava/Twitch are link-only since the 2026-08-16 demotion: their
+    // scrapers are deleted and the identical scheme-less / bare-token parsing
+    // moved verbatim onto the UrlConnect normalizers, which return the whole
+    // {username, url} selection rather than a bare URL. Same inputs, same
+    // canonical URLs — only the parser being asked has changed.
+    expect(app(SkoolNormalizer::class)('skool.com/my-community?ref=1'))
+        ->toBe(['username' => 'my-community', 'url' => 'https://www.skool.com/my-community']);
+    expect(app(SkoolNormalizer::class)('my-community'))
+        ->toBe(['username' => 'my-community', 'url' => 'https://www.skool.com/my-community']);
 
-    expect(app(StravaClubScraper::class)->normalizeUrl('strava.com/clubs/run-club'))
-        ->toBe('https://www.strava.com/clubs/run-club');
-    expect(app(StravaClubScraper::class)->normalizeUrl('run-club'))
-        ->toBe('https://www.strava.com/clubs/run-club');
+    expect(app(StravaNormalizer::class)('strava.com/clubs/run-club'))
+        ->toBe(['username' => 'run-club', 'url' => 'https://www.strava.com/clubs/run-club']);
+    expect(app(StravaNormalizer::class)('run-club'))
+        ->toBe(['username' => 'run-club', 'url' => 'https://www.strava.com/clubs/run-club']);
 
     expect(app(BandcampScraper::class)->normalizeOrigin('myband.bandcamp.com/album/x'))
         ->toBe('https://myband.bandcamp.com');
     expect(app(BandcampScraper::class)->normalizeOrigin('myband'))
         ->toBe('https://myband.bandcamp.com');
 
-    expect(app(TwitchScraper::class)->parseLogin('twitch.tv/somestreamer?x=1'))
-        ->toBe('somestreamer');
+    expect(app(TwitchNormalizer::class)('twitch.tv/somestreamer?x=1'))
+        ->toBe(['username' => 'somestreamer', 'url' => 'https://www.twitch.tv/somestreamer']);
 
     expect(app(VimeoApi::class)->parseSource('vimeo.com/jacksonharries'))
         ->toMatchArray(['apiPath' => 'jacksonharries']);

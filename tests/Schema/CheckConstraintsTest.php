@@ -266,21 +266,9 @@ it('action_events_site_fk exists, is validated, and cascades on delete', functio
 // feature was decommissioned by the platform audit before it ever gained a
 // caller; its table is dropped by migration 20260805110000.)
 
-// ─── site.content_selection ─────────────────────────────────────────────────
-//
-// The NOT VALID -> VALIDATE pair added by 20260730090000 + 20260730090001 (audit
-// LC-ROLLBACK). This lane is the only place the pair is proven end-to-end: it runs
-// against a container the whole migration set was applied to FROM ZERO by
-// scripts/db/apply-migrations.sh, so a future edit that deletes ...090001 surfaces
-// here as convalidated = false instead of as an un-validated CHECK in production.
-
-it('content_selection_entry_type_check constraint exists and is validated', function () {
-    assertCheckConstraintExists('site', 'content_selection', 'content_selection_entry_type_check');
-});
-
-it('content_selection_ref_shape constraint exists and is validated', function () {
-    assertCheckConstraintExists('site', 'content_selection', 'content_selection_ref_shape');
-});
+// (site.content_selection entries removed 2026-08-17 — the table is dropped by
+// slice 7 Phase 6, taking content_selection_entry_type_check and
+// content_selection_ref_shape with it. Media curation is pool:media pins now.)
 
 // ─── catalog.detectors (#TEST-49) ───────────────────────────────────────────
 //

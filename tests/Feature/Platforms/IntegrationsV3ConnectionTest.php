@@ -113,44 +113,35 @@ it('vimeo connect stores the profile and latest videos with embeds', function ()
         ->assertJsonPath('items.0.itemId', '1030868189');
 });
 
-it('twitch connect stores the og-scraped channel card', function () {
+it('twitch connect stores the normalized link, not a scraped card', function () {
+    // Was "stores the og-scraped channel card". Phase 1.2's demotion (2026-08-16)
+    // made twitch link-only: no TwitchScraper, no fetch, so connect resolves
+    // through TwitchNormalizer and stores {username, url} like every other
+    // link-only platform. The link and the handle survive; the card does not.
     $user = iv3User('tw1');
 
-    $this->mock(TwitchScraper::class, function ($m) {
-        $m->shouldReceive('parseLogin')->andReturn('loserfruit');
-        $m->shouldReceive('fetchChannel')->andReturn([
-            'login' => 'loserfruit', 'name' => 'Loserfruit', 'image' => 'https://static-cdn.jtvnw.net/a.png', 'description' => 'Streams.',
-        ]);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/twitch/connect', ['url' => 'twitch.tv/loserfruit'])
+    actingAsUser($user)->postJson('/api/platforms/twitch/connect', ['url' => 'twitch.tv/Loserfruit'])
         ->assertOk()
         ->assertExactJson([
-            // Multi-account platforms echo the account row id on connect.
-            'id' => 'acct-'.substr(sha1('https://www.twitch.tv/loserfruit'), 0, 16),
+            'username' => 'loserfruit',
             'url' => 'https://www.twitch.tv/loserfruit',
-            'login' => 'loserfruit',
-            'name' => 'Loserfruit',
-            'image' => 'https://static-cdn.jtvnw.net/a.png',
-            'description' => 'Streams.',
         ]);
 });
 
 // ── Profile cards ────────────────────────────────────────────────────────────
 
-it('strava connect stores the club card with member count', function () {
+it('strava connect stores the normalized club link, not a member count', function () {
+    // Was "stores the club card with member count". Same demotion as twitch
+    // above: StravaClubScraper is no longer wired, so `members`/`location` are
+    // not fetched and the club is represented by its link alone.
     $user = iv3User('sv1');
-
-    $this->mock(StravaClubScraper::class, function ($m) {
-        $m->shouldReceive('normalizeUrl')->andReturn('https://www.strava.com/clubs/231407');
-        $m->shouldReceive('fetchClub')->andReturn([
-            'name' => 'The Strava Club', 'location' => 'San Francisco, California', 'image' => null, 'description' => null, 'members' => 7081174,
-        ]);
-    });
 
     actingAsUser($user)->postJson('/api/platforms/strava/connect', ['url' => 'https://www.strava.com/clubs/231407'])
         ->assertOk()
-        ->assertJsonPath('members', 7081174);
+        ->assertExactJson([
+            'username' => '231407',
+            'url' => 'https://www.strava.com/clubs/231407',
+        ]);
 });
 
 it('google business connect stores the parsed place and 422s on junk', function () {
@@ -203,15 +194,13 @@ it('google business connect accepts a places-picker payload', function () {
 it('selection and forget work for the new platforms', function () {
     $user = iv3User('lc1');
 
-    $this->mock(TwitchScraper::class, function ($m) {
-        $m->shouldReceive('parseLogin')->andReturn('loserfruit');
-        $m->shouldReceive('fetchChannel')->andReturn(['login' => 'loserfruit', 'name' => 'Loserfruit', 'image' => null, 'description' => null]);
-    });
-
+    // `selection.login` became `selection.username` when twitch went link-only
+    // (2026-08-16) — the connect/selection/forget ROUND TRIP this test exists to
+    // prove is unchanged, only the key it reads back.
     actingAsUser($user)->postJson('/api/platforms/twitch/connect', ['url' => 'twitch.tv/loserfruit'])->assertOk();
     actingAsUser($user)->getJson('/api/platforms/twitch/selection')
         ->assertOk()
-        ->assertJsonPath('selection.login', 'loserfruit');
+        ->assertJsonPath('selection.username', 'loserfruit');
     actingAsUser($user)->deleteJson('/api/platforms/twitch')
         ->assertOk()
         ->assertJsonPath('selection', null);

@@ -17,7 +17,8 @@ use App\Catalog\SurfaceBuilder;
  * has no way to drive a connection here at P1 — the bespoke controller still
  * works, entirely outside catalog awareness. SkoolFetch IS real but is
  * consumed only by the deferred connect-fetch job, never cron-refreshed —
- * hence refreshEvery(0) despite carrying a fetch capability.
+ * hence refreshEvery(0). The fetch capability went with the 2026-08-16
+ * demotion — there is nothing left to scrape.
  */
 class Skool
 {
@@ -36,9 +37,9 @@ class Skool
                 ->shelf(Shelf::Community)
                 ->identifier(IdentifierKind::Slug)
                 ->refreshEvery(0)
-                ->note('bespoke connect via SkoolController — no registered ConnectStrategy (PRSP:170-174); fetch is consumed only by the deferred connect-fetch job, never cron-refreshed')
+                ->connect('connect.skool.url.v1')
+                ->note('link-only since 2026-08-16 (Phase 1.2): UrlConnect + SkoolNormalizer, no fetch, no refresh — the bespoke SkoolController and its scraper were deleted with the demotion')
                 ->canonicalUrl('https://www.skool.com/{handle}')
-                ->fetch('fetch.skool.scrape.v1')
                 ->notConnectable()
                 ->build(),
         ];

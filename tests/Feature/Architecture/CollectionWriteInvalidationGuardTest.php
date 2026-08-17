@@ -102,7 +102,6 @@ const COLLECTION_WRITE_REGISTRY = [
     'ShopContentWriter::retireAbsent' => 'SHOP',
     'ShopBackfiller::linkToCollection' => 'SHOP',
 
-    'MenuBackfiller::migrateOrderPlatforms' => 'MENU',
     'MenuFetchJob::syncOrderPlatforms' => 'MENU',
     'MenuFetchJob::clearStorefronts' => 'MENU',
 

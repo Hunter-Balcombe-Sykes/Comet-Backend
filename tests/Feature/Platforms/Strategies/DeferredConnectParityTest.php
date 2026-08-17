@@ -9,15 +9,11 @@ use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
 use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
-use App\Services\Platforms\Strategies\Connect\StravaConnect;
-use App\Services\Platforms\Strategies\Connect\TwitchConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Connect\VimeoConnect;
 use App\Services\Platforms\Strategies\Connect\YoutubeConnect;
 use App\Services\Platforms\Strategies\Connect\YoutubeMusicConnect;
 use App\Services\Platforms\Strategies\Contracts\DeferredConnect;
-use App\Services\Platforms\StravaClubScraper;
-use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
 
@@ -93,49 +89,13 @@ it('bandcamp: identify() and resolve() select the same identity key on success, 
     expect($badIdentify->status)->toBe($badResolve->status)->toBe(422);
 });
 
-it('twitch: identify() and resolve() select the same identity key on success, and share the parse-fail shape', function () {
-    $this->partialMock(TwitchScraper::class, function ($m) {
-        $m->shouldReceive('fetchChannel')->andReturn(['name' => 'Streamer', 'image' => 'i', 'description' => 'd']);
-    });
-
-    $strategy = app(TwitchConnect::class);
-    $identify = $strategy->identify('validuser123');
-    $resolve = $strategy->resolve('validuser123');
-
-    expect($identify->failed())->toBeFalse();
-    expect($resolve->failed())->toBeFalse();
-    // TwitchFetch reads login.
-    expect($identify->selection['login'])->toBe('validuser123');
-    expect($identify->selection['login'])->toBe($resolve->selection['login']);
-
-    // Too short for TwitchScraper::parseLogin's {3,25} pattern.
-    $badIdentify = $strategy->identify('ab');
-    $badResolve = $strategy->resolve('ab');
-    expect($badIdentify->error)->toBe($badResolve->error)->toBeNull();
-    expect($badIdentify->status)->toBe($badResolve->status)->toBe(422);
-});
-
-it('strava: identify() and resolve() select the same identity key on success, and share the parse-fail shape', function () {
-    $this->partialMock(StravaClubScraper::class, function ($m) {
-        $m->shouldReceive('fetchClub')->andReturn(['name' => 'Club', 'location' => null, 'image' => null, 'description' => null, 'members' => 5]);
-    });
-
-    $strategy = app(StravaConnect::class);
-    $identify = $strategy->identify('myclub123');
-    $resolve = $strategy->resolve('myclub123');
-
-    expect($identify->failed())->toBeFalse();
-    expect($resolve->failed())->toBeFalse();
-    // StravaFetch reads url.
-    expect($identify->selection['url'])->toBe('https://www.strava.com/clubs/myclub123');
-    expect($identify->selection['url'])->toBe($resolve->selection['url']);
-
-    // Too short for StravaClubScraper::normalizeUrl's {2,60} bare-token pattern.
-    $badIdentify = $strategy->identify('a');
-    $badResolve = $strategy->resolve('a');
-    expect($badIdentify->error)->toBe($badResolve->error)->toBeNull();
-    expect($badIdentify->status)->toBe($badResolve->status)->toBe(422);
-});
+// REMOVED: the 'twitch:' and 'strava:' identify()/resolve() parity cases.
+// Both platforms were demoted to link-only, so TwitchConnect/StravaConnect
+// (and their TwitchScraper/StravaClubScraper collaborators) are deleted. They
+// now connect through the shared UrlConnect + a normalizer, which has no
+// deferred identify()/resolve() split for this contract to hold together —
+// there is no fetch stage left to defer. UrlConnect's non-DeferredConnect
+// status is pinned by the blast-radius guard at the bottom of this file.
 
 it('vimeo: identify() and resolve() select the same identity key on success, and share the parse-fail shape', function () {
     $this->partialMock(VimeoApi::class, function ($m) {

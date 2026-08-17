@@ -1,7 +1,6 @@
 <?php
 
 use App\Services\Http\SafeUrlFetcher;
-use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 
 afterEach(function () {
@@ -62,23 +61,9 @@ it('vimeo maps Simple-API videos with player embed URLs', function () {
 });
 
 // ── Twitch ───────────────────────────────────────────────────────────────────
-
-it('twitch parses channel inputs and og-scrapes the channel card', function () {
-    $scraper = new TwitchScraper(mediaFetcherWith([
-        'twitch.tv/loserfruit' => ['status' => 200, 'body' => '<meta property="og:title" content="Loserfruit - Twitch"/>'
-            .'<meta property="og:description" content="Streams."/>'
-            .'<meta property="og:image" content="https://static-cdn.jtvnw.net/avatar.png"/>', 'finalUrl' => 'x', 'contentType' => 'text/html'],
-    ]));
-
-    expect($scraper->parseLogin('https://www.twitch.tv/Loserfruit/videos'))->toBe('loserfruit');
-    expect($scraper->parseLogin('@loserfruit'))->toBe('loserfruit');
-    expect($scraper->parseLogin('https://www.twitch.tv/directory'))->toBeNull();
-
-    $channel = $scraper->fetchChannel('loserfruit');
-    expect($channel)->toMatchArray([
-        'login' => 'loserfruit',
-        'name' => 'Loserfruit',
-        'image' => 'https://static-cdn.jtvnw.net/avatar.png',
-        'description' => 'Streams.',
-    ]);
-});
+//
+// REMOVED: 'twitch parses channel inputs and og-scrapes the channel card'.
+// Twitch was demoted to link-only, so TwitchScraper is deleted — there is no
+// channel card to og-scrape any more. The surviving half of that test (login
+// parsing / reserved-path rejection) now lives on TwitchNormalizer and is
+// covered by tests/Feature/Platforms/IntegrationsV4AdditionsTest.php.
