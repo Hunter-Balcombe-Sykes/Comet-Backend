@@ -186,6 +186,9 @@ it('T16c: the full ShopBrandResource shape, including the productsCuratedAt stam
         'logo' => null,
         'discountCode' => '',
         'selectionMode' => 'manual',
+        // Sell opt-in (2026-08-17): sparse per-store flag — this fixture mints
+        // no anchor connection carrying it, so absent = ON.
+        'autoLatest' => true,
         // Task 8: linkMode now comes from ShopContentReader (site.sites.
         // shop_link_mode) — shopSelLockUser() has no site row, so it falls
         // to Site::DEFAULT_SHOP_LINK_MODE ('checkout'), not ShopBrand's own

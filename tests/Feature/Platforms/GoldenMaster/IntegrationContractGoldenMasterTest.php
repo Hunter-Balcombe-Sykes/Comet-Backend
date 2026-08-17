@@ -438,7 +438,7 @@ it('freezes the shop brands list contract', function () {
             // Site::DEFAULT_SHOP_LINK_MODE ('checkout'), not the 'product'
             // default the retired per-brand link_mode column carried. Same
             // documented divergence as ShopEndpointParityTest's GET /brands.
-            'selectionMode' => 'manual', 'linkMode' => 'checkout', 'referralQuery' => '',
+            'selectionMode' => 'manual', 'autoLatest' => true, 'linkMode' => 'checkout', 'referralQuery' => '',
             'individual' => false, 'products' => [],
         ]]]);
 });

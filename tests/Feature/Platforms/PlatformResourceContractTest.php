@@ -429,6 +429,10 @@ it('shopify addBrand returns the canonical brand object shape', function () {
             'logo' => 'https://b/logo.png',
             'discountCode' => '',
             'selectionMode' => 'manual',
+            // Sell opt-in (2026-08-17): addBrand mints the anchor connection with
+            // an explicit false — a newly added store does not auto-publish.
+            // The brands-list assertion below reads true (absent = ON).
+            'autoLatest' => false,
             // Task 8: addBrand()'s response is now built from ShopContentReader
             // (matching GET /brands) — linkMode is derived from site.sites.
             // shop_link_mode, and platformContractUser() has no site row, so
@@ -465,7 +469,7 @@ it('shopify brands list strips unknown per-brand keys', function () {
             'id' => 'brand-1', 'provider' => 'shopify', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
             'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE',
             // Task 8: see the addBrand test above for why 'checkout'.
-            'selectionMode' => 'manual', 'linkMode' => 'checkout', 'referralQuery' => '',
+            'selectionMode' => 'manual', 'autoLatest' => true, 'linkMode' => 'checkout', 'referralQuery' => '',
             'individual' => false, 'products' => [],
         ]]]);
 });

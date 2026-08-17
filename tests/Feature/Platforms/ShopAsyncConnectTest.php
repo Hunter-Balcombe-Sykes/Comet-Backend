@@ -121,6 +121,11 @@ it('T1: with the deferred flag empty, addBrand returns the pre-change 200 shape 
             'logo' => 'https://t1.example.com/logo.png',
             'discountCode' => '',
             'selectionMode' => 'manual',
+            // Sell opt-in (2026-08-17): addBrand mints the store's anchor
+            // connection with an explicit false, so a newly added store does
+            // NOT auto-publish its latest product. Absent would mean ON; the
+            // list endpoints over pre-existing rows still read true.
+            'autoLatest' => false,
             // Task 8: addBrand()'s response is now built from ShopContentReader
             // (matching GET /brands, which Task 7 already repointed) instead of
             // the legacy ShopBrand::toBrandArray() — linkMode is derived from
@@ -547,6 +552,7 @@ it('T5: a pending brand settles to ready after the job runs, and the poll report
                 'logo' => 'https://t5.example.com/logo.png',
                 'discountCode' => '',
                 'selectionMode' => 'manual',
+                'autoLatest' => false,
                 // Task 8: ShopBrandConnectJob's success write now also
                 // upserts content.storefronts, so connectStatus()'s
                 // brandPayload() finds a content.* row here (no legacy
