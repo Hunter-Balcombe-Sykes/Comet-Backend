@@ -122,12 +122,22 @@ it('merges on a corroborating key only across different sources', function () {
 
 it('ignores a corroborating value too short to mean anything', function () {
     $result = (new Resolver)->resolve([
-        idItem('a:1', 'src-a', 'menu_item', [idKey(KeyClass::OfferingName, 'Fries')]),
-        idItem('b:1', 'src-b', 'menu_item', [idKey(KeyClass::OfferingName, 'Fries')]),
+        idItem('a:1', 'src-a', 'menu_item', [idKey(KeyClass::OfferingName, 'Tea')]),
+        idItem('b:1', 'src-b', 'menu_item', [idKey(KeyClass::OfferingName, 'Tea')]),
     ]);
 
-    // 'Fries' is under OfferingName's 8-character floor.
+    // 'Tea' is under OfferingName's 4-character floor (8 → 4 on 2026-08-18:
+    // one owner's "Fries" on two ordering platforms IS one dish).
     expect($result->groups)->toHaveCount(2);
+});
+
+it('merges a same-owner dish across two ordering platforms on its bare name (2026-08-18)', function () {
+    $result = (new Resolver)->resolve([
+        idItem('ubereats:1', 'src-ue', 'menu_item', [idKey(KeyClass::OfferingName, 'Water')]),
+        idItem('doordash:1', 'src-dd', 'menu_item', [idKey(KeyClass::OfferingName, 'Water')]),
+    ]);
+
+    expect($result->groups)->toHaveCount(1);
 });
 
 it('merges a short dish name when its category corroborates it', function () {

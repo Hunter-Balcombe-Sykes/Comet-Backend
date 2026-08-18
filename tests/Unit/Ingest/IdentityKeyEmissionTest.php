@@ -126,10 +126,11 @@ it('emits offering-name-in-category when a menu item has a collection, and offer
     $without = ['kind' => 'menu_item', 'headline' => 'Fries'];
 
     expect(emitted($withCategory, KeyClass::OfferingNameInCategory))->toBe(['sides|fries'])
-        // "Fries" alone canonicalises to 5 chars, below OfferingName's min of 8.
-        ->and(emitted($withCategory, KeyClass::OfferingName))->toBe([])
+        // "Fries" (5 chars) clears OfferingName's floor since 2026-08-18 (8 → 4):
+        // a dish name is scoped to one owner's catalogue.
+        ->and(emitted($withCategory, KeyClass::OfferingName))->toBe(['fries'])
         ->and(emitted($without, KeyClass::OfferingNameInCategory))->toBe([])
-        ->and(emitted($without, KeyClass::OfferingName))->toBe([]);
+        ->and(emitted($without, KeyClass::OfferingName))->toBe(['fries']);
 });
 
 it('emits one offering-name-in-category key per category a multi-category item belongs to', function () {

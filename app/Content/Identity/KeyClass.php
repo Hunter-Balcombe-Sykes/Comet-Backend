@@ -58,7 +58,13 @@ enum KeyClass: string
     {
         return match ($this) {
             self::TitleOnly => 12,
-            self::OfferingName => 8,
+            // 8 → 4 (2026-08-18, menus merge proof): a dish or service is
+            // scoped to ONE owner's catalogue, where "Water" on Uber Eats and
+            // "Water" on DoorDash are the same thing however short the name —
+            // the category key alone kept them apart ("Beverages" vs "Drinks").
+            // Cross-source only (Corroborating), so a name never merges two
+            // dishes of one platform.
+            self::OfferingName => 4,
             // Category corroborates, so a short dish name becomes usable:
             // "Fries" alone is nothing, "Sides|Fries" is a real match. This is
             // what stops the min-8 rule regressing short-name menu merges.
