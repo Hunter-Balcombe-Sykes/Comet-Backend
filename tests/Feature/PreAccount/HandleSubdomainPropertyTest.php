@@ -9,12 +9,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
-// B4 (spec 2026-08-18-pipeline-assurance §5). SIGNUP-1 shipped because the two
-// normalisations were only ever tested on a slug-shaped seed. This is the
-// property version: for ANY name, the allocated handle is a valid DNS label and
-// re-deriving a subdomain from it is the identity — so handle == subdomain holds
-// structurally, not by luck. Plus the business-name cap that guards the owner's
-// first PATCH after claim (display_name max:15 for business accounts).
+// B4 (spec 2026-08-18-pipeline-assurance §5). Two independent properties over
+// ~30 deliberately ugly names:
+//   1. every name allocates a valid DNS-label handle (below).
+//   2. wordTrim() never exceeds the 15-char business-name cap and never cuts
+//      mid-word.
+//
+// The handle==subdomain invariant itself (SIGNUP-1) is NOT proven by
+// re-deriving a subdomain from the handle and comparing — see the correction
+// on the first it() below. It is guarded by HandleSubdomainCallSiteGuardTest
+// (pins that no signup path may re-derive) and driven end-to-end by the third
+// test here, over the nastiest names in this file's own dataset.
 
 beforeEach(function () {
     setupUsersTable();
@@ -57,12 +62,44 @@ dataset('ugly_names', [
     'tabs' => ["Tab\tName"],
 ]);
 
-it('allocates a handle that is a valid DNS label and a subdomain fixed point', function (string $name) {
+// NOT a SIGNUP-1 regression guard. Corrected per review 2026-08-19: this test
+// was originally written (and its "fixed point" framing implied) that
+// re-deriving a subdomain from the allocated handle via
+// SiteProvisioningService::subdomainBaseFromHandle() and comparing it back
+// proves handle==subdomain. It does not, for three compounding reasons:
+//   1. subdomainBaseFromHandle() has ZERO live call sites — the real signup
+//      path (createSiteForHandle(), :39) sets
+//      `$subdomain = strtolower(trim($handleLc))` directly, verbatim reuse,
+//      no re-derivation.
+//   2. HandleSubdomainCallSiteGuardTest explicitly FORBIDS either signup call
+//      site from calling ->subdomainBaseFromHandle( — the SIGNUP-1 fix was to
+//      stop re-deriving, not to make re-derivation idempotent.
+//   3. HandleAllocator::allocate() already guarantees lowercase [a-z0-9-] with
+//      no leading/trailing hyphen, and subdomainBaseFromHandle() only replaces
+//      [^a-z0-9]+ and trims '-' — a no-op on a string already in that shape.
+//      So whenever the DNS-label assertion below passes, the second assertion
+//      passes by mathematical necessity; it cannot independently fail and
+//      could not have caught the original SIGNUP-1 bug (a different,
+//      now-removed re-derivation path).
+// What this test actually proves — genuine, worth keeping — is property 1:
+// EVERY one of the 30 ugly names allocates a handle that is a valid DNS
+// label. The second assertion is kept only as a labelled-honest idempotence
+// property of subdomainBaseFromHandle() itself, a decommissioned helper that
+// still exists on the class; it is not evidence for the handle==subdomain
+// invariant. That invariant is guarded elsewhere: statically by
+// HandleSubdomainCallSiteGuardTest (no signup path may re-derive), and
+// end-to-end by the third test below (drives requestBuild() for real and
+// reads both sides back out of the DB).
+it('allocates a handle that is a valid DNS label for every ugly name', function (string $name) {
     $handle = app(HandleAllocator::class)->allocate($name)['handle_lc'];
-    $subdomain = app(SiteProvisioningService::class)->subdomainBaseFromHandle($handle);
 
-    expect($handle)->toMatch('/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/', "handle '{$handle}' from '{$name}' is not a DNS label")
-        ->and($subdomain)->toBe($handle, "subdomainBaseFromHandle('{$handle}') diverged to '{$subdomain}' for '{$name}'");
+    expect($handle)->toMatch('/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/', "handle '{$handle}' from '{$name}' is not a DNS label");
+
+    // Idempotence of the decommissioned subdomainBaseFromHandle() helper on an
+    // already-valid handle — a property of that helper, NOT the SIGNUP-1
+    // invariant (see comment above). Holds trivially per point 3 above.
+    $subdomain = app(SiteProvisioningService::class)->subdomainBaseFromHandle($handle);
+    expect($subdomain)->toBe($handle, "subdomainBaseFromHandle('{$handle}') is not idempotent on its own already-valid output for '{$name}'");
 })->with('ugly_names');
 
 it('word-trims a business name to ≤ 15 chars at a word boundary', function (string $name) {
@@ -73,8 +110,11 @@ it('word-trims a business name to ≤ 15 chars at a word boundary', function (st
     if ($squished !== '' && mb_strlen($squished) <= 15) {
         expect($trimmed)->toBe($squished);
     } elseif ($trimmed !== '' && ! str_contains($trimmed, ' ') && mb_strlen(explode(' ', $squished)[0]) > 15) {
-        // single over-long first word: a hard cut is the documented behaviour
-        expect(mb_strlen($trimmed))->toBe(15);
+        // single over-long first word: a hard cut is the documented behaviour.
+        // wordTrim() also strips trailing punctuation off the cut (BusinessName
+        // :30-38), so the result can legitimately be SHORTER than 15 — <= is the
+        // actual rule, not ==.
+        expect(mb_strlen($trimmed))->toBeLessThanOrEqual(15);
     } elseif ($trimmed !== '') {
         // multi-word: the kept prefix must end exactly at a word boundary
         expect(str_starts_with($squished, $trimmed))->toBeTrue("'{$trimmed}' is not a prefix of '{$squished}'")
@@ -82,6 +122,10 @@ it('word-trims a business name to ≤ 15 chars at a word boundary', function (st
     }
 })->with('ugly_names');
 
+// THE real invariant, driven end-to-end: requestBuild() -> HandleAllocator ->
+// createSiteForHandle() (verbatim reuse, no re-derivation) -> read BOTH sides
+// back out of the DB. 10 of the nastiest names in this file's dataset, each
+// with its own ipHash (per-IP cap = 3 unclaimed builds).
 it('converges handle and subdomain end to end on the business path for the ugliest names', function (string $name, string $salt) {
     $build = app(PreAccountBuildService::class)->requestBuild(
         'business', 'google_business', 'ChIJ'.md5($name), $name, hash('sha256', $salt),
@@ -97,4 +141,10 @@ it('converges handle and subdomain end to end on the business path for the uglie
     'accented n' => ['Añada', 'b'],
     'emoji' => ['Glow ✨ Studio', 'c'],
     'unicode only' => ['日本料理', 'd'],
+    'leading digit' => ['3 Little Pigs', 'e'],
+    '23 chars' => ['Melbourne Tattoo Company', 'f'],
+    'all caps' => ['LOUD BARBERS', 'g'],
+    'double spaces' => ['Two  Spaces   Here', 'h'],
+    'trailing punctuation' => ["Errol's.", 'i'],
+    'periods' => ['D.O.C. Pizza', 'j'],
 ]);
