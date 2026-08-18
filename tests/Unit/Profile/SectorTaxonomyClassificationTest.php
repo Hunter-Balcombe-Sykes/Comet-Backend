@@ -531,3 +531,76 @@ it('maps every ambiguous category to a real, non-food sector slug', function () 
             ->and($category)->toBe(strtolower(trim($category)));
     }
 });
+
+// ── word-boundary matching on the CATEGORY path (2026-08-19) ─────────────────
+//
+// KEYWORD_SECTORS is matched against SPACED category strings — Google's
+// primaryTypeDisplayName and Instagram's businessCategoryName — never against
+// a run-together handle (that is classifyText's TEXT_KEYWORD_SECTORS, which
+// keeps bare substring matching by design). Bare str_contains therefore let a
+// short key capture the START of an unrelated word: 'spa' took "SPAnish
+// restaurant" and "SPAce rental", 'bar' took "BARbecue"/"BARrister", and
+// 'sport' took "tranSPORT service". Every one of those left the correct slug —
+// and the first two left FOOD_SECTORS, which dark-switches can_use_menu /
+// can_use_reservations / can_use_online_ordering on a synced business.
+
+it('does not classify a keyword that only appears inside another word', function (string $input, ?string $expected) {
+    expect(SectorTaxonomy::fromGoogleCategory($input))->toBe($expected);
+})->with([
+    'Spanish restaurant is not a spa' => ['Spanish restaurant', 'restaurant'],
+    'Space rental is not a spa' => ['Space rental', null],
+    'Transport service is not a gym' => ['Transport service', null],
+    'Barbecue joint is not a bar' => ['Barbecue joint', null],
+    'Barrister chambers is not a bar' => ['Barrister chambers', null],
+]);
+
+// Both keys genuinely appear as whole words in "Sports bar". The map's own
+// ordering discipline decides it: the head noun beats the leading qualifier,
+// so the generic 'sport' must sit after every key it can co-occur with.
+// The Instagram path already returned 'bar' via INSTAGRAM_CATEGORY_SECTORS'
+// exact entry; Google had no such shield.
+it('resolves the head noun, not the leading qualifier, when both are keywords', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromGoogleCategory($input))->toBe($expected);
+})->with([
+    'Sports bar' => ['Sports bar', 'bar'],
+    'Sports cafe' => ['Sports cafe', 'cafe'],
+]);
+
+// The counterweight: boundary matching must not cost the stem keys their
+// prefix matches, nor 'sport' the categories it legitimately owns.
+it('still classifies the stem and whole-word keywords it always did', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromGoogleCategory($input))->toBe($expected);
+})->with([
+    'Day spa' => ['Day spa', 'spa'],
+    'Spa' => ['Spa', 'spa'],
+    'Sports centre' => ['Sports centre', 'gym'],
+    'Sports club' => ['Sports club', 'gym'],
+    'Wine bar' => ['Wine bar', 'bar'],
+    'Restaurant and Bar' => ['Restaurant and Bar', 'restaurant'],
+    'Landscaping services' => ['Landscaping services', 'landscaper'],
+    'Cleaning service' => ['Cleaning service', 'cleaner'],
+    'Jewelry store' => ['Jewelry store', 'jewellery'],
+    'Physio clinic' => ['Physio clinic', 'physiotherapist'],
+]);
+
+// A whole-word anchor must not swallow the plural. Google emits singular type
+// names, but nothing guarantees that of every source, and losing the slug is a
+// silent downgrade to "no sector" rather than a visible wrong one.
+it('still matches a whole-word keyword in its plural form', function (string $input, string $expected) {
+    expect(SectorTaxonomy::fromGoogleCategory($input))->toBe($expected);
+})->with([
+    'Spas' => ['Spas', 'spa'],
+    'Day spas' => ['Day spas', 'spa'],
+    'Bars' => ['Bars', 'bar'],
+    'Wine bars' => ['Wine bars', 'bar'],
+]);
+
+// The Instagram path shares classify(), so the same inputs must fold the same
+// way there — the exact map only shields the handful of names it lists.
+it('folds the same category identically on the Instagram path', function (string $input, ?string $expected) {
+    expect(SectorTaxonomy::fromInstagramCategory($input))->toBe($expected);
+})->with([
+    'Spanish restaurant' => ['Spanish restaurant', 'restaurant'],
+    'Sports bar' => ['Sports bar', 'bar'],
+    'Transport service' => ['Transport service', null],
+]);
