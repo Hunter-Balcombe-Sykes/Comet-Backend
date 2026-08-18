@@ -1646,6 +1646,12 @@ class ProjectionWriter
                 'attribution' => isset($entry['attribution']) && is_array($entry['attribution']) && $entry['attribution'] !== []
                     ? json_encode($entry['attribution'])
                     : null,
+                // Owned-ness has to be recorded HERE because this is the last
+                // place it is knowable: the fingerprint stored beside it is
+                // 'url-'||sha1(ref), and sha1 does not run backwards. Without
+                // it "no bytes" cannot be told apart from "no bytes, correctly"
+                // — which made the R8 tail query over-report ~10x on dev.
+                'mirror_eligible' => MediaMirror::isOwnedEntry($entry),
                 'created_at' => now(),
             ];
         }
@@ -1685,7 +1691,23 @@ class ProjectionWriter
         // 32 unmirrored assets and one warning line to explain them.
         $skipped = [];
         $candidates = [];
+        $ownedAssetIds = [];
+        $borrowedAssetIds = [];
         foreach ($entryByFingerprint as $fingerprint => [$entry, $_minimisedUrl]) {
+            $assetId = $assetIdByFingerprint[$fingerprint] ?? null;
+            $owned = MediaMirror::isOwnedEntry($entry);
+            // Collected for BOTH classes, before any of the skips below, so a
+            // borrowed row minted before mirror_eligible existed still gets its
+            // false — otherwise the column would only ever heal one way and the
+            // NULLs that remained would be indistinguishable from unknowns.
+            if ($assetId !== null) {
+                if ($owned) {
+                    $ownedAssetIds[] = (string) $assetId;
+                } else {
+                    $borrowedAssetIds[] = (string) $assetId;
+                }
+            }
+
             $rawUrl = $entry['url'] ?? null;
             if (! is_string($rawUrl) || $rawUrl === '') {
                 $skipped['no_url'] = ($skipped['no_url'] ?? 0) + 1;
@@ -1695,12 +1717,11 @@ class ProjectionWriter
             // Borrowed media (a Google Places photo) is CORRECT to skip — the
             // licence forbids storing it. Counted so "correctly skipped" and
             // "wrongly dropped" stop looking the same from outside.
-            if (! MediaMirror::isOwnedEntry($entry)) {
+            if (! $owned) {
                 $skipped['not_owned'] = ($skipped['not_owned'] ?? 0) + 1;
 
                 continue;
             }
-            $assetId = $assetIdByFingerprint[$fingerprint] ?? null;
             if ($assetId === null) {
                 $skipped['unresolved_asset'] = ($skipped['unresolved_asset'] ?? 0) + 1;
 
@@ -1708,6 +1729,8 @@ class ProjectionWriter
             }
             $candidates[(string) $assetId] = $rawUrl;
         }
+
+        $this->healMirrorEligible($ownedAssetIds, $borrowedAssetIds, $chunk);
 
         $dispatched = 0;
         $max = MediaMirror::maxAttempts();
@@ -1768,6 +1791,29 @@ class ProjectionWriter
             'dispatched' => $dispatched,
             'skipped' => $skipped,
         ]);
+    }
+
+    /**
+     * Re-derive mirror_eligible for rows that predate the column (20260819004000).
+     *
+     * `WHERE mirror_eligible IS NULL` is what makes this a one-time repair per
+     * row rather than an UPDATE of every asset on every projection pass — and
+     * it also means a value already written at mint is never second-guessed
+     * here, where the entry is the only evidence available.
+     *
+     * @param  list<string>  $ownedAssetIds
+     * @param  list<string>  $borrowedAssetIds
+     */
+    private function healMirrorEligible(array $ownedAssetIds, array $borrowedAssetIds, int $chunk): void
+    {
+        foreach ([[true, $ownedAssetIds], [false, $borrowedAssetIds]] as [$eligible, $ids]) {
+            foreach (array_chunk($ids, $chunk) as $batch) {
+                DB::table('content.media_assets')
+                    ->whereIn('id', $batch)
+                    ->whereNull('mirror_eligible')
+                    ->update(['mirror_eligible' => $eligible]);
+            }
+        }
     }
 
     /**
