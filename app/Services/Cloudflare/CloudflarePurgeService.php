@@ -177,8 +177,11 @@ class CloudflarePurgeService
 
         Log::info('cloudflare.purge.handle', ['handle' => $h, 'mode' => 'prefix', 'prefixes' => count($prefixes), 'api_urls' => count($urls)]);
 
-        $this->purgePrefixes($prefixes);
+        // API wire FIRST, HTML second: the render that follows the HTML purge
+        // reads the API, so the API's cached copy must already be gone or the
+        // fresh HTML is built from the pre-edit payload and re-pinned.
         $this->purgeUrls($urls);
+        $this->purgePrefixes($prefixes);
     }
 
     /**

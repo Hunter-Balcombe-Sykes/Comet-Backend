@@ -98,7 +98,10 @@ it('purgeHandle purges the site host by PREFIX and the API subrequests by file (
         'https://dev-api.partna.au/api/public/profiles/mixed-case/platforms',
     ]);
     // Exactly two requests: the enumeration of ~2,481 files across ~83 calls is gone.
+    // API wire first, HTML prefix second — the fresh render reads the API.
     expect(Http::recorded())->toHaveCount(2);
+    expect(Http::recorded()[0][0]['files'] ?? null)->not->toBeNull();
+    expect(Http::recorded()[1][0]['prefixes'] ?? null)->not->toBeNull();
     // No sitepage URL is ever listed as a file any more.
     expect(collect(cfRecordedFiles())->filter(fn ($u) => str_contains($u, 'mixed-case.partna.au'))->all())->toBe([]);
 });

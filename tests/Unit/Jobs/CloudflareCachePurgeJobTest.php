@@ -354,10 +354,11 @@ it('does NOT escalate on terminal failure for a routine (non-moderation) purge �
     Notification::assertNothingSent();
 });
 
-it('ships ONE follow-up by default — 60 s, clearing the API payload s-maxage window (owner plan, 2026-08-19)', function () {
+it('ships ONE follow-up by default — 15 s, clearing the profile wire s-maxage window (owner plan, 2026-08-19)', function () {
     $schedule = config('partna.cache.purge_followup_schedule');
 
-    expect($schedule)->toBe([60]);
-    // Must clear the follow-up lock (5) and the API layer's 30 s s-maxage.
-    expect(min($schedule))->toBeGreaterThan(30);
+    expect($schedule)->toBe([15]);
+    // Must clear the follow-up lock (5) and the profile wire's s-maxage.
+    expect(min($schedule))->toBeGreaterThan(5)
+        ->and(min($schedule))->toBeGreaterThan((int) config('partna.cache.public_profile_max_age'));
 });

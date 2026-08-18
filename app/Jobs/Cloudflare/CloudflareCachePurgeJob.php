@@ -166,10 +166,10 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         $purge->purgeHandle($h, $customDomain);
 
         // A visitor can hit the just-purged URL while the API payload layer is
-        // still inside its 30 s s-maxage window (the pages Worker's subrequest
-        // cache + any edge outside our zone's purge reach) — the router would
+        // still inside its s-maxage window (5 s for the profile wire — Laravel
+        // Cloud's edge sits outside our zone's purge reach) — the router would
         // then re-pin that stale render under its 24h HTML TTL. ONE delayed
-        // follow-up (60 s by default; was three at 120/300/900 when its job was
+        // follow-up (15 s by default; was three at 120/300/900 when its job was
         // also to cover edits the 240 s lock swallowed — that lock is 35 s now)
         // evicts any such re-pin. Cheap: it is one prefix request.
         //
@@ -178,7 +178,7 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         // 5 s follow-up lock expires long before any delay.
         if (! $this->followUp) {
             /** @var list<int> $schedule */
-            $schedule = array_values((array) config('partna.cache.purge_followup_schedule', [60]));
+            $schedule = array_values((array) config('partna.cache.purge_followup_schedule', [15]));
 
             foreach ($schedule as $index => $offsetSeconds) {
                 // Forward $bulk so a takedown's follow-ups also stay on the

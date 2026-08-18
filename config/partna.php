@@ -2410,6 +2410,15 @@ return [
         // GET responses. Drives both max-age and s-maxage on the Cache-Control header.
         'public_max_age' => (int) env('PARTNA_CACHE_PUBLIC_MAX_AGE', 900), // 15 min
 
+        // The sitepage wire (`api/public/profiles/*`) takes its OWN short TTL
+        // (owner plan, 2026-08-19): the router's HTML cache is purged the moment
+        // an edit lands and the next render reads this endpoint through Laravel
+        // Cloud's edge (outside our purge reach) — a long s-maxage there re-pins
+        // pre-edit data under the router's 24 h key. 5 s bounds that window; the
+        // backend's 60 s in-process payload cache keyed on updated_at keeps the
+        // origin cheap. No SWR on this prefix.
+        'public_profile_max_age' => (int) env('PARTNA_CACHE_PUBLIC_PROFILE_MAX_AGE', 5),
+
         // CFG-3: seconds an expired edge entry may be served stale while the CDN
         // refreshes it in the background. 0 (the default) omits the directive
         // entirely, so this ships inert and is enabled per environment via env var.
@@ -2435,12 +2444,13 @@ return [
         // Absolute offsets, in seconds FROM THE PRIMARY PURGE, at which follow-up
         // purges land. Not per-hop delays: the primary dispatches all of them
         // up-front, each with its own delay and depth. One entry since the
-        // 2026-08-19 prefix-purge rewrite (was 120/300/900): it clears the API
-        // payload's 30 s s-maxage window for a visitor who raced the primary
-        // purge and could have re-pinned a stale render under the router's 24h
-        // TTL. Every entry MUST exceed CloudflareCachePurgeJob's follow-up
-        // $uniqueFor (5) or a follow-up would coalesce into its own predecessor.
-        'purge_followup_schedule' => [60],
+        // 2026-08-19 prefix-purge rewrite (was 120/300/900): it clears the
+        // profile wire's 5 s s-maxage window (public_profile_max_age) for a
+        // visitor who raced the primary purge and could have re-pinned a stale
+        // render under the router's 24h TTL. Every entry MUST exceed
+        // CloudflareCachePurgeJob's follow-up $uniqueFor (5) or a follow-up
+        // would coalesce into its own predecessor.
+        'purge_followup_schedule' => [15],
 
         // R3-CACHE-1: ops lever for ReconcilePlatformTakedownJob's purge fan-out.
         // 0 (default) = off — the cloudflare_bulk lane's strict-priority
