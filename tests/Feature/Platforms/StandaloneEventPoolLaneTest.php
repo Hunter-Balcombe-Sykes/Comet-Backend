@@ -300,3 +300,26 @@ it('still seeds the connection when the owner has no site to pin an item to', fu
     expect($rid)->toStartWith('event-');
     expect(speItemCount($user))->toBe(0);
 });
+
+it('carries the scraped event image into content.item_media as the cover', function () {
+    // The scrape returns the event image (JSON-LD `image`, stored verbatim
+    // in the payload) but projectStandalone() used to drop it under a Phase 3
+    // ruling that LinkPoolWriter has since reversed for links and that
+    // SchemaOrgEventProjector never had — so an event added by hand or found
+    // in a bio link had no picture while the same event via a connected
+    // organiser did (gsnwilliams, 2026-08-18). Same `media` projection as
+    // the connector lane: a source_url-only asset, role `cover`.
+    $url = 'https://www.eventbrite.com/e/cool-show-123';
+    speMockEventbrite();
+    $user = speUser('speimg');
+
+    actingAsUser($user)->postJson('/api/platforms/eventbrite/events', ['url' => $url])->assertOk();
+
+    $itemId = DB::connection('pgsql')->table('content.items')->where('user_id', $user->id)->value('id');
+    $media = DB::connection('pgsql')->table('content.item_media')->where('item_id', $itemId)->get();
+    expect($media)->toHaveCount(1)
+        ->and($media[0]->role)->toBe('cover');
+
+    $asset = DB::connection('pgsql')->table('content.media_assets')->where('id', $media[0]->asset_id)->first();
+    expect($asset->source_url)->toBe('https://img.example/e.jpg');
+});

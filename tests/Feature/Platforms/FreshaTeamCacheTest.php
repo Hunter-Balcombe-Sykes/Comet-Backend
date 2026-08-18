@@ -173,3 +173,34 @@ it('does not purge the sitepage cache when caching the roster', function () {
 
     Queue::assertNotPushed(CloudflareCachePurgeJob::class);
 });
+
+it('serves /team from a router-placed row keyed by slug, and writes the cache back to that same row', function () {
+    // The routing lane (SourceReconciler / SuggestionApplier) keys a Fresha
+    // connection by the resolved identifier — the venue slug — and writes
+    // ConnectionPayload::forWrite → {url, source, username}. The controller
+    // used to look only under resource_id='fresha', 404 "No Fresha URL
+    // connected yet", and the sheet showed "couldn't load your team"
+    // (gsnwilliams, 2026-08-18). One user has one Fresha row whichever lane
+    // made it; the controller must find it.
+    Http::fake(['*' => Http::response(freshaPageHtml('Simon'), 200)]);
+    $user = teamCacheUser('routerlane');
+    $row = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'fresha',
+        'resource_id' => 'anseo-studio-v0v92jna',
+        'payload' => [
+            'url' => 'https://www.fresha.com/book-now/anseo-studio-v0v92jna/all-offer?pId=2835260',
+            'source' => 'link_in_bio',
+            'username' => 'anseo-studio-v0v92jna',
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/fresha/team')
+        ->assertOk()
+        ->assertJsonPath('team.0.displayName', 'Simon');
+
+    expect($row->fresh()->payload['teamMenuCache']['storeName'])->toBe('Anseo Studio')
+        ->and(IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->count())->toBe(1);
+});

@@ -93,18 +93,29 @@ class ManualEventWriter
      * projections of one event that disagree about `f_occurrence` would
      * resolve into a contradictory item rather than merging cleanly.
      *
-     * `image` is deliberately dropped. Phase 3 declined to mint
-     * content.media_assets for third-party image URLs (LinkPoolWriter's
-     * docblock) and this lane inherits that ruling rather than reopening it.
+     * `image` rides the standard `media` projection as the `cover` role —
+     * a source_url-only content.media_assets row, exactly what
+     * SchemaOrgEventProjector emits for the same event via a connected
+     * organiser and what LinkPoolWriter emits for a link's og:image. This
+     * used to drop it under Phase 3's "no third-party image assets" ruling;
+     * LinkPoolWriter reversed that for links, the connector lane never had
+     * it, and "agrees facet-for-facet with SchemaOrgEventProjector" was
+     * simply untrue on media (2026-08-18).
      *
      * Public + static because StandaloneEventBackfiller writes the SAME shape
      * for the rows that predate the cutover — one mapper, so the backfill and
      * the live path cannot drift.
      *
+     * `$origin` (e.g. 'link_in_bio') rides as a typed item tag
+     * (tag_type 'origin') so the sheet can say "found in your bio link"
+     * rather than "added by you" — the manual content source is one row per
+     * user (partial unique index) and cannot carry that distinction itself.
+     * Null = added by hand: no tag.
+     *
      * @param  array<string, mixed>  $event  EventsPayload::standalonePayload's shape
      * @return array<string, mixed>
      */
-    public static function projectStandalone(array $event, string $url): array
+    public static function projectStandalone(array $event, string $url, ?string $origin = null): array
     {
         $name = trim((string) ($event['name'] ?? ''));
         $headline = $name !== '' ? $name : (string) (parse_url($url, PHP_URL_HOST) ?: $url);
@@ -135,9 +146,14 @@ class ManualEventWriter
         $priceMin = is_numeric($event['priceMin'] ?? null) ? (float) $event['priceMin'] : null;
         $currency = self::trimmedOrNull($event['currency'] ?? null);
 
+        $image = self::trimmedOrNull($event['image'] ?? null);
+        $image = $image !== null && preg_match('#^https?://#i', $image) === 1 ? $image : null;
+
         return [
             'kind' => 'event',
             'headline' => $headline,
+            'media' => $image === null ? [] : [['role' => 'cover', 'url' => $image]],
+            'tags' => $origin === null || $origin === '' ? [] : [['tag' => $origin, 'tag_type' => 'origin']],
             'facets' => array_filter([
                 'f_text' => $text,
                 'f_link' => ['url' => $url],
@@ -165,9 +181,9 @@ class ManualEventWriter
      * @param  array<string, mixed>  $event  EventsPayload::standalonePayload's shape
      * @return array{id: string, name: string}|null null when the user has no site
      */
-    public function addStandalone(User $user, string $url, array $event): ?array
+    public function addStandalone(User $user, string $url, array $event, ?string $origin = null): ?array
     {
-        return $this->write($user, trim($url), static fn (string $u) => self::projectStandalone($event, $u));
+        return $this->write($user, trim($url), static fn (string $u) => self::projectStandalone($event, $u, $origin));
     }
 
     /**

@@ -30,7 +30,7 @@ use Illuminate\Validation\ValidationException;
  * @property bool $is_active
  * @property Carbon|null $last_visited_at
  * @property Carbon|null $last_refreshed_at
- * @property string|null $last_refresh_status One of 'ok'|'unavailable'|'error'|'pending' (platform_connections_last_refresh_status_check).
+ * @property string|null $last_refresh_status One of 'ok'|'unavailable'|'error'|'pending'|'action_needed' (platform_connections_last_refresh_status_check). 'action_needed' = the ingest run finished cleanly but the owner must choose something before the connection can publish (IngestStatusWriteback); a resting state, not a fault.
  * @property string|null $last_refresh_error
  * @property int $consecutive_failures
  * @property string|null $apify_status One of 'pending'|'ok'|'unavailable' — Google Business async enrichment state, a separate state machine from last_refresh_status (platform_connections_apify_status_check).
@@ -340,6 +340,14 @@ class IntegrationConnection extends BaseModel
         return $query->active()
             ->where('consecutive_failures', '<', $maxFailures)
             ->excludingPending()
+            // 'action_needed' is waiting on the OWNER, not on a fetch. Letting
+            // the legacy refresher at it is how a Fresha row with nothing
+            // selected 304s into a falsely healthy 'ok' (FreshaFetch →
+            // recordNotModified). The next clean ingest run clears it.
+            ->where(function ($q) {
+                $q->whereNull('last_refresh_status')
+                    ->orWhere('last_refresh_status', '!=', 'action_needed');
+            })
             ->where(function ($q) use ($cutoff) {
                 $q->whereNull('last_refreshed_at')
                     ->orWhere('last_refreshed_at', '<', $cutoff);

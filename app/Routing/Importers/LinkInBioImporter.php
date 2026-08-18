@@ -276,19 +276,22 @@ class LinkInBioImporter
 
         if ($result['verdict'] === 'note') {
             // Standalone EVENT pages (an Eventbrite /e/… link, a Humanitix
-            // event) have no catalog detector yet — only organiser surfaces
-            // do — so they land here unmatched. The legacy classifier still
-            // knows their shapes; seed them INLINE through EventsSeeder
-            // exactly as the legacy router's event arm did — the seeded
-            // connection is what makes the event show as synced in the modal
-            // the moment the scan lands (EventSyncFindingsTest pins this).
-            // Spends NO commerce budget: events were never probes. A seeder
-            // failure cards the link, never drops it.
+            // event) carry a Note-strength detector at best — never a
+            // placement — so they land here. The legacy classifier still
+            // knows their shapes; seed them INLINE through EventsSeeder.
+            // A single event is an ITEM, not a platform: this path writes
+            // the pool item only (withConnectionRow: false — same write as
+            // the interactive addEvent verb). It records no payload finding,
+            // so nothing would have read a connection row anyway
+            // (EventSyncFindingsTest pins the modal contract). An ORGANISER
+            // link is a real account and does connect. Spends NO commerce
+            // budget: events were never probes. A seeder failure cards the
+            // link, never drops it.
             $classified = $this->harvester->classify($url);
             if (in_array($classified['category'] ?? null, ['event', 'event-organiser'], true)) {
                 try {
                     $seeded = $classified['category'] === 'event'
-                        ? $this->events->seedStandalone($context->user, $classified['platform'], $url)
+                        ? $this->events->seedStandalone($context->user, $classified['platform'], $url, withConnectionRow: false, origin: $context->origin)
                         : $this->events->seedAccount($context->user, $classified['platform'], $url);
                 } catch (\Throwable $e) {
                     report($e);

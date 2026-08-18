@@ -70,6 +70,19 @@ trait ManagesIntegrationConnection
         return $this->platform();
     }
 
+    /**
+     * The resource id a read or write addresses when the caller named none.
+     *
+     * Default: the platform slug (defaultResourceId). A controller whose
+     * platform can ALSO be placed by the routing lane — which keys the row by
+     * the resolved identifier, not the slug — overrides this to converge on the
+     * user's existing row so both lanes read and write the same one.
+     */
+    protected function resolveResourceId(User $user, ?string $resourceId): string
+    {
+        return $resourceId ?? $this->defaultResourceId();
+    }
+
     /** All of the user's active connections for this platform (or routing class), ordered. */
     protected function connectionsFor(User $user)
     {
@@ -100,7 +113,7 @@ trait ManagesIntegrationConnection
     protected function connectionFor(User $user, ?string $resourceId = null): ?IntegrationConnection
     {
         $connection = $this->scopeToFamily($user->integrationConnections())
-            ->where('resource_id', $resourceId ?? $this->defaultResourceId())
+            ->where('resource_id', $this->resolveResourceId($user, $resourceId))
             ->first();
 
         // Gate read access — null rows are left as-is (preserves the "not found"
@@ -174,6 +187,11 @@ trait ManagesIntegrationConnection
     ): IntegrationConnection {
         $this->assertPlatformAvailable($user);
 
+        // Resolve once so the skeleton, the lookup and the upsert key agree —
+        // a controller that converges on an existing row (resolveResourceId)
+        // must not create a second one under the default slug.
+        $resourceId = $this->resolveResourceId($user, $resourceId);
+
         // Determine create vs. update before the upsert so the correct ability fires.
         $existing = $this->connectionFor($user, $resourceId);
         if ($existing) {
@@ -190,7 +208,7 @@ trait ManagesIntegrationConnection
             $skeleton = new IntegrationConnection([
                 'user_id' => $user->id,
                 'platform' => $this->platform(),
-                'resource_id' => $resourceId ?? $this->defaultResourceId(),
+                'resource_id' => $resourceId,
             ]);
             $this->authorizeForUser($user, 'create', $skeleton);
         }
@@ -206,7 +224,7 @@ trait ManagesIntegrationConnection
             [
                 'user_id' => $user->id,
                 'platform' => $this->platform(),
-                'resource_id' => $resourceId ?? $this->defaultResourceId(),
+                'resource_id' => $resourceId,
             ],
             $values,
         );
