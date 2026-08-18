@@ -200,7 +200,7 @@ class BandcampConnector implements Connector
         foreach (array_chunk(array_keys($urls), 8) as $chunk) {
             foreach ($io->getMany($chunk) as $url => $response) {
                 $i = $urls[$url] ?? null;
-                if ($i === null || $response === null || ($response['status'] ?? 0) !== 200 || ! is_string($response['body'] ?? null)) {
+                if ($i === null || $response === null || $response['status'] !== 200) {
                     continue;
                 }
                 $items[$i] = $this->applyReleasePage($items[$i], $response['body']);
