@@ -1228,7 +1228,10 @@ class PoolResolver
             $bestArea = -1;
             foreach ($candidates as $row) {
                 $hit = $resolved[(string) $row->asset_id] ?? null;
-                if ($hit === null || ($hit['url'] ?? '') === '') {
+                // `$hit['url']` needs no `?? ''` — the null check short-circuits
+                // first and the shape types url as a plain string. `width`/`height`
+                // below DO keep theirs: those are genuinely int|null.
+                if ($hit === null || $hit['url'] === '') {
                     continue;
                 }
                 $area = ($hit['width'] ?? 0) * ($hit['height'] ?? 0);

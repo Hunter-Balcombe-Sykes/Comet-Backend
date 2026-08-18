@@ -9,6 +9,13 @@
 -- Rollback: DELETE FROM content.item_media WHERE role='video'; then re-add
 -- the constraint without 'video'.
 
+-- Split into the CONVENTIONS.md §2 two-transaction form (2026-08-18). The
+-- original single `ADD CONSTRAINT … CHECK` took ACCESS EXCLUSIVE and scanned
+-- content.item_media under the lock. Dev already applied the original and holds
+-- an equivalent VALID constraint, so this rewrite changes nothing there; it is
+-- prod's eventual apply that it protects.
+
+-- Step A — catalog write only, lock released immediately.
 BEGIN;
 
 ALTER TABLE content.item_media
@@ -16,6 +23,17 @@ ALTER TABLE content.item_media
 
 ALTER TABLE content.item_media
     ADD CONSTRAINT item_media_role_check
-    CHECK (role IN ('cover', 'gallery', 'poster', 'avatar', 'logo', 'video'));
+    CHECK (role IN ('cover', 'gallery', 'poster', 'avatar', 'logo', 'video'))
+    NOT VALID;
+
+COMMIT;
+
+-- Step B — separate transaction: SHARE UPDATE EXCLUSIVE, concurrent writes
+-- keep flowing. Cannot fail here: the role vocabulary only ever widens, so
+-- every existing row already satisfies it.
+BEGIN;
+
+ALTER TABLE content.item_media
+    VALIDATE CONSTRAINT item_media_role_check;
 
 COMMIT;

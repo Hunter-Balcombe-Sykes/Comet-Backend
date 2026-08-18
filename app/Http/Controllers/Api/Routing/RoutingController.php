@@ -80,7 +80,7 @@ class RoutingController extends ApiController
 
             return $this->success([
                 'status' => 'pending',
-                'outcome' => in_array($write['status'] ?? null, ['created', 'exists'], true) ? 'link' : null,
+                'outcome' => in_array($write['status'], ['created', 'exists'], true) ? 'link' : null,
                 'verdict' => 'note',
                 'canonicalUrl' => trim($url),
                 'routedTo' => null,

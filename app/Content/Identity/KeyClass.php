@@ -184,7 +184,9 @@ enum KeyClass: string
     public static function primaryArtist(string $creator): string
     {
         $parts = preg_split('/\s*(?:,|&|\band\b|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b|\bwith\b|\bvs\.?\b|\bx\b|×|·|\/)\s*/iu', trim($creator), 2) ?: [$creator];
-        $first = $parts[0] ?? $creator;
+        // No `?? $creator`: the `?: [$creator]` above makes $parts a
+        // non-empty-list, so index 0 always exists (phpstan nullCoalesce.offset).
+        $first = $parts[0];
         // "Lil Nas X": the separator match must leave a real second credit
         // behind, otherwise the "x" was the tail of ONE name (review W5).
         if (trim((string) ($parts[1] ?? '')) === '' || mb_strlen(trim((string) $parts[1])) < 2) {

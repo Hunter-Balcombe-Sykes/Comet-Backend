@@ -1,0 +1,7 @@
+{
+    "preset": "laravel",
+    "notPath": [
+        "bootstrap/catalog/compiled.php",
+        "tests/fixtures/Routing/corpus-generated.php"
+    ]
+}

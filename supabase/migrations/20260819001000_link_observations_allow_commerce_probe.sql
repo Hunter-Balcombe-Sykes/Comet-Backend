@@ -11,6 +11,14 @@
 -- Rollback: drop and re-add without 'commerce_probe' (fails outright if any
 -- 'commerce_probe' row has landed by then — DELETE those first).
 
+-- Split into the CONVENTIONS.md §2 two-transaction form (2026-08-18). The
+-- original single `ADD CONSTRAINT … CHECK` took ACCESS EXCLUSIVE and scanned
+-- every partition under the lock — on a month-partitioned observations table
+-- that is write downtime. Dev already applied the original and holds an
+-- equivalent VALID constraint, so this rewrite changes nothing there; it is
+-- prod's eventual apply that it protects.
+
+-- Step A — catalog write only, lock released immediately.
 BEGIN;
 
 ALTER TABLE routing.link_observations
@@ -19,6 +27,17 @@ ALTER TABLE routing.link_observations
 ALTER TABLE routing.link_observations
     ADD CONSTRAINT link_observations_source_check
     CHECK (source = ANY (ARRAY['paste', 'website_import', 'link_in_bio',
-        'bio_harvest', 'google_business', 'staff', 'reproject', 'commerce_probe']));
+        'bio_harvest', 'google_business', 'staff', 'reproject', 'commerce_probe']))
+    NOT VALID;
+
+COMMIT;
+
+-- Step B — separate transaction: SHARE UPDATE EXCLUSIVE, concurrent writes
+-- keep flowing. Cannot fail here: the vocabulary only ever widens, so every
+-- existing row already satisfies it.
+BEGIN;
+
+ALTER TABLE routing.link_observations
+    VALIDATE CONSTRAINT link_observations_source_check;
 
 COMMIT;
