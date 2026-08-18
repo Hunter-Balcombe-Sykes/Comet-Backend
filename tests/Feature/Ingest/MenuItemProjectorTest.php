@@ -19,12 +19,21 @@ it('emits the category as a collection, not only as a tag', function () {
         'name' => 'Fries', 'category' => 'Sides', 'price' => 4.5, 'currency' => 'AUD', 'position' => 3,
     ]));
 
+    // An older record carries only the menu-wide `position`: it seeds both
+    // the category's rank and the dish's rank inside it.
     expect($projection['collections'])->toBe([[
         'kind' => 'menu_category',
         'external_ref' => 'menu:sides',
         'label' => 'Sides',
         'position' => 3,
+        'item_position' => 3,
     ]]);
+
+    // A current record (F30) carries the category's rank and the dish's rank inside it separately.
+    $projection = (new MenuItemProjector)->project(menuRecord([
+        'name' => 'Fries', 'category' => 'Sides', 'price' => 4.5, 'currency' => 'AUD', 'category_position' => 2, 'position' => 0,
+    ]));
+    expect($projection['collections'][0])->toMatchArray(['position' => 2, 'item_position' => 0]);
 });
 
 it('agrees with the backfiller about a category ref, or the two mint duplicates', function () {

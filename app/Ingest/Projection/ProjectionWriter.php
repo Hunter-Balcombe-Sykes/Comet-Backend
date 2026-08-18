@@ -1183,7 +1183,25 @@ class ProjectionWriter
         // collection to point at.
         $collectionIds = $this->upsertCollections($userId, $collectionsByItem);
 
+        // Membership positions (F30/F31, 2026-08-18): `position` here is the
+        // item's rank INSIDE the category — what the wire's collectionPositions
+        // and the Categories sheet read. Rules, in order:
+        //   1. an existing membership keeps its position — the owner may have
+        //      dragged it (this table is delete+reinsert per source per run,
+        //      so without carrying it over every sync snapped the owner's
+        //      arrangement back);
+        //   2. a NEW membership in a CURATED category (any non-zero position
+        //      already there) appends at the end — its vendor index would
+        //      interleave with the owner's order;
+        //   3. otherwise the vendor's `item_position` seeds it (falling back to
+        //      the old per-item counter for projectors that carry none);
+        //   4. an UNCURATED category (duplicate positions — every row 0 was the
+        //      pre-fix state on every live category; a half-seeded one has 0s
+        //      beside a run of seeds) is re-seeded from the vendor order so it
+        //      heals on the next run. "Curated" = distinct positions, not all
+        //      zero — what an owner's drag writes (0..n-1).
         $collectionItemRows = [];
+        $memberships = [];
         foreach ($collectionsByItem as $itemId => $entries) {
             $position = 0;
             foreach ($entries as $entry) {
@@ -1193,14 +1211,15 @@ class ProjectionWriter
                 if ($collectionId === null) {
                     continue;
                 }
-                $collectionItemRows[$itemId][] = [
-                    'collection_id' => $collectionId,
-                    'item_id' => $itemId,
-                    'source_id' => $contentSourceId,
-                    'position' => $position++,
+                $memberships[] = [
+                    'collection_id' => (string) $collectionId,
+                    'item_id' => (string) $itemId,
+                    'seed' => isset($entry['item_position']) && is_numeric($entry['item_position']) ? (int) $entry['item_position'] : $position,
                 ];
+                $position++;
             }
         }
+        [$collectionItemRows, $reseeds] = $this->positionMemberships($memberships, $contentSourceId);
 
         foreach (array_chunk(array_keys($mediaByItem), $chunk) as $itemIds) {
             $tables = [
@@ -1223,7 +1242,9 @@ class ProjectionWriter
             // projectStream() (RunExecutor and IngestProjectCommand both call
             // it bare; Lander's transactions close before projection starts),
             // so this is the outermost one.
-            DB::transaction(function () use ($tables, $itemIds, $contentSourceId, $chunk) {
+            $itemIdSet = array_fill_keys($itemIds, true);
+            $chunkReseeds = array_values(array_filter($reseeds, fn ($r) => isset($itemIdSet[$r['item_id']])));
+            DB::transaction(function () use ($tables, $itemIds, $contentSourceId, $chunk, $chunkReseeds) {
                 foreach ($tables as $table => $rows) {
                     DB::table("content.{$table}")
                         ->whereIn('item_id', $itemIds)
@@ -1247,8 +1268,77 @@ class ProjectionWriter
                         DB::table("content.{$table}")->insert($rowChunk);
                     }
                 }
+                // Uncurated re-seed (F30): rows another source owns are not
+                // ours to reinsert, but their in-category order is still the
+                // vendor's to set until an owner touches it.
+                foreach ($chunkReseeds as $r) {
+                    DB::table('content.collection_items')
+                        ->where('collection_id', $r['collection_id'])
+                        ->where('item_id', $r['item_id'])
+                        ->update(['position' => $r['position']]);
+                }
             });
         }
+    }
+
+    /**
+     * Resolve each membership's `position` per the rules in replaceCollections
+     * (existing kept, curated appends, vendor seed, uncurated re-seed) and
+     * return the rows grouped by item id, ready to insert. One read of the
+     * touched categories' current rows, no per-row queries.
+     *
+     * Also returns the re-seed updates for uncurated categories: a membership
+     * row may live under ANOTHER source (the legacy menu lane's manual source
+     * lists the same dish in the same category), so the insertOrIgnore below
+     * cannot move it — an explicit UPDATE can.
+     *
+     * @param  list<array{collection_id: string, item_id: string, seed: int}>  $memberships
+     * @return array{array<string, list<array<string, mixed>>>, list<array{collection_id: string, item_id: string, position: int}>}
+     */
+    private function positionMemberships(array $memberships, string $contentSourceId): array
+    {
+        if ($memberships === []) {
+            return [[], []];
+        }
+        $collectionIds = array_values(array_unique(array_column($memberships, 'collection_id')));
+        $existing = [];   // collection_id => [item_id => position]
+        foreach (array_chunk($collectionIds, $this->writeChunk()) as $chunk) {
+            foreach (DB::table('content.collection_items')->whereIn('collection_id', $chunk)->get(['collection_id', 'item_id', 'position']) as $row) {
+                $existing[(string) $row->collection_id][(string) $row->item_id] = (int) $row->position;
+            }
+        }
+
+        $rows = [];
+        $reseeds = [];
+        $appendNext = [];
+        foreach ($memberships as $m) {
+            $current = $existing[$m['collection_id']] ?? [];
+            // "Curated" = every position distinct and not all zero — what an
+            // owner's drag writes (0..n-1) and what a full vendor seed leaves.
+            // Duplicates (seven 0s beside 5..10 after one of two lanes seeded)
+            // mean nobody has arranged this category yet.
+            $curated = count($current) > 1 && max($current) > 0 && count(array_unique($current)) === count($current);
+            $uncurated = count($current) > 1 && ! $curated;
+            if (isset($current[$m['item_id']]) && ! $uncurated) {
+                $position = $current[$m['item_id']];
+            } elseif ($curated && ! isset($current[$m['item_id']])) {
+                $appendNext[$m['collection_id']] ??= max($current) + 1;
+                $position = $appendNext[$m['collection_id']]++;
+            } else {
+                $position = $m['seed'];
+                if ($uncurated && isset($current[$m['item_id']]) && $position !== 0) {
+                    $reseeds[] = ['collection_id' => $m['collection_id'], 'item_id' => $m['item_id'], 'position' => $position];
+                }
+            }
+            $rows[$m['item_id']][] = [
+                'collection_id' => $m['collection_id'],
+                'item_id' => $m['item_id'],
+                'source_id' => $contentSourceId,
+                'position' => $position,
+            ];
+        }
+
+        return [$rows, $reseeds];
     }
 
     /**
@@ -1355,6 +1445,33 @@ class ProjectionWriter
                 ->get(['id', 'kind', 'external_ref']);
             foreach ($found as $row) {
                 $ids[$row->kind."\0".$row->external_ref] = (string) $row->id;
+            }
+        }
+
+        // Uncurated re-seed (F30, 2026-08-18): a kind whose collections ALL
+        // sit at position 0 (every Fresha / menu category before the seeds
+        // existed) has never been arranged by anyone — take the vendor's
+        // order now. Once any position is non-zero the owner (or a seed) owns
+        // the order and this never runs again. Same rule as memberships.
+        foreach (array_unique(array_column(array_values($wanted), 'kind')) as $kind) {
+            $seeded = array_filter($wanted, fn ($w) => $w['kind'] === $kind && $w['position'] > 0);
+            if ($seeded === []) {
+                continue;
+            }
+            // Machine-derived, live rows only: an owner-created category is
+            // appended at position n by the sheet and says nothing about
+            // whether the vendor's own categories were ever arranged.
+            $positions = DB::table('content.collections')
+                ->where('user_id', $userId)->where('kind', $kind)
+                ->where('is_user_created', false)->whereNull('removed_at')
+                ->pluck('position');
+            if ($positions->count() < 2 || $positions->max() > 0) {
+                continue;
+            }
+            foreach ($seeded as $w) {
+                DB::table('content.collections')
+                    ->where('user_id', $userId)->where('kind', $kind)->where('external_ref', $w['external_ref'])
+                    ->update(['position' => $w['position']]);
             }
         }
 

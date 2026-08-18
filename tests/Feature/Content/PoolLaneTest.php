@@ -313,6 +313,27 @@ it('serves render-ready payloads: override headline, synced link, platform', fun
     expect($item['platform'])->toBe('youtube');
 });
 
+it('spells a brand-keyed connection platform as the slug on the wire — uber_eats → uber-eats in platform, links[] and sources[] (F28)', function () {
+    // Brand connects store the catalog brand key (`uber_eats`) in
+    // platform_connections.platform; the roster, ItemLinkRules and the
+    // dashboard glyph map all use `uber-eats`. Both spellings leaked onto one
+    // menus wire (session 3), so ingest-lane dishes drew no glyph.
+    [$pro] = poolTenant();
+    $connection = poolConnection($pro->id, 'uber_eats.order');
+    // `platform` is generated from surface_key ('uber_eats.order' → 'uber_eats').
+    DB::table('site.platform_connections')->where('id', $connection)->update(['payload' => json_encode(['url' => 'https://www.ubereats.com/au/store/souva-king/RV0ChXJAXiaEjATmAdjQeg', 'name' => 'def.uber.com'])]);
+    $source = poolSource($pro->id, $connection);
+    $dish = poolItem($pro->id, $source, 'menu_item', 'Halloumi Wrap', now()->toDateTimeString());
+    DB::table('content.f_link')->insert(['item_id' => $dish, 'source_id' => $source, 'url' => 'https://www.ubereats.com/au/store/souva-king/RV0ChXJAXiaEjATmAdjQeg', 'updated_at' => now()]);
+
+    $item = collect(poolGet($pro, 'menus')['library'])->firstWhere('id', $dish);
+    expect($item['platform'])->toBe('uber-eats')
+        ->and(array_column($item['links'], 'platform'))->toBe(['uber-eats'])
+        ->and($item['sources'][0]['platform'])->toBe('uber-eats')
+        // …and a bare host under payload.name is not a display name.
+        ->and($item['sources'][0]['accountName'])->toBe('Souva King');
+});
+
 // ── The public wire ─────────────────────────────────────────────────────────
 
 it('serves the pool selection on the public payload with the Latest tag', function () {

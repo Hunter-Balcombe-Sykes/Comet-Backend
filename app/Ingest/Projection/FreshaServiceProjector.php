@@ -42,14 +42,16 @@ class FreshaServiceProjector implements Projector
         // be reconciled across runs — a null external_ref would insert a
         // fresh row on every run — so it stays a tag only.
         //
-        // position is a SEED, not a synced value: ProjectionWriter writes it
-        // on insert and never updates it, because the owner can reorder
-        // categories and a scheduled run must not snap that back.
+        // position (the category's rank) and item_position (the service's
+        // rank inside it) are SEEDS, not synced values: ProjectionWriter
+        // writes them on insert and never overwrites an owner's reorder
+        // (F30/F31, 2026-08-18). Records from before the seeds carry neither.
         $collections = $category === null || $categoryId === null ? [] : [[
             'external_ref' => $categoryId,
             'label' => $category,
             'kind' => 'service_category',
-            'position' => 0,
+            'position' => $view->int('category_position') ?? 0,
+            'item_position' => $view->int('position') ?? 0,
         ]];
 
         return [

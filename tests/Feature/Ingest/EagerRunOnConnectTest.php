@@ -239,3 +239,42 @@ it('Resync claims and runs the connection\'s ingest sources, not only the legacy
     expect(in_array($second->status(), [202, 429], true))->toBeTrue();
     Bus::assertNotDispatched(RunSourceJob::class);
 });
+
+it('Resync on a platform with no legacy refresh strategy runs its ingest sources (menus), addressed by slug or brand key, and polls pending while the source is in flight (F29)', function () {
+    // The menu platforms are not registry-refreshable, so /uber-eats/refresh
+    // answered 422 "refreshes on its own" and a changed menu waited for the
+    // weekly tick (session 3). Their connections DO carry an ingest source.
+    Bus::fake([RunSourceJob::class, MenuFetchJob::class]);
+    $userId = eagerUser();
+    $connection = connectFor($userId, [
+        'surface_key' => 'uber_eats.order', 'routing_class' => 'ordering',
+        'payload' => ['url' => 'https://www.ubereats.com/au/store/souva-king/RV0ChXJAXiaEjATmAdjQeg', 'name' => 'Uber Eats', 'provider' => 'Uber Eats'],
+    ]);
+    $sourceId = (string) DB::table('ingest.sources')->where('connection_id', $connection->id)->value('id');
+    expect($sourceId)->not->toBe('');
+    $user = User::query()->findOrFail($userId);
+
+    // Slug spelling (what the dashboard sends), 202 + statusUrl like the legacy path.
+    actingAsUser($user)->postJson('/api/platforms/uber-eats/refresh')
+        ->assertStatus(202)
+        ->assertJsonPath('status', 'pending')
+        ->assertJsonPath('refreshed', 1);
+    Bus::assertDispatched(RunSourceJob::class, fn ($job) => $job->sourceId === $sourceId);
+    expect(DB::table('ingest.sources')->where('id', $sourceId)->value('in_flight_since'))->not->toBeNull();
+
+    // While the source is claimed the poll reads pending; released → ready.
+    actingAsUser($user)->getJson('/api/platforms/uber-eats/refresh/status')->assertOk()->assertJsonPath('status', 'pending');
+    DB::table('ingest.sources')->where('id', $sourceId)->update(['in_flight_since' => null, 'in_flight_run_id' => null, 'last_run_at' => now()]);
+    actingAsUser($user)->getJson('/api/platforms/uber-eats/refresh/status')->assertOk()->assertJsonPath('status', 'ready');
+
+    // Rapid repeat = the cooldown.
+    actingAsUser($user)->postJson('/api/platforms/uber-eats/refresh')->assertStatus(429);
+
+    // A non-refreshable platform with NO ingest source still says so.
+    $other = eagerUser();
+    connectFor($other, [
+        'surface_key' => 'bopple.order', 'routing_class' => 'ordering',
+        'payload' => ['url' => 'https://bopple.app/lower-east-by-ruh', 'name' => 'Bopple', 'provider' => 'Bopple'],
+    ]);
+    actingAsUser(User::query()->findOrFail($other))->postJson('/api/platforms/bopple/refresh')->assertStatus(422);
+});
