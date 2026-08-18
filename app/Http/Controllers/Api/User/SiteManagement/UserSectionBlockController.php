@@ -338,7 +338,11 @@ class UserSectionBlockController extends ApiController
                 $block->site_id = $siteId;
 
                 $block->settings = [];
-                $block->is_active = false;
+                // Sections start OFF and the owner publishes them — except the
+                // workplace section (owner, 2026-08-19): it defaults ON, since
+                // the sitepage's About page renders "Workplace info" from it
+                // for partna accounts and the dashboard's switch is opt-OUT.
+                $block->is_active = $blockType === 'workplace';
                 $block->sort_order = ++$maxSortOrder;
 
                 // Seed is_enabled honestly from current data state. One exists()
