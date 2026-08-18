@@ -1,10 +1,12 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\NowBookitService;
+use App\Services\Platforms\PreviousWebsiteGate;
 use App\Services\Platforms\ProviderDetector;
 use App\Services\Platforms\ResDiaryService;
 use Illuminate\Support\Facades\DB;
@@ -497,4 +499,46 @@ it('accepts a NowBookit link whose accountid is a UUID, as every current booking
     expect($svc->parseIds('https://bookings.nowbookit.com/?accountid=12&venueid=34'))->toBe(['accountId' => '12', 'venueId' => '34']);
     expect($svc->parseIds('https://bookings.nowbookit.com/?accountid=cd39dab2-e5b6-422d-80b2-b1703ad6f5c1'))->toBeNull();
     expect($svc->parseIds('https://bookings.nowbookit.com/?accountid=not-an-id&venueid=1'))->toBeNull();
+});
+
+// ── Previous-website gate (owner, 2026-08-19): a platform page is never archived ──
+
+it('classifies platform pages and plain websites', function () {
+    $gate = app(PreviousWebsiteGate::class);
+    expect($gate->platformFor('https://www.fresha.com/a/stairs-hair-salon-melbourne-bj5kvz41'))->not->toBeNull();
+    expect($gate->platformFor('https://www.instagram.com/ollies_barbers/'))->not->toBeNull();
+    expect($gate->platformFor('https://ollies.partna.au'))->toBe('partna');
+    expect($gate->platformFor('https://old.ollies.example'))->toBeNull();
+    expect($gate->platformFor(null))->toBeNull();
+    expect($gate->platformFor('not a url'))->toBeNull();
+});
+
+it('does not archive a fresha booking page as the previous website; the google seed leaves it null', function () {
+    Http::fake();
+    $user = resUser('gb6', sector: null);
+    $siteId = resSite($user);
+
+    app(GoogleBusinessAutoSync::class)->seed(
+        (string) $user->id,
+        [],
+        'Ollies',
+        ['website' => 'https://www.fresha.com/a/stairs-hair-salon-melbourne-bj5kvz41', 'category' => 'Hair salon'],
+    );
+
+    $workplace = Workplace::query()->where('site_id', $siteId)->first();
+    expect($workplace?->previous_website)->toBeNull();
+});
+
+it('the previous-website endpoint diverts a platform page instead of saving it', function () {
+    Http::fake();
+    $user = resUser('gb7');
+    resSite($user);
+
+    actingAsUser($user)->patchJson('/api/site/workplace/previous-website', ['previous_website' => 'https://www.instagram.com/ollies_barbers/'])
+        ->assertOk()
+        ->assertJsonPath('previousWebsite', null)
+        ->assertJsonPath('diverted', fn ($v) => is_string($v) && $v !== '');
+
+    actingAsUser($user)->getJson('/api/site/workplace/previous-website')
+        ->assertOk()->assertJsonPath('previousWebsite', null);
 });

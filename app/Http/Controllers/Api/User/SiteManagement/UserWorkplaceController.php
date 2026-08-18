@@ -11,6 +11,7 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\IdentitySync;
+use App\Services\Platforms\PreviousWebsiteGate;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -244,6 +245,18 @@ class UserWorkplaceController extends ApiController
         $this->authorizeForUser($professional, 'update', $site);
         $previousWebsite = trim_or_null($validated['previous_website'] ?? null);
 
+        // A platform page is not a previous website (owner, 2026-08-19): it
+        // goes to the router as a platform candidate and nothing is archived.
+        $diverted = null;
+        if ($previousWebsite !== null) {
+            $gate = app(PreviousWebsiteGate::class);
+            $diverted = $gate->platformFor($previousWebsite);
+            if ($diverted !== null) {
+                $gate->divert($professional, $previousWebsite, 'previous_website');
+                $previousWebsite = null;
+            }
+        }
+
         Workplace::updateOrCreate(
             ['site_id' => (string) $site->id],
             ['previous_website' => $previousWebsite],
@@ -251,6 +264,7 @@ class UserWorkplaceController extends ApiController
 
         return $this->success([
             'previousWebsite' => $previousWebsite,
+            'diverted' => $diverted,
         ]);
     }
 }

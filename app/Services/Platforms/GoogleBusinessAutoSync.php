@@ -414,8 +414,24 @@ class GoogleBusinessAutoSync
     private function seedWorkplace(string $userId, array $gbPayload): void
     {
         try {
+            // A listing whose "website" is a platform page (a Fresha booking
+            // link, an Instagram profile, an ordering storefront) is a
+            // platform candidate, not a previous website (owner, 2026-08-19 —
+            // the Fresha-favicon-as-logo incident): it goes to the router,
+            // and previous_website stays untouched.
+            $website = $this->safeUrl(data_get($gbPayload, 'website'));
+            if ($website !== null) {
+                $gate = app(PreviousWebsiteGate::class);
+                if ($gate->isPlatformUrl($website)) {
+                    $owner = User::query()->find($userId);
+                    if ($owner !== null) {
+                        $gate->divert($owner, $website, 'google_business_website');
+                    }
+                    $website = null;
+                }
+            }
             $fields = array_filter([
-                'previous_website' => $this->safeUrl(data_get($gbPayload, 'website')),
+                'previous_website' => $website,
                 'category' => $this->truncate($this->clean(data_get($gbPayload, 'category')), 120),
                 'description' => $this->truncate(
                     $this->clean(data_get($gbPayload, 'editorialSummary'))
