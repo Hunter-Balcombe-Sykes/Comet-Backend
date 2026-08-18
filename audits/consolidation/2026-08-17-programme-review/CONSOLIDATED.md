@@ -48,7 +48,7 @@ Never script a tick keyed on id alone.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 6 of 15 complete
+- P2 Medium: 7 of 15 complete
 - P3 Low: 0 of 15 complete
 
 ## Suggested Bundled Sessions
@@ -613,7 +613,7 @@ work, not run as a campaign. Do not build units for them.
         longitude: $this->detectLongitude($request),
         ```
 
-- [ ] **#PGR-36** · P2 — Three further owner-initiated write paths fire lane 1 only, the same defect class as #PGR-6
+- [x] **#PGR-36** · P2 — Three further owner-initiated write paths fire lane 1 only, the same defect class as #PGR-6
     - **Source:** found during the execution of #PGR-6, 2026-08-18 (`audit-fix/programme-review-p1-2026-08-17`) — not from a scan run. Owner ruled it a follow-up rather than folding it into #PGR-6, to keep that unit's diff tight and to avoid dragging `ItemMerger`'s concurrency story into a cache unit.
     - **Where:** `app/Http/Controllers/Api/Content/ManualOverrideController.php:107-112` (`bumpSites()`); `app/Services/Content/ItemMerger.php:368-373` (`bumpSites()`); `app/Http/Controllers/Api/Site/SectionItemController.php:103` (`upsert()`) and `:126` (`destroy()`)
     - **Affects:** Public sitepage visitors. Each is an owner-initiated curation write that bumps the build state and then stops — no `site.sites.updated_at`, no edge purge — so the origin re-serves its stale payload for the 60s TTL *and* the CDN is never purged at all. `ManualOverrideController` is the sharpest of the three: an override changes the rendered headline/body, so the visible text is what goes stale.

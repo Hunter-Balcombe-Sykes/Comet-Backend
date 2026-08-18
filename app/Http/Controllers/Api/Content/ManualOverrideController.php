@@ -10,7 +10,8 @@ use App\Http\Resources\Content\ManualOverrideResource;
 use App\Models\Content\Item;
 use App\Models\Content\ManualOverride;
 use App\Models\Core\User\User;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
+use App\Site\Pools\PoolResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -100,14 +101,23 @@ class ManualOverrideController extends ApiController
     }
 
     /**
-     * An override changes what the page says, so the built document is stale.
-     * Bumping is the honest signal: it does not claim to have published
-     * anything, it records that the builder now has work to do.
+     * An override changes what the page says, so it must discharge all three
+     * cache lanes ({@see SiteCacheLanes}), not just build
+     * state. Lane 2 (`site.sites.updated_at`) is load-bearing here
+     * specifically: {@see PoolResolver::resolve()} reads
+     * `content.manual_overrides` LIVE (`PoolResolver.php:502`) whenever it
+     * runs, and `IndividualProfilePayloadBuilder` calls that resolver while
+     * building the public payload it then caches under a key derived from
+     * `site.sites.updated_at` (60s TTL). Skip lane 2 and the override IS
+     * applied the next time the payload happens to rebuild, but the origin
+     * keeps serving the pre-override cached payload — with a correctly-purged
+     * CDN in front of it — for up to the rest of that TTL.
      */
     private function bumpSites(User $user): void
     {
-        foreach (DB::table('site.sites')->where('user_id', $user->id)->pluck('id') as $siteId) {
-            BuildState::bump((string) $siteId);
-        }
+        $siteIds = DB::table('site.sites')->where('user_id', $user->id)->pluck('id')
+            ->map(fn ($id) => (string) $id)->all();
+
+        SiteCacheLanes::bust($siteIds);
     }
 }

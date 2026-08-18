@@ -10,7 +10,7 @@ use App\Http\Resources\Site\SectionGroupResource;
 use App\Models\Core\Site\Section;
 use App\Models\Core\Site\SectionGroup;
 use App\Models\Core\Site\Site;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -24,6 +24,13 @@ use Illuminate\Http\Request;
  * shares.
  *
  * Authorised via the parent section, like section_items.
+ *
+ * Adopts {@see SiteCacheLanes} for uniformity with the
+ * rest of the curation surface (#PGR-36) even though no public reader of
+ * `site.section_groups` was found anywhere in `app/Site` or
+ * `app/Services/PublicSite` — the owner chose consistency across the write
+ * surface over skipping the seam on a table nothing currently reads. Written
+ * down so the next person doesn't mistake this for cargo-culted boilerplate.
  */
 class SectionGroupController extends ApiController
 {
@@ -65,7 +72,7 @@ class SectionGroupController extends ApiController
         $row->fill($request->validated());
         $row->save();
 
-        BuildState::bump((string) $site->id);
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['group' => new SectionGroupResource($row)]);
     }
@@ -88,7 +95,7 @@ class SectionGroupController extends ApiController
             abort(404, 'That group has no override in this section.');
         }
 
-        BuildState::bump((string) $site->id);
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['deleted' => true]);
     }
