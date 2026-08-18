@@ -129,10 +129,6 @@ class IndividualProfilePayloadBuilder
             // gated, popularity-ranked (or the owner's manual order when
             // smart_page_order is off), canonical fallback. Top-level key.
             'page_order' => $pageOrder,
-            // Full popularity map (content_type => content_key => rank) so the ONE
-            // theme can order ANY item type uniformly, without per-platform payload
-            // surgery. Same $ranks the per-item annotations below already use.
-            'popularity' => $ranks,
             // Unified ranked actions (page|item|button|custom) — the lander
             // renders the top 6. Override-applied (manual list when
             // smart_actions is off); ordering carries the raw preferences.
@@ -145,8 +141,6 @@ class IndividualProfilePayloadBuilder
             // wholesale, which took the logos down with the noise. Just the
             // two logo slots; the placeholder singleton stays private.
             'brand' => $this->buildBrand($site),
-            'links' => $this->buildLinks($site, $booking, $ranks['block'] ?? []),
-            'services' => $this->buildServices($site, $pro->id, $sections, $ranks['service'] ?? []),
             'document' => $this->buildDocument($site),
             'newsletter' => $this->buildNewsletter($sections),
             'contact' => $this->buildContact($sections),
@@ -281,78 +275,6 @@ class IndividualProfilePayloadBuilder
         }
 
         return $out;
-    }
-
-    /**
-     * Links engine — ProfileLink[] (empty array when nothing live).
-     *
-     * The resolver already returns the right shape (id/title/url/category/
-     * platform) plus a synthesised booking row when the booking envelope is
-     * live. We just normalise `id` to `string|null` (resolver uses '' for
-     * synthesised rows) so the wire matches `ProfileLink.id: string | null`.
-     *
-     * `popularityRank` is an inert annotation (nullable; V1/ONE consumes it) keyed
-     * by the block id — synthesised booking rows (id '') carry null. Array ORDER
-     * is untouched (skeletons read positionally).
-     *
-     * @param  array{state: string, data: array|null}  $bookingEnvelope
-     * @param  array<string, int>  $ranks  block content_key (block id) → rank
-     * @return list<array{id: string|null, title: string, url: string, category: string, platform: string|null, popularityRank: int|null}>
-     */
-    private function buildLinks(?Site $site, array $bookingEnvelope, array $ranks = []): array
-    {
-        $links = $this->resolver->getLinks($site, $bookingEnvelope);
-
-        return array_values(array_map(static function (array $link) use ($ranks): array {
-            $id = (string) ($link['id'] ?? '');
-
-            return [
-                'id' => $id !== '' ? $id : null,
-                'title' => (string) ($link['title'] ?? ''),
-                'url' => (string) ($link['url'] ?? ''),
-                'category' => (string) ($link['category'] ?? 'custom'),
-                'platform' => $link['platform'] ?? null,
-                'popularityRank' => $id !== '' ? ($ranks[$id] ?? null) : null,
-            ];
-        }, $links));
-    }
-
-    /**
-     * Services engine — ProfileService[] (empty array when nothing live).
-     *
-     * Per user direction, the wire shape drops bookingMode + manualBookingUrl
-     * (booking is now a link-engine category). Remaps snake_case keys
-     * (price_cents, currency_code, duration_minutes) to camelCase.
-     *
-     * Services have NO per-service booking URL — booking is site-level only
-     * (Site.manual_booking_url, surfaced as the synthesised `booking` link).
-     * `popularityRank` is an inert annotation (nullable; V1/ONE consumes it)
-     * keyed by service id. Array ORDER is untouched (skeletons read positionally).
-     *
-     * @param  Collection<string, Block>  $sections
-     * @param  array<string, int>  $ranks  service content_key (service id) → rank
-     * @return list<array{id: string|int, title: string, description: string|null, priceCents: int|null, currencyCode: string|null, durationMinutes: int|null, category: string, popularityRank: int|null}>
-     */
-    private function buildServices(?Site $site, string $proId, Collection $sections, array $ranks = []): array
-    {
-        $envelope = $this->resolver->getServices($site, $proId, $sections);
-        $data = $envelope['data'] ?? null;
-        if (! is_array($data)) {
-            return [];
-        }
-
-        $services = is_array($data['services'] ?? null) ? $data['services'] : [];
-
-        return array_values(array_map(static fn (array $service): array => [
-            'id' => $service['id'],
-            'title' => (string) ($service['title'] ?? ''),
-            'description' => $service['description'] ?? null,
-            'priceCents' => $service['price_cents'] ?? null,
-            'currencyCode' => $service['currency_code'] ?? null,
-            'durationMinutes' => $service['duration_minutes'] ?? null,
-            'category' => (string) ($service['category'] ?? 'Services'),
-            'popularityRank' => $ranks[(string) ($service['id'] ?? '')] ?? null,
-        ], $services));
     }
 
     /**

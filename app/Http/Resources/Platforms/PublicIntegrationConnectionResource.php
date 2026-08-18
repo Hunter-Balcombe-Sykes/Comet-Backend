@@ -97,7 +97,10 @@ class PublicIntegrationConnectionResource extends ApiResource
         'dribbble' => ['username', 'url'],
         'behance' => ['username', 'url'],
         'gumroad' => ['username', 'url'],
-        'fresha' => ['url', 'selection'],
+        // `selection` LEFT the public allowlist 2026-08-19: it carried the whole
+        // scraped service list (and, in team mode, the chosen staff member) —
+        // the sitepage reads services from `pools.services`, never from here.
+        'fresha' => ['url'],
         'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         // mixcloud + tidal share MusicEmbedConnectionResource — same five-key contract.

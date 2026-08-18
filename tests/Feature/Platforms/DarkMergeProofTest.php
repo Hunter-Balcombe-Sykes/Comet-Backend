@@ -555,12 +555,11 @@ it('a pending row renders publicly with allowlisted keys ONLY — none of the de
         ->assertOk()
         ->json('data.platforms');
 
-    // fresha: allowlist is ['url', 'selection'] — connectMode / teamMenu /
-    // connectPendingAt are gone, and `selection` (carried forward as null on a
-    // first connect) is still present, exactly as a completed row would be.
+    // fresha: allowlist is ['url'] (selection left the public wire 2026-08-19)
+    // — connectMode / teamMenu / connectPendingAt are gone, exactly as a
+    // completed row would be.
     expect($platforms['fresha'][0]['payload'])->toBe([
         'url' => 'https://www.fresha.com/a/ollies-salon',
-        'selection' => null,
     ]);
     expect($platforms['fresha'][0]['lastRefreshedAt'])->toBeNull();
 

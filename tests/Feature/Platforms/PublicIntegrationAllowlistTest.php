@@ -820,7 +820,7 @@ it('keeps a completed team-mode fresha connection\'s scraped teamMenu (staff dat
     // with no schema change available to relocate it. That leaves the
     // ALLOWLIST below as the ONLY thing keeping scraped staff-member data off
     // this CDN-cached public wire ("one filter away from a leak" per the R3
-    // brief). Prove today's ['url', 'selection'] entry actually holds the line.
+    // brief). Prove today's ['url'] entry actually holds the line.
     $user = allowlistUser('allowfreshateam');
 
     IntegrationConnection::create([
@@ -848,7 +848,6 @@ it('keeps a completed team-mode fresha connection\'s scraped teamMenu (staff dat
 
     expect($response->json('data.platforms.fresha.0.payload'))->toBe([
         'url' => 'https://www.fresha.com/a/ollies-salon',
-        'selection' => null,
     ]);
 
     // Belt-and-suspenders: assert the scraped staff data doesn't ride anywhere
