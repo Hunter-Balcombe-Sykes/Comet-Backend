@@ -51,6 +51,88 @@ Never script a tick keyed on id alone.
 - P2 Medium: 0 of 15 complete
 - P3 Low: 0 of 15 complete
 
+## Suggested Bundled Sessions
+
+Units below cover the **P2 tier only** — P1 is closed, and P3 is deliberately left unbundled (see the
+note at the end of this section). Run them **in the listed order**: bundles 1 and 3 both touch
+`PublicEmailSubscriptionController.php`, so running 3 before 1 rebases the sanitizer work onto an
+edited file for no reason.
+
+Effort labels are the per-finding ones already recorded below. Per this file's `## Execution policy`,
+plan+implement are **combined for all-S units** and kept **separate for units containing an M**.
+
+- **Bundle 1 — PII sanitizer on public write paths:** #PGR-18, #PGR-19, #PGR-20
+    - **Why grouped:** One root cause, one remedy — three call sites skip the codebase's existing
+      User-Agent / query-param minimizing sanitizer that a neighbouring path already applies. Two files
+      (`AnalyticsController`, plus the three public form controllers). Fixing them apart means proving
+      the same sanitizer contract three times.
+    - **Effort:** S + S + S. Plan+implement combined.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+- **Bundle 2 — Third cache lane on remaining owner-write paths:** #PGR-36
+    - **Why grouped:** Single finding, but it is the known residue of #PGR-6 and rides the
+      `SiteCacheLanes::bust()` seam that #PGR-6 introduced — it belongs to that work, not to a
+      general-purpose bundle. Three call sites (`ManualOverrideController::bumpSites`,
+      `ItemMerger::bumpSites`, `SectionItemController::upsert()/destroy()`).
+    - **Effort:** M. Plan and implement kept separate.
+    - **Watch:** `ProjectionWriter::bumpSite()` fires lane 1 **by design** and is NOT in scope — it is a
+      per-item primitive whose batch callers discharge lanes 2+3 once at the request boundary. Do not
+      "fix" it. `PoolCacheLaneSeamTest.php` is the guard that must stay green.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+- **Bundle 3 — Small correctness, low blast radius:** #PGR-13, #PGR-16, #PGR-17
+    - **Why grouped:** Three unrelated but individually tiny fixes (dashboard reads null favicon/logo;
+      subscription lookup ignores the indexed `email_lc`; alias 301 caches for 5 minutes). No shared
+      state, no shared file except the subscription controller already touched by bundle 1.
+    - **Effort:** S + S + S. Plan+implement combined.
+    - **Verify premise first:** #PGR-13 asserts "the writer now populates them" — confirm that writer
+      change is still in place before changing the reader, or the fix is a no-op against real data.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+- **Bundle 4 — Missing guards on table-less / driver-shaped surfaces:** #PGR-14, #PGR-15
+    - **Why grouped:** Both are **test-only** units adding coverage the services lane already has and the
+      menu lane doesn't — a `normalizeRow()` unit test fed PDO_PGSQL-shaped scalars, and a query-surface
+      tripwire for the three menu DTO models. No production code changes; symmetric with the existing
+      `LegacyServiceQuerySurfaceTest.php`.
+    - **Effort:** S + S. Plan+implement combined.
+    - **Watch:** `MenuItem`, `MenuCategory`, `MenuItemPlatform` are table-less DTO carriers kept on
+      purpose. The unit adds a guard against querying them; it must not delete them or move them into
+      `PurgeSoftDeleted::PURGE_HANDLED`.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+- **Bundle 5 — Backfill / prune command batching:** #PGR-8, #PGR-9, #PGR-10
+    - **Why grouped:** One pattern in three commands — an unbounded result set held open (`cursor()`, or a
+      fully materialized ID list) with per-row work inside. Same remedy shape (chunk, then do the
+      expensive work per chunk), so the reviewer checks one contract three times rather than three.
+    - **Effort:** M + M + S. Plan and implement kept separate.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+- **Bundle 6 — Postgres-lane concurrency coverage:** #PGR-7, #PGR-12
+    - **Why grouped:** Both need a real second committing connection and follow the same established
+      idiom (`ProjectionIdentityKeyAtomicityTest.php`, `EffectLedgerConcurrencyTest.php`). Written
+      together, the fork/injection harness is set up once.
+    - **Effort:** M + M. Plan and implement kept separate.
+    - **Watch:** These MUST run in `tests/Postgres/` (`composer test:pg`). The SQLite mirror has no
+      independently-committing second connection and will pass vacuously — a green `composer test`
+      proves nothing here. Pin the refusal reason, not just the row count.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+**P3 is not bundled, on purpose.** Per `CLAUDE.md` ("Opportunistic fixes — absorb the P3 tail, never
+schedule it"), the fifteen P3s below are absorbed when a session already has the file open for real
+work, not run as a campaign. Do not build units for them.
+
+## Standalone — do NOT bundle
+
+- **#PGR-11** — `ConvergeSiteSubdomainsCommand` commits the raw subdomain rename before cache and KV
+  invalidation.
+    - **Why standalone:** It is a locked, destructive DB write against `site.sites` paired with an
+      external KV mutation, and getting the reordering wrong misroutes live subdomains. The finding's
+      own note says the risk is currently theoretical because production carries no live traffic — so
+      the fix has low upside today and a real downside if botched. It earns its own branch and its own
+      review, and the blocker gate applies (plan first, wait for sign-off).
+    - **Effort:** M.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
 ---
 
 ## P1 — Fix before pilot launch
