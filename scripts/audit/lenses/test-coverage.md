@@ -264,6 +264,7 @@ configuration that produced the false finding.
 --scope tests/Unit/Site
 --scope tests/Feature/Site
 --scope tests/fixtures/Routing
+--scope tests/fixtures/catalog
 --scope app/Catalog
 --scope app/Routing
 --scope app/Ingest
