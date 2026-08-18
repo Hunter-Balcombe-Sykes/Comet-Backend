@@ -94,10 +94,10 @@ it('both music connectors declare an Actor-cost track stream, never a free chann
     }
 });
 
-it('declares no hosts, because a music connector never fetches directly', function () {
-    // The actor run is the only outbound call and it happens inside the driver,
-    // so an admitted host list here would be permission this lane cannot use.
-    expect(SpotifyTracksConnector::manifest()->hosts)->toBe([])
+it('declares only the hosts it fetches directly: spotify the keyless oEmbed for covers, soundcloud none', function () {
+    // The actor run happens inside the driver; the only direct fetch is
+    // Spotify's oEmbed (track covers + artist name, 2026-08-18 restructure).
+    expect(SpotifyTracksConnector::manifest()->hosts)->toBe(['open.spotify.com'])
         ->and(SoundcloudTracksConnector::manifest()->hosts)->toBe([]);
 });
 

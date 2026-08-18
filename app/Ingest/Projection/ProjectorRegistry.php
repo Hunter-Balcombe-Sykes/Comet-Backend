@@ -46,7 +46,7 @@ final class ProjectorRegistry
         // they have no projector line by design and are cleaned up with the
         // channel items themselves.
         'soundcloud' => ['tracks' => SoundcloudTrackProjector::class],
-        'spotify' => ['tracks' => SpotifyTrackProjector::class],
+        'spotify' => ['tracks' => SpotifyTrackProjector::class, 'releases' => SpotifyReleaseProjector::class],
         'square' => ['menu' => MenuItemProjector::class],
         'uber_eats' => ['menu' => MenuItemProjector::class],
         'vimeo' => ['watch' => VimeoVideoProjector::class],

@@ -10,6 +10,7 @@ use App\Mail\Notifications\ProfileTaskMail;
 use App\Services\Platforms\Actors\ApifyProfileScraperAdapter;
 use App\Services\Platforms\Actors\FigueProfileScraperAdapter;
 use App\Services\Platforms\Actors\SoundcloudTracksAdapter;
+use App\Services\Platforms\Actors\SpotifyReleasesAdapter;
 use App\Services\Platforms\Actors\SpotifyTracksAdapter;
 use App\Services\Platforms\DoorDashMenuDriver;
 use App\Services\Platforms\SquareMenuDriver;
@@ -318,6 +319,7 @@ return [
                 // rather than as a configuration error.
                 'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 50),
                 'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 50),
+                'music-spotify_releases' => (int) env('PARTNA_SPOTIFY_RELEASES_APIFY_DAILY_CAP', 50),
             ],
 
             // CFG-9: HTTP client timeout for Apify run-sync-get-dataset-items calls, which block
@@ -902,6 +904,14 @@ return [
                 'actor' => env('PARTNA_SPOTIFY_ACTOR', 'automation-lab~spotify-scraper'),
                 'adapter' => SpotifyTracksAdapter::class,
                 'max_tracks' => (int) env('PARTNA_SPOTIFY_MAX_TRACKS', 50),
+            ],
+            // Spotify RELEASES (listen restructure 2026-08-18): the artist's
+            // discography as album/single/compilation rows with cover art —
+            // W10 probe, $0.005/start + $0.002/release. Its own budget key.
+            'spotify_releases' => [
+                'actor' => env('PARTNA_SPOTIFY_RELEASES_ACTOR', 'nifty.codes~spotify-artistdiscography-scraper'),
+                'adapter' => SpotifyReleasesAdapter::class,
+                'max_tracks' => (int) env('PARTNA_SPOTIFY_MAX_RELEASES', 60),
             ],
             'soundcloud' => [
                 'actor' => env('PARTNA_SOUNDCLOUD_ACTOR', 'automation-lab~soundcloud-scraper'),
