@@ -595,11 +595,23 @@ class ProjectionWriter
         // change on its own (bindGroup() picks the winner by bound_at), but
         // makes fresh-item UUID mint order reproducible instead of
         // heap-order dependent — covered by the golden test above.
+        // A source whose connection the owner removed is history (disconnect
+        // = hide): its listings must not vote on identity — the old Apple
+        // connection's five compilation copies of one song poisoned the
+        // title|artist key and kept the live Spotify ↔ Apple pair apart
+        // (listen restructure 2026-08-18, caught live). Manual sources have
+        // no connection and always take part.
+        $liveSource = fn ($q) => $q->where(fn ($w) => $w->whereNull('cs.connection_id')
+            ->orWhereExists(fn ($e) => $e->from('site.platform_connections as lpc')
+                ->whereColumn('lpc.id', 'cs.connection_id')
+                ->whereNull('lpc.deleted_at')));
+
         $rows = DB::table('content.source_items as si')
             ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
             ->where('cs.user_id', $userId)
             ->where('si.kind', $kind)
             ->whereNull('si.removed_at')
+            ->tap($liveSource)
             ->orderBy('si.first_seen_at')
             ->orderBy('si.id')
             ->get(['si.id', 'si.coord', 'si.source_id', 'si.kind', 'si.first_seen_at']);
@@ -615,11 +627,12 @@ class ProjectionWriter
         // row set: a subquery on the same si/cs predicate instead of
         // materialising every source_item id into a whereIn(...) array.
         $keysBySourceItem = DB::table('content.identity_keys')
-            ->whereIn('source_item_id', function ($sub) use ($userId, $kind) {
+            ->whereIn('source_item_id', function ($sub) use ($userId, $kind, $liveSource) {
                 $sub->select('si.id')->from('content.source_items as si')
                     ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
                     ->where('cs.user_id', $userId)
                     ->where('si.kind', $kind)
+                    ->tap($liveSource)
                     ->whereNull('si.removed_at');
             })
             ->get(['source_item_id', 'key_class', 'key_value'])
