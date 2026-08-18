@@ -17,12 +17,11 @@ use App\Catalog\SurfaceBuilder;
  * Eventbrite. Bespoke connect (EventsCatalog/EventsPlatformController) — no
  * connect capability. 25 regional TLDs verbatim from the HostMatch regex
  * (PRSP:424); each gets an organiser-page detector (/o/<org>), strength
- * DeepLinkWithSlug. A single eventbrite.com detector on /e/ is layered on
- * top with its own lower-confidence MarketplaceListing strength: a
- * single-event URL is NOT an organiser-connect candidate, it routes to the
- * event flow instead — kept as a separate signal rather than folded into
- * the organiser pattern (a reservedPaths('/e/') entry was considered and
- * rejected in favour of this explicit second detector).
+ * DeepLinkWithSlug. A single-event URL (/e/…) is NOT an organiser-connect
+ * candidate — it is reserved on the surface (see the builder), so it projects
+ * no-rule-matched and the importer seeds it as an event ITEM. The earlier
+ * "explicit second detector" for /e/ is gone: a path detector cannot score
+ * below the suggest band, so it placed organiser rows from event links.
  */
 class Eventbrite
 {
@@ -51,14 +50,6 @@ class Eventbrite
             self::TLDS,
         );
 
-        $detectors[] = Detector::url('eventbrite.com')
-            // (/|$) not a bare trailing slash: canonicalisation strips a
-            // trailing slash, so `#^/e/#` could never match the canonical
-            // form of https://eventbrite.com/e/.
-            ->path('#^/e(/|$)#')
-            ->strength(EvidenceStrength::MarketplaceListing)
-            ->note('single event page — routes to event flow, not organiser connect');
-
         return [
             SurfaceBuilder::for('eventbrite.organiser')
                 ->displayName('Eventbrite')
@@ -67,6 +58,18 @@ class Eventbrite
                 ->identifier(IdentifierKind::Handle)
                 ->refreshEvery(21600)
                 ->canonicalUrl('https://eventbrite.com/o/{org}')
+                // A single EVENT page (/e/…) is an ITEM, not an organiser
+                // account. This used to be a second, MarketplaceListing-strength
+                // /e/ detector on eventbrite.com meant to route to the event
+                // flow — but any path-pattern detector scores 71 (40 + 35 − 4),
+                // above the events suggest band, and an indirect origin
+                // auto-applies that band: an event link PLACED an organiser
+                // connection with the whole URL as its resource_id. Reserved
+                // paths are the surface-level "can never auto-connect"
+                // (LinkProjector::score), which is the semantic wanted here:
+                // the URL projects no-rule-matched → Note → LinkInBioImporter
+                // seeds the event through EventsSeeder as a pool item.
+                ->reservedPaths('/e/')
                 ->fetch('fetch.eventbrite.scrape.v1')
                 ->multiAccount(5)
                 ->detect(...$detectors)

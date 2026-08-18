@@ -2,10 +2,12 @@
 
 use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\RouteContext;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -133,9 +135,15 @@ it('points an organiser finding at the single-account remove route', function ()
 
 // ── End to end: it reaches the modal ─────────────────────────────────────────
 
-it('shows an event found inside a link-in-bio page as synced in the modal', function () {
+it('seeds an event found inside a link-in-bio page as a pool ITEM only — no eventbrite platform row', function () {
     Queue::fake();
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
     $user = User::factory()->create(['account_type' => 'partna']);
+    $site = new Site(['subdomain' => 'ebscan', 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
         'payload' => ['syncFindings' => [], 'unmatched' => []], 'is_active' => true,
@@ -147,18 +155,20 @@ it('shows an event found inside a link-in-bio page as synced in the modal', func
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(app(LinkInBioImporter::class));
 
-    // NEW CONTRACT (LinkInBioImporter migration, owner ruling 2026-08-18):
-    // the event still seeds — a real eventbrite connection and its event item
-    // exist the moment the scan lands — but the synced MODAL no longer lists
-    // items found one hop inside a bio page: the modal is payload findings
-    // (written by the still-legacy direct bio scan) plus the B4 conflict
-    // fold, and successful placements on the new path write neither. Modal
-    // completeness for unroll-found items returns when InstagramAutoSync
-    // (P8 consumer 2) migrates and the fold is widened with it.
-    $conn = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->first();
-    expect($conn)->not->toBeNull();
-    expect($conn->resource_id)->toStartWith('event-');
+    // Owner ruling 2026-08-18 (gsnwilliams): a single event is an ITEM, not a
+    // platform. The new lane records no payload finding, so a
+    // resource_kind='event' connection row was read by nobody and only
+    // surfaced as a bogus "Eventbrite" card beside the real event. This path
+    // now writes exactly what the interactive addEvent verb writes — the pool
+    // item — and nothing under site.platform_connections.
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->exists())->toBeFalse();
 
+    $items = DB::table('content.items')->where('user_id', $user->id)->where('kind', 'event')->whereNull('removed_at')->get();
+    expect($items)->toHaveCount(1);
+
+    // The synced MODAL: payload findings (still-legacy direct bio scan) plus
+    // the B4 conflict fold — successful placements on the new path write
+    // neither, so it does not list the event either way.
     $synced = actingAsUser($user)->getJson('/api/platforms/instagram/synced')->assertOk()->json('synced');
     expect(collect($synced)->firstWhere('platform', 'eventbrite'))->toBeNull();
 });
