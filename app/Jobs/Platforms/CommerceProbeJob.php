@@ -68,6 +68,11 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         public readonly string $url,
         public readonly ?string $category = null,
         public readonly ?string $platform = null,
+        // A pasted link (RoutingController::store): a storefront the probe
+        // recognises becomes a suggestion for the user to confirm, not a
+        // placed store — and the miss path writes no second link card (the
+        // paste already wrote one).
+        public readonly bool $suggestOnly = false,
     ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
@@ -104,7 +109,7 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             $resolved = false;
         }
 
-        if (! $resolved) {
+        if (! $resolved && ! $this->suggestOnly) {
             $links->seedCustom($user, $this->url);
         }
 
@@ -140,7 +145,7 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
 
     private function seedStore(StoreBrandSeeder $brands, User $user, string $url): bool
     {
-        return $brands->seed($user, $url, self::ORIGIN)['outcome'] === 'placed';
+        return $brands->seed($user, $url, self::ORIGIN, suggestOnly: $this->suggestOnly)['outcome'] === 'placed';
     }
 
     public function failed(Throwable $e): void

@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Content\EnrichPoolLinkJob;
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
@@ -47,12 +48,22 @@ it('explains an unrecognised link rather than failing', function () {
     // Verdict::Note is "keep as a link item, never dropped" — so the preview
     // must NOT read as a block. The dashboard disables submit whenever
     // blockReason is set; an unrecognised-but-healthy URL has to stay addable.
+    // An own-domain URL the catalog cannot place is also a storefront
+    // candidate (owner ask, 2026-08-18): the paste path probes it and a
+    // Shopify / WooCommerce hit becomes an inbox suggestion, so the preview
+    // says so and flags `probe: 'store'` for the dashboard.
     actingAsUser($pro)->postJson('/api/routing/preview', ['url' => 'https://joesplumbing.com.au/'])
         ->assertOk()
         ->assertJsonPath('verdict', 'note')
         ->assertJsonPath('routedTo', null)
         ->assertJsonPath('blockReason', null)
-        ->assertJsonPath('explanation', "We'll keep this as a link on your site.");
+        ->assertJsonPath('probe', 'store')
+        ->assertJsonPath('explanation', "We'll keep this as a link on your site — and if it turns out to be your online store, we'll offer to add it as one.");
+
+    // A recognised platform is not a storefront candidate.
+    actingAsUser($pro)->postJson('/api/routing/preview', ['url' => 'https://www.youtube.com/@veritasium'])
+        ->assertOk()
+        ->assertJsonPath('probe', null);
 });
 
 it('previews a below-auto-threshold link without a blockReason so it can be submitted for review', function () {
@@ -142,6 +153,12 @@ it('keeps an unrecognised link as a real link card, not a vanished pending', fun
 
     // The enrichment job upgrades the minimal card, same as a legacy add.
     Queue::assertPushed(EnrichPoolLinkJob::class, fn ($j) => $j->userId === (string) $pro->id);
+
+    // …and the storefront probe runs, suggest-only: a Shopify / WooCommerce
+    // hit lands in the inbox as "Is this your store?", never as a placed
+    // store from a paste (owner ask, 2026-08-18).
+    Queue::assertPushed(CommerceProbeJob::class, fn ($j) => $j->userId === (string) $pro->id
+        && $j->url === $response->json('canonicalUrl') && $j->suggestOnly === true && $j->category === null);
 
     // Still observed: an unmatched link is exactly what the rot report needs.
     expect(DB::table('routing.link_observations')->count())->toBe(1);

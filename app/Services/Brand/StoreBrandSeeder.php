@@ -2,9 +2,11 @@
 
 namespace App\Services\Brand;
 
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkObserver;
+use App\Routing\Placement;
 use App\Routing\PlacementPolicy;
 use App\Routing\Probes\LinkProbeWorker;
 use App\Routing\Probes\ProbeOutcome;
@@ -62,7 +64,7 @@ class StoreBrandSeeder
     /**
      * @return array{outcome: string, verdict: ?string, reason: ?string, connectionId: ?string, brandId: ?string}
      */
-    public function seed(User $user, string $url, string $origin = 'paste'): array
+    public function seed(User $user, string $url, string $origin = 'paste', bool $suggestOnly = false): array
     {
         $iri = $this->canonicalizer->canonicalize($url);
         $probe = $this->worker->probe($iri, (string) $user->id);
@@ -70,6 +72,16 @@ class StoreBrandSeeder
         $context = RoutingContext::forUser($user, $origin);
         $projection = $probe->toProjection();
         $placement = $this->policy->decide($projection, $context);
+
+        // A pasted link's probe (owner ask, 2026-08-18) OFFERS the store rather
+        // than installing it: the user typed a URL into the link box, and a
+        // connected store (products, a shop page) is a bigger thing than they
+        // asked for. The reconciler writes the intent as a proposed
+        // suggestion — "Is this your Shopify?" in the inbox — and the accept
+        // path builds the store through this same seeder.
+        if ($suggestOnly && $placement->verdict === Verdict::Place) {
+            $placement = new Placement(Verdict::Choose, $placement->surfaceKey, $placement->identifier, 'below_threshold', 'offered from a pasted link');
+        }
 
         // The probe leaves the same trace a paste does. "Why is this store on
         // my page?" and "why isn't it?" must both be answerable, and a probe
@@ -149,6 +161,18 @@ class StoreBrandSeeder
         }
 
         $store = $this->upsertBrand($user, $stores, $probe, $iri->canonical ?? $url);
+
+        // The connection the reconciler wrote carries only {url, source}; the
+        // store's name lives on the brand row. Stamp it onto the payload so
+        // the Platforms table / connect summary read "Beardbrand", not the
+        // brand key or the URL (ConnectionDisplayName reads payload.name;
+        // 2026-08-18, probed stores offered from a paste).
+        if ($store->name !== null && $store->name !== '') {
+            $connection = IntegrationConnection::query()->find($applied['connection_id']);
+            if ($connection !== null && (($connection->payload['name'] ?? null) !== $store->name)) {
+                $connection->forceFill(['payload' => [...($connection->payload ?? []), 'name' => $store->name]])->saveQuietly();
+            }
+        }
 
         // §12: the store's logo becomes an owned, sanitised asset rather than a
         // hotlink to a CDN URL that can rot or be swapped under us.

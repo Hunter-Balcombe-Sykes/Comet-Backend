@@ -1,7 +1,16 @@
 <?php
 
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Brand\StoreBrandSeeder;
+use App\Services\Platforms\CustomLinkSeeder;
+use App\Services\Platforms\EventsSeeder;
+use App\Services\Platforms\GenericShopScraper;
+use App\Services\Platforms\ShopProductSeeder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -191,4 +200,59 @@ it('403s accepting a booking suggestion the account cannot have, and blocks the 
         ->and($intent->block_reason)->toBe('gate');
 
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->exists())->toBeFalse();
+});
+
+// ── Storefront offered from a pasted link (owner ask, 2026-08-18) ────────────
+
+it('offers a probed Shopify storefront as a suggestion from a paste (never a placed store), and accepting it builds the store through the seeder', function () {
+    setupContentTables();
+    Cache::flush();
+    $pro = createTenant('inbox-store');
+    // The probe cascade sees a Shopify storefront on the user's own domain.
+    Http::fake([
+        '*/meta.json' => Http::response(['id' => 2090478, 'name' => 'Beardbrand', 'currency' => 'USD'], 200),
+        'https://www.beardbrand.com/' => Http::response('<html><head><title>Beardbrand</title></head><body>Beard care</body></html>', 200, ['Content-Type' => 'text/html']),
+        '*' => Http::response('', 404),
+    ]);
+
+    // 1. Suggest-only probe (what RoutingController::store dispatches after a
+    //    Note): the reconciler writes a PROPOSED intent, no connection.
+    (new CommerceProbeJob((string) $pro->id, 'https://www.beardbrand.com/', suggestOnly: true))->handle(
+        app(GenericShopScraper::class),
+        app(StoreBrandSeeder::class),
+        app(ShopProductSeeder::class),
+        app(EventsSeeder::class),
+        app(CustomLinkSeeder::class),
+    );
+    $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->block_reason)->toBe('below_threshold')
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+    $inbox = actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions');
+    expect(collect($inbox)->firstWhere('surfaceKey', 'shopify.store')['question'])->toBe('Is this your Shopify store?');
+
+    // 2. Accept → 202 pending; the store is built by the seeder, not the bare applier.
+    Queue::fake();
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intent->id}/accept")
+        ->assertStatus(202)
+        ->assertJsonPath('status', 'pending')
+        ->assertJsonPath('connectionId', null);
+    Queue::assertPushed(CommerceProbeJob::class, fn ($j) => $j->userId === (string) $pro->id && $j->category === 'shop' && $j->suggestOnly === false);
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+
+    // 3. That job (probe answer cached from step 1) places the store: connection
+    //    named after the shop, storefront collection, intent applied.
+    (new CommerceProbeJob((string) $pro->id, 'https://www.beardbrand.com/', 'shop'))->handle(
+        app(GenericShopScraper::class),
+        app(StoreBrandSeeder::class),
+        app(ShopProductSeeder::class),
+        app(EventsSeeder::class),
+        app(CustomLinkSeeder::class),
+    );
+    $connection = IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
+    expect($connection)->not->toBeNull()
+        ->and($connection->payload['name'] ?? null)->toBe('Beardbrand')
+        ->and(DB::table('routing.source_intents')->where('id', $intent->id)->value('state'))->toBe('applied')
+        ->and(DB::table('content.collections')->where('user_id', $pro->id)->where('kind', 'storefront')->where('label', 'Beardbrand')->exists())->toBeTrue();
 });
