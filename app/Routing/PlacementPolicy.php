@@ -31,9 +31,25 @@ class PlacementPolicy
      * and reuses it across import runs must not grow this into an unbounded
      * per-run cache.
      *
-     * @var array{key: string, refs: array<string, int>}|null
+     * @var array{key: string, at: float, refs: array<string, int>}|null
      */
     private ?array $tombstoneMemo = null;
+
+    /**
+     * Seconds a primed memo may serve before re-reading the table. Bounds the
+     * concurrent-dismiss race (see isTombstoned()'s docblock) to a window
+     * comparable to the pre-memo per-link EXISTS, while keeping the batch
+     * query savings SCALE-20 bought.
+     */
+    private const TOMBSTONE_MEMO_TTL_SECONDS = 5;
+
+    /** Test seam: expire the primed memo without sleeping. */
+    public function agePrimedMemoForTest(): void
+    {
+        if ($this->tombstoneMemo !== null) {
+            $this->tombstoneMemo['at'] = 0.0;
+        }
+    }
 
     public function decide(Projection $projection, RoutingContext $context): Placement
     {
@@ -179,12 +195,15 @@ class PlacementPolicy
      * dismiss AND two hrefs canonicalising to one target in the same run —
      * narrow, not broad.
      *
-     * Accepted, not fixed with invalidation: as of this fix neither
-     * WebsiteImporter nor LinkInBioImporter is wired into any controller,
-     * job, or route — both are test-only call sites — and there are zero
-     * live users, so the race is unreachable today. TRIPWIRE: if either
-     * importer is ever wired into a live request path, this memo needs
-     * invalidation or a narrower scope before that ships.
+     * Bounded by TTL (2026-08-18, discharging the original tripwire): a
+     * dismissal lands in a DIFFERENT request/process, so in-memory
+     * invalidation cannot reach a primed memo — instead the memo self-expires
+     * after TOMBSTONE_MEMO_TTL_SECONDS and re-reads the table, narrowing the
+     * staleness window to roughly the pre-memo per-link EXISTS while keeping
+     * the batch savings (~1 query per TTL window instead of 1 per link).
+     * Required before LinkInBioScanJob was wired onto LinkInBioImporter —
+     * see docs/superpowers/plans/2026-08-18-linkinbio-unroll-migration.md.
+     * Pinned by TombstoneMemoTtlTest.
      */
     private function isTombstoned(User $user, Projection $projection, RoutingContext $context): bool
     {
@@ -201,7 +220,10 @@ class PlacementPolicy
         }
 
         $key = $user->id.'|'.$context->importRunId;
-        if ($this->tombstoneMemo === null || $this->tombstoneMemo['key'] !== $key) {
+        $expired = $this->tombstoneMemo !== null
+            && (microtime(true) - $this->tombstoneMemo['at']) > self::TOMBSTONE_MEMO_TTL_SECONDS;
+
+        if ($this->tombstoneMemo === null || $this->tombstoneMemo['key'] !== $key || $expired) {
             // No ->limit(): missing a tombstone here resurrects a link the
             // user explicitly refused — the exact C8 invariant this method's
             // caller protects. Row count is bounded by how many links this
@@ -211,7 +233,7 @@ class PlacementPolicy
                 ->where('user_id', $user->id)
                 ->pluck('source_ref');
 
-            $this->tombstoneMemo = ['key' => $key, 'refs' => array_flip($sourceRefs->all())];
+            $this->tombstoneMemo = ['key' => $key, 'at' => microtime(true), 'refs' => array_flip($sourceRefs->all())];
         }
 
         foreach ($refs as $ref) {
