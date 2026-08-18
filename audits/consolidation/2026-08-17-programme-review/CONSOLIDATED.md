@@ -48,7 +48,7 @@ Never script a tick keyed on id alone.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 13 of 15 complete
+- P2 Medium: 15 of 15 complete
 - P3 Low: 0 of 16 complete
 
 ## Suggested Bundled Sessions
@@ -302,7 +302,7 @@ work, not run as a campaign. Do not build units for them.
 
 ## P2 — Should fix
 
-- [ ] **#PGR-7** · P2 — No test proves `ProjectionWriter::upsertSourceItem()`'s double-click race actually resolves cleanly
+- [x] **#PGR-7** · P2 — No test proves `ProjectionWriter::upsertSourceItem()`'s double-click race actually resolves cleanly
     - **Source:** ingest-projection — was `#TEST-1`
     - **Where:** app/Ingest/Projection/ProjectionWriter.php (`upsertSourceItem`), app/Http/Controllers/Api/Content/PoolItemCreateController.php:111
     - **Affects:** The "Add" button on `POST /api/content/pools/{pool}/items`. Two near-simultaneous requests for the same URL (a double-click, or a retried request after a slow response) derive the identical coord (`'manual:'.sha1(strtolower(trim($url)))`) and race on `content.source_items`'s `(source_id, coord)` unique index.
@@ -426,7 +426,7 @@ work, not run as a campaign. Do not build units for them.
         }
         ```
 
-- [ ] **#PGR-12** · P2 — Enquiry notification reconciliation's `SKIP LOCKED` concurrency contract has no Postgres-lane test, unlike the analogous claim-vs-prune race
+- [x] **#PGR-12** · P2 — Enquiry notification reconciliation's `SKIP LOCKED` concurrency contract has no Postgres-lane test, unlike the analogous claim-vs-prune race
     - **Source:** migration-commands — was `#TEST-3`
     - **Where:** app/Console/Commands/ReconcileEnquiryNotifications.php (transaction with `lock('for update skip locked')`)
     - **Affects:** Enquiry notification recovery when two scheduler ticks or servers overlap; a regression could double-handle or block under concurrency.

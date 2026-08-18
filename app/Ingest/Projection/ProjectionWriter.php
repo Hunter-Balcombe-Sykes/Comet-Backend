@@ -728,20 +728,78 @@ class ProjectionWriter
             ->unique()
             ->values();
 
-        $winner = $this->preferOwnerAnchored($effective)
-            ?? $effective->first()
-            ?? $this->createItem($userId, $kind);
+        $winner = $this->preferOwnerAnchored($effective) ?? $effective->first();
 
+        $mintedOwnItem = false;
+        if ($winner === null) {
+            $winner = $this->createItem($userId, $kind);
+            $mintedOwnItem = true;
+        }
+
+        // #PGR-7: this insert used to be bare. A concurrent bindGroup() call for the SAME coord
+        // (writeManualItem() double-submit — two tabs, or a double-clicked "Add" in
+        // PoolItemCreateController, both deriving the identical deterministic coord) can race
+        // it: both callers read an empty $anchors above, both mint their OWN $winner via
+        // createItem(), and both attempt to bind the same coord — content.item_anchors' PK is
+        // (user_id, coord), so at most one insert survives and the loser used to surface an
+        // uncaught 23505 plus an orphaned content.items row. insertOrIgnore turns the loser's
+        // insert into a no-op; $boundHere tracks which of THIS call's own coords actually landed
+        // under $winner so far, so a later conflict in the same multi-coord group can redirect
+        // them too, not just discard an item other rows already point at.
+        $boundHere = [];
+        $lostTo = null;
         foreach ($group as $coord) {
             $existing = $anchors->firstWhere('coord', $coord);
-            if ($existing === null) {
-                DB::table('content.item_anchors')->insert([
-                    'coord' => $coord,
-                    'user_id' => $userId,
-                    'item_id' => $winner,
-                    'bound_at' => now(),
-                ]);
+            if ($existing !== null) {
+                continue;
             }
+
+            $inserted = DB::table('content.item_anchors')->insertOrIgnore([
+                'coord' => $coord,
+                'user_id' => $userId,
+                'item_id' => $winner,
+                'bound_at' => now(),
+            ]);
+
+            if ($inserted > 0) {
+                $boundHere[] = $coord;
+
+                continue;
+            }
+
+            // Lost the race for this coord. Re-read the anchor that actually persisted and
+            // adopt ITS item id — never the locally-computed $winner, which by definition lost.
+            // Getting this backwards would leave this caller returning an item id nothing else
+            // agrees with, which is worse than the 500 it replaces. (A second coord in the same
+            // group losing to a THIRD, different item is not reconciled here — one conflicting
+            // winner per call is the shape #PGR-7 reproduced and fixes; that deeper case is not
+            // known to be reachable and is left for a future finding if it ever is.)
+            $lostTo = (string) DB::table('content.item_anchors')
+                ->where('user_id', $userId)->where('coord', $coord)->value('item_id');
+        }
+
+        if ($lostTo !== null && $lostTo !== $winner) {
+            if ($boundHere !== []) {
+                // Some of this group's OTHER coords already landed under our own (now-losing)
+                // $winner earlier in this same loop — redirect them to the agreed winner first,
+                // or the cascade delete below would take their anchor rows down with it.
+                DB::table('content.item_anchors')
+                    ->where('user_id', $userId)
+                    ->whereIn('coord', $boundHere)
+                    ->update(['item_id' => $lostTo]);
+            }
+
+            if ($mintedOwnItem) {
+                // $winner was minted fresh in this call. Nothing referenced it outside the
+                // item_anchors rows this loop just redirected away — no facets, no
+                // source_items.item_id, no curation exist yet — so it is safe to discard
+                // outright rather than route through the full mergeInto() ceremony.
+                DB::table('content.items')->where('id', $winner)->delete();
+            } else {
+                $this->mergeInto($userId, keptItemId: $lostTo, discardedItemId: $winner);
+            }
+
+            $winner = $lostTo;
         }
 
         // Losers are "everything that is not the winner", NOT slice(1). Those
