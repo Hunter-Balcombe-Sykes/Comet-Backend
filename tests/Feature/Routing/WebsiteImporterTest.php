@@ -59,18 +59,19 @@ it('counts one decision per distinct link, not per occurrence', function () {
         ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->count())->toBe(1);
 });
 
-it('suggests rather than connects a link it merely found on a page', function () {
-    // The indirect penalty at work: the same Instagram URL a user PASTES
-    // clears the auto-apply bar, while one discovered on their old website
-    // lands in the inbox for confirmation. Finding a link is weaker evidence
-    // of intent than typing one.
+it('connects a suggest-band link it found on a page', function () {
+    // Owner ruling 2026-08-18: harvest origins auto-apply the suggest band.
+    // The indirect penalty still applies to the score, but a harvested link
+    // clearing the suggest threshold with a clean margin now connects instead
+    // of waiting in the inbox. (Pre-ruling this test pinned the opposite —
+    // 0 connections, state 'proposed'.)
     $pro = createTenant('importer-suggests');
     websitePage('<html><body><a href="https://www.instagram.com/someshop">IG</a></body></html>');
 
     app(WebsiteImporter::class)->import($pro, 'https://example.com/');
 
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0)
-        ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->value('state'))->toBe('proposed');
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1)
+        ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->value('state'))->toBe('applied');
 });
 
 it('marks harvested links as found, not typed', function () {

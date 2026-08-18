@@ -43,23 +43,23 @@ it('writes a source intent whose origin is the one CommerceProbeJob actually sen
         RoutingContext::forUser($pro, $origin),
     );
 
-    // 'choose' for THIS input, and the verdict is incidental to what is being
+    // 'place' for THIS input, and the verdict is incidental to what is being
     // tested — do not read a general rule into it. The origin does not decide
     // place-vs-choose; PlacementPolicy does, from the surface and confidence.
-    // Nightwatch #432 caught the real failure with state='applied' on a
-    // shopify.store, i.e. the same origin reaching Place. What the origin DOES
-    // decide is directness (RoutingContext::isDirectRequest() is true only for
-    // 'paste'), which is why CommerceProbeJob deliberately chose a non-'paste'
-    // literal: it keeps the probe tombstone-safe.
+    // (Was 'choose' until the 2026-08-18 owner ruling: harvest origins now
+    // auto-apply the suggest band, so this indirect probe places.) What the
+    // origin DOES decide is directness (RoutingContext::isDirectRequest() is
+    // true only for 'paste'), which is why CommerceProbeJob deliberately chose
+    // a non-'paste' literal: it keeps the probe tombstone-safe.
     //
     // Both verdicts write an intent, which is the only property this test
     // needs; it is pinned so the assertion below cannot silently start
     // examining a row written down a different path.
-    expect($result['verdict'])->toBe('choose');
+    expect($result['verdict'])->toBe('place');
 
     $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->first();
 
     expect($intent)->not->toBeNull()
         ->and($intent->origin)->toBe('commerce_probe')
-        ->and($intent->state)->toBe('proposed');
+        ->and($intent->state)->toBe('applied');
 });

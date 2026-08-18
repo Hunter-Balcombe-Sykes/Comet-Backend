@@ -95,14 +95,16 @@ it('issues one tombstone query per import run, not one per link (SCALE-20)', fun
 
     expect($refusedRefs->all())->toBe(['tombstoned', 'tombstoned']);
 
-    // Same verdict tally the pre-fix per-link-EXISTS code produced: 18
-    // matched links go through gates/confidence as normal (harvested =
-    // suggested, not auto-placed — the indirect penalty), the 2 refused ones
-    // are rejected and therefore counted 'noted' by the importer's tally
-    // (WebsiteImporter has no separate reject bucket).
-    expect($result['suggested'])->toBe(18)
+    // 18 matched links go through gates/confidence as normal; the 2 refused
+    // ones are rejected and counted 'noted' (WebsiteImporter has no separate
+    // reject bucket). Under the 2026-08-18 ruling (harvest origins auto-apply
+    // the suggest band) the first links PLACE until the instagram.profile
+    // account cap holds the rest — so the 18 split into connected-up-to-cap
+    // plus cap-held suggestions instead of the pre-ruling 18 suggested / 0
+    // connected.
+    expect($result['suggested'])->toBe(13)
         ->and($result['noted'])->toBe(2)
-        ->and($result['connected'])->toBe(0);
+        ->and($result['connected'])->toBe(5);
 
     // No intent is written for either refused link — a Hold would put the
     // platform back in front of the user as a suggestion, which is the

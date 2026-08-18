@@ -112,6 +112,17 @@ class PlacementPolicy
         }
 
         if ($confidence >= $suggest) {
+            // Harvest maximisation (owner ruling 2026-08-18): on any indirect
+            // origin the suggest band auto-applies. Pre-claim there is no
+            // inbox to see a suggestion; post-claim it is friction on a link
+            // the user demonstrably published. Margin still gates — a
+            // too-close projection stays Choose because the doubt there is
+            // WHICH surface, not whether. Direct paste keeps the confirm
+            // flow: it is a wire contract with the dashboard preview.
+            if (! $context->isDirectRequest() && $projection->margin >= RoutingPolicy::minMargin()) {
+                return new Placement(Verdict::Place, $surfaceKey, $projection->identifier);
+            }
+
             $why = $confidence < $auto
                 ? 'below auto-apply threshold'
                 : 'two rules matched too closely to decide automatically';
