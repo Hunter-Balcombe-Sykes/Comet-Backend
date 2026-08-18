@@ -181,6 +181,7 @@ describe('UserDashboardResource — sector + capabilities (2026-07-15)', functio
             'googleBusinessFullSync' => true,
             'googleBusinessSetsDisplayName' => true,
             'receiveModerationNotifications' => false,
+            'workplaceBrandIsSiteIdentity' => true,
         ]);
     });
 
@@ -207,6 +208,7 @@ describe('UserDashboardResource — sector + capabilities (2026-07-15)', functio
             'googleBusinessFullSync' => false,
             'googleBusinessSetsDisplayName' => false,
             'receiveModerationNotifications' => false,
+            'workplaceBrandIsSiteIdentity' => false,
         ]);
     });
 });

@@ -103,5 +103,15 @@ final readonly class AccountCapabilitySet
         // change, and so the endpoints comply with the doctrine that every new
         // endpoint consults AccountCapabilities.
         public bool $can_curate_identity,
+        // Does the WORKPLACE's brand (its logo, square mark, and the design
+        // evidence scraped off its previous website — accent, font) stand for
+        // the SITE? True for a business: the workplace IS the account. False
+        // for a partna account (owner, 2026-08-19): a hairdresser's site never
+        // wears the salon's logo — the workplace mark only ever appears
+        // inside the site's Workplace card, and the dashboard's own chrome
+        // (account menu, sidebar) never borrows it either. Gates
+        // LogoAutoGrabber, ResolveSiteAccentJob and the font autopilot in
+        // ScanPreviousWebsiteContentJob, and the dashboard's use of the mark.
+        public bool $workplace_brand_is_site_identity,
     ) {}
 }

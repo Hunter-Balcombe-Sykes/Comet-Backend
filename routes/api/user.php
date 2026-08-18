@@ -310,6 +310,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::post('/me/site/reclaim-handle', [HandleReclaimController::class, 'store'])
             ->name('professional.site.reclaim-handle');
         Route::put('/site/workplace', [UserWorkplaceController::class, 'upsert']);
+        Route::post('/site/workplace/resync', [UserWorkplaceController::class, 'resync']);
         Route::delete('/site/workplace', [UserWorkplaceController::class, 'destroy']);
         Route::patch('/site/workplace/previous-website', [UserWorkplaceController::class, 'setPreviousWebsite']);
         Route::patch('/site/visibility', [SiteVisibilityController::class, 'update']);

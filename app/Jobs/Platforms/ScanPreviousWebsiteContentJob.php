@@ -325,6 +325,32 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             }
         }
 
+        // Gallery photos — its own dispatched job (like the PDF/HTML menu
+        // scans above): downloading+validating+uploading several candidate
+        // photos can run long, same rationale as those jobs being split out
+        // of this job's own 60s window. Fills an EMPTY gallery pool only.
+        $galleryCandidates = $galleryCandidateExtractor->extract($html, $baseUrl);
+        if ($galleryCandidates !== []) {
+            WebsiteGalleryScanJob::dispatch($this->userId, $this->siteId, $galleryCandidates)
+                ->delay(now()->addSeconds(30));
+        }
+
+        // Everything below is DESIGN evidence — the site's logo, accent and
+        // font read off this website. That only makes sense when the
+        // workplace's brand IS the site's identity (a business). A partna
+        // account's workplace website is someone else's brand (owner,
+        // 2026-08-19): its logo must never become the site's mark and its
+        // colours must never become the site's accent.
+        if (! AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
+            Log::info('website_scan.design_evidence_skipped', [
+                'user_id' => $this->userId,
+                'site_id' => $this->siteId,
+                'reason' => 'workplace_brand_is_site_identity=false',
+            ]);
+
+            return;
+        }
+
         // Accent colour candidates + logo candidates — one shared favicon
         // fetch, no headless render, reuses the exact $html/$baseUrl already
         // fetched above (no second main-page request). Accent RESOLUTION
@@ -350,16 +376,6 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                 'site_id' => $this->siteId,
                 'decisions' => $decisions,
             ]);
-        }
-
-        // Gallery photos — its own dispatched job (like the PDF/HTML menu
-        // scans above): downloading+validating+uploading several candidate
-        // photos can run long, same rationale as those jobs being split out
-        // of this job's own 60s window. Fills an EMPTY gallery pool only.
-        $galleryCandidates = $galleryCandidateExtractor->extract($html, $baseUrl);
-        if ($galleryCandidates !== []) {
-            WebsiteGalleryScanJob::dispatch($this->userId, $this->siteId, $galleryCandidates)
-                ->delay(now()->addSeconds(30));
         }
 
         // Accent resolution — dispatched TWICE, not run inline. Once now

@@ -53,6 +53,7 @@ class UserDashboardResource extends ApiResource
                 'googleBusinessFullSync' => $capabilities->google_business_full_sync,
                 'googleBusinessSetsDisplayName' => $capabilities->google_business_sets_display_name,
                 'receiveModerationNotifications' => $capabilities->receive_moderation_notifications,
+                'workplaceBrandIsSiteIdentity' => $capabilities->workplace_brand_is_site_identity,
             ],
             // Staff-ness is independent of account_type (which stays
             // partna/business) — it derives from a linked core.partna_staff

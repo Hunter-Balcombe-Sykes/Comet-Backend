@@ -552,3 +552,65 @@ it('a scheduled refresh that changes the payload folds identity for a business a
     $user->refresh();
     expect($user->sector)->toBe('barber');
 });
+
+// ── Resync (owner, 2026-08-19): an overridden partna field goes back under Google ──
+
+it('partna resync puts a hand-edited field back under google and reports google_fields', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('resyncme', 'partna');
+    $siteId = idsyncSite($user);
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    // The user overrides the phone by hand — provenance flips to manual.
+    actingAsUser($user)->putJson('/api/site/workplace', [
+        'name' => 'Fade Lab',
+        'phone' => '+61 400 000 000',
+    ])->assertOk();
+    $workplace = Workplace::query()->where('site_id', $siteId)->firstOrFail();
+    expect($workplace->phone)->toBe('+61 400 000 000');
+    expect(($workplace->field_sources ?? [])['phone']['source'] ?? null)->toBe('manual');
+
+    // show advertises what Google can supply.
+    $show = actingAsUser($user)->getJson('/api/site/workplace')->assertOk()->json();
+    expect($show['google_fields'])->toContain('phone')->toContain('name')->toContain('address_line1');
+
+    // Resync the phone: Google's value returns, stamped google-business; the
+    // hand-typed name is untouched.
+    $response = actingAsUser($user)->postJson('/api/site/workplace/resync', ['fields' => ['phone']])->assertOk()->json();
+    expect($response['resynced'])->toBe(['phone']);
+    $workplace->refresh();
+    expect($workplace->phone)->toBe('(03) 9123 4567');
+    expect(($workplace->field_sources ?? [])['phone']['source'] ?? null)->toBe('google-business');
+    expect($workplace->name)->toBe('Fade Lab');
+});
+
+it('resync of any address column moves the whole address unit', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('resyncaddr', 'partna');
+    $siteId = idsyncSite($user);
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync', 'name' => 'Fade Lab', 'lat' => -37.0, 'lng' => 144.0,
+    ])->assertOk();
+    actingAsUser($user)->putJson('/api/site/workplace', [
+        'name' => 'Fade Lab', 'address_line1' => '1 Nowhere Rd', 'city' => 'Elsewhere', 'postcode' => '9999',
+    ])->assertOk();
+
+    $response = actingAsUser($user)->postJson('/api/site/workplace/resync', ['fields' => ['address_line1']])->assertOk()->json();
+    expect($response['resynced'])->toContain('address_line1')->toContain('city')->toContain('postcode');
+    $workplace = Workplace::query()->where('site_id', $siteId)->firstOrFail();
+    expect($workplace->address_line1)->toBe('12 Example St');
+    expect($workplace->city)->toBe('Melbourne');
+    expect($workplace->postcode)->toBe('3000');
+});
+
+it('resync 422s when google has nothing for the field', function () {
+    $user = idsyncUser('resyncnone', 'partna');
+    idsyncSite($user);
+    actingAsUser($user)->postJson('/api/site/workplace/resync', ['fields' => ['phone']])->assertStatus(422);
+});

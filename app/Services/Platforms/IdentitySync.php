@@ -6,6 +6,8 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
+use App\Services\Platforms\Registry\Platform;
 use App\Services\Profile\FoodContentProbe;
 use App\Services\Profile\SectorProvenance;
 use App\Services\Profile\SectorTaxonomy;
@@ -49,6 +51,120 @@ class IdentitySync
      *
      * @param  array<string, mixed>  $gbPayload  the stored google-business connection payload
      */
+    /**
+     * The address columns Google writes as ONE unit (addressParts) — a resync
+     * of any of them resyncs all of them, and the dashboard badges the group
+     * on its first field.
+     */
+    public const ADDRESS_FIELDS = ['address_line1', 'city', 'state', 'postcode', 'country', 'latitude', 'longitude'];
+
+    /**
+     * Candidate identity fields Google can provide, mapped to workplace
+     * columns. Absent keys (null) are skipped so we never write a null
+     * over a stored value. Email is deliberately NOT here — Places never
+     * returns one, so contact_email stays manual-only. Address is
+     * written as structured columns (never a flat string — that column
+     * was dropped 2026-07-23, signup testing repairs item 1) from
+     * addressParts, which sits in this same payload alongside the
+     * formatted string GoogleBusinessService also maps.
+     *
+     * @return array<string, mixed>
+     */
+    public function googleCandidates(array $gbPayload): array
+    {
+        return [
+            'name' => $this->nameOrNull($gbPayload['name'] ?? null),
+            ...$this->addressPartsCandidates($gbPayload['addressParts'] ?? null),
+            'phone' => $this->stringOrNull($gbPayload['phone'] ?? null),
+            'website' => $this->stringOrNull($gbPayload['website'] ?? null),
+            'category' => $this->stringOrNull($gbPayload['category'] ?? null),
+            'latitude' => $this->floatOrNull($gbPayload['lat'] ?? null),
+            'longitude' => $this->floatOrNull($gbPayload['lng'] ?? null),
+            'opening_hours' => $this->deriveOpeningHours($gbPayload['hours'] ?? null),
+            // The editorial blurb GoogleBusinessAutoSync seeds into description
+            // (fill-if-empty there); offered here so a resync can restore it.
+            'description' => $this->stringOrNull(
+                $gbPayload['editorialSummary'] ?? $gbPayload['reviewSummary'] ?? null,
+            ),
+        ];
+    }
+
+    /**
+     * The workplace columns Google CAN currently supply for this user — the
+     * fields whose dashboard badge may read Synced or offer Resync. Empty
+     * when there is no Google Business connection.
+     *
+     * @return list<string>
+     */
+    public function googleFieldsFor(User $user): array
+    {
+        $payload = $this->googlePayloadFor($user);
+        if ($payload === null) {
+            return [];
+        }
+
+        return array_values(array_keys(array_filter(
+            $this->googleCandidates($payload),
+            fn ($value) => $value !== null,
+        )));
+    }
+
+    /**
+     * Put the named workplace fields back under Google (owner, 2026-08-19 —
+     * the badge's Resync): the connection's payload is re-applied to exactly
+     * those columns, overwriting whatever the user typed, and each is stamped
+     * google-business again. Address columns move as a unit. Returns the
+     * fields actually rewritten.
+     *
+     * @param  list<string>  $fields  workplace column names
+     * @return list<string>
+     */
+    public function resyncFields(User $user, array $fields): array
+    {
+        $site = $user->site;
+        $payload = $this->googlePayloadFor($user);
+        if ($site === null || $payload === null) {
+            return [];
+        }
+
+        $wanted = [];
+        foreach ($fields as $field) {
+            if (in_array($field, self::ADDRESS_FIELDS, true)) {
+                array_push($wanted, ...self::ADDRESS_FIELDS);
+            } else {
+                $wanted[] = $field;
+            }
+        }
+        $wanted = array_values(array_unique($wanted));
+
+        $candidates = array_filter(
+            $this->googleCandidates($payload),
+            fn ($value, $key) => $value !== null && in_array($key, $wanted, true),
+            ARRAY_FILTER_USE_BOTH,
+        );
+        if ($candidates === []) {
+            return [];
+        }
+
+        $this->applyWorkplaceFields($site, $candidates, true);
+
+        return array_values(array_keys($candidates));
+    }
+
+    /** The user's Google Business connection payload, or null when unconnected. */
+    private function googlePayloadFor(User $user): ?array
+    {
+        $connection = $user->integrationConnections()
+            ->where('platform', Platform::GoogleBusiness->value)
+            ->first();
+        if ($connection === null || ! is_array($connection->payload)) {
+            return null;
+        }
+        $payload = GoogleBusinessPayload::fromArray($connection->payload);
+
+        return $payload->name() === null ? null : $payload->toArray();
+    }
+
     public function applyFromGooglePayload(User $user, array $gbPayload): void
     {
         try {
@@ -59,24 +175,11 @@ class IdentitySync
 
             $overwrite = AccountCapabilities::for($user)->google_business_full_sync;
 
-            // Candidate identity fields Google can provide, mapped to workplace
-            // columns. Absent keys (null) are skipped so we never write a null
-            // over a stored value. Email is deliberately NOT here — Places never
-            // returns one, so contact_email stays manual-only. Address is
-            // written as structured columns (never a flat string — that column
-            // was dropped 2026-07-23, signup testing repairs item 1) from
-            // addressParts, which sits in this same payload alongside the
-            // formatted string GoogleBusinessService also maps.
-            $candidates = [
-                'name' => $this->nameOrNull($gbPayload['name'] ?? null),
-                ...$this->addressPartsCandidates($gbPayload['addressParts'] ?? null),
-                'phone' => $this->stringOrNull($gbPayload['phone'] ?? null),
-                'website' => $this->stringOrNull($gbPayload['website'] ?? null),
-                'category' => $this->stringOrNull($gbPayload['category'] ?? null),
-                'latitude' => $this->floatOrNull($gbPayload['lat'] ?? null),
-                'longitude' => $this->floatOrNull($gbPayload['lng'] ?? null),
-                'opening_hours' => $this->deriveOpeningHours($gbPayload['hours'] ?? null),
-            ];
+            $candidates = $this->googleCandidates($gbPayload);
+            // The description is AutoSync's seed (fill-if-empty, its own
+            // stamp) — not part of the identity fold, so it never overwrites
+            // a business's typed blurb on the hourly refresh.
+            unset($candidates['description']);
 
             // LIFE-108: fold onto site.workplaces under a locked re-read.
             $this->applyWorkplaceFields($site, $candidates, $overwrite);
