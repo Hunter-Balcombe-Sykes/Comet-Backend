@@ -3,6 +3,8 @@
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\FreshaScraper;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -203,4 +205,47 @@ it('serves /team from a router-placed row keyed by slug, and writes the cache ba
 
     expect($row->fresh()->payload['teamMenuCache']['storeName'])->toBe('Anseo Studio')
         ->and(IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->count())->toBe(1);
+});
+
+// ── Slug rotation (live 2026-08-18: anseo-studio-v0v92jna → anseo-studio-melbourne-140a-chapel-street-w8ajp04r)
+
+it('follows a rotated slug: /a/<old> is 410, the share URL redirects to /<locale>/a/<new>, the team loads', function () {
+    // Fresha rotates a venue slug when its address lands. The stored slug's
+    // canonical page answers 410 Gone; the share alias still 307s to the new
+    // slug behind a locale prefix. The picker must land on the venue, not on
+    // "couldn't load your team".
+    Http::fake([
+        'www.fresha.com/a/anseo-studio-v0v92jna' => Http::response('', 410),
+        'www.fresha.com/book-now/anseo-studio-v0v92jna/*' => Http::response('', 307, [
+            'Location' => 'https://www.fresha.com/en-GB/a/anseo-studio-melbourne-140a-chapel-street-w8ajp04r/booking?menu=true&share=true&pId=2835260',
+        ]),
+        'www.fresha.com/en-GB/a/anseo-studio-melbourne-140a-chapel-street-w8ajp04r/booking*' => Http::response(freshaPageHtml('Simon'), 200),
+        'www.fresha.com/a/anseo-studio-melbourne-140a-chapel-street-w8ajp04r' => Http::response(freshaPageHtml('Simon'), 200),
+    ]);
+    $user = teamCacheUser('rotated');
+    $row = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'anseo-studio-v0v92jna',
+        'payload' => ['url' => 'https://www.fresha.com/book-now/anseo-studio-v0v92jna/all-offer?pId=2835260', 'source' => 'link_in_bio', 'username' => 'anseo-studio-v0v92jna'],
+        'is_active' => true, 'last_refresh_status' => 'action_needed',
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/fresha/team')
+        ->assertOk()
+        ->assertJsonPath('storeName', 'Anseo Studio')
+        ->assertJsonPath('team.0.displayName', 'Simon');
+
+    // …and the rotation is persisted so the next read (and the ingest lane)
+    // start from the current slug rather than paying the 410 again.
+    $fresh = $row->fresh();
+    expect($fresh->payload['url'])->toBe('https://www.fresha.com/a/anseo-studio-melbourne-140a-chapel-street-w8ajp04r')
+        // routing identity keeps the slug the bio link carries; the current
+        // slug becomes the alias ConnectionIdentity step 2 matches on.
+        ->and($fresh->resource_id)->toBe('anseo-studio-v0v92jna')
+        ->and($fresh->canonical_key)->toBe('anseo-studio-melbourne-140a-chapel-street-w8ajp04r');
+});
+
+it('resolveCurrentSlug answers only positively: a dead network yields null, never a slug change', function () {
+    Http::fake(['*' => fn () => throw new ConnectionException('nope')]);
+
+    expect(app(FreshaScraper::class)->resolveCurrentSlug('https://www.fresha.com/a/anseo-studio-v0v92jna'))->toBeNull();
 });
