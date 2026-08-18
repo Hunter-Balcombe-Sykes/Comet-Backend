@@ -69,7 +69,7 @@ it('keeps a below-suggest harvest link as a note', function () {
     $pro = createTenant('harvest-note');
 
     $out = app(LinkRoutingService::class)->route(
-        'https://www.mixcloud.com/KimCosmik/', // 32 pre-penalty, and unservable anyway
+        'https://ra.co/dj/kimcosmik', // 28 pre-penalty (MarketplaceListing), detect-only surface
         RoutingContext::forUser($pro, 'bio_harvest'),
     );
 

@@ -15,7 +15,7 @@
 - **No Laravel migrations** — schema changes only via `supabase/migrations/` raw SQL. This plan needs none.
 - **B5 gate is discharged**: `20260728120000_backfill_item_tombstones` is in dev's ledger (verified 2026-08-18). Do not re-check.
 - **Owner ruling 2026-08-18**: harvest origins auto-apply the suggest band, for all users, always. Direct `paste` keeps its interactive flow.
-- **Mixcloud / Resident Advisor stay link cards** — `notConnectable()` / detect-only by design; no connector exists. Do NOT "fix" them via detector strength or host tables.
+- **Resident Advisor stays a link card** — detect-only by design; no connector exists. Do NOT "fix" it via detector strength or host tables. (Mixcloud WAS in this list; upstream `134f55853` made it connectable mid-plan, so under Task 1 it now places — the pins were updated to match.)
 - **Regression pins that MUST keep passing unchanged**: `tests/Feature/Platforms/CatalogBackedClassificationTest.php` (classify() shapes), `tests/Feature/Routing/TombstoneResurrectionTest.php`, `tests/Feature/Platforms/LinkInBioScanJobTest.php` N2-floor tests (added at `019ce48f3`).
 - **Tests that legitimately change**: any test pinning a `choose` verdict for a harvest origin now expects `place` — update the expectation and say so in the commit body, never delete the test.
 - `IntegrationConnectionObserver` side-effects (ingest provisioning, cache lanes) hang off connection creation and are `$afterCommit` — no task below touches them.
@@ -809,7 +809,7 @@ git commit -m "test(routing): kimcosmik wave ledger pinned end-to-end; P8 ledger
 
 ## Explicitly out of scope (say no here so nobody re-litigates)
 
-- **Mixcloud / Resident Advisor connectors** — `notConnectable()` / detect-only by owner design; a connection with no fetch path is the F7 bare-row mistake again. Link cards are the correct terminal state until a connector exists.
+- **Resident Advisor connector** — detect-only by owner design; a connection with no fetch path is the F7 bare-row mistake again. Link card is the correct terminal state until a connector exists. (Mixcloud got its connector upstream in `134f55853` the same day.)
 - **`InstagramAutoSync` migration** (bio-direct links) — consumer 2 of 9, same recipe, its own plan. The policy change in Task 1 already applies to it the day it migrates.
 - **Real SPA unroll for linkin.bio** (headless render or their private API) — new SSRF surface, new dependency, owner decision. The floor keeps it non-lossy meanwhile.
 - **Threshold retuning** (`RoutingPolicy::THRESHOLDS`) — the suggest-band collapse achieves the ruling without touching the numbers; retune from `detector_observations` data later, not from this wave's n=6.

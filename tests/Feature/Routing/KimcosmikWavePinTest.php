@@ -48,19 +48,20 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
     $result = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/kimcosmik', 'bio_harvest');
 
     // Buckets as OBSERVED on first run (2026-08-18) and pinned:
-    //   connected 8 — bandcamp:kimcosmik, bandcamp:cybersoul, discord,
+    //   connected 9 — bandcamp:kimcosmik, bandcamp:cybersoul, discord,
     //                 facebook:kimcosmik, facebook:hybridrave (distinct
     //                 identifiers both place — multi-account), instagram
     //                 (no pre-existing IG row in this fixture; in a real
     //                 build the source connection exists and this refreshes),
-    //                 youtube:UCCY6…, youtube:@cybersoul9038
-    //   noted 5     — bandcamp deep album/track ×2 (below suggest after the
-    //                 harvest penalty), mixcloud (unservable by design),
-    //                 ra.co (detect-only), facebook groups URL
+    //                 mixcloud:KimCosmik (connectable since 134f55853,
+    //                 Task #17 — landed the same day, mid-plan), youtube:UCCY6…,
+    //                 youtube:@cybersoul9038
+    //   noted 4     — bandcamp deep album/track ×2 (below suggest after the
+    //                 harvest penalty), ra.co (detect-only), facebook groups URL
     //   probed 2    — discogs, juno (unknown domains)
-    // Legacy wave landed 3 connections from this page; the ruling lands 8.
-    expect($result['connected'])->toBe(8)
-        ->and($result['noted'])->toBe(5)
+    // Legacy wave landed 3 connections from this page; the ruling lands 9.
+    expect($result['connected'])->toBe(9)
+        ->and($result['noted'])->toBe(4)
         ->and($result['probed'])->toBe(2)
         ->and($result['suggested'])->toBe(0);
 
@@ -77,6 +78,7 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
         'facebook:hybridrave',
         'facebook:kimcosmik',
         'instagram:kimcosmik',
+        'mixcloud:KimCosmik',
         'youtube:UCCY6-AIHHvrmZW5J8IAjk-A',
         'youtube:cybersoul9038',
     ]);
@@ -87,8 +89,8 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
 
     // Known-but-unconnectable landed as cards, not nothing.
     $urls = array_column(app(LinkPoolReader::class)->cards($pro->refresh()), 'url');
-    expect($urls)->toContain('https://www.mixcloud.com/KimCosmik/')
-        ->and($urls)->toContain('https://ra.co/dj/kimcosmik');
+    expect($urls)->toContain('https://ra.co/dj/kimcosmik')
+        ->and($urls)->toContain('https://kimcosmik.bandcamp.com/album/star-glider');
 
     // Ledger balance — §3.6, executable: every anchor accounted for.
     expect($result['connected'] + $result['suggested'] + $result['noted'] + $result['probed'])
