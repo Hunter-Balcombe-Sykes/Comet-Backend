@@ -1,6 +1,6 @@
 # Pipeline assurance — replacing live build waves with layered, repeatable tests
 
-**Date:** 2026-08-18 · **Status:** design, awaiting owner review · **Scope:** signup → scrape → route → connect → pool → public wire, both account types, every catalog platform.
+**Date:** 2026-08-18 · **Status:** A1, A2, B1–B4 shipped 2026-08-19; B5 → Plan 2 · **Scope:** signup → scrape → route → connect → pool → public wire, both account types, every catalog platform.
 
 ## 1. Why
 

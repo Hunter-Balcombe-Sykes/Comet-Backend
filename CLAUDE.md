@@ -206,6 +206,7 @@ Bounds — do NOT absorb opportunistically:
 - Subagents for research. `composer test` before done; Nightwatch after fixes.
 - **Tests run SQLite, prod is Postgres** — CHECK/NOT NULL drift. Verify constraint-bound writes against `supabase/migrations/` DDL, not just passing suite.
 - **Touching `app/Ingest/Projection/ProjectionWriter.php` means running `tests/Postgres/` (`composer test:pg`), not just `tests/Feature/Ingest/`.** That lane's stand-in DDL is hand-written and drifts silently from writer changes — slice 5a turned it red for 7 tests and two reviews missed it on a green SQLite run.
+- **Recorded fixtures.** Real upstream responses live in `tests/fixtures/recorded/` (loader `Tests\Support\Fixtures\Recorded`, mutator `Recorded::mutate()`); capture with `php artisan fixtures:capture` (`--from=file|url|db|live`; billed sources need `--confirm-spend`), check with `fixtures:verify`. Every file needs a `MANIFEST.json` row (`RecordedFixtureManifestGuardTest`). New scraper/pipeline tests fake upstream from these — never hand-type an Apify/Places payload. Spec: `docs/superpowers/specs/2026-08-18-pipeline-assurance-design.md`.
 - After corrections, update memory.
 
 ## Individual sitepages
