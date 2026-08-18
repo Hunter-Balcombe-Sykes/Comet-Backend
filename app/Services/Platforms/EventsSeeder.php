@@ -160,7 +160,7 @@ class EventsSeeder
      * event URL in that mode — a non-null "written" signal for the caller's
      * tally, never a resource_id (there is none).
      */
-    public function seedStandalone(User $user, string $platform, string $url, bool $withConnectionRow = true): ?string
+    public function seedStandalone(User $user, string $platform, string $url, bool $withConnectionRow = true, ?string $origin = null): ?string
     {
         if (! in_array($platform, self::PLATFORMS, true)) {
             return null;
@@ -196,7 +196,7 @@ class EventsSeeder
             }
 
             try {
-                $item = $writer->addStandalone($user, $canonical, StandaloneEventPayload::fromArray($payload)->event());
+                $item = $writer->addStandalone($user, $canonical, StandaloneEventPayload::fromArray($payload)->event(), $origin);
             } catch (\Throwable $e) {
                 report($e);
                 Log::warning('events_seeder.pool_write_failed', [

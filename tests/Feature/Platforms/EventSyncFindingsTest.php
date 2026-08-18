@@ -172,3 +172,23 @@ it('seeds an event found inside a link-in-bio page as a pool ITEM only — no ev
     $synced = actingAsUser($user)->getJson('/api/platforms/instagram/synced')->assertOk()->json('synced');
     expect(collect($synced)->firstWhere('platform', 'eventbrite'))->toBeNull();
 });
+
+it('tags a bio-found event with its origin so the sheet can say where it came from', function () {
+    Queue::fake();
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
+    $user = User::factory()->create(['account_type' => 'partna']);
+    $site = new Site(['subdomain' => 'eborig', 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="'.EB_EVENT_URL.'">Tickets</a>', 200),
+        'www.eventbrite.com.au/e/*' => Http::response(ebEventPage(EB_EVENT_URL), 200),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(app(LinkInBioImporter::class));
+
+    $itemId = DB::table('content.items')->where('user_id', $user->id)->where('kind', 'event')->value('id');
+    expect(DB::table('content.item_tags')->where('item_id', $itemId)->where('tag_type', 'origin')->value('tag'))->toBe('link_in_bio');
+});

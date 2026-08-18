@@ -291,7 +291,7 @@ class LinkInBioImporter
             if (in_array($classified['category'] ?? null, ['event', 'event-organiser'], true)) {
                 try {
                     $seeded = $classified['category'] === 'event'
-                        ? $this->events->seedStandalone($context->user, $classified['platform'], $url, withConnectionRow: false)
+                        ? $this->events->seedStandalone($context->user, $classified['platform'], $url, withConnectionRow: false, origin: $context->origin)
                         : $this->events->seedAccount($context->user, $classified['platform'], $url);
                 } catch (\Throwable $e) {
                     report($e);

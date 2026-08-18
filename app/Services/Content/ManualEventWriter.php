@@ -106,10 +106,16 @@ class ManualEventWriter
      * for the rows that predate the cutover — one mapper, so the backfill and
      * the live path cannot drift.
      *
+     * `$origin` (e.g. 'link_in_bio') rides as a typed item tag
+     * (tag_type 'origin') so the sheet can say "found in your bio link"
+     * rather than "added by you" — the manual content source is one row per
+     * user (partial unique index) and cannot carry that distinction itself.
+     * Null = added by hand: no tag.
+     *
      * @param  array<string, mixed>  $event  EventsPayload::standalonePayload's shape
      * @return array<string, mixed>
      */
-    public static function projectStandalone(array $event, string $url): array
+    public static function projectStandalone(array $event, string $url, ?string $origin = null): array
     {
         $name = trim((string) ($event['name'] ?? ''));
         $headline = $name !== '' ? $name : (string) (parse_url($url, PHP_URL_HOST) ?: $url);
@@ -147,6 +153,7 @@ class ManualEventWriter
             'kind' => 'event',
             'headline' => $headline,
             'media' => $image === null ? [] : [['role' => 'cover', 'url' => $image]],
+            'tags' => $origin === null || $origin === '' ? [] : [['tag' => $origin, 'tag_type' => 'origin']],
             'facets' => array_filter([
                 'f_text' => $text,
                 'f_link' => ['url' => $url],
@@ -174,9 +181,9 @@ class ManualEventWriter
      * @param  array<string, mixed>  $event  EventsPayload::standalonePayload's shape
      * @return array{id: string, name: string}|null null when the user has no site
      */
-    public function addStandalone(User $user, string $url, array $event): ?array
+    public function addStandalone(User $user, string $url, array $event, ?string $origin = null): ?array
     {
-        return $this->write($user, trim($url), static fn (string $u) => self::projectStandalone($event, $u));
+        return $this->write($user, trim($url), static fn (string $u) => self::projectStandalone($event, $u, $origin));
     }
 
     /**
