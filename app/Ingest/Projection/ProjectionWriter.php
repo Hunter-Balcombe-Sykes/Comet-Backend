@@ -18,6 +18,7 @@ use App\Site\Documents\BuildState;
 use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -1620,35 +1621,95 @@ class ProjectionWriter
      */
     private function dispatchMirrors(string $userId, array $entryByFingerprint, array $assetIdByFingerprint, int $chunk): void
     {
+        // R8. Every exclusion below is COUNTED, not merely skipped. A silent
+        // `continue` here was indistinguishable downstream from a job that had
+        // been queued and not yet run — which is how a build wave finished with
+        // 32 unmirrored assets and one warning line to explain them.
+        $skipped = [];
         $candidates = [];
         foreach ($entryByFingerprint as $fingerprint => [$entry, $_minimisedUrl]) {
             $rawUrl = $entry['url'] ?? null;
-            if (! is_string($rawUrl) || $rawUrl === '' || ! MediaMirror::isOwnedEntry($entry)) {
+            if (! is_string($rawUrl) || $rawUrl === '') {
+                $skipped['no_url'] = ($skipped['no_url'] ?? 0) + 1;
+
+                continue;
+            }
+            // Borrowed media (a Google Places photo) is CORRECT to skip — the
+            // licence forbids storing it. Counted so "correctly skipped" and
+            // "wrongly dropped" stop looking the same from outside.
+            if (! MediaMirror::isOwnedEntry($entry)) {
+                $skipped['not_owned'] = ($skipped['not_owned'] ?? 0) + 1;
+
                 continue;
             }
             $assetId = $assetIdByFingerprint[$fingerprint] ?? null;
-            if ($assetId !== null) {
-                $candidates[(string) $assetId] = $rawUrl;
+            if ($assetId === null) {
+                $skipped['unresolved_asset'] = ($skipped['unresolved_asset'] ?? 0) + 1;
+
+                continue;
+            }
+            $candidates[(string) $assetId] = $rawUrl;
+        }
+
+        $dispatched = 0;
+        $max = MediaMirror::maxAttempts();
+
+        foreach (array_chunk($candidates, $chunk, true) as $slice) {
+            // Reading the discriminating columns rather than filtering them
+            // away in SQL: the same query then answers "which of these needs a
+            // mirror" AND "why not" for the rest, at no extra round-trip.
+            $rows = DB::table('content.media_assets')
+                ->whereIn('id', array_keys($slice))
+                ->get(['id', 'storage_path', 'site_media_id', 'source_url', 'mirror_attempts']);
+
+            foreach ($rows as $row) {
+                $assetId = (string) $row->id;
+                if ($row->storage_path !== null) {
+                    $skipped['already_mirrored'] = ($skipped['already_mirrored'] ?? 0) + 1;
+
+                    continue;
+                }
+                if ($row->site_media_id !== null) {
+                    $skipped['upload'] = ($skipped['upload'] ?? 0) + 1;
+
+                    continue;
+                }
+                if ($row->source_url === null) {
+                    $skipped['no_source_url'] = ($skipped['no_source_url'] ?? 0) + 1;
+
+                    continue;
+                }
+                // The retry terminator. storage_path IS NULL never becomes
+                // non-null for a link that cannot be fetched, so without this
+                // a dead CDN url is re-fetched on every sync forever. Any
+                // success resets the counter, so this only ends a RUN of
+                // consecutive failures.
+                if ((int) $row->mirror_attempts >= $max) {
+                    $skipped['capped'] = ($skipped['capped'] ?? 0) + 1;
+
+                    continue;
+                }
+
+                // ::dispatch(), never Bus::dispatch(new ...) — the latter
+                // silently drops ShouldBeUnique.
+                MirrorMediaAssetJob::dispatch($userId, $assetId, $slice[$assetId]);
+                $dispatched++;
             }
         }
-        if ($candidates === []) {
+
+        if ($dispatched === 0 && $skipped === []) {
             return;
         }
 
-        foreach (array_chunk($candidates, $chunk, true) as $slice) {
-            $needing = DB::table('content.media_assets')
-                ->whereIn('id', array_keys($slice))
-                ->whereNull('storage_path')
-                ->whereNull('site_media_id')
-                ->whereNotNull('source_url')
-                ->pluck('id');
-
-            foreach ($needing as $assetId) {
-                // ::dispatch(), never Bus::dispatch(new ...) — the latter
-                // silently drops ShouldBeUnique.
-                MirrorMediaAssetJob::dispatch($userId, (string) $assetId, $slice[(string) $assetId]);
-            }
-        }
+        // info, not debug: this is the line that makes the unmirrored tail
+        // readable in a log capture. It is one line per projection pass, not
+        // per asset. Note prod's LOG_LEVEL defaults to `warning` and would drop
+        // it — which is why the durable record is the row, not this.
+        Log::info('media_mirror.dispatch', [
+            'user_id' => $userId,
+            'dispatched' => $dispatched,
+            'skipped' => $skipped,
+        ]);
     }
 
     /**

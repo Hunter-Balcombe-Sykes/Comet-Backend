@@ -53,6 +53,18 @@ trait ManagesIntegrationConnection
     }
 
     // Single-selection platforms store one row per user under this resource id.
+    /**
+     * The LEGACY SINGLETON identity: the platform slug standing in for "the
+     * one account on this platform". It is not the account's identity, which
+     * is why App\Routing\ConnectionIdentity has to translate it — see #R4,
+     * where the build's 'instagram' row and the same handle harvested from a
+     * Linktree read as two accounts and became two connections.
+     *
+     * KNOWN GAP, deliberately out of scope for #R4: the translation runs in
+     * the routing lane only. A connect through THIS trait still writes the
+     * marker without checking whether a routed row for the same account is
+     * already present.
+     */
     protected function defaultResourceId(): string
     {
         return $this->platform();

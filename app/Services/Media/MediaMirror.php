@@ -100,7 +100,11 @@ final class MediaMirror
             }
             DB::connection('pgsql')->table('content.media_assets')
                 ->where('id', $assetId)
-                ->update(['storage_path' => $path, 'mime_type' => 'video/mp4', 'variant_family' => 'native']);
+                ->update([
+                    'storage_path' => $path,
+                    'mime_type' => 'video/mp4',
+                    'variant_family' => 'native',
+                ] + $this->clearedMirrorState());
 
             return true;
         }
@@ -139,7 +143,7 @@ final class MediaMirror
                 // measured rather than taken from a header someone else wrote.
                 'dims_confidence' => 'measured',
                 'variant_family' => 'native',
-            ]);
+            ] + $this->clearedMirrorState());
 
         return true;
     }
@@ -172,6 +176,39 @@ final class MediaMirror
         return is_int($configured) && $configured > 0 ? $configured : self::FALLBACK_EDGE;
     }
 
+    /**
+     * The success stamp, folded into whichever UPDATE actually lands the bytes.
+     *
+     * A separate UPDATE would be a second round-trip and, worse, a window in
+     * which the row has bytes but still reads as failed. Both write paths need
+     * it — the video branch returns before the image UPDATE, so a reel that
+     * recovers would otherwise keep a stale reason forever.
+     *
+     * @return array<string, mixed>
+     */
+    private function clearedMirrorState(): array
+    {
+        return [
+            'mirror_attempts' => 0,
+            'mirror_last_attempt_at' => now(),
+            'mirror_last_reason' => null,
+        ];
+    }
+
+    /**
+     * R8. Record the failure ON THE ROW, not only in the log.
+     *
+     * The log line is not the record and never was: LOG_LEVEL can silence it
+     * (prod defaults to `warning`, and an aggregate at info would vanish), a
+     * capture window can miss it, and a line says nothing about the assets that
+     * were never attempted. The row survives all three, and `mirror_attempts`
+     * is what lets a reader tell "queued" from "dead".
+     *
+     * The counter is incremented IN SQL (increment(), not read-modify-write):
+     * two workers can hold the same asset if the ShouldBeUnique lock lapses
+     * past $uniqueFor, and a lost update there would under-count towards the
+     * cap — restoring the unbounded retry this exists to end.
+     */
     private function fail(string $assetId, string $reason, string $sourceUrl, ?string $error = null): bool
     {
         Log::warning('media_mirror.failed', array_filter([
@@ -181,6 +218,48 @@ final class MediaMirror
             'error' => $error,
         ]));
 
+        DB::connection('pgsql')->table('content.media_assets')
+            ->where('id', $assetId)
+            ->increment('mirror_attempts', 1, [
+                'mirror_last_attempt_at' => now(),
+                'mirror_last_reason' => $reason,
+            ]);
+
+        // Read back rather than trusting a local count: the row is the shared
+        // truth, and this is the ONE line an operator gets for an asset we are
+        // giving up on.
+        $attempts = (int) DB::connection('pgsql')->table('content.media_assets')
+            ->where('id', $assetId)
+            ->value('mirror_attempts');
+
+        // `>=`, not `===`. A strict equality misses the line entirely whenever
+        // the counter steps past the boundary — two in-flight jobs incrementing
+        // once the ShouldBeUnique lock has lapsed, or a lowered cap — and a
+        // missed give-up line is the failure this whole change exists to end.
+        // The duplicate it risks is bounded and self-limiting: dispatchMirrors
+        // stops queuing at the cap, so only already-queued jobs reach here.
+        if ($attempts >= self::maxAttempts()) {
+            Log::warning('media_mirror.gave_up', [
+                'asset_id' => $assetId,
+                'attempts' => $attempts,
+                'reason' => $reason,
+                'host' => parse_url($sourceUrl, PHP_URL_HOST),
+            ]);
+        }
+
         return false;
+    }
+
+    /**
+     * Consecutive failures after which ProjectionWriter stops re-dispatching.
+     * Public because the dispatch-side filter must read the SAME number — two
+     * readings would let the writer keep queuing an asset this class has
+     * already given up on, silently restoring the infinite retry.
+     */
+    public static function maxAttempts(): int
+    {
+        $configured = config('partna.media_mirror_max_attempts');
+
+        return is_int($configured) && $configured > 0 ? $configured : 5;
     }
 }

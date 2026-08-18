@@ -141,7 +141,7 @@ it('gives PlacementPolicy::decide() and SuggestionApplier::apply() the same verd
             ->and($placement->blockReason)->toBe('gate')
             ->and($placement->explanation)->toBe($expectedDenial);
 
-        expect(fn () => (new SuggestionApplier)->apply($user, $intent, $surface))
+        expect(fn () => app(SuggestionApplier::class)->apply($user, $intent, $surface))
             ->toThrow(AuthorizationException::class, $expectedDenial);
 
         $settled = DB::table('routing.source_intents')->where('id', $intentId)->first();
@@ -156,7 +156,7 @@ it('gives PlacementPolicy::decide() and SuggestionApplier::apply() the same verd
         expect($placement->verdict)->toBe(Verdict::Place)
             ->and($placement->blockReason)->toBeNull();
 
-        $connection = (new SuggestionApplier)->apply($user, $intent, $surface);
+        $connection = app(SuggestionApplier::class)->apply($user, $intent, $surface);
         expect($connection)->toBeInstanceOf(IntegrationConnection::class)
             ->and($connection->surface_key)->toBe($surfaceKey);
 

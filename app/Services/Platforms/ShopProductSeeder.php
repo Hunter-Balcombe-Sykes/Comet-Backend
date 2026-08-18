@@ -4,6 +4,13 @@ namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\IriCanonicalizer;
+use App\Routing\LinkObserver;
+use App\Routing\Placement;
+use App\Routing\Probes\ProbeGate;
+use App\Routing\Projection;
+use App\Routing\RoutingContext;
+use App\Routing\Verdict;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Shop\ProductPageAdder;
 use App\Services\Shop\ShopConnections;
@@ -33,13 +40,22 @@ class ShopProductSeeder
         private readonly IntegrationConnectionCacheRefresher $refresher,
         private readonly ShopContentWriter $content,
         private readonly ShopConnections $shop,
+        private readonly IriCanonicalizer $canonicalizer,
+        private readonly LinkObserver $observer,
     ) {}
 
     /**
+     * $origin names the caller for the observation ledger, exactly as
+     * StoreBrandSeeder's does — 'paste' is the safe default (see
+     * CommerceProbeJob::ORIGIN for why the probe deliberately does not claim
+     * it).
+     *
      * @param  array<string,mixed>  $product  GenericShopScraper::readProductPage()'s product shape
      */
-    public function seed(User $user, array $product): bool
+    public function seed(User $user, array $product, string $origin = 'paste'): bool
     {
+        $context = RoutingContext::forUser($user, $origin);
+
         // Tombstone parity with ShopBrandSeeder: an explicitly-removed shop
         // connection is never resurrected by a scan.
         //
@@ -56,6 +72,8 @@ class ShopProductSeeder
             ->where('user_id', $user->id)->whereIn('surface_key', $surfaces)
             ->exists();
         if ($wasDisconnected && ! $hasLive) {
+            $this->observe($product, $context, Placement::reject('tombstoned', ShopConnections::INDIVIDUAL_SURFACE));
+
             return false;
         }
 
@@ -127,10 +145,56 @@ class ShopProductSeeder
             });
         } catch (LockTimeoutException) {
             Log::warning('shop_product_seeder.lock_timeout', ['user_id' => (string) $user->id]);
+            $this->observe($product, $context, Placement::reject('lock_timeout', ShopConnections::INDIVIDUAL_SURFACE));
 
             return false;
         }
 
+        $this->observe($product, $context, $written
+            ? new Placement(Verdict::Place, ShopConnections::INDIVIDUAL_SURFACE, isset($product['productId']) ? (string) $product['productId'] : null)
+            : Placement::reject('not_written', ShopConnections::INDIVIDUAL_SURFACE));
+
         return $written;
+    }
+
+    /**
+     * The product lane's ledger row (R6, 2026-08-18).
+     *
+     * StoreBrandSeeder records every storefront probe it resolves or refuses,
+     * and bd593dfdf moved that write above its miss return so a miss lands
+     * too. This lane recorded NOTHING — and CommerceProbeJob only reaches
+     * StoreBrandSeeder on its store arms, so the 2026-08-18 wave logged all
+     * six shop-probe misses while paytherent.net.au, the one URL that actually
+     * became a product on a real user's site, had no observation at all. The
+     * ledger read backwards from its stated purpose: only "why isn't it on my
+     * page?" was answerable, never "why is it?".
+     *
+     * Hand-built rather than routed through LinkProjector/PlacementPolicy for
+     * the same reason ProbeOutcome::toProjection() is: no detector can match a
+     * merchant's own domain, so there is no projection to be had. The decision
+     * was GenericShopScraper reading the page's own Product markup — direct
+     * evidence rather than a pattern guess, which is what PROBE_CONFIDENCE
+     * means, with a full margin because nothing competed.
+     *
+     * Best-effort, like every observation write: LinkObserver swallows its own
+     * failures by design, so this cannot fail a seed.
+     *
+     * @param  array<string,mixed>  $product
+     */
+    private function observe(array $product, RoutingContext $context, Placement $placement): void
+    {
+        $iri = $this->canonicalizer->canonicalize((string) ($product['url'] ?? ''));
+
+        $projection = new Projection(
+            surfaceKey: ShopConnections::INDIVIDUAL_SURFACE,
+            detectorId: null,
+            captures: [],
+            confidence: ProbeGate::PROBE_CONFIDENCE,
+            margin: 100,
+            identifier: isset($product['productId']) ? (string) $product['productId'] : null,
+            reason: null,
+        );
+
+        $this->observer->record($iri, $projection, $placement, $context);
     }
 }

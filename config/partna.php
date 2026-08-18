@@ -1483,6 +1483,21 @@ return [
 
     /*
     |----------------------------------------------------------------------
+    | Owned-media mirror — give-up threshold (R8)
+    |----------------------------------------------------------------------
+    | Consecutive MediaMirror failures after which ProjectionWriter stops
+    | re-queuing an asset. Counts dispatches, not HTTP attempts: the job's
+    | own $tries = 3 sits underneath, so 5 here is ~15 fetches spread over at
+    | least 5 syncs before we call a CDN link dead.
+    |
+    | The counter resets to 0 on any success, so this only ever ends a run of
+    | consecutive failures. Raising it re-opens every capped asset on the next
+    | sync — there is no separate reset to run.
+    */
+    'media_mirror_max_attempts' => (int) env('PARTNA_MEDIA_MIRROR_MAX_ATTEMPTS', 5),
+
+    /*
+    |----------------------------------------------------------------------
     | Image pools – per-professional limits
     |----------------------------------------------------------------------
     | gallery = showcase images (portfolio, work samples)

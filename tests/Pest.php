@@ -3061,6 +3061,9 @@ function setupContentTables(): void
         variant_family TEXT NULL CHECK (variant_family IS NULL OR variant_family IN (\'google\', \'shopify\', \'ytimg\', \'native\', \'proxy\')),
         blurhash TEXT NULL,
         attribution TEXT NULL,
+        mirror_attempts INTEGER NOT NULL DEFAULT 0,
+        mirror_last_attempt_at TEXT NULL,
+        mirror_last_reason TEXT NULL,
         created_at TEXT NOT NULL,
         UNIQUE (user_id, fingerprint)
     )');

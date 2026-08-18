@@ -45,6 +45,9 @@ beforeEach(function () {
         palette jsonb,
         variant_family text,
         blurhash text,
+        mirror_attempts integer NOT NULL DEFAULT 0,
+        mirror_last_attempt_at timestamptz,
+        mirror_last_reason text,
         created_at timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT media_assets_fingerprint_unique UNIQUE (user_id, fingerprint)
     )');

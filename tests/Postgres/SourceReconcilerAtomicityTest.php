@@ -116,6 +116,11 @@ beforeEach(function () {
         surface_key text NOT NULL,
         routing_class text NOT NULL,
         resource_id text NOT NULL,
+        -- #R4: ConnectionIdentity::matchExisting() reads canonical_key (the
+        -- FOUND-14 identity column) on every reconcile, so omitting it here
+        -- makes this file fail with 42703 before the CHECK under test can
+        -- fire — a green SQLite run says nothing about it.
+        canonical_key text,
         payload jsonb NOT NULL DEFAULT \'{}\'::jsonb,
         is_active boolean NOT NULL DEFAULT true,
         is_primary boolean NOT NULL DEFAULT false,
