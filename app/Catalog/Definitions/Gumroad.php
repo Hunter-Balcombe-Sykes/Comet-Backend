@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -36,7 +37,16 @@ class Gumroad
                 ->shelf(Shelf::Commerce)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                // Storefronts live at {handle}.gumroad.com (task #17,
+                // 2026-08-18): capture the handle so a paste or a bare handle
+                // connects, like Substack.
+                ->canonicalUrl('https://{handle}.gumroad.com')
                 ->detect(
+                    Detector::url('gumroad.com')
+                        ->subdomain('#^(?<handle>[a-z0-9-]{2,63})$#i')
+                        ->captures('handle')
+                        ->from(IdentifierSource::Subdomain)
+                        ->strength(EvidenceStrength::ProfileLink),
                     Detector::url('gumroad.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

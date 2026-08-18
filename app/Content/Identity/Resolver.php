@@ -126,7 +126,13 @@ class Resolver
                 // would sign as two different signatures and dodge the
                 // duplicate-in-one-source poison check entirely (#SEM-5).
                 $signature = $key->class->value.'|'.$key->class->canonicalise($key->value);
-                $sourceKey = $signature.'|'.$item->sourceId;
+                // Same-source duplicates poison a value only WITHIN a kind:
+                // Spotify lists "Dracula" the single (release) and "Dracula"
+                // the song (track) — the same title|artist value on two kinds
+                // that mayUnion() would never merge anyway, so it must not
+                // poison the release↔release merge with Apple (listen
+                // restructure 2026-08-18, caught live).
+                $sourceKey = $signature.'|'.$item->sourceId.'|'.$item->kind;
                 if (isset($seen[$sourceKey])) {
                     if (! ($key->class === KeyClass::TitleRelease && $this->sameEdition($durationsBySourceKey[$sourceKey] ?? [], $durations))) {
                         $poisoned[$signature] = true;

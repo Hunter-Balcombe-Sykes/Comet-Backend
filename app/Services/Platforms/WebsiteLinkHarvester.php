@@ -10,6 +10,7 @@ use App\Routing\LinkProjector;
 use App\Routing\PublicSuffixList;
 use App\Routing\Rulepack;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Shop\ShopConnections;
 
 // In-house replacement for the slice of the Google Business Apify enrichment
 // that never needed Google at all: businesses put their own social /
@@ -593,7 +594,16 @@ class WebsiteLinkHarvester
             }
 
             if (LegacyPlatformMap::routingClassFor($projection->surfaceKey) === 'shop') {
-                return null;
+                // A shop-class surface we do NOT sync as a store (Gumroad,
+                // stan.store — no product feed) is a link card at its
+                // storefront root: "tameimpala.gumroad.com" is the shop, and
+                // nothing else can carry it (task #17, 2026-08-18). A deeper
+                // path (a product page) keeps the probe, as documented above.
+                $isProvider = in_array($projection->surfaceKey, ShopConnections::surfaces(), true);
+                $path = trim((string) parse_url($url, PHP_URL_PATH), '/');
+                if ($isProvider || $path !== '') {
+                    return null;
+                }
             }
 
             return [

@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -43,8 +44,16 @@ class Mixcloud
                 ->refreshEvery(0)
                 ->note('dormant until embed set expands, §10')
                 ->embed('https://www.mixcloud.com/widget/iframe/?feed={url}', 'fixed:120', [], false)
-                ->notConnectable()
+                // Connectable as a profile link (task #17, 2026-08-18): a
+                // Mixcloud profile is mixcloud.com/{handle}; the widget embed
+                // stays dormant per §10.
+                ->canonicalUrl('https://www.mixcloud.com/{handle}')
                 ->detect(
+                    Detector::url('mixcloud.com')
+                        ->path('#^/(?!discover|upload|pro|about|premium|live|search)(?<handle>[A-Za-z0-9_-]{2,60})/?$#')
+                        ->captures('handle')
+                        ->from(IdentifierSource::Path)
+                        ->strength(EvidenceStrength::ProfileLink),
                     Detector::url('mixcloud.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

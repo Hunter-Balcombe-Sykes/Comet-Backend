@@ -94,11 +94,11 @@ it('assigns the dormant mixcloud/tidal embeds EmbedPayload with no fetch strateg
     }
 });
 
-it('does not register routes for the dormant mixcloud/tidal embeds', function () {
+it('registers brand connect routes for mixcloud/tidal — a profile / artist link card (task #17, 2026-08-18); the widget embeds stay dormant', function () {
     $uris = collect(app('router')->getRoutes())->map(fn ($r) => $r->uri());
 
-    expect($uris->contains(fn ($u) => str_contains($u, 'platforms/mixcloud')))->toBeFalse();
-    expect($uris->contains(fn ($u) => str_contains($u, 'platforms/tidal')))->toBeFalse();
+    expect($uris->contains('api/platforms/mixcloud/connect'))->toBeTrue();
+    expect($uris->contains('api/platforms/tidal/connect'))->toBeTrue();
 });
 
 it('attaches the Plan-6 fetch strategies to eventbrite and humanitix', function () {

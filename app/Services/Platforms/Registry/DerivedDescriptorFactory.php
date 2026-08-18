@@ -10,6 +10,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
+use App\Services\Shop\ShopConnections;
 
 /**
  * Builds a PlatformDescriptor for every connectable, URL-detected catalog surface
@@ -120,7 +121,14 @@ class DerivedDescriptorFactory
             //    WebsiteLinkHarvester::classifyFromCatalog() returns null for
             //    this routing class on purpose, to keep the probe running — so a
             //    brand connect guard would reject every URL anyway.
-            if (($surface['routing_class'] ?? null) === 'shop') {
+            // Shop PROVIDERS (Shopify, WooCommerce, Squarespace…) connect
+            // through the shop lane (ShopController), never as a brand card.
+            // A shop-class surface that is NOT a provider we sync (Gumroad —
+            // no product feed) still deserves the link card every other
+            // brand gets; until 2026-08-18 it fell in the gap: 404 here, 422
+            // "unsupported store" there (overnight W1 leftover, task #17).
+            if (($surface['routing_class'] ?? null) === 'shop'
+                && in_array($key, ShopConnections::surfaces(), true)) {
                 continue;
             }
 

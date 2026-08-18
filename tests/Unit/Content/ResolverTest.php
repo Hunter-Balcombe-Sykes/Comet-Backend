@@ -331,3 +331,19 @@ it('does not poison title_release on same-source EDITION duplicates (same durati
     $find2 = fn (string $coord) => collect($groups2)->first(fn ($g) => in_array($coord, $g, true));
     expect($find2('spotify:2'))->toBe(['spotify:2']);
 });
+
+it('does not let a same-source value shared across KINDS poison the within-kind merge (a "Dracula" single beside a "Dracula" song)', function () {
+    $resolver = new Resolver;
+    $key = fn (string $v) => new IdentityKey(KeyClass::TitleRelease, $v);
+    $items = [
+        new SourceItem('sp:rel', 'spotify', 'release', [$key('dracula|tame impala')]),
+        new SourceItem('sp:trk', 'spotify', 'track', [$key('dracula|tame impala')]),
+        new SourceItem('ap:rel', 'apple', 'release', [$key('dracula|tame impala')]),
+        new SourceItem('ap:trk', 'apple', 'track', [$key('dracula|tame impala')]),
+    ];
+    $groups = $resolver->resolve($items)->groups;
+    $find = fn (string $coord) => collect($groups)->first(fn ($g) => in_array($coord, $g, true));
+
+    expect($find('sp:rel'))->toEqualCanonicalizing(['sp:rel', 'ap:rel'])
+        ->and($find('sp:trk'))->toEqualCanonicalizing(['sp:trk', 'ap:trk']);
+});
