@@ -14,7 +14,15 @@ carried it forward in error.
 
 ---
 
-- [ ] **N2** · `linkin.bio` bio pages unroll to **zero** links · **the one I'd do first**
+- [x] **N2** · `linkin.bio` bio pages unroll to **zero** links · **RESOLVED at the floor, 2026-08-18**
+
+  **Resolution.** Option 1 (the floor) shipped at `019ce48f3` on the legacy job and was carried into
+  `LinkInBioImporter` with the P8 migration (`docs/superpowers/plans/2026-08-18-linkinbio-unroll-migration.md`):
+  a matched bio host that unrolls to zero routable links seeds the bio URL itself as a custom link,
+  keyed on nothing-routed so all-own-chrome pages floor identically. Option 2 is dead — the page is an
+  Ember SPA with no embedded JSON (`__NEXT_DATA__` absent; config meta names `api-prod.linkin.bio` as
+  the backend). Option 3 (real unroll: headless render or their private API) remains open and
+  deliberately unstarted — new SSRF surface, owner decision.
 
   **Plain English.** A user whose Instagram bio link is a `linkin.bio` page gets a site with
   nothing on it but their Instagram. Every link they actually put in their bio is lost. It fails

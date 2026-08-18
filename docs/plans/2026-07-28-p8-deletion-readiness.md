@@ -105,14 +105,14 @@ a memory.
 ## Blocking: live consumers of the legacy router
 
 `LinkRouter` / `ProviderDetector` cannot be deleted until every one of these is
-on `LinkRoutingService`. **Status: 9 consumers, 0 migrated.**
+on `LinkRoutingService`. **Status: 9 consumers, 1 migrated** (LinkInBioScanJob, 2026-08-18).
 
 | Consumer | Successor | Difficulty |
 |---|---|---|
 | `CustomLinksController::addLink` | `POST /api/routing/links` (built, wire-compatible) | TRIVIAL |
 | `ReservationsController` | `preview()` + `LegacyPlatformMap::legacyFor`; XOR stays caller-owned | MODERATE |
 | `BookingController` | same | MODERATE |
-| `LinkInBioScanJob` | `LinkInBioImporter` (built) + blocker 4 | MODERATE |
+| `LinkInBioScanJob` | **MIGRATED 2026-08-18** — thin shell over `LinkInBioImporter`; parity (note→card, per-host probe budget, event arm, zero-yield floor, conflict ping) lives in the importer. See `docs/superpowers/plans/2026-08-18-linkinbio-unroll-migration.md` | DONE |
 | `InstagramAutoSync` | ~~blocker 3~~ + blocker 4 | MODERATE (was HARD) |
 | `CommerceProbeJob` | needs blocker 1's remaining four probes | HARD |
 | `ShopBrandSeeder` | `StoreBrandSeeder` (built) + blocker 1's remaining probes | MODERATE (was HARD) |

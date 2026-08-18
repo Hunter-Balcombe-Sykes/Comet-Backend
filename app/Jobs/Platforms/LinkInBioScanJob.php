@@ -11,6 +11,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // Unrolls a curated link-in-bio page (Linktree/Milkshake/Beacons/Stan Store)
 // found in an Instagram bio. Since 2026-08-18 this is a thin queued shell over
@@ -80,6 +81,16 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
             'user_id' => $this->userId,
             'bio_page_url' => $this->bioPageUrl,
             ...$result,
+        ]);
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('platforms.link_in_bio_scan.failed', [
+            'user_id' => $this->userId,
+            'bio_page_url' => $this->bioPageUrl,
+            'error' => $e->getMessage(),
         ]);
     }
 }
