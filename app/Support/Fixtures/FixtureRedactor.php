@@ -17,8 +17,11 @@ final class FixtureRedactor
     private const EMAIL = '/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i';
 
     // International or AU-local phone shapes with ≥ 8 digits; deliberately
-    // loose — a fixture with a false positive is still a valid fixture.
-    private const PHONE = '/(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)\d{3,4}[\s.-]?\d{3,4}/';
+    // loose — a fixture with a false positive is still a valid fixture. Area
+    // code is 1-4 digits (not 2-4): AU numbers written with a country code
+    // commonly drop the leading zero (e.g. "+61 3 9123 4567" for Melbourne),
+    // leaving a single-digit area code — a 2-digit floor missed that shape.
+    private const PHONE = '/(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{1,4}\)?[\s.-]?)\d{3,4}[\s.-]?\d{3,4}/';
 
     public static function apply(string $source, string $body, string $ext): string
     {
