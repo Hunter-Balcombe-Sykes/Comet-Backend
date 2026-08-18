@@ -97,6 +97,26 @@
   fixture: { item: unknown }
 - route: "api/content/items/{item}/links/{platform}"
   fixture: { item: unknown, platform: unknown }
+# Owner identity decisions (task #18, 228833cf9). `string $itemId`, not an
+# `Item $item` binding, so reflection has nothing to read. STRONG form: identity
+# B owns a real content.items row, so this substitutes a genuine foreign id
+# rather than opting out via `unknown`.
+#
+# body clears IdentityDecisionController::store's inline validate() —
+# `other` required|uuid, `verdict` required|in:same,different — which would
+# otherwise 422 before ownership is consulted.
+#
+# KNOWN WEAKNESS, recorded rather than hidden: the controller resolves $left
+# (the path param) BEFORE $right (`other`), so a correct build 404s on the
+# cross-tenant path id — but a build with broken tenancy would still 404 on
+# `other`, which names no row for anyone. This case therefore pins the
+# resolution ORDER as much as the scoping. The scoping itself is
+# ResolvesOwnedItem::ownedItemOr404, the single shared tenant decider for every
+# /content/items verb. A body placeholder resolving to a CALLER-owned id would
+# close the gap for good; the harness has no such syntax today.
+- route: "POST api/content/items/{item}/identity"
+  body: { other: "00000000-0000-4000-8000-000000000000", verdict: "same" }
+  fixture: { item: "App\\Models\\Content\\Item" }
 
 # ── Design media ─────────────────────────────────────────────────────────────
 - route: "api/design-media/{purpose}"

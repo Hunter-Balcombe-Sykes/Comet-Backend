@@ -86,10 +86,19 @@ beforeEach(function () {
 
     $pg->statement('CREATE TABLE core.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid())');
 
+    // deleted_at + is_active: disconnect = HIDE (overnight 2026-08-18 ruling).
+    // ProjectionWriter::…$liveSource (:604) excludes a source whose connection the
+    // owner removed from the identity vote, and LiveSourceScope adds is_active on
+    // the pool side — both read columns this hand-written stand-in never had, so
+    // the whole query is SQLSTATE 42703 before anything under test is evaluated.
+    // Same drift trap the site.sites comment below records: this DDL is
+    // hand-written and does not follow the writer.
     $pg->statement('CREATE TABLE site.platform_connections (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
-        resource_id text
+        resource_id text,
+        is_active boolean NOT NULL DEFAULT true,
+        deleted_at timestamptz NULL
     )');
 
     // subdomain + updated_at: projectStream() fires all three cache lanes via
