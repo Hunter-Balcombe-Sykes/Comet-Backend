@@ -49,6 +49,10 @@ class DoordashMenuConnector implements Connector
                     requires: ['name', 'category'],
                     volatile: [],
                     orderField: null,
+                    // Owner ruling R18 (2026-08-18): the actor's dataset IS the whole menu, so a
+                    // dish it no longer lists is gone; the delete-guard still freezes a run that
+                    // drops an implausible share (a half-empty scrape).
+                    deletesOnExhaustive: true,
                 ),
             ],
             cost: CostClass::Actor,

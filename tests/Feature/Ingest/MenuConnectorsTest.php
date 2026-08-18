@@ -277,7 +277,7 @@ it('doordash: characterisation — a numeric item_id already worked before the F
         ->and($records[0]->doc['external_id'])->toBe('4021');
 });
 
-it('is actor-billed with no http path and a catalogue that never deletes, for all three', function () {
+it('is actor-billed with no http path and an unordered catalogue that deletes only under exhaustive coverage, for all three (R18)', function () {
     foreach ([SquareMenuConnector::class, UberEatsMenuConnector::class, DoordashMenuConnector::class] as $class) {
         $manifest = $class::manifest();
         $spec = $manifest->stream('menu');
@@ -286,6 +286,8 @@ it('is actor-billed with no http path and a catalogue that never deletes, for al
             ->and($manifest->hosts)->toBe([])
             ->and($spec->profile)->toBe(SourceProfile::Catalogue)
             ->and($spec->target)->toBe('menu_item')
-            ->and($spec->mayDelete())->toBeFalse();
+            ->and($spec->orderField)->toBeNull()
+            ->and($spec->deletesOnExhaustive)->toBeTrue()
+            ->and($spec->mayDelete())->toBeTrue();
     }
 });

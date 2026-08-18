@@ -1217,6 +1217,19 @@ class ProjectionWriter
                         ->delete();
 
                     foreach (array_chunk($rows, $chunk) as $rowChunk) {
+                        if ($table === 'collection_items') {
+                            // Membership is per (collection, item) — the PK.
+                            // Another source (the legacy menu scrape's manual
+                            // source, an ordering platform's own run) may
+                            // already list this dish in this category; that
+                            // row is the same fact, so keep it rather than
+                            // fail the whole chunk (overnight 2026-08-18: RÜH's
+                            // Uber Eats run projected 137 dishes and landed 0
+                            // memberships on a duplicate-key error).
+                            DB::table("content.{$table}")->insertOrIgnore($rowChunk);
+
+                            continue;
+                        }
                         DB::table("content.{$table}")->insert($rowChunk);
                     }
                 }
