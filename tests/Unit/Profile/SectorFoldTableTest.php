@@ -1,4 +1,5 @@
 <?php
+
 // tests/Unit/Profile/SectorFoldTableTest.php
 
 use App\Services\Profile\SectorTaxonomy;

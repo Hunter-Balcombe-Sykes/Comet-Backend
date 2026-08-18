@@ -1,4 +1,5 @@
 <?php
+
 // tests/Unit/Support/RecordedLoaderTest.php
 
 use Tests\Support\Fixtures\Recorded;

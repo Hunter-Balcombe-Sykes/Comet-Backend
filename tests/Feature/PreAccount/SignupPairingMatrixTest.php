@@ -1,7 +1,10 @@
 <?php
+
 // tests/Feature/PreAccount/SignupPairingMatrixTest.php
 
 use App\Enums\AccountType;
+use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
 use Illuminate\Support\Facades\Queue;
 
 // B2 (spec 2026-08-18-pipeline-assurance §5): the account_type × source_type
@@ -32,9 +35,9 @@ dataset('pairing_matrix', function () {
     // (Illuminate\Foundation\Application::__construct() calls
     // static::setInstance($this) unconditionally), so none of this survives
     // into an actual test.
-    $container = \Illuminate\Container\Container::getInstance();
+    $container = Container::getInstance();
     if (! $container->bound('config')) {
-        $container->instance('config', new \Illuminate\Config\Repository(['app' => ['url' => 'http://localhost']]));
+        $container->instance('config', new Repository(['app' => ['url' => 'http://localhost']]));
     }
     $raw = include dirname(__DIR__, 3).'/config/partna.php';
     $sources = $raw['pre_account']['sources'] ?? [];

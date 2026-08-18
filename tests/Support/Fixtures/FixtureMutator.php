@@ -1,4 +1,5 @@
 <?php
+
 // tests/Support/Fixtures/FixtureMutator.php
 
 namespace Tests\Support\Fixtures;

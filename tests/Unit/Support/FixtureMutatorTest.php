@@ -1,4 +1,5 @@
 <?php
+
 // tests/Unit/Support/FixtureMutatorTest.php
 
 use Tests\Support\Fixtures\Recorded;
