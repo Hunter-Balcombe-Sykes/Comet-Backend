@@ -11,7 +11,7 @@ use App\Http\Resources\Site\PageResource;
 use App\Models\Core\Site\Page;
 use App\Models\Core\User\User;
 use App\Services\Content\PageCapabilities;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -63,7 +63,7 @@ class PageController extends ApiController
 
         $page->save();
 
-        BuildState::bump((string) $site->id);
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['page' => new PageResource($page)], 201);
     }
@@ -89,7 +89,7 @@ class PageController extends ApiController
 
         $page->fill($data)->save();
 
-        BuildState::bump((string) $site->id);
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['page' => new PageResource($page->fresh())]);
     }
@@ -110,7 +110,7 @@ class PageController extends ApiController
 
         $page->delete();
 
-        BuildState::bump((string) $site->id);
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['deleted' => true]);
     }

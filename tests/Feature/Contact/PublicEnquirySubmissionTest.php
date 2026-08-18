@@ -152,6 +152,24 @@ it('accepts a valid submission and saves a site.enquiries row', function () {
     expect($row->site_id)->toBe($siteId);
 });
 
+// PGR-19: was capped at 500 chars but still stored the raw string — now
+// routed through AnalyticsEventSanitizer::userAgent() like logLead() below.
+it('stores a coarse User-Agent token, not the raw string, on the enquiry row', function () {
+    seedPublishedContactSite();
+    Bus::fake();
+
+    $chromeUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        .'(KHTML, like Gecko) Chrome/141.0.7390.54 Safari/537.36';
+
+    $this->withHeader('User-Agent', $chromeUa)
+        ->postJson('/api/public/enquiry', validEnquiryPayload(), [
+            'X-Site-Subdomain' => 'testpro',
+        ])->assertOk();
+
+    $row = DB::connection('pgsql')->table('site.enquiries')->first();
+    expect($row->user_agent)->toBe('Chrome/141');
+});
+
 // user_id/site_id/customer_id are not fillable on Enquiry (tenancy FKs) —
 // the controller sets them via ->associate(). Assert through the Eloquent
 // model too (not just the raw row above) so a regression back to a bare

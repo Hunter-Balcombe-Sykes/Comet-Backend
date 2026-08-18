@@ -45,6 +45,29 @@ it('falls back to Other for an unrecognised user agent and returns null for empt
     expect(AnalyticsEventSanitizer::userAgent(''))->toBeNull();
 });
 
+// PGR-18: a marketer's link can append a subscriber email to a UTM param.
+it('neutralises a UTM value that carries an email-like substring', function () {
+    expect(AnalyticsEventSanitizer::utmParam('newsletter-leak@example.com'))->toBeNull();
+});
+
+it('neutralises an email embedded inside a larger UTM value', function () {
+    expect(AnalyticsEventSanitizer::utmParam('summer-sale-user@example.com-promo'))->toBeNull();
+});
+
+it('passes through a clean UTM value unchanged', function () {
+    expect(AnalyticsEventSanitizer::utmParam('instagram_bio'))->toBe('instagram_bio');
+});
+
+it('returns null for a missing or empty UTM value', function () {
+    expect(AnalyticsEventSanitizer::utmParam(null))->toBeNull();
+    expect(AnalyticsEventSanitizer::utmParam(''))->toBeNull();
+});
+
+it('caps a clean UTM value at 128 characters', function () {
+    $long = str_repeat('a', 200);
+    expect(strlen(AnalyticsEventSanitizer::utmParam($long)))->toBe(128);
+});
+
 // JOB-1: the controller now sanitises referrer once at buildEvent() and the writer
 // sanitises again at persist-time. That's only safe if a second pass is a no-op —
 // otherwise sanitising earlier would change what lands in Postgres.

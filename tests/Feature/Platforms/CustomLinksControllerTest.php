@@ -4,6 +4,7 @@ use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Content\LinkPoolWriter;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -60,11 +61,9 @@ it('addLink returns 202 with a host-titled card and no outbound HTTP', function 
     Queue::assertPushed(EnrichPoolLinkJob::class, fn ($j) => $j->userId === (string) $user->id);
 });
 
-// Favicon and logo are NOT carried onto the pool (Phase 3's ruling, restated in
-// LinkPoolWriter). Pinned so the loss is a decision on record rather than
-// something a later reader discovers and "fixes" by reaching for slice 1a's
-// borrowed-asset lane.
-it('publishes null favicon and logo, deliberately', function () {
+// A link added with no card yet carries no media rows at all — the empty case
+// (PGR-13) must stay null, not error or fabricate a value.
+it('publishes null favicon and logo for a link with no media yet', function () {
     Queue::fake();
     Http::fake();
 
@@ -75,6 +74,64 @@ it('publishes null favicon and logo, deliberately', function () {
         ->assertOk()
         ->assertJsonPath('links.0.favicon', null)
         ->assertJsonPath('links.0.logo', null);
+});
+
+// PGR-13: LinkPoolWriter::add() carries the page's share image as the `cover`
+// role and the site favicon as the `logo` role — this dashboard read
+// (LinkPoolReader::cardsInSection()) used to hardcode both fields to null even
+// when that media existed. Field names are crossed from the DB role names:
+// this reader's `logo` field is the `cover`-role asset, its `favicon` field is
+// the `logo`-role asset — matching PoolResolver's thumbnail/favicon mapping on
+// the public payload.
+it('resolves favicon and logo from the item media LinkPoolWriter::add() wrote', function () {
+    Queue::fake();
+
+    $user = customLinksCtrlUser('asynclink5');
+    $itemId = app(LinkPoolWriter::class)->add(
+        $user,
+        'https://www.example.com/z',
+        favicon: 'https://www.example.com/favicon.ico',
+        logo: 'https://www.example.com/og.png',
+    );
+
+    actingAsUser($user)->getJson('/api/platforms/custom/links')
+        ->assertOk()
+        ->assertJsonPath('links.0.id', $itemId)
+        ->assertJsonPath('links.0.logo', 'https://www.example.com/og.png')
+        ->assertJsonPath('links.0.favicon', 'https://www.example.com/favicon.ico');
+});
+
+// PGR-13 perf: a per-card media lookup would scale query count with card
+// count. Three cards, each carrying media, must still resolve in one batch
+// query against content.item_media — mirrors PoolResolver::itemPayloads()'s
+// no-N+1 shape.
+it('resolves link media in one batch query, not one per card', function () {
+    Queue::fake();
+
+    $user = customLinksCtrlUser('asynclink6');
+    $writer = app(LinkPoolWriter::class);
+    foreach (['x', 'y', 'z'] as $slug) {
+        $writer->add(
+            $user,
+            "https://link-{$slug}.test",
+            favicon: "https://link-{$slug}.test/favicon.ico",
+            logo: "https://link-{$slug}.test/og.png",
+        );
+    }
+
+    $pg = DB::connection('pgsql');
+    $pg->flushQueryLog();
+    $pg->enableQueryLog();
+
+    actingAsUser($user)->getJson('/api/platforms/custom/links')->assertOk();
+
+    $mediaQueries = collect($pg->getQueryLog())
+        ->pluck('query')
+        ->filter(fn (string $sql) => str_contains($sql, 'item_media'))
+        ->count();
+    $pg->disableQueryLog();
+
+    expect($mediaQueries)->toBe(1);
 });
 
 it('status endpoint reports ready for an existing link', function () {

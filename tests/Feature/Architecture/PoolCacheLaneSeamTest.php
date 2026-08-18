@@ -9,13 +9,19 @@
 // catch a REGRESSION back to hand-rolling on a KNOWN, closed list of files,
 // not discover new writers.
 //
+// #PGR-36 (2026-08-18) closed the follow-up #PGR-6 left open: the three
+// lane-1-only paths noted above — ManualOverrideController::bumpSites,
+// ItemMerger::bumpSites and SectionItemController::upsert()/destroy() — plus
+// the builder lane (SectionController, SectionGroupController, PageController,
+// owner-included for uniformity) now all route through SiteCacheLanes::bust()
+// too. ItemMerger has NO production caller (no `new ItemMerger`, no
+// `ItemMerger::class`, no container resolution anywhere in app/) — so this
+// static guard is its ONLY coverage. Do not delete its entry as untested dead
+// weight; there is no route to exercise it behaviourally.
+//
 // What this does NOT catch: a brand-new controller/command that writes a
 // pool and hand-rolls its own lanes instead of adopting SiteCacheLanes —
-// it is not in FILES below, so the guard is silent about it. It also does
-// not catch the three lane-1-only paths the owner ruled OUT of #PGR-6's
-// scope on 2026-08-17 — ManualOverrideController::bumpSites,
-// ItemMerger::bumpSites and SectionItemController::upsert()/destroy() —
-// those are a deliberately excluded follow-up (P2), not a gap in this test.
+// it is not in FILES below, so the guard is silent about it.
 
 const POOL_CACHE_LANE_FILES = [
     'app/Http/Controllers/Api/Content/PoolController.php',
@@ -23,13 +29,19 @@ const POOL_CACHE_LANE_FILES = [
     'app/Http/Controllers/Api/Content/ItemController.php',
     'app/Http/Controllers/Api/Content/ItemLinkController.php',
     'app/Console/Commands/ProvisionShopPinsCommand.php',
+    'app/Http/Controllers/Api/Content/ManualOverrideController.php',
+    'app/Services/Content/ItemMerger.php',
+    'app/Http/Controllers/Api/Site/SectionItemController.php',
+    'app/Http/Controllers/Api/Site/SectionController.php',
+    'app/Http/Controllers/Api/Site/SectionGroupController.php',
+    'app/Http/Controllers/Api/Site/PageController.php',
 ];
 
-it('resolves to exactly five known pool-cache-lane files, all present on disk', function () {
+it('resolves to exactly eleven known pool-cache-lane files, all present on disk', function () {
     // Non-vacuity: prove the list isn't empty and every path actually
     // exists BEFORE the negated assertions below run — a bad path or an
     // empty list would otherwise let those pass by finding nothing to search.
-    expect(POOL_CACHE_LANE_FILES)->toHaveCount(5);
+    expect(POOL_CACHE_LANE_FILES)->toHaveCount(11);
 
     foreach (POOL_CACHE_LANE_FILES as $relative) {
         expect(base_path($relative))->toBeFile();

@@ -3,6 +3,7 @@
 namespace App\Services\Migration;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Slice 1b D4 — collect borrowed media assets we are not entitled to keep.
@@ -29,6 +30,15 @@ use Illuminate\Support\Facades\DB;
  *    `storage_path`. Pruning on `storage_path IS NULL` alone would delete an
  *    owner's own photo the moment its item was tombstoned.
  * 3. Referenced by a live `item_media` row, or younger than the window.
+ *
+ * The delete loop below needs no cursor: every row it selects it deletes, so
+ * there is nothing to page past. Termination is provable rather than assumed
+ * — the doomed set shrinks monotonically on each iteration (a delete can only
+ * remove rows from it), and `content.item_media.asset_id` is `ON DELETE SET
+ * NULL`, so deleting asset A can never flip another asset from spared to
+ * doomed and re-grow the set. The loop also cannot spin: a take that deletes
+ * zero rows (another process won the race) logs and breaks rather than
+ * retrying the same take forever.
  */
 class BorrowedAssetPruner
 {
@@ -41,8 +51,15 @@ class BorrowedAssetPruner
 
     private const CHUNK = 500;
 
-    /** @return array{pruned: int, spared_owned: int, spared_referenced: int, spared_recent: int} */
-    public function run(bool $dryRun = false): array
+    /**
+     * `pruned` counts rows actually DELETEd, not rows targeted — identical in
+     * practice (every id taken is deleted or the loop breaks), but the
+     * semantics shifted from "doomed set size" to "delete result" when this
+     * moved off a single unbounded pluck+delete.
+     *
+     * @return array{pruned: int, spared_owned: int, spared_referenced: int, spared_recent: int}
+     */
+    public function run(bool $dryRun = false, int $limit = 0): array
     {
         $result = ['pruned' => 0, 'spared_owned' => 0, 'spared_referenced' => 0, 'spared_recent' => 0];
         $cutoff = now()->subDays(self::EXPIRY_DAYS);
@@ -67,21 +84,44 @@ class BorrowedAssetPruner
                 ->whereColumn('content.item_media.asset_id', 'content.media_assets.id'))
             ->count();
 
-        $doomed = (clone $expired)
+        // A closure, not a materialised query, because the doomed set must be
+        // re-read fresh on each iteration below — each take is a look at a
+        // set the previous take already shrank.
+        $doomed = fn () => (clone $expired)
             ->whereNotExists(fn ($q) => $q->select(DB::raw(1))
                 ->from('content.item_media')
-                ->whereColumn('content.item_media.asset_id', 'content.media_assets.id'))
-            ->pluck('id')
-            ->all();
+                ->whereColumn('content.item_media.asset_id', 'content.media_assets.id'));
 
-        $result['pruned'] = count($doomed);
+        if ($dryRun) {
+            // COUNT, never a pluck — the whole point of chunking the write
+            // side is to avoid materialising an unbounded id list, and the
+            // dry-run path is the one most likely to be run against the full,
+            // un-limited backlog to see how big it is.
+            $result['pruned'] = (int) $doomed()->count();
 
-        if ($dryRun || $doomed === []) {
             return $result;
         }
 
-        foreach (array_chunk($doomed, self::CHUNK) as $slice) {
-            DB::connection('pgsql')->table('content.media_assets')->whereIn('id', $slice)->delete();
+        $chunk = (int) config('partna.media.borrowed_prune_chunk', self::CHUNK);
+
+        while ($limit === 0 || $result['pruned'] < $limit) {
+            $take = $limit > 0 ? min($chunk, $limit - $result['pruned']) : $chunk;
+            $ids = $doomed()->limit($take)->pluck('id')->all();
+            if ($ids === []) {
+                break;
+            }
+
+            $deleted = DB::connection('pgsql')->table('content.media_assets')
+                ->whereIn('id', $ids)->delete();
+
+            if ($deleted === 0) {
+                // Never spin: another process pruned the same rows first.
+                Log::warning('content.prune_borrowed.no_progress', ['batch' => count($ids)]);
+                break;
+            }
+
+            $result['pruned'] += $deleted;
+            Log::info('content.prune_borrowed.batch', ['deleted' => $deleted, 'running_total' => $result['pruned']]);
         }
 
         return $result;

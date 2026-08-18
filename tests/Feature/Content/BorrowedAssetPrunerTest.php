@@ -133,6 +133,61 @@ it('writes nothing on a dry run', function () {
         ->and(DB::table('content.media_assets')->count())->toBe(1);
 });
 
+// ── #PGR-10: take-and-delete batching replaces the single pluck+delete ──
+
+it('deletes a doomed set larger than one batch', function () {
+    config(['partna.media.borrowed_prune_chunk' => 2]);
+    $user = createTenant('prn-'.Str::lower(Str::random(6)));
+    foreach (range(1, 5) as $i) {
+        prunerAsset($user->id, 'url-'.sha1("places/x/photos/old-{$i}"), now()->subDays(31));
+    }
+
+    $result = app(BorrowedAssetPruner::class)->run();
+
+    expect($result['pruned'])->toBe(5)
+        ->and(DB::table('content.media_assets')->count())->toBe(0);
+});
+
+it('--limit caps deletions and leaves the rest for a later run', function () {
+    config(['partna.media.borrowed_prune_chunk' => 2]);
+    $user = createTenant('prn-'.Str::lower(Str::random(6)));
+    foreach (range(1, 5) as $i) {
+        prunerAsset($user->id, 'url-'.sha1("places/x/photos/lim-{$i}"), now()->subDays(31));
+    }
+
+    $capped = app(BorrowedAssetPruner::class)->run(dryRun: false, limit: 3);
+
+    expect($capped['pruned'])->toBe(3)
+        ->and(DB::table('content.media_assets')->count())->toBe(2);
+
+    $rest = app(BorrowedAssetPruner::class)->run();
+
+    expect($rest['pruned'])->toBe(2)
+        ->and(DB::table('content.media_assets')->count())->toBe(0);
+});
+
+it('--dry-run counts the full backlog past one batch without materialising it', function () {
+    config(['partna.media.borrowed_prune_chunk' => 2]);
+    $user = createTenant('prn-'.Str::lower(Str::random(6)));
+    foreach (range(1, 5) as $i) {
+        prunerAsset($user->id, 'url-'.sha1("places/x/photos/dry-{$i}"), now()->subDays(31));
+    }
+
+    $pg = DB::connection('pgsql');
+    $pg->flushQueryLog();
+    $pg->enableQueryLog();
+    $result = app(BorrowedAssetPruner::class)->run(dryRun: true);
+    $log = collect($pg->getQueryLog())->pluck('query');
+    $pg->disableQueryLog();
+
+    expect($result['pruned'])->toBe(5)
+        ->and(DB::table('content.media_assets')->count())->toBe(5)
+        // COUNT, never a pluck of ids — the doomed-set id list must stay
+        // unmaterialised on the dry-run path.
+        ->and($log->contains(fn ($q) => str_contains($q, 'count(')))->toBeTrue()
+        ->and($log->filter(fn ($q) => str_starts_with(trim($q), 'select "id" from'))->isEmpty())->toBeTrue();
+});
+
 it('is idempotent — a second run finds nothing left to prune', function () {
     $user = createTenant('prn-'.Str::lower(Str::random(6)));
     prunerAsset($user->id, 'url-'.sha1('places/x/photos/old'), now()->subDays(31));

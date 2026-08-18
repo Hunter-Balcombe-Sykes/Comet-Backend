@@ -16,7 +16,7 @@ new public surface.
 | P0 — blockers | 0 |
 | P1 — high     | 6 |
 | P2 — medium   | 15 |
-| P3 — low      | 15 |
+| P3 — low      | 16 |
 
 ## READ THIS BEFORE TICKING ANYTHING — ids were renumbered
 
@@ -48,8 +48,90 @@ Never script a tick keyed on id alone.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 0 of 15 complete
-- P3 Low: 0 of 15 complete
+- P2 Medium: 15 of 15 complete
+- P3 Low: 0 of 16 complete
+
+## Suggested Bundled Sessions
+
+Units below cover the **P2 tier only** — P1 is closed, and P3 is deliberately left unbundled (see the
+note at the end of this section). Run them **in the listed order**: bundles 1 and 3 both touch
+`PublicEmailSubscriptionController.php`, so running 3 before 1 rebases the sanitizer work onto an
+edited file for no reason.
+
+Effort labels are the per-finding ones already recorded below. Per this file's `## Execution policy`,
+plan+implement are **combined for all-S units** and kept **separate for units containing an M**.
+
+- **Bundle 1 — PII sanitizer on public write paths:** #PGR-18, #PGR-19, #PGR-20
+    - **Why grouped:** One root cause, one remedy — three call sites skip the codebase's existing
+      User-Agent / query-param minimizing sanitizer that a neighbouring path already applies. Two files
+      (`AnalyticsController`, plus the three public form controllers). Fixing them apart means proving
+      the same sanitizer contract three times.
+    - **Effort:** S + S + S. Plan+implement combined.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+- **Bundle 2 — Third cache lane on remaining owner-write paths:** #PGR-36
+    - **Why grouped:** Single finding, but it is the known residue of #PGR-6 and rides the
+      `SiteCacheLanes::bust()` seam that #PGR-6 introduced — it belongs to that work, not to a
+      general-purpose bundle. Three call sites (`ManualOverrideController::bumpSites`,
+      `ItemMerger::bumpSites`, `SectionItemController::upsert()/destroy()`).
+    - **Effort:** M. Plan and implement kept separate.
+    - **Watch:** `ProjectionWriter::bumpSite()` fires lane 1 **by design** and is NOT in scope — it is a
+      per-item primitive whose batch callers discharge lanes 2+3 once at the request boundary. Do not
+      "fix" it. `PoolCacheLaneSeamTest.php` is the guard that must stay green.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+- **Bundle 3 — Small correctness, low blast radius:** #PGR-13, #PGR-16, #PGR-17
+    - **Why grouped:** Three unrelated but individually tiny fixes (dashboard reads null favicon/logo;
+      subscription lookup ignores the indexed `email_lc`; alias 301 caches for 5 minutes). No shared
+      state, no shared file except the subscription controller already touched by bundle 1.
+    - **Effort:** S + S + S. Plan+implement combined.
+    - **Verify premise first:** #PGR-13 asserts "the writer now populates them" — confirm that writer
+      change is still in place before changing the reader, or the fix is a no-op against real data.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+- **Bundle 4 — Missing guards on table-less / driver-shaped surfaces:** #PGR-14, #PGR-15
+    - **Why grouped:** Both are **test-only** units adding coverage the services lane already has and the
+      menu lane doesn't — a `normalizeRow()` unit test fed PDO_PGSQL-shaped scalars, and a query-surface
+      tripwire for the three menu DTO models. No production code changes; symmetric with the existing
+      `LegacyServiceQuerySurfaceTest.php`.
+    - **Effort:** S + S. Plan+implement combined.
+    - **Watch:** `MenuItem`, `MenuCategory`, `MenuItemPlatform` are table-less DTO carriers kept on
+      purpose. The unit adds a guard against querying them; it must not delete them or move them into
+      `PurgeSoftDeleted::PURGE_HANDLED`.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+- **Bundle 5 — Backfill / prune command batching:** #PGR-8, #PGR-9, #PGR-10
+    - **Why grouped:** One pattern in three commands — an unbounded result set held open (`cursor()`, or a
+      fully materialized ID list) with per-row work inside. Same remedy shape (chunk, then do the
+      expensive work per chunk), so the reviewer checks one contract three times rather than three.
+    - **Effort:** M + M + S. Plan and implement kept separate.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+- **Bundle 6 — Postgres-lane concurrency coverage:** #PGR-7, #PGR-12
+    - **Why grouped:** Both need a real second committing connection and follow the same established
+      idiom (`ProjectionIdentityKeyAtomicityTest.php`, `EffectLedgerConcurrencyTest.php`). Written
+      together, the fork/injection harness is set up once.
+    - **Effort:** M + M. Plan and implement kept separate.
+    - **Watch:** These MUST run in `tests/Postgres/` (`composer test:pg`). The SQLite mirror has no
+      independently-committing second connection and will pass vacuously — a green `composer test`
+      proves nothing here. Pin the refusal reason, not just the row count.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
+
+**P3 is not bundled, on purpose.** Per `CLAUDE.md` ("Opportunistic fixes — absorb the P3 tail, never
+schedule it"), the fifteen P3s below are absorbed when a session already has the file open for real
+work, not run as a campaign. Do not build units for them.
+
+## Standalone — do NOT bundle
+
+- **#PGR-11** — `ConvergeSiteSubdomainsCommand` commits the raw subdomain rename before cache and KV
+  invalidation.
+    - **Why standalone:** It is a locked, destructive DB write against `site.sites` paired with an
+      external KV mutation, and getting the reordering wrong misroutes live subdomains. The finding's
+      own note says the risk is currently theoretical because production carries no live traffic — so
+      the fix has low upside today and a real downside if botched. It earns its own branch and its own
+      review, and the blocker gate applies (plan first, wait for sign-off).
+    - **Effort:** M.
+    - **Model:** Plan: Opus 4.8 · Implement: Sonnet 4.6 · Review: Sonnet 4.6.
 
 ---
 
@@ -220,7 +302,7 @@ Never script a tick keyed on id alone.
 
 ## P2 — Should fix
 
-- [ ] **#PGR-7** · P2 — No test proves `ProjectionWriter::upsertSourceItem()`'s double-click race actually resolves cleanly
+- [x] **#PGR-7** · P2 — No test proves `ProjectionWriter::upsertSourceItem()`'s double-click race actually resolves cleanly
     - **Source:** ingest-projection — was `#TEST-1`
     - **Where:** app/Ingest/Projection/ProjectionWriter.php (`upsertSourceItem`), app/Http/Controllers/Api/Content/PoolItemCreateController.php:111
     - **Affects:** The "Add" button on `POST /api/content/pools/{pool}/items`. Two near-simultaneous requests for the same URL (a double-click, or a retried request after a slow response) derive the identical coord (`'manual:'.sha1(strtolower(trim($url)))`) and race on `content.source_items`'s `(source_id, coord)` unique index.
@@ -246,7 +328,7 @@ Never script a tick keyed on id alone.
         $coord = 'manual:'.sha1(strtolower(trim($data['url'])));
         ```
 
-- [ ] **#PGR-8** · P2 — `BackfillContentItemSlugs` uses `cursor()` on pgsql and an N+1 existence check per item
+- [x] **#PGR-8** · P2 — `BackfillContentItemSlugs` uses `cursor()` on pgsql and an N+1 existence check per item
     - **Source:** migration-commands — was `#MIG-3`
     - **Where:** app/Console/Commands/BackfillContentItemSlugs.php
     - **Affects:** The one-off content slug backfill; command memory, open result-set duration, and runtime against a large `content.items` table.
@@ -269,7 +351,7 @@ Never script a tick keyed on id alone.
             ->where('is_current', true)->exists();
         ```
 
-- [ ] **#PGR-9** · P2 — `BackfillMediaPaletteCommand` streams an unbounded media backlog via `cursor()` with inline per-row R2/image work
+- [x] **#PGR-9** · P2 — `BackfillMediaPaletteCommand` streams an unbounded media backlog via `cursor()` with inline per-row R2/image work
     - **Source:** migration-commands — was `#MIG-4`
     - **Where:** app/Console/Commands/BackfillMediaPaletteCommand.php
     - **Affects:** Existing gallery images needing palette extraction; R2 read load, temp disk, and image-decode CPU on the operator running the one-off.
@@ -291,7 +373,7 @@ Never script a tick keyed on id alone.
                 $palette = $this->extractForRow($extractor, $disk, (string) $media->path);
         ```
 
-- [ ] **#PGR-10** · P2 — `BorrowedAssetPruner` materializes every doomed asset ID before chunking the deletes
+- [x] **#PGR-10** · P2 — `BorrowedAssetPruner` materializes every doomed asset ID before chunking the deletes
     - **Source:** migration-commands — was `#MIG-5`
     - **Where:** app/Services/Migration/BorrowedAssetPruner.php
     - **Affects:** `content.media_assets` growth and the prune command's memory footprint as borrowed assets accumulate.
@@ -321,7 +403,7 @@ Never script a tick keyed on id alone.
         }
         ```
 
-- [ ] **#PGR-11** · P2 — `ConvergeSiteSubdomainsCommand` commits the raw subdomain rename before cache and KV invalidation
+- [x] **#PGR-11** · P2 — `ConvergeSiteSubdomainsCommand` commits the raw subdomain rename before cache and KV invalidation
     - **Source:** migration-commands — was `#MIG-6`
     - **Where:** app/Console/Commands/ConvergeSiteSubdomainsCommand.php
     - **Affects:** `site.sites.subdomain` convergence and the Redis/Cloudflare KV routing state for affected users during the repair.
@@ -344,7 +426,7 @@ Never script a tick keyed on id alone.
         }
         ```
 
-- [ ] **#PGR-12** · P2 — Enquiry notification reconciliation's `SKIP LOCKED` concurrency contract has no Postgres-lane test, unlike the analogous claim-vs-prune race
+- [x] **#PGR-12** · P2 — Enquiry notification reconciliation's `SKIP LOCKED` concurrency contract has no Postgres-lane test, unlike the analogous claim-vs-prune race
     - **Source:** migration-commands — was `#TEST-3`
     - **Where:** app/Console/Commands/ReconcileEnquiryNotifications.php (transaction with `lock('for update skip locked')`)
     - **Affects:** Enquiry notification recovery when two scheduler ticks or servers overlap; a regression could double-handle or block under concurrency.
@@ -362,7 +444,7 @@ Never script a tick keyed on id alone.
         // (Feature suite unaffected); the Postgres behavior is the contract.
         ```
 
-- [ ] **#PGR-13** · P2 — Dashboard link cards read `favicon`/`logo` as `null` even though the writer now populates them
+- [x] **#PGR-13** · P2 — Dashboard link cards read `favicon`/`logo` as `null` even though the writer now populates them
     - **Source:** pools-resolver — was `#API-1`
     - **Where:** app/Services/Content/LinkPoolReader.php:66-76 (`cardsInSection()`)
     - **Affects:** The owner's own link-management screen (`LinkPoolReader::cards()`/`cardsForSite()`), which now silently disagrees with what the public sitepage shows for the same item.
@@ -386,7 +468,7 @@ Never script a tick keyed on id alone.
         ])
         ```
 
-- [ ] **#PGR-14** · P2 — `ServiceCollections`/`MenuCollections` PDO_PGSQL scalar normalisation has no unit test that feeds it driver-shaped input
+- [x] **#PGR-14** · P2 — `ServiceCollections`/`MenuCollections` PDO_PGSQL scalar normalisation has no unit test that feeds it driver-shaped input
     - **Source:** pools-resolver — was `#TEST-2`
     - **Where:** app/Services/Content/ServiceCollections.php (`normalizeRow()`); app/Services/Content/MenuCollections.php (`normalizeRow()`)
     - **Affects:** Dashboard service/menu category reads on real Postgres — the editable-category gate keys off `is_user_created === false`, and the type coercion that makes that comparison safe is currently exercised only by SQLite, which already returns native types.
@@ -406,7 +488,7 @@ Never script a tick keyed on id alone.
         // to the SQLite test lane.
         ```
 
-- [ ] **#PGR-15** · P2 — No query-surface guard for the three menu DTO models, asymmetric with the services one
+- [x] **#PGR-15** · P2 — No query-surface guard for the three menu DTO models, asymmetric with the services one
     - **Source:** programme-review (R-4) — was `#R-4`
     - **Where:** app/Models/Core/Site/Menu.php:121 (`categories()`), :127 (`items()`); app/Models/Core/Site/MenuItem.php; app/Models/Core/Site/MenuCategory.php; app/Models/Core/Site/MenuItemPlatform.php; tests/Feature/Architecture/LegacyServiceQuerySurfaceTest.php
     - **Affects:** Any future code that queries or eager-loads the three menu DTO models. A regression is a guaranteed 42P01 on real Postgres that the SQLite lane cannot catch, on a nightly-reachable path.
@@ -435,7 +517,7 @@ Never script a tick keyed on id alone.
         'ServiceCategory::query(', 'ServiceCategory::where', ...
         ```
 
-- [ ] **#PGR-16** · P2 — Email subscription lookup ignores the existing indexed `email_lc` column
+- [x] **#PGR-16** · P2 — Email subscription lookup ignores the existing indexed `email_lc` column
     - **Source:** public-surface-security — was `#SCHEMA-1`
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php:114-118
     - **Affects:** Public newsletter/marketing subscription path (`notifications.email_subscriptions`); slower lookups as the table grows.
@@ -457,7 +539,7 @@ Never script a tick keyed on id alone.
         $subscription->email_lc = $email;
         ```
 
-- [ ] **#PGR-17** · P2 — Backend alias 301s cache for 5 minutes, which can briefly misdirect a visitor after a rapid handle reclaim
+- [x] **#PGR-17** · P2 — Backend alias 301s cache for 5 minutes, which can briefly misdirect a visitor after a rapid handle reclaim
     - **Source:** public-surface-security — was `#EDGE-1`
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicSiteController.php (`show()` and `showByHeader()` alias redirect blocks)
     - **Affects:** Visitors who followed an old subdomain alias shortly before that handle was reclaimed by someone else.
@@ -473,7 +555,7 @@ Never script a tick keyed on id alone.
             ->header('Cache-Control', 'public, max-age='.(int) config('partna.cache.alias_redirect_max_age', 300));
         ```
 
-- [ ] **#PGR-18** · P2 — Raw UTM parameters bypass the analytics sanitizer that already protects referrer data
+- [x] **#PGR-18** · P2 — Raw UTM parameters bypass the analytics sanitizer that already protects referrer data
     - **Source:** public-surface-security — was `#PRIV-1`
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php (`buildEvent`)
     - **Affects:** Every public sitepage visitor whose analytics beacon includes UTM parameters; marketing-campaign tags can embed identifying strings into analytics stores.
@@ -491,7 +573,7 @@ Never script a tick keyed on id alone.
         utmCampaign: $data['utm_campaign'] ?? null,
         ```
 
-- [ ] **#PGR-19** · P2 — Three public form paths persist User-Agent without the codebase's own PII-minimizing sanitizer
+- [x] **#PGR-19** · P2 — Three public form paths persist User-Agent without the codebase's own PII-minimizing sanitizer
     - **Source:** public-surface-security — was `#PRIV-2`
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php (`subscribe`); app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php (`submit`); app/Http/Controllers/Api/PublicSite/PublicEarlyAccessController.php (`store`)
     - **Affects:** Visitors who submit email subscriptions, enquiries, or early-access signups; their raw browser fingerprint enters consent/submission records.
@@ -512,7 +594,7 @@ Never script a tick keyed on id alone.
         'consent_user_agent' => mb_substr((string) ($request->userAgent() ?? ''), 0, 500) ?: null,
         ```
 
-- [ ] **#PGR-20** · P2 — Analytics ingest stores raw User-Agent verbatim on the highest-traffic public write path
+- [x] **#PGR-20** · P2 — Analytics ingest stores raw User-Agent verbatim on the highest-traffic public write path
     - **Source:** public-surface-security — was `#PRIV-3`
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php (`buildEvent`)
     - **Affects:** Every public sitepage visitor whose analytics beacon is ingested (pageview/click/section/item/action/ping events).
@@ -531,7 +613,7 @@ Never script a tick keyed on id alone.
         longitude: $this->detectLongitude($request),
         ```
 
-- [ ] **#PGR-36** · P2 — Three further owner-initiated write paths fire lane 1 only, the same defect class as #PGR-6
+- [x] **#PGR-36** · P2 — Three further owner-initiated write paths fire lane 1 only, the same defect class as #PGR-6
     - **Source:** found during the execution of #PGR-6, 2026-08-18 (`audit-fix/programme-review-p1-2026-08-17`) — not from a scan run. Owner ruled it a follow-up rather than folding it into #PGR-6, to keep that unit's diff tight and to avoid dragging `ItemMerger`'s concurrency story into a cache unit.
     - **Where:** `app/Http/Controllers/Api/Content/ManualOverrideController.php:107-112` (`bumpSites()`); `app/Services/Content/ItemMerger.php:368-373` (`bumpSites()`); `app/Http/Controllers/Api/Site/SectionItemController.php:103` (`upsert()`) and `:126` (`destroy()`)
     - **Affects:** Public sitepage visitors. Each is an owner-initiated curation write that bumps the build state and then stops — no `site.sites.updated_at`, no edge purge — so the origin re-serves its stale payload for the 60s TTL *and* the CDN is never purged at all. `ManualOverrideController` is the sharpest of the three: an override changes the rendered headline/body, so the visible text is what goes stale.
@@ -862,4 +944,21 @@ Never script a tick keyed on id alone.
         // Same fallback as routes/api/publicSite.php — a missing/typo'd
         // PARTNA_PUBLIC_DOMAIN env must not silently break the poll payload.
         $publicDomain = config('partna.public_domain') ?: 'partna.au';
+        ```
+
+- [ ] **#PGR-37** · P3 — `BackfillMediaPaletteCommand` has no enforced ceiling on a hung R2 read
+    - **Source:** split out of #PGR-8/9/10 execution, 2026-08-18 (`audit-fix/programme-review-p2-2026-08-18`) — not from a scan run. #PGR-9's "what to do" carried two halves; the owner ruled the second half out of that unit and filed it here so the chunking fix could ship on its own.
+    - **Where:** app/Console/Commands/BackfillMediaPaletteCommand.php (`extractForRow()` — `readStream` → `tempnam` → `stream_copy_to_stream` → decode, all inline in the console process)
+    - **Affects:** An operator running the palette backfill. A hung R2 `readStream` blocks the process indefinitely.
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Add an opt-in `--queue` flag that dispatches the per-row work instead of running it inline, defaulting to **synchronous**. Copy the shape already in `BackfillSubdomainKvCommand.php:39-47,51-61` (a `$dispatch` closure calling `dispatch()` or `dispatchSync()`) rather than inventing one — that default keeps the exit-code and `--dry-run` contracts intact on the path operators actually use.
+        - The new job mirrors `ProcessImageVariantsJob.php:32-36`: `$tries = 3`, `$backoff = [30, 120, 600]`, `$timeout = 120`, `onQueue(config('partna.queues.images'))`. Add the retry-shape unit test this repo writes for every job (`EnrichLinkCardJobTest.php:31`, `ConnectFetchJobTest.php:54`, `DeleteMediaArtifactsJobTest.php:16`).
+    - **Technical:** `Illuminate\Console\Command` does not read `$timeout` — the command's own comment at `:32-38` already documents this correctly and treats `--limit` as the real mitigation. That is true for *volume* but not for a *single* hung read: `--limit=1` still blocks forever on one bad stream. A queue worker's `$timeout` is the only thing that imposes a ceiling. Deliberately NOT folded into #PGR-9: there is no palette-only job to reuse (`ProcessImageVariantsJob` extracts palette as a side effect of variant generation and cannot be pointed at a backlog row), so this is net-new work; and dispatching by default would break `tests/Feature/Console/BackfillMediaPaletteCommandTest.php:65-71`, which asserts the palette has landed after `artisan()` returns.
+    - **Plain English:** The command downloads and processes each photo itself, and nothing can interrupt it if one download stalls. Capping how many photos it does per run bounds a slow run, but not a stuck one — a single frozen download still hangs it indefinitely. Handing the work to a background worker gives it a stopwatch that can cut a stuck job off.
+    - **Evidence:**
+        ```php
+        // The command's own comment — correct about volume, silent about a hung read
+        // $timeout is not read by Illuminate\Console\Command; --limit is the real
+        // mitigation for a long run.
         ```

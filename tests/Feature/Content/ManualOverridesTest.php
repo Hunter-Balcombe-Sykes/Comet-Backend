@@ -6,10 +6,18 @@ use App\Models\Content\ManualOverride;
 use App\Models\Core\Site\Site;
 use App\Site\Pools\PoolResolver;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupContentCurationTables();
+    // #PGR-36: ManualOverrideController now routes through SiteCacheLanes::
+    // bust(), which dispatches CloudflareCachePurgeJob. QUEUE_CONNECTION=sync
+    // in phpunit.xml means an unfaked queue runs the job inline, including its
+    // self-dispatched delayed follow-ups (sync ignores delay()) — four
+    // executions per bust. Faked so this file's tests measure the override
+    // behaviour, not job side effects.
+    Queue::fake();
 });
 
 it('stores an override and reports it as edited', function () {

@@ -60,6 +60,58 @@ describe('JOB-1: queue payload referrer sanitisation', function () {
     });
 });
 
+// --- PGR-18: UTM params sanitised before reaching the queue payload --------------
+
+describe('PGR-18: queue payload UTM sanitisation', function () {
+    beforeEach(function () {
+        app()->bind(AnalyticsIngestor::class, QueuedIngestor::class);
+        Queue::fake();
+    });
+
+    it('neutralises a UTM value carrying an email-like string on the dispatched pageview job payload', function () {
+        $tenant = createTenant('pgr18-pageview');
+
+        $this->withHeader('Origin', 'https://pgr18-pageview.'.config('partna.public_domain'))
+            ->postJson('/api/public/analytics/pageviews', [
+                'site_id' => $tenant->site->id,
+                'utm_source' => 'newsletter-leak@example.com',
+                'utm_medium' => 'email',
+                'utm_campaign' => 'summer-sale',
+            ])->assertStatus(201);
+
+        Queue::assertPushed(RecordAnalyticsEventJob::class, function ($job) {
+            return $job->payload['utm_source'] === null
+                && $job->payload['utm_medium'] === 'email'
+                && $job->payload['utm_campaign'] === 'summer-sale';
+        });
+    });
+});
+
+// --- PGR-20: userAgent sanitised before reaching the queue payload ---------------
+
+describe('PGR-20: queue payload User-Agent sanitisation', function () {
+    beforeEach(function () {
+        app()->bind(AnalyticsIngestor::class, QueuedIngestor::class);
+        Queue::fake();
+    });
+
+    it('reduces the raw User-Agent to family/major-version on the dispatched pageview job payload', function () {
+        $tenant = createTenant('pgr20-pageview');
+        $chromeUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+            .'(KHTML, like Gecko) Chrome/141.0.7390.54 Safari/537.36';
+
+        $this->withHeader('Origin', 'https://pgr20-pageview.'.config('partna.public_domain'))
+            ->withHeader('User-Agent', $chromeUa)
+            ->postJson('/api/public/analytics/pageviews', [
+                'site_id' => $tenant->site->id,
+            ])->assertStatus(201);
+
+        Queue::assertPushed(RecordAnalyticsEventJob::class, function ($job) {
+            return $job->payload['user_agent'] === 'Chrome/141';
+        });
+    });
+});
+
 // --- Characterisation: pageview's malformed-referrer storage is unchanged --------
 
 it('still stores a null referrer for pageview when the raw value is not a URL (characterisation)', function () {
