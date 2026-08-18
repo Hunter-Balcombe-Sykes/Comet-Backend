@@ -23,7 +23,13 @@
 --                          vocabulary is owned by MediaMirror and adding a slug
 --                          must not require a migration.
 --
--- Reading the tail:
+-- Reading the tail — ⚠️ THE QUERY BELOW IS WRONG, see 20260819004000.
+-- Measured on dev the same day: it returns 2589 rows of which ZERO are mirror
+-- candidates. It cannot tell a borrowed Apple Music / Shopify / Google asset
+-- (unmirrored forever, and correctly so) from an owned one that lost its bytes,
+-- because owned-ness was not recorded anywhere on the row. `mirror_eligible`
+-- fixes that; use the corrected query in 20260819004000's header instead.
+--
 --   SELECT mirror_attempts, mirror_last_reason, count(*)
 --     FROM content.media_assets
 --    WHERE storage_path IS NULL AND site_media_id IS NULL AND source_url IS NOT NULL

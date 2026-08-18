@@ -45,6 +45,7 @@ beforeEach(function () {
         palette jsonb,
         variant_family text,
         blurhash text,
+        mirror_eligible boolean,
         mirror_attempts integer NOT NULL DEFAULT 0,
         mirror_last_attempt_at timestamptz,
         mirror_last_reason text,

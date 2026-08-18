@@ -259,3 +259,95 @@ it('reports a borrowed asset as skipped for not being owned', function () {
             && ($context['skipped']['not_owned'] ?? 0) === 1)
         ->once();
 });
+
+// ── mirror_eligible: "should this row EVER have been mirrored?" ──────────────
+//
+// Measured on dev 2026-08-18: the tail query shipped with the R8 columns
+// returned 2589 rows, of which ZERO were mirror candidates — the rest were
+// Apple Music, Shopify, Uber Eats, SoundCloud and Google artwork that is
+// correctly never mirrored. Owned-ness lived only in the projection entry's
+// `ref`, and the row stores `'url-'.sha1($ref)`, a one-way hash. So the table
+// could not answer the one question R8 existed to make answerable.
+
+it('marks a newly minted instagram asset as mirror-eligible', function () {
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+
+    projectIgMedia($userId, 'ABC123', ['https://scontent.cdninstagram.com/v/one.jpg']);
+
+    expect((bool) DB::table('content.media_assets')->where('user_id', $userId)->value('mirror_eligible'))->toBeTrue();
+});
+
+it('marks borrowed google media as NOT mirror-eligible', function () {
+    // The distinction that matters: this row is unmirrored FOREVER and that is
+    // correct — storing a Places photo is a licence violation. It must never
+    // read as a backlog item.
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+
+    app(ProjectionWriter::class)->writeManualItem($userId, 'manual:goog-1', [
+        'kind' => 'media',
+        'headline' => null,
+        'media' => [[
+            'role' => 'gallery',
+            'ref' => 'places/ChIJtest/photos/AWCwydtoken',
+            'url' => 'https://lh3.googleusercontent.com/place-photos/AG9NLjtest',
+        ]],
+    ]);
+
+    // not->toBeNull() FIRST: NULL casts to false, so a bare toBeFalse() would
+    // pass against an unpopulated column and prove nothing.
+    $row = DB::table('content.media_assets')->where('user_id', $userId)->first();
+    expect($row->mirror_eligible)->not->toBeNull()
+        ->and((bool) $row->mirror_eligible)->toBeFalse();
+});
+
+it('heals a pre-existing NULL flag on the next projection pass', function () {
+    // Every row minted before this column exists reads NULL. Re-deriving the
+    // flag on the next sync is what makes the backlog query converge on the
+    // truth instead of permanently under-counting the rows that predate it.
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg']);
+
+    DB::table('content.media_assets')->where('user_id', $userId)->update(['mirror_eligible' => null]);
+
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg'], '-again');
+
+    expect((bool) DB::table('content.media_assets')->where('user_id', $userId)->value('mirror_eligible'))->toBeTrue();
+});
+
+it('heals a pre-existing NULL flag on a borrowed asset too', function () {
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    $google = [
+        'kind' => 'media',
+        'headline' => null,
+        'media' => [[
+            'role' => 'gallery',
+            'ref' => 'places/ChIJtest/photos/AWCwydtoken',
+            'url' => 'https://lh3.googleusercontent.com/place-photos/AG9NLjtest',
+        ]],
+    ];
+    app(ProjectionWriter::class)->writeManualItem($userId, 'manual:goog-1', $google);
+
+    DB::table('content.media_assets')->where('user_id', $userId)->update(['mirror_eligible' => null]);
+
+    app(ProjectionWriter::class)->writeManualItem($userId, 'manual:goog-2', $google);
+
+    $row = DB::table('content.media_assets')->where('user_id', $userId)->first();
+    expect($row->mirror_eligible)->not->toBeNull()
+        ->and((bool) $row->mirror_eligible)->toBeFalse();
+});
+
+it('leaves an already-set flag alone rather than rewriting it every sync', function () {
+    // The heal is a one-time repair, not a per-sync write. Left unguarded it
+    // would UPDATE every asset on every projection pass forever.
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg']);
+
+    // A deliberately WRONG value: if the heal is unguarded it will correct
+    // this back to true, and the test fails — which is exactly the write we
+    // do not want happening on every sync.
+    DB::table('content.media_assets')->where('user_id', $userId)->update(['mirror_eligible' => false]);
+
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg'], '-again');
+
+    expect((bool) DB::table('content.media_assets')->where('user_id', $userId)->value('mirror_eligible'))->toBeFalse();
+});
