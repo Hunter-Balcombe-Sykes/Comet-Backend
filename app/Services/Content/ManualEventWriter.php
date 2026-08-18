@@ -373,11 +373,16 @@ class ManualEventWriter
             ->whereNull('i.removed_at')
             ->orderBy('si.sort_key')
             ->distinct()
+            // si.sort_key is selected ONLY because Postgres requires every
+            // ORDER BY expression of a SELECT DISTINCT to be in the select
+            // list (42P10). SQLite does not, which is why this passed every
+            // test and then failed on the first real remove() (2026-08-18).
             ->get([
                 'i.id', 'i.headline_cache', 'fl.url', 'ft.body',
                 'fo.starts_at_local', 'fo.ends_at_local',
                 'fp.venue_name', 'fp.locality',
                 'o.amount_minor', 'o.currency',
+                'si.sort_key',
             ])
             ->map(fn (object $row): array => [
                 'id' => (string) $row->id,
