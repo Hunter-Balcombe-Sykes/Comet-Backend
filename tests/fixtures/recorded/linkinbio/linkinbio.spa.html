@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>Linkin.bio</title>
+    <meta name="description" content="" />
+    <meta name="robots" content="index,follow" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <meta property="og:title" content="My Link in Bio Page" />
+    <meta property="og:description" content="Check out my Link in Bio page to learn more." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://later.com/link-in-bio/" />
+    <meta property="og:image" content="https://later-frontend-assets.later.com/img--lib--linkPreview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Link in Bio" />
+    <meta property="og:image:type" content="image/png" />
+
+    <meta property="twitter:title" content="My Link in Bio Page" />
+    <meta property="twitter:description" content="Check out my Link in Bio page to learn more." />
+    <meta property="twitter:image" content="/assets/linkin-bio-6f49dbc0b68df960573c60e20bb4ace1.png" />
+
+    <link id="favicon" rel="icon" type="image/x-icon" href="/favicon-light.ico?v=1" />
+
+    <script>
+      // Dynamically set favicon based on dark/light mode
+      (function() {
+        const favicon = document.getElementById('favicon');
+        const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        favicon.href = isDarkMode ? '/favicon-dark.ico?v=1' : '/favicon-light.ico?v=1';
+
+        // Listen for changes in color scheme
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+          favicon.href = e.matches ? '/favicon-dark.ico?v=1' : '/favicon-light.ico?v=1';
+        });
+      })();
+    </script>
+
+    <meta name="linkinbio/config/environment" content="%7B%22modulePrefix%22%3A%22linkinbio%22%2C%22rootURL%22%3A%22%2F%22%2C%22locationType%22%3A%22history%22%2C%22environment%22%3A%22production%22%2C%22i18n%22%3A%7B%22defaultLocale%22%3A%22en%22%7D%2C%22ember-cli-mirage%22%3A%7B%22excludeFilesFromBuild%22%3Atrue%2C%22usingProxy%22%3Afalse%2C%22useDefaultPassthroughs%22%3Atrue%7D%2C%22viewportConfig%22%3A%7B%22viewportSpy%22%3Atrue%2C%22viewportTolerance%22%3A%7B%22top%22%3A250%2C%22bottom%22%3A250%2C%22left%22%3A20%2C%22right%22%3A20%7D%7D%2C%22EmberENV%22%3A%7B%22EXTEND_PROTOTYPES%22%3Afalse%2C%22FEATURES%22%3A%7B%7D%2C%22_APPLICATION_TEMPLATE_WRAPPER%22%3Afalse%2C%22_DEFAULT_ASYNC_OBSERVERS%22%3Atrue%2C%22_JQUERY_INTEGRATION%22%3Afalse%2C%22_NO_IMPLICIT_ROUTE_MODEL%22%3Atrue%2C%22_TEMPLATE_ONLY_GLIMMER_COMPONENTS%22%3Atrue%7D%2C%22APP%22%3A%7B%22Backend%22%3A%7B%22url%22%3A%22https%3A%2F%2Fapi-prod.linkin.bio%22%7D%2C%22Tracker%22%3A%7B%22host%22%3A%22api.keen.io%22%2C%22projectId%22%3A%22596fb4f5c9e77c[redacted-phone]d5a%22%2C%22blockActionKey%22%3A%227ECB193872F45FC[redacted-phone]E0CCC8EB1313A893F567F8D04467D0D92E199545F6%22%2C%22blockActionCollection%22%3A%22lib_block_actions%22%2C%22blockClickKey%22%3A%22A5B7A06DDF[redacted-phone]D017259FBEDF439644B7BFE5EE32107EFBBF5A84E82EC%22%2C%22blockClickCollection%22%3A%22lib_block_clicks%22%2C%22clickKey%22%3A%229E1B[redacted-phone]FCE01A8394E740BBB0C2F507515A1EE73EB4FD9F524860BEB948%22%2C%22clickCollection%22%3A%22lib_clicks%22%2C%22viewKey%22%3A%[redacted-phone]B92EE0C8C40EEB4FB[redacted-phone]CA3F3A86977D13512B8A7EDAE8FF2FF5C1C%22%2C%22pageviewCollection%22%3A%22lib_pageviews%22%2C%22enabled%22%3Atrue%7D%2C%22deployTarget%22%3A%22production%22%2C%22datadogClientToken%22%3A%22pub8a056d351d7cdb96ac145bb3725eedca%22%2C%22datadogAppId%22%3A%224172f47f-86c0-4e52-a75f-400651a21a0a%22%2C%22name%22%3A%22linkinbio%22%2C%22version%22%3A%220.3.0%2Bac492283%22%7D%2C%22contentSecurityPolicy%22%3A%7B%22font-src%22%3A%5B%22'self'%22%2C%22data%3A%22%2C%22fonts.gstatic.com%22%2C%22fonts.googleapis.com%22%2C%22https%3A%2F%2Fjs.intercomcdn.com%22%5D%2C%22style-src%22%3A%5B%22'self'%22%2C%22'unsafe-inline'%22%2C%22data%3A%22%2C%22fonts.googleapis.com%22%5D%2C%22script-src%22%3A%5B%22'self'%22%2C%22'unsafe-inline'%22%2C%22data%3A%22%2C%22api.keen.io%22%2C%22www.googletagmanager.com%22%5D%2C%22img-src%22%3A%5B%22'self'%22%2C%22data%3A%22%2C%22*.s3.amazonaws.com%22%2C%22*.later.com%22%2C%22*.instagram.com%22%2C%22*.cdninstagram.com%22%2C%22*.googletagmanager.com%22%2C%22*.cloudfront.net%22%2C%22https%3A%2F%2F*.akamaihd.net%22%2C%22*.igsonar.com%22%2C%22http%3A%2F%2Ffast.fonts.net%22%2C%22*.fbcdn.net%22%5D%2C%22connect-src%22%3A%5B%22'self'%22%2C%22https%3A%2F%2Fapi.keen.io%22%2C%22https%3A%2F%2Fanalytics.google.com%22%2C%22https%3A%2F%2Fapi-prod.linkin.bio%22%2C%22https%3A%2F%2Fapp.later.com%22%5D%2C%22default-src%22%3A%5B%22'none'%22%5D%2C%22media-src%22%3A%5B%22'self'%22%5D%7D%2C%22contentSecurityPolicyHeader%22%3A%22Content-Security-Policy-Report-Only%22%2C%22BACKEND_URL%22%3A%22https%3A%2F%2Fapi-prod.linkin.bio%22%7D" />
+
+    <link rel="stylesheet" href="/assets/vendor-86c638b11d1be3aa307c498564da68c4.css" integrity="sha256-ffAsva1b5DhD1UlNaWSebT8V02lbJ58DKvRMdsdq+l0= sha512-ygIxOy3hmN2fzGeNqys7ymuBgwSCet0LVfqQbWY10AszPMn2rB9JY0eoG0m1pySicu+nvORrBmhHVSt7+GI9VA==" />
+    <link rel="stylesheet" href="/assets/linkinbio-f7da39fa7fc66077f51ac0f7b[redacted-phone].css" integrity="sha256-Xwao4O0wuZw+nws0FwazRZOgR26uY2laS2IaFz5WVTI= sha512-DN2oo9hZL3diPtDmkf5yMN4lcC4gV1wDRvyZ8e5o6KGgjSV+s0wiz2qcELxE1i1zhC//qrjb+tnEZMWhpZ3XjA==" />
+
+    
+  </head>
+  <body>
+    
+
+    <script src="/assets/vendor-c7555e5ec4451e5ed54d42e2bad69ddb.js" integrity="sha256-H/2sWhO6YSly6gxMcPt33+N6Nl0kS4RL2cWwHsd1Vfk= sha512-u0woQnoLIPQAlXBMue7l73k22/o9H3bSXTbX3U21rWDvyXNWmE6Y32LrogeaEG2jslGmlxZufsMFS23cHg+lfw==" ></script>
+<script src="/assets/chunk.60.0ff0affd0b9e232c16dc.js" integrity="sha256-2vgFekPFq2KjTwx74vvVTzPGfqnD1eHGbT8TbsK2svY= sha512-I73H4yMkLkbdNjXfoEY3quIhO+tfymcz7yrK8Jultk7khj1grgkGq5b5vh92lBujasJpLYDsm8sSBVlY8rphcg==" ></script>
+<script src="/assets/chunk.524.1a5e6395c[redacted-phone].js" integrity="sha256-1ofspNzx8yZxbNvFI5JOooqqvn11lxMILSUBIUD90/g= sha512-Cnp+pop9IUzM13Z9cT1Dv4epMpASFUHu2KpgBEC9fetQzHkH8Jw59wpNj0r8x+e9Kjjwe4vtlp9DH3Rc6jizRA==" ></script>
+    <script src="/assets/linkinbio-f9e1450ea3628e8e92af1d29949ecd98.js" integrity="sha256-sw0QbXD9AmKqsTBozivLL4YKWy8AaDo0XXX1TzuzOfA= sha512-m8JxcRyzyfgr99omTUCvwyt3hg8+7L2k6ybUNRE7QTLAsQEI4L5gXShLh8mWXTWmzwX2kFw6xSgcD+0mMQwz2w==" ></script>
+
+    
+  </body>
+</html>
