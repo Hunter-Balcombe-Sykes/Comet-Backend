@@ -289,6 +289,61 @@ class ServiceCollections
     }
 
     /**
+     * Owner ruling 2026-08-18 (category-first curation): a service may sit
+     * in SEVERAL categories. Replaces the item's whole owner-lane membership
+     * set (source_id null) with `$collectionIds`, keeping the position of a
+     * membership that already exists and appending new ones at the end of
+     * each category. An empty list = Uncategorised. Supersedes the
+     * 2026-08-14 one-category rule assign() encoded.
+     *
+     * @param  list<string>  $collectionIds
+     */
+    public function assignMany(string $userId, string $itemId, array $collectionIds, ?string $sourceId = null): void
+    {
+        $ownsItem = DB::connection(self::CONNECTION)->table('content.items')
+            ->where('id', $itemId)->where('user_id', $userId)->exists();
+        if (! $ownsItem) {
+            return;
+        }
+        $wanted = array_values(array_unique(array_filter(array_map('strval', $collectionIds))));
+        if ($wanted !== []) {
+            $owned = DB::connection(self::CONNECTION)->table('content.collections')
+                ->whereIn('id', $wanted)->where('user_id', $userId)->where('kind', self::KIND)
+                ->pluck('id')->map(fn ($id) => (string) $id)->all();
+            $wanted = array_values(array_intersect($wanted, $owned));
+        }
+
+        DB::connection(self::CONNECTION)->transaction(function () use ($itemId, $wanted, $sourceId) {
+            $existing = DB::connection(self::CONNECTION)->table('content.collection_items')
+                ->where('item_id', $itemId)
+                ->whereExists(fn ($query) => $query->selectRaw('1')
+                    ->from('content.collections as col')
+                    ->whereColumn('col.id', 'content.collection_items.collection_id')
+                    ->where('col.kind', self::KIND));
+            $sourceId === null ? $existing->whereNull('source_id') : $existing->where('source_id', $sourceId);
+            $current = $existing->pluck('collection_id')->map(fn ($id) => (string) $id)->all();
+
+            $drop = array_diff($current, $wanted);
+            if ($drop !== []) {
+                $gone = DB::connection(self::CONNECTION)->table('content.collection_items')
+                    ->where('item_id', $itemId)->whereIn('collection_id', $drop);
+                $sourceId === null ? $gone->whereNull('source_id') : $gone->where('source_id', $sourceId);
+                $gone->delete();
+            }
+            foreach (array_diff($wanted, $current) as $collectionId) {
+                $position = 1 + (int) (DB::connection(self::CONNECTION)->table('content.collection_items')
+                    ->where('collection_id', $collectionId)->max('position') ?? -1);
+                DB::connection(self::CONNECTION)->table('content.collection_items')->insertOrIgnore([
+                    'collection_id' => $collectionId,
+                    'item_id' => $itemId,
+                    'source_id' => $sourceId,
+                    'position' => $position,
+                ]);
+            }
+        });
+    }
+
+    /**
      * Shared shape for list()/find(): every column the Interfaces block
      * promises, plus a correlated item_count subquery.
      *

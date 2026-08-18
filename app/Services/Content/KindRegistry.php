@@ -52,6 +52,9 @@ final class KindRegistry
      *
      * @var array<string, array{label: string, plural: string, profile: SourceProfile, facets: list<string>}>
      */
+    /** Kinds whose order lives inside their categories, not in the pool. */
+    public const CATEGORY_ORDERED_KINDS = ['menu_item', 'service'];
+
     private const KINDS = [
         'video' => ['label' => 'Video', 'plural' => 'Videos', 'profile' => SourceProfile::Feed,
             'facets' => ['f_text', 'f_link', 'f_duration', 'f_published', 'f_embed', 'item_media']],
@@ -122,7 +125,11 @@ final class KindRegistry
             'editable' => $profile->isEditable(),
             // Ordering is implemented BY pinning (pins carry the sort key), so
             // a kind that cannot be pinned cannot be hand-ordered either.
-            'orderable' => $pinnable,
+            // Owner ruling 2026-08-18 (category-first curation): a dish or a
+            // service is ordered WITHIN its categories (collection_items
+            // position) and the categories among themselves — never as one
+            // flat list — so their pool tables are select-only, not sortable.
+            'orderable' => $pinnable && ! in_array($kind, self::CATEGORY_ORDERED_KINDS, true),
             'mayDelete' => $profile->mayDelete(),
             'staleDisplayDefault' => $profile->staleDisplayDefault(),
         ];

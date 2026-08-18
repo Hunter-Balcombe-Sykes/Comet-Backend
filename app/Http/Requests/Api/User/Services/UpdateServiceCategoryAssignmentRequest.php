@@ -16,7 +16,7 @@ class UpdateServiceCategoryAssignmentRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            'category_ids' => ['sometimes', 'nullable', 'array', 'max:1'],
+            'category_ids' => ['sometimes', 'nullable', 'array', 'max:50'],
             'category_ids.*' => ['uuid', 'distinct'],
             'category_id' => ['sometimes', 'nullable', 'uuid'],
         ];
@@ -35,7 +35,7 @@ class UpdateServiceCategoryAssignmentRequest extends BaseFormRequest
     public function messages(): array
     {
         return [
-            'category_ids.max' => 'A service belongs to one category. Send a single category_id.',
+            'category_ids.max' => 'A service can sit in at most 50 categories.',
         ];
     }
 

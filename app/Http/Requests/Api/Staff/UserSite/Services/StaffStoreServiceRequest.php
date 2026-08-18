@@ -23,7 +23,7 @@ class StaffStoreServiceRequest extends BaseFormRequest
         return [
             'title' => ['required', 'string', 'max:255'],
             'category_id' => ['sometimes', 'nullable', 'uuid'],
-            'category_ids' => ['sometimes', 'nullable', 'array', 'max:1'],
+            'category_ids' => ['sometimes', 'nullable', 'array', 'max:50'],
             'category_ids.*' => ['uuid', 'distinct'],
             'description' => ['nullable', 'string', 'max:2000'],
             'price_cents' => ['required', 'integer', 'min:0'],
@@ -46,7 +46,7 @@ class StaffStoreServiceRequest extends BaseFormRequest
     public function messages(): array
     {
         return [
-            'category_ids.max' => 'A service belongs to one category. Send a single category_id.',
+            'category_ids.max' => 'A service can sit in at most 50 categories.',
         ];
     }
 }

@@ -64,7 +64,7 @@ class PoolResolver
         'timezone', 'venue', 'locality', 'price', 'availability', 'links',
         'popularityRank', 'description', 'vendor', 'variants', 'collectionIds',
         'review', 'selected', 'origin', 'overrides', 'sources',
-        'format', 'album', 'trackNumber',
+        'format', 'album', 'trackNumber', 'collectionPositions',
     ];
 
     /** Dashboard-only item keys, stripped before the public wire. */
@@ -429,6 +429,7 @@ class PoolResolver
                 ->orderBy('c.position')->orderBy('c.external_ref')
                 ->get([
                     'ci.item_id', 'c.id as collection_id', 'c.label', 'c.position',
+                    'ci.position as member_position',
                     'c.external_ref as collection_ref', 'c.kind as collection_kind',
                     's.external_ref', 's.provider', 's.url', 's.currency',
                     's.discount_code', 's.referral_query', 's.logo_url', 's.favicon_url',
@@ -919,6 +920,14 @@ class PoolResolver
                 // user's stores is ONE item in TWO collections.
                 'collectionIds' => $itemStores->pluck('collection_id')
                     ->unique()->map(fn ($id) => (string) $id)->values()->all(),
+                // Category-first curation (2026-08-18): the item's position
+                // WITHIN each collection it belongs to (content.collection_items
+                // .position) — the order a menu category / service category
+                // reads in. Keyed by collection id; absent = unpositioned.
+                'collectionPositions' => $itemStores
+                    ->filter(fn ($row) => $row->member_position !== null)
+                    ->mapWithKeys(fn ($row) => [(string) $row->collection_id => (int) $row->member_position])
+                    ->all(),
                 // Slice 6: present on every pool item and null off every kind
                 // but `review`, the same contract startsAt / venue / price
                 // keep. Attribution is read from f_review — the ONE copy that

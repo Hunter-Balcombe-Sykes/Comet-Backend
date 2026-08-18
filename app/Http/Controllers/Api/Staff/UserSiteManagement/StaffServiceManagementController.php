@@ -200,7 +200,7 @@ class StaffServiceManagementController extends ApiController
             // single-collection per source by design (its rule 4), so a
             // multi-id payload collapses to its first entry — same as the
             // owner's own PATCH /services/{id}/category.
-            $collections->assign($professional->id, $itemId, $categoryIds[0], null);
+            $collections->assignMany($professional->id, $itemId, $categoryIds, null);
         }
 
         $this->invalidate($professional, $site, $writer);
@@ -343,7 +343,7 @@ class StaffServiceManagementController extends ApiController
         }
 
         if ($categoryIds !== null) {
-            $collections->assign($professional->id, $itemId, $categoryIds[0] ?? null, null);
+            $collections->assignMany($professional->id, $itemId, $categoryIds, null);
         }
 
         $this->invalidate($professional, $site, $writer);
@@ -733,7 +733,7 @@ class StaffServiceManagementController extends ApiController
             }
             // Owner lane (null source): survives every projector run, and the
             // reads prefer it over the connection lane's memberships.
-            $collections->assign($professional->id, (string) $row->id, $categoryIds[0] ?? null, null);
+            $collections->assignMany($professional->id, (string) $row->id, $categoryIds, null);
         }
 
         foreach ([

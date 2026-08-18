@@ -256,7 +256,7 @@ class UserServiceController extends ApiController
         // is owner-scoped and validated above, so this cannot cross tenants.
         // Written before the read-back so the response already carries it.
         if ($categoryIds !== []) {
-            $collections->assign($pro->id, $itemId, $categoryIds[0], null);
+            $collections->assignMany($pro->id, $itemId, $categoryIds, null);
         }
 
         $writer->invalidate([(string) $site->id]);
@@ -549,7 +549,7 @@ class UserServiceController extends ApiController
         }
 
         $site = $this->currentSite($pro);
-        $collections->assign($pro->id, (string) $freshaRow->id, $categoryIds[0] ?? null, null);
+        $collections->assignMany($pro->id, (string) $freshaRow->id, $categoryIds, null);
 
         app(ManualServiceWriter::class)->invalidate([(string) $site->id]);
         app(UserCacheService::class)->invalidateServices($pro->id);
@@ -607,7 +607,7 @@ class UserServiceController extends ApiController
         // null source_id = the owner-authored membership lane, matching
         // ProjectionWriter's replace-by-source semantics: a connector can
         // never delete this row, and this can never delete a connector's.
-        $collections->assign($pro->id, (string) $row->id, $categoryIds[0] ?? null, null);
+        $collections->assignMany($pro->id, (string) $row->id, $categoryIds, null);
 
         // ServiceCollections deliberately does not self-invalidate (it holds
         // no site context), and this write changes what the public page
@@ -664,7 +664,7 @@ class UserServiceController extends ApiController
             }
             // Owner lane (null source): survives every projector run, and the
             // reads prefer it over the connection lane's memberships.
-            $collections->assign($pro->id, (string) $row->id, $categoryIds[0] ?? null, null);
+            $collections->assignMany($pro->id, (string) $row->id, $categoryIds, null);
         }
 
         foreach ([

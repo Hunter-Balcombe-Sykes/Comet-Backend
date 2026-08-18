@@ -128,29 +128,26 @@ function svcMultiCatTest_service(User $pro, array $payload = []): string
         ->json('service.id');
 }
 
-it('staff creating a service with two category_ids gets a 422, not a silent collapse', function () {
-    // PREMISE RETIRED, owner decision 2026-08-14. This case used to pin the
-    // collapse — 201, with only $catA stored. That is no longer the contract:
-    // discarding an id the caller sent, silently, is the defect. The assertion
-    // is not weakened, it is inverted, and the write must not happen at all.
+it('staff creating a service with two category_ids stores BOTH memberships (owner ruling 2026-08-18: multi-category)', function () {
+    // The 2026-08-14 one-category rule is retired: a service sits in as many
+    // categories as the owner puts it in. Not a collapse — every id lands.
     $pro = createTenant('svcmc-store');
     $catA = svcMultiCatTest_category($pro);
     $catB = svcMultiCatTest_category($pro);
 
-    actingAsStaff(svcMultiCatTest_adminStaff())
+    $serviceId = (string) actingAsStaff(svcMultiCatTest_adminStaff())
         ->postJson("/api/staff/professionals/{$pro->id}/services", [
             'title' => 'Multi-cat service',
             'price_cents' => 5000,
             'category_ids' => [$catA, $catB],
         ])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors('category_ids');
+        ->assertStatus(201)
+        ->json('service.id');
 
-    // Nothing was created — a validation refusal, not a partial write.
-    expect(DB::table('content.items')->count())->toBe(0);
+    expect(svcMultiCatTest_categoryIds($pro, $serviceId))->toEqualCanonicalizing([$catA, $catB]);
 });
 
-it('staff updating a service to two category_ids gets a 422 and keeps its existing membership', function () {
+it('staff updating a service to two category_ids REPLACES the membership set with both', function () {
     $pro = createTenant('svcmc-update');
     $catA = svcMultiCatTest_category($pro);
     $catB = svcMultiCatTest_category($pro);
@@ -161,12 +158,9 @@ it('staff updating a service to two category_ids gets a 422 and keeps its existi
         ->patchJson("/api/staff/professionals/{$pro->id}/services/{$serviceId}", [
             'category_ids' => [$catB, $catC],
         ])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors('category_ids');
+        ->assertStatus(200);
 
-    // The refusal leaves the prior membership intact — REPLACE semantics never
-    // started, so $catA is still the one.
-    expect(svcMultiCatTest_categoryIds($pro, $serviceId))->toBe([$catA]);
+    expect(svcMultiCatTest_categoryIds($pro, $serviceId))->toEqualCanonicalizing([$catB, $catC]);
 });
 
 it('staff can still create and update with exactly one category_id', function () {
