@@ -102,7 +102,12 @@ it('a pending account write on an EXISTING row MERGES the new payload onto the s
 
     expect($row->id)->toBe($existing->id);
     expect($row->last_refresh_status)->toBe('pending');
-    expect($row->last_refreshed_at)->toBeNull();
+    // F26 (2026-08-18): a pending RE-write keeps the row's last successful
+    // refresh — "last refreshed" is when the vendor last answered, and
+    // ConnectFetchJob reads NULL here as "never fetched OK", which decides
+    // whether a failed connect removes the row (first connect) or leaves the
+    // previously-good one alone (re-connect).
+    expect($row->last_refreshed_at)->not->toBeNull();
     // The three fields a naive REPLACE would have blanked all survive.
     expect($row->payload['artist'])->toBe('Old Artist');
     expect($row->payload['latest']['itemId'])->toBe('album-9');
