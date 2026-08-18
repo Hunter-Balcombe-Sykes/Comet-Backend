@@ -520,3 +520,31 @@ it('refuses a kind change on a url already in the library', function () {
 
     expect(DB::connection('pgsql')->table('content.source_items')->value('kind'))->toBe('track');
 });
+
+// ── Listen restructure (2026-08-18): newest per FORMAT, per switch ─────────
+
+it('listen auto-selects a source\'s newest release AND its newest track, each behind its own switch, and never lets a track ride the release arm', function () {
+    [$pro] = poolTenant();
+    $apple = poolSource($pro->id, poolConnection($pro->id, 'apple_music.artist'));
+    $spotify = poolSource($pro->id, poolConnection($pro->id, 'spotify.artist'));
+
+    poolItem($pro->id, $apple, 'release', 'Old album', now()->subYears(2)->toDateTimeString());
+    poolItem($pro->id, $apple, 'release', 'New single', now()->subDays(3)->toDateTimeString());
+    poolItem($pro->id, $apple, 'track', 'Old song', now()->subYears(2)->toDateTimeString());
+    poolItem($pro->id, $apple, 'track', 'New song', now()->subDays(3)->toDateTimeString());
+    // Spotify emits tracks only; with the arms split it must NOT publish every
+    // track because "zero newer releases" holds vacuously for a track-only source.
+    poolItem($pro->id, $spotify, 'track', 'Spotify older', now()->subDays(9)->toDateTimeString());
+    poolItem($pro->id, $spotify, 'track', 'Spotify newest', now()->subDays(1)->toDateTimeString());
+
+    expect(poolHeadlines(poolGet($pro, 'listen')))->toEqualCanonicalizing(['New single', 'New song', 'Spotify newest']);
+
+    // The release switch off keeps the songs; the track switch off keeps the release.
+    DB::table('site.platform_connections')->where('user_id', $pro->id)->where('surface_key', 'apple_music.artist')
+        ->update(['display_settings' => json_encode(['auto_sync_latest' => false])]);
+    expect(poolHeadlines(poolGet($pro, 'listen')))->toEqualCanonicalizing(['New song', 'Spotify newest']);
+
+    DB::table('site.platform_connections')->where('user_id', $pro->id)->where('surface_key', 'apple_music.artist')
+        ->update(['display_settings' => json_encode(['auto_sync_latest_track' => false])]);
+    expect(poolHeadlines(poolGet($pro, 'listen')))->toEqualCanonicalizing(['New single', 'Spotify newest']);
+});

@@ -270,7 +270,7 @@ beforeEach(function () {
         'f_playable' => 'stream_url text, preview_url text, is_explicit boolean',
         'f_authored' => 'creator text, creator_url text, collaborators jsonb',
         // handle/vendor/variant_ref: supabase/migrations/20260813100002_f_catalog_product_fields.sql.
-        'f_catalog' => 'release_type text, track_number integer, disc_number integer, isrc text, gtin text, sku text, handle text, vendor text, variant_ref text',
+        'f_catalog' => 'release_type text, track_number integer, disc_number integer, isrc text, gtin text, sku text, handle text, vendor text, variant_ref text, collection_title text',
         'f_place' => 'venue_name text, address text, locality text, region text, country_code text, latitude double precision, longitude double precision',
         'f_rated' => 'rating double precision, rating_max double precision, ratings_count integer',
         'f_review' => 'author_name text, author_photo_url text, rating double precision, text text, reviewed_at timestamptz',

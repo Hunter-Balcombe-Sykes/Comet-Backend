@@ -50,7 +50,7 @@ class ProjectionWriter
         // handle/vendor/variant_ref: slice 5a Task 7 fix round 1, Finding 3
         // (migration 20260813100002) — shop-specific product fields, on the
         // generic catalogue-identity facet like sku/gtin already were.
-        'f_catalog' => ['release_type', 'track_number', 'disc_number', 'isrc', 'gtin', 'sku', 'handle', 'vendor', 'variant_ref'],
+        'f_catalog' => ['release_type', 'track_number', 'disc_number', 'isrc', 'gtin', 'sku', 'handle', 'vendor', 'variant_ref', 'collection_title'],
         'f_place' => ['venue_name', 'address', 'locality', 'region', 'country_code', 'latitude', 'longitude'],
         'f_rated' => ['rating', 'rating_max', 'ratings_count'],
         // author_uri: slice 6 Task 1 (migration 20260813110000). upsertSingletonFacet

@@ -21,7 +21,7 @@ abstract class MusicTrackProjector implements Projector
 {
     public static function version(): int
     {
-        return 1;
+        return 2;
     }
 
     public static function kind(): string
@@ -52,15 +52,27 @@ abstract class MusicTrackProjector implements Projector
         $artist = $view->string('artist');
         $published = $view->string('published');
         $artwork = $view->string('artwork');
+        // The release a track belongs to + its position (listen restructure
+        // 2026-08-18): Apple songs and some actors say which album a track
+        // is from; SoundCloud does not. Nullable throughout.
+        $album = $view->string('album');
+        $trackNumber = $view->int('track_number');
+        $discNumber = $view->int('disc_number');
+        $catalog = array_filter([
+            'isrc' => $isrc,
+            'collection_title' => $album,
+            'track_number' => $trackNumber !== null && $trackNumber > 0 ? $trackNumber : null,
+            'disc_number' => $discNumber !== null && $discNumber > 0 ? $discNumber : null,
+        ], static fn ($v) => $v !== null);
 
         return [
             'kind' => self::kind(),
             'headline' => $title,
             // array_filter drops the nulls, so a track that carries no ISRC
-            // emits no f_catalog row at all rather than an empty one.
+            // and no album emits no f_catalog row at all rather than an empty one.
             'facets' => array_filter([
                 'f_link' => ['url' => $url],
-                'f_catalog' => $isrc === null ? null : ['isrc' => $isrc],
+                'f_catalog' => $catalog === [] ? null : $catalog,
                 'f_authored' => $artist === null ? null : ['creator' => $artist],
                 'f_duration' => $seconds === null || $seconds <= 0 ? null : ['seconds' => $seconds],
                 'f_published' => $published === null ? null : ['published_from' => $published],

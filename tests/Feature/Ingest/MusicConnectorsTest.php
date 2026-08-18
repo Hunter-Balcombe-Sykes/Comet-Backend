@@ -257,6 +257,6 @@ it('projects a soundcloud track with its own embed provider', function () {
 it('keeps both track projectors on the same kind and version', function () {
     expect(SpotifyTrackProjector::kind())->toBe('track')
         ->and(SoundcloudTrackProjector::kind())->toBe('track')
-        ->and(SpotifyTrackProjector::version())->toBe(1)
-        ->and(SoundcloudTrackProjector::version())->toBe(1);
+        ->and(SpotifyTrackProjector::version())->toBe(SoundcloudTrackProjector::version())
+        ->and(SoundcloudTrackProjector::version())->toBe(2);
 });

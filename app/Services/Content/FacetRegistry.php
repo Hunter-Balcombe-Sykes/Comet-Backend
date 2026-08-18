@@ -63,6 +63,8 @@ final class FacetRegistry
             'release_type' => 'string',
             'track_number' => 'integer',
             'disc_number' => 'integer',
+            // The release a track belongs to (listen restructure 2026-08-18).
+            'collection_title' => 'string',
         ],
         'f_place' => [
             'venue_name' => 'string',

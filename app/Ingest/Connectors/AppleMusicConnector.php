@@ -13,6 +13,7 @@ use App\Ingest\Message\Message;
 use App\Ingest\Message\Note;
 use App\Ingest\Message\Record;
 use App\Ingest\Message\Unavailable;
+use App\Ingest\Projection\AppleMusicReleaseProjector;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
@@ -150,6 +151,8 @@ class AppleMusicConnector implements Connector
             }
         }
 
+        $items = self::dedupeAlbums($items);
+
         if ($items === []) {
             yield new Note('empty_catalogue', 'No albums parsed from the iTunes lookup response');
 
@@ -214,6 +217,10 @@ class AppleMusicConnector implements Connector
                 'url' => $url,
                 'artist' => is_string($result['artistName'] ?? null) ? $result['artistName'] : null,
                 'album' => is_string($result['collectionName'] ?? null) ? $result['collectionName'] : null,
+                'collectionArtistName' => is_string($result['collectionArtistName'] ?? null) ? $result['collectionArtistName'] : null,
+                'collectionId' => isset($result['collectionId']) && is_scalar($result['collectionId']) ? (string) $result['collectionId'] : null,
+                'track_number' => is_numeric($result['trackNumber'] ?? null) ? (int) $result['trackNumber'] : null,
+                'disc_number' => is_numeric($result['discNumber'] ?? null) ? (int) $result['discNumber'] : null,
                 'duration_seconds' => $ms !== null && $ms > 0 ? (int) round($ms / 1000) : null,
                 'published' => is_string($result['releaseDate'] ?? null) ? $result['releaseDate'] : null,
                 // Apple serves any square size by rewriting the path: the
@@ -229,6 +236,16 @@ class AppleMusicConnector implements Connector
 
             return;
         }
+        // ONE record per song, not one per collection it appears on: iTunes
+        // returns the same recording on the artist's album, its single, and
+        // every "Various Artists" compilation/playlist-album that licensed
+        // it ("The Less I Know The Better" ×5: Currents, lower cortisol,
+        // Anxiety Relief, Kochen & Gute Laune…). Those are the same track and
+        // read as duplicates in the listen pool (owner, 2026-08-18). Keep, per
+        // (title, ±2s duration): the artist's own collection over a
+        // compilation, then the earliest release (the original over the
+        // single/reissue), so the track's `album` names where it comes from.
+        $songs = self::dedupeSongs($songs);
         foreach ($songs as $song) {
             yield new Record('songs', $song['trackId'], $song);
         }
@@ -237,6 +254,67 @@ class AppleMusicConnector implements Connector
         yield new Covered('songs', $count >= self::LOOKUP_LIMIT
             ? Coverage::prefix($dates === [] ? null : min($dates), count($songs))
             : Coverage::exhaustive());
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $songs
+     * @return list<array<string, mixed>>
+     */
+    public static function dedupeSongs(array $songs): array
+    {
+        // ONE per title: the same song on a soundtrack (215s), the album
+        // (211s) and a compilation is one song to a listener — an "edition"
+        // split only made the pool read as duplicates. Preference: the
+        // artist's own collection over a compilation, an album/EP over a
+        // single (the album is where the song lives; the single is a
+        // release, and lands as one on the releases stream), then the
+        // earliest release date.
+        $best = [];
+        foreach ($songs as $song) {
+            $key = mb_strtolower(trim(preg_replace('/\s+/u', ' ', (string) $song['title']) ?? ''));
+            $current = $best[$key] ?? null;
+            if ($current === null || self::songRank($song) < self::songRank($current)) {
+                $best[$key] = $song;
+            }
+        }
+
+        return array_values($best);
+    }
+
+    /** Lower ranks first: own collection, then album over single, then earliest release. */
+    private static function songRank(array $song): string
+    {
+        $artist = mb_strtolower(trim((string) ($song['artist'] ?? '')));
+        $collectionArtist = mb_strtolower(trim((string) ($song['collectionArtistName'] ?? '')));
+        $compilation = $collectionArtist !== '' && $collectionArtist !== $artist && ! str_contains($collectionArtist, $artist);
+        $single = (bool) preg_match('/\s-\s(Single|EP)$/i', (string) ($song['album'] ?? ''));
+        $date = (string) ($song['published'] ?? '9999');
+
+        return ($compilation ? '1' : '0').($single ? '1' : '0').'|'.$date;
+    }
+
+    /**
+     * ONE record per release title+format: iTunes lists the same album twice
+     * (clean/explicit, regional catalog copies) under different collectionIds.
+     * Keep the earliest-released, then the lowest id, for a stable pick.
+     *
+     * @param  list<array<string, mixed>>  $albums
+     * @return list<array<string, mixed>>
+     */
+    public static function dedupeAlbums(array $albums): array
+    {
+        $best = [];
+        foreach ($albums as $album) {
+            [$clean, $format] = AppleMusicReleaseProjector::formatFromName((string) $album['collectionName'], $album['trackCount'] ?? null);
+            $key = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $clean) ?? '')).'|'.$format;
+            $rank = ((string) ($album['releaseDate'] ?? '9999')).'|'.str_pad((string) $album['collectionId'], 20, '0', STR_PAD_LEFT);
+            $current = $best[$key] ?? null;
+            if ($current === null || $rank < $current[0]) {
+                $best[$key] = [$rank, $album];
+            }
+        }
+
+        return array_values(array_map(fn ($pair) => $pair[1], $best));
     }
 
     /** mzstatic serves the artwork at any square size via the path suffix. */
@@ -264,6 +342,7 @@ class AppleMusicConnector implements Connector
             'artworkUrl100' => is_string($result['artworkUrl100'] ?? null) ? $result['artworkUrl100'] : null,
             'collectionViewUrl' => is_string($result['collectionViewUrl'] ?? null) ? $result['collectionViewUrl'] : null,
             'trackCount' => is_numeric($result['trackCount'] ?? null) ? (int) $result['trackCount'] : null,
+            'collectionType' => is_string($result['collectionType'] ?? null) ? $result['collectionType'] : null,
             'primaryGenreName' => is_string($result['primaryGenreName'] ?? null) ? $result['primaryGenreName'] : null,
         ];
     }

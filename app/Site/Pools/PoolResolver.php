@@ -64,6 +64,7 @@ class PoolResolver
         'timezone', 'venue', 'locality', 'price', 'availability', 'links',
         'popularityRank', 'description', 'vendor', 'variants', 'collectionIds',
         'review', 'selected', 'origin', 'overrides', 'sources',
+        'format', 'album', 'trackNumber',
     ];
 
     /** Dashboard-only item keys, stripped before the public wire. */
@@ -435,6 +436,33 @@ class PoolResolver
 
             $storesByItem = $links->groupBy('item_id');
             $stores = $links->unique('collection_id')->keyBy('collection_id');
+        }
+
+        // Listen restructure (2026-08-18): a release's format (album|ep|single)
+        // and a track's parent release + position, off f_catalog. Value-merged
+        // across an item's sources: the first non-null per column, in source
+        // priority order, so an Apple song that knows its album fills the gap
+        // a Spotify row left.
+        $music = collect();
+        if ($items->contains(fn ($item) => in_array($item->kind, ['track', 'release', 'episode'], true))) {
+            $music = DB::connection('pgsql')->table('content.f_catalog as c')
+                ->join('content.sources as cs', 'cs.id', '=', 'c.source_id')
+                ->whereIn('c.item_id', $ids)
+                ->orderByDesc('cs.priority')
+                ->get(['c.item_id', 'c.release_type', 'c.collection_title', 'c.track_number', 'c.disc_number'])
+                ->groupBy('item_id')
+                ->map(function ($rows) {
+                    $out = ['release_type' => null, 'collection_title' => null, 'track_number' => null, 'disc_number' => null];
+                    foreach ($rows as $row) {
+                        foreach ($out as $key => $current) {
+                            if ($current === null && $row->{$key} !== null && $row->{$key} !== '') {
+                                $out[$key] = $row->{$key};
+                            }
+                        }
+                    }
+
+                    return (object) $out;
+                });
         }
 
         if ($hasProduct) {
@@ -901,6 +929,20 @@ class PoolResolver
                 // W8: which (facet.column) fields the owner has overridden —
                 // the sheet reads this to lock/mark those fields instead of
                 // guessing from headlineEdited alone.
+                // Listen restructure: what KIND of listen item this is, in the
+                // vocabulary the dashboard/sitepage speak — album | ep | single
+                // | compilation for a release (default album), track, episode;
+                // null on every other pool. `album` = a track's parent release.
+                'format' => match ($item->kind) {
+                    'release' => in_array($music[$itemId]->release_type ?? null, ['album', 'ep', 'single', 'compilation'], true)
+                        ? $music[$itemId]->release_type
+                        : 'album',
+                    'track' => 'track',
+                    'episode' => 'episode',
+                    default => null,
+                },
+                'album' => $item->kind === 'track' ? ($music[$itemId]->collection_title ?? null) : null,
+                'trackNumber' => $item->kind === 'track' && isset($music[$itemId]->track_number) ? (int) $music[$itemId]->track_number : null,
                 'overrides' => array_values(array_filter(
                     array_keys($overridesByKey),
                     fn (string $key) => array_key_exists((string) $itemId, $overridesByKey[$key]),

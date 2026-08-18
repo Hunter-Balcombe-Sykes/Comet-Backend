@@ -546,14 +546,18 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('vimeo')->displayToggles([
                 ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest video joins your site automatically.'],
             ]);
+            // Listen restructure (owner, 2026-08-18): each switch names the
+            // FORMAT it publishes. YouTube Music's Topic-channel uploads are
+            // songs, so its switch is the track one; Apple Music emits both.
             $r->get('youtube-music')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Latest release', 'description' => 'Your newest release joins your site automatically.'],
+                ['key' => 'auto_sync_latest_track', 'label' => 'Newest track', 'description' => 'Your newest song joins your site automatically.'],
             ]);
             $r->get('apple-music')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Latest release', 'description' => 'Your newest release joins your site automatically.'],
+                ['key' => 'auto_sync_latest', 'label' => 'Newest release', 'description' => 'Your newest album, EP or single joins your site automatically.'],
+                ['key' => 'auto_sync_latest_track', 'label' => 'Newest song', 'description' => 'Your newest song joins your site automatically.'],
             ]);
             $r->get('apple-podcast')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Latest episode', 'description' => 'Your newest episode joins your site automatically.'],
+                ['key' => 'auto_sync_latest', 'label' => 'Newest episode', 'description' => 'Your newest episode joins your site automatically.'],
             ]);
             // Shop: the old site-wide shop_auto_latest column, same key, same
             // site-wide effect (AutoSyncSetting writes every store connection).
@@ -578,7 +582,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // auto_sync_latest defaults ON and gates BandcampFetch's scheduled
             // re-pull, mirroring the events toggle semantics.
             $r->get('bandcamp')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest release', 'description' => 'Automatically refresh your newest release.'],
+                ['key' => 'auto_sync_latest', 'label' => 'Newest release', 'description' => 'Your newest album or single joins your site automatically.'],
             ]);
             // Spotify + SoundCloud source `track` items into the listen pool
             // since convergence Phase 4, so their connections take the same
@@ -587,10 +591,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // latest_per_auto_source could never be switched off per source
             // (overnight 2026-08-18, W2).
             $r->get('spotify')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Latest track', 'description' => 'Your newest track joins your site automatically.'],
+                ['key' => 'auto_sync_latest_track', 'label' => 'Newest track', 'description' => 'Your newest track joins your site automatically.'],
             ]);
             $r->get('soundcloud')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Latest track', 'description' => 'Your newest track joins your site automatically.'],
+                ['key' => 'auto_sync_latest_track', 'label' => 'Newest track', 'description' => 'Your newest track joins your site automatically.'],
             ]);
 
             // ── Refresh cadences ─────────────────────────────────────────────────

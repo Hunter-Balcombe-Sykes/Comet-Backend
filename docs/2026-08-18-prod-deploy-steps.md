@@ -13,7 +13,7 @@ touches env vars — no cloud env change was made during the run.
 ```bash
 # From Comet-Backend on main. Pushes 20260819000200 … 20260819001100
 # (shop rehome drops, shop grandfather pins, link_observations commerce_probe,
-# item_media role=video). Review the pending list first.
+# item_media role=video, f_catalog.collection_title). Review the pending list first.
 supabase migration list --linked
 supabase db push --linked
 ```
@@ -56,6 +56,19 @@ cloud command:run production --cmd="content:refresh-item-caches"
 
 # 2f. Link cards still pending enrichment (F4 lineage). Also scheduled daily.
 cloud command:run production --cmd="platforms:enrich-pending-cards --older-than=30"
+
+# 2g. Listen restructure: track-only platforms' switch moved from
+#     auto_sync_latest → auto_sync_latest_track (dev had 0 such rows; prod may).
+cloud tinker production
+>>> DB::update("UPDATE site.platform_connections
+      SET display_settings = (display_settings - 'auto_sync_latest')
+        || jsonb_build_object('auto_sync_latest_track', display_settings->'auto_sync_latest')
+      WHERE platform IN ('spotify','soundcloud','youtube-music')
+        AND jsonb_exists(display_settings, 'auto_sync_latest')");
+
+# 2h. Listen restructure: reproject music so releases carry their format and
+#     tracks their album (projector versions bumped) — per user, or all.
+cloud command:run production --cmd="ingest:project"
 ```
 
 `cloud command:run … --cmd` was flaky from Fable's shell tonight (hung >4 min,

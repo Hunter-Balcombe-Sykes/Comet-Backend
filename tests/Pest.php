@@ -3015,7 +3015,7 @@ function setupContentTables(): void
         // (supabase/migrations/20260813100002_f_catalog_product_fields.sql —
         // applied to the shared dev database in fix round 2; this stand-in
         // mirrors it for the SQLite lane, which never runs real migrations).
-        'f_catalog' => 'release_type TEXT NULL, track_number INTEGER NULL, disc_number INTEGER NULL, isrc TEXT NULL, gtin TEXT NULL, sku TEXT NULL, handle TEXT NULL, vendor TEXT NULL, variant_ref TEXT NULL',
+        'f_catalog' => 'release_type TEXT NULL, track_number INTEGER NULL, disc_number INTEGER NULL, isrc TEXT NULL, gtin TEXT NULL, sku TEXT NULL, handle TEXT NULL, vendor TEXT NULL, variant_ref TEXT NULL, collection_title TEXT NULL',
         'f_place' => 'venue_name TEXT NULL, address TEXT NULL, locality TEXT NULL, region TEXT NULL, country_code TEXT NULL, latitude REAL NULL, longitude REAL NULL',
         'f_rated' => 'rating REAL NULL, rating_max REAL NULL, ratings_count INTEGER NULL',
         // author_uri: slice 6 Task 1 (supabase/migrations/

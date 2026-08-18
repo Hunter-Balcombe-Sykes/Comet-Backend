@@ -3,6 +3,7 @@
 namespace App\Site\Sections;
 
 use App\Site\Pools\LiveSourceScope;
+use App\Site\Pools\PoolRegistry;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -268,8 +269,13 @@ class SectionCandidates
             // wins the next resolve, and mixed-mode excludes apply AFTER
             // candidates — so excluding today's latest leaves nothing from
             // that source until something newer lands (owner semantics).
+            // One arm per toggle group (PoolRegistry::latestArmsFor): the
+            // newest RELEASE and the newest TRACK of a source are separate
+            // arms behind separate switches (listen restructure 2026-08-18).
             'latest_per_auto_source' => $this->applyExists($query, $negated, function ($q) use ($values) {
-                $this->connectionSourceLatestArm($q, $values, 1, ['auto_sync_latest']);
+                foreach (PoolRegistry::latestArmsFor($values) as $toggle => $kinds) {
+                    $this->connectionSourceLatestArm($q, $kinds, 1, [$toggle]);
+                }
                 $this->storefrontLatestArm($q, $values);
             }),
 
@@ -279,7 +285,9 @@ class SectionCandidates
             // elsewhere = on).
             'latest_n_per_auto_source' => $this->applyExists($query, $negated, function ($q) use ($values) {
                 $n = max(1, (int) config('partna.pools.auto_latest_n', 5));
-                $this->connectionSourceLatestArm($q, $values, $n, ['auto_sync_latest', 'photos']);
+                foreach (PoolRegistry::latestArmsFor($values) as $toggle => $kinds) {
+                    $this->connectionSourceLatestArm($q, $kinds, $n, [$toggle, 'photos']);
+                }
             }),
 
             // See RuleOperator::UpcomingOccurrence. `values` is ignored: kind
@@ -351,6 +359,14 @@ class SectionCandidates
             $kindSql = $kinds === null
                 ? 'i2.kind = content.items.kind'
                 : 'i2.kind in ('.implode(',', array_fill(0, count($kinds), '?')).')';
+            // The arm only ever speaks for items OF its kinds: without this a
+            // track passed the release arm of a source that has no releases
+            // ("zero newer releases" is vacuously true), so every Spotify
+            // track went live the moment the arms split per format
+            // (2026-08-18 listen restructure, caught live).
+            if ($kinds !== null) {
+                $e->whereIn('content.items.kind', $kinds);
+            }
 
             // Correlated count of strictly-newer same-source items; N=1 is
             // exactly the old NOT EXISTS.

@@ -12,7 +12,7 @@ class BandcampReleaseProjector implements Projector
 {
     public static function version(): int
     {
-        return 1;
+        return 2;
     }
 
     public static function kind(): string
@@ -39,7 +39,13 @@ class BandcampReleaseProjector implements Projector
                 'f_link' => ['url' => $url],
                 'f_published' => ['published_from' => $view->string('release_date')],
                 'f_authored' => ['creator' => $view->string('artist')],
-                'f_catalog' => ['release_type' => $view->string('type')],
+                // Bandcamp's own `type` is album|track; a standalone track page
+                // is a single in the listen vocabulary (album|ep|single).
+                'f_catalog' => ['release_type' => match ($view->string('type')) {
+                    'track' => 'single',
+                    'album' => 'album',
+                    default => $view->string('type'),
+                }],
             ],
             'media' => $view->string('art_url') === null ? [] : [
                 ['role' => 'cover', 'url' => $view->string('art_url')],

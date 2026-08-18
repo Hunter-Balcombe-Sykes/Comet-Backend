@@ -55,6 +55,39 @@ class PoolRegistry
      */
     public const LATEST_TAG_POOLS = ['watch', 'listen', 'media'];
 
+    /**
+     * Listen restructure (owner, 2026-08-18): a source's "newest" is per
+     * FORMAT, each behind its own switch. A platform that emits releases AND
+     * tracks (Apple Music) publishes its newest release and its newest song,
+     * and the owner can turn either off without the other; a track-only
+     * platform (Spotify, SoundCloud, YouTube Music) carries only the track
+     * switch. Every other kind (release, episode, video, media, product…)
+     * rides the original `auto_sync_latest`.
+     */
+    public const LATEST_TOGGLE_TRACK = 'auto_sync_latest_track';
+
+    public static function latestToggleFor(string $kind): string
+    {
+        return $kind === 'track' ? self::LATEST_TOGGLE_TRACK : AutoSyncSetting::KEY;
+    }
+
+    /**
+     * The `latest*` rule ops evaluate one arm per toggle group so "newest per
+     * source" is really "newest release AND newest track per source".
+     *
+     * @param  list<string>  $kinds
+     * @return array<string, list<string>> toggle key => kinds it governs
+     */
+    public static function latestArmsFor(array $kinds): array
+    {
+        $groups = [];
+        foreach ($kinds as $kind) {
+            $groups[self::latestToggleFor((string) $kind)][] = (string) $kind;
+        }
+
+        return $groups === [] ? [AutoSyncSetting::KEY => []] : $groups;
+    }
+
     /** The page each pool's section lives on (site.pages.key). */
     public const PAGE_KEYS = [
         'watch' => 'watch',
