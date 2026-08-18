@@ -69,7 +69,8 @@ beforeEach(function () {
     $pg->statement('CREATE TABLE site.platform_connections (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
-        resource_id text
+        resource_id text,
+        deleted_at timestamptz
     )');
 
     // subdomain + updated_at: projectStream() fires all three cache lanes via
