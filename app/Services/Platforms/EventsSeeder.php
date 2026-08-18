@@ -183,11 +183,12 @@ class EventsSeeder
         $payload = EventsPayload::standalonePayload($event);
         $rid = 'event-'.$payload['id'];
 
-        if ($this->wasDisconnected($user, $platform, $rid)) {
-            return null;
-        }
-
         if (! $withConnectionRow) {
+            // No wasDisconnected() here: that tombstone is "the owner removed
+            // this CONNECTION row" (the legacy dual write left one behind, and
+            // migrated accounts still carry soft-deleted ones). The pool item
+            // has its own remove semantics (removed_at on the item), which
+            // ManualEventWriter honours the same way for a hand re-add.
             $writer = app(ManualEventWriter::class);
             if ($writer->wouldExceedCap($user, $canonical)) {
                 Log::info('events_seeder.event_cap', ['user_id' => (string) $user->id, 'platform' => $platform, 'lane' => 'pool']);
@@ -207,6 +208,10 @@ class EventsSeeder
             }
 
             return $item === null ? null : $canonical;
+        }
+
+        if ($this->wasDisconnected($user, $platform, $rid)) {
+            return null;
         }
 
         $written = $this->locked($platform, $user, function () use ($user, $platform, $rid, $payload): ?string {
