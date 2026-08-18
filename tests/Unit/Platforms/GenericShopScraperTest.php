@@ -345,3 +345,87 @@ it('reports unreachable when the page cannot be fetched at all', function () {
 
     expect($out)->toMatchArray(['page' => null, 'reachable' => false, 'storefrontMarkers' => false]);
 });
+
+/** Same as genericScraperWith(), but the page is a site ROOT (a homepage). */
+function genericScraperAtRoot(string $html, string $finalUrl = 'https://shop.example/'): GenericShopScraper
+{
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')->andReturn([
+        'status' => 200, 'body' => $html, 'finalUrl' => $finalUrl, 'contentType' => 'text/html',
+    ]);
+
+    return new GenericShopScraper($fetcher);
+}
+
+/**
+ * N-C (2026-08-18 Instagram wave) — a storefront HOMEPAGE carrying exactly ONE
+ * Product node is still a homepage, not a product page.
+ *
+ * Live case: paytherent.net.au/ is a WooCommerce site whose homepage embeds a
+ * single schema.org Product node for a private draft — literally
+ * {"@type":"Product","name":"Private: Demo"}. The list guard only fires at
+ * count >= 2, so $products[0] was taken and an unfinished draft was published
+ * as a product on a real user's public site (crucibletattooco, 2026-08-18).
+ *
+ * The root-URL storefront check that would have caught it already exists, but
+ * sits BELOW the product return and so was unreachable for this input.
+ */
+it('treats a single-product storefront homepage as a store page, not a product', function () {
+    $ld = json_encode([
+        '@context' => 'http://schema.org',
+        '@type' => 'Product',
+        'name' => 'Private: Demo',
+        'aggregateRating' => ['@type' => 'AggregateRating', 'ratingValue' => '5', 'reviewCount' => '1'],
+    ]);
+
+    $read = genericScraperAtRoot(
+        '<html><head><script type="application/ld+json">'.$ld.'</script></head>'
+        .'<body class="home woocommerce-page"><link href="/wp-content/plugins/woocommerce/assets/x.css"></body></html>'
+    )->readProductPage('https://shop.example/');
+
+    expect($read['outcome'])->toBe(GenericShopScraper::OUTCOME_STORE_PAGE)
+        ->and($read['product'])->toBeNull()
+        ->and($read['storeUrl'])->toBe('https://shop.example');
+});
+
+/**
+ * The guard must be keyed on the page being a storefront ROOT, not on "any
+ * root". A single-product node on a root URL with no storefront tech markers
+ * still yields the product — that path is unchanged.
+ */
+it('still extracts a product from a root url that carries no storefront markers', function () {
+    $ld = json_encode([
+        '@context' => 'https://schema.org',
+        '@type' => 'Product',
+        'name' => 'Handmade Print',
+        'offers' => ['@type' => 'Offer', 'price' => '40.00', 'priceCurrency' => 'AUD'],
+    ]);
+
+    $read = genericScraperAtRoot(
+        '<html><head><script type="application/ld+json">'.$ld.'</script></head><body>a plain page</body></html>'
+    )->readProductPage('https://artist.example/');
+
+    expect($read['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT)
+        ->and($read['product']['title'])->toBe('Handmade Print');
+});
+
+/**
+ * A DEEP product URL on a WooCommerce site is the normal, valuable case and
+ * must keep working — the guard is about homepages only.
+ */
+it('still extracts a product from a deep url on a storefront', function () {
+    $ld = json_encode([
+        '@context' => 'https://schema.org',
+        '@type' => 'Product',
+        'name' => 'Ceramic Mug',
+        'offers' => ['@type' => 'Offer', 'price' => '29.00', 'priceCurrency' => 'AUD'],
+    ]);
+
+    $read = genericScraperWith(
+        '<html><head><script type="application/ld+json">'.$ld.'</script></head>'
+        .'<body class="woocommerce"><link href="/wp-content/plugins/woocommerce/assets/x.css"></body></html>'
+    )->readProductPage('https://shop.example/store');
+
+    expect($read['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT)
+        ->and($read['product']['title'])->toBe('Ceramic Mug');
+});

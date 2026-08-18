@@ -152,6 +152,28 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
             }
         }
 
+        // Nothing routed — seed the bio URL itself so the page is not lost (N2).
+        //
+        // A MATCHED bio host that yields nothing is not a no-op, it is a
+        // silent total loss: LinkInBioDetector claimed the URL, so no other
+        // path will ever write it. `linkin.bio` is the live case — an Ember
+        // SPA whose delivered shell carries 0 anchors (measured
+        // linkin.bio/supernormal_180: HTTP 200, 6,441 bytes, zero <a href>, on
+        // both 2026-08-11 and 2026-08-18), leaving an 83K-follower account with
+        // an empty site. The 2026-07-23 host-list addition made it strictly
+        // worse than before: the URL used to survive as one inert custom link.
+        //
+        // Keyed on "nothing ROUTED", not "no anchors": a page whose every
+        // anchor was its own chrome is the same loss wearing a different hat.
+        // Deliberately a floor, not a fix — rendering the SPA is a separate
+        // decision (see docs/reviews/2026-08-12-instagram-build-wave-DEFERRED.md
+        // N2). This only guarantees nothing vanishes.
+        $bioUrlSeeded = false;
+        if ($seen - $ownHostSkipped === 0) {
+            $seeder->seedCustom($user, $this->bioPageUrl);
+            $bioUrlSeeded = true;
+        }
+
         // A starved link leaves no trace of its own: it becomes a custom link
         // exactly like an examined-and-missed one, so a page whose budget ran
         // out reads as a page that was fully scanned. probes_denied > 0 is the
@@ -161,6 +183,7 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
             'bio_page_url' => $this->bioPageUrl,
             'links_seen' => $seen,
             'own_host_skipped' => $ownHostSkipped,
+            'bio_url_seeded' => $bioUrlSeeded,
             'outcomes' => $outcomes,
             ...$ctx->summary(),
         ]);

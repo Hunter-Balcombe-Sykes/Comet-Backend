@@ -130,6 +130,20 @@ class GenericShopScraper extends PlatformScraper
             return ['outcome' => self::OUTCOME_STORE_PAGE, 'product' => null, 'storeUrl' => $origin];
         }
 
+        // ...and so is a root page carrying exactly ONE, when the page is
+        // demonstrably a storefront. The count >= 2 rule above assumed a
+        // homepage advertises many products; a WooCommerce shop that happens to
+        // feature a single item — or an unfinished draft — defeated it.
+        // paytherent.net.au/ emits one node, {"@type":"Product","name":
+        // "Private: Demo"}, and that draft was published to a real user's
+        // public site on 2026-08-18. The storefront-marker check below would
+        // have caught it, but sits under the product return and never ran.
+        // Requires looksLikeStorefront() rather than isRootUrl() alone so a
+        // genuine single-product site root is still read as a product.
+        if ($products !== [] && $this->isRootUrl($res['finalUrl']) && $this->looksLikeStorefront($html)) {
+            return ['outcome' => self::OUTCOME_STORE_PAGE, 'product' => null, 'storeUrl' => $origin];
+        }
+
         $product = $products[0] ?? $this->productFromOpenGraph($html, $res['finalUrl'], $origin);
         if ($product !== null) {
             return ['outcome' => self::OUTCOME_PRODUCT, 'product' => $product, 'storeUrl' => null];

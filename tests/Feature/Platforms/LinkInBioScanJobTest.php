@@ -410,3 +410,92 @@ it('does nothing when the user no longer exists', function () {
 
     expect(true)->toBeTrue(); // reaching here without throwing is the assertion
 });
+
+/**
+ * N2 (2026-08-18 Instagram wave) — a matched bio host that yields ZERO routable
+ * links must not leave the user with nothing.
+ *
+ * `linkin.bio` is an Ember SPA: LinkInBioDetector matches it, this job fetches
+ * it, and the delivered shell carries 0 <a href> (measured live on
+ * linkin.bio/supernormal_180: HTTP 200, 6,441 bytes, zero anchors — identical
+ * on 2026-08-11 and 2026-08-18). The scan then logged links_seen: 0 and exited
+ * clean, so an 83K-follower account got a site with nothing on it.
+ *
+ * The 2026-07-23 host-list fix made this strictly WORSE than before: the bio
+ * URL used to land as one inert custom link, and afterwards it landed as none.
+ * This is the floor the deferred note calls for "regardless of which option is
+ * chosen" — restore the URL itself so nothing vanishes.
+ */
+it('seeds the bio url itself when a matched bio page yields no routable links', function () {
+    Queue::fake();
+    $user = libSite(User::factory()->create(['account_type' => 'partna']));
+    Http::fake([
+        // The real linkin.bio shell: chrome and scripts, not one anchor.
+        'linkin.bio/*' => Http::response(
+            '<!DOCTYPE html><html><head><title>Linkin.bio</title></head>'
+            .'<body><div id="app"></div><script src="/assets/linkinbio.js"></script></body></html>',
+            200,
+        ),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linkin.bio/supernormal_180'))->handle(
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(LinkRouter::class),
+        app(CustomLinkSeeder::class),
+    );
+
+    $cards = app(LinkPoolReader::class)->cards($user->refresh());
+    expect($cards)->toHaveCount(1)
+        ->and($cards[0]['url'])->toBe('https://linkin.bio/supernormal_180');
+});
+
+/**
+ * The floor above must NOT fire when the page really did unroll — otherwise
+ * every Linktree would gain a redundant card for the Linktree itself, which is
+ * the behaviour the 2026-07-23 change deliberately removed.
+ */
+it('does not seed the bio url when the page yielded routable links', function () {
+    Queue::fake();
+    $user = libSite(User::factory()->create(['account_type' => 'partna']));
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="https://someblog.example/post">Blog</a>', 200),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(LinkRouter::class),
+        app(CustomLinkSeeder::class),
+    );
+
+    $urls = array_column(app(LinkPoolReader::class)->cards($user->refresh()), 'url');
+    expect($urls)->not->toContain('https://linktr.ee/venue');
+});
+
+/**
+ * Own-host-only is the same failure wearing a different hat: anchors were seen,
+ * every one was the bio platform's own chrome, so nothing routed. The floor is
+ * keyed on "nothing routed", not on "no anchors at all".
+ */
+it('seeds the bio url when every anchor was the bio host is own chrome', function () {
+    Queue::fake();
+    $user = libSite(User::factory()->create(['account_type' => 'partna']));
+    Http::fake([
+        'linktr.ee/*' => Http::response(
+            '<a href="https://linktr.ee/pricing">Pricing</a><a href="https://linktr.ee/blog">Blog</a>',
+            200,
+        ),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(LinkRouter::class),
+        app(CustomLinkSeeder::class),
+    );
+
+    $cards = app(LinkPoolReader::class)->cards($user->refresh());
+    expect($cards)->toHaveCount(1)
+        ->and($cards[0]['url'])->toBe('https://linktr.ee/venue');
+});

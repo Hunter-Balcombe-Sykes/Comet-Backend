@@ -67,6 +67,26 @@ class StoreBrandSeeder
         $iri = $this->canonicalizer->canonicalize($url);
         $probe = $this->worker->probe($iri, (string) $user->id);
 
+        $context = RoutingContext::forUser($user, $origin);
+        $projection = $probe->toProjection();
+        $placement = $this->policy->decide($projection, $context);
+
+        // The probe leaves the same trace a paste does. "Why is this store on
+        // my page?" and "why isn't it?" must both be answerable, and a probe
+        // that wrote nothing to the observation log is a decision nobody can
+        // reconstruct.
+        //
+        // Recorded BEFORE the miss return, not after (N-E, 2026-08-18). It used
+        // to sit below it, so only matches were ever logged and the "why isn't
+        // it?" half of the sentence above was never true. The 2026-08-18
+        // Instagram wave probed three real unknown hosts and left
+        // routing.link_observations empty, which read as X3's CHECK widening
+        // having failed when nothing had attempted the write at all.
+        // ProbeOutcome::toProjection() already models the miss (confidence 0,
+        // margin 0, reason 'probe_miss'), and LinkObserver is best-effort by
+        // design, so this cannot fail the seed.
+        $this->observer->record($iri, $projection, $placement, $context);
+
         if (! $probe->isMatch()) {
             return [
                 'outcome' => $probe->outcome,
@@ -76,16 +96,6 @@ class StoreBrandSeeder
                 'brandId' => null,
             ];
         }
-
-        $context = RoutingContext::forUser($user, $origin);
-        $projection = $probe->toProjection();
-        $placement = $this->policy->decide($projection, $context);
-
-        // The probe leaves the same trace a paste does. "Why is this store on
-        // my page?" and "why isn't it?" must both be answerable, and a probe
-        // that wrote nothing to the observation log is a decision nobody can
-        // reconstruct.
-        $this->observer->record($iri, $projection, $placement, $context);
 
         $applied = $this->reconciler->reconcile($placement, $context, $iri);
 

@@ -3403,7 +3403,12 @@ function setupRoutingTables(): void
         id TEXT NOT NULL,
         user_id TEXT NULL,
         observed_at TEXT NOT NULL,
-        source TEXT NOT NULL CHECK (source IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\')),
+        -- \'commerce_probe\' added 2026-08-18 to match migration
+        -- 20260819001000 (X3). The stand-in had faithfully reproduced the very
+        -- asymmetry that migration exists to fix: source_intents.origin below
+        -- already listed it, link_observations.source did not, so every probe
+        -- observation failed the CHECK and was silently dropped.
+        source TEXT NOT NULL CHECK (source IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\', \'commerce_probe\')),
         import_run_id TEXT NULL,
         raw_url TEXT NOT NULL,
         canonical_url TEXT NULL,

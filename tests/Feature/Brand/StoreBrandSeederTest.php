@@ -141,7 +141,7 @@ it('honours a tombstone it never checks for', function () {
         ->and(DB::table('content.storefronts')->count())->toBe(0);
 });
 
-it('reports a miss without writing anything', function () {
+it('reports a miss without writing a connection', function () {
     $pro = createTenant('store-miss');
     Http::fake(['*' => Http::response('', 404)]);
 
@@ -149,6 +149,36 @@ it('reports a miss without writing anything', function () {
 
     expect($result['outcome'])->toBe('miss')
         ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+});
+
+/**
+ * N-E (2026-08-18 Instagram wave) — a probe that MISSES is still a decision.
+ *
+ * This class's own comment says "'Why is this store on my page?' and 'why
+ * isn't it?' must both be answerable, and a probe that wrote nothing to the
+ * observation log is a decision nobody can reconstruct." The record() call sat
+ * BELOW the !isMatch() early return, so the second half of that sentence was
+ * never true: every miss went unlogged.
+ *
+ * Found because the 2026-08-18 wave probed real unknown hosts
+ * (paytherent.net.au, juno.co.uk, discogs.com) and routing.link_observations
+ * stayed empty for all six accounts — which read as "X3's CHECK widening did
+ * not work", when in fact nothing had ever attempted the write.
+ *
+ * LinkRoutingService::route() records unconditionally; this is the same
+ * contract, and ProbeOutcome::toProjection() already models the miss
+ * (confidence 0, margin 0, reason 'probe_miss').
+ */
+it('records a probe miss in the observation log', function () {
+    $pro = createTenant('store-miss-observed');
+    Http::fake(['*' => Http::response('', 404)]);
+
+    app(StoreBrandSeeder::class)->seed($pro, 'https://paytherent.net.au/', 'commerce_probe');
+
+    $observation = DB::table('routing.link_observations')->where('user_id', $pro->id)->first();
+    expect($observation)->not->toBeNull()
+        ->and($observation->source)->toBe('commerce_probe')
+        ->and($observation->surface_key)->toBeNull();
 });
 
 it('keeps a hand-typed discount code through a re-scan', function () {
