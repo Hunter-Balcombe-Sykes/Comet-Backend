@@ -48,4 +48,10 @@ final class Recorded
     {
         return self::raw($rel);
     }
+
+    /** @param array<string, mixed> $payload */
+    public static function mutate(array $payload): FixtureMutator
+    {
+        return new FixtureMutator($payload);
+    }
 }
