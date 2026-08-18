@@ -44,7 +44,7 @@ function shopValidationUser(string $h): User
 /** Live-site fixture saved under tests/fixtures/shop (WS-B1). */
 function shopValidationFixture(string $name): string
 {
-    return (string) file_get_contents(base_path('tests/fixtures/shop/'.$name));
+    return (string) file_get_contents(base_path('tests/fixtures/recorded/shop/'.$name));
 }
 
 /**

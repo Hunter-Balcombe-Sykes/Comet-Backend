@@ -194,7 +194,7 @@ it('returns null on a non-200 page', function () {
 /** Live-site fixture HTML saved under tests/fixtures/shop (WS-B1). */
 function shopFixture(string $name): string
 {
-    return (string) file_get_contents(dirname(__DIR__, 2).'/fixtures/shop/'.$name);
+    return (string) file_get_contents(dirname(__DIR__, 2).'/fixtures/recorded/shop/'.$name);
 }
 
 // Same canned-fetcher builder, but with a controllable finalUrl — the

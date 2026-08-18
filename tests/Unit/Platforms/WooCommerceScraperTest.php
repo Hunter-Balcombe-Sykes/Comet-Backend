@@ -97,7 +97,7 @@ it('maps Store-API products to the canonical product shape with permalink urls',
 /** @see tests/Unit/Platforms/GenericShopScraperTest.php shopFixture() — duplicated to keep unit files standalone. */
 function wooFixture(string $name): string
 {
-    return (string) file_get_contents(dirname(__DIR__, 2).'/fixtures/shop/'.$name);
+    return (string) file_get_contents(dirname(__DIR__, 2).'/fixtures/recorded/shop/'.$name);
 }
 
 it('probes positive on the real bluelane.co Store API payload', function () {

@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "entries": {
+    "shop/abovetheground-homepage.html": {
+      "source_url": "https://abovetheground.com.au/",
+      "captured_at": "2026-07-11",
+      "sha256": "d7acad9a673b764b2e51676023e3605bd053058c2520855cd8bf827d86e7f034",
+      "captured_by": "manual",
+      "notes": "WS-B1 live-site capture; used by GenericShopScraperTest"
+    },
+    "shop/bluelane-homepage-head.html": {
+      "source_url": "https://bluelane.co/",
+      "captured_at": "2026-07-11",
+      "sha256": "4ba9bf8aa376d228f60203a7f1a49ecf96efd8ff7927128fbef58f550b7f7d1d",
+      "captured_by": "manual",
+      "notes": "WS-B1"
+    },
+    "shop/bluelane-product-page.html": {
+      "source_url": "https://bluelane.co/product/lobster-swim-short-pink/",
+      "captured_at": "2026-07-11",
+      "sha256": "98a793c7e717b4eec18044a95f9de7897cfdd105b7378213988180d7e3bad223",
+      "captured_by": "manual",
+      "notes": "WS-B1; URL from og:url meta tag"
+    },
+    "shop/bluelane-store-api.json": {
+      "source_url": "https://bluelane.co/wp-json/wc/store/v1/products",
+      "captured_at": "2026-07-11",
+      "sha256": "8411103afdbf77a249873eb4e5e91a45a4716189eb99955f9e3e16493af81a68",
+      "captured_by": "manual",
+      "notes": "WS-B1"
+    },
+    "shop/fearnoevil-homepage-head.html": {
+      "source_url": "https://fearnoevil.com.au/",
+      "captured_at": "2026-07-11",
+      "sha256": "f18f3a4b7a946914d33737168c9faa4c9c46b159ba8ab2f12b7caf7a57f81235",
+      "captured_by": "manual",
+      "notes": "WS-B1"
+    },
+    "shop/fearnoevil-product-page.html": {
+      "source_url": "https://fearnoevil.com.au/product/bulwark-jacket/",
+      "captured_at": "2026-07-11",
+      "sha256": "1d8926e8440564dddb633afae73dc953229d7010dd867038009c545c9caa9d71",
+      "captured_by": "manual",
+      "notes": "WS-B1; URL from og:url meta tag (path is singular /product/, not /products/)"
+    },
+    "shop/fearnoevil-store-api.json": {
+      "source_url": "https://fearnoevil.com.au/wp-json/wc/store/v1/products",
+      "captured_at": "2026-07-11",
+      "sha256": "6eea5b27af2d6c5304a0d67e76489715f2da7bc350b1b37ae3cb10d180542368",
+      "captured_by": "manual",
+      "notes": "WS-B1"
+    }
+  }
+}
