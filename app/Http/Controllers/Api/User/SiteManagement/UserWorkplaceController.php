@@ -66,13 +66,22 @@ class UserWorkplaceController extends ApiController
             return $this->error('Google has nothing to sync for those fields.', 422);
         }
 
+        // Same mirror upsert() keeps: an account whose workplace name IS its
+        // display name follows a resynced name too.
+        $workplace = Workplace::query()->where('site_id', $site->id)->first();
+        if ($workplace !== null
+            && in_array('name', $resynced, true)
+            && AccountCapabilities::for($professional)->google_business_sets_display_name
+            && $professional->display_name !== $workplace->name) {
+            $professional->display_name = $workplace->name;
+            $professional->save();
+        }
+
         $this->visibilityService->reevaluateEnabled(
             (string) $professional->id,
             (string) $site->id,
             'workplace',
         );
-
-        $workplace = Workplace::query()->where('site_id', $site->id)->first();
 
         return $this->success([
             'workplace' => WorkplaceResource::forWorkplace($workplace),
