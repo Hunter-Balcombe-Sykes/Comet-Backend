@@ -315,6 +315,9 @@ beforeEach(function () {
         variant_family text CHECK (variant_family IS NULL OR variant_family IN (\'google\', \'shopify\', \'ytimg\', \'native\', \'proxy\')),
         blurhash text,
         attribution jsonb,
+        mirror_attempts integer NOT NULL DEFAULT 0,
+        mirror_last_attempt_at timestamptz,
+        mirror_last_reason text,
         created_at timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT pika_media_assets_fingerprint_unique UNIQUE (user_id, fingerprint)
     )');
