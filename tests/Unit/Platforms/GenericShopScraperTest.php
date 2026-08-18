@@ -527,3 +527,115 @@ it('accepts a Product node whose only commerce signal is its own url', function 
 
     expect($read['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT);
 });
+
+/**
+ * N3 (2026-08-11 Instagram wave, remaining half) — R7 closed the JSON-LD door
+ * and left the OpenGraph one open on the same rule it had just disowned.
+ *
+ * `@type":"Product"` is self-declared by whatever plugin wrote the markup —
+ * that was R7's finding. `og:type=product` is self-declared by the same class
+ * of plugin, and productFromOpenGraph() accepted it as sufficient on its own:
+ * the gate was `og:type contains product OR a price meta exists`, so a page
+ * with a product-ish og:type, no price, no image and no description passed.
+ *
+ * Two separable guards, per the finding: substance (a title is not a product)
+ * and placeholder titles (WordPress prefixes `Private:`/`Protected:` on
+ * non-published posts — the literal "Private: Demo" that landed on
+ * crucibletattooco).
+ */
+it('does not read an og:type=product page carrying neither price nor image as a product', function () {
+    $html = '<html><head><meta property="og:type" content="product">'
+        .'<meta property="og:title" content="Demo"></head><body></body></html>';
+
+    $out = genericScraperAt($html, 'https://paytherent.example/shop/demo')
+        ->readProductPage('https://paytherent.example/shop/demo');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_NO_PRODUCT);
+});
+
+it('returns no product payload for an og:type=product page carrying neither price nor image', function () {
+    $html = '<html><head><meta property="og:type" content="product">'
+        .'<meta property="og:title" content="Demo"></head><body></body></html>';
+
+    $out = genericScraperAt($html, 'https://paytherent.example/shop/demo')
+        ->readProductPage('https://paytherent.example/shop/demo');
+
+    expect($out['product'])->toBeNull();
+});
+
+/** WordPress prefixes a non-published post's title. Substance alone won't catch it. */
+it('does not read a Private:-prefixed OpenGraph title as a product', function () {
+    $html = '<html><head><meta property="og:type" content="product">'
+        .'<meta property="og:title" content="Private: Demo">'
+        .'<meta property="og:image" content="/img/demo.jpg"></head></html>';
+
+    $out = genericScraperAt($html, 'https://paytherent.example/shop/demo')
+        ->readProductPage('https://paytherent.example/shop/demo');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_NO_PRODUCT);
+});
+
+it('does not read a Protected:-prefixed OpenGraph title as a product', function () {
+    $html = '<html><head><meta property="og:title" content="Protected: Members Only">'
+        .'<meta property="product:price:amount" content="49.00"></head></html>';
+
+    $out = genericScraperAt($html, 'https://store.example/p/members')
+        ->readProductPage('https://store.example/p/members');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_NO_PRODUCT);
+});
+
+/** The same rule must hold at the JSON-LD door, which R7 left title-blind. */
+it('does not read a Private:-prefixed JSON-LD Product node as a product', function () {
+    $ld = json_encode([
+        '@context' => 'https://schema.org',
+        '@type' => 'Product',
+        'name' => 'Private: Demo',
+        'sku' => 'DEMO-1',
+        'offers' => ['price' => '10.00', 'priceCurrency' => 'AUD'],
+    ]);
+
+    $read = genericScraperAt(
+        '<html><head><script type="application/ld+json">'.$ld.'</script></head></html>',
+        'https://paytherent.example/shop/demo',
+    )->readProductPage('https://paytherent.example/shop/demo');
+
+    expect($read['outcome'])->toBe(GenericShopScraper::OUTCOME_NO_PRODUCT);
+});
+
+/** Non-vacuity: "draft" as a WORD in a real title is not a placeholder. */
+it('still reads a product whose title merely contains the word draft', function () {
+    $html = '<html><head><meta property="og:type" content="product">'
+        .'<meta property="og:title" content="Draft Beer Glass">'
+        .'<meta property="og:image" content="/img/glass.jpg"></head></html>';
+
+    $out = genericScraperAt($html, 'https://store.example/p/draft-beer-glass')
+        ->readProductPage('https://store.example/p/draft-beer-glass');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT);
+    expect($out['product']['title'])->toBe('Draft Beer Glass');
+});
+
+/** Non-vacuity: the substance gate accepts an image with no price at all. */
+it('still reads an og:type=product page whose only substance is an image', function () {
+    $html = '<html><head><meta property="og:type" content="product">'
+        .'<meta property="og:title" content="Bulwark Jacket">'
+        .'<meta property="og:image" content="/img/jacket.jpg"></head></html>';
+
+    $out = genericScraperAt($html, 'https://store.example/p/bulwark')
+        ->readProductPage('https://store.example/p/bulwark');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT);
+});
+
+/** A WordPress draft with an empty title renders the bare prefix — still a placeholder. */
+it('does not read a bare Private: title as a product', function () {
+    $html = '<html><head><meta property="og:type" content="product">'
+        .'<meta property="og:title" content="Private:">'
+        .'<meta property="og:image" content="/img/demo.jpg"></head></html>';
+
+    $out = genericScraperAt($html, 'https://paytherent.example/shop/demo')
+        ->readProductPage('https://paytherent.example/shop/demo');
+
+    expect($out['outcome'])->toBe(GenericShopScraper::OUTCOME_NO_PRODUCT);
+});
