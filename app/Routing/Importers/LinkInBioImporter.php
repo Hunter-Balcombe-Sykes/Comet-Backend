@@ -2,12 +2,16 @@
 
 namespace App\Routing\Importers;
 
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\User\User;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Notifications\FindingsNotifier;
+use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Link-in-bio unroll (Linktree, Beacons, Stan…), on the new router.
@@ -45,10 +49,14 @@ class LinkInBioImporter
     /** Run kinds this importer may record. Mirrors routing.import_runs.kind. */
     private const KINDS = ['link_in_bio', 'bio_harvest'];
 
+    /** Probe budget per RUN — parity with the legacy RouteContext::DEFAULT_MAX_PROBES. */
+    private const MAX_PROBES = 6;
+
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly WebsiteLinkHarvester $harvester,
         private readonly LinkRoutingService $routing,
+        private readonly CustomLinkSeeder $seeder,
     ) {}
 
     /**
@@ -63,7 +71,7 @@ class LinkInBioImporter
         }
 
         $pages = $this->normalisePages($bioPageUrls);
-        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0];
+        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'bio_url_seeded' => false];
 
         if ($pages === []) {
             return ['outcome' => 'unavailable'] + $empty;
@@ -78,7 +86,7 @@ class LinkInBioImporter
         }
 
         $context = RoutingContext::forUser($user, $kind, $runId);
-        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'skipped_chrome' => 0];
+        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'skipped_chrome' => 0];
         $seen = [];
         $unavailable = 0;
 
@@ -96,6 +104,17 @@ class LinkInBioImporter
 
         $fetched = count($pages) - $unavailable;
         $observations = count($seen);
+
+        // Zero-yield floor (N2): a MATCHED bio host that unrolls to nothing is
+        // a silent total loss — the detector claimed the URL, so no other path
+        // will ever write it. linkin.bio (an Ember SPA, zero anchors in the
+        // delivered shell) is the live case. Keyed on nothing-routable, so an
+        // all-own-chrome page floors identically.
+        $bioUrlSeeded = false;
+        if ($fetched > 0 && $observations === 0) {
+            $this->seeder->seedCustom($user, $pages[0]);
+            $bioUrlSeeded = true;
+        }
 
         // Every page down is the same failure the single-page path always
         // reported. Some down is 'partial' — a caller must be able to tell
@@ -115,14 +134,34 @@ class LinkInBioImporter
             // #PRIV-5: minimiseUrl(), not redactUrl() — detail->pages is
             // Scope B (routing.import_runs.detail), a non-secret PII
             // carrier. No uniqueness constraint rides on this column.
-            detail: $tally + ['pages' => array_map(SecretParams::minimiseUrl(...), $pages), 'pages_unavailable' => $unavailable],
+            detail: $tally + ['pages' => array_map(SecretParams::minimiseUrl(...), $pages), 'pages_unavailable' => $unavailable, 'bio_url_seeded' => $bioUrlSeeded],
         );
 
-        return ['outcome' => $outcome, 'observations' => $observations, 'pages' => $fetched, 'pages_unavailable' => $unavailable] + $tally;
+        // Conflict parity with the legacy job: the findings themselves are
+        // folded into GET /platforms/instagram/synced at read time
+        // (SyncFindingsBridge, B4) — but the legacy path also TOLD the user,
+        // and a fold nobody opens is a finding nobody sees. Same dedupe-key
+        // shape as LinkInBioScanJob's, so re-runs do not stack.
+        $conflicts = DB::table('routing.source_intents')
+            ->where('import_run_id', $runId)
+            ->where('state', 'blocked')
+            ->where('block_reason', 'conflict')
+            ->count();
+
+        if ($conflicts > 0) {
+            app(FindingsNotifier::class)->notify(
+                (string) $user->id,
+                'link-in-bio-findings:'.$user->id.':'.sha1($pages[0]),
+                'We found more in your bio link',
+                'Your link-in-bio page mentions an integration that clashes with one you have connected — review it in Integrations.',
+            );
+        }
+
+        return ['outcome' => $outcome, 'observations' => $observations, 'pages' => $fetched, 'pages_unavailable' => $unavailable, 'bio_url_seeded' => $bioUrlSeeded] + $tally;
     }
 
     /**
-     * @param  array{connected:int, suggested:int, noted:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, probed:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $seen
      */
     private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen): void
@@ -153,9 +192,49 @@ class LinkInBioImporter
             match ($result['verdict']) {
                 'place' => $tally['connected']++,
                 'choose', 'hold' => $tally['suggested']++,
-                default => $tally['noted']++,
+                default => $this->handleUnrouted($url, $result, $context, $tally),
             };
         }
+    }
+
+    /**
+     * A link the router did not connect still belongs to the user. Unknown
+     * domains get the legacy commerce probe (the new pipeline's probe set is
+     * still 1 of 5 — P8 blocker 1), which seeds a product, a store, or its
+     * own custom-link fallback; everything else is carded here, because Note
+     * cards are caller-owned on this pipeline (RoutingController does the
+     * same). Past the probe budget, unknowns are carded directly — a starved
+     * link must land somewhere visible, never vanish.
+     *
+     * @param  array<string, mixed>  $result
+     * @param  array{connected:int, suggested:int, noted:int, probed:int, skipped_chrome:int}  $tally
+     */
+    private function handleUnrouted(string $url, array $result, RoutingContext $context, array &$tally): void
+    {
+        if ($context->user === null) {
+            $tally['noted']++;
+
+            return;
+        }
+
+        $unknown = $result['verdict'] === 'note'
+            && in_array($result['reason'] ?? null, ['unknown-domain', 'no-rule-matched'], true);
+
+        if ($unknown && $tally['probed'] < self::MAX_PROBES) {
+            CommerceProbeJob::dispatch((string) $context->user->id, $url);
+            $tally['probed']++;
+
+            return;
+        }
+
+        $tally['noted']++;
+
+        if ($result['verdict'] === 'note') {
+            $this->seeder->seedCustom($context->user, $url);
+        }
+        // 'reject' is carded nowhere, deliberately: unroutable by the
+        // canonicaliser (own-infra, shortener, malformed) — legacy skipped
+        // these too.
     }
 
     /**

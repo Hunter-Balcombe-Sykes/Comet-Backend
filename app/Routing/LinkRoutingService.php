@@ -58,6 +58,12 @@ class LinkRoutingService
             'connectionId' => $applied['connection_id'],
             'verdict' => $applied['verdict'],
             'blockReason' => $applied['verdict'] === Verdict::Reject->value ? $applied['block_reason'] : null,
+            // The placement's own reason, verdict-agnostic — distinct from
+            // blockReason, which the dashboard reads as "cannot add" and is
+            // therefore nulled for Notes. Importers key on this to tell an
+            // unknown-domain Note (probe it) from an unservable/gated one
+            // (card it). route()-only: preview()'s wire is unchanged.
+            'reason' => $placement->blockReason,
         ]);
     }
 

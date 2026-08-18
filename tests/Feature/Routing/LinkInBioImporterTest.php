@@ -11,7 +11,14 @@ use Illuminate\Support\Facades\Http;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupNotificationsTable();
     setupRoutingTables();
+    // The importer now writes note-cards / the zero-yield floor into the
+    // custom_links POOL (parity work, 2026-08-18), so the content lane must
+    // exist even for tests that only assert routing rows.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
 
 function bioPage(string $html): void
@@ -98,6 +105,10 @@ it('never leaves a bio page with only chrome looking like a successful haul', fu
     expect($result['outcome'])->toBe('ok')
         ->and($result['observations'])->toBe(0)
         ->and($result['skipped_chrome'])->toBe(2)
+        // The zero-yield floor (2026-08-18): a page that gave the user
+        // nothing still leaves the bio URL itself as a card, so the unroll
+        // is never a silent total loss. No intents — a card is not an intent.
+        ->and($result['bio_url_seeded'])->toBeTrue()
         ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->count())->toBe(0);
 });
 
