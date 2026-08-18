@@ -84,7 +84,9 @@ class IndividualProfileResource extends ApiResource
 
         // Engine fields preserve null-vs-array distinction precisely:
         //   - document/newsletter: null when no data is authored.
-        //   - links/services: always emitted as an array.
+        //   - links/services (the pre-pool engine lists) LEFT the wire
+        //     2026-08-19: `pools.custom_links` / `pools.services` are the
+        //     public truth and the sitepage never read the old keys.
         //   (bio was removed with the dead-profile-features cleanup,
         //   migration 20260705120000.)
         return [
@@ -96,8 +98,6 @@ class IndividualProfileResource extends ApiResource
                 'accountType' => $this->account_type?->value,
                 'site_id' => $this->sections['site_id'] ?? null,
 
-                // Engine outputs (phase 8).
-                'links' => $this->sections['links'] ?? [],
                 // The content pools (platforms-as-sources, 2026-08-05):
                 // {watch|listen|media: {items: [...], latestItemId}} — the
                 // SELECTION each pool renders publicly, resolved LIVE (owner
@@ -111,7 +111,6 @@ class IndividualProfileResource extends ApiResource
                 // each {url, urlHd, urlSvg, urlIcon} | null. Null when the
                 // owner never uploaded one — name-as-type is the fallback.
                 'brand' => $this->sections['brand'] ?? ['logoFull' => null, 'logoSquare' => null],
-                'services' => $this->sections['services'] ?? [],
                 'document' => $this->sections['document'] ?? null,
                 'newsletter' => $this->sections['newsletter'] ?? null,
                 'contact' => $this->sections['contact'] ?? null,
@@ -123,11 +122,6 @@ class IndividualProfileResource extends ApiResource
             // gated, popularity-ranked with canonical fallback. Top-level (a
             // render-time concern, not profile content). Always an array.
             'pageOrder' => $this->sections['page_order'] ?? [],
-
-            // Full popularity map { content_type: { content_key: rank } } — the ONE
-            // theme orders items of any type by looking up their rank here (cast to
-            // object so an empty map serializes as {} not []). Top-level.
-            'popularity' => (object) ($this->sections['popularity'] ?? []),
 
             // Unified ranked actions — ordered best-first, the lander renders the
             // top 6. Entries: {kind: page|item|button|custom, ref, label, url,

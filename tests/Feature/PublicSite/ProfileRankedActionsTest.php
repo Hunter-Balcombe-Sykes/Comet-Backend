@@ -206,7 +206,7 @@ it('applies manual page order when smart_page_order is off — unknown dropped, 
     expect($payload['pageOrder'])->toBe(['links', 'home', 'listen']);
 });
 
-it('emits ordering defaults (smart everywhere) and keeps the popularity map action-free', function () {
+it('emits ordering defaults (smart everywhere); the flat popularity map is off the wire', function () {
     $tenant = createTenant('pay-defaults');
     payloadLinkBlock($tenant, ['platform' => 'instagram', 'title' => 'Instagram', 'url' => 'https://instagram.com/x']);
     insertActionScore($tenant->site->id, 'instagram', 0.7, 1);
@@ -221,7 +221,7 @@ it('emits ordering defaults (smart everywhere) and keeps the popularity map acti
         'manualActions' => [],
     ]);
 
-    // The derived 'action' rows never leak into the content popularity map —
-    // they have their own wire key (rankedActions).
-    expect((array) $payload['popularity'])->not->toHaveKey('action');
+    // The flat popularity map left the wire 2026-08-19 — per-item
+    // popularityRank and rankedActions carry the ranks.
+    expect($payload)->not->toHaveKey('popularity');
 });
