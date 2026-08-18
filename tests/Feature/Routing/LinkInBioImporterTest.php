@@ -120,7 +120,7 @@ it('never leaves a bio page with only chrome looking like a successful haul', fu
 // ── Batch (P8 blocker 3) ────────────────────────────────────────────────────
 // An Instagram bio harvest hands over every URL it found on one profile. That
 // is ONE acquisition of one account, so it must be one run — N runs would burn
-// N of the user's 3 daily slots and misreport what happened.
+// N of the user's daily slots and misreport what happened.
 
 it('unrolls a list of bio pages as ONE run, not one run per page', function () {
     $pro = createTenant('bio-batch');

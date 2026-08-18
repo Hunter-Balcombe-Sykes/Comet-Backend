@@ -19,7 +19,7 @@ use Illuminate\Support\Str;
 class ImportRun
 {
     /** Runs of the same kind a user may start per day. */
-    private const DAILY_LIMIT = 3;
+    private const DAILY_LIMIT = 10;
 
     public static function start(string $userId, string $kind, ?string $sourceUrl = null): ?string
     {

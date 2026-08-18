@@ -32,7 +32,7 @@ use Illuminate\Support\Facades\Log;
  * ONE run, N pages. An Instagram bio harvest hands over every URL it found in
  * one profile (bio text, `external_url`, the link sticker) — that is a single
  * acquisition of one account, and recording it as N separate runs would both
- * burn N of the user's 3 daily slots and lie about what happened. The batch
+ * burn N of the user's daily slots (ImportRun::DAILY_LIMIT) and lie about what happened. The batch
  * is therefore the unit: one `routing.import_runs` row, one shared dedupe
  * table, one shared link budget.
  */
