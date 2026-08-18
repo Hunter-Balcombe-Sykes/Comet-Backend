@@ -48,7 +48,7 @@ Never script a tick keyed on id alone.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 8 of 15 complete
+- P2 Medium: 10 of 15 complete
 - P3 Low: 0 of 15 complete
 
 ## Suggested Bundled Sessions
@@ -468,7 +468,7 @@ work, not run as a campaign. Do not build units for them.
         ])
         ```
 
-- [ ] **#PGR-14** · P2 — `ServiceCollections`/`MenuCollections` PDO_PGSQL scalar normalisation has no unit test that feeds it driver-shaped input
+- [x] **#PGR-14** · P2 — `ServiceCollections`/`MenuCollections` PDO_PGSQL scalar normalisation has no unit test that feeds it driver-shaped input
     - **Source:** pools-resolver — was `#TEST-2`
     - **Where:** app/Services/Content/ServiceCollections.php (`normalizeRow()`); app/Services/Content/MenuCollections.php (`normalizeRow()`)
     - **Affects:** Dashboard service/menu category reads on real Postgres — the editable-category gate keys off `is_user_created === false`, and the type coercion that makes that comparison safe is currently exercised only by SQLite, which already returns native types.
@@ -488,7 +488,7 @@ work, not run as a campaign. Do not build units for them.
         // to the SQLite test lane.
         ```
 
-- [ ] **#PGR-15** · P2 — No query-surface guard for the three menu DTO models, asymmetric with the services one
+- [x] **#PGR-15** · P2 — No query-surface guard for the three menu DTO models, asymmetric with the services one
     - **Source:** programme-review (R-4) — was `#R-4`
     - **Where:** app/Models/Core/Site/Menu.php:121 (`categories()`), :127 (`items()`); app/Models/Core/Site/MenuItem.php; app/Models/Core/Site/MenuCategory.php; app/Models/Core/Site/MenuItemPlatform.php; tests/Feature/Architecture/LegacyServiceQuerySurfaceTest.php
     - **Affects:** Any future code that queries or eager-loads the three menu DTO models. A regression is a guaranteed 42P01 on real Postgres that the SQLite lane cannot catch, on a nightly-reachable path.
