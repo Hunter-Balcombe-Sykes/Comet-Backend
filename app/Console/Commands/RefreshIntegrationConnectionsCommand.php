@@ -75,7 +75,13 @@ class RefreshIntegrationConnectionsCommand extends Command
             //
             // The `platform` NOT IN guard stops a row being selected twice when
             // a family's own slug is also registered (shop's is), which would
-            // otherwise dispatch two refreshes for one connection.
+            // otherwise dispatch two refreshes for one connection. It excludes
+            // EVERY registered key, not only the refreshable ones: a registered
+            // link-only shop surface (gumroad, mixcloud, tidal — connectable
+            // since 2026-08-18 #17) resolves to its OWN descriptor in
+            // PlatformRegistry::forConnection(), which has no refresh strategy,
+            // so selecting it here sent it through PlatformRefresher to be
+            // stamped `error/unsupported_platform` every tick (session 3, F32).
             $family = array_search($platform, PlatformRegistry::FAMILY_DESCRIPTOR, true);
             if ($family === false) {
                 continue;
@@ -84,7 +90,7 @@ class RefreshIntegrationConnectionsCommand extends Command
             $candidates = $candidates->merge(
                 IntegrationConnection::query()
                     ->where('routing_class', $family)
-                    ->whereNotIn('platform', array_keys($registry->refreshable()))
+                    ->whereNotIn('platform', $registry->keys())
                     ->dueForRefresh($cutoff, $maxFailures)
                     ->orderByRaw('last_refreshed_at ASC NULLS FIRST')
                     ->limit($cap)

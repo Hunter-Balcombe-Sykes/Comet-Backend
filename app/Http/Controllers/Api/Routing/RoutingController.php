@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Routing;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Routing\RouteLinkRequest;
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
@@ -136,6 +137,15 @@ class RoutingController extends ApiController
             // `!== null` test silently stopped reporting outcome 'link' at all.
             if ($write['status'] === 'created' || $write['status'] === 'exists') {
                 $outcome = 'link';
+            }
+            // Storefront probe for a link the catalog could not place (owner
+            // ask, 2026-08-18): async and budgeted (ProbeGate); a Shopify /
+            // WooCommerce / Squarespace / Big Cartel storefront comes back as
+            // a SUGGESTION ("Is this your store?"), never an auto-connect —
+            // the user pasted a link, not a store. A miss changes nothing:
+            // the link card above already exists.
+            if (($result['probe'] ?? null) === 'store' && ($result['canonicalUrl'] ?? null) !== null) {
+                CommerceProbeJob::dispatch((string) $user->id, (string) $result['canonicalUrl'], suggestOnly: true);
             }
         }
 
