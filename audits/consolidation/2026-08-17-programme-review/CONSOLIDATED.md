@@ -48,7 +48,7 @@ Never script a tick keyed on id alone.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 0 of 15 complete
+- P2 Medium: 3 of 15 complete
 - P3 Low: 0 of 15 complete
 
 ## Suggested Bundled Sessions
@@ -555,7 +555,7 @@ work, not run as a campaign. Do not build units for them.
             ->header('Cache-Control', 'public, max-age='.(int) config('partna.cache.alias_redirect_max_age', 300));
         ```
 
-- [ ] **#PGR-18** · P2 — Raw UTM parameters bypass the analytics sanitizer that already protects referrer data
+- [x] **#PGR-18** · P2 — Raw UTM parameters bypass the analytics sanitizer that already protects referrer data
     - **Source:** public-surface-security — was `#PRIV-1`
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php (`buildEvent`)
     - **Affects:** Every public sitepage visitor whose analytics beacon includes UTM parameters; marketing-campaign tags can embed identifying strings into analytics stores.
@@ -573,7 +573,7 @@ work, not run as a campaign. Do not build units for them.
         utmCampaign: $data['utm_campaign'] ?? null,
         ```
 
-- [ ] **#PGR-19** · P2 — Three public form paths persist User-Agent without the codebase's own PII-minimizing sanitizer
+- [x] **#PGR-19** · P2 — Three public form paths persist User-Agent without the codebase's own PII-minimizing sanitizer
     - **Source:** public-surface-security — was `#PRIV-2`
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php (`subscribe`); app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php (`submit`); app/Http/Controllers/Api/PublicSite/PublicEarlyAccessController.php (`store`)
     - **Affects:** Visitors who submit email subscriptions, enquiries, or early-access signups; their raw browser fingerprint enters consent/submission records.
@@ -594,7 +594,7 @@ work, not run as a campaign. Do not build units for them.
         'consent_user_agent' => mb_substr((string) ($request->userAgent() ?? ''), 0, 500) ?: null,
         ```
 
-- [ ] **#PGR-20** · P2 — Analytics ingest stores raw User-Agent verbatim on the highest-traffic public write path
+- [x] **#PGR-20** · P2 — Analytics ingest stores raw User-Agent verbatim on the highest-traffic public write path
     - **Source:** public-surface-security — was `#PRIV-3`
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php (`buildEvent`)
     - **Affects:** Every public sitepage visitor whose analytics beacon is ingested (pageview/click/section/item/action/ping events).

@@ -11,6 +11,7 @@ use App\Http\Requests\Api\PublicSite\PublicEmailSubscribeRequest;
 use App\Jobs\Notifications\SendSubscriptionConfirmationJob;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\User\Customer;
+use App\Services\Analytics\AnalyticsEventSanitizer;
 use App\Services\PublicSite\PublicSiteResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -134,7 +135,10 @@ class PublicEmailSubscriptionController extends ApiController
         $subscription->markSubscribed([
             'source' => 'site_subscribe',
             'ip_hash' => $this->hashIp($request->ip()),
-            'user_agent' => $request->userAgent(),
+            // PGR-19: coarse UA token (Family/MajorVersion), matching
+            // PublicCustomerLeadController's PRIV-2 pattern — was stored fully
+            // raw and uncapped here.
+            'user_agent' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
         ]);
 
         // A genuine re-subscribe should confirm again — clear the prior stamp.

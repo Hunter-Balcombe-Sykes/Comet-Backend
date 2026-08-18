@@ -120,6 +120,25 @@ it('persists user_id and email_lc on a brand-new subscribe', function () {
         ->and($sub->email_lc)->toBe('fresh@example.com');
 });
 
+// PGR-19: was stored fully raw and uncapped — now routed through
+// AnalyticsEventSanitizer::userAgent() like PublicCustomerLeadController.
+it('stores a coarse User-Agent token, not the raw string, on a brand-new subscribe', function () {
+    seedPublishedSubscribeSite();
+    Bus::fake();
+
+    $chromeUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        .'(KHTML, like Gecko) Chrome/141.0.7390.54 Safari/537.36';
+
+    $this->withHeader('User-Agent', $chromeUa)
+        ->postJson('/api/public/subscribe', ['email' => 'ua-check@example.com', 'form_started_at_ms' => time() * 1000 - 5000], [
+            'X-Site-Subdomain' => 'subpro',
+        ])->assertOk();
+
+    $sub = EmailSubscription::query()->where('email', 'ua-check@example.com')->firstOrFail();
+
+    expect($sub->consent_user_agent)->toBe('Chrome/141');
+});
+
 function validSubscribePayload(array $overrides = []): array
 {
     return array_merge([
