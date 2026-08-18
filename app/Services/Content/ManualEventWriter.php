@@ -93,9 +93,14 @@ class ManualEventWriter
      * projections of one event that disagree about `f_occurrence` would
      * resolve into a contradictory item rather than merging cleanly.
      *
-     * `image` is deliberately dropped. Phase 3 declined to mint
-     * content.media_assets for third-party image URLs (LinkPoolWriter's
-     * docblock) and this lane inherits that ruling rather than reopening it.
+     * `image` rides the standard `media` projection as the `cover` role —
+     * a source_url-only content.media_assets row, exactly what
+     * SchemaOrgEventProjector emits for the same event via a connected
+     * organiser and what LinkPoolWriter emits for a link's og:image. This
+     * used to drop it under Phase 3's "no third-party image assets" ruling;
+     * LinkPoolWriter reversed that for links, the connector lane never had
+     * it, and "agrees facet-for-facet with SchemaOrgEventProjector" was
+     * simply untrue on media (2026-08-18).
      *
      * Public + static because StandaloneEventBackfiller writes the SAME shape
      * for the rows that predate the cutover — one mapper, so the backfill and
@@ -135,9 +140,13 @@ class ManualEventWriter
         $priceMin = is_numeric($event['priceMin'] ?? null) ? (float) $event['priceMin'] : null;
         $currency = self::trimmedOrNull($event['currency'] ?? null);
 
+        $image = self::trimmedOrNull($event['image'] ?? null);
+        $image = $image !== null && preg_match('#^https?://#i', $image) === 1 ? $image : null;
+
         return [
             'kind' => 'event',
             'headline' => $headline,
+            'media' => $image === null ? [] : [['role' => 'cover', 'url' => $image]],
             'facets' => array_filter([
                 'f_text' => $text,
                 'f_link' => ['url' => $url],
