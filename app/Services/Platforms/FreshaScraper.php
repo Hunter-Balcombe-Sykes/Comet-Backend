@@ -68,10 +68,20 @@ class FreshaScraper
         ) ?? $url;
     }
 
-    /** Extract the `<slug>` from a Fresha `.../a/<slug>` URL. */
+    /**
+     * Extract the `<slug>` from a Fresha `/a/<slug>` or `/book-now/<slug>/…` URL.
+     *
+     * The three write paths that pre-date link routing all canonicalise before
+     * they store, so this only ever saw `/a/`. The routing lane does not:
+     * SourceReconciler and SuggestionApplier write `intent.canonical_url`
+     * verbatim, which for a Fresha link-in-bio is the share URL. Reading both
+     * shapes here — rather than canonicalising inside the brand-agnostic
+     * reconciler — keeps the knowledge of Fresha's URL grammar in the one class
+     * that already owns it.
+     */
     public function slugFromUrl(string $url): ?string
     {
-        return preg_match('#/a/([a-z0-9-]+)#i', $url, $m) ? $m[1] : null;
+        return preg_match('#/(?:a|book-now)/([a-z0-9-]+)#i', $url, $m) ? $m[1] : null;
     }
 
     /**
@@ -106,7 +116,11 @@ class FreshaScraper
     /** Fetch the page and return the decoded `location` object from __NEXT_DATA__. */
     public function fetchLocation(string $url): array
     {
-        $response = $this->fetcher->fetch($url, ['User-Agent' => self::SCRAPE_USER_AGENT]);
+        // `/book-now/<slug>/all-offer` is a DIFFERENT Next.js route: its
+        // __NEXT_DATA__ carries no `props.pageProps.data.location`, so scraping a
+        // stored share URL verbatim aborts 502 or yields an empty menu
+        // (→ fresha_no_services). No-op on an already-canonical URL.
+        $response = $this->fetcher->fetch($this->canonicalUrl($url), ['User-Agent' => self::SCRAPE_USER_AGENT]);
 
         if ($response['status'] !== 200) {
             abort(502, "Fresha returned HTTP {$response['status']}");

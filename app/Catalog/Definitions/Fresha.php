@@ -45,8 +45,20 @@ class Fresha
                 ->connectFetch('connect_fetch.fresha.scrape.v1')
                 ->fetch('fetch.fresha.scrape.v1')
                 ->detect(
+                    // `book-now` is the share URL Fresha's own button copies
+                    // (`/book-now/<slug>/all-offer?share=true&pId=…`), so it is the shape
+                    // most owner links actually arrive in. Anchored on `/a/` alone this
+                    // surface went dark for every one of them — `no-rule-matched` →
+                    // Verdict::Note → a plain link card. Same slug either way
+                    // (FreshaScraper::canonicalUrl rewrites one to the other), so it is an
+                    // alternative inside this one pattern rather than a second detector:
+                    // two detectors mean two ids and a host anchor free to drift between
+                    // them. The trailing group is what makes `book-now` reachable at all —
+                    // the share URL always carries a segment after the slug — and is left
+                    // open rather than pinned to `all-offer` because Fresha varies it, as
+                    // SourceProvisioner::freshaSlug already assumes.
                     Detector::url('fresha.com')
-                        ->path('#^/(?:[a-z]{2,3}(-[a-z]{2})?/)?a/(?<slug>[a-z0-9-]+)/?$#i')
+                        ->path('#^/(?:[a-z]{2,3}(-[a-z]{2})?/)?(?:a|book-now)/(?<slug>[a-z0-9-]+)(?:/.*)?$#i')
                         ->captures('slug')
                         ->from(IdentifierSource::Path)
                         ->strength(EvidenceStrength::ProfileLink),
