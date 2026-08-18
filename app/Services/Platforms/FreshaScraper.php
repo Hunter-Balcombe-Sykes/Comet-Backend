@@ -158,6 +158,39 @@ class FreshaScraper
             'storeName' => $this->extractStoreName($location),
             'team' => $this->extractTeam($location),
             'services' => $this->extractServices($location),
+            'venue' => $this->extractVenue($location),
+        ];
+    }
+
+    /**
+     * The venue's identity beyond its name (owner, 2026-08-19): what a
+     * partna account's Fresha connect hands FreshaWorkplaceLinker so it can
+     * find the same place on Google — street, suburb, postcode, coordinates
+     * and phone are the corroborating details a name alone can't give.
+     * Every key optional; null when Fresha's blob has no address.
+     *
+     * @return array{name:?string, street:?string, city:?string, postcode:?string, region:?string, country:?string, lat:?float, lng:?float, phone:?string, mapsUrl:?string}|null
+     */
+    public function extractVenue(array $location): ?array
+    {
+        $address = data_get($location, 'address');
+        if (! is_array($address)) {
+            return null;
+        }
+        $str = static fn (mixed $v): ?string => is_string($v) && trim($v) !== '' ? trim($v) : null;
+        $num = static fn (mixed $v): ?float => is_numeric($v) ? (float) $v : null;
+
+        return [
+            'name' => $this->extractStoreName($location),
+            'street' => $str($address['streetAddress'] ?? null),
+            'city' => $str($address['cityName'] ?? null),
+            'postcode' => $str($address['postalCode'] ?? null),
+            'region' => $str($address['region1'] ?? null),
+            'country' => $str($address['countryCode'] ?? ($location['countryCode'] ?? null)),
+            'lat' => $num($address['latitude'] ?? null),
+            'lng' => $num($address['longitude'] ?? null),
+            'phone' => $str($location['contactNumber'] ?? null),
+            'mapsUrl' => $str($address['mapsUrl'] ?? null),
         ];
     }
 

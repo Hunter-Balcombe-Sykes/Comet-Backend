@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms\Strategies\Fetch;
 
+use App\Jobs\Platforms\LinkFreshaVenueToGoogleJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
@@ -141,7 +142,31 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         $next = $payload;
         unset($next['connectMode']);
 
+        $this->offerVenueToGoogle($user, $menu);
+
+        // The venue block is for the linker, not the stored snapshot.
+        unset($menu['venue']);
+
         return [...$next, 'teamMenu' => $menu, 'connectPendingAt' => null];
+    }
+
+    /**
+     * A partna account's Fresha venue is probably their workplace (owner,
+     * 2026-08-19): hand its identity to LinkFreshaVenueToGoogleJob, which
+     * looks it up on Google and connects Google Business when the match is
+     * corroborated. Fire-and-forget; the linker applies its own gates.
+     */
+    private function offerVenueToGoogle(?User $user, array $menu): void
+    {
+        $venue = $menu['venue'] ?? null;
+        if ($user === null || ! is_array($venue) || ($venue['name'] ?? null) === null) {
+            return;
+        }
+        try {
+            LinkFreshaVenueToGoogleJob::dispatch((string) $user->id, $venue);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**
@@ -215,6 +240,9 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         if ($menu['services'] === []) {
             throw new FetchUnavailableException('fresha_empty_menu');
         }
+
+        $this->offerVenueToGoogle($user, $menu);
+        unset($menu['venue']);
 
         try {
             $projected = Cache::lock(CacheKeyGenerator::bookingXorLock((string) $user->id), 10)
