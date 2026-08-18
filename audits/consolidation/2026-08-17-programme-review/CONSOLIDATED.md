@@ -48,7 +48,7 @@ Never script a tick keyed on id alone.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 3 of 15 complete
+- P2 Medium: 6 of 15 complete
 - P3 Low: 0 of 15 complete
 
 ## Suggested Bundled Sessions
@@ -444,7 +444,7 @@ work, not run as a campaign. Do not build units for them.
         // (Feature suite unaffected); the Postgres behavior is the contract.
         ```
 
-- [ ] **#PGR-13** · P2 — Dashboard link cards read `favicon`/`logo` as `null` even though the writer now populates them
+- [x] **#PGR-13** · P2 — Dashboard link cards read `favicon`/`logo` as `null` even though the writer now populates them
     - **Source:** pools-resolver — was `#API-1`
     - **Where:** app/Services/Content/LinkPoolReader.php:66-76 (`cardsInSection()`)
     - **Affects:** The owner's own link-management screen (`LinkPoolReader::cards()`/`cardsForSite()`), which now silently disagrees with what the public sitepage shows for the same item.
@@ -517,7 +517,7 @@ work, not run as a campaign. Do not build units for them.
         'ServiceCategory::query(', 'ServiceCategory::where', ...
         ```
 
-- [ ] **#PGR-16** · P2 — Email subscription lookup ignores the existing indexed `email_lc` column
+- [x] **#PGR-16** · P2 — Email subscription lookup ignores the existing indexed `email_lc` column
     - **Source:** public-surface-security — was `#SCHEMA-1`
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php:114-118
     - **Affects:** Public newsletter/marketing subscription path (`notifications.email_subscriptions`); slower lookups as the table grows.
@@ -539,7 +539,7 @@ work, not run as a campaign. Do not build units for them.
         $subscription->email_lc = $email;
         ```
 
-- [ ] **#PGR-17** · P2 — Backend alias 301s cache for 5 minutes, which can briefly misdirect a visitor after a rapid handle reclaim
+- [x] **#PGR-17** · P2 — Backend alias 301s cache for 5 minutes, which can briefly misdirect a visitor after a rapid handle reclaim
     - **Source:** public-surface-security — was `#EDGE-1`
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicSiteController.php (`show()` and `showByHeader()` alias redirect blocks)
     - **Affects:** Visitors who followed an old subdomain alias shortly before that handle was reclaimed by someone else.

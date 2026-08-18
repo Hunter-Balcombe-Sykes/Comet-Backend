@@ -5,6 +5,7 @@ namespace App\Services\Content;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Media\MediaUrlResolver;
 use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolSectionProvisioner;
@@ -15,10 +16,14 @@ use Illuminate\Support\Facades\DB;
  *
  * Convergence Phase 6 moved custom links off `partna.custom_link` connections
  * (LinkPoolWriter). This serves the same JSON the connection-backed endpoints
- * always did, so the dashboard keeps working — with one deliberate difference:
- * `favicon` and `logo` are always null. Phase 3 declined to mint
- * content.media_assets for third-party image URLs, and that decision is
- * unchanged; see LinkPoolWriter's docblock.
+ * always did, so the dashboard keeps working — including `favicon`/`logo`
+ * (2026-08-17, PGR-13): LinkPoolWriter::add() carries them as `cover`/`logo`
+ * -role `content.item_media` rows the same way a connector thumbnail lands,
+ * and this reader now resolves those back the same way
+ * PoolResolver::itemPayloads() does for the public payload — `cover` role is
+ * the page's share image (this reader's `logo` field), `logo` role is the
+ * site favicon (this reader's `favicon` field). Batched per section, not
+ * per-card, to match PoolResolver's no-N+1 shape.
  *
  * Ordering is the pin order (`sort_key`), which is the same column the public
  * resolver reads — so the dashboard, the payload and the sitepage agree, the
@@ -26,12 +31,15 @@ use Illuminate\Support\Facades\DB;
  */
 class LinkPoolReader
 {
-    public function __construct(private readonly PoolSectionProvisioner $sections) {}
+    public function __construct(
+        private readonly PoolSectionProvisioner $sections,
+        private readonly MediaUrlResolver $mediaUrls,
+    ) {}
 
     /**
      * The owner's links, in pin order.
      *
-     * @return list<array{id: string, url: ?string, name: ?string, description: ?string, favicon: null, logo: null}>
+     * @return list<array{id: string, url: ?string, name: ?string, description: ?string, favicon: ?string, logo: ?string}>
      */
     public function cards(User $user): array
     {
@@ -55,7 +63,7 @@ class LinkPoolReader
      * Returns [] when the section does not exist yet, which is the honest answer:
      * no section means no pins means no links.
      *
-     * @return list<array{id: string, url: ?string, name: ?string, description: ?string, favicon: null, logo: null}>
+     * @return list<array{id: string, url: ?string, name: ?string, description: ?string, favicon: ?string, logo: ?string}>
      */
     public function cardsForSite(?Site $site): array
     {
@@ -72,11 +80,11 @@ class LinkPoolReader
     }
 
     /**
-     * @return list<array{id: string, url: ?string, name: ?string, description: ?string, favicon: null, logo: null}>
+     * @return list<array{id: string, url: ?string, name: ?string, description: ?string, favicon: ?string, logo: ?string}>
      */
     private function cardsInSection(string $sectionId): array
     {
-        return DB::connection('pgsql')->table('site.section_items as si')
+        $rows = DB::connection('pgsql')->table('site.section_items as si')
             ->join('content.items as i', 'i.id', '=', 'si.item_id')
             ->leftJoin('content.f_link as fl', 'fl.item_id', '=', 'i.id')
             ->leftJoin('content.f_text as ft', 'ft.item_id', '=', 'i.id')
@@ -85,17 +93,75 @@ class LinkPoolReader
             ->where('i.kind', 'link')
             ->whereNull('i.removed_at')
             ->orderBy('si.sort_key')
-            ->get(['i.id', 'i.headline_cache', 'fl.url', 'ft.body'])
-            ->map(fn (object $row): array => [
-                'id' => (string) $row->id,
-                'url' => $row->url,
-                'name' => $row->headline_cache,
-                'description' => $row->body,
-                // See the class docblock — deliberately not carried onto the pool.
-                'favicon' => null,
-                'logo' => null,
+            ->get(['i.id', 'i.headline_cache', 'fl.url', 'ft.body']);
+
+        $media = $this->mediaByItem($rows->pluck('id')->all());
+
+        return $rows->map(fn (object $row): array => [
+            'id' => (string) $row->id,
+            'url' => $row->url,
+            'name' => $row->headline_cache,
+            'description' => $row->body,
+            'logo' => $media[(string) $row->id]['logo'] ?? null,
+            'favicon' => $media[(string) $row->id]['favicon'] ?? null,
+        ])->all();
+    }
+
+    /**
+     * Batch cover/favicon lookup for a whole section in one query pair, mirroring
+     * PoolResolver::itemPayloads()'s shape (`content.item_media` join `media_assets`,
+     * one MediaUrlResolver::resolve() call) so this dashboard read doesn't add an
+     * N+1 per card.
+     *
+     * @param  list<mixed>  $itemIds
+     * @return array<string, array{logo: ?string, favicon: ?string}>
+     */
+    private function mediaByItem(array $itemIds): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $rows = DB::connection('pgsql')->table('content.item_media')
+            ->join('content.media_assets', 'content.media_assets.id', '=', 'content.item_media.asset_id')
+            ->whereIn('content.item_media.item_id', $itemIds)
+            ->whereIn('content.item_media.role', ['cover', 'logo'])
+            ->get([
+                'content.item_media.item_id',
+                'content.item_media.role',
+                'content.media_assets.id as asset_id',
+                'content.media_assets.source_url',
+                'content.media_assets.storage_path',
+                'content.media_assets.site_media_id',
+                'content.media_assets.width',
+                'content.media_assets.height',
+            ]);
+
+        $resolved = $this->mediaUrls->resolve(
+            $rows->map(fn (object $row): object => (object) [
+                'id' => $row->asset_id,
+                'source_url' => $row->source_url,
+                'storage_path' => $row->storage_path,
+                'site_media_id' => $row->site_media_id,
+                'width' => $row->width,
+                'height' => $row->height,
             ])
-            ->all();
+        );
+
+        $out = [];
+        foreach ($rows->groupBy('item_id') as $itemId => $itemRows) {
+            $cover = $itemRows->firstWhere('role', 'cover');
+            $logo = $itemRows->firstWhere('role', 'logo');
+
+            $out[(string) $itemId] = [
+                // role `cover` = the page's share image (LinkPoolWriter::add's $logo param).
+                'logo' => $cover !== null ? ($resolved[(string) $cover->asset_id]['url'] ?? null) : null,
+                // role `logo` = the site favicon (LinkPoolWriter::add's $favicon param).
+                'favicon' => $logo !== null ? ($resolved[(string) $logo->asset_id]['url'] ?? null) : null,
+            ];
+        }
+
+        return $out;
     }
 
     /** True when this item is one of the owner's pinned links. */

@@ -93,10 +93,14 @@ class PublicEmailSubscriptionController extends ApiController
         $resolvedName = $providedName !== '' ? $providedName : $this->inferNameFromEmail($email);
         $overwriteName = $providedName !== '';
 
+        // email_lc is the indexed, already-lower-cased column (unique per
+        // user_id+list_key and per list_key globally) — $email is already
+        // lower-cased above, so this can match it directly instead of a
+        // whereRaw lower(email) scan.
         $subscription = EmailSubscription::query()
             ->where('user_id', $site->user_id)
             ->where('list_key', $listKey)
-            ->whereRaw('lower(email) = ?', [$email])
+            ->where('email_lc', $email)
             ->first();
 
         if (! $subscription) {

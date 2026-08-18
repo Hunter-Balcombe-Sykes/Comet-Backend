@@ -146,13 +146,14 @@ it('returns 301 to canonical subdomain when showByHeader endpoint is hit via an 
         ->get('/api/public/site-by-slug');
 
     $response->assertStatus(301)
-        ->assertHeader('Cache-Control', 'max-age=300, public');
+        // EDGE-1/PGR-17: CFG-3's 5-minute re-check window is now a hardcoded
+        // no-cache directive — see the matching comment in show()'s test file.
+        ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, private');
 });
 
-it('CFG-3: honours a configured alias_redirect_max_age on the showByHeader() 301', function () {
+it('PGR-17: the showByHeader() alias 301 is never cached', function () {
     setupSitesTable();
     setupSubdomainAliasesTable();
-    config(['partna.cache.alias_redirect_max_age' => 60]);
 
     $siteId = (string) Str::uuid();
     $now = now()->toDateTimeString();
@@ -184,7 +185,7 @@ it('CFG-3: honours a configured alias_redirect_max_age on the showByHeader() 301
         ->get('/api/public/site-by-slug');
 
     $response->assertStatus(301)
-        ->assertHeader('Cache-Control', 'max-age=60, public');
+        ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, private');
 });
 
 it('writes alias KV entries with expirationTtl and a type=alias marker', function () {

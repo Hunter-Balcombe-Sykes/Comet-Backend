@@ -2384,12 +2384,14 @@ return [
         // on 2026-08-10 — that was the tester's own network path.
         'public_swr' => (int) env('PARTNA_CACHE_PUBLIC_SWR', 0),
 
-        // CFG-3 (public-surface audit): Cache-Control max-age for the alias→
-        // canonical 301 redirects in PublicSiteController::show()/showByHeader().
-        // An un-timed 301 is cached heuristically (often "forever") by several
-        // browsers, which can strand a returning visitor on a since-renamed or
-        // later-reclaimed subdomain — this bounds the redirect to a re-check window.
-        'alias_redirect_max_age' => (int) env('PARTNA_CACHE_ALIAS_REDIRECT_MAX_AGE', 300), // 5 min
+        // CFG-3/PGR-17 (public-surface audit): the alias→canonical 301 redirects
+        // in PublicSiteController::show()/showByHeader() used to carry a 5-minute
+        // Cache-Control max-age here (CFG-3, replacing browsers' "cache an un-timed
+        // 301 forever" default). PGR-17 tightened that to a hardcoded
+        // `private, max-age=0, must-revalidate` — a rapid handle reclaim could
+        // otherwise misdirect a visitor for up to the old TTL — so there is no
+        // longer a configurable window; this key was removed rather than left
+        // silently unread.
 
         // Absolute offsets, in seconds FROM THE PRIMARY PURGE, at which follow-up
         // purges land. Not per-hop delays: the primary dispatches all of them
