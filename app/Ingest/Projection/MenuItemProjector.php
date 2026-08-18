@@ -67,14 +67,17 @@ class MenuItemProjector implements Projector
             'media' => $view->string('image') === null ? [] : [
                 ['role' => 'cover', 'url' => $view->string('image')],
             ],
-            // position is a SEED — ProjectionWriter writes it on insert and
-            // never updates it, so an owner reordering their categories is not
-            // snapped back by the next scheduled run.
+            // position (the category's rank) and item_position (the dish's
+            // rank inside it) are SEEDS — ProjectionWriter writes them on
+            // insert and never overwrites an owner's reorder (F30/F31,
+            // 2026-08-18). Older records carry only `position` as a running
+            // menu-wide index, which still orders categories correctly.
             'collections' => $category === null ? [] : [[
                 'kind' => 'menu_category',
                 'external_ref' => MenuProjectionMapper::categoryRef($category),
                 'label' => $category,
-                'position' => $view->int('position') ?? 0,
+                'position' => $view->int('category_position') ?? $view->int('position') ?? 0,
+                'item_position' => $view->int('position') ?? 0,
             ]],
         ];
     }
