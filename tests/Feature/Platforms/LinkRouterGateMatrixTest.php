@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Queue;
 // gateAllows() is private; the matrix drives it by reflection so it needs no DB,
 // and two end-to-end cells below prove the reflection reflects route().
 
-function gateUser(string $accountType, ?string $sector): User
+function routerGateUser(string $accountType, ?string $sector): User
 {
     $u = new User;
     $u->forceFill(['account_type' => $accountType, 'sector' => $sector]);
@@ -24,7 +24,7 @@ function gateUser(string $accountType, ?string $sector): User
     return $u;
 }
 
-function gateAllows(User $user, string $category): bool
+function routerGateAllows(User $user, string $category): bool
 {
     $m = new ReflectionMethod(LinkRouter::class, 'gateAllows');
 
@@ -61,17 +61,17 @@ dataset('gate_matrix', function () {
 });
 
 it('gates each category per account shape', function (string $type, string $sector, string $category, bool $allowed) {
-    expect(gateAllows(gateUser($type, $sector), $category))->toBe($allowed);
+    expect(routerGateAllows(routerGateUser($type, $sector), $category))->toBe($allowed);
 })->with('gate_matrix');
 
 it('treats a business with an unresolved sector as non-food (the gelato gap)', function () {
     // SectorTaxonomy::FOOD_SECTORS has no gelato/ice-cream/dessert slug, so a
     // gelateria whose sector never resolves — or resolves outside FOOD_SECTORS —
     // takes the non-food column: booking allowed, reservations/ordering denied.
-    $gelateria = gateUser('business', null);
-    expect(gateAllows($gelateria, 'booking'))->toBeTrue()
-        ->and(gateAllows($gelateria, 'online-ordering'))->toBeFalse()
-        ->and(gateAllows($gelateria, 'reservations'))->toBeFalse();
+    $gelateria = routerGateUser('business', null);
+    expect(routerGateAllows($gelateria, 'booking'))->toBeTrue()
+        ->and(routerGateAllows($gelateria, 'online-ordering'))->toBeFalse()
+        ->and(routerGateAllows($gelateria, 'reservations'))->toBeFalse();
 });
 
 it('is the gate route() actually applies — a denied booking link becomes a custom link end to end', function () {
