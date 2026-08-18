@@ -118,6 +118,10 @@ const COLLECTION_WRITE_REGISTRY = [
 
     'MenuFetchJob::syncOrderPlatforms' => 'MENU',
     'MenuFetchJob::clearStorefronts' => 'MENU',
+    // Category-first curation (2026-08-18): both exit through touchAndRespond()
+    // → SiteCacheLanes::bust(), the menu lane's established purge.
+    'MenuContentController::reorderItems' => 'MENU',
+    'MenuContentController::updateCategoriesOnly' => 'MENU',
 
     'MenuCollections::ensure' => 'MENU',
     'MenuCollections::rename' => 'MENU',
