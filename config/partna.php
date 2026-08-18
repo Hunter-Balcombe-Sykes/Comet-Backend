@@ -1786,6 +1786,12 @@ return [
         'cache_warm' => env('PARTNA_QUEUE_CACHE_WARM', 'cache-warm'),
         // Image variant processing (ProcessImageVariantsJob).
         'images' => env('PARTNA_QUEUE_IMAGES', 'images'),
+        // Owned-media byte mirroring (MirrorMediaAssetJob). Split off 'images'
+        // 2026-08-18: a build wave's ~300 background mirrors were queued in front
+        // of uploads a user was actively waiting on, and one queue name cannot
+        // express two urgencies. Ranked directly BELOW 'images' and above
+        // 'analytics' in supervisor-1 (config/horizon.php) — see the note there.
+        'media_mirror' => env('PARTNA_QUEUE_MEDIA_MIRROR', 'media-mirror'),
         // Streaming live-status polling (CheckStreamingLiveStatusJob).
         'streaming' => env('PARTNA_QUEUE_STREAMING', 'streaming'),
         // Platform scraping jobs (InstagramConnectJob etc).
