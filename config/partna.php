@@ -294,6 +294,9 @@ return [
         // via env without a code deploy.
         'platforms' => [
             'instagram' => [
+                // A fetched profile is reused across the connect scrape and the eager
+                // ingest run for this long (task #18, 2026-08-18) — one Apify run per connect.
+                'profile_reuse_seconds' => (int) env('PARTNA_INSTAGRAM_PROFILE_REUSE_SECONDS', 900),
                 // Per-user re-scrape cooldown (seconds) and the global daily run cap
                 // for the paid Apify scraper. See InstagramController::guardApifyBudget.
                 'apify_cooldown_seconds' => (int) env('PARTNA_INSTAGRAM_APIFY_COOLDOWN_SECONDS', 600),

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
+use App\Http\Controllers\Api\Content\IdentityDecisionController;
 use App\Http\Controllers\Api\Content\ItemController;
 use App\Http\Controllers\Api\Content\ItemLinkController;
 use App\Http\Controllers\Api\Content\KindsController;
@@ -167,6 +168,10 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->whereUuid('item')->name('content.items.overrides.upsert');
         Route::delete('/content/items/{item}/overrides/{facet}/{column}', [ManualOverrideController::class, 'destroy'])
             ->whereUuid('item')->name('content.items.overrides.destroy');
+
+        // Identity: the owner's same/different verdict on a duplicate candidate.
+        Route::post('/content/items/{item}/identity', [IdentityDecisionController::class, 'store'])
+            ->whereUuid('item')->name('content.items.identity.store');
 
         // ── Pools (platforms-as-sources, 2026-08-05). ──────────────────────
         // One GET for the whole pool (selection + library + Latest tag); the

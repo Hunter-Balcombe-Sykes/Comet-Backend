@@ -4,6 +4,7 @@ namespace App\Services\Platforms;
 
 use App\Services\Cache\ApifyBudget;
 use App\Services\Platforms\Actors\InstagramActorAdapter;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -48,6 +49,27 @@ class InstagramScraper extends PlatformScraper
     // zero at 10:22, and 4,164 again the next day — and a second paid run is
     // cheap against a site built empty.
     public function fetchProfileResult(string $username, ?string $userId = null): ProfileFetchResult
+    {
+        // One Apify run per connect, not two (W1 survey note, verified 2026-08-18
+        // task #18): InstagramConnectJob scrapes the profile for the connection
+        // card and, minutes later, the eager ingest run scraped it AGAIN for the
+        // media pool — same username, same actor, same dataset. A successful
+        // profile is kept for a short window so whichever lane comes second
+        // reads it back instead of paying for it.
+        $cacheKey = 'instagram:profile:'.strtolower(ltrim(trim($username), '@'));
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && isset($cached['profile']) && is_array($cached['profile'])) {
+            return ProfileFetchResult::ok($cached['profile'], thin: (bool) ($cached['thin'] ?? false));
+        }
+        $result = $this->fetchProfileResultUncached($username, $userId);
+        if ($result->profile !== null) {
+            Cache::put($cacheKey, ['profile' => $result->profile, 'thin' => $result->thin], now()->addSeconds((int) config('partna.instagram.profile_reuse_seconds', 900)));
+        }
+
+        return $result;
+    }
+
+    private function fetchProfileResultUncached(string $username, ?string $userId = null): ProfileFetchResult
     {
         $first = $this->attemptFetch($username, $userId);
 

@@ -64,11 +64,11 @@ class PoolResolver
         'timezone', 'venue', 'locality', 'price', 'availability', 'links',
         'popularityRank', 'description', 'vendor', 'variants', 'collectionIds',
         'review', 'selected', 'origin', 'overrides', 'sources',
-        'format', 'album', 'trackNumber', 'collectionPositions',
+        'format', 'album', 'trackNumber', 'collectionPositions', 'duplicateCandidates',
     ];
 
     /** Dashboard-only item keys, stripped before the public wire. */
-    public const DASHBOARD_ONLY_ITEM_KEYS = ['selected', 'overrides', 'sources'];
+    public const DASHBOARD_ONLY_ITEM_KEYS = ['selected', 'overrides', 'sources', 'duplicateCandidates'];
 
     /** Public fields of one store card in a pool's `collections` map. */
     public const STORE_KEYS = [
@@ -644,6 +644,24 @@ class PoolResolver
             })
             ->filter();
 
+        // Open identity candidates involving these items (task #18): the
+        // resolver's Evidential tier — "these might be the same thing" — for
+        // the dashboard's Possible-duplicate chip + same/different verbs.
+        // Dashboard-only; stripped from the public wire.
+        $candidateRows = DB::connection('pgsql')->table('content.identity_candidates as ic')
+            ->join('content.items as li', 'li.id', '=', 'ic.left_item_id')
+            ->join('content.items as ri', 'ri.id', '=', 'ic.right_item_id')
+            ->whereNull('ic.dismissed_at')
+            ->whereNull('li.removed_at')->whereNull('ri.removed_at')
+            ->where(fn ($w) => $w->whereIn('ic.left_item_id', $ids)->orWhereIn('ic.right_item_id', $ids))
+            ->get(['ic.left_item_id', 'ic.right_item_id', 'ic.evidence', 'li.headline_cache as left_headline', 'ri.headline_cache as right_headline']);
+        $candidatesByItem = [];
+        foreach ($candidateRows as $row) {
+            $evidence = is_string($row->evidence) ? (json_decode($row->evidence, true)['key'] ?? null) : null;
+            $candidatesByItem[(string) $row->left_item_id][] = ['itemId' => (string) $row->right_item_id, 'headline' => $row->right_headline, 'evidence' => $evidence];
+            $candidatesByItem[(string) $row->right_item_id][] = ['itemId' => (string) $row->left_item_id, 'headline' => $row->left_headline, 'evidence' => $evidence];
+        }
+
         $manualLinks = DB::connection('pgsql')->table('content.item_links')
             ->whereIn('item_id', $ids)
             ->get(['item_id', 'platform', 'url'])
@@ -957,6 +975,7 @@ class PoolResolver
                     fn (string $key) => array_key_exists((string) $itemId, $overridesByKey[$key]),
                 )),
                 'sources' => $sourcesByItem[$itemId] ?? [],
+                'duplicateCandidates' => $candidatesByItem[(string) $itemId] ?? [],
                 'review' => isset($reviews[$itemId]) ? [
                     'rating' => $reviews[$itemId]->rating === null ? null : (float) $reviews[$itemId]->rating,
                     'text' => $reviews[$itemId]->text,
