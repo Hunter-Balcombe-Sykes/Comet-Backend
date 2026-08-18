@@ -147,7 +147,9 @@ class RefreshController extends ApiController
             ->active()
             ->get();
         if ($rows->isEmpty()) {
-            return $this->error('Nothing connected to refresh.', 404);
+            // Same answer the legacy gate always gave for a platform outside
+            // the refreshable set: nothing here pulls on demand.
+            return $this->error('This connection refreshes on its own — there’s nothing to pull manually.', 422);
         }
 
         $sourceCount = 0;
