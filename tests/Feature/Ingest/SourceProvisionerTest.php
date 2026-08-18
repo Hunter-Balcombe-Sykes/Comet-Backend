@@ -87,6 +87,23 @@ it('derives the fresha slug from the booking url and the youtube handle as a res
         ->and(ingestSourceFor($youtube)->identifier)->toBe('mkbhd');
 });
 
+it('provisions youtube from the router-shaped payload (username, not handle)', function () {
+    // The routing lane writes ConnectionPayload::forWrite → {url, source,
+    // username} for handle-kind surfaces; the legacy connect flow wrote
+    // `handle`. Both spellings of the same fact must provision. This is the
+    // 2026-08-18 gsnwilliams gap: a link-in-bio youtube.com/@x placed a
+    // connection row and then silently skipped with no_identifier.
+    $connection = makeConnection(provisionerUser(), [
+        'platform' => 'youtube',
+        'resource_id' => 'dvlpmnttv',
+        'payload' => ['url' => 'https://youtube.com/@dvlpmnttv', 'source' => 'link_in_bio', 'username' => 'dvlpmnttv'],
+    ]);
+
+    $row = ingestSourceFor($connection);
+    expect($row)->not->toBeNull()
+        ->and($row->identifier)->toBe('dvlpmnttv');
+});
+
 it('derives the fresha slug only from a real fresha host, locale segment and all', function () {
     // #TEST-3/D1 hardening: freshaSlug() used to be the only URL extractor in
     // this class with no host anchor — `fresha.com/a/…` matches inside a
