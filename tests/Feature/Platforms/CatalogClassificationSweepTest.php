@@ -76,6 +76,27 @@ it('classifies every surface, or the surface is a pinned known gap', function ()
 });
 
 it('does not classify a retired surface into a real connection', function () {
+    // Regression guard (spec 2026-08-18-pipeline-assurance §5 B5 point 4):
+    // RETIRED_SURFACES must never appear in the swept set. sweepSurfaces()'s
+    // array_filter() already enforces this — this pins that behaviour so the
+    // filter itself cannot silently regress. Without this assertion the loop
+    // below is permanently vacuous: none of the 6 retired surfaces carries a
+    // canonical_url_template or a probe-urls.php entry, so classify() is
+    // never reached for any of them and the test asserts nothing at all.
+    // A separate expect() (not chained) so this assertion is independently
+    // proven rather than riding on the loop below's pass/skip.
+    $leaked = array_intersect(array_keys(sweepSurfaces()), IntegrationConnection::RETIRED_SURFACES);
+    sort($leaked);
+
+    expect($leaked)->toBeEmpty(
+        "RETIRED_SURFACES leaked into the swept set (array_filter() in sweepSurfaces() regressed):\n - "
+        .implode("\n - ", $leaked),
+    );
+
+    // Forward guard: kept from the original test. If a retired surface ever
+    // DOES gain a probe URL (a template or a probe-urls.php entry), it must
+    // never classify as a real connection. Currently a no-op for all 6 (none
+    // has a probe URL) — stays wired for the day one does.
     $classifier = app(WebsiteLinkHarvester::class);
     foreach (IntegrationConnection::RETIRED_SURFACES as $key) {
         $surface = CompiledCatalog::surface($key);

@@ -1,7 +1,7 @@
 # Platform coverage sweep — RESULTS, 2026-08-18
 
 Prompt: `2026-08-18-platform-coverage-sweep-PROMPT.md`. Test: `tests/Feature/Platforms/CatalogClassificationSweepTest.php`.
-Run: `9229efb7e` · `2026-08-18 13:25 UTC` · `110` surfaces (RETIRED_SURFACES excluded: 6, out of 116 total in the compiled artefact).
+Run: `886d43c5c` · `2026-08-18 13:25 UTC` · `110` surfaces (RETIRED_SURFACES excluded: 6, out of 116 total in the compiled artefact).
 
 ## 1. Headline
 
