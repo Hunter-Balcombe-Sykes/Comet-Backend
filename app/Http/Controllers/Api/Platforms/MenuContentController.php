@@ -242,12 +242,12 @@ class MenuContentController extends ApiController
         // caller was actually looking at.
         $sectionId = $this->menuSectionId($site);
         $pins = $this->pinOrder($sectionId);
+        // Every live dish in the category, whichever lane listed it (the
+        // legacy scrape's manual source OR an ordering platform's own ingest
+        // source) — category-first curation (2026-08-18) reorders the
+        // category's members, not the manual lane's subset.
         $members = $this->sortByPins(
-            $this->items->rows((string) $user->id)
-                ->filter(fn (object $row) => in_array((string) $category->id, array_map('strval', $row->category_ids), true))
-                ->map(fn (object $row) => (string) $row->id)
-                ->values()
-                ->all(),
+            array_map('strval', $this->collections->memberIds((string) $user->id, (string) $category->id)),
             $pins,
         );
 
@@ -280,9 +280,16 @@ class MenuContentController extends ApiController
             $slots[] = $next++;
         }
 
-        DB::connection('pgsql')->transaction(function () use ($site, $desired, $slots): void {
+        DB::connection('pgsql')->transaction(function () use ($site, $desired, $slots, $category): void {
             foreach ($desired as $index => $itemId) {
                 $this->writer->pin($site, $itemId, (float) $slots[$index]);
+                // The in-category position too (content.collection_items) —
+                // the order the wire's collectionPositions and the sitepage's
+                // category blocks read (2026-08-18).
+                DB::connection('pgsql')->table('content.collection_items')
+                    ->where('collection_id', $category->id)
+                    ->where('item_id', $itemId)
+                    ->update(['position' => $index]);
             }
         });
 
@@ -432,8 +439,17 @@ class MenuContentController extends ApiController
 
         $row = $this->items->find((string) $user->id, $item);
         $menu = Menu::query()->where('user_id', $user->id)->first();
-        if ($row === null || $menu === null) {
+        if ($menu === null) {
             return $this->error('Not found.', 404);
+        }
+        if ($row === null) {
+            // Not a manual-lane dish. A dish an ordering platform's OWN ingest
+            // source landed (uber_eats:…/doordash:… coords) is still the
+            // owner's to file: category-first curation (2026-08-18) gives every
+            // dish a Categories control, and categories are the owner lane.
+            // Only the memberships are editable here — name/price/description
+            // stay the platform's.
+            return $this->updateCategoriesOnly($user, $item, $request->validated());
         }
 
         $data = $request->validated();
@@ -606,6 +622,43 @@ class MenuContentController extends ApiController
      * @param  array<string, mixed>  $data
      * @return list<string>
      */
+    /** Category memberships for a dish outside the manual lane (see updateItem). */
+    private function updateCategoriesOnly(User $user, string $itemId, array $data): JsonResponse
+    {
+        $owned = DB::connection('pgsql')->table('content.items')
+            ->where('id', $itemId)->where('user_id', $user->id)->where('kind', 'menu_item')->whereNull('removed_at')->exists();
+        if (! $owned) {
+            return $this->error('Not found.', 404);
+        }
+        $categoryIds = $this->requestedCategoryIds($data);
+        if ($categoryIds === []) {
+            return $this->error('Only categories can be changed on a dish your ordering platform lists.', 422);
+        }
+        $categories = $this->ownedCategories($user, $categoryIds);
+        if ($categories === null) {
+            return $this->error('Category not found.', 404);
+        }
+        $wanted = $categories->map(fn ($c) => (string) $c->id)->all();
+        DB::connection('pgsql')->transaction(function () use ($itemId, $wanted): void {
+            $menuCategoryIds = DB::connection('pgsql')->table('content.collection_items as ci')
+                ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
+                ->where('ci.item_id', $itemId)->where('c.kind', 'menu_category')
+                ->pluck('ci.collection_id')->map(fn ($id) => (string) $id)->all();
+            $drop = array_diff($menuCategoryIds, $wanted);
+            if ($drop !== []) {
+                DB::connection('pgsql')->table('content.collection_items')->where('item_id', $itemId)->whereIn('collection_id', $drop)->delete();
+            }
+            foreach (array_diff($wanted, $menuCategoryIds) as $collectionId) {
+                $position = 1 + (int) (DB::connection('pgsql')->table('content.collection_items')->where('collection_id', $collectionId)->max('position') ?? -1);
+                DB::connection('pgsql')->table('content.collection_items')->insertOrIgnore([
+                    'collection_id' => $collectionId, 'item_id' => $itemId, 'source_id' => null, 'position' => $position,
+                ]);
+            }
+        });
+
+        return $this->touchAndRespond($user, 'menu-item-categories');
+    }
+
     private function requestedCategoryIds(array $data): array
     {
         $ids = $data['category_ids'] ?? null;

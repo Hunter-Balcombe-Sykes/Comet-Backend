@@ -314,21 +314,24 @@ class ServiceCollections
         }
 
         DB::connection(self::CONNECTION)->transaction(function () use ($itemId, $wanted, $sourceId) {
-            $existing = DB::connection(self::CONNECTION)->table('content.collection_items')
+            // Membership is per (collection, item) — that is the table's PK,
+            // source_id is outside it — so the owner's set is compared against
+            // EVERY lane's rows: a vendor-synced membership the owner unticks
+            // is dropped (the next sync may list it again; that is the
+            // vendor's truth), and ticking one the vendor already holds is a
+            // no-op rather than a silent ignore (review, 2026-08-18).
+            $current = DB::connection(self::CONNECTION)->table('content.collection_items')
                 ->where('item_id', $itemId)
                 ->whereExists(fn ($query) => $query->selectRaw('1')
                     ->from('content.collections as col')
                     ->whereColumn('col.id', 'content.collection_items.collection_id')
-                    ->where('col.kind', self::KIND));
-            $sourceId === null ? $existing->whereNull('source_id') : $existing->where('source_id', $sourceId);
-            $current = $existing->pluck('collection_id')->map(fn ($id) => (string) $id)->all();
+                    ->where('col.kind', self::KIND))
+                ->pluck('collection_id')->map(fn ($id) => (string) $id)->all();
 
             $drop = array_diff($current, $wanted);
             if ($drop !== []) {
-                $gone = DB::connection(self::CONNECTION)->table('content.collection_items')
-                    ->where('item_id', $itemId)->whereIn('collection_id', $drop);
-                $sourceId === null ? $gone->whereNull('source_id') : $gone->where('source_id', $sourceId);
-                $gone->delete();
+                DB::connection(self::CONNECTION)->table('content.collection_items')
+                    ->where('item_id', $itemId)->whereIn('collection_id', $drop)->delete();
             }
             foreach (array_diff($wanted, $current) as $collectionId) {
                 $position = 1 + (int) (DB::connection(self::CONNECTION)->table('content.collection_items')

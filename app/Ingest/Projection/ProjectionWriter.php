@@ -684,11 +684,12 @@ class ProjectionWriter
         // item id (typically 0 in steady state, since most rows already
         // point at their resolved item).
         $bySourceItemId = DB::table('content.source_items')
-            ->whereIn('id', function ($sub) use ($userId, $kind) {
+            ->whereIn('id', function ($sub) use ($userId, $kind, $liveSource) {
                 $sub->select('si.id')->from('content.source_items as si')
                     ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
                     ->where('cs.user_id', $userId)
                     ->where('si.kind', $kind)
+                    ->tap($liveSource)
                     ->whereNull('si.removed_at');
             })
             ->get(['id', 'coord', 'item_id']);

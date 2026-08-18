@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Content;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Content\Concerns\ResolvesOwnedItem;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Content\ReprojectSourcesJob;
@@ -26,6 +27,7 @@ class IdentityDecisionController extends ApiController
 {
     use ResolveCurrentSite;
     use ResolveCurrentUser;
+    use ResolvesOwnedItem;
 
     public function store(Request $request, string $itemId): JsonResponse
     {
@@ -36,9 +38,9 @@ class IdentityDecisionController extends ApiController
             'verdict' => ['required', 'in:same,different'],
         ]);
 
-        $left = Item::query()->where('id', $itemId)->where('user_id', $user->id)->whereNull('removed_at')->first();
-        $right = Item::query()->where('id', $data['other'])->where('user_id', $user->id)->whereNull('removed_at')->first();
-        if ($left === null || $right === null || $left->id === $right->id) {
+        $left = $this->ownedItemOr404($user, $itemId);
+        $right = $this->ownedItemOr404($user, (string) $data['other']);
+        if ($left->id === $right->id) {
             abort(404, 'Item not found.');
         }
         if ($left->kind !== $right->kind) {

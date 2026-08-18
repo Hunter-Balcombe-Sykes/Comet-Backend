@@ -144,6 +144,13 @@ const IDOR_COVERED_BY = [
  * @var array<string, array{0: string, 1: string}>
  */
 const IDOR_VERB_VARIANT_OF = [
+    // Content item verbs share ResolvesOwnedItem::ownedItemOr404() — the one
+    // where('user_id')->whereNull('removed_at') → 404 decider the content-item
+    // probe covers. identity/store validates {other} through the same helper.
+    'Content\\IdentityDecisionController@store' => [
+        'Content\\ItemController@destroy',
+        'Delegates to the shared ResolvesOwnedItem::ownedItemOr404() helper, same lookup + 404.',
+    ],
     // UserEnquiryController: four transitions, one decider. :131 transition()
     // does the ->where('user_id')->find() and the authorize; the four public
     // methods differ only in the closure they pass it.

@@ -15,14 +15,14 @@ it('validates category_id as present, nullable, and a uuid', function () {
     // single-collection per source, so anything above one was stored as its
     // first entry and returned 200; it 422s now.
     expect($rules)->toBe([
-        'category_ids' => ['sometimes', 'nullable', 'array', 'max:1'],
+        'category_ids' => ['sometimes', 'nullable', 'array', 'max:50'],
         'category_ids.*' => ['uuid', 'distinct'],
         'category_id' => ['sometimes', 'nullable', 'uuid'],
     ]);
 
     // One passes, two do not — the boundary itself, not just the rule string.
     expect(validator(['category_ids' => [(string) Str::uuid()]], $rules)->passes())->toBeTrue()
-        ->and(validator(['category_ids' => [(string) Str::uuid(), (string) Str::uuid()]], $rules)->fails())->toBeTrue()
+        ->and(validator(['category_ids' => [(string) Str::uuid(), (string) Str::uuid()]], $rules)->passes())->toBeTrue() // multi-category since 2026-08-18
         ->and(validator(['category_ids' => []], $rules)->passes())->toBeTrue();
 
     // Presence enforcement lives in after(), not the bare rules — an empty

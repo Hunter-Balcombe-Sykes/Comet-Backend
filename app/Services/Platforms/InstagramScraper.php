@@ -3,8 +3,9 @@
 namespace App\Services\Platforms;
 
 use App\Services\Cache\ApifyBudget;
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
 use App\Services\Platforms\Actors\InstagramActorAdapter;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -56,18 +57,43 @@ class InstagramScraper extends PlatformScraper
         // media pool — same username, same actor, same dataset. A successful
         // profile is kept for a short window so whichever lane comes second
         // reads it back instead of paying for it.
-        $cacheKey = 'instagram:profile:'.strtolower(ltrim(trim($username), '@'));
-        $cached = Cache::get($cacheKey);
-        if (is_array($cached) && isset($cached['profile']) && is_array($cached['profile'])) {
+        // rememberLocked also collapses the two lanes when they race: the
+        // second waits on the first's lock and reads its answer. A failed
+        // fetch returns null (nothing cached) so it is retried, not stuck.
+        $cached = app(CacheLockService::class)->rememberLockedNullable(
+            CacheKeyGenerator::instagramProfile($username),
+            (int) config('partna.instagram.profile_reuse_seconds', 900),
+            function () use ($username, $userId): ?array {
+                $result = $this->fetchProfileResultUncached($username, $userId);
+                if ($result->profile === null || $result->thin) {
+                    // Carry a failure — or a THIN answer, which the next lane
+                    // deserves its own retry at — out of the closure uncached.
+                    $this->lastUncachedFailure = $result;
+
+                    return null;
+                }
+
+                return ['profile' => $result->profile, 'thin' => false];
+            },
+            // A failed fetch is not worth remembering: 1s negative cache, so
+            // the next caller simply tries again.
+            nullTtl: 1,
+            lockSeconds: 150,
+            blockSeconds: 150,
+        );
+        if (is_array($cached) && is_array($cached['profile'] ?? null)) {
+            $this->lastUncachedFailure = null;
+
             return ProfileFetchResult::ok($cached['profile'], thin: (bool) ($cached['thin'] ?? false));
         }
-        $result = $this->fetchProfileResultUncached($username, $userId);
-        if ($result->profile !== null) {
-            Cache::put($cacheKey, ['profile' => $result->profile, 'thin' => $result->thin], now()->addSeconds((int) config('partna.instagram.profile_reuse_seconds', 900)));
-        }
 
-        return $result;
+        $carried = $this->lastUncachedFailure;
+        $this->lastUncachedFailure = null;
+
+        return $carried ?? $this->fetchProfileResultUncached($username, $userId);
     }
+
+    private ?ProfileFetchResult $lastUncachedFailure = null;
 
     private function fetchProfileResultUncached(string $username, ?string $userId = null): ProfileFetchResult
     {

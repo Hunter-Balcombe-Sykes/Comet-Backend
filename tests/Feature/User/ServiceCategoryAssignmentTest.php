@@ -91,29 +91,22 @@ it('assigns a service to one of the owner\'s categories', function () {
         ->assertJsonPath('service.category_id', $collectionId);
 });
 
-it('422s two category_ids rather than silently storing one', function () {
-    // Owner decision, 2026-08-14. ServiceCollections::assign() is
-    // single-collection per source, so a two-id payload used to store the FIRST
-    // and return 200 — dropping an id the caller sent, with nothing surfaced.
-    // The staff surface is pinned identically in
-    // tests/Feature/Staff/StaffServiceMultiCategoryTest.php; the owner surface
-    // had no case for this at all, which is why the collapse was only ever
-    // recorded as a staff-side observation.
+it('stores BOTH memberships for two category_ids (owner ruling 2026-08-18: multi-category)', function () {
+    // The 2026-08-14 one-category rule is retired: assignMany() replaces the
+    // owner-lane membership set with every id sent — nothing collapses.
     $pro = createTenant('svc-cat-multi');
-    $catA = createServiceCategoryFor($pro, ['sort_order' => 0]);
-    $catB = createServiceCategoryFor($pro, ['sort_order' => 1]);
-    $service = createServiceFor($pro, ['category_id' => null, 'sort_order' => 0, 'source' => 'fresha']);
+    $catA = app(ServiceCollections::class)->create($pro->id, 'Cuts');
+    $catB = app(ServiceCollections::class)->create($pro->id, 'Colour');
+    $itemId = svcCutCatFreshaItem($pro->id);
 
     actingAsUser($pro)
-        ->patchJson("/api/services/{$service->id}/category", [
-            'category_ids' => [(string) $catA->id, (string) $catB->id],
+        ->patchJson("/api/services/{$itemId}/category", [
+            'category_ids' => [$catA, $catB],
         ])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors('category_ids');
+        ->assertOk();
 
-    // Refused, not partially applied.
-    $service->refresh();
-    expect(DB::table('site.service_category_assignments')->where('service_id', $service->id)->count())->toBe(0);
+    expect(DB::table('content.collection_items')->where('item_id', $itemId)->pluck('collection_id')->map(fn ($id) => (string) $id)->all())
+        ->toEqualCanonicalizing([$catA, $catB]);
 });
 
 it('still accepts a single-element category_ids', function () {

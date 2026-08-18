@@ -98,10 +98,15 @@ class SpotifyTracksConnector implements Connector
             if ($message instanceof Record && $message->stream === 'tracks' && empty($message->doc['artwork'])) {
                 $key = (string) $message->key;
                 if (! array_key_exists($key, $art)) {
-                    $art[$key] = $this->oembedThumbnail((string) ($message->doc['url'] ?? ''), $io);
-                    $fresh = true;
+                    $thumb = $this->oembedThumbnail((string) ($message->doc['url'] ?? ''), $io);
+                    // Only a resolved cover is remembered — a transient oEmbed
+                    // miss is retried next run, not cached forever (review).
+                    if ($thumb !== null) {
+                        $art[$key] = $thumb;
+                        $fresh = true;
+                    }
                 }
-                if (is_string($art[$key]) && $art[$key] !== '') {
+                if (isset($art[$key]) && is_string($art[$key]) && $art[$key] !== '') {
                     $doc = $message->doc;
                     $doc['artwork'] = $art[$key];
                     $message = new Record($message->stream, $message->key, $doc);
@@ -118,6 +123,14 @@ class SpotifyTracksConnector implements Connector
     /** @return iterable<Message> */
     private function pullReleases(Pull $pull, Io $io): iterable
     {
+        // The discography actor takes an ARTIST; a connection made from a
+        // track/album/playlist url has no discography — say so for free
+        // instead of paying an actor start for an empty answer (review).
+        if (! preg_match('~open\.spotify\.com/(?:intl-[a-z]{2}/)?artist/[A-Za-z0-9]+~', trim($pull->identifier))) {
+            yield new Note('not_an_artist', 'Releases are only listed for an artist connection');
+
+            return;
+        }
         $effect = $io->effect('actor', 'music', [
             'platform' => 'spotify_releases',
             'identifier' => trim($pull->identifier),

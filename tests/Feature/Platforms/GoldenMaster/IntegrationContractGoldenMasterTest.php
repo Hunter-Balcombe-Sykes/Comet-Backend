@@ -572,8 +572,10 @@ it('covers every integration GET read-route in the golden master', function () {
     // Storefront brands (shopify, woocommerce, squarespace, bigcartel) are
     // deliberately absent: registering 'shopify' would steal the family fallback
     // in PlatformRegistry::forConnection() that scheduled product refresh needs.
-    // mixcloud and tidal stay dormant and routeless by their own definitions.
-    expect($readRoutes->count())->toBe(136);
+    // 2026-08-18 (task #17): gumroad (a shop-class surface we do not sync as a
+    // store), mixcloud and tidal (profile / artist link cards; the widget
+    // embeds stay dormant) join the Brand shape. 136 -> 139.
+    expect($readRoutes->count())->toBe(139);
     expect($readRoutes->all())->toEqual([
         'api/platforms/acuity/selection',
         'api/platforms/apple/music/accounts',
@@ -619,6 +621,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/glossgenius/selection',
         'api/platforms/google-business/selection',
         'api/platforms/grubhub/selection',
+        'api/platforms/gumroad/selection',
         'api/platforms/humanitix/accounts',
         'api/platforms/humanitix/connect/status',
         'api/platforms/humanitix/selection',
@@ -639,6 +642,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/menulog/selection',
         'api/platforms/meta',
         'api/platforms/mindbody/selection',
+        'api/platforms/mixcloud/selection',
         'api/platforms/noterro/selection',
         'api/platforms/nowbookit/selection',
         'api/platforms/online-ordering/entries',
@@ -686,6 +690,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/threads/selection',
         'api/platforms/ticketek/selection',
         'api/platforms/ticketmaster/selection',
+        'api/platforms/tidal/selection',
         'api/platforms/tiktok/selection',
         'api/platforms/timely/selection',
         'api/platforms/toast/selection',

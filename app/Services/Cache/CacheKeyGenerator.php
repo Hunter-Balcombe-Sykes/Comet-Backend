@@ -18,6 +18,15 @@ use App\Models\Core\Site\SiteMedia;
 // userId-only keys orphan and TTL out naturally.
 class CacheKeyGenerator
 {
+    /**
+     * A fetched Instagram profile, shared between the connect scrape and the
+     * eager ingest run so one connect costs one Apify run (task #18, 2026-08-18).
+     */
+    public static function instagramProfile(string $username): string
+    {
+        return 'instagram:profile:'.strtolower(ltrim(trim($username), '@'));
+    }
+
     public static function publicSite(string $subdomain): string
     {
         return 'site:public:'.strtolower($subdomain);

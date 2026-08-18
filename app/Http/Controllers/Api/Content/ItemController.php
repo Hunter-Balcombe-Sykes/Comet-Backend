@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Content;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Content\Concerns\ResolvesOwnedItem;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Content\Item;
@@ -20,6 +21,7 @@ class ItemController extends ApiController
 {
     use ResolveCurrentSite;
     use ResolveCurrentUser;
+    use ResolvesOwnedItem;
 
     /** DELETE /api/content/items/{item} */
     public function destroy(Request $request, string $itemId, ManualServiceWriter $writer): JsonResponse
@@ -27,15 +29,7 @@ class ItemController extends ApiController
         $user = $this->currentUser($request);
         $site = $this->currentSite($user);
 
-        $item = Item::query()
-            ->where('id', $itemId)
-            ->where('user_id', $user->id)
-            ->whereNull('removed_at')
-            ->first();
-
-        if ($item === null) {
-            abort(404, 'Item not found.');
-        }
+        $item = $this->ownedItemOr404($user, $itemId);
 
         // Through markRemoved() rather than setting the column here, so this
         // path and the five service ones share ONE removal seam. Slice 4 hung

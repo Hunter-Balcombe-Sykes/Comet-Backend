@@ -8,6 +8,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Re-project a handful of ingest sources off their landed record versions
@@ -22,6 +23,8 @@ class ReprojectSourcesJob implements ShouldQueue
 
     public int $tries = 1;
 
+    public int $backoff = 30;
+
     /** @param list<string> $sourceIds */
     public function __construct(public string $userId, public array $sourceIds)
     {
@@ -33,5 +36,14 @@ class ReprojectSourcesJob implements ShouldQueue
         foreach ($this->sourceIds as $sourceId) {
             Artisan::call('ingest:project', ['--source' => $sourceId]);
         }
+    }
+
+    public function failed(\Throwable $e): void
+    {
+        Log::warning('content.reproject_sources.failed', [
+            'user_id' => $this->userId,
+            'sources' => $this->sourceIds,
+            'error' => $e->getMessage(),
+        ]);
     }
 }

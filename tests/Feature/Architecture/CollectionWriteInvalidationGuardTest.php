@@ -88,6 +88,7 @@ const COLLECTION_WRITE_REGISTRY = [
     'ServiceCollections::remove' => 'SEAM',
     'ServiceCollections::restore' => 'SEAM',
     'ServiceCollections::assign' => 'SEAM',
+    'ServiceCollections::assignMany' => 'SEAM', // multi-category (owner ruling 2026-08-18); same callers, same discharge
 
     'StaffServiceCategoryManagementController::forceDestroy' => 'SERVICE',
 
@@ -267,7 +268,7 @@ final class CollectionWriteScan
     ];
 
     /** The mutating half of the ServiceCollections seam. */
-    private const SEAM_MUTATORS = ['create', 'rename', 'reposition', 'remove', 'restore', 'assign'];
+    private const SEAM_MUTATORS = ['create', 'rename', 'reposition', 'remove', 'restore', 'assign', 'assignMany'];
 
     /** @var array<string, array{display: string, class: string, file: string, body: list<mixed>}>|null */
     private static ?array $appMethods = null;

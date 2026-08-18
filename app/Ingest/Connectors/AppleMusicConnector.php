@@ -241,10 +241,10 @@ class AppleMusicConnector implements Connector
         // every "Various Artists" compilation/playlist-album that licensed
         // it ("The Less I Know The Better" ×5: Currents, lower cortisol,
         // Anxiety Relief, Kochen & Gute Laune…). Those are the same track and
-        // read as duplicates in the listen pool (owner, 2026-08-18). Keep, per
-        // (title, ±2s duration): the artist's own collection over a
-        // compilation, then the earliest release (the original over the
-        // single/reissue), so the track's `album` names where it comes from.
+        // read as duplicates in the listen pool (owner, 2026-08-18). Keep ONE
+        // per title: the artist's own collection over a compilation, an album
+        // over a single, then the earliest release, then the lowest track id
+        // (a stable pick — the record key must not flip between runs).
         $songs = self::dedupeSongs($songs);
         foreach ($songs as $song) {
             yield new Record('songs', $song['trackId'], $song);
@@ -290,7 +290,7 @@ class AppleMusicConnector implements Connector
         $single = (bool) preg_match('/\s-\s(Single|EP)$/i', (string) ($song['album'] ?? ''));
         $date = (string) ($song['published'] ?? '9999');
 
-        return ($compilation ? '1' : '0').($single ? '1' : '0').'|'.$date;
+        return ($compilation ? '1' : '0').($single ? '1' : '0').'|'.$date.'|'.str_pad((string) ($song['trackId'] ?? ''), 20, '0', STR_PAD_LEFT);
     }
 
     /**
