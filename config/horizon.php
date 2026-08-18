@@ -102,7 +102,7 @@ return [
         // reads back exactly the composite key the supervisor registers. Reorder
         // `defaults.supervisor-1.queue` and this string MUST move with it, or the
         // lane silently falls back to the accidental 60s ceiling.
-        'redis:moderation_high,default,cloudflare,cache-warm,images,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk' => 900,
+        'redis:moderation_high,default,cloudflare,cache-warm,images,media-mirror,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk' => 900,
 
         // Lane 2 — supervisor-ingest (balance=>'auto', 1 proc): the one lane
         // where a per-queue key is legitimate. 1800s = 2x ingest:dispatch's
@@ -235,7 +235,24 @@ return [
             // processing for ~an hour. Nothing is lost — this is latency, not
             // correctness — but it is invisible to the user whose photo never appears.
             // Guarded by 'analytics is listed AFTER images' in HorizonQueueCoverageTest.
-            'queue' => ['moderation_high', 'default', 'cloudflare', 'cache-warm', 'images', 'streaming', 'platform_refresh', 'platform_connect', 'analytics', 'cloudflare_bulk'],
+            //
+            // 2026-08-18: 'media-mirror' SPLIT OUT of 'images' and inserted directly
+            // below it (R8 follow-up). 'images' was a MIXED queue — ProcessImageVariantsJob
+            // has a user watching an upload spinner; MirrorMediaAssetJob is background work
+            // on bytes that already render from their source_url. balance=>false declares
+            // two jobs on one queue name equally urgent, so a pre-account build wave's ~300
+            // mirrors queued in front of every real upload. No reordering of THIS list could
+            // fix that — the contention was inside the queue, not between queues.
+            // Adds a queue NAME only: no new supervisor, process or memory (same shape as
+            // 'cloudflare_bulk'). Placement is deliberate on both sides — below 'images' so
+            // uploads always win, and ABOVE 'analytics' because that 20k-job firehose would
+            // otherwise strand a mirror for a whole visitor spike, long enough for an
+            // Instagram signed url to expire and turn latency into a real failure.
+            // Rejected alternative: promoting 'images' above 'cloudflare'. That queue carries
+            // SyncSubdomainToKvJob — the ONLY KV writer — so it would have traded "photo
+            // appears late" for "the site does not resolve".
+            // Guarded by two ordering tests in HorizonQueueCoverageTest.
+            'queue' => ['moderation_high', 'default', 'cloudflare', 'cache-warm', 'images', 'media-mirror', 'streaming', 'platform_refresh', 'platform_connect', 'analytics', 'cloudflare_bulk'],
             'balance' => false,
             'maxProcesses' => 1,
             'maxTime' => 0,
