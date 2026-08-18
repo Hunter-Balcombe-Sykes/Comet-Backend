@@ -1,8 +1,13 @@
 <?php
 
+use App\Jobs\Platforms\CommerceProbeJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Importers\LinkInBioImporter;
+use App\Services\Content\LinkPoolReader;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 
 // Uses https://example.com as the bio page: SafeUrlFetcher::assertSafe() does
 // a real DNS lookup before the fetch even under Http::fake(), so a
@@ -254,4 +259,114 @@ it('spends one link budget across the whole batch', function () {
     // 80 distinct links per page, two pages, cap 100 — the second page is cut
     // off rather than doubling the spend to 160.
     expect($result['observations'])->toBe(100);
+});
+
+// ── #R2: nothing the owner published leaves without a trace ──────────────────
+// themilleraffect's Linktree carried https://canva.link/hxwh4ybxzn38wkg. It
+// produced an observation with verdict=reject, block_reason=public-suffix-host
+// and then nothing at all: no content item, absent from the public wire, no
+// log line. canva.link is a PSL PRIVATE-section entry, so the eTLD+1 check
+// found no registrable domain and the canonicaliser refused the URL — a
+// structural failure to derive a key, read downstream as "this link is bad".
+
+it('keeps a link whose host is itself a privately-registered suffix', function () {
+    $pro = createTenant('bio-private-suffix');
+    bioPage('<html><body>
+        <a href="https://canva.link/hxwh4ybxzn38wkg?utm_source=linktree">My portfolio</a>
+    </body></html>');
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/themilleraffect');
+
+    // An unknown registrable key, so it takes the probe arm like any other
+    // unrecognised domain — and CommerceProbeJob cards every miss. What
+    // matters for #R2 is that it is no longer in the bucket that cards nothing.
+    expect($result['dropped'])->toBe(0);
+});
+
+it('probes a private-suffix host instead of discarding it', function () {
+    Queue::fake();
+    $pro = createTenant('bio-private-suffix-probe');
+    bioPage('<html><body><a href="https://canva.link/hxwh4ybxzn38wkg">Portfolio</a></body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/themilleraffect');
+
+    Queue::assertPushed(CommerceProbeJob::class, fn ($job) => str_contains($job->url, 'canva.link'));
+});
+
+it('cards a private-suffix link directly once the probe budget is spent', function () {
+    // Past the budget an unknown link must still land somewhere visible.
+    $pro = createTenant('bio-private-suffix-starved');
+    $links = '<a href="https://canva.link/hxwh4ybxzn38wkg">Portfolio</a>';
+    for ($i = 0; $i < 8; $i++) {
+        $links = '<a href="https://unknown'.$i.'.test/x">L</a>'.$links;
+    }
+    bioPage('<html><body>'.$links.'</body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/themilleraffect');
+
+    $urls = array_column(app(LinkPoolReader::class)->cards($pro->refresh()), 'url');
+    expect($urls)->toContain('https://canva.link/hxwh4ybxzn38wkg');
+});
+
+it('keeps a bare platform host as a link rather than connecting it', function () {
+    // Admitting private suffixes also admits the bare platform hosts that sit
+    // in the suffix-override table (square.site, myshopify.com). Those match
+    // their own brand's detectors with no tenant in the URL, so the thing to
+    // hold is that low confidence keeps them a plain card — a CTA pointing at
+    // Square's own homepage is exactly the visible error the thresholds exist
+    // to prevent.
+    $pro = createTenant('bio-bare-platform');
+    bioPage('<html><body><a href="https://square.site/">Order</a></body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/bare');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+});
+
+it('does not record a private-suffix link as rejected', function () {
+    $pro = createTenant('bio-private-suffix-verdict');
+    bioPage('<html><body><a href="https://canva.link/hxwh4ybxzn38wkg">Portfolio</a></body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/themilleraffect');
+
+    $observation = DB::table('routing.link_observations')->where('user_id', $pro->id)->first();
+    expect($observation->verdict)->not->toBe('reject');
+});
+
+it('counts a dropped link as dropped, not as noted', function () {
+    // own-infra is a reject that SHOULD stay uncarded — the point is that the
+    // ledger stops claiming a card it never made.
+    $pro = createTenant('bio-drop-ledger');
+    bioPage('<html><body><a href="https://someone.partna.au/">Me</a></body></html>');
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/dropper');
+
+    expect($result['dropped'])->toBe(1)
+        ->and($result['noted'])->toBe(0);
+});
+
+it('logs every dropped link with the reason it was dropped', function () {
+    $pro = createTenant('bio-drop-log');
+    bioPage('<html><body><a href="https://someone.partna.au/">Me</a></body></html>');
+
+    Log::shouldReceive('warning')
+        ->once()
+        ->withArgs(fn (string $event, array $ctx) => $event === 'routing.link_dropped'
+            && $ctx['reason'] === 'own-infra'
+            && $ctx['url'] === 'https://someone.partna.au/');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/dropper');
+});
+
+it('records why each link was dropped in the import run detail', function () {
+    $pro = createTenant('bio-drop-detail');
+    bioPage('<html><body>
+        <a href="https://someone.partna.au/">Me</a>
+        <a href="https://bit.ly/xyz">Short</a>
+    </body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/dropper');
+
+    $detail = json_decode(DB::table('routing.import_runs')->where('user_id', $pro->id)->value('detail'), true);
+    expect($detail['dropped_reasons'])->toBe(['own-infra' => 1, 'shortener' => 1]);
 });

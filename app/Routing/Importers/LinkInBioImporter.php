@@ -13,6 +13,7 @@ use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Link-in-bio unroll (Linktree, Beacons, Stan…), on the new router.
@@ -64,7 +65,7 @@ class LinkInBioImporter
     /**
      * @param  string|list<string>  $bioPageUrls  one page, or the list a bio harvest produced
      * @param  string  $kind  'link_in_bio' (a page the user named) | 'bio_harvest' (URLs lifted off a profile)
-     * @return array{outcome: string, observations: int, connected: int, suggested: int, noted: int, skipped_chrome: int, pages: int, pages_unavailable: int}
+     * @return array{outcome: string, observations: int, connected: int, suggested: int, noted: int, dropped: int, skipped_chrome: int, pages: int, pages_unavailable: int}
      */
     public function import(User $user, string|array $bioPageUrls, string $kind = 'link_in_bio'): array
     {
@@ -73,7 +74,7 @@ class LinkInBioImporter
         }
 
         $pages = $this->normalisePages($bioPageUrls);
-        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'bio_url_seeded' => false];
+        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'bio_url_seeded' => false];
 
         if ($pages === []) {
             return ['outcome' => 'unavailable'] + $empty;
@@ -88,10 +89,11 @@ class LinkInBioImporter
         }
 
         $context = RoutingContext::forUser($user, $kind, $runId);
-        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'skipped_chrome' => 0];
+        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0];
         $seen = [];
         $probedHosts = [];
         $placedKeys = [];
+        $droppedReasons = [];
         $unavailable = 0;
 
         foreach ($pages as $pageUrl) {
@@ -103,7 +105,7 @@ class LinkInBioImporter
                 continue;
             }
 
-            $this->unroll($response['finalUrl'], $response['body'], $context, $tally, $seen, $probedHosts, $placedKeys);
+            $this->unroll($response['finalUrl'], $response['body'], $context, $tally, $seen, $probedHosts, $placedKeys, $droppedReasons);
         }
 
         $fetched = count($pages) - $unavailable;
@@ -138,7 +140,10 @@ class LinkInBioImporter
             // #PRIV-5: minimiseUrl(), not redactUrl() — detail->pages is
             // Scope B (routing.import_runs.detail), a non-secret PII
             // carrier. No uniqueness constraint rides on this column.
-            detail: $tally + ['pages' => array_map(SecretParams::minimiseUrl(...), $pages), 'pages_unavailable' => $unavailable, 'bio_url_seeded' => $bioUrlSeeded],
+            // dropped_reasons is the durable half of the drop trace: the log
+            // line ages out, this row does not, so "which link went where"
+            // stays answerable per run without replaying the page (#R2).
+            detail: $tally + ['dropped_reasons' => $droppedReasons, 'pages' => array_map(SecretParams::minimiseUrl(...), $pages), 'pages_unavailable' => $unavailable, 'bio_url_seeded' => $bioUrlSeeded],
         );
 
         // Conflict parity with the legacy job: the findings themselves are
@@ -169,12 +174,13 @@ class LinkInBioImporter
     }
 
     /**
-     * @param  array{connected:int, suggested:int, noted:int, probed:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, probed:int, dropped:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $seen
      * @param  array<string, true>  $probedHosts
      * @param  array<string, true>  $placedKeys
+     * @param  array<string, int>  $droppedReasons
      */
-    private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen, array &$probedHosts, array &$placedKeys): void
+    private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen, array &$probedHosts, array &$placedKeys, array &$droppedReasons): void
     {
         $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
 
@@ -202,7 +208,7 @@ class LinkInBioImporter
             match ($result['verdict']) {
                 'place' => $this->handlePlaced($url, $result, $context, $tally, $placedKeys),
                 'choose', 'hold' => $tally['suggested']++,
-                default => $this->handleUnrouted($url, $result, $context, $tally, $probedHosts),
+                default => $this->handleUnrouted($url, $result, $context, $tally, $probedHosts, $droppedReasons),
             };
         }
     }
@@ -217,7 +223,7 @@ class LinkInBioImporter
      * router's Issue-M rule, carried).
      *
      * @param  array<string, mixed>  $result
-     * @param  array{connected:int, suggested:int, noted:int, probed:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, probed:int, dropped:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $placedKeys
      */
     private function handlePlaced(string $url, array $result, RoutingContext $context, array &$tally, array &$placedKeys): void
@@ -252,12 +258,17 @@ class LinkInBioImporter
      * site's nav exhaust the whole budget (found live 2026-08-10).
      *
      * @param  array<string, mixed>  $result
-     * @param  array{connected:int, suggested:int, noted:int, probed:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, probed:int, dropped:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $probedHosts
+     * @param  array<string, int>  $droppedReasons  reason => count, for the run detail
      */
-    private function handleUnrouted(string $url, array $result, RoutingContext $context, array &$tally, array &$probedHosts): void
+    private function handleUnrouted(string $url, array $result, RoutingContext $context, array &$tally, array &$probedHosts, array &$droppedReasons): void
     {
-        if ($context->user === null) {
+        // A pre-account build has no user, so nothing can be carded or probed;
+        // the Note is counted where a claimed account would have seeded a
+        // card. A REJECT falls through to the drop trace below either way —
+        // an unclaimed site loses links as silently as a claimed one did.
+        if ($context->user === null && $result['verdict'] === 'note') {
             $tally['noted']++;
 
             return;
@@ -319,14 +330,34 @@ class LinkInBioImporter
             }
         }
 
-        $tally['noted']++;
-
         if ($result['verdict'] === 'note') {
+            $tally['noted']++;
             $this->seeder->seedCustom($context->user, $url);
+
+            return;
         }
+
         // 'reject' is carded nowhere, deliberately: unroutable by the
-        // canonicaliser (own-infra, shortener, malformed) — legacy skipped
-        // these too.
+        // canonicaliser (own-infra, malformed, confusable host) or refused by
+        // policy (tombstoned — resurrecting it would break C8). But a dropped
+        // link is still a link the user published, and until 2026-08-18 it
+        // left NO trace anywhere: it was counted 'noted' (which claims a card
+        // that does not exist), never logged, and absent from the run detail.
+        // A canva.link page vanished off a live site that way and only the
+        // observation row proved it had ever been there (#R2). Counted and
+        // logged separately now — the ledger says dropped when it means it.
+        $tally['dropped']++;
+        $reason = (string) ($result['blockReason'] ?? $result['reason'] ?? 'unroutable');
+        $droppedReasons[$reason] = ($droppedReasons[$reason] ?? 0) + 1;
+
+        Log::warning('routing.link_dropped', [
+            'user_id' => $context->user === null ? null : (string) $context->user->id,
+            'import_run_id' => $context->importRunId,
+            'reason' => $reason,
+            // minimiseUrl, not the raw URL: a bio link is Scope B PII and this
+            // line goes to the shared log stream (#PRIV-5).
+            'url' => SecretParams::minimiseUrl($url),
+        ]);
     }
 
     /**
