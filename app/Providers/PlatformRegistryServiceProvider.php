@@ -590,7 +590,13 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // has — without it PlatformSheet showed no Rules and the pool's
             // latest_per_auto_source could never be switched off per source
             // (overnight 2026-08-18, W2).
+            // Spotify also sources RELEASES (discography actor, listen
+            // restructure 2026-08-18), so it carries the same two switches
+            // Apple Music does — without the release key exposed the release
+            // arm was un-switchable and "Newest release" stayed on the site
+            // with Apple's + Bandcamp's switches both off (session 3, F27).
             $r->get('spotify')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Newest release', 'description' => 'Your newest album, EP or single joins your site automatically.'],
                 ['key' => 'auto_sync_latest_track', 'label' => 'Newest track', 'description' => 'Your newest track joins your site automatically.'],
             ]);
             $r->get('soundcloud')->displayToggles([

@@ -86,16 +86,21 @@ it('still provisions instagram with auto_sync off — the eager run does not mak
 
 // ── It must NOT fire ────────────────────────────────────────────────────────
 
-it('does not dispatch for a free connector — the scheduler owns those', function () {
-    connectFor(eagerUser(), [
+it('dispatches one claimed run for a free connector too (F21) — connect should not wait for the 15-min tick', function () {
+    $connection = connectFor(eagerUser(), [
         'platform' => 'bandcamp',
         'payload' => ['url' => 'https://kinggizzard.bandcamp.com'],
     ]);
 
-    // bandcamp is CostClass::Free: provisioned auto_sync = true with
-    // next_attempt_at = now(), so ingest:dispatch picks it up within the tick.
-    // An eager run here would be a duplicate fetch, not a fix.
-    Bus::assertNotDispatched(RunSourceJob::class);
+    // bandcamp is CostClass::Free: it is ALSO provisioned auto_sync = true with
+    // next_attempt_at = now() for the scheduler, but the eager run is claimed
+    // (in_flight_*) so the next ingest:dispatch tick cannot fetch it a second
+    // time; RunSourceJob's release() then moves next_attempt_at forward.
+    $row = DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
+    expect((bool) $row->auto_sync)->toBeTrue()
+        ->and($row->in_flight_since)->not->toBeNull();
+    Bus::assertDispatchedTimes(RunSourceJob::class, 1);
+    Bus::assertDispatched(RunSourceJob::class, fn (RunSourceJob $job) => $job->sourceId === $row->id);
 });
 
 it('does not dispatch for a paid connector that has not opted in', function () {

@@ -52,6 +52,14 @@ final class SpotifyReleasesAdapter implements MusicActorAdapter
                 default => 'album',
             };
             $covers = $row['All Cover Art URLs'] ?? $row['coverArt'] ?? null;
+            if (is_string($covers)) {
+                // The actor's dataset export joins the three sizes into ONE
+                // string ("https://…b273… || https://…1e02… || https://…4851…");
+                // taken verbatim it became the item's cover URL and rendered
+                // as a broken image (session 3, Men I Trust). Split into a list
+                // and let the size pick below choose.
+                $covers = preg_split('/\s*\|\|\s*|,\s*|\s+/', trim($covers), -1, PREG_SPLIT_NO_EMPTY) ?: null;
+            }
             $art = null;
             if (is_array($covers)) {
                 // Largest first: the actor lists 640/300/64 in no fixed order.
@@ -67,8 +75,6 @@ final class SpotifyReleasesAdapter implements MusicActorAdapter
                     }
                 }
                 $art = $best[1] ?? null;
-            } elseif (is_string($covers)) {
-                $art = $covers;
             }
             $date = $this->str($row['Release Date'] ?? null);
             // The CDN's 640px variant of the same image (the actor lists 300s first).

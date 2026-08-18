@@ -2,7 +2,9 @@
 
 use App\Ingest\Connectors\BandcampConnector;
 use App\Ingest\Runtime\RunExecutor;
+use App\Jobs\Ingest\RunSourceJob;
 use App\Models\Core\Site\IntegrationConnection;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -19,6 +21,11 @@ beforeEach(function () {
     setupSitesTable();
     setupIngestTables();
     setupContentTables();
+    // Every connector runs eagerly on connect (F21, 2026-08-18; paid ones by
+    // opt-in) — under the sync test queue the observer would run the connector
+    // inline and mint the stream row this file's helpers insert by hand. Keep
+    // the eager run out; the projection paths under test are exercised directly.
+    Bus::fake([RunSourceJob::class]);
 });
 
 function bandcampMusicPage(array $items): string
@@ -116,4 +123,51 @@ it('records a projection failure as an anomaly without failing the fetch', funct
 
     // Restore for the suite's shared in-memory schema.
     setupContentTables();
+});
+
+it('closes an abandoned previous run and re-projects even when nothing changed (F25)', function () {
+    // A killed job (timeout, worker death) leaves its run row open and its
+    // projection half-written: source items minted per record, facets never
+    // reached. The next run saw "0 changed", projected nothing, and 200 blank
+    // episodes lived on the wire forever (session 3, Song Exploder).
+    $userId = createTenant('exec-'.Str::lower(Str::random(6)))->id;
+    $connection = IntegrationConnection::create([
+        'user_id' => $userId,
+        'platform' => 'bandcamp',
+        'resource_id' => 'acct-'.substr(sha1('abandoned'), 0, 16),
+        'payload' => ['url' => 'https://abandoned.bandcamp.com'],
+        'is_active' => true,
+    ]);
+    $source = (array) DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
+    Http::fake([
+        'https://abandoned.bandcamp.com/music' => Http::response(bandcampMusicPage([
+            ['path' => '/album/alpha', 'title' => 'Alpha', 'date' => '01 Jan 2025 00:00:00 GMT'],
+        ]), 200),
+    ]);
+    $executor = app(RunExecutor::class);
+    $first = $executor->execute($source, new BandcampConnector, BandcampConnector::manifest(), 'manual');
+    expect($first['outcome'])->toBe('ok')->and(DB::table('content.f_link')->count())->toBe(1);
+
+    // Simulate the kill: the run row stays open and the facets are gone.
+    DB::table('ingest.runs')->where('id', $first['run_id'])->update(['finished_at' => null, 'outcome' => null, 'started_at' => now()->subMinute()]);
+    DB::table('content.f_link')->delete();
+    DB::table('content.f_text')->delete();
+
+    $second = $executor->execute($source, new BandcampConnector, BandcampConnector::manifest(), 'manual');
+
+    $abandoned = DB::table('ingest.runs')->where('id', $first['run_id'])->first();
+    expect($abandoned->finished_at)->not->toBeNull()
+        ->and($abandoned->outcome)->toBe('error')
+        ->and($abandoned->error_class)->toBe('RunAbandoned')
+        ->and($second['outcome'])->toBe('ok')
+        // Nothing changed upstream, yet the facets are back: the run projected.
+        ->and(DB::table('content.f_link')->count())->toBe(1)
+        ->and(DB::table('content.f_text')->where('headline', 'Alpha')->count())->toBe(1);
+
+    // A clean third run (no abandoned row, latest run ok) still projects nothing when unchanged.
+    DB::table('ingest.runs')->where('id', $first['run_id'])->update(['started_at' => now()->subMinutes(2)]);
+    DB::table('ingest.runs')->where('id', $second['run_id'])->update(['started_at' => now()->subMinute()]);
+    DB::table('content.f_link')->delete();
+    $executor->execute($source, new BandcampConnector, BandcampConnector::manifest(), 'manual');
+    expect(DB::table('content.f_link')->count())->toBe(0);
 });

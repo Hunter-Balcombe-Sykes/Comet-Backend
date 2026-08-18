@@ -14,6 +14,22 @@ class AppleMusicTrackProjector extends MusicTrackProjector
         return 'apple_music';
     }
 
+    /**
+     * iTunes names a single's collection "Title - Single" (and "Title - EP");
+     * the release stream strips that suffix into `format`, so the track's
+     * `album` must strip it too or the song reads "from I Hope to Be Around -
+     * Single" while its release item reads "I Hope to Be Around".
+     */
+    protected function albumTitle(?string $album): ?string
+    {
+        if ($album === null) {
+            return null;
+        }
+        [$clean] = AppleMusicReleaseProjector::formatFromName($album, null);
+
+        return $clean;
+    }
+
     protected function embedKey(string $url): string
     {
         // music.apple.com/{cc}/album/{slug}/{albumId}?i={trackId}

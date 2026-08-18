@@ -3,6 +3,8 @@
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Http\FetchBudget;
+use App\Services\Notifications\Dispatchers\IntegrationNotifier;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Support\Facades\Http;
@@ -301,3 +303,57 @@ it('stale pending (worker vanished > 5 minutes ago) reports failed, not pending 
 // any registered platform, and SkoolController's identical branch unrouted.
 // The single-selection pending write itself stays covered on the bespoke path
 // by DarkMergeProofTest's fresha flag-on case.
+
+it('a first connect that fails terminally leaves NO live row — the poll still reports the error and /accounts does not list it (F26)', function () {
+    // Session 3 (2026-08-18): a wrong Apple artist id → 202 → the fetch failed
+    // ("Could not find that Apple Music artist") → the row stayed is_active
+    // with last_refresh_status=unavailable and showed as a connected
+    // "Japanese Breakfast" (accountName from the input path) in the Platforms
+    // table, in /accounts, and had an ingest source provisioned.
+    config(['partna.connect.deferred' => ['spotify']]);
+    $user = dcUser('f26');
+    // The deferred fetch runs inline under the sync queue: make oEmbed fail.
+    Http::fake(['open.spotify.com/oembed*' => Http::response('', 404)]);
+
+    $response = actingAsUser($user)->postJson('/api/platforms/spotify/connect', ['url' => 'https://open.spotify.com/artist/nobody123'])
+        ->assertStatus(202);
+    $id = $response->json('id');
+
+    // The row is gone from every live read…
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'spotify')->count())->toBe(0)
+        ->and(IntegrationConnection::withTrashed()->where('user_id', $user->id)->where('platform', 'spotify')->count())->toBe(1);
+    actingAsUser($user)->getJson('/api/platforms/spotify/accounts')->assertOk()->assertJsonPath('accounts', []);
+
+    // …but the poll that follows the 202 still tells the modal what happened.
+    actingAsUser($user)->getJson("/api/platforms/spotify/connect/status?account={$id}")
+        ->assertOk()
+        ->assertJsonPath('status', 'failed')
+        ->assertJsonPath('error', fn ($e) => is_string($e) && $e !== '');
+});
+
+it('a RE-connect whose fetch fails keeps the previously-good row — only the attempt failed (F26)', function () {
+    $user = dcUser('f26b');
+    $row = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'spotify',
+        'resource_id' => 'acct-'.substr(sha1('https://open.spotify.com/artist/some1'), 0, 16),
+        'canonical_key' => 'https://open.spotify.com/artist/some1',
+        'payload' => ['url' => 'https://open.spotify.com/artist/some1', 'link' => 'https://open.spotify.com/artist/some1', 'embedUrl' => 'https://open.spotify.com/embed/artist/some1', 'name' => 'Somebody'],
+        'is_active' => true,
+        'last_refresh_status' => 'pending',
+        'last_refreshed_at' => now()->subDay(),
+    ]);
+
+    Http::fake(['open.spotify.com/oembed*' => Http::response('', 500)]);
+    (new ConnectFetchJob($row->id, 'spotify'))->handle(
+        app(PlatformRegistry::class),
+        app(FetchBudget::class),
+        app(IntegrationNotifier::class),
+    );
+
+    $again = IntegrationConnection::where('user_id', $user->id)->where('platform', 'spotify')->first();
+    expect($again)->not->toBeNull()
+        ->and($again->id)->toBe($row->id)
+        ->and($again->last_refresh_status)->toBe('unavailable')
+        ->and($again->payload['name'] ?? null)->toBe('Somebody');
+});

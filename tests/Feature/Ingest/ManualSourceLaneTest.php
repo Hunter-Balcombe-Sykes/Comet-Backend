@@ -1,7 +1,9 @@
 <?php
 
 use App\Ingest\Projection\ProjectionWriter;
+use App\Jobs\Ingest\RunSourceJob;
 use App\Models\Core\Site\IntegrationConnection;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -18,6 +20,11 @@ beforeEach(function () {
     setupSitesTable();
     setupIngestTables();
     setupContentTables();
+    // Every connector runs eagerly on connect (F21, 2026-08-18; paid ones by
+    // opt-in) — under the sync test queue the observer would run the connector
+    // inline and mint the stream row this file's helpers insert by hand. Keep
+    // the eager run out; the projection paths under test are exercised directly.
+    Bus::fake([RunSourceJob::class]);
 });
 
 it('creates exactly one manual source per user, above connection priority', function () {

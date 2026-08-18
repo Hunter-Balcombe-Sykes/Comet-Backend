@@ -337,17 +337,26 @@ class PoolResolver
     /**
      * The single Latest tag (owner): whichever SELECTED item was most
      * recently released — published date, first-seen when nothing dated it.
+     * A dated item always outranks an undated one (X5): first_seen_at is the
+     * moment WE saw it, not a release date, and an Apple song with no
+     * releaseDate ("Runway Houses City Clouds (2020 Mix)") was taking the tag
+     * off a release dated last month.
      *
      * @param  list<array<string, mixed>>  $selection
      */
     private function latestItemId(array $selection): ?string
     {
         $latest = null;
-        $latestAt = null;
+        $latestKey = null;
         foreach ($selection as $item) {
-            $at = $item['publishedAt'] ?? $item['firstSeenAt'] ?? null;
-            if ($at !== null && ($latestAt === null || $at > $latestAt)) {
-                $latestAt = $at;
+            $published = $item['publishedAt'] ?? null;
+            $at = $published ?? $item['firstSeenAt'] ?? null;
+            if ($at === null) {
+                continue;
+            }
+            $key = [$published !== null ? 1 : 0, $at];
+            if ($latestKey === null || $key > $latestKey) {
+                $latestKey = $key;
                 $latest = $item['id'];
             }
         }

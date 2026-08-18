@@ -138,5 +138,20 @@ class RunSourceJob implements ShouldQueue
         if ($stillClaimed) {
             app(SourceScheduler::class)->release($this->sourceId, 'error', false);
         }
+
+        // Close the run row the executor opened: a timeout / hard failure
+        // never reaches the executor's own finish, and an open row is what
+        // told the next run "the previous one died" (RunExecutor forces a
+        // full projection after it — F25). Closing it here keeps the ledger
+        // honest; the executor also treats a latest run with outcome 'error'
+        // as a reason to re-project, so no repair signal is lost.
+        DB::table('ingest.runs')
+            ->where('source_id', $this->sourceId)
+            ->whereNull('finished_at')
+            ->update([
+                'finished_at' => now(),
+                'outcome' => 'error',
+                'error_class' => class_basename($e),
+            ]);
     }
 }
