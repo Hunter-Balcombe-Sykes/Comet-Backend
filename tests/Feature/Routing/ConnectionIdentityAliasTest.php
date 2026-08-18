@@ -1,0 +1,186 @@
+<?php
+
+// #R4 (docs/reviews/2026-08-18-instagram-build-wave-RESULTS-RUN2.md). Most
+// people link their own Instagram from their Linktree. The build's own
+// connection stores resource_id = 'instagram' — the legacy singleton marker
+// ManagesIntegrationConnection::defaultResourceId() writes — while the
+// harvested one stores the real handle, so applyIntent()'s exact-match lookup
+// saw two accounts and made a second connection, a second ingest.sources row
+// and a second recurring sync job for ONE Instagram account.
+//
+// The pin that matters most is the SECOND test, not the first: a resolver that
+// treated "row carries the legacy marker" as "same account" would merge two
+// genuinely different YouTube channels. Both live on dev today
+// (acct-77bc9a9984e6786c = casey, resource_id 'youtube' = @dvlpmnttv), which is
+// how we know the over-merge is a real shape and not a hypothetical.
+
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
+use App\Routing\LinkRoutingService;
+use App\Routing\RoutingContext;
+use Illuminate\Support\Facades\DB;
+
+beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+    setupRoutingTables();
+    setupContentTables();
+});
+
+/**
+ * A connection in the LEGACY SINGLETON scheme: resource_id is the platform
+ * slug, not the account's identity. The real identity is recoverable only
+ * from the payload — which is the whole difficulty.
+ */
+function seedMarkerConnection(User $user, string $surfaceKey, string $routingClass, string $slug, array $payload): IntegrationConnection
+{
+    $connection = new IntegrationConnection([
+        'surface_key' => $surfaceKey,
+        'routing_class' => $routingClass,
+        'resource_id' => $slug,
+        'payload' => $payload,
+        'is_active' => true,
+    ]);
+    $connection->user_id = $user->id;
+    $connection->save();
+
+    return $connection;
+}
+
+function liveConnections(User $user, string $surfaceKey)
+{
+    return IntegrationConnection::query()
+        ->where('user_id', $user->id)
+        ->where('surface_key', $surfaceKey)
+        ->whereNull('deleted_at')
+        ->get();
+}
+
+it('folds a self-referential bio link into the build\'s own marker connection', function () {
+    $pro = createTenant('r4-self-link');
+    $marker = seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
+        'url' => 'https://instagram.com/crucibletattooco',
+        'username' => 'crucibletattooco',
+    ]);
+
+    // The exact shape the bio page carries — Instagram's own share URL, with
+    // the igsh tracking param the canonicalizer strips.
+    $out = app(LinkRoutingService::class)->route(
+        'https://www.instagram.com/crucibletattooco?igsh=MTdhM3NpeXg5ZHV6dw==',
+        RoutingContext::forUser($pro, 'bio_harvest'),
+    );
+
+    expect($out['verdict'])->toBe('place');
+    // Reused, not recreated: the SAME row the build already owns.
+    expect($out['connectionId'])->toBe((string) $marker->id);
+    expect(liveConnections($pro, 'instagram.profile'))->toHaveCount(1);
+});
+
+it('keeps two genuinely different channels apart when one wears the legacy marker', function () {
+    $pro = createTenant('r4-no-over-merge');
+    seedMarkerConnection($pro, 'youtube.channel', 'content', 'youtube', [
+        'url' => 'https://www.youtube.com/@dvlpmnttv',
+        // Live dev rows carry username = '' on this scheme — the identity is
+        // ONLY in the url, so a resolver keying on username alone would fall
+        // back to "no identifier" and (correctly) refuse to match, while one
+        // keying on the marker alone would merge these two.
+        'username' => '',
+    ]);
+
+    $out = app(LinkRoutingService::class)->route(
+        'https://www.youtube.com/@casey',
+        RoutingContext::forUser($pro, 'bio_harvest'),
+    );
+
+    expect($out['verdict'])->toBe('place');
+    expect(liveConnections($pro, 'youtube.channel'))->toHaveCount(2);
+});
+
+it('creates a new connection when a marker row carries no derivable identity', function () {
+    $pro = createTenant('r4-fail-open');
+    seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
+        // No url, no username — a pending placeholder exactly as
+        // InstagramSourceGenerator writes it before the scrape lands.
+    ]);
+
+    $out = app(LinkRoutingService::class)->route(
+        'https://www.instagram.com/crucibletattooco',
+        RoutingContext::forUser($pro, 'bio_harvest'),
+    );
+
+    // Fail OPEN, never fail-merged: an unresolvable incumbent must not
+    // swallow a link whose identity we can read perfectly well.
+    expect($out['verdict'])->toBe('place');
+    expect(liveConnections($pro, 'instagram.profile'))->toHaveCount(2);
+});
+
+it('does not let a marker row that IS this identity consume a cap slot', function () {
+    $pro = createTenant('r4-cap');
+    // instagram.profile is multiAccount(5). Four unrelated accounts plus the
+    // marker row for OUR identity fills the cap only if the marker is counted
+    // as a fifth, distinct account — which is the bug, one surface over.
+    $marker = seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
+        'url' => 'https://instagram.com/crucibletattooco',
+        'username' => 'crucibletattooco',
+    ]);
+    foreach (['alpha', 'bravo', 'charlie', 'delta'] as $other) {
+        seedMarkerConnection($pro, 'instagram.profile', 'social', $other, [
+            'url' => 'https://instagram.com/'.$other,
+            'username' => $other,
+        ]);
+    }
+
+    $out = app(LinkRoutingService::class)->route(
+        'https://www.instagram.com/crucibletattooco',
+        RoutingContext::forUser($pro, 'bio_harvest'),
+    );
+
+    expect($out['verdict'])->toBe('place')
+        ->and($out['blockReason'] ?? null)->not->toBe('cap_reached');
+    expect($out['connectionId'])->toBe((string) $marker->id);
+    expect(liveConnections($pro, 'instagram.profile'))->toHaveCount(5);
+});
+
+it('records the intent under the REAL identifier while pointing at the marker row', function () {
+    $pro = createTenant('r4-intent-ledger');
+    $marker = seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
+        'url' => 'https://instagram.com/crucibletattooco',
+        'username' => 'crucibletattooco',
+    ]);
+
+    app(LinkRoutingService::class)->route(
+        'https://www.instagram.com/crucibletattooco',
+        RoutingContext::forUser($pro, 'bio_harvest'),
+    );
+
+    // The ledger is the account of WHY a connection exists, so it keeps the
+    // true identity (the handle), not the marker it happened to fold into.
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)
+        ->where('surface_key', 'instagram.profile')
+        ->first();
+
+    expect($intent)->not->toBeNull()
+        ->and($intent->identifier)->toBe('crucibletattooco')
+        ->and($intent->state)->toBe('applied')
+        ->and($intent->connection_id)->toBe((string) $marker->id);
+});
+
+it('is idempotent — a second scan of the same bio page adds nothing', function () {
+    $pro = createTenant('r4-idempotent');
+    $marker = seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
+        'url' => 'https://instagram.com/crucibletattooco',
+        'username' => 'crucibletattooco',
+    ]);
+
+    foreach ([1, 2] as $_) {
+        $out = app(LinkRoutingService::class)->route(
+            'https://www.instagram.com/crucibletattooco',
+            RoutingContext::forUser($pro, 'bio_harvest'),
+        );
+        expect($out['connectionId'])->toBe((string) $marker->id);
+    }
+
+    expect(liveConnections($pro, 'instagram.profile'))->toHaveCount(1)
+        ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->count())->toBe(1);
+});

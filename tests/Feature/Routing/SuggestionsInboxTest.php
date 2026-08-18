@@ -2,11 +2,6 @@
 
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Services\Brand\StoreBrandSeeder;
-use App\Services\Platforms\CustomLinkSeeder;
-use App\Services\Platforms\EventsSeeder;
-use App\Services\Platforms\GenericShopScraper;
-use App\Services\Platforms\ShopProductSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -217,13 +212,7 @@ it('offers a probed Shopify storefront as a suggestion from a paste (never a pla
 
     // 1. Suggest-only probe (what RoutingController::store dispatches after a
     //    Note): the reconciler writes a PROPOSED intent, no connection.
-    (new CommerceProbeJob((string) $pro->id, 'https://www.beardbrand.com/', suggestOnly: true))->handle(
-        app(GenericShopScraper::class),
-        app(StoreBrandSeeder::class),
-        app(ShopProductSeeder::class),
-        app(EventsSeeder::class),
-        app(CustomLinkSeeder::class),
-    );
+    app()->call([new CommerceProbeJob((string) $pro->id, 'https://www.beardbrand.com/', suggestOnly: true), 'handle']);
     $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
     expect($intent)->not->toBeNull()
         ->and($intent->state)->toBe('proposed')
@@ -243,13 +232,7 @@ it('offers a probed Shopify storefront as a suggestion from a paste (never a pla
 
     // 3. That job (probe answer cached from step 1) places the store: connection
     //    named after the shop, storefront collection, intent applied.
-    (new CommerceProbeJob((string) $pro->id, 'https://www.beardbrand.com/', 'shop'))->handle(
-        app(GenericShopScraper::class),
-        app(StoreBrandSeeder::class),
-        app(ShopProductSeeder::class),
-        app(EventsSeeder::class),
-        app(CustomLinkSeeder::class),
-    );
+    app()->call([new CommerceProbeJob((string) $pro->id, 'https://www.beardbrand.com/', 'shop'), 'handle']);
     $connection = IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
     expect($connection)->not->toBeNull()
         ->and($connection->payload['name'] ?? null)->toBe('Beardbrand')

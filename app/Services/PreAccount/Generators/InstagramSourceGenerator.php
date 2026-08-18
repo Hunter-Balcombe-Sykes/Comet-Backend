@@ -64,6 +64,18 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         // (NOT null: platform_connections.payload is NOT NULL on live Postgres).
         // resource_id matches ManagesIntegrationConnection::defaultResourceId()
         // (= platform()), which InstagramController also uses: 'instagram'.
+        //
+        // #R4, KNOWN GAP (owner ruling 2026-08-18, routing lane only). This is
+        // the legacy singleton marker: 'instagram' names the PLATFORM, not the
+        // account. App\Routing\ConnectionIdentity now translates it for the
+        // routing lane, so a bio-page link back to this same handle folds into
+        // this row instead of minting a second connection. The REVERSE ordering
+        // is still open: if a routed row for the real handle already exists
+        // (a website import ran first), this updateOrCreate() stacks a marker
+        // row on top of it and the duplicate is back, from the other side.
+        // Closing it means teaching this call and
+        // ManagesIntegrationConnection::writeConnection() to consult
+        // ConnectionIdentity first.
         $connection = IntegrationConnection::updateOrCreate(
             [
                 'user_id' => $user->id,
