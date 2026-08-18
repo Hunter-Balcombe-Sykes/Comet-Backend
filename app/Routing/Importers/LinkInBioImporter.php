@@ -10,6 +10,7 @@ use App\Routing\SecretParams;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
+use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 
@@ -57,6 +58,7 @@ class LinkInBioImporter
         private readonly WebsiteLinkHarvester $harvester,
         private readonly LinkRoutingService $routing,
         private readonly CustomLinkSeeder $seeder,
+        private readonly EventsSeeder $events,
     ) {}
 
     /**
@@ -88,6 +90,8 @@ class LinkInBioImporter
         $context = RoutingContext::forUser($user, $kind, $runId);
         $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'skipped_chrome' => 0];
         $seen = [];
+        $probedHosts = [];
+        $placedKeys = [];
         $unavailable = 0;
 
         foreach ($pages as $pageUrl) {
@@ -99,7 +103,7 @@ class LinkInBioImporter
                 continue;
             }
 
-            $this->unroll($response['finalUrl'], $response['body'], $context, $tally, $seen);
+            $this->unroll($response['finalUrl'], $response['body'], $context, $tally, $seen, $probedHosts, $placedKeys);
         }
 
         $fetched = count($pages) - $unavailable;
@@ -148,7 +152,11 @@ class LinkInBioImporter
             ->where('block_reason', 'conflict')
             ->count();
 
-        if ($conflicts > 0) {
+        if ($conflicts > 0 && ! $user->isUnclaimed()) {
+            // Unclaimed guard carried from the legacy job: a pre-claim user
+            // has no dashboard to read /account/platforms in, so the bell
+            // would ring an empty room (and the PRIV-2 strip's spirit is that
+            // provisional accounts accumulate no engagement surfaces).
             app(FindingsNotifier::class)->notify(
                 (string) $user->id,
                 'link-in-bio-findings:'.$user->id.':'.sha1($pages[0]),
@@ -163,8 +171,10 @@ class LinkInBioImporter
     /**
      * @param  array{connected:int, suggested:int, noted:int, probed:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $seen
+     * @param  array<string, true>  $probedHosts
+     * @param  array<string, true>  $placedKeys
      */
-    private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen): void
+    private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen, array &$probedHosts, array &$placedKeys): void
     {
         $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
 
@@ -190,11 +200,42 @@ class LinkInBioImporter
             $result = $this->routing->route($url, $context);
 
             match ($result['verdict']) {
-                'place' => $tally['connected']++,
+                'place' => $this->handlePlaced($url, $result, $context, $tally, $placedKeys),
                 'choose', 'hold' => $tally['suggested']++,
-                default => $this->handleUnrouted($url, $result, $context, $tally),
+                default => $this->handleUnrouted($url, $result, $context, $tally, $probedHosts),
             };
         }
+    }
+
+    /**
+     * First link per surface+identifier wins the connection; a LATER distinct
+     * URL for the same one becomes a card instead of a silent refresh. A
+     * creator's "book me" venue link and their "see my services" deep link on
+     * the same venue are two links the user published — the reconciler would
+     * fold the second into the first connection and its distinct URL would
+     * vanish, which is the "nothing vanishes" promise broken (the legacy
+     * router's Issue-M rule, carried).
+     *
+     * @param  array<string, mixed>  $result
+     * @param  array{connected:int, suggested:int, noted:int, probed:int, skipped_chrome:int}  $tally
+     * @param  array<string, true>  $placedKeys
+     */
+    private function handlePlaced(string $url, array $result, RoutingContext $context, array &$tally, array &$placedKeys): void
+    {
+        $routed = $result['routedTo'] ?? null;
+        $key = is_array($routed)
+            ? ($routed['surfaceKey'] ?? '').':'.($routed['identifier'] ?? '')
+            : ':';
+
+        if (isset($placedKeys[$key]) && $context->user !== null) {
+            $tally['noted']++;
+            $this->seeder->seedCustom($context->user, $url);
+
+            return;
+        }
+
+        $placedKeys[$key] = true;
+        $tally['connected']++;
     }
 
     /**
@@ -206,10 +247,15 @@ class LinkInBioImporter
      * same). Past the probe budget, unknowns are carded directly — a starved
      * link must land somewhere visible, never vanish.
      *
+     * One probe per unknown HOST per run, not per URL — five sub-pages of one
+     * website are one storefront question, and per-URL probing let a single
+     * site's nav exhaust the whole budget (found live 2026-08-10).
+     *
      * @param  array<string, mixed>  $result
      * @param  array{connected:int, suggested:int, noted:int, probed:int, skipped_chrome:int}  $tally
+     * @param  array<string, true>  $probedHosts
      */
-    private function handleUnrouted(string $url, array $result, RoutingContext $context, array &$tally): void
+    private function handleUnrouted(string $url, array $result, RoutingContext $context, array &$tally, array &$probedHosts): void
     {
         if ($context->user === null) {
             $tally['noted']++;
@@ -217,14 +263,60 @@ class LinkInBioImporter
             return;
         }
 
+        if ($result['verdict'] === 'note') {
+            // Standalone EVENT pages (an Eventbrite /e/… link, a Humanitix
+            // event) have no catalog detector yet — only organiser surfaces
+            // do — so they land here unmatched. The legacy classifier still
+            // knows their shapes; seed them INLINE through EventsSeeder
+            // exactly as the legacy router's event arm did — the seeded
+            // connection is what makes the event show as synced in the modal
+            // the moment the scan lands (EventSyncFindingsTest pins this).
+            // Spends NO commerce budget: events were never probes. A seeder
+            // failure cards the link, never drops it.
+            $classified = $this->harvester->classify($url);
+            if (in_array($classified['category'] ?? null, ['event', 'event-organiser'], true)) {
+                try {
+                    $seeded = $classified['category'] === 'event'
+                        ? $this->events->seedStandalone($context->user, $classified['platform'], $url)
+                        : $this->events->seedAccount($context->user, $classified['platform'], $url);
+                } catch (\Throwable $e) {
+                    report($e);
+                    $seeded = null;
+                }
+
+                if ($seeded !== null) {
+                    $tally['connected']++;
+                } else {
+                    $tally['noted']++;
+                    $this->seeder->seedCustom($context->user, $url);
+                }
+
+                return;
+            }
+        }
+
+        // 'unknown-domain' ONLY — a registrable key the catalog has never
+        // heard of, where a probe answers a real question (product? store?).
+        // 'no-rule-matched' is a KNOWN brand's URL in a shape no detector
+        // claims (a Fresha /services deep link, a YouTube watch URL): probing
+        // a brand we already recognise wastes a budget slot to rediscover it,
+        // so those go straight to a card — the legacy classified-host
+        // behaviour, carried.
         $unknown = $result['verdict'] === 'note'
-            && in_array($result['reason'] ?? null, ['unknown-domain', 'no-rule-matched'], true);
+            && ($result['reason'] ?? null) === 'unknown-domain';
 
-        if ($unknown && $tally['probed'] < self::MAX_PROBES) {
-            CommerceProbeJob::dispatch((string) $context->user->id, $url);
-            $tally['probed']++;
+        if ($unknown) {
+            $host = strtolower((string) parse_url($url, PHP_URL_HOST));
 
-            return;
+            // Budget = distinct probed hosts (one probe per host by
+            // construction), so the event dispatches above never eat a slot.
+            if (! isset($probedHosts[$host]) && count($probedHosts) < self::MAX_PROBES) {
+                $probedHosts[$host] = true;
+                CommerceProbeJob::dispatch((string) $context->user->id, $url);
+                $tally['probed']++;
+
+                return;
+            }
         }
 
         $tally['noted']++;

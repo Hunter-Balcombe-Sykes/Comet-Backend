@@ -3,11 +3,9 @@
 use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
-use App\Services\Http\SafeUrlFetcher;
-use App\Services\Platforms\CustomLinkSeeder;
+use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\RouteContext;
-use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -147,18 +145,20 @@ it('shows an event found inside a link-in-bio page as synced in the modal', func
         'www.eventbrite.com.au/e/*' => Http::response(ebEventPage(EB_EVENT_URL), 200),
     ]);
 
-    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
-        app(SafeUrlFetcher::class),
-        app(WebsiteLinkHarvester::class),
-        app(LinkRouter::class),
-        app(CustomLinkSeeder::class),
-    );
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(app(LinkInBioImporter::class));
+
+    // NEW CONTRACT (LinkInBioImporter migration, owner ruling 2026-08-18):
+    // the event still seeds — a real eventbrite connection and its event item
+    // exist the moment the scan lands — but the synced MODAL no longer lists
+    // items found one hop inside a bio page: the modal is payload findings
+    // (written by the still-legacy direct bio scan) plus the B4 conflict
+    // fold, and successful placements on the new path write neither. Modal
+    // completeness for unroll-found items returns when InstagramAutoSync
+    // (P8 consumer 2) migrates and the fold is widened with it.
+    $conn = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->first();
+    expect($conn)->not->toBeNull();
+    expect($conn->resource_id)->toStartWith('event-');
 
     $synced = actingAsUser($user)->getJson('/api/platforms/instagram/synced')->assertOk()->json('synced');
-
-    $event = collect($synced)->firstWhere('platform', 'eventbrite');
-    expect($event)->not->toBeNull();
-    expect($event['status'])->toBe('synced');
-    expect($event['category'])->toBe('event');
-    expect($event['foundUrl'])->toBe(EB_EVENT_URL);
+    expect(collect($synced)->firstWhere('platform', 'eventbrite'))->toBeNull();
 });
