@@ -68,6 +68,30 @@ it('does not dispatch non-refreshable platforms (instagram)', function () {
     Queue::assertNotPushed(RefreshConnectionJob::class);
 });
 
+it('refreshes a catalog-only store (shopify.store) through the shop family but never a registered link-only shop surface such as gumroad (F32)', function () {
+    $user = dispatchUser();
+    // A Shopify storefront: `platform` = the brand prefix, not a registry key
+    // → inherits the shop descriptor and refreshes.
+    $store = IntegrationConnection::create([
+        'user_id' => $user->id, 'surface_key' => 'shopify.store', 'routing_class' => 'shop',
+        'resource_id' => 'atolea.myshopify.com', 'payload' => ['url' => 'https://atolea.com'],
+        'last_refreshed_at' => now()->subWeek(),
+    ]);
+    // Gumroad IS a registered key (link-only, no refresh strategy): selecting
+    // it through the family branch sent it to PlatformRefresher, which stamped
+    // it `error/unsupported_platform` on every tick (session 3, 2026-08-18).
+    $card = IntegrationConnection::create([
+        'user_id' => $user->id, 'surface_key' => 'gumroad.store', 'routing_class' => 'shop',
+        'resource_id' => 'gumroad', 'payload' => ['url' => 'https://someone.gumroad.com', 'name' => 'Gumroad'],
+        'last_refreshed_at' => now()->subWeek(),
+    ]);
+
+    $this->artisan('integrations:refresh')->assertSuccessful();
+
+    Queue::assertPushed(RefreshConnectionJob::class, fn ($j) => $j->connectionId === $store->id);
+    Queue::assertNotPushed(RefreshConnectionJob::class, fn ($j) => $j->connectionId === $card->id);
+});
+
 it('does not dispatch a connection at the failure cap', function () {
     $user = dispatchUser();
     conn($user, 'youtube', ['last_refreshed_at' => now()->subWeek(), 'consecutive_failures' => 10]);
