@@ -1161,6 +1161,24 @@ return [
         ],
     ],
 
+    // #PGR-8/9/10 batching tunables for one-off backfill/prune commands.
+    // Overridable so tests can shrink these to make chunk-boundary cases
+    // cheap to seed (see IngestProjectChunkingTest for the pattern).
+    'content' => [
+        // BackfillContentItemSlugs: chunkById() page size for the
+        // content.items walk.
+        'slug_backfill_chunk' => (int) env('PARTNA_CONTENT_SLUG_BACKFILL_CHUNK', 500),
+    ],
+
+    'media' => [
+        // BackfillMediaPaletteCommand: chunkById() page size for the
+        // palette-backfill walk.
+        'palette_backfill_chunk' => (int) env('PARTNA_MEDIA_PALETTE_BACKFILL_CHUNK', 200),
+
+        // BorrowedAssetPruner: take size for each doomed-set delete batch.
+        'borrowed_prune_chunk' => (int) env('PARTNA_MEDIA_BORROWED_PRUNE_CHUNK', 500),
+    ],
+
     // Pre-Account Sites (site-first signup + staff marketing builds).
     'pre_account' => [
         'expiry_days' => (int) env('PARTNA_PRE_ACCOUNT_EXPIRY_DAYS', 30),

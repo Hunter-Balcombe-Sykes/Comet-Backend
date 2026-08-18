@@ -16,7 +16,7 @@ new public surface.
 | P0 — blockers | 0 |
 | P1 — high     | 6 |
 | P2 — medium   | 15 |
-| P3 — low      | 15 |
+| P3 — low      | 16 |
 
 ## READ THIS BEFORE TICKING ANYTHING — ids were renumbered
 
@@ -48,8 +48,8 @@ Never script a tick keyed on id alone.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 10 of 15 complete
-- P3 Low: 0 of 15 complete
+- P2 Medium: 13 of 15 complete
+- P3 Low: 0 of 16 complete
 
 ## Suggested Bundled Sessions
 
@@ -328,7 +328,7 @@ work, not run as a campaign. Do not build units for them.
         $coord = 'manual:'.sha1(strtolower(trim($data['url'])));
         ```
 
-- [ ] **#PGR-8** · P2 — `BackfillContentItemSlugs` uses `cursor()` on pgsql and an N+1 existence check per item
+- [x] **#PGR-8** · P2 — `BackfillContentItemSlugs` uses `cursor()` on pgsql and an N+1 existence check per item
     - **Source:** migration-commands — was `#MIG-3`
     - **Where:** app/Console/Commands/BackfillContentItemSlugs.php
     - **Affects:** The one-off content slug backfill; command memory, open result-set duration, and runtime against a large `content.items` table.
@@ -351,7 +351,7 @@ work, not run as a campaign. Do not build units for them.
             ->where('is_current', true)->exists();
         ```
 
-- [ ] **#PGR-9** · P2 — `BackfillMediaPaletteCommand` streams an unbounded media backlog via `cursor()` with inline per-row R2/image work
+- [x] **#PGR-9** · P2 — `BackfillMediaPaletteCommand` streams an unbounded media backlog via `cursor()` with inline per-row R2/image work
     - **Source:** migration-commands — was `#MIG-4`
     - **Where:** app/Console/Commands/BackfillMediaPaletteCommand.php
     - **Affects:** Existing gallery images needing palette extraction; R2 read load, temp disk, and image-decode CPU on the operator running the one-off.
@@ -373,7 +373,7 @@ work, not run as a campaign. Do not build units for them.
                 $palette = $this->extractForRow($extractor, $disk, (string) $media->path);
         ```
 
-- [ ] **#PGR-10** · P2 — `BorrowedAssetPruner` materializes every doomed asset ID before chunking the deletes
+- [x] **#PGR-10** · P2 — `BorrowedAssetPruner` materializes every doomed asset ID before chunking the deletes
     - **Source:** migration-commands — was `#MIG-5`
     - **Where:** app/Services/Migration/BorrowedAssetPruner.php
     - **Affects:** `content.media_assets` growth and the prune command's memory footprint as borrowed assets accumulate.
@@ -944,4 +944,21 @@ work, not run as a campaign. Do not build units for them.
         // Same fallback as routes/api/publicSite.php — a missing/typo'd
         // PARTNA_PUBLIC_DOMAIN env must not silently break the poll payload.
         $publicDomain = config('partna.public_domain') ?: 'partna.au';
+        ```
+
+- [ ] **#PGR-37** · P3 — `BackfillMediaPaletteCommand` has no enforced ceiling on a hung R2 read
+    - **Source:** split out of #PGR-8/9/10 execution, 2026-08-18 (`audit-fix/programme-review-p2-2026-08-18`) — not from a scan run. #PGR-9's "what to do" carried two halves; the owner ruled the second half out of that unit and filed it here so the chunking fix could ship on its own.
+    - **Where:** app/Console/Commands/BackfillMediaPaletteCommand.php (`extractForRow()` — `readStream` → `tempnam` → `stream_copy_to_stream` → decode, all inline in the console process)
+    - **Affects:** An operator running the palette backfill. A hung R2 `readStream` blocks the process indefinitely.
+    - **Effort:** M (~2–4h)
+    - **What to do:**
+        - Add an opt-in `--queue` flag that dispatches the per-row work instead of running it inline, defaulting to **synchronous**. Copy the shape already in `BackfillSubdomainKvCommand.php:39-47,51-61` (a `$dispatch` closure calling `dispatch()` or `dispatchSync()`) rather than inventing one — that default keeps the exit-code and `--dry-run` contracts intact on the path operators actually use.
+        - The new job mirrors `ProcessImageVariantsJob.php:32-36`: `$tries = 3`, `$backoff = [30, 120, 600]`, `$timeout = 120`, `onQueue(config('partna.queues.images'))`. Add the retry-shape unit test this repo writes for every job (`EnrichLinkCardJobTest.php:31`, `ConnectFetchJobTest.php:54`, `DeleteMediaArtifactsJobTest.php:16`).
+    - **Technical:** `Illuminate\Console\Command` does not read `$timeout` — the command's own comment at `:32-38` already documents this correctly and treats `--limit` as the real mitigation. That is true for *volume* but not for a *single* hung read: `--limit=1` still blocks forever on one bad stream. A queue worker's `$timeout` is the only thing that imposes a ceiling. Deliberately NOT folded into #PGR-9: there is no palette-only job to reuse (`ProcessImageVariantsJob` extracts palette as a side effect of variant generation and cannot be pointed at a backlog row), so this is net-new work; and dispatching by default would break `tests/Feature/Console/BackfillMediaPaletteCommandTest.php:65-71`, which asserts the palette has landed after `artisan()` returns.
+    - **Plain English:** The command downloads and processes each photo itself, and nothing can interrupt it if one download stalls. Capping how many photos it does per run bounds a slow run, but not a stuck one — a single frozen download still hangs it indefinitely. Handing the work to a background worker gives it a stopwatch that can cut a stuck job off.
+    - **Evidence:**
+        ```php
+        // The command's own comment — correct about volume, silent about a hung read
+        // $timeout is not read by Illuminate\Console\Command; --limit is the real
+        // mitigation for a long run.
         ```
