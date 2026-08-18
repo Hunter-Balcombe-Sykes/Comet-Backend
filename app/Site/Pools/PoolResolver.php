@@ -545,11 +545,11 @@ class PoolResolver
             ->whereIn('content.offers.item_id', $ids)
             ->whereNotNull('content.offers.url')
             ->orderByDesc('content.sources.priority')
-            ->get(['content.offers.item_id', 'content.offers.url'])
+            ->get(['content.offers.item_id', 'content.offers.url', 'content.sources.kind as source_kind'])
             ->map(function (object $row): ?object {
                 $platform = ItemLinkRules::platformForUrl((string) $row->url);
 
-                return $platform === null ? null : (object) ['item_id' => $row->item_id, 'url' => (string) $row->url, 'source_kind' => 'connection', 'platform' => $platform];
+                return $platform === null ? null : (object) ['item_id' => $row->item_id, 'url' => (string) $row->url, 'source_kind' => (string) $row->source_kind, 'platform' => $platform];
             })
             ->filter()
             ->groupBy('item_id');
@@ -610,7 +610,20 @@ class PoolResolver
                 $ingestByConnection = [];
             }
         }
-        $sourcesByItem = $sourceRows->map(function ($rows) use ($ingestByConnection): array {
+        // Where a manual-lane item came from. The manual source is one row per
+        // user (partial unique index), so it cannot say "found in your bio
+        // link" vs "typed by you" itself; the writer records that as a typed
+        // item tag (tag_type 'origin', e.g. 'link_in_bio') and the sheet reads
+        // it here. Absent = added by hand.
+        $originByItem = DB::connection('pgsql')->table('content.item_tags')
+            ->whereIn('item_id', $ids)
+            ->where('tag_type', 'origin')
+            ->get(['item_id', 'tag'])
+            ->groupBy('item_id')
+            ->map(fn ($rows) => (string) $rows->first()->tag)
+            ->all();
+
+        $sourcesByItem = $sourceRows->map(function ($rows, $itemId) use ($ingestByConnection, $originByItem): array {
             $seen = [];
             $out = [];
             foreach ($rows as $row) {
@@ -624,7 +637,7 @@ class PoolResolver
                 // Date() would read as LOCAL time (a +10h badge — review).
                 $iso = fn ($v) => $v === null ? null : Carbon::parse((string) $v)->toIso8601String();
                 if ($row->source_kind === 'manual') {
-                    $out[] = ['kind' => 'manual', 'platform' => null, 'accountName' => null, 'lastSeenAt' => $iso($row->last_seen_at), 'lastSyncedAt' => null, 'autoSync' => false, 'active' => true];
+                    $out[] = ['kind' => 'manual', 'platform' => null, 'accountName' => null, 'origin' => $originByItem[(string) $itemId] ?? null, 'lastSeenAt' => $iso($row->last_seen_at), 'lastSyncedAt' => null, 'autoSync' => false, 'active' => true];
 
                     continue;
                 }
@@ -1278,31 +1291,65 @@ class PoolResolver
         return $platform === null || $platform === '' ? $platform : str_replace('_', '-', $platform);
     }
 
+    /**
+     * `source` on each link (the sheet's badge + whether it can be removed):
+     *   synced — a connection's source listed it; the platform keeps it current
+     *   own    — the manual lane's own f_link (a hand-added or bio-found item's
+     *            URL); it is the item, not a per-platform extra, and there is
+     *            no item_links row to delete
+     *   manual — a hand-saved item_links row for a platform no source covers
+     *
+     * A manual-source row carries no connection, so its platform is derived
+     * from the URL host (roster match) rather than left NULL — NULL drew a
+     * blank glyph, titled the row by its host, and slipped past the
+     * per-platform dedupe, so the same eventbrite URL listed twice (once from
+     * f_link, once synthesised from the offer). Dedupe is by platform AND by
+     * URL, so an unrostered host cannot double up either.
+     */
     private function linkSet(Collection $sourceRows, Collection $manualRows): array
     {
         $links = [];
         $seen = [];
+        $seenUrls = [];
 
         foreach ($sourceRows as $row) {
-            $platform = $row->platform !== null ? (string) $row->platform : null;
-            if ($platform !== null && isset($seen[$platform])) {
+            $url = (string) $row->url;
+            $isOwn = ($row->source_kind ?? null) === 'manual';
+            $platform = $row->platform !== null && $row->platform !== '' ? (string) $row->platform : null;
+            if ($platform === null && $isOwn) {
+                $platform = ItemLinkRules::platformForUrl($url);
+            }
+            $urlKey = self::linkUrlKey($url);
+            if (($platform !== null && isset($seen[$platform])) || isset($seenUrls[$urlKey])) {
                 continue;
             }
             if ($platform !== null) {
                 $seen[$platform] = true;
             }
-            $links[] = ['platform' => $platform, 'url' => (string) $row->url, 'source' => 'synced'];
+            $seenUrls[$urlKey] = true;
+            $links[] = ['platform' => $platform, 'url' => $url, 'source' => $isOwn ? 'own' : 'synced'];
         }
 
         foreach ($manualRows as $row) {
-            if (isset($seen[$row->platform])) {
+            $urlKey = self::linkUrlKey((string) $row->url);
+            if (isset($seen[$row->platform]) || isset($seenUrls[$urlKey])) {
                 continue;
             }
             $seen[$row->platform] = true;
+            $seenUrls[$urlKey] = true;
             $links[] = ['platform' => (string) $row->platform, 'url' => (string) $row->url, 'source' => 'manual'];
         }
 
         return $links;
+    }
+
+    /** Case-insensitive, scheme- and trailing-slash-insensitive dedupe key. */
+    private static function linkUrlKey(string $url): string
+    {
+        $key = strtolower(trim($url));
+        $key = preg_replace('#^https?://(www\.)?#', '', $key) ?? $key;
+
+        return rtrim($key, '/');
     }
 
     /**

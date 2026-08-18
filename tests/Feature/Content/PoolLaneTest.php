@@ -600,3 +600,45 @@ it('listen auto-selects a source\'s newest release AND its newest track, each be
         ->update(['display_settings' => json_encode(['auto_sync_latest_track' => false])]);
     expect(poolHeadlines(poolGet($pro, 'listen')))->toEqualCanonicalizing(['New single', 'Spotify newest']);
 });
+
+// ── Manual-lane provenance on the wire (gsnwilliams, 2026-08-18) ────────────
+
+it('lists a manual-lane item\'s own link once, with its platform glyph, as `own` — not twice and not "synced"', function () {
+    // The event sheet showed the same eventbrite URL twice: once from f_link
+    // (manual source → NULL platform → blank glyph, host-as-title) and once
+    // synthesised from the offer url by host (eventbrite), both badged
+    // "Synced" — the dedupe keyed on platform, a NULL platform was never
+    // marked seen, and 'synced' was hard-coded for every source row.
+    [$pro] = poolTenant();
+    $manual = poolSource($pro->id, null);
+    $url = 'https://www.eventbrite.com.au/e/hobart-mens-hair-workshop-tickets-1993984195405';
+    $event = poolItem($pro->id, $manual, 'video', 'Hobart Mens Hair Workshop', now()->toDateTimeString());
+    DB::table('content.f_link')->insert(['item_id' => $event, 'source_id' => $manual, 'url' => $url, 'updated_at' => now()]);
+    DB::table('content.offers')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $event, 'source_id' => $manual,
+        'amount_minor' => 16014, 'currency' => 'AUD', 'qualifier' => 'from', 'url' => $url,
+        'updated_at' => now(),
+    ]);
+
+    $item = collect(poolGet($pro, 'watch')['library'])->firstWhere('id', $event);
+
+    expect($item['links'])->toBe([
+        ['platform' => 'eventbrite', 'url' => $url, 'source' => 'own'],
+    ]);
+});
+
+it('says where a manual-lane item came from: no origin tag = added by hand, an origin tag = discovered', function () {
+    [$pro] = poolTenant();
+    $manual = poolSource($pro->id, null);
+    $byHand = poolItem($pro->id, $manual, 'video', 'By hand', now()->toDateTimeString());
+    $found = poolItem($pro->id, $manual, 'video', 'Found in bio', now()->subMinute()->toDateTimeString());
+    DB::table('content.item_tags')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $found, 'source_id' => $manual,
+        'tag' => 'link_in_bio', 'tag_type' => 'origin',
+    ]);
+
+    $library = collect(poolGet($pro, 'watch')['library']);
+
+    expect($library->firstWhere('id', $byHand)['sources'][0])->toMatchArray(['kind' => 'manual', 'origin' => null])
+        ->and($library->firstWhere('id', $found)['sources'][0])->toMatchArray(['kind' => 'manual', 'origin' => 'link_in_bio']);
+});

@@ -217,9 +217,13 @@ class SourceProvisioner
                 ?? $this->humanitixHostUrl($resource),
             'vimeo' => $this->cleanString($payload['apiPath'] ?? null)
                 ?? $this->bareSlug($resource, 'vimeo'),
+            // `handle` is the legacy connect flow's key; `username` is what
+            // ConnectionPayload::forWrite writes for every handle-kind surface
+            // the router places. Same fact, two spellings — both provision.
             'youtube' => $this->cleanString($payload['channelId'] ?? null)
                 ?? $this->youtubeChannelId($resource)
-                ?? $this->bareSlug($payload['handle'] ?? null, 'youtube'),
+                ?? $this->bareSlug($payload['handle'] ?? null, 'youtube')
+                ?? $this->bareSlug($payload['username'] ?? null, 'youtube'),
             // No handle fallback: the legacy youtube-music connect flow always
             // resolved and stored the Topic channel's UC… id.
             'youtube_music' => $this->youtubeChannelId((string) ($payload['channelId'] ?? ''))

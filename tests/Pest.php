@@ -1139,7 +1139,7 @@ function setupSitesTable(): void
         is_active INTEGER NOT NULL DEFAULT 1,
         last_visited_at TEXT NULL,
         last_refreshed_at TEXT NULL,
-        last_refresh_status TEXT NULL CHECK (last_refresh_status IN (\'ok\',\'unavailable\',\'error\',\'pending\')),
+        last_refresh_status TEXT NULL CHECK (last_refresh_status IN (\'ok\',\'unavailable\',\'error\',\'pending\',\'action_needed\')),
         last_refresh_error TEXT NULL,
         consecutive_failures INTEGER NOT NULL DEFAULT 0,
         apify_status TEXT NULL CHECK (apify_status IS NULL OR apify_status IN (\'pending\',\'ok\',\'unavailable\')),

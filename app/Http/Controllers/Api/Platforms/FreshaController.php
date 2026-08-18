@@ -55,6 +55,29 @@ class FreshaController extends ApiController
         return Platform::Fresha->value;
     }
 
+    /**
+     * Fresha is single-selection (booking XOR) but has TWO writers: this
+     * controller keys the row `resource_id = 'fresha'`, the routing lane keys
+     * it by the venue slug (`SourceReconciler::applyIntent`, link-in-bio /
+     * paste). One user, one Fresha row — so every unnamed read and write here
+     * addresses whichever row exists, and only falls back to the legacy slot
+     * when there is none. Without this /team, /selection and saveSelection
+     * 404 on a router-placed connection (gsnwilliams, 2026-08-18).
+     */
+    protected function resolveResourceId(User $user, ?string $resourceId): string
+    {
+        if ($resourceId !== null) {
+            return $resourceId;
+        }
+
+        $existing = $user->integrationConnections()
+            ->where('platform', $this->platform())
+            ->orderBy('created_at')
+            ->value('resource_id');
+
+        return is_string($existing) && $existing !== '' ? $existing : $this->defaultResourceId();
+    }
+
     // The per-user Fresha connection payload is { url, selection } — the connected
     // store URL plus the saved { storeName, employee, services } blob (or null).
     private function freshaUrl(User $user): ?string

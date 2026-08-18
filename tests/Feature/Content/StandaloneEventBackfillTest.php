@@ -136,14 +136,19 @@ it('carries the occurrence, place, description and price onto facets', function 
 // (LinkPoolWriter), and EventsCatalog::storeCustom inherited that ruling. A
 // migration is not the place to reopen it: an evbuc.com URL is a hotlink with
 // its own expiry, not an asset this platform owns.
-it('does not mint a media asset for the scraped cover image', function () {
+it('mints a cover media asset for the scraped event image, like the connector lane does', function () {
+    // Was "does not mint" under Phase 3's no-third-party-image ruling.
+    // Reversed 2026-08-18: LinkPoolWriter already mints og:image for links,
+    // SchemaOrgEventProjector always minted the event image, and a
+    // hand-added / bio-found event was the one shape left without a
+    // picture. Same source_url-only asset, role `cover`.
     [$userId] = seedUserWithSite();
     sevConnection($userId);
 
     app(StandaloneEventBackfiller::class)->run();
 
-    expect(DB::table('content.item_media')->count())->toBe(0)
-        ->and(DB::table('content.media_assets')->count())->toBe(0);
+    expect(DB::table('content.item_media')->where('role', 'cover')->count())->toBe(1)
+        ->and(DB::table('content.media_assets')->count())->toBe(1);
 });
 
 // The coord IS the fold-in seam. §1.7's one-coord-per-canonical-URL rule: an

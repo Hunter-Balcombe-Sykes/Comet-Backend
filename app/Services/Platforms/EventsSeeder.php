@@ -149,8 +149,18 @@ class EventsSeeder
      * ACCOUNT row became in slice 2. Both selection readers skip a connection
      * row whose canonical URL already has a pool card, so the pair is never
      * listed twice.
+     *
+     * $withConnectionRow = false is the NEW-LANE contract (LinkInBioImporter,
+     * owner ruling 2026-08-18): that path records no payload finding, so the
+     * connection row is not read by anyone — it only surfaced as a bogus
+     * "Eventbrite" platform beside the real event item (gsnwilliams). Same
+     * write as the interactive addEvent verb: the pool item and nothing else.
+     * Legacy callers (LinkRouter::seedEvent, CommerceProbeJob) still record a
+     * finding keyed to the row and keep the default. Returns the canonical
+     * event URL in that mode — a non-null "written" signal for the caller's
+     * tally, never a resource_id (there is none).
      */
-    public function seedStandalone(User $user, string $platform, string $url): ?string
+    public function seedStandalone(User $user, string $platform, string $url, bool $withConnectionRow = true, ?string $origin = null): ?string
     {
         if (! in_array($platform, self::PLATFORMS, true)) {
             return null;
@@ -172,6 +182,33 @@ class EventsSeeder
 
         $payload = EventsPayload::standalonePayload($event);
         $rid = 'event-'.$payload['id'];
+
+        if (! $withConnectionRow) {
+            // No wasDisconnected() here: that tombstone is "the owner removed
+            // this CONNECTION row" (the legacy dual write left one behind, and
+            // migrated accounts still carry soft-deleted ones). The pool item
+            // has its own remove semantics (removed_at on the item), which
+            // ManualEventWriter honours the same way for a hand re-add.
+            $writer = app(ManualEventWriter::class);
+            if ($writer->wouldExceedCap($user, $canonical)) {
+                Log::info('events_seeder.event_cap', ['user_id' => (string) $user->id, 'platform' => $platform, 'lane' => 'pool']);
+
+                return null;
+            }
+
+            try {
+                $item = $writer->addStandalone($user, $canonical, StandaloneEventPayload::fromArray($payload)->event(), $origin);
+            } catch (\Throwable $e) {
+                report($e);
+                Log::warning('events_seeder.pool_write_failed', [
+                    'user_id' => (string) $user->id, 'platform' => $platform, 'error' => $e->getMessage(),
+                ]);
+
+                return null;
+            }
+
+            return $item === null ? null : $canonical;
+        }
 
         if ($this->wasDisconnected($user, $platform, $rid)) {
             return null;
