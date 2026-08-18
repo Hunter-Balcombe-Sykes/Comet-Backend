@@ -365,6 +365,37 @@ it('breaks a full timestamp tie to exactly one auto item per source', function (
     expect(poolGet($pro)['selection'])->toHaveCount(1);
 });
 
+it('never lets an undated item outrank a dated one — on the auto arm, the recency order and the Latest tag (X5)', function () {
+    // Overnight X5: an Apple song with no releaseDate ("Runway Houses City
+    // Clouds (2020 Mix)") carried first_seen_at = connect time and beat every
+    // dated release of the same source on COALESCE(published, first_seen), so
+    // it took the auto slot and the Latest tag off last month's single.
+    config(['partna.pools.auto_latest_n' => 10]);
+    [$pro] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $dated = poolItem($pro->id, $source, 'video', 'Dated last month', now()->subDays(30)->toDateTimeString());
+    $undated = poolItem($pro->id, $source, 'video', 'Undated, seen today', now()->toDateTimeString());
+    DB::table('content.f_published')->where('item_id', $undated)->delete();
+    DB::table('content.items')->where('id', $undated)->update(['first_seen_at' => now()]);
+
+    $data = poolGet($pro);
+    expect(poolHeadlines($data))->toBe(['Dated last month']);
+    expect($data['latestItemId'])->toBe($dated);
+
+    // Same rule for a media pool's N-newest window: dated rows sort first,
+    // undated ones after (by first-seen among themselves).
+    $media = poolSource($pro->id, poolConnection($pro->id, 'instagram.profile'));
+    $seenFirst = poolItem($pro->id, $media, 'media', 'Undated A', now()->toDateTimeString());
+    $seenLater = poolItem($pro->id, $media, 'media', 'Undated B', now()->toDateTimeString());
+    $datedMedia = poolItem($pro->id, $media, 'media', 'Dated', now()->subYear()->toDateTimeString());
+    DB::table('content.f_published')->whereIn('item_id', [$seenFirst, $seenLater])->delete();
+    DB::table('content.items')->where('id', $seenFirst)->update(['first_seen_at' => now()->subHour()]);
+    DB::table('content.items')->where('id', $seenLater)->update(['first_seen_at' => now()]);
+
+    expect(array_column(poolGet($pro, 'media')['selection'], 'id'))->toBe([$datedMedia, $seenLater, $seenFirst]);
+});
+
 it('hand-adds an item by link: manual source, pinned, titled', function () {
     [$pro] = poolTenant();
 

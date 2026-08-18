@@ -7,6 +7,8 @@ use App\Ingest\Message\Covered;
 use App\Ingest\Message\Note;
 use App\Ingest\Message\Record;
 use App\Ingest\Message\Unavailable;
+use App\Ingest\Projection\BandcampReleaseProjector;
+use App\Ingest\Projection\RecordView;
 use App\Ingest\Runtime\EffectRefused;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
@@ -226,4 +228,59 @@ it('uses a Catalogue profile, so its absences can mean deletion', function () {
     expect($spec->profile)->toBe(SourceProfile::Catalogue)
         ->and($spec->orderField)->toBe('release_date')
         ->and($spec->mayDelete())->toBeTrue();
+});
+
+it('reads the server-rendered grid AND the client blob, credits the band, and dates each release from its page (F24)', function () {
+    // The real /music page (menitrust, 2026-08-18): the newest releases are
+    // <li> markup, the older remainder is data-client-items, neither half has
+    // an artist or a date, and data-band names the band. Reading only the blob
+    // landed the ten oldest releases, undated and uncredited.
+    $band = htmlspecialchars(json_encode(['id' => 1, 'name' => 'Some Artist']), ENT_QUOTES);
+    $blob = htmlspecialchars(json_encode([
+        ['art_id' => 333, 'band_id' => 1, 'id' => 3, 'page_url' => '/track/old-single', 'title' => 'Old Single', 'type' => 'track'],
+    ]), ENT_QUOTES);
+    $music = '<html><ol id="music-grid" data-band="'.$band.'" data-client-items="'.$blob.'">'
+        .'<li class="music-grid-item"><a href="/album/new-album"><div class="art"><img src="https://f4.bcbits.com/img/a0111_2.jpg" alt="" /></div><p class="title">New Album</p></a></li>'
+        .'<li class="music-grid-item"><a href="/album/short-one"><div class="art"><img src="https://f4.bcbits.com/img/a0222_2.jpg" alt="" /></div><p class="title">Short One</p></a></li>'
+        .'</ol></html>';
+    $ld = fn (array $d) => '<html><script type="application/ld+json">'.json_encode($d).'</script></html>';
+    $io = bandcampIo([
+        'https://someartist.bandcamp.com/music' => ['status' => 200, 'body' => $music, 'headers' => []],
+        'https://someartist.bandcamp.com/album/new-album' => ['status' => 200, 'body' => $ld([
+            '@type' => 'MusicAlbum', 'name' => 'New Album', 'datePublished' => '06 May 2025 00:00:00 GMT',
+            'byArtist' => ['@type' => 'MusicGroup', 'name' => 'Some Artist'], 'numTracks' => 13,
+            'image' => 'https://f4.bcbits.com/img/a0111_10.jpg',
+        ]), 'headers' => []],
+        'https://someartist.bandcamp.com/album/short-one' => ['status' => 200, 'body' => $ld([
+            '@type' => 'MusicAlbum', 'name' => 'Short One', 'datePublished' => '10 Jun 2015 00:00:00 GMT',
+            'byArtist' => ['@type' => 'MusicGroup', 'name' => 'Some Artist & A Friend'], 'numTracks' => 4,
+        ]), 'headers' => []],
+        // The blob item's page 404s: it still lands, undated, credited to the band.
+    ]);
+
+    $records = array_values(array_filter(
+        iterator_to_array((new BandcampConnector)->pull(bandcampPull(), $io)),
+        fn ($m) => $m instanceof Record,
+    ));
+    $byKey = collect($records)->keyBy('key');
+
+    expect($byKey->keys()->all())->toBe(['album/new-album', 'album/short-one', 'track/old-single'])
+        ->and($byKey['album/new-album']->doc)->toMatchArray([
+            'title' => 'New Album', 'artist' => 'Some Artist', 'release_date' => '2025-05-06',
+            'track_count' => 13, 'type' => 'album', 'art_url' => 'https://f4.bcbits.com/img/a0111_10.jpg',
+        ])
+        ->and($byKey['album/short-one']->doc)->toMatchArray([
+            'artist' => 'Some Artist & A Friend', 'release_date' => '2015-06-10', 'track_count' => 4,
+        ])
+        ->and($byKey['track/old-single']->doc)->toMatchArray([
+            'title' => 'Old Single', 'artist' => 'Some Artist', 'release_date' => null, 'type' => 'track',
+            'art_url' => 'https://f4.bcbits.com/img/a333_10.jpg',
+        ]);
+
+    // And the projector turns numTracks into the listen format vocabulary.
+    $projector = new BandcampReleaseProjector;
+    $format = fn ($doc) => $projector->project(new RecordView($doc, 'k'))['facets']['f_catalog']['release_type'];
+    expect($format($byKey['album/new-album']->doc))->toBe('album')
+        ->and($format($byKey['album/short-one']->doc))->toBe('ep')
+        ->and($format($byKey['track/old-single']->doc))->toBe('single');
 });

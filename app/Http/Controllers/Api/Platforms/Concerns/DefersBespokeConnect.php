@@ -138,9 +138,7 @@ trait DefersBespokeConnect
         bool $perAccount = false,
         string $notFoundMessage = 'Account not found.',
     ): JsonResponse {
-        $row = $perAccount
-            ? $this->requestedAccountRow($user, $accountId)
-            : $this->connectionFor($user);
+        $row = $this->connectStatusRow($user, $accountId, $perAccount);
 
         // 404, never 403: both readers are already scoped to the caller's own
         // connections, so another user's row is never visible to look up in

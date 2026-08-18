@@ -1441,6 +1441,13 @@ class ProjectionWriter
         foreach ($missing as $fingerprint => [$entry, $url]) {
             $uploadSiteMediaId = MediaFingerprint::uploadSiteMediaId($entry);
             $isUpload = $uploadSiteMediaId !== null;
+            // A music-CDN url that encodes its size (Apple 1200x1200bb, Spotify
+            // b273 = 640, Bandcamp _10 = 1200…) is a declared dimension too:
+            // without it every cover was "unknown" and best-cover fell back to
+            // source priority (session 3, 2026-08-18).
+            if (! $isUpload && ! isset($entry['width']) && is_string($url) && ($dims = ArtworkDims::infer($url)) !== null) {
+                [$entry['width'], $entry['height']] = $dims;
+            }
             $rows[] = [
                 'id' => (string) Str::uuid(),
                 'user_id' => $userId,

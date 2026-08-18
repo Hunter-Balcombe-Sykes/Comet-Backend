@@ -12,7 +12,7 @@ class BandcampReleaseProjector implements Projector
 {
     public static function version(): int
     {
-        return 2;
+        return 3;
     }
 
     public static function kind(): string
@@ -40,10 +40,13 @@ class BandcampReleaseProjector implements Projector
                 'f_published' => ['published_from' => $view->string('release_date')],
                 'f_authored' => ['creator' => $view->string('artist')],
                 // Bandcamp's own `type` is album|track; a standalone track page
-                // is a single in the listen vocabulary (album|ep|single).
+                // is a single in the listen vocabulary (album|ep|single), and an
+                // "album" page with a handful of tracks is an EP or a single —
+                // the same 3/6 thresholds AppleMusicReleaseProjector applies,
+                // so one release reads the same format from both platforms.
                 'f_catalog' => ['release_type' => match ($view->string('type')) {
                     'track' => 'single',
-                    'album' => 'album',
+                    'album' => AppleMusicReleaseProjector::formatFromName('', $view->int('track_count'))[1],
                     default => $view->string('type'),
                 }],
             ],

@@ -21,6 +21,11 @@ beforeEach(function () {
     setupSitesTable();
     setupIngestTables();
     setupContentTables();
+    // Every connector runs eagerly on connect (F21, 2026-08-18; paid ones by
+    // opt-in) — under the sync test queue the observer would run the connector
+    // inline and mint the stream row this file's helpers insert by hand. Keep
+    // the eager run out; the projection paths under test are exercised directly.
+    Bus::fake([RunSourceJob::class]);
 });
 
 /** A user + active bandcamp connection + its ingest source/stream, with $docs landed as current records. */
@@ -96,6 +101,14 @@ it('projects landed records into items, source items, and typed facet rows', fun
         ->and(DB::table('content.f_text')->where('item_id', $item->id)->value('headline'))->toBe('First Album')
         ->and(DB::table('content.item_media')->where('item_id', $item->id)->where('role', 'cover')->count())->toBe(1)
         ->and(DB::table('content.media_assets')->where('user_id', $userId)->count())->toBeGreaterThanOrEqual(1);
+
+    // A Bandcamp _10 cover is 1200px by the CDN's own naming: minted with
+    // DECLARED dims so best-cover can rank it against other sources.
+    $asset = DB::table('content.media_assets')->where('user_id', $userId)->where('source_url', 'like', '%a1_10.jpg')->first();
+    expect($asset)->not->toBeNull()
+        ->and((int) $asset->width)->toBe(1200)
+        ->and((int) $asset->height)->toBe(1200)
+        ->and($asset->dims_confidence)->toBe('declared');
 });
 
 // Nightwatch #370: SchemaOrgEventProjector writes zone_confidence
@@ -725,11 +738,6 @@ it('is inert for a projection that carries no collections key', function () {
 function projectableGoogleReviews(array $docs): array
 {
     $userId = createTenant('gbstats-'.Str::lower(Str::random(6)))->id;
-
-    // google_business is eagerOnConnect since 2026-08-18 (R8): the observer
-    // would run the connector inline under the sync queue and mint the
-    // 'reviews' stream this helper builds by hand. Keep the eager run out.
-    Bus::fake([RunSourceJob::class]);
 
     $connection = IntegrationConnection::create([
         'user_id' => $userId,

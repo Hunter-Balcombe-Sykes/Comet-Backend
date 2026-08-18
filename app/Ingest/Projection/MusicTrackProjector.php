@@ -55,7 +55,7 @@ abstract class MusicTrackProjector implements Projector
         // The release a track belongs to + its position (listen restructure
         // 2026-08-18): Apple songs and some actors say which album a track
         // is from; SoundCloud does not. Nullable throughout.
-        $album = $view->string('album');
+        $album = $this->albumTitle($view->string('album'));
         $trackNumber = $view->int('track_number');
         $discNumber = $view->int('disc_number');
         $catalog = array_filter([
@@ -82,5 +82,15 @@ abstract class MusicTrackProjector implements Projector
                 ['role' => 'cover', 'url' => $artwork],
             ],
         ];
+    }
+
+    /**
+     * The parent release's title as it should read on the wire (`album`).
+     * Vendors that suffix the format onto the collection name override this
+     * so a track's album matches its release item's title.
+     */
+    protected function albumTitle(?string $album): ?string
+    {
+        return $album;
     }
 }

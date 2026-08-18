@@ -253,10 +253,12 @@ class IntegrationConnectionObserver
 
     /**
      * Run a NEWLY provisioned source once, immediately, when its connector asks
-     * for it (Manifest::runsEagerlyOnConnect) — the only trigger a paid
-     * connector has. SourceProvisioner sets auto_sync = (cost === Free) and
+     * for it (Manifest::runsEagerlyOnConnect: every Free connector, plus the
+     * paid ones that opt in). For a paid connector this is the only trigger it
+     * has: SourceProvisioner sets auto_sync = (cost === Free) and
      * SourceScheduler::scoreDue() selects only auto_sync = true, so without
-     * this an instagram source is created and then never runs.
+     * this an instagram source is created and then never runs. For a free one
+     * it is what makes "connect → content" immediate instead of next-tick (F21).
      *
      * `created` (and `reselected`) ONLY, and that gate is load-bearing: syncIngestSource() is also
      * called from the payload-change path and from restored(). Firing on

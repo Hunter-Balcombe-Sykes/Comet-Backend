@@ -275,7 +275,7 @@ class FreshaController extends ApiController
     public function connectStatus(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $row = $this->connectionFor($user);
+        $row = $this->connectStatusRow($user, null, perAccount: false);
 
         // The dashboard's manual refresh button (RefreshController::refresh())
         // can flip a stranded pending row to 'ok' without ever running THIS

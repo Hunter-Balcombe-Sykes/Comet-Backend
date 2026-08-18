@@ -124,9 +124,14 @@ class SectionCandidates
             // identically across a whole catalogue, so a fresh Instagram
             // connect published its photos in arbitrary order (overnight
             // F13). first_seen_at is stable across re-projections; ties break
-            // on id so the order is total.
+            // on id so the order is total. Dated rows come before undated ones
+            // (X5): first_seen_at is when WE saw the item, not a release date,
+            // so an undated Apple song from 2020 must not sort above last
+            // month's single just because both connections landed today.
             default => $query->orderByRaw(
-                'COALESCE((SELECT MAX(fp.published_from) FROM content.f_published fp'
+                '((SELECT MAX(fp.published_from) FROM content.f_published fp'
+                .' WHERE fp.item_id = content.items.id) IS NOT NULL) DESC,'
+                .' COALESCE((SELECT MAX(fp.published_from) FROM content.f_published fp'
                 .' WHERE fp.item_id = content.items.id), content.items.first_seen_at) DESC, content.items.id DESC'
             ),
         };
@@ -324,13 +329,16 @@ class SectionCandidates
      * $toggles is not explicitly false on that connection's sparse
      * display_settings.
      *
-     * "Newer": published when a source dated it, first-seen otherwise. Ties
-     * break on id — a bulk first-ingest stamps one first_seen_at across a
-     * whole catalogue, and without a total order NOTHING is "newer", so
-     * EVERY item won (live smoke, ollies). The whole comparison is
-     * parenthesised: without that the OR escaped the same-source / kind
-     * filters and any equal-timestamp row in the table — another user's
-     * copy of the same video — made every candidate lose (overnight F1).
+     * "Newer": published when a source dated it, first-seen otherwise, and a
+     * DATED item is always newer than an undated one (X5: an Apple song with
+     * no releaseDate carried first_seen_at = today and beat every dated
+     * release of the same source). Ties break on id — a bulk first-ingest
+     * stamps one first_seen_at across a whole catalogue, and without a total
+     * order NOTHING is "newer", so EVERY item won (live smoke, ollies). The
+     * whole comparison is parenthesised: without that the OR escaped the
+     * same-source / kind filters and any equal-timestamp row in the table —
+     * another user's copy of the same video — made every candidate lose
+     * (overnight F1).
      *
      * @param  list<string>  $values
      * @param  list<string>  $toggles
@@ -379,9 +387,11 @@ class SectionCandidates
                 .' and si2.removed_at is null and i2.removed_at is null'
                 .' and i2.id <> content.items.id'
                 .' and '.$kindSql
+                .' and ((p2.published_from is not null and p1.published_from is null)'
+                .' or ((p2.published_from is null) = (p1.published_from is null)'
                 .' and (COALESCE(p2.published_from, i2.first_seen_at) > COALESCE(p1.published_from, content.items.first_seen_at)'
                 .' or (COALESCE(p2.published_from, i2.first_seen_at) = COALESCE(p1.published_from, content.items.first_seen_at)'
-                .' and i2.id > content.items.id))'
+                .' and i2.id > content.items.id))))'
                 .') < ?',
                 [...($kinds ?? []), $n]
             );

@@ -49,6 +49,34 @@ class RunExecutor
     {
         $runId = (string) Str::uuid();
 
+        // A previous run of this source that never finished — the worker was
+        // killed, the job timed out (RunSourceJob::$timeout), the box rebooted
+        // — leaves its ingest.runs row open AND, worse, a half-written
+        // projection: source items and identity keys land per record, the
+        // facets in a later pass, so a kill in between leaves items with no
+        // headline, link or date. The next run then saw "0 changed" and
+        // projected nothing, so those blanks lived forever (F25, session 3:
+        // 200 blank Song Exploder episodes). Close the abandoned rows and
+        // make THIS run project regardless of change.
+        $abandoned = DB::table('ingest.runs')
+            ->where('source_id', $source['id'])
+            ->whereNull('finished_at')
+            ->update([
+                'finished_at' => now(),
+                // 'error' is what runs_outcome_check admits; the class says why.
+                'outcome' => 'error',
+                'error_class' => 'RunAbandoned',
+            ]);
+        // RunSourceJob::failed() closes the row itself when it gets the chance
+        // (a job timeout does reach failed()), so an 'error' latest run is
+        // the same signal seen from the other side.
+        $latestOutcome = DB::table('ingest.runs')
+            ->where('source_id', $source['id'])
+            ->whereNotNull('finished_at')
+            ->orderByDesc('started_at')
+            ->value('outcome');
+        $forceProject = $abandoned > 0 || $latestOutcome === 'error';
+
         DB::table('ingest.runs')->insert([
             'id' => $runId,
             'source_id' => $source['id'],
@@ -169,9 +197,10 @@ class RunExecutor
             // Landing → Projection, in the same run (plan §4): content rows
             // exist the moment records land, not on some later sweep. Only
             // when something moved — an unchanged run has nothing to project
-            // — and never fatal to the fetch: the record log is durable, so a
+            // — unless the previous run was abandoned mid-projection (above);
+            // and never fatal to the fetch: the record log is durable, so a
             // projection bug is recoverable by `ingest:project` after a fix.
-            if (($landed['changed'] > 0 || $landed['tombstoned'] > 0)
+            if (($landed['changed'] > 0 || $landed['tombstoned'] > 0 || $forceProject)
                 && ProjectorRegistry::has((string) $source['source_key'], $streamName)) {
                 try {
                     $this->projections->projectStream($source, $streamId, $streamName);
