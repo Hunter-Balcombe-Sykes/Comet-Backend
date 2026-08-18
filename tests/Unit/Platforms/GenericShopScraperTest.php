@@ -359,16 +359,17 @@ function genericScraperAtRoot(string $html, string $finalUrl = 'https://shop.exa
 
 /**
  * N-C (2026-08-18 Instagram wave) — a storefront HOMEPAGE carrying exactly ONE
- * Product node is still a homepage, not a product page.
+ * Product node is still a homepage, not a product page. The list guard only
+ * fires at count >= 2, so a shop featuring a single item had $products[0]
+ * taken and published as though the homepage were that product's page.
  *
- * Live case: paytherent.net.au/ is a WooCommerce site whose homepage embeds a
- * single schema.org Product node for a private draft — literally
- * {"@type":"Product","name":"Private: Demo"}. The list guard only fires at
- * count >= 2, so $products[0] was taken and an unfinished draft was published
- * as a product on a real user's public site (crucibletattooco, 2026-08-18).
- *
- * The root-URL storefront check that would have caught it already exists, but
- * sits BELOW the product return and so was unreachable for this input.
+ * Premise correction (R7, 2026-08-18): this test was written believing its
+ * live case was paytherent.net.au and that the site was WooCommerce. It is
+ * neither a shop nor WooCommerce — the live page carries NO storefront marker
+ * of any kind, so this guard never fired for it and the fixture below is a
+ * synthetic WooCommerce homepage, not that site. The real paytherent case is
+ * covered by the name-only tests further down; this one covers a genuine
+ * single-product storefront homepage, which is still worth guarding.
  */
 it('treats a single-product storefront homepage as a store page, not a product', function () {
     $ld = json_encode([
@@ -428,4 +429,101 @@ it('still extracts a product from a deep url on a storefront', function () {
 
     expect($read['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT)
         ->and($read['product']['title'])->toBe('Ceramic Mug');
+});
+
+/**
+ * R7 (2026-08-18 Instagram wave) — a schema.org Product node carrying NOTHING
+ * but a name is not a product.
+ *
+ * Live case: paytherent.net.au/ is a rent-payment campaign site, not a shop.
+ * Its entire JSON-LD is one node emitted by a WordPress reviews plugin, which
+ * wraps its ratings in a dummy Product purely because rich results require a
+ * rating to hang off a Product-ish type:
+ *
+ *   {"@type":"Product","name":"Private: Demo",
+ *    "aggregateRating":{"ratingValue":"5","reviewCount":"3"},"review":[]}
+ *
+ * No offers, no price, no sku, no image, no url. The extractor asked only for
+ * a non-empty `name`, so the plugin's demo row became a `product` item on a
+ * real user's site (crucibletattooco, 2026-08-18).
+ *
+ * The rule mirrors productFromOpenGraph()'s existing one (og:title alone is
+ * ANY webpage): a node needs a deterministic commerce signal, not just a name.
+ */
+$ratingWidgetOnlyHtml = '<html><head><title>Pay The Rent</title>'
+    .'<script type="application/ld+json">'.json_encode([
+        '@context' => 'http://schema.org',
+        '@type' => 'Product',
+        'name' => 'Private: Demo',
+        'aggregateRating' => ['@type' => 'AggregateRating', 'bestRating' => '5', 'ratingValue' => '5', 'worstRating' => '1', 'reviewCount' => '3'],
+        'review' => [],
+    ]).'</script></head><body>Saying sorry is not enough</body></html>';
+
+it('does not read a name-only Product node as a product', function () use ($ratingWidgetOnlyHtml) {
+    $read = genericScraperAtRoot($ratingWidgetOnlyHtml)->readProductPage('https://paytherent.example/');
+
+    expect($read['outcome'])->toBe(GenericShopScraper::OUTCOME_NO_PRODUCT);
+});
+
+it('returns no product payload for a name-only Product node', function () use ($ratingWidgetOnlyHtml) {
+    $read = genericScraperAtRoot($ratingWidgetOnlyHtml)->readProductPage('https://paytherent.example/');
+
+    expect($read['product'])->toBeNull();
+});
+
+/** The same node must not make the site a storefront for the brand-connect path either. */
+it('does not treat a name-only Product node as a shop page', function () use ($ratingWidgetOnlyHtml) {
+    $page = genericScraperAtRoot($ratingWidgetOnlyHtml)->fetchPage('https://paytherent.example/');
+
+    expect($page)->toBeNull();
+});
+
+/**
+ * Non-vacuity: the filter drops the rating carrier and keeps the real product
+ * on a page that carries both — it is not "reject everything on this page".
+ */
+it('keeps real products alongside a rating-carrier node', function () {
+    $ld = json_encode([
+        '@context' => 'https://schema.org',
+        '@type' => 'ItemList',
+        'itemListElement' => [
+            ['@type' => 'Product', 'name' => 'Private: Demo', 'aggregateRating' => ['ratingValue' => '5', 'reviewCount' => '3']],
+            ['@type' => 'Product', 'name' => 'Ceramic Mug', 'sku' => 'MUG-1', 'offers' => ['price' => '29.00', 'priceCurrency' => 'AUD']],
+        ],
+    ]);
+
+    $page = genericScraperWith('<html><head><script type="application/ld+json">'.$ld.'</script></head><body></body></html>')
+        ->fetchPage('https://shop.example/store');
+
+    expect(array_column($page['products'], 'title'))->toBe(['Ceramic Mug']);
+});
+
+/** An image is signal enough — the rule is not "must carry offers". */
+it('accepts a Product node whose only commerce signal is an image', function () {
+    $ld = json_encode([
+        '@context' => 'https://schema.org',
+        '@type' => 'Product',
+        'name' => 'Untitled Study',
+        'image' => 'https://shop.example/img/study.jpg',
+    ]);
+
+    $read = genericScraperWith('<html><head><script type="application/ld+json">'.$ld.'</script></head><body></body></html>')
+        ->readProductPage('https://shop.example/store');
+
+    expect($read['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT);
+});
+
+/** ...and so is a product URL distinct from the page it was read off. */
+it('accepts a Product node whose only commerce signal is its own url', function () {
+    $ld = json_encode([
+        '@context' => 'https://schema.org',
+        '@type' => 'Product',
+        'name' => 'Untitled Study',
+        'url' => 'https://shop.example/products/untitled-study',
+    ]);
+
+    $read = genericScraperWith('<html><head><script type="application/ld+json">'.$ld.'</script></head><body></body></html>')
+        ->readProductPage('https://shop.example/store');
+
+    expect($read['outcome'])->toBe(GenericShopScraper::OUTCOME_PRODUCT);
 });

@@ -132,14 +132,16 @@ class GenericShopScraper extends PlatformScraper
 
         // ...and so is a root page carrying exactly ONE, when the page is
         // demonstrably a storefront. The count >= 2 rule above assumed a
-        // homepage advertises many products; a WooCommerce shop that happens to
-        // feature a single item — or an unfinished draft — defeated it.
-        // paytherent.net.au/ emits one node, {"@type":"Product","name":
-        // "Private: Demo"}, and that draft was published to a real user's
-        // public site on 2026-08-18. The storefront-marker check below would
-        // have caught it, but sits under the product return and never ran.
-        // Requires looksLikeStorefront() rather than isRootUrl() alone so a
-        // genuine single-product site root is still read as a product.
+        // homepage advertises many products; a Shopify/WooCommerce shop that
+        // happens to feature a single item defeats it.
+        //
+        // This guard was added for paytherent.net.au (2026-08-18) and does NOT
+        // cover it — that page carries none of looksLikeStorefront()'s markers,
+        // so the case it was written for still fell through to the product
+        // return. hasCommerceSignal() is what actually closes it; this stays
+        // for the genuine single-product storefront homepage. Requires
+        // looksLikeStorefront() rather than isRootUrl() alone so a real
+        // single-product site root is still read as a product.
         if ($products !== [] && $this->isRootUrl($res['finalUrl']) && $this->looksLikeStorefront($html)) {
             return ['outcome' => self::OUTCOME_STORE_PAGE, 'product' => null, 'storeUrl' => $origin];
         }
@@ -267,7 +269,7 @@ class GenericShopScraper extends PlatformScraper
             $title = is_string($node['name'] ?? null)
                 ? html_entity_decode(trim($node['name']), ENT_QUOTES | ENT_HTML5)
                 : '';
-            if ($title === '') {
+            if ($title === '' || ! $this->hasCommerceSignal($node)) {
                 continue;
             }
 
@@ -309,6 +311,37 @@ class GenericShopScraper extends PlatformScraper
         }
 
         return $out;
+    }
+
+    /**
+     * A Product node needs a deterministic commerce signal, not just a name.
+     *
+     * R7: WordPress review plugins wrap their ratings in a dummy Product,
+     * because rich results require a rating to hang off a Product-ish type.
+     * paytherent.net.au/ — a rent-payment campaign, not a shop — emits exactly
+     * one node, {"@type":"Product","name":"Private: Demo","aggregateRating":
+     * {...},"review":[]}, and that plugin demo row was published as a product
+     * on a real user's site (crucibletattooco, 2026-08-18). `aggregateRating`
+     * and `review` are therefore deliberately NOT signals: they are precisely
+     * what the carriers do have.
+     *
+     * Same rule productFromOpenGraph() already applies (og:title alone is ANY
+     * webpage), applied to the JSON-LD path — which was trusted because @type
+     * looked deterministic. It is not: @type is self-declared by whatever
+     * plugin wrote the markup.
+     *
+     * @param  array<string,mixed>  $node
+     */
+    private function hasCommerceSignal(array $node): bool
+    {
+        foreach (['sku', 'productID', 'mpn', 'gtin', 'gtin8', 'gtin12', 'gtin13', 'gtin14', 'url', 'offers', 'image'] as $key) {
+            $value = $node[$key] ?? null;
+            if (is_array($value) ? $value !== [] : (is_scalar($value) && trim((string) $value) !== '')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** schema.org @type may be a string or a list (e.g. ["Product","Thing"]). */
