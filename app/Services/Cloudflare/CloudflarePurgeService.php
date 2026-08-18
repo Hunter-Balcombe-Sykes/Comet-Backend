@@ -2,15 +2,12 @@
 
 namespace App\Services\Cloudflare;
 
-use App\Enums\SitepageId;
-use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 // Wraps the Cloudflare zone cache-purge REST API.
 // POST https://api.cloudflare.com/client/v4/zones/{zone_id}/purge_cache
-//   body: {"files":["https://<handle>.partna.au/", ...]} | {"purge_everything": true}
+//   body: {"prefixes":["<handle>.partna.au/"]} | {"files":[...]} | {"purge_everything": true}
 //
 // Used by CloudflareCachePurgeJob (and only that job) to invalidate the edge
 // cache for individual public profile pages when the underlying site data changes.
@@ -20,71 +17,11 @@ use Illuminate\Support\Facades\Log;
 // Gracefully no-ops when unconfigured (local dev without CF credentials).
 class CloudflarePurgeService
 {
-    use EscalatesRepeatedFaults;
-
     // SCALE-101: gap between chunk POSTs on a multi-chunk purgeUrls() call, so a
     // burst of chunks doesn't slam Cloudflare's purge_cache endpoint back-to-back.
-    //
-    // Worst-case URL count for ONE purgeHandle() call (re-derived 2026-07-20,
-    // verified against source — the previous "~20 chunks ~3s" claim here was
-    // wrong by ~2.5x):
-    //   subpages : SitepageId::canonicalOrder() = 16 cases - 'home' (it's the
-    //              root) = 15, + privacy/terms/about = 18 pages x 2
-    //              (page + SWR shadow) + 3 root urls (base/, base, root
-    //              shadow)                                              =  39 / host
-    //   products : ->limit(100) x 2 (page + shadow)                     = 200 / host
-    //   menu     : ->limit(150) on EACH of two lanes — the content item id
-    //              and the item's current slug — deduped into one set, x 2
-    //                                                                   = 600 / host
-    //              Slice 4 (2026-08-15) took this to 900 for a THIRD lane
-    //              (the legacy site.menu_items uuid) while both menu wires
-    //              were live. Slice 7 dropped that table, and with it the
-    //              third lane: back to 600, exactly as §23.7 predicted.
-    //   events   : ->limit(100) on EACH of the same two lanes (content item
-    //              id + current slug), deduped, x 2                     = 400 / host
-    //              Was 200 while events addressed by provider hex id off
-    //              site.platform_connections.payload; that wire is retired
-    //              (PublicIntegrationConnectionResource ships [] for
-    //              eventbrite/humanitix/events-custom) and the pool serves
-    //              the same two forms menu items do — so events cost the
-    //              same per item as dishes, on half the item cap.
-    //   -------------------------------------------------------------------------
-    //   (39+200+600+400) x 2 hosts (canonical + optional custom domain)
-    //   + 3 API urls (profile + integrations + platforms)              = 2,481 URLs
-    //   chunked at 30/request (Cloudflare's `files` limit)              =    83 chunks
-    //                                                                       (82 gaps)
-    //
-    // The PACING BUDGET below is why that growth is safe on the sleep side and
-    // is exactly the case it was written for: guaranteed sleep stays capped at
-    // 2s however many chunks there are. The HTTP round trips are the side that
-    // scales, and they were already named as the dominant remaining risk — a
-    // max-volume purge is now ~83 sequential blocking calls rather than ~50,
-    // so raising CloudflareCachePurgeJob::$timeout is a stronger follow-up
-    // recommendation than it was, not a new one.
-    //
-    // At the OLD flat 150ms/chunk pacing that's 49 x 150ms = 7.35s of GUARANTEED
-    // sleep alone — 49% of CloudflareCachePurgeJob::$timeout=15 — before any of
-    // the 50 sequential blocking Http::post()->throw() round trips to Cloudflare.
-    // A power-user profile (shop + menu + events populated, plus a custom domain)
-    // could plausibly exceed the job timeout on sleep + network combined, with no
-    // partial-progress recovery on a mid-purge kill.
-    //
-    // Two changes close the SLEEP side of that gap:
-    //   1. Pacing cut to 50ms/chunk — still enough gap to smooth the burst.
-    //   2. A hard ceiling on TOTAL pacing time per purgeUrls() call
-    //      (PACING_BUDGET_MICROSECONDS): once hit, remaining chunks fire with no
-    //      further sleep. This bounds guaranteed sleep at 2s NO MATTER how large
-    //      the URL set grows — a future limit increase (e.g. raising the product
-    //      or menu-item cap) can't silently re-inflate guaranteed sleep in
-    //      lockstep with chunk count the way a flat per-chunk delay does — and
-    //      leaves >=13s of the 15s timeout for the HTTP round trips themselves.
-    // This only bounds the sleep contribution. The dominant remaining risk at max
-    // volume is the ~50 sequential blocking HTTP calls' own network time; raising
-    // CloudflareCachePurgeJob::$timeout with real margin is the complementary fix
-    // and is recommended as a follow-up (that file is out of scope here).
-    //
-    // Plain usleep (not a pool) because purgeUrls' chunk order matters for
-    // nothing and the volumes here don't justify Http::pool's added complexity.
+    // Since the 2026-08-19 prefix-purge rewrite purgeHandle() sends ONE prefix
+    // request plus a single ≤3-URL API chunk, so this fires zero times on that
+    // path; kept for any caller with a genuinely large file list.
     private const CHUNK_PACING_MICROSECONDS = 50_000;
 
     // Hard ceiling on total time slept across one purgeUrls() call — see the
@@ -176,29 +113,24 @@ class CloudflarePurgeService
     }
 
     /**
-     * Purge the full cache chain for one individual's public profile. The router
-     * Worker keys the edge cache by request PATH, so a profile occupies many keys:
-     *   • Root page (`https://<handle>.partna.au/`, slash + slash-less variants).
-     *   • Every deep-link sub-page — `/shop`, `/book`, `/listen`, … (the SitepageId
-     *     taxonomy). Each is a SEPARATE edge key; purging only the root left these
-     *     serving pre-mutation HTML until their s-maxage lapsed (observed 24 h —
-     *     sync note: cloudflare-worker/wrangler.toml `[vars] PRIMARY_CACHE_TTL_S` (the index.js const is now a fallback default), bump both together).
-     *   • The SWR stale shadow for each of the above (`/_swr-shadow<path>`, 7-day
-     *     TTL — cloudflare-worker/src/index.js `staleShadowKey`, sync note: `STALE_SHADOW_TTL_S`
-     *     in cloudflare-worker/wrangler.toml `[vars]` — bump both together). On a primary MISS
-     *     the Worker serves the shadow and refreshes in the background, so without
-     *     purging it the first post-mutation visitor still sees stale content.
-     *   • Backend API subrequests (`<app.url>/api/public/profiles/<handle>` plus
-     *     `/integrations` and its `/platforms` legacy alias), which the Astro
-     *     Worker edge-caches (`cacheTtl: 300`) — stale for up to 5 min
-     *     otherwise, re-rendering old HTML even after the page keys are evicted.
-     *     All three must be listed: `/integrations` and `/platforms` are the same
-     *     controller behind two routes, and purging one alone leaves the other
-     *     serving the pre-mutation payload. `/menu` was a fourth until slice 7
-     *     Phase 3 Task 10 deleted the endpoint (see the emit site below).
+     * Purge every edge key for one individual's public profile (owner plan,
+     * 2026-08-19 — instant sitepage freshness).
      *
-     * A custom domain (Cloudflare for SaaS) adds the same set under its own host.
-     * All sit in one Cloudflare zone; purgeUrls chunks them to the 30-URL limit.
+     * ONE prefix purge per host: `<handle>.<baseDomain>/` (plus the custom
+     * domain's host when one is served). Cloudflare's purge-by-prefix
+     * evicts every key under that host — the root, every deep-link page,
+     * every product/menu/event detail page AND the router's `/_swr-shadow/*`
+     * twins — in a single request (proven on dev 2026-08-19: `hit` → prefix
+     * purge → `origin` on / and /about). This replaces the URL enumeration
+     * that used to list up to ~2,481 files across ~83 sequential requests
+     * and made a purge take 20–40 s; with a ~1 s purge the job's lock is
+     * ~1 s wide too, and a rapid second edit is no longer swallowed.
+     *
+     * The backend API subrequests the Astro Worker renders from
+     * (`<app.url>/api/public/profiles/<handle>` + `/integrations` + its
+     * `/platforms` alias) live on the API host, which the pages fetch
+     * edge-caches for 30 s — they go by single-file purge in the same call,
+     * one chunk. Both aliases must die together or neither is purged.
      */
     public function purgeHandle(string $handle, ?string $customDomain = null): void
     {
@@ -207,7 +139,7 @@ class CloudflarePurgeService
             return;
         }
 
-        // SEC-1: encode before the handle lands in any purge URL. Handles are
+        // SEC-1: encode before the handle lands in any purge target. Handles are
         // validated to [a-z0-9-] at write time — a value in that set is left
         // byte-for-byte unchanged by rawurlencode() (unreserved chars), so this
         // is defence-in-depth against a malformed/legacy value injecting an
@@ -220,246 +152,68 @@ class CloudflarePurgeService
         // instead of always pointing at partna.au.
         $baseDomain = config('partna.public_domain');
 
-        // One base host per domain this profile is reachable under: the canonical
-        // .partna.au subdomain, plus a custom domain (Cloudflare for SaaS) which is
-        // cached under its OWN host key — the router keys caches.default by full URL
-        // incl. Host, so a content change must bust both. Same zone → one purge run.
-        $bases = ["https://{$encodedHandle}.{$baseDomain}"];
+        // One host prefix per domain this profile is reachable under: the
+        // canonical .partna.au subdomain, plus a custom domain (Cloudflare for
+        // SaaS) which is cached under its OWN host key — the router keys
+        // caches.default by full URL incl. Host. Same zone → one purge run.
+        $prefixes = ["{$encodedHandle}.{$baseDomain}/"];
         $domain = strtolower(trim((string) $customDomain));
         if ($domain !== '') {
-            $bases[] = "https://{$domain}";
-        }
-
-        // The deep-link sub-pages (SitepageId taxonomy minus 'home', which IS the
-        // root). Each is its own edge key, so each needs its own purge — this is the
-        // bug the root-only purge had: /shop, /book, … stayed stale for 24 h.
-        $subPages = array_values(array_filter(
-            SitepageId::canonicalOrder(),
-            static fn (string $page): bool => $page !== 'home',
-        ));
-
-        // Legal pages are standalone routes outside the SitepageId taxonomy —
-        // without these, a policy edit stays cached at the edge for 24h.
-        $subPages[] = 'privacy';
-        $subPages[] = 'terms';
-        // /about is a standalone route too (conditional content blocks).
-        $subPages[] = 'about';
-
-        // Shop product detail pages (`/products/<handle>`) are their own edge
-        // keys too — the fixed page taxonomy above doesn't know them, which
-        // left freshly-deployed PDPs stale for 24h (2026-07-16). Bounded +
-        // deduped; purgeUrls chunks to the API's 30-URL limit either way.
-        // Never let this optional lookup break the purge itself.
-        try {
-            // BaseModel pins pgsql — match it (the default connection differs
-            // in tests, and must not be assumed in prod either).
-            //
-            // Slice 5a Task 8 (fix round 1, C2): handles come from
-            // content.f_catalog now. site.shop_products stopped being written,
-            // so this lookup would have returned only the pre-deploy snapshot
-            // — every PDP created after it would sit stale at the edge for the
-            // full 24h TTL. No platform_connections join any more: the
-            // storefront collection IS the user-scoped anchor (forget()/
-            // removeBrand() delete it), so `c.deleted_at` has no counterpart.
-            $productHandles = DB::connection('pgsql')->table('content.collection_items as ci')
-                ->join('content.collections as col', 'col.id', '=', 'ci.collection_id')
-                ->join('content.f_catalog as f', 'f.item_id', '=', 'ci.item_id')
-                ->join('core.users as u', 'u.id', '=', 'col.user_id')
-                ->where('u.handle_lc', $h)
-                ->where('col.kind', 'storefront')
-                ->whereNotNull('f.handle')
-                ->distinct()
-                ->limit((int) config('partna.cloudflare_purge.products_limit', 100))
-                ->pluck('f.handle')
-                ->all();
-        } catch (\Throwable $e) {
-            // OBS-101: this lookup failing silently degrades to page-only purges
-            // (stale PDPs) with zero signal — must reach Nightwatch, not just a
-            // log line the default 'warning' log_level filters out (config/nightwatch.php).
-            // Deduped through the trait for the same reason the menu lane is:
-            // CloudflareCachePurgeJob self-dispatches three delayed follow-ups
-            // (partna.cache.purge_followup_schedule), so ONE site save ran this
-            // catch four times and a save-storm read as an infrastructure
-            // outage rather than the single broken query it is.
-            self::escalateIfSustained($e, 'cloudflare_purge_products');
-            Log::warning('CloudflarePurgeService: product-handle lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
-            $productHandles = [];
-        }
-
-        // Menu item detail pages (`/menu/<id|slug>`, route added 2026-07-17) —
-        // same per-URL edge-key staleness the products fix closed; same
-        // bounded, never-break-the-purge pattern.
-        //
-        // Slice 4 read a THIRD lane here — the legacy `site.menu_items` uuid —
-        // because the legacy menu wire still served `/menu/<legacy uuid>`
-        // alongside the pool. Slice 7 dropped that table and that wire, so the
-        // union is back to the two forms the pool actually publishes.
-        try {
-            $menuItemIds = $this->addressableItemSegments(
-                $h,
-                'menu_item',
-                (int) config('partna.cloudflare_purge.menu_items_limit', 150),
-            );
-        } catch (\Throwable $e) {
-            // OBS-101: this lookup failing silently degrades to page-only
-            // purges with zero signal. The raw report() this replaces was
-            // un-deduped, and CloudflareCachePurgeJob self-dispatches three
-            // delayed follow-ups (partna.cache.purge_followup_schedule) — so
-            // ONE site save reported the same fault four times. The trait
-            // counts faults fleet-wide and reports the 5th in a 10-minute
-            // window, which is a signal rather than a stream.
-            self::escalateIfSustained($e, 'cloudflare_purge_menu_items');
-            Log::warning('CloudflarePurgeService: menu-item lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
-            $menuItemIds = [];
-        }
-
-        // Event detail pages (`/events/<id|slug>`). Enumerated since 2026-07-17
-        // (reversing the earlier age-out-via-TTL call): the pages render
-        // refreshable enriched fields (description/venue/times), so 24h of
-        // staleness after a refresh reads as a bug, not decay.
-        //
-        // Slice 7: this read the provider hex ids out of
-        // site.platform_connections.payload, because that wire addressed
-        // events. It no longer does — PublicIntegrationConnectionResource
-        // ships [] for eventbrite/humanitix/events-custom (pinned by
-        // LegacyEventsLaneRetiredTest) and `pools.events` serves the content
-        // item id plus its current slug, exactly as the menu pool does. Left
-        // unrepointed this purged hex-id URLs nothing serves while every real
-        // event page sat stale for the full 24h TTL.
-        try {
-            $eventIds = $this->addressableItemSegments(
-                $h,
-                'event',
-                (int) config('partna.cloudflare_purge.event_ids_limit', 100),
-            );
-        } catch (\Throwable $e) {
-            // OBS-101: same bug as the product-handle catch above, and deduped
-            // for the same reason — four purge runs per site save turned one
-            // broken query into four Nightwatch reports.
-            self::escalateIfSustained($e, 'cloudflare_purge_events');
-            Log::warning('CloudflarePurgeService: event-id lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
-            $eventIds = [];
+            $prefixes[] = "{$domain}/";
         }
 
         $urls = [];
-        foreach ($bases as $base) {
-            // Root — slash + slash-less are distinct keys — and its shadow.
-            $urls[] = "{$base}/";
-            $urls[] = $base;
-            $urls[] = "{$base}/_swr-shadow/";
-            // Each sub-page + its SWR shadow (`/_swr-shadow<path>`).
-            foreach ($subPages as $page) {
-                $urls[] = "{$base}/{$page}";
-                $urls[] = "{$base}/_swr-shadow/{$page}";
-            }
-            // Each product detail page + its shadow.
-            foreach ($productHandles as $productHandle) {
-                // SEC-1: product handles come from scraped shop data (Shopify), not
-                // our own validated handle format — encode before it lands in a URL.
-                $encodedProductHandle = rawurlencode($productHandle);
-                $urls[] = "{$base}/products/{$encodedProductHandle}";
-                $urls[] = "{$base}/_swr-shadow/products/{$encodedProductHandle}";
-            }
-            // Each menu item detail page + its shadow. SEC-1: uuids and
-            // ContentItemSlugAllocator slugs are already URL-safe, so
-            // rawurlencode() leaves every valid value byte-for-byte unchanged
-            // — it is here for the malformed/legacy one, same as $encodedHandle.
-            // Replaces the regex allowlist the event lane used to need when its
-            // segments came from third-party payloads.
-            foreach ($menuItemIds as $menuItemId) {
-                $segment = rawurlencode((string) $menuItemId);
-                $urls[] = "{$base}/menu/{$segment}";
-                $urls[] = "{$base}/_swr-shadow/menu/{$segment}";
-            }
-            // Each event detail page + its shadow.
-            foreach ($eventIds as $eventId) {
-                $segment = rawurlencode((string) $eventId);
-                $urls[] = "{$base}/events/{$segment}";
-                $urls[] = "{$base}/_swr-shadow/events/{$segment}";
-            }
-        }
-
         $apiBase = rtrim((string) config('app.url', ''), '/');
         if ($apiBase !== '') {
             // The Astro Worker subrequest target — `IndividualProfileController@show`.
-            // Without this entry the §28.8 endpoint's edge cache (`cacheTtl: 300`)
-            // pins the rendered HTML to stale data for up to 5 minutes after a
-            // mutation, regardless of how aggressively we purge the page URLs.
             $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}";
             // The platform-integrations subrequest (`PublicIntegrationController`)
-            // that the sitepage reads for cards (e.g. the Instagram gallery card).
-            // Its own fetch is `cacheTtl: 0`, so this is belt-and-braces — but it
-            // guarantees a display-toggle flip never leaves a stale card wire.
+            // that the sitepage reads for cards, and its legacy `/platforms` alias
+            // onto the SAME controller (routes/api.php) — purging one alone left
+            // the other serving the pre-mutation payload.
             $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}/integrations";
-            // `/platforms` is the SAME controller behind a legacy alias route that
-            // stays until the sitepage flips (routes/api.php). Purging only
-            // `/integrations` left the alias serving the pre-mutation payload — so a
-            // privacy-driven removal (a display-toggle flip, or reviewer PII being
-            // stripped) stayed retractable on one path and not the other. Both
-            // aliases must die together or neither is actually purged.
             $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}/platforms";
-            // The `/menu` subrequest is NOT purged: that endpoint was deleted in
-            // slice 7 Phase 3 Task 10 (spec D2). The per-item detail pages above
-            // still purge on the site host, and the API wire they now render
-            // from is `pools.menus` on the profile URL already listed first.
         }
 
-        // cache-edge-reconcile/LIFE-1 residual: surface a catalog approaching the
-        // practical purge ceiling (chunking + job timeout budget) BEFORE it starts
-        // failing outright, rather than only finding out via failed purges.
-        $volumeThreshold = (int) config('partna.cache.purge_url_volume_warning_threshold', 900);
-        if (count($urls) > $volumeThreshold) {
-            Log::warning('cloudflare.purge.url_volume_high', [
-                'handle' => $h,
-                'url_count' => count($urls),
-                'threshold' => $volumeThreshold,
-            ]);
-        }
+        Log::info('cloudflare.purge.handle', ['handle' => $h, 'mode' => 'prefix', 'prefixes' => count($prefixes), 'api_urls' => count($urls)]);
 
+        $this->purgePrefixes($prefixes);
         $this->purgeUrls($urls);
     }
 
     /**
-     * Every addressable form of one pool kind's live items for a handle — the
-     * content item id AND its current slug. The pool payload carries both and
-     * which one the sitepage builds its href from is the frontend's choice,
-     * not this service's to assume; purging one form leaves the other stale at
-     * the edge for the full 24h TTL, which is the regression 5a's C2 closed on
-     * the shop side.
+     * Purge every cached key under the given `host/path` prefixes — one
+     * request (Cloudflare accepts up to 30 per call; a profile needs one or
+     * two). Available on every plan since 2025-04-03.
      *
-     * $limit bounds EACH lane, not the union: the two lanes are two forms of
-     * the same <=$limit items, so the segment ceiling is 2 x $limit. Capping
-     * the union instead would purge an item's id and not its slug once a
-     * catalog crossed the line — the exact half-purge this exists to prevent.
-     *
-     * Aliases (retired slugs, which 301) are deliberately NOT enumerated: the
-     * set is unbounded per item and a 301 carries no stale body.
-     *
-     * @return list<string>
+     * @param  list<string>  $prefixes
      */
-    private function addressableItemSegments(string $handleLc, string $kind, int $limit): array
+    public function purgePrefixes(array $prefixes): void
     {
-        $contentIds = DB::connection('pgsql')->table('content.items as i')
-            ->join('core.users as u', 'u.id', '=', 'i.user_id')
-            ->where('u.handle_lc', $handleLc)
-            ->where('i.kind', $kind)
-            ->whereNull('i.removed_at')
-            ->limit($limit)
-            ->pluck('i.id')
-            ->all();
+        if (! $this->configured) {
+            if (app()->environment('production', 'staging')) {
+                throw new \RuntimeException(
+                    'CloudflarePurgeService is not configured (zone_id, cache_purge_token required). '
+                    .'Refusing to silently no-op purge in '.app()->environment().'.'
+                );
+            }
+            Log::debug('CloudflarePurgeService: skipping prefix purge (not configured)', ['prefix_count' => count($prefixes)]);
 
-        $slugs = DB::connection('pgsql')->table('content.item_slugs as s')
-            ->join('content.items as i', 'i.id', '=', 's.item_id')
-            ->join('core.users as u', 'u.id', '=', 'i.user_id')
-            ->where('u.handle_lc', $handleLc)
-            ->where('i.kind', $kind)
-            ->whereNull('i.removed_at')
-            ->where('s.is_current', true)
-            ->limit($limit)
-            ->pluck('s.slug')
-            ->all();
+            return;
+        }
+        if ($prefixes === []) {
+            return;
+        }
 
-        return array_values(array_unique([...$contentIds, ...$slugs]));
+        foreach (array_chunk(array_values($prefixes), 30) as $chunk) {
+            Http::withToken($this->apiToken)
+                ->asJson()
+                ->acceptJson()
+                ->timeout(10)
+                ->connectTimeout(3)
+                ->post($this->url(), ['prefixes' => $chunk])
+                ->throw();
+        }
     }
 
     private function url(): string

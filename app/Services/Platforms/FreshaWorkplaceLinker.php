@@ -6,11 +6,8 @@ use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
-use App\Services\Cache\PlacesBudget;
-use App\Services\Cache\PlacesClaim;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -35,15 +32,10 @@ use Throwable;
  */
 final class FreshaWorkplaceLinker
 {
-    private const SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
-
-    private const SEARCH_FIELD_MASK = 'places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.internationalPhoneNumber,places.postalAddress,places.businessStatus';
-
     private const MAX_DISTANCE_M = 300;
 
     public function __construct(
         private readonly GoogleBusinessService $google,
-        private readonly PlacesBudget $budget,
     ) {}
 
     /**
@@ -140,58 +132,24 @@ final class FreshaWorkplaceLinker
     }
 
     /**
-     * Places Text Search (New) around Fresha's pin. Null when the key is
-     * missing, the budget is spent, or Google didn't answer.
+     * Places Text Search around Fresha's pin, through GoogleBusinessService
+     * (the only class allowed to hold the Places key or spend the budget).
      *
      * @return list<array<string,mixed>>|null
      */
     private function search(User $user, array $venue): ?array
     {
-        $key = config('services.google_maps.server_api_key');
-        if (! is_string($key) || $key === '') {
-            return null;
-        }
-        if ($this->budget->claim('details', (string) $user->id) !== PlacesClaim::Granted) {
-            return null;
-        }
-
         $query = implode(', ', array_filter([
             $venue['name'] ?? null,
             $venue['street'] ?? null,
             $venue['city'] ?? null,
         ]));
-        $body = ['textQuery' => $query, 'maxResultCount' => 5];
-        if (isset($venue['lat'], $venue['lng'])) {
-            $body['locationBias'] = ['circle' => [
-                'center' => ['latitude' => $venue['lat'], 'longitude' => $venue['lng']],
-                'radius' => 2000.0,
-            ]];
-        }
-        if (isset($venue['country']) && strlen((string) $venue['country']) === 2) {
-            $body['regionCode'] = strtolower((string) $venue['country']);
-        }
+        $bias = isset($venue['lat'], $venue['lng'])
+            ? ['lat' => (float) $venue['lat'], 'lng' => (float) $venue['lng'], 'radiusMetres' => 2000.0]
+            : null;
+        $region = isset($venue['country']) && strlen((string) $venue['country']) === 2 ? (string) $venue['country'] : null;
 
-        try {
-            $res = Http::timeout(6)
-                ->withHeaders([
-                    'X-Goog-Api-Key' => $key,
-                    'X-Goog-FieldMask' => self::SEARCH_FIELD_MASK,
-                ])
-                ->post(self::SEARCH_URL, $body);
-        } catch (Throwable $e) {
-            report($e);
-
-            return null;
-        }
-        if (! $res->ok()) {
-            Log::warning('fresha.workplace_link.search_failed', ['status' => $res->status()]);
-
-            return null;
-        }
-
-        $places = $res->json('places');
-
-        return is_array($places) ? array_values(array_filter($places, 'is_array')) : [];
+        return $this->google->searchText($query, (string) $user->id, $bias, $region, 5);
     }
 
     /**

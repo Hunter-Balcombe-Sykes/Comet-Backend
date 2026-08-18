@@ -30,7 +30,7 @@ it('has its own retry policy and queue (not the KV trait — see §28.7)', funct
 
     expect($job->tries)->toBe(3)
         ->and($job->backoff)->toBe([5, 15, 60])
-        ->and($job->timeout)->toBe(180)
+        ->and($job->timeout)->toBe(30)
         ->and($job->queue)->toBe('cloudflare');
 });
 
@@ -39,11 +39,14 @@ it('has its own retry policy and queue (not the KV trait — see §28.7)', funct
 // ceiling — see the property's docblock). Pinned as a floor (not an exact
 // value) so a future accidental reduction below the derived-safe minimum goes
 // red, while still leaving room to tune upward without breaking this test.
-it('keeps the purge job timeout at or above the derived worst-case floor', function () {
+it('keeps the purge job timeout at the two-request worst case, and short (owner plan, 2026-08-19)', function () {
     $job = new CloudflareCachePurgeJob('h');
 
-    // Floor = 50 sequential calls x 3s/call + the 2s pacing ceiling, rounded down.
-    expect($job->timeout)->toBeGreaterThanOrEqual(150)
+    // Two bounded requests (timeout 10 + connect 3 each) = 26 s worst case;
+    // 30 keeps margin. Short on purpose: the job's lock is sized off it, and
+    // a wide lock is what swallowed a rapid second edit for minutes.
+    expect($job->timeout)->toBeGreaterThanOrEqual(26)
+        ->and($job->timeout)->toBeLessThanOrEqual(60)
         // And must stay clear of the 'redis' queue connection's retry_after
         // (config/queue.php, default 360s) so Redis can't re-reserve this job to
         // a second worker mid-purge — duplicating purges.
@@ -89,7 +92,7 @@ it('is unique per lowered handle so a burst of site touches coalesces to one pur
 
     expect($job)->toBeInstanceOf(ShouldBeUnique::class)
         ->and($job->uniqueId())->toBe('mixed-case|')
-        ->and($job->uniqueFor)->toBe(240);
+        ->and($job->uniqueFor)->toBe(35);
 });
 
 // The invariant behind that 240, pinned separately from the literal so a future
@@ -99,10 +102,11 @@ it('is unique per lowered handle so a burst of site touches coalesces to one pur
 // slow purge loses dedupe protection while still running and a duplicate slips
 // through. This exact regression shipped when $timeout went 15 -> 180 while
 // uniqueFor stayed at 120.
-it('keeps the primary purge lock longer than the job can run, so a slow purge never loses dedupe mid-flight', function () {
+it('keeps the primary purge lock longer than the job can run — but only just, so a second edit is never swallowed for long', function () {
     $job = new CloudflareCachePurgeJob('somehandle');
 
-    expect($job->uniqueFor)->toBeGreaterThan($job->timeout);
+    expect($job->uniqueFor)->toBeGreaterThan($job->timeout)
+        ->and($job->uniqueFor)->toBeLessThanOrEqual(60);
 });
 
 it('passes the custom domain through to the service and into uniqueId', function () {
@@ -151,10 +155,10 @@ it('purges handle-only when the resolved custom domain is not active', function 
 
 it('dispatches one follow-up per schedule entry, up-front, at the configured offsets', function () {
     // Up-front dispatch, not a chain: a chain loses its tail if any link
-    // exhausts its retries, and the +900s purge is precisely the one a degraded
-    // Cloudflare window most needs. The depth discriminator in uniqueId() keeps
-    // the three from coalescing, and the 30s uniqueFor lock expires long before
-    // any delay elapses.
+    // exhausts its retries. The depth discriminator in uniqueId() keeps the
+    // entries from coalescing, and the 5s uniqueFor lock expires long before
+    // any delay elapses. Three entries here to exercise the loop — the
+    // shipped default is ONE (60 s) since the prefix-purge rewrite.
     config()->set('partna.cache.purge_followup_schedule', [120, 300, 900]);
 
     $job = new CloudflareCachePurgeJob('Jane', 'Tuesdae.co');
@@ -223,7 +227,7 @@ it('gives each follow-up depth its own lock namespace and a lock shorter than it
     expect($first->uniqueId())->toBe('jane|tuesdae.co|fu1')
         ->and($third->uniqueId())->toBe('jane|tuesdae.co|fu3')
         ->and($first->uniqueId())->not->toBe($third->uniqueId())
-        ->and($first->uniqueFor)->toBe(30)
+        ->and($first->uniqueFor)->toBe(5)
         ->and($first->uniqueFor)->toBeLessThan(min(config('partna.cache.purge_followup_schedule')));
 });
 
@@ -348,4 +352,12 @@ it('does NOT escalate on terminal failure for a routine (non-moderation) purge �
     Exceptions::assertReported(RuntimeException::class);
     Log::shouldHaveReceived('error')->once();
     Notification::assertNothingSent();
+});
+
+it('ships ONE follow-up by default — 60 s, clearing the API payload s-maxage window (owner plan, 2026-08-19)', function () {
+    $schedule = config('partna.cache.purge_followup_schedule');
+
+    expect($schedule)->toBe([60]);
+    // Must clear the follow-up lock (5) and the API layer's 30 s s-maxage.
+    expect(min($schedule))->toBeGreaterThan(30);
 });

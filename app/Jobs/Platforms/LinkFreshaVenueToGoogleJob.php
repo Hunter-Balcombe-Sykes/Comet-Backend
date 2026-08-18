@@ -26,6 +26,9 @@ class LinkFreshaVenueToGoogleJob implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 1;
 
+    /** @var list<int> */
+    public array $backoff = [30];
+
     public int $timeout = 60;
 
     public int $uniqueFor = 300;
@@ -51,5 +54,12 @@ class LinkFreshaVenueToGoogleJob implements ShouldBeUnique, ShouldQueue
         }
         $result = $linker->attempt($user, $this->venue);
         Log::info('fresha.workplace_link.result', ['user_id' => $this->userId, ...$result]);
+    }
+
+    /** Terminal: report and log — the user can still connect Google by hand. */
+    public function failed(\Throwable $e): void
+    {
+        report($e);
+        Log::warning('fresha.workplace_link.failed', ['user_id' => $this->userId, 'message' => $e->getMessage()]);
     }
 }

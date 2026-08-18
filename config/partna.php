@@ -2414,19 +2414,13 @@ return [
 
         // Absolute offsets, in seconds FROM THE PRIMARY PURGE, at which follow-up
         // purges land. Not per-hop delays: the primary dispatches all of them
-        // up-front, each with its own delay and depth. Each must clear the sum of
-        // the payload staleness windows (Laravel Cloud edge s-maxage + the Worker
-        // subrequest cacheTtl) for a visitor who raced the primary purge; the
-        // later entries exist for a degraded-Cloudflare window where the earlier
-        // ones fail. Every entry MUST exceed CloudflareCachePurgeJob's follow-up
-        // $uniqueFor (30) or a follow-up would coalesce into its own predecessor.
-        'purge_followup_schedule' => [120, 300, 900],
-
-        // cache-edge-reconcile/LIFE-1 residual: purgeHandle() enumerated URL count
-        // above which CloudflarePurgeService logs a warning — makes a catalog
-        // (shop/menu/events) approaching the practical purge ceiling (chunking +
-        // job timeout budget) visible before it starts failing outright.
-        'purge_url_volume_warning_threshold' => (int) env('PARTNA_CACHE_PURGE_URL_VOLUME_WARNING_THRESHOLD', 900),
+        // up-front, each with its own delay and depth. One entry since the
+        // 2026-08-19 prefix-purge rewrite (was 120/300/900): it clears the API
+        // payload's 30 s s-maxage window for a visitor who raced the primary
+        // purge and could have re-pinned a stale render under the router's 24h
+        // TTL. Every entry MUST exceed CloudflareCachePurgeJob's follow-up
+        // $uniqueFor (5) or a follow-up would coalesce into its own predecessor.
+        'purge_followup_schedule' => [60],
 
         // R3-CACHE-1: ops lever for ReconcilePlatformTakedownJob's purge fan-out.
         // 0 (default) = off — the cloudflare_bulk lane's strict-priority
@@ -2476,21 +2470,6 @@ return [
             // QrCodeController's SVG response. Value unchanged.
             'qr_code_svg' => (int) env('PARTNA_CACHE_TTL_QR_CODE_SVG', 86400), // 24h
         ],
-    ],
-
-    // CFG-3: DB-query caps for CloudflarePurgeService::purgeHandle()'s enrichment
-    // lookups (product/menu-item/event detail pages). Tunable without a redeploy;
-    // raising any of these also raises purgeHandle()'s worst-case URL count — see
-    // the CHUNK_PACING_MICROSECONDS docblock in CloudflarePurgeService for the
-    // full budget derivation. array_chunk(..., 30) in purgeUrls() is NOT here —
-    // that's Cloudflare's hard API ceiling, not a tunable cap.
-    'cloudflare_purge' => [
-        'products_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_PRODUCTS_LIMIT', 100),
-        'menu_items_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_MENU_ITEMS_LIMIT', 150),
-        // Slice 7: `event_connections_limit` retired with the connection-payload
-        // lookup — events address by content item id + slug now, so the item cap
-        // below is the only knob. Each of the two lanes takes it independently.
-        'event_ids_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_EVENT_IDS_LIMIT', 100),
     ],
 
     /*

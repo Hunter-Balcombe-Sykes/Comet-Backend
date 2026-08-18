@@ -206,6 +206,64 @@ class GoogleBusinessService extends PlatformScraper
      * happens only after a transport failure, which means something already reached
      * places.googleapis.com and may have been billed.
      */
+    private const SEARCH_TEXT_URL = 'https://places.googleapis.com/v1/places:searchText';
+
+    private const SEARCH_TEXT_FIELD_MASK = 'places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.internationalPhoneNumber,places.postalAddress,places.businessStatus';
+
+    /**
+     * Places Text Search (New) — the ONE keyed, budgeted search call (owner,
+     * 2026-08-19; FreshaWorkplaceLinker is its first caller). Same budget
+     * SKU as details ('details') so the per-user daily cap covers it. Null
+     * when the key is missing, the budget is spent, or Google didn't answer;
+     * otherwise the raw `places` list (possibly empty).
+     *
+     * @param  array{lat:float, lng:float, radiusMetres?:float}|null  $bias
+     * @return list<array<string,mixed>>|null
+     */
+    public function searchText(string $query, string $userId, ?array $bias = null, ?string $regionCode = null, int $maxResults = 5): ?array
+    {
+        $key = config('services.google_maps.server_api_key');
+        if (! is_string($key) || $key === '' || trim($query) === '') {
+            return null;
+        }
+        if ($this->budget->claim('details', $userId) !== PlacesClaim::Granted) {
+            return null;
+        }
+
+        $body = ['textQuery' => trim($query), 'maxResultCount' => max(1, min(20, $maxResults))];
+        if ($bias !== null) {
+            $body['locationBias'] = ['circle' => [
+                'center' => ['latitude' => $bias['lat'], 'longitude' => $bias['lng']],
+                'radius' => (float) ($bias['radiusMetres'] ?? 2000.0),
+            ]];
+        }
+        if (is_string($regionCode) && strlen($regionCode) === 2) {
+            $body['regionCode'] = strtolower($regionCode);
+        }
+
+        try {
+            $res = Http::timeout(6)
+                ->withHeaders([
+                    'X-Goog-Api-Key' => $key,
+                    'X-Goog-FieldMask' => self::SEARCH_TEXT_FIELD_MASK,
+                ])
+                ->post(self::SEARCH_TEXT_URL, $body);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return null;
+        }
+        if (! $res->ok()) {
+            Log::warning('google_business.search_text_failed', ['status' => $res->status()]);
+
+            return null;
+        }
+
+        $places = $res->json('places');
+
+        return is_array($places) ? array_values(array_filter($places, 'is_array')) : [];
+    }
+
     public function fetchPlaceDetailsRaw(string $placeId, string $userId): PlaceDetailsResult
     {
         $key = config('services.google_maps.server_api_key');
