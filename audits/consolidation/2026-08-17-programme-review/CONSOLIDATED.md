@@ -48,7 +48,7 @@ Never script a tick keyed on id alone.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 7 of 15 complete
+- P2 Medium: 8 of 15 complete
 - P3 Low: 0 of 15 complete
 
 ## Suggested Bundled Sessions
@@ -403,7 +403,7 @@ work, not run as a campaign. Do not build units for them.
         }
         ```
 
-- [ ] **#PGR-11** · P2 — `ConvergeSiteSubdomainsCommand` commits the raw subdomain rename before cache and KV invalidation
+- [x] **#PGR-11** · P2 — `ConvergeSiteSubdomainsCommand` commits the raw subdomain rename before cache and KV invalidation
     - **Source:** migration-commands — was `#MIG-6`
     - **Where:** app/Console/Commands/ConvergeSiteSubdomainsCommand.php
     - **Affects:** `site.sites.subdomain` convergence and the Redis/Cloudflare KV routing state for affected users during the repair.

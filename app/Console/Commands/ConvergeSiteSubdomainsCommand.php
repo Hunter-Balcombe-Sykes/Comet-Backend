@@ -4,9 +4,11 @@ namespace App\Console\Commands;
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\SiteCacheService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 // SIGNUP-1 backfill: converge site.sites.subdomain onto core.users.handle_lc for
 // rows that diverged before the allocator/provisioning fix (three causes —
@@ -32,7 +34,7 @@ class ConvergeSiteSubdomainsCommand extends Command
 
     protected $description = 'Converges site.sites.subdomain onto core.users.handle_lc for diverged rows (dry run unless --apply).';
 
-    public function handle(): int
+    public function handle(SiteCacheService $siteCache): int
     {
         $apply = (bool) $this->option('apply');
 
@@ -55,6 +57,7 @@ class ConvergeSiteSubdomainsCommand extends Command
 
         $converged = 0;
         $skipped = 0;
+        $failed = [];
 
         foreach ($rows as $row) {
             $old = strtolower(trim((string) $row->old_subdomain));
@@ -90,18 +93,49 @@ class ConvergeSiteSubdomainsCommand extends Command
                 continue;
             }
 
+            $now = now();
+
             DB::connection('pgsql')->table('site.sites')
                 ->where('id', $row->site_id)
-                ->update(['subdomain' => $new, 'updated_at' => now()]);
+                ->update(['subdomain' => $new, 'updated_at' => $now]);
 
-            Cache::deleteMultiple($keys);
+            // The UPDATE above is a single autocommitted statement, so everything
+            // below runs strictly post-commit — no transaction wraps it (see the
+            // class docblock's rejection of that approach: dispatching
+            // SyncSubdomainToKvJob pre-commit races the trigger-recomputed
+            // partna_url and can alias-redirect to the OLD subdomain). A failure
+            // here means the row is WRITTEN but not invalidated: caught, reported,
+            // and the run continues rather than stranding the remaining rows.
+            try {
+                Cache::deleteMultiple($keys);
 
-            // Only users holding an active handle alias need KV: the alias entry
-            // embeds `redirect: <partna_url>`, and partna_url is recomputed from
-            // sites.subdomain by the sites_url_sync_aiu trigger, which the raw
-            // UPDATE above fires. The main `<handle>` entry is unaffected.
-            if ($kvUsers !== []) {
-                SyncSubdomainToKvJob::dispatch((string) $row->user_id);
+                // Mirrors SiteCacheService::invalidateSitePayload's post-write
+                // floor raise: an in-flight reader that queried the DB pre-commit
+                // can re-put the old resolve timestamp into handle.resolve after
+                // the delete above. Only $new needs its floor raised, and the
+                // reason is the key derivation, not routing: handle.resolve and
+                // its floor key off core.users.handle_lc, and $new IS handle_lc
+                // (the query at :46 aliases it new_subdomain). $old is a stale
+                // site.sites.subdomain string that no handle resolves by — see
+                // the handle-vs-subdomain divergence this repo has been bitten by
+                // — so its busted resolve entry has no lease to guard.
+                $siteCache->raiseResolveFloor($new, $now->timestamp);
+
+                // Only users holding an active handle alias need KV: the alias entry
+                // embeds `redirect: <partna_url>`, and partna_url is recomputed from
+                // sites.subdomain by the sites_url_sync_aiu trigger, which the raw
+                // UPDATE above fires. The main `<handle>` entry is unaffected.
+                if ($kvUsers !== []) {
+                    SyncSubdomainToKvJob::dispatch((string) $row->user_id);
+                }
+            } catch (Throwable $e) {
+                report($e);
+                $this->error('  WRITTEN BUT NOT INVALIDATED — subdomain is now '.$new.', stale routing state persists.');
+                $this->error('  retry KV:    php artisan partna:backfill-subdomain-kv '.$row->user_id);
+                $this->error('  stale keys:  '.implode(', ', $keys));
+                $failed[] = (string) $row->user_id;
+
+                continue;   // do not strand the remaining rows
             }
 
             $this->line('  written.');
@@ -110,6 +144,12 @@ class ConvergeSiteSubdomainsCommand extends Command
 
         $this->newLine();
         $this->info(($apply ? 'Converged ' : 'Would converge ').$converged.' row(s); skipped '.$skipped.'.');
+
+        if ($failed !== []) {
+            $this->error('Failed to invalidate for '.count($failed).' user(s) — see above for per-row remediation: '.implode(', ', $failed));
+
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }
