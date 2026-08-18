@@ -3,6 +3,7 @@
 namespace App\Jobs\Ingest;
 
 use App\Ingest\ConnectorRegistry;
+use App\Ingest\Runtime\IngestStatusWriteback;
 use App\Ingest\Runtime\RunExecutor;
 use App\Ingest\Runtime\SourceScheduler;
 use Illuminate\Bus\Queueable;
@@ -69,6 +70,7 @@ class RunSourceJob implements ShouldQueue
     public function handle(SourceScheduler $scheduler, RunExecutor $executor): void
     {
         $released = false;
+        $writeback = app(IngestStatusWriteback::class);
 
         try {
             $row = DB::table('ingest.sources')->where('id', $this->sourceId)->first();
@@ -94,6 +96,10 @@ class RunSourceJob implements ShouldQueue
                     changed: $recordsChanged > 0,
                     retryAfterSeconds: $result['retry_after'],
                 );
+
+                // Tell the connection row how it went. The routing lane left
+                // it 'pending' for THIS lane to settle; nothing else will.
+                $writeback->afterRun($this->sourceId, $result['run_id'], $result['outcome']);
             }
             // A null row means the source vanished between claim and run (a
             // cascaded user/connection delete) — nothing to execute and
@@ -109,6 +115,9 @@ class RunSourceJob implements ShouldQueue
                 // backoff takes over immediately instead of waiting for
                 // releaseStranded()'s 2h backstop.
                 $scheduler->release($this->sourceId, 'error', false);
+                // No run row to read notes from on this path — the outcome
+                // alone is enough to move a waiting connection off 'pending'.
+                $writeback->afterRun($this->sourceId, '', 'error');
             }
         }
     }
