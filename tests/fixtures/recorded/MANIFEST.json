@@ -27,14 +27,14 @@
             "captured_at": "2026-08-18T14:25:59+00:00",
             "sha256": "81edf8378262eae8f40db15ac655b4dbc40d4820c344420c4413026127046eab",
             "captured_by": "fixtures:capture",
-            "notes": "Linktree, hairstylist (wave source)"
+            "notes": "Linktree, hairstylist (wave source). __NEXT_DATA__ is invalid JSON post-redaction (bare account id → unquoted [redacted-phone]) — do not json_decode this blob. The anchors and hrefs in the body ARE intact and faithful."
         },
         "linkinbio/linktree.mixed.html": {
             "source_url": "https://linktr.ee/crucibletattooco",
             "captured_at": "2026-08-18T14:25:54+00:00",
             "sha256": "f239885651dac98cde80250a06417f14d92cedc6ba0ce12726dfdb640f302b41",
             "captured_by": "fixtures:capture",
-            "notes": "Linktree, tattoo studio; IG+Fresha+FB+Pinterest+Bluesky+canva.link mix (wave R2 source)"
+            "notes": "Linktree, tattoo studio; IG+Fresha+FB+Pinterest+Bluesky+canva.link mix (wave R2 source). __NEXT_DATA__ is invalid JSON post-redaction (bare account id → unquoted [redacted-phone]) — do not json_decode this blob. The anchors and hrefs in the body ARE intact and faithful."
         },
         "shop/abovetheground-homepage.html": {
             "source_url": "https://abovetheground.com.au/",
