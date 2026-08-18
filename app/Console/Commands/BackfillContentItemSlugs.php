@@ -45,55 +45,77 @@ class BackfillContentItemSlugs extends Command
         $minted = 0;
         $skipped = 0;
         $failed = 0;
+        $chunk = (int) config('partna.content.slug_backfill_chunk', 500);
 
-        // Cursor + per-row work, JOIN-free: the SQLite test mirror rejects a
-        // schema-qualified wildcard select against a joined ATTACHed table,
-        // which is why every sibling backfiller reads this way.
+        // chunkById(id), not cursor(): pdo_pgsql has no unbuffered fetch mode,
+        // so cursor() still buffers the whole result set in libpq while
+        // pinning one open result set for the run's duration — the same
+        // reasoning as IngestProjectCommand's source walk. The loop body
+        // writes only content.item_slugs, so the content.items predicate
+        // (kind/removed_at/user) is invariant across pages — no row here can
+        // move in or out of scope as a side effect of processing it, unlike
+        // BackfillMediaPaletteCommand's mutating whereNull('palette'). The
+        // per-chunk preload below is scoped to THIS page's ids, never a
+        // global whereIn — a global one would reintroduce the unbounded load
+        // chunking exists to avoid. JOIN-free throughout: the SQLite test
+        // mirror rejects a schema-qualified wildcard select against a joined
+        // ATTACHed table, which is why every sibling backfiller reads this
+        // way and why the preload below selects explicit columns, never `*`.
         DB::connection('pgsql')->table('content.items')
             ->whereIn('kind', $kinds)
             ->whereNull('removed_at')
             ->when($this->option('user'), fn ($q, $u) => $q->where('user_id', $u))
-            ->orderBy('id')
             ->select(['id', 'user_id', 'headline_cache'])
-            ->cursor()
-            ->each(function (object $item) use ($allocator, $dry, &$minted, &$skipped, &$failed) {
-                $userId = (string) $item->user_id;
-                $itemId = (string) $item->id;
+            ->chunkById($chunk, function ($items) use ($allocator, $dry, &$minted, &$skipped, &$failed) {
+                // One query per chunk, keyed on the composite (user_id, item_id) —
+                // NOT item_id alone. The unique index makes them usually agree,
+                // but a slug row whose user_id disagrees with the item's owner
+                // would otherwise flip a "mint" into a "skip".
+                $slugRows = DB::connection('pgsql')->table('content.item_slugs')
+                    ->whereIn('item_id', $items->pluck('id')->all())
+                    ->where('is_current', true)
+                    ->get(['user_id', 'item_id']);
 
-                // An unheadlined item would slug to `item-<6 hex>`, which is
-                // not a human-readable URL and would then squat that name.
-                // Leave it: the next projection that lands a headline mints it.
-                $headline = trim((string) ($item->headline_cache ?? ''));
-                if ($headline === '') {
-                    $skipped++;
-
-                    return;
+                $hasCurrent = [];
+                foreach ($slugRows as $row) {
+                    $hasCurrent[$row->user_id.'|'.$row->item_id] = true;
                 }
 
-                $hasCurrent = DB::connection('pgsql')->table('content.item_slugs')
-                    ->where('user_id', $userId)->where('item_id', $itemId)
-                    ->where('is_current', true)->exists();
+                foreach ($items as $item) {
+                    $userId = (string) $item->user_id;
+                    $itemId = (string) $item->id;
 
-                if ($hasCurrent) {
-                    $skipped++;
+                    // An unheadlined item would slug to `item-<6 hex>`, which is
+                    // not a human-readable URL and would then squat that name.
+                    // Leave it: the next projection that lands a headline mints it.
+                    $headline = trim((string) ($item->headline_cache ?? ''));
+                    if ($headline === '') {
+                        $skipped++;
 
-                    return;
-                }
+                        continue;
+                    }
 
-                if ($dry) {
-                    $this->line("  + {$itemId} → ".Str::slug($headline));
-                    $minted++;
+                    if (isset($hasCurrent[$userId.'|'.$itemId])) {
+                        $skipped++;
 
-                    return;
-                }
+                        continue;
+                    }
 
-                try {
-                    $allocator->ensureCurrent($userId, $itemId, $headline);
-                    $minted++;
-                } catch (\Throwable $e) {
-                    report($e);
-                    $failed++;
-                    $this->warn("  ! item {$itemId}: {$e->getMessage()}");
+                    if ($dry) {
+                        $this->line("  + {$itemId} → ".Str::slug($headline));
+                        $minted++;
+
+                        continue;
+                    }
+
+                    try {
+                        $allocator->ensureCurrent($userId, $itemId, $headline);
+                        $minted++;
+                    } catch (\Throwable $e) {
+                        report($e);
+                        $failed++;
+                        $this->warn("  ! item {$itemId}: {$e->getMessage()}");
+                    }
                 }
             });
 

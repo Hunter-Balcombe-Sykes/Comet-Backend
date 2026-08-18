@@ -15,14 +15,16 @@ use Illuminate\Console\Command;
 class PruneBorrowedAssetsCommand extends Command
 {
     protected $signature = 'content:prune-borrowed-assets
-        {--dry-run : Report what would be deleted without deleting it}';
+        {--dry-run : Report what would be deleted without deleting it}
+        {--limit=0 : Cap deletions this run (0 = no cap)}';
 
     protected $description = 'Delete unreferenced borrowed media assets past the vendor url expiry window';
 
     public function handle(BorrowedAssetPruner $pruner): int
     {
         $dry = (bool) $this->option('dry-run');
-        $result = $pruner->run($dry);
+        $limit = max(0, (int) $this->option('limit'));
+        $result = $pruner->run($dry, $limit);
 
         $verb = $dry ? 'would prune' : 'pruned';
         $this->info("Borrowed assets: {$verb} {$result['pruned']}");

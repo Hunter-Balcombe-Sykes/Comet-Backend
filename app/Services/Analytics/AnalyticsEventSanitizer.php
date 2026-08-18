@@ -17,6 +17,13 @@ class AnalyticsEventSanitizer
 {
     public const REFERRER_MAX_LENGTH = 512;
 
+    public const UTM_MAX_LENGTH = 128;
+
+    // PGR-18: marketing tools routinely embed a subscriber email in a UTM query
+    // param (e.g. ?utm_content=a%40b.com) — same PII shape referrer() already
+    // strips via the query string, but UTM values arrive as bare strings, not URLs.
+    private const EMAIL_LIKE_PATTERN = '/[^\s@]+@[^\s@]+\.[^\s@]+/';
+
     /**
      * PRIV-2: family => detection pattern, checked IN ORDER — capture group 1 is the
      * major version. Edge and Opera UAs also embed "Chrome/...", and every WebKit UA
@@ -79,5 +86,24 @@ class AnalyticsEventSanitizer
         }
 
         return 'Other';
+    }
+
+    /**
+     * PGR-18: cap a UTM query param and drop it entirely if it carries an
+     * email-like substring — mirrors referrer()'s drop-on-suspicion behaviour
+     * rather than trying to excise just the matched substring. Returns null for
+     * a missing/empty value or one that looks like it embeds an email.
+     */
+    public static function utmParam(?string $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (preg_match(self::EMAIL_LIKE_PATTERN, $value) === 1) {
+            return null;
+        }
+
+        return Str::limit($value, self::UTM_MAX_LENGTH, '');
     }
 }

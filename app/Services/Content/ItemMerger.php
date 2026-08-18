@@ -5,7 +5,7 @@ namespace App\Services\Content;
 use App\Content\Identity\Resolver;
 use App\Models\Content\Item;
 use App\Models\Core\User\User;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -51,7 +51,7 @@ final class ItemMerger
         $pairs = $this->coordPairs($left, $right);
         $warnings = $this->coordWarnings($left, $right);
 
-        return DB::transaction(function () use ($user, $kept, $discarded, $pairs, $reason, $warnings): array {
+        $result = DB::transaction(function () use ($user, $kept, $discarded, $pairs, $reason, $warnings): array {
             $written = $this->recordDecisions($user, $pairs, 'same');
             $moved = $this->foldInto($kept, $discarded);
 
@@ -75,8 +75,6 @@ final class ItemMerger
             // and the two would eventually disagree.
             DB::table('content.items')->where('id', $discarded->id)->delete();
 
-            $this->bumpSites($user);
-
             return [
                 'keptItemId' => (string) $kept->id,
                 'discardedItemId' => (string) $discarded->id,
@@ -84,6 +82,12 @@ final class ItemMerger
                 'warnings' => $warnings,
             ];
         });
+
+        // Deliberately OUTSIDE the transaction above — see bumpSites()'s
+        // docblock for why moving it back in is a regression, not a cleanup.
+        $this->bumpSites($user);
+
+        return $result;
     }
 
     /**
@@ -364,11 +368,29 @@ final class ItemMerger
         return $moved;
     }
 
-    /** Every curation write makes the built document stale (plan §9). */
+    /**
+     * A merge changes what the page says, so it must discharge all three
+     * cache lanes via {@see SiteCacheLanes::bust()} (#PGR-36).
+     *
+     * MUST be called OUTSIDE `merge()`'s `DB::transaction()`, never inside it.
+     * `config/queue.php` sets `after_commit => false` on every connection and
+     * `CloudflareCachePurgeJob` neither declares `$afterCommit` nor implements
+     * `ShouldQueueAfterCommit`, so a dispatch made from inside an open
+     * transaction is not deferred to commit — a worker can pick it up and
+     * purge the edge BEFORE the merge commits. That purge either (a) primes
+     * the CDN with the pre-merge payload again, which is worse than not
+     * purging at all, or (b) fires for a merge that then rolls back. Calling
+     * this after `DB::transaction()` returns is the same shape
+     * `PoolController::reorder()` already uses (transaction opens at
+     * `PoolController.php:183`, closes at `:201`, `poolChanged()` runs after,
+     * at `:203`) — this is not a special case, it is the general rule for
+     * every bust() call.
+     */
     private function bumpSites(User $user): void
     {
-        foreach (DB::table('site.sites')->where('user_id', $user->id)->pluck('id') as $siteId) {
-            BuildState::bump((string) $siteId);
-        }
+        $siteIds = DB::table('site.sites')->where('user_id', $user->id)->pluck('id')
+            ->map(fn ($id) => (string) $id)->all();
+
+        SiteCacheLanes::bust($siteIds);
     }
 }

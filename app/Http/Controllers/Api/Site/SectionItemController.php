@@ -11,7 +11,7 @@ use App\Models\Content\Item;
 use App\Models\Core\Site\Section;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,6 +27,12 @@ use Illuminate\Http\Request;
  * Authorisation is on the parent SECTION. section_items carry no user_id and
  * are only ever reachable through a section route, so authorising the section
  * IS authorising its rows (the MenuItem precedent).
+ *
+ * This is the SECOND pin path onto `site.section_items` — {@see
+ * \App\Http\Controllers\Api\Content\PoolController} is the other — and as of
+ * #PGR-36 it discharges the same three cache lanes {@see
+ * \App\Site\Documents\SiteCacheLanes} that `PoolController::poolChanged()`
+ * does (`PoolController.php:226`), not just a build-state bump.
  */
 class SectionItemController extends ApiController
 {
@@ -100,7 +106,7 @@ class SectionItemController extends ApiController
 
         $row->save();
 
-        BuildState::bump((string) $site->id);
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['curation' => new SectionItemResource($row)]);
     }
@@ -123,7 +129,7 @@ class SectionItemController extends ApiController
             abort(404, 'That item is not pinned or hidden in this section.');
         }
 
-        BuildState::bump((string) $site->id);
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['deleted' => true]);
     }

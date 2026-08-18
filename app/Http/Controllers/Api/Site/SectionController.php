@@ -13,7 +13,7 @@ use App\Models\Core\Site\Section;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Content\PageCapabilities;
-use App\Site\Documents\BuildState;
+use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -27,10 +27,14 @@ use Illuminate\Validation\ValidationException;
  * the same track can be in Listen and not in Highlights without either
  * section lying.
  *
- * Every write bumps the site's content revision. The document builder reads
- * that revision before it builds and commits under CAS, so a bump is the
- * honest way to say "the page is now out of date" — this endpoint does not
- * pretend to publish anything itself.
+ * Every write discharges all three cache lanes ({@see
+ * \App\Site\Documents\SiteCacheLanes}), not just a build-state bump (#PGR-36).
+ * `rule` is editable through this endpoint, and a section's rule feeds {@see
+ * \App\Site\Sections\SectionCandidates::ruleCandidates()}
+ * (`SectionCandidates.php:93`) — the same resolver path a pin takes when
+ * deciding what's on the page. Editing a rule can change page contents just
+ * as directly as pinning an item does, so it needs the same purge, not a
+ * lesser one.
  */
 class SectionController extends ApiController
 {
@@ -86,7 +90,7 @@ class SectionController extends ApiController
 
         $section->save();
 
-        BuildState::bump((string) $site->id);
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['section' => new SectionResource($section)], 201);
     }
@@ -118,7 +122,7 @@ class SectionController extends ApiController
 
         $section->fill($data)->save();
 
-        BuildState::bump((string) $site->id);
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['section' => new SectionResource($section->fresh()->load(['curation', 'groups']))]);
     }
@@ -133,7 +137,7 @@ class SectionController extends ApiController
 
         $section->delete();
 
-        BuildState::bump((string) $site->id);
+        SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success(['deleted' => true]);
     }

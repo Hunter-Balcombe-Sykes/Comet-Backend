@@ -3,10 +3,18 @@
 use App\Site\Documents\DocumentBuilder;
 use App\Site\Sections\RuleOperator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupContentCurationTables();
+    // #PGR-36: section writes now route through SiteCacheLanes::bust(),
+    // which dispatches CloudflareCachePurgeJob. QUEUE_CONNECTION=sync in
+    // phpunit.xml means an unfaked queue runs the job inline, including its
+    // self-dispatched delayed follow-ups (sync ignores delay()) — four
+    // executions per bust. Faked so this file's tests measure trace
+    // behaviour, not job side effects.
+    Queue::fake();
 });
 
 function traceOf(object $pro, string $sectionId): array

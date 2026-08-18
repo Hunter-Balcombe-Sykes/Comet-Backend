@@ -120,6 +120,63 @@ it('persists user_id and email_lc on a brand-new subscribe', function () {
         ->and($sub->email_lc)->toBe('fresh@example.com');
 });
 
+// PGR-19: was stored fully raw and uncapped — now routed through
+// AnalyticsEventSanitizer::userAgent() like PublicCustomerLeadController.
+it('stores a coarse User-Agent token, not the raw string, on a brand-new subscribe', function () {
+    seedPublishedSubscribeSite();
+    Bus::fake();
+
+    $chromeUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        .'(KHTML, like Gecko) Chrome/141.0.7390.54 Safari/537.36';
+
+    $this->withHeader('User-Agent', $chromeUa)
+        ->postJson('/api/public/subscribe', ['email' => 'ua-check@example.com', 'form_started_at_ms' => time() * 1000 - 5000], [
+            'X-Site-Subdomain' => 'subpro',
+        ])->assertOk();
+
+    $sub = EmailSubscription::query()->where('email', 'ua-check@example.com')->firstOrFail();
+
+    expect($sub->consent_user_agent)->toBe('Chrome/141');
+});
+
+// PGR-16: the lookup used whereRaw('lower(email) = ?', ...) instead of the
+// indexed, already-lower-cased email_lc column. Seed a row whose stored
+// `email` casing deliberately diverges from `email_lc` (simulating a legacy
+// row from before a correction) — a reader that computes lower(email)
+// instead of reading email_lc would compute a DIFFERENT string than the
+// submitted address, miss the existing row, and insert a duplicate.
+it('finds the existing subscription via email_lc even when the stored email casing has drifted from it', function () {
+    $userId = seedPublishedSubscribeSite();
+    $existingId = (string) Str::uuid();
+    DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
+        'id' => $existingId,
+        'user_id' => $userId,
+        'list_key' => 'marketing',
+        'email' => 'Legacy-Casing@Example.com',
+        'email_lc' => 'reader2@example.com',
+        'status' => 'subscribed',
+        'subscribed_at' => now()->toDateTimeString(),
+        'unsubscribe_token' => 'tok-legacy',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    Bus::fake();
+
+    $this->postJson('/api/public/subscribe', ['email' => 'Reader2@Example.com', 'form_started_at_ms' => time() * 1000 - 5000], [
+        'X-Site-Subdomain' => 'subpro',
+    ])->assertOk();
+
+    // Still exactly one row for this user+list — the submit updated the
+    // email_lc-matched row in place rather than inserting a duplicate (which
+    // whereRaw('lower(email)...') would have done, since lower() of the
+    // drifted stored email no longer equals the submitted address).
+    expect(EmailSubscription::query()->where('user_id', $userId)->where('list_key', 'marketing')->count())->toBe(1);
+
+    $sub = EmailSubscription::query()->find($existingId)->fresh();
+    expect($sub->email)->toBe('reader2@example.com')
+        ->and($sub->email_lc)->toBe('reader2@example.com');
+});
+
 function validSubscribePayload(array $overrides = []): array
 {
     return array_merge([

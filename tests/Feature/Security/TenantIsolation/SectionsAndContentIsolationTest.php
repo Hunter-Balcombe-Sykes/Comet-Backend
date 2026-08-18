@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 
 /*
 |--------------------------------------------------------------------------
@@ -17,6 +18,13 @@ use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     setupContentCurationTables();
+    // #PGR-36: the curation surface now routes through SiteCacheLanes::
+    // bust(), which dispatches CloudflareCachePurgeJob. QUEUE_CONNECTION=sync
+    // in phpunit.xml means an unfaked queue runs the job inline, including
+    // its self-dispatched delayed follow-ups (sync ignores delay()) — four
+    // executions per bust. Faked so this file's tests measure isolation
+    // behaviour, not job side effects.
+    Queue::fake();
 });
 
 it('never lists another user\'s pages or sections', function () {

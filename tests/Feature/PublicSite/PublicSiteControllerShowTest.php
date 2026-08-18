@@ -54,15 +54,15 @@ it('301s to the canonical host when an active alias resolves and the canonical p
     $this->get('http://oldhandle.'.$domain.'/api/public/site')
         ->assertStatus(301)
         ->assertRedirect('http://newhandle.'.$domain.'/api/public/site')
-        // EDGE-1: previously shipped with no Cache-Control at all — several
-        // browsers cache an un-timed 301 heuristically "forever", stranding a
-        // returning visitor on a since-renamed/reclaimed subdomain.
-        ->assertHeader('Cache-Control', 'max-age=300, public');
+        // EDGE-1/PGR-17: previously shipped with no Cache-Control at all, then
+        // CFG-3 bounded it to a 5-minute re-check window. PGR-17 tightens
+        // further to no caching at all — a rapid handle reclaim inside that
+        // window could otherwise misdirect a visitor to the new owner's site.
+        ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, private');
 });
 
-it('CFG-3: honours a configured alias_redirect_max_age on the show() 301', function () {
+it('PGR-17: the show() alias 301 is never cached, even with a stale client Cache-Control preference', function () {
     $domain = config('partna.public_domain');
-    config(['partna.cache.alias_redirect_max_age' => 60]);
     seedCanonicalSiteWithAlias('oldhandle2', 'newhandle2', fn () => [
         'reclaim_until' => now()->addDays(5),
         'expires_at' => now()->addDays(60),
@@ -75,7 +75,7 @@ it('CFG-3: honours a configured alias_redirect_max_age on the show() 301', funct
 
     $this->get('http://oldhandle2.'.$domain.'/api/public/site')
         ->assertStatus(301)
-        ->assertHeader('Cache-Control', 'max-age=60, public');
+        ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, private');
 });
 
 it('returns 404 (not a redirect) when an active alias resolves but the canonical payload is evicted', function () {

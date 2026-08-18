@@ -1161,6 +1161,24 @@ return [
         ],
     ],
 
+    // #PGR-8/9/10 batching tunables for one-off backfill/prune commands.
+    // Overridable so tests can shrink these to make chunk-boundary cases
+    // cheap to seed (see IngestProjectChunkingTest for the pattern).
+    'content' => [
+        // BackfillContentItemSlugs: chunkById() page size for the
+        // content.items walk.
+        'slug_backfill_chunk' => (int) env('PARTNA_CONTENT_SLUG_BACKFILL_CHUNK', 500),
+    ],
+
+    'media' => [
+        // BackfillMediaPaletteCommand: chunkById() page size for the
+        // palette-backfill walk.
+        'palette_backfill_chunk' => (int) env('PARTNA_MEDIA_PALETTE_BACKFILL_CHUNK', 200),
+
+        // BorrowedAssetPruner: take size for each doomed-set delete batch.
+        'borrowed_prune_chunk' => (int) env('PARTNA_MEDIA_BORROWED_PRUNE_CHUNK', 500),
+    ],
+
     // Pre-Account Sites (site-first signup + staff marketing builds).
     'pre_account' => [
         'expiry_days' => (int) env('PARTNA_PRE_ACCOUNT_EXPIRY_DAYS', 30),
@@ -2405,12 +2423,14 @@ return [
         // on 2026-08-10 — that was the tester's own network path.
         'public_swr' => (int) env('PARTNA_CACHE_PUBLIC_SWR', 0),
 
-        // CFG-3 (public-surface audit): Cache-Control max-age for the alias→
-        // canonical 301 redirects in PublicSiteController::show()/showByHeader().
-        // An un-timed 301 is cached heuristically (often "forever") by several
-        // browsers, which can strand a returning visitor on a since-renamed or
-        // later-reclaimed subdomain — this bounds the redirect to a re-check window.
-        'alias_redirect_max_age' => (int) env('PARTNA_CACHE_ALIAS_REDIRECT_MAX_AGE', 300), // 5 min
+        // CFG-3/PGR-17 (public-surface audit): the alias→canonical 301 redirects
+        // in PublicSiteController::show()/showByHeader() used to carry a 5-minute
+        // Cache-Control max-age here (CFG-3, replacing browsers' "cache an un-timed
+        // 301 forever" default). PGR-17 tightened that to a hardcoded
+        // `private, max-age=0, must-revalidate` — a rapid handle reclaim could
+        // otherwise misdirect a visitor for up to the old TTL — so there is no
+        // longer a configurable window; this key was removed rather than left
+        // silently unread.
 
         // Absolute offsets, in seconds FROM THE PRIMARY PURGE, at which follow-up
         // purges land. Not per-hop delays: the primary dispatches all of them

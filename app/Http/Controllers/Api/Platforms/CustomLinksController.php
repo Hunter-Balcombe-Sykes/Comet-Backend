@@ -28,16 +28,15 @@ use Illuminate\Support\Facades\Cache;
 // mean building it twice" (parent spec §22). The endpoints and their JSON are
 // unchanged so the dashboard keeps working; only the storage moved.
 //
-// Two deliberate consequences of that move, both inherited from Phase 3's own
-// ruling rather than decided here:
-//   - `favicon` and `logo` are always null. Minting content.media_assets for
-//     third-party image URLs pulls slice 1a's borrowed-asset lane in for
-//     decoration; if link cards want brand marks that is its own decision with
-//     its own storage question.
+// One deliberate consequence of that move, inherited from Phase 3's own ruling
+// rather than decided here:
 //   - `id` is now a content item uuid, not `link-<hash>`. The dashboard
 //     round-trips whatever ids this endpoint hands it, so the change is opaque
 //     to it — but anything that PARSED the old prefix would break.
 //
+// `favicon`/`logo` on this JSON: see LinkPoolReader's docblock (PGR-13,
+// 2026-08-18) — no longer always null, now resolved from LinkPoolWriter's
+// borrowed media the same way the public payload does.
 // ManagesIntegrationConnection is gone from this class — there is no connection
 // row for it to manage — but its LOCK is not. The pool write itself is an
 // idempotent upsert on a deterministic coord and needs no serialising; the

@@ -131,7 +131,10 @@ class PublicEnquiryController extends ApiController
             'subject' => $data['subject'],
             'message' => $data['message'],
             'ip_hash' => $this->hashIp($request->ip()),
-            'user_agent' => mb_substr((string) $request->userAgent(), 0, 500),
+            // PGR-19: coarse UA token, matching logLead() below and
+            // PublicCustomerLeadController's PRIV-2 pattern — was capped at
+            // 500 chars but still stored the raw string.
+            'user_agent' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
         ]);
         $enquiry->user()->associate($site->user_id);
         $enquiry->site()->associate($site);

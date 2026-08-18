@@ -100,3 +100,34 @@ it('declares an explicit, non-null $timeout ceiling', function () {
     expect($property->getDefaultValue())->not->toBeNull()
         ->and($property->getDefaultValue())->toBeGreaterThan(0);
 });
+
+// ── #PGR-9: chunkById() replaces cursor() ──
+
+it('fills every row across chunk boundaries — the mutating predicate case', function () {
+    config(['partna.media.palette_backfill_chunk' => 2]);
+    $ids = [
+        seedBackfillRow(230, 120, 60),
+        seedBackfillRow(10, 200, 30),
+        seedBackfillRow(50, 50, 220),
+    ];
+
+    $this->artisan('media:backfill-palette')->assertExitCode(0);
+
+    foreach ($ids as $id) {
+        expect(SiteMedia::find($id)->palette)->toBeArray();
+    }
+});
+
+it('--limit processes exactly N, never N + chunk - 1 (the overshoot regression)', function () {
+    config(['partna.media.palette_backfill_chunk' => 2]);
+    foreach (range(1, 5) as $i) {
+        seedBackfillRow(10 * $i, 20 * $i % 200, 30 * $i % 200);
+    }
+
+    $this->artisan('media:backfill-palette', ['--limit' => 3])
+        ->expectsOutputToContain('3 processed')
+        ->assertExitCode(0);
+
+    $filledCount = SiteMedia::query()->whereNotNull('palette')->count();
+    expect($filledCount)->toBe(3);
+});

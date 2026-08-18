@@ -1,9 +1,17 @@
 <?php
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
     setupContentCurationTables();
+    // #PGR-36: PageController/SectionController now route through
+    // SiteCacheLanes::bust(), which dispatches CloudflareCachePurgeJob.
+    // QUEUE_CONNECTION=sync in phpunit.xml means an unfaked queue runs the
+    // job inline, including its self-dispatched delayed follow-ups (sync
+    // ignores delay()) — four executions per bust. Faked so this file's
+    // tests measure page/section behaviour, not job side effects.
+    Queue::fake();
 });
 
 it('lists pages with their sections nested', function () {

@@ -114,6 +114,19 @@ class Menu extends BaseModel
     /**
      * Ordered categories for this menu.
      *
+     * UNUSABLE BY CONSTRUCTION (PGR-15, verified 2026-08-18): site.menu_categories
+     * was dropped in the slice 7 teardown. MenuCategory survives only as a
+     * table-less DTO hydrated unpersisted by ManualMenuItems — invoking this
+     * relation is a guaranteed 42P01 on real Postgres. Kept (not deleted) because
+     * the relation type-hint is still useful documentation of the pre-teardown
+     * shape and no caller reaches it (grep confirmed zero call sites in app/ —
+     * MenuFetchJob::hasOwnerContent() reads content.collections directly instead;
+     * a `$menu->categories()->exists()` reference in tests/Feature/Platforms/MenuTest.php
+     * describing a "MenuObserver" is stale — that class does not exist in this
+     * codebase). tests/Feature/Architecture/LegacyServiceQuerySurfaceTest.php
+     * guards against a future direct MenuCategory model query, but that guard
+     * does not cover this relation method — do not call it.
+     *
      * @return HasMany<MenuCategory, $this>
      */
     public function categories(): HasMany
@@ -121,7 +134,13 @@ class Menu extends BaseModel
         return $this->hasMany(MenuCategory::class, 'menu_id')->orderBy('position');
     }
 
-    /** All dishes across every category (denormalized menu_id for direct access). */
+    /**
+     * All dishes across every category (denormalized menu_id for direct access).
+     *
+     * UNUSABLE BY CONSTRUCTION — see categories() above; site.menu_items is
+     * dropped for the identical reason and this relation has the identical
+     * zero live callers.
+     */
     public function items(): HasMany
     {
         return $this->hasMany(MenuItem::class, 'menu_id');

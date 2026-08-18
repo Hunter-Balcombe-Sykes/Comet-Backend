@@ -542,7 +542,10 @@ class AnalyticsController extends ApiController
             sessionId: $data['session_id'] ?? null,
             visitorId: $data['visitor_id'] ?? null,
             ipHash: $this->hashIp($request->ip()),
-            userAgent: $request->userAgent(),
+            // PGR-20: same JOB-1 choke-point rationale as referrer below — sanitise
+            // here so a raw UA never reaches the Redis queue payload, not just the
+            // Postgres row. Idempotent with PostgresEventWriter's own call.
+            userAgent: AnalyticsEventSanitizer::userAgent($request->userAgent()),
             // JOB-1: sanitise here — the single choke point every beacon type funnels
             // through — so a raw UTM-embedded-PII referrer never reaches the Redis queue
             // payload. Idempotent with PostgresEventWriter's own call (AnalyticsEventSanitizerTest),
@@ -551,9 +554,11 @@ class AnalyticsController extends ApiController
             // Str::limit truncates on display width, which can perturb the second pass.
             // That drifts toward more redaction, never less, so it cannot leak PII.
             referrer: AnalyticsEventSanitizer::referrer($referrer),
-            utmSource: $data['utm_source'] ?? null,
-            utmMedium: $data['utm_medium'] ?? null,
-            utmCampaign: $data['utm_campaign'] ?? null,
+            // PGR-18: same drop-on-suspicion discipline as referrer() — a UTM value
+            // carrying an email-like substring never reaches the queue payload.
+            utmSource: AnalyticsEventSanitizer::utmParam($data['utm_source'] ?? null),
+            utmMedium: AnalyticsEventSanitizer::utmParam($data['utm_medium'] ?? null),
+            utmCampaign: AnalyticsEventSanitizer::utmParam($data['utm_campaign'] ?? null),
             countryCode: $this->detectCountryCode($request),
             deviceType: $this->detectDeviceType($request->userAgent()),
             blockId: $blockId,
