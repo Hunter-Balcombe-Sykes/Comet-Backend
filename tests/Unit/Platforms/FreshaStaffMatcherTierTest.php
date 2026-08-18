@@ -71,3 +71,22 @@ it('keeps match() behaviour identical', function () {
     expect($matcher->match($user, $squad))->toBe('e1')
         ->and($matcher->match($user, []))->toBeNull();
 });
+
+it('matches a first-name-only display name when it is unique (owner, 2026-08-19)', function () {
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Simon'], ['e2', 'Ana Ruiz'])))
+        ->toBe(['employeeId' => 'e1', 'tier' => 'first-exact']);
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Simon D.'], ['e2', 'Ana'])))
+        ->toBe(['employeeId' => 'e1', 'tier' => 'first-exact']);
+    // A different surname after the first name is not this tier.
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Simon Reed'], ['e2', 'Ana'])))
+        ->toBe(['employeeId' => null, 'tier' => null]);
+    // Two Simons — nobody.
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Simon'], ['e2', 'Simon'])))
+        ->toBe(['employeeId' => null, 'tier' => null]);
+    // A user with only a first name still matches the bare first name.
+    $mono = User::factory()->create(['first_name' => 'Simon', 'last_name' => null]);
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($mono, team(['e1', 'Simon'], ['e2', 'Ana'])))
+        ->toBe(['employeeId' => 'e1', 'tier' => 'exact']);
+});
