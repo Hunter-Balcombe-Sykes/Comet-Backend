@@ -36,8 +36,16 @@ it('turns the vendor category into a collection keyed on its id', function () {
 
     expect($projection['collections'])->toBe([[
         'external_ref' => '3282965', 'label' => 'Haircuts',
-        'kind' => 'service_category', 'position' => 0,
+        'kind' => 'service_category', 'position' => 0, 'item_position' => 0,
     ]]);
+
+    // The venue's own order rides as seeds (F30): the category's rank and
+    // the service's rank inside it.
+    $projection = (new FreshaServiceProjector)->project(new RecordView([
+        'serviceId' => 's:2', 'name' => 'Beard Trim', 'price' => 'from $20',
+        'category' => 'Haircuts', 'categoryId' => '3282965', 'category_position' => 1, 'position' => 4,
+    ]));
+    expect($projection['collections'][0])->toMatchArray(['position' => 1, 'item_position' => 4]);
 });
 
 it('emits no collection when the category carries no id', function () {

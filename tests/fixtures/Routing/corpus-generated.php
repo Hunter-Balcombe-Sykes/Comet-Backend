@@ -615,7 +615,7 @@ return [
             'surface' => 'fresha.book',
             'identifier' => 'aaa',
         ],
-        'detector' => '1914c21e4cac492b',
+        'detector' => 'cb5525db472c96a4',
     ],
     81 => [
         'url' => 'https://genbook.com/',

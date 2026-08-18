@@ -23,6 +23,8 @@ use Illuminate\Support\Str;
  */
 class SourceReconciler
 {
+    public function __construct(private readonly ConnectionIdentity $identity) {}
+
     /**
      * @return array{intent_id: ?string, connection_id: ?string, verdict: string, block_reason: ?string}
      */
@@ -53,12 +55,31 @@ class SourceReconciler
         $blockReason = $placement->blockReason;
         $conflictId = null;
 
+        // #R4. `resource_id` means three different things on this table (see
+        // ConnectionIdentity), so the raw `!=` comparisons below read the
+        // build's own Instagram connection — resource_id 'instagram', the
+        // legacy singleton marker — as a DIFFERENT account from the same
+        // handle harvested out of the owner's Linktree. Resolved ONCE here and
+        // threaded through all three consumers: the cap must not count an alias
+        // as a second account, the booking XOR must not hold it as a conflict,
+        // and applyIntent must reuse it rather than insert a duplicate.
+        //
+        // Gated on Place, deliberately. A non-Place verdict touches
+        // site.platform_connections nowhere else in this method, and
+        // SourceIntentUpsertRaceTest is built on exactly that invariant (it
+        // provisions no connections table at all) — an unconditional lookup
+        // here both breaks it and spends a query per Choose/Hold/Note that
+        // nothing reads.
+        $aliasConnectionId = $verdict === Verdict::Place
+            ? $this->identity->matchExisting($user, $placement->surfaceKey, $identifier)
+            : null;
+
         // Booking-class AUTO writes keep today's XOR: one auto-connection per
         // routing class. A second one is not an error and is not silently
         // dropped — it is held as a conflict the user resolves in the
         // suggestions inbox (Keep / Replace).
         if ($verdict === Verdict::Place && $this->isExclusiveAuto($routingClass) && ! $context->isDirectRequest()) {
-            $incumbent = $this->incumbentFor($user, $routingClass, $placement->surfaceKey, $identifier);
+            $incumbent = $this->incumbentFor($user, $routingClass, $placement->surfaceKey, $identifier, $aliasConnectionId);
             if ($incumbent !== null) {
                 $verdict = Verdict::Hold;
                 $blockReason = 'conflict';
@@ -67,7 +88,7 @@ class SourceReconciler
         }
 
         // Per-surface account cap.
-        if ($verdict === Verdict::Place && $this->capReached($user, $placement->surfaceKey, (int) $surface['max_accounts'], $identifier)) {
+        if ($verdict === Verdict::Place && $this->capReached($user, $placement->surfaceKey, (int) $surface['max_accounts'], $identifier, $aliasConnectionId)) {
             $verdict = Verdict::Hold;
             $blockReason = 'cap_reached';
         }
@@ -88,7 +109,7 @@ class SourceReconciler
         // that property — so nothing here performs I/O inside the
         // transaction.
         [$intentId, $connectionId] = DB::transaction(function () use (
-            $user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId
+            $user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId, $aliasConnectionId
         ) {
             $intentId = $this->upsertIntent($user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId);
 
@@ -96,7 +117,7 @@ class SourceReconciler
                 return [$intentId, null];
             }
 
-            $connectionId = $this->applyIntent($user, $placement->surfaceKey, $routingClass, $identifier, $iri, $context);
+            $connectionId = $this->applyIntent($user, $placement->surfaceKey, $routingClass, $identifier, $iri, $context, $aliasConnectionId);
 
             DB::table('routing.source_intents')
                 ->where('id', $intentId)
@@ -118,23 +139,32 @@ class SourceReconciler
         return in_array($routingClass, ['booking', 'reservations', 'ordering'], true);
     }
 
-    /** An existing auto-created connection in the same routing class, if any. */
-    private function incumbentFor(User $user, string $routingClass, string $surfaceKey, string $identifier): ?string
+    /**
+     * An existing auto-created connection in the same routing class, if any.
+     *
+     * $aliasConnectionId is THIS identity wearing another scheme's clothes
+     * (#R4) — never a rival for the class, so it is excluded rather than held
+     * as a conflict the owner is asked to resolve against itself.
+     */
+    private function incumbentFor(User $user, string $routingClass, string $surfaceKey, string $identifier, ?string $aliasConnectionId = null): ?string
     {
         return IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('routing_class', $routingClass)
             ->whereNull('deleted_at')
+            ->when($aliasConnectionId !== null, fn ($q) => $q->where('id', '!=', $aliasConnectionId))
             ->where(fn ($q) => $q->where('surface_key', '!=', $surfaceKey)->orWhere('resource_id', '!=', $identifier))
             ->value('id');
     }
 
-    private function capReached(User $user, string $surfaceKey, int $maxAccounts, string $identifier): bool
+    /** $aliasConnectionId: see incumbentFor() — an alias is not a second account. */
+    private function capReached(User $user, string $surfaceKey, int $maxAccounts, string $identifier, ?string $aliasConnectionId = null): bool
     {
         $existing = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('surface_key', $surfaceKey)
             ->whereNull('deleted_at')
+            ->when($aliasConnectionId !== null, fn ($q) => $q->where('id', '!=', $aliasConnectionId))
             ->where('resource_id', '!=', $identifier)
             ->count();
 
@@ -256,6 +286,7 @@ class SourceReconciler
         string $identifier,
         Iri $iri,
         RoutingContext $context,
+        ?string $aliasConnectionId = null,
     ): string {
         // A direct re-add supersedes an earlier refusal of this exact source:
         // leaving the tombstone would make the very next scan reject a link
@@ -269,6 +300,17 @@ class SourceReconciler
                 ->delete();
         }
 
+        // #R4: an existing row for this identity under ANY of the table's three
+        // resource_id schemes. Reconcile, never replace — its payload, curation
+        // and settings belong to the user, so nothing about it is rewritten
+        // here, not even to align its resource_id with this lane's spelling.
+        if ($aliasConnectionId !== null) {
+            return $aliasConnectionId;
+        }
+
+        // Same-scheme fallback, re-read INSIDE the transaction: matchExisting()
+        // ran before it opened, so a concurrent writer could have landed this
+        // exact row in between.
         $connection = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('surface_key', $surfaceKey)

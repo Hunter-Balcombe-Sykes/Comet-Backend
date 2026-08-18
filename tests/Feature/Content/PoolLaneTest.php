@@ -313,6 +313,27 @@ it('serves render-ready payloads: override headline, synced link, platform', fun
     expect($item['platform'])->toBe('youtube');
 });
 
+it('spells a brand-keyed connection platform as the slug on the wire — uber_eats → uber-eats in platform, links[] and sources[] (F28)', function () {
+    // Brand connects store the catalog brand key (`uber_eats`) in
+    // platform_connections.platform; the roster, ItemLinkRules and the
+    // dashboard glyph map all use `uber-eats`. Both spellings leaked onto one
+    // menus wire (session 3), so ingest-lane dishes drew no glyph.
+    [$pro] = poolTenant();
+    $connection = poolConnection($pro->id, 'uber_eats.order');
+    // `platform` is generated from surface_key ('uber_eats.order' → 'uber_eats').
+    DB::table('site.platform_connections')->where('id', $connection)->update(['payload' => json_encode(['url' => 'https://www.ubereats.com/au/store/souva-king/RV0ChXJAXiaEjATmAdjQeg', 'name' => 'def.uber.com'])]);
+    $source = poolSource($pro->id, $connection);
+    $dish = poolItem($pro->id, $source, 'menu_item', 'Halloumi Wrap', now()->toDateTimeString());
+    DB::table('content.f_link')->insert(['item_id' => $dish, 'source_id' => $source, 'url' => 'https://www.ubereats.com/au/store/souva-king/RV0ChXJAXiaEjATmAdjQeg', 'updated_at' => now()]);
+
+    $item = collect(poolGet($pro, 'menus')['library'])->firstWhere('id', $dish);
+    expect($item['platform'])->toBe('uber-eats')
+        ->and(array_column($item['links'], 'platform'))->toBe(['uber-eats'])
+        ->and($item['sources'][0]['platform'])->toBe('uber-eats')
+        // …and a bare host under payload.name is not a display name.
+        ->and($item['sources'][0]['accountName'])->toBe('Souva King');
+});
+
 // ── The public wire ─────────────────────────────────────────────────────────
 
 it('serves the pool selection on the public payload with the Latest tag', function () {
@@ -363,6 +384,37 @@ it('breaks a full timestamp tie to exactly one auto item per source', function (
     }
 
     expect(poolGet($pro)['selection'])->toHaveCount(1);
+});
+
+it('never lets an undated item outrank a dated one — on the auto arm, the recency order and the Latest tag (X5)', function () {
+    // Overnight X5: an Apple song with no releaseDate ("Runway Houses City
+    // Clouds (2020 Mix)") carried first_seen_at = connect time and beat every
+    // dated release of the same source on COALESCE(published, first_seen), so
+    // it took the auto slot and the Latest tag off last month's single.
+    config(['partna.pools.auto_latest_n' => 10]);
+    [$pro] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $dated = poolItem($pro->id, $source, 'video', 'Dated last month', now()->subDays(30)->toDateTimeString());
+    $undated = poolItem($pro->id, $source, 'video', 'Undated, seen today', now()->toDateTimeString());
+    DB::table('content.f_published')->where('item_id', $undated)->delete();
+    DB::table('content.items')->where('id', $undated)->update(['first_seen_at' => now()]);
+
+    $data = poolGet($pro);
+    expect(poolHeadlines($data))->toBe(['Dated last month']);
+    expect($data['latestItemId'])->toBe($dated);
+
+    // Same rule for a media pool's N-newest window: dated rows sort first,
+    // undated ones after (by first-seen among themselves).
+    $media = poolSource($pro->id, poolConnection($pro->id, 'instagram.profile'));
+    $seenFirst = poolItem($pro->id, $media, 'media', 'Undated A', now()->toDateTimeString());
+    $seenLater = poolItem($pro->id, $media, 'media', 'Undated B', now()->toDateTimeString());
+    $datedMedia = poolItem($pro->id, $media, 'media', 'Dated', now()->subYear()->toDateTimeString());
+    DB::table('content.f_published')->whereIn('item_id', [$seenFirst, $seenLater])->delete();
+    DB::table('content.items')->where('id', $seenFirst)->update(['first_seen_at' => now()->subHour()]);
+    DB::table('content.items')->where('id', $seenLater)->update(['first_seen_at' => now()]);
+
+    expect(array_column(poolGet($pro, 'media')['selection'], 'id'))->toBe([$datedMedia, $seenLater, $seenFirst]);
 });
 
 it('hand-adds an item by link: manual source, pinned, titled', function () {

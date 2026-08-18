@@ -28,6 +28,17 @@ class PublicSuffixList
     /** @var array<string, true> exception rules ("!www.ck" stored as "www.ck") */
     private array $exceptions = [];
 
+    /**
+     * Exact rules that came from the PRIVATE section — domains a company
+     * registered and then published so their tenants get separate origins
+     * (github.io, canva.link), as opposed to ICANN suffixes nobody can
+     * register at all (com.au). The algorithm treats both the same; callers
+     * that care WHY a host has no eTLD+1 do not. See isPrivateSuffix().
+     *
+     * @var array<string, true>
+     */
+    private array $privateRules = [];
+
     public static function instance(): self
     {
         return self::$instance ??= self::fromFile(base_path('resources/psl/public_suffix_list.dat'));
@@ -40,8 +51,21 @@ class PublicSuffixList
         if ($handle === false) {
             throw new \RuntimeException("Cannot read PSL at {$path}");
         }
+        $private = false;
         while (($line = fgets($handle)) !== false) {
             $line = trim($line);
+            // The section markers are comments, so read them BEFORE skipping
+            // comments — the ICANN/private boundary is data, not commentary.
+            if (str_starts_with($line, '// ===BEGIN PRIVATE DOMAINS===')) {
+                $private = true;
+
+                continue;
+            }
+            if (str_starts_with($line, '// ===BEGIN ICANN DOMAINS===')) {
+                $private = false;
+
+                continue;
+            }
             if ($line === '' || str_starts_with($line, '//')) {
                 continue;
             }
@@ -58,6 +82,9 @@ class PublicSuffixList
                 $psl->wildcards[$ascii] = true;
             } else {
                 $psl->rules[$ascii] = true;
+                if ($private) {
+                    $psl->privateRules[$ascii] = true;
+                }
             }
         }
         fclose($handle);
@@ -117,6 +144,24 @@ class PublicSuffixList
         }
 
         return implode('.', array_slice($labels, -1 * ($suffixLabels + 1)));
+    }
+
+    /**
+     * True when the host is EXACTLY a PRIVATE-section rule — i.e. a domain
+     * somebody actually registered (canva.link, github.io) rather than an
+     * ICANN suffix nobody can (com.au). registrableDomain() answers null for
+     * both, which is spec-correct and hides the distinction that matters: a
+     * private suffix serves real pages on its own paths.
+     *
+     * Exact rules only. A wildcard private entry (*.compute.amazonaws.com)
+     * makes the TENANT label the boundary, so a host matching it is a tenant
+     * name, not a registrable domain, and stays unroutable.
+     */
+    public function isPrivateSuffix(string $host): bool
+    {
+        $host = strtolower(rtrim($host, '.'));
+
+        return isset($this->privateRules[$host]) && $this->publicSuffix($host) === $host;
     }
 
     private static function toAscii(string $domain): ?string

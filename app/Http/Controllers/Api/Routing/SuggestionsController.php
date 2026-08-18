@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Routing;
 use App\Catalog\CompiledCatalog;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Routing\SuggestionApplier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,6 +31,9 @@ use Illuminate\Support\Str;
 class SuggestionsController extends ApiController
 {
     use ResolveCurrentUser;
+
+    /** Store surfaces the probe runtime identifies (LinkProbeWorker's cascade). */
+    private const PROBED_STORE_SURFACES = ['shopify.store', 'woocommerce.store', 'squarespace.store', 'bigcartel.store'];
 
     public function __construct(private readonly SuggestionApplier $applier) {}
 
@@ -87,6 +91,26 @@ class SuggestionsController extends ApiController
 
         // Shared with the synced-modal's "Change to" swap (SyncFindingsBridge)
         // — one writer for intent application, wherever the user answered.
+        // A probed storefront (Shopify / WooCommerce / Squarespace / Big
+        // Cartel, offered from a pasted link — owner ask 2026-08-18) needs
+        // more than the bare connection the applier writes: the store
+        // collection, name, logo, and the shop cap / tombstone checks the
+        // seeder runs. So it goes back through StoreBrandSeeder — queue-only
+        // (the probe answer is cached 12 h, so this is seconds) — which
+        // places the connection, builds the store and settles this intent
+        // itself (applied, or blocked with the reason the inbox already
+        // renders). Nothing is written here that the seeder could contradict.
+        if (in_array($intent->surface_key, self::PROBED_STORE_SURFACES, true) && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
+            CommerceProbeJob::dispatch((string) $user->id, (string) $intent->canonical_url, 'shop');
+
+            return $this->success([
+                'connectionId' => null,
+                'surfaceKey' => $intent->surface_key,
+                'displayName' => $surface['display_name'],
+                'status' => 'pending',
+            ], 202);
+        }
+
         $connection = $this->applier->apply($user, $intent, $surface);
 
         return $this->success([

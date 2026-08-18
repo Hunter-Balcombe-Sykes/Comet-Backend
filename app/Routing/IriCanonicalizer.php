@@ -145,7 +145,20 @@ class IriCanonicalizer
 
         $registrable = $this->psl->registrableDomain($host);
         if ($registrable === null) {
-            return Iri::reject($input, 'public-suffix-host');
+            // No eTLD+1 — but that answer covers two unlike cases. An ICANN
+            // suffix (com.au) is genuinely unregistrable and stays rejected.
+            // A PRIVATE-section suffix is a domain a company DID register and
+            // then published so its tenants get separate origins; the listing
+            // governs what sits BELOW the host, not the host itself, which
+            // serves real pages on its own paths. Rejecting those threw away
+            // links their owners had published — canva.link/<id> on a live
+            // Linktree, found 2026-08-18 (#R2). Note the asymmetry it created:
+            // www.canva.link/x routed, canva.link/x did not.
+            if (! $this->psl->isPrivateSuffix($host)) {
+                return Iri::reject($input, 'public-suffix-host');
+            }
+
+            $registrable = $host;
         }
 
         if (in_array($registrable, self::SHORTENERS, true)) {

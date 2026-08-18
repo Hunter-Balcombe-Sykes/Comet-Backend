@@ -35,21 +35,23 @@ final readonly class Manifest
      * Whether provisioning a NEW source for this connector should run it once
      * immediately, rather than leaving it for the scheduler.
      *
-     * Only meaningful for connectors the scheduler cannot reach:
-     * SourceProvisioner sets auto_sync = (cost === Free), and
-     * SourceScheduler::scoreDue() selects only auto_sync = true, so a paid
-     * connector is never claimed and — absent this — never runs at all.
+     * Free connectors always do (F21, 2026-08-18): the dispatcher tick is 15
+     * minutes, so "connect Apple Music → the listen pool stays empty for a
+     * quarter of an hour" was the default experience. The eager run costs
+     * nothing, and it is claimed before dispatch and released with a fresh
+     * next_attempt_at, so the scheduler does not fetch the same source again
+     * on its next tick — one fetch either way, just now instead of later.
      *
-     * Default FALSE on purpose. Seven connectors are paid (six Actor, one
-     * Metered); flipping them on together would start recurring third-party
-     * spend across all of them. Opting in is one visible line per connector.
-     *
-     * A Free connector has no need of it: it is provisioned with
-     * next_attempt_at = now() and the dispatcher picks it up within the tick.
+     * Paid connectors stay opt-in. SourceProvisioner sets auto_sync =
+     * (cost === Free) and SourceScheduler::scoreDue() selects only auto_sync =
+     * true, so a paid connector is never claimed by the scheduler and — absent
+     * the flag — never runs at all. Seven connectors are paid (six Actor, one
+     * Metered); flipping them on together would start third-party spend on
+     * every connect. Opting in is one visible line per connector.
      */
     public function runsEagerlyOnConnect(): bool
     {
-        return $this->eagerOnConnect;
+        return $this->eagerOnConnect || $this->cost === CostClass::Free;
     }
 
     public function stream(string $name): ?StreamSpec

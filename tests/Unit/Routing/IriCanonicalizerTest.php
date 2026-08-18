@@ -217,3 +217,37 @@ it('keeps replay honest — canonicalising a redacted raw_url matches the origin
 
     expect($redacted)->toBe($original);
 });
+
+// ── #R2: a privately-registered suffix host is a real link ───────────────────
+// canva.link sits in the PSL PRIVATE section (Canva submitted it so each
+// design gets its own origin). registrableDomain() therefore answers null,
+// the canonicaliser rejected it 'public-suffix-host', and — because reject
+// has no card path — the user's Canva link vanished off their site with no
+// error anywhere. Found live on themilleraffect, 2026-08-18.
+
+it('routes a host that is itself a privately-registered suffix', function () {
+    $i = iri('https://canva.link/hxwh4ybxzn38wkg');
+
+    expect($i->rejected)->toBeNull();
+});
+
+it('uses the private suffix host itself as the registrable key', function () {
+    expect(iri('https://canva.link/hxwh4ybxzn38wkg')->registrableKey)->toBe('canva.link');
+});
+
+it('agrees with itself about the www form of a private suffix host', function () {
+    // The tell that the old behaviour was a bug and not a policy: one label's
+    // difference decided whether the same page was keepable.
+    expect(iri('https://canva.link/abc')->rejected)
+        ->toBe(iri('https://www.canva.link/abc')->rejected);
+});
+
+it('still rejects a bare ICANN public suffix, which nobody can register', function () {
+    expect(iri('https://com.au/anything')->rejected)->toBe('public-suffix-host');
+});
+
+it('does not let a private suffix override the own-infra denylist', function () {
+    // Order matters: own-infra is checked before the PSL, and must stay that
+    // way — r2.dev and workers.dev are both PSL private entries.
+    expect(iri('https://workers.dev/x')->rejected)->toBe('own-infra');
+});

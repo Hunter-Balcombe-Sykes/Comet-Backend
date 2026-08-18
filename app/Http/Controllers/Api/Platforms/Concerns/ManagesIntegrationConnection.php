@@ -53,6 +53,18 @@ trait ManagesIntegrationConnection
     }
 
     // Single-selection platforms store one row per user under this resource id.
+    /**
+     * The LEGACY SINGLETON identity: the platform slug standing in for "the
+     * one account on this platform". It is not the account's identity, which
+     * is why App\Routing\ConnectionIdentity has to translate it — see #R4,
+     * where the build's 'instagram' row and the same handle harvested from a
+     * Linktree read as two accounts and became two connections.
+     *
+     * KNOWN GAP, deliberately out of scope for #R4: the translation runs in
+     * the routing lane only. A connect through THIS trait still writes the
+     * marker without checking whether a routed row for the same account is
+     * already present.
+     */
     protected function defaultResourceId(): string
     {
         return $this->platform();
@@ -592,6 +604,33 @@ trait ManagesIntegrationConnection
     }
 
     /**
+     * The row a connect-status poll is asking about. A deferred connect whose
+     * FIRST fetch failed terminally is soft-deleted by ConnectFetchJob (F26:
+     * a row that never fetched OK is not a connection — left live it showed
+     * as a connected "Japanese Breakfast" in the Platforms table and
+     * provisioned an ingest source that would fail forever). The poll that
+     * follows still has to surface the stored error, so this reads the live
+     * row first and then the family's most recently trashed failed row.
+     */
+    protected function connectStatusRow(User $user, ?string $accountId, bool $perAccount = true): ?IntegrationConnection
+    {
+        $live = $perAccount ? $this->requestedAccountRow($user, $accountId) : $this->connectionFor($user);
+        if ($live !== null) {
+            return $live;
+        }
+
+        $trashed = $this->scopeToFamily($user->integrationConnections()->onlyTrashed())
+            ->whereNull('last_refreshed_at')
+            ->whereIn('last_refresh_status', ['unavailable', 'error'])
+            ->whereNotNull('last_refresh_error');
+        if ($perAccount && $accountId !== null && $accountId !== '') {
+            $trashed->where('resource_id', $accountId);
+        }
+
+        return $trashed->orderByDesc('deleted_at')->first();
+    }
+
+    /**
      * Upsert an account row keyed by its canonical input (FOUND-14). Re-connecting
      * an input that matches an existing row — by derived hash, or by the stored
      * canonical_key column (bridges legacy rows / hash-scheme drift) — updates
@@ -623,7 +662,12 @@ trait ManagesIntegrationConnection
         $values = [
             'payload' => $payload,
             'is_active' => true,
-            'last_refreshed_at' => $pending ? null : now(),
+            // A pending re-write keeps the row's last successful refresh:
+            // "last refreshed" is when the vendor last answered, and
+            // ConnectFetchJob reads a NULL here as "this account has never
+            // been fetched OK" to decide whether a failed connect leaves a
+            // row behind at all (F26).
+            'last_refreshed_at' => $pending ? $existing?->last_refreshed_at : now(),
             'last_refresh_status' => $pending ? 'pending' : 'ok',
             'last_refresh_error' => null,
             'consecutive_failures' => 0,

@@ -337,17 +337,26 @@ class PoolResolver
     /**
      * The single Latest tag (owner): whichever SELECTED item was most
      * recently released — published date, first-seen when nothing dated it.
+     * A dated item always outranks an undated one (X5): first_seen_at is the
+     * moment WE saw it, not a release date, and an Apple song with no
+     * releaseDate ("Runway Houses City Clouds (2020 Mix)") was taking the tag
+     * off a release dated last month.
      *
      * @param  list<array<string, mixed>>  $selection
      */
     private function latestItemId(array $selection): ?string
     {
         $latest = null;
-        $latestAt = null;
+        $latestKey = null;
         foreach ($selection as $item) {
-            $at = $item['publishedAt'] ?? $item['firstSeenAt'] ?? null;
-            if ($at !== null && ($latestAt === null || $at > $latestAt)) {
-                $latestAt = $at;
+            $published = $item['publishedAt'] ?? null;
+            $at = $published ?? $item['firstSeenAt'] ?? null;
+            if ($at === null) {
+                continue;
+            }
+            $key = [$published !== null ? 1 : 0, $at];
+            if ($latestKey === null || $key > $latestKey) {
+                $latestKey = $key;
                 $latest = $item['id'];
             }
         }
@@ -522,6 +531,9 @@ class PoolResolver
                 'content.sources.kind as source_kind',
                 'site.platform_connections.platform as platform',
             ])
+            ->each(function (object $row): void {
+                $row->platform = self::wirePlatform($row->platform);
+            })
             ->groupBy('item_id');
 
         // A dish's per-platform links (W5): every offer that knows the store
@@ -619,7 +631,7 @@ class PoolResolver
                 $payload = is_string($row->payload) ? (json_decode($row->payload, true) ?: []) : (array) ($row->payload ?? []);
                 $out[] = [
                     'kind' => 'connection',
-                    'platform' => (string) $row->platform,
+                    'platform' => (string) self::wirePlatform($row->platform),
                     'accountName' => ConnectionDisplayName::for((string) ($row->surface_key ?? ''), $payload),
                     'lastSeenAt' => $iso($row->last_seen_at),
                     'lastSyncedAt' => $iso($ingestByConnection[(string) $row->connection_id]->last_run_at ?? null),
@@ -640,7 +652,7 @@ class PoolResolver
                 $payload = is_string($row->payload) ? (json_decode($row->payload, true) ?: []) : (array) ($row->payload ?? []);
                 $url = $payload['url'] ?? ($payload['selection']['url'] ?? null);
 
-                return (object) ['platform' => $row->platform, 'url' => is_string($url) && preg_match('~^https?://~i', $url) ? $url : null];
+                return (object) ['platform' => self::wirePlatform($row->platform), 'url' => is_string($url) && preg_match('~^https?://~i', $url) ? $url : null];
             })
             ->filter();
 
@@ -1250,6 +1262,22 @@ class PoolResolver
      *
      * @return list<array{platform: string|null, url: string, source: string}>
      */
+    /**
+     * The platform key a connection carries on the wire. Brand connects store
+     * the CATALOG brand key in site.platform_connections.platform
+     * (`uber_eats`, `just_eat`, `order_online`, `eat_app`) while every other
+     * platform, ItemLinkRules' roster and the dashboard's glyph/roster maps
+     * use the hyphenated slug (`uber-eats`). Both leaked onto one wire: an
+     * ingest-lane dish read `platform: "uber_eats"` in links[]/sources[]
+     * beside a legacy-lane dish's `uber-eats` (session 3, 2026-08-18, F28),
+     * so the dashboard drew no glyph and the per-platform dedupe missed. One
+     * spelling out: the slug.
+     */
+    private static function wirePlatform(?string $platform): ?string
+    {
+        return $platform === null || $platform === '' ? $platform : str_replace('_', '-', $platform);
+    }
+
     private function linkSet(Collection $sourceRows, Collection $manualRows): array
     {
         $links = [];

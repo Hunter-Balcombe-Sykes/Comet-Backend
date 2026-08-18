@@ -3,6 +3,7 @@
 use App\Services\Media\MediaMirror;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -122,7 +123,7 @@ it('is idempotent — mirroring the same bytes twice writes one object and one p
         ->and(Storage::disk('media')->allFiles())->toHaveCount(1);
 });
 
-it('leaves the row untouched when the fetch fails', function () {
+it('leaves the bytes columns untouched when the fetch fails', function () {
     $user = createTenant('mir-'.Str::lower(Str::random(6)));
     $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
     Http::fake(['*' => Http::response('', 404)]);
@@ -182,4 +183,142 @@ it('stores a reel mp4 as-is under its content hash with mime video/mp4 (R7)', fu
         ->and($row->storage_path)->toEndWith('.mp4')
         ->and(Storage::disk('media')->exists($row->storage_path))->toBeTrue()
         ->and(Storage::disk('media')->get($row->storage_path))->toBe($mp4);
+});
+
+// ── R8: the unmirrored tail must be readable from the row, not inferred ──────
+//
+// `storage_path IS NULL` used to collapse four states into one value — never
+// dispatched, queued, running, and permanently dead all looked identical. The
+// 2026-08-18 build wave left 32 unmirrored assets behind exactly one warning
+// line, and no amount of log reading could tell which of the four each one was.
+
+it('stamps the failure reason and increments the attempt counter', function () {
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
+    Http::fake(['*' => Http::response('', 404)]);
+
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/gone.jpg');
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    expect((int) $row->mirror_attempts)->toBe(1)
+        ->and($row->mirror_last_reason)->toBe('fetch_failed')
+        ->and($row->mirror_last_attempt_at)->not->toBeNull();
+});
+
+it('counts consecutive failures rather than overwriting the previous attempt', function () {
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
+    Http::fake(['*' => Http::response('', 404)]);
+
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/gone.jpg');
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/gone.jpg');
+
+    expect((int) DB::table('content.media_assets')->where('id', $assetId)->value('mirror_attempts'))->toBe(2);
+});
+
+it('records the specific reason, not a generic failure flag', function () {
+    // Each reason has a different remedy: undecodable is a dead asset,
+    // store_failed is our infrastructure. Collapsing them loses the remedy.
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:BAD:0'));
+    Http::fake(['*' => Http::response('MZ not-an-image', 200, ['Content-Type' => 'image/jpeg'])]);
+
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/bad.jpg');
+
+    expect(DB::table('content.media_assets')->where('id', $assetId)->value('mirror_last_reason'))->toBe('undecodable');
+});
+
+it('clears the failure state when a later attempt succeeds', function () {
+    // A CDN outage must not leave a permanent scar on a row that later worked.
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
+    DB::table('content.media_assets')->where('id', $assetId)
+        ->update(['mirror_attempts' => 3, 'mirror_last_reason' => 'fetch_failed']);
+    Http::fake(['*' => Http::response(mirrorImageBytes(320, 320), 200, ['Content-Type' => 'image/jpeg'])]);
+
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    expect((int) $row->mirror_attempts)->toBe(0)
+        ->and($row->mirror_last_reason)->toBeNull()
+        ->and($row->mirror_last_attempt_at)->not->toBeNull();
+});
+
+it('clears the failure state when a reel mp4 later succeeds', function () {
+    // The video branch returns before the image UPDATE — it needs its own
+    // reset or a reel that recovers keeps a stale reason forever.
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:video'));
+    DB::table('content.media_assets')->where('id', $assetId)
+        ->update(['mirror_attempts' => 2, 'mirror_last_reason' => 'fetch_failed']);
+    $mp4 = "\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom".str_repeat("\x00", 512);
+    Http::fake(['*' => Http::response($mp4, 200, ['Content-Type' => 'video/mp4'])]);
+
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/reel.mp4');
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    expect((int) $row->mirror_attempts)->toBe(0)
+        ->and($row->mirror_last_reason)->toBeNull();
+});
+
+it('warns media_mirror.gave_up on the attempt that crosses the cap', function () {
+    // The operator event R8 wanted and never got: one line, at warning, on the
+    // transition — not a per-sync repeat of a link that is simply dead.
+    config()->set('partna.media_mirror_max_attempts', 3);
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
+    DB::table('content.media_assets')->where('id', $assetId)->update(['mirror_attempts' => 2]);
+    Http::fake(['*' => Http::response('', 404)]);
+    Log::spy();
+
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/gone.jpg');
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => $message === 'media_mirror.gave_up'
+            && $context['asset_id'] === $assetId
+            && $context['attempts'] === 3
+            && $context['reason'] === 'fetch_failed')
+        ->once();
+});
+
+it('does not warn gave_up while the asset is still under the cap', function () {
+    config()->set('partna.media_mirror_max_attempts', 3);
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
+    Http::fake(['*' => Http::response('', 404)]);
+    Log::spy();
+
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/gone.jpg');
+
+    // TWO matchers, because Log::warning() is called with two arguments — a
+    // one-element expectation could never match the real call and would pass
+    // whether or not the line fired. `media_mirror.failed` still fires here and
+    // is correctly not matched. Non-vacuity proven by setting the cap to 1:
+    // this assertion then fails, as it must.
+    Log::shouldNotHaveReceived('warning', ['media_mirror.gave_up', Mockery::any()]);
+    expect((int) DB::table('content.media_assets')->where('id', $assetId)->value('mirror_attempts'))->toBe(1);
+});
+
+it('still warns gave_up when the counter overshoots the cap', function () {
+    // A strict `=== max` misses the line whenever the counter steps past the
+    // boundary — two in-flight jobs incrementing concurrently once the
+    // ShouldBeUnique lock has lapsed, or a cap someone lowered. Missing the
+    // give-up line is the exact failure class this whole change exists to end,
+    // so overshoot must still speak. Duplicates are bounded: dispatchMirrors
+    // stops queuing at the cap, so only already-queued jobs can get here.
+    config()->set('partna.media_mirror_max_attempts', 3);
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
+    DB::table('content.media_assets')->where('id', $assetId)->update(['mirror_attempts' => 6]);
+    Http::fake(['*' => Http::response('', 404)]);
+    Log::spy();
+
+    app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/gone.jpg');
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => $message === 'media_mirror.gave_up' && $context['attempts'] === 7)
+        ->once();
 });

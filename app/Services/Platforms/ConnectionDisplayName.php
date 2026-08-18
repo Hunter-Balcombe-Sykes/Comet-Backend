@@ -47,6 +47,14 @@ final class ConnectionDisplayName
         // (legacy shape) — a channel is its handle, not its newest video.
         $nameIsContentTitle = in_array($surfaceKey, ['youtube.channel', 'vimeo.account', 'bandcamp.artist', 'youtube_music.channel', 'apple_music.artist', 'apple_podcasts.show', 'soundcloud.player'], true);
         $name = self::text($payload['name'] ?? null);
+        // A bare hostname is not a name: the menu lane's ordering rows carry
+        // the store url's host under payload.name ("def.uber.com",
+        // "doordash.com") — fall through to the store slug instead
+        // (session 3, 2026-08-18: Souva King's Uber Eats source read
+        // "def.uber.com" in every dish's Sources list).
+        if ($name !== null && self::looksLikeHost($name)) {
+            $name = null;
+        }
         if ($name !== null && ! $nameIsContentTitle && ! self::isBrandLabel($name, $brand, $surfaceKey)) {
             return self::cleanTitle($name, $brand);
         }
@@ -82,6 +90,12 @@ final class ConnectionDisplayName
         }
 
         return null;
+    }
+
+    /** "def.uber.com", "doordash.com", "www.menulog.com.au" — a host, not a name. */
+    private static function looksLikeHost(string $value): bool
+    {
+        return preg_match('~^(?:[a-z0-9-]+\.)+[a-z]{2,}$~i', trim($value)) === 1;
     }
 
     /** A captured "handle" that is really an opaque id (an Uber Eats store id, a hash). */

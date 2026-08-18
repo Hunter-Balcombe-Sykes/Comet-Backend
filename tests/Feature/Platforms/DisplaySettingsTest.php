@@ -97,6 +97,22 @@ it('exposes bandcamp settings as the one auto-sync toggle (show_all_releases lef
     expect(IntegrationConnection::query()->find($id)->display_settings)->toBeNull();
 });
 
+it('exposes BOTH listen switches on spotify (releases + tracks) and apple-music, one per format arm (F27)', function () {
+    // Spotify sources releases (discography actor) as well as tracks; with
+    // only the track key declared its release arm could never be switched
+    // off — "Newest release" stayed on the site with Apple's and Bandcamp's
+    // release switches both off (session 3, Men I Trust).
+    $pro = createTenant('toggles-spotify');
+    displaySeedConnection($pro->id, ['url' => 'https://open.spotify.com/artist/abc', 'name' => 'Artist'], 'spotify');
+    $keys = collect(actingAsUser($pro)->getJson('/api/platforms/spotify/display-settings')->assertOk()->json('toggles'))->pluck('key')->all();
+    expect($keys)->toBe(['auto_sync_latest', 'auto_sync_latest_track']);
+
+    $apple = createTenant('toggles-apple');
+    displaySeedConnection($apple->id, ['input' => 'https://music.apple.com/us/artist/x/1', 'name' => 'Artist'], 'apple-music');
+    $keys = collect(actingAsUser($apple)->getJson('/api/platforms/apple-music/display-settings')->assertOk()->json('toggles'))->pluck('key')->all();
+    expect($keys)->toBe(['auto_sync_latest', 'auto_sync_latest_track']);
+});
+
 it('persists a toggle flip sparsely and reports it disabled', function () {
     $pro = createTenant('toggles-flip');
     $id = displaySeedConnection($pro->id, ['name' => 'Cafe']);

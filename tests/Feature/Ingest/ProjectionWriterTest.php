@@ -21,6 +21,11 @@ beforeEach(function () {
     setupSitesTable();
     setupIngestTables();
     setupContentTables();
+    // Every connector runs eagerly on connect (F21, 2026-08-18; paid ones by
+    // opt-in) — under the sync test queue the observer would run the connector
+    // inline and mint the stream row this file's helpers insert by hand. Keep
+    // the eager run out; the projection paths under test are exercised directly.
+    Bus::fake([RunSourceJob::class]);
 });
 
 /** A user + active bandcamp connection + its ingest source/stream, with $docs landed as current records. */
@@ -96,6 +101,14 @@ it('projects landed records into items, source items, and typed facet rows', fun
         ->and(DB::table('content.f_text')->where('item_id', $item->id)->value('headline'))->toBe('First Album')
         ->and(DB::table('content.item_media')->where('item_id', $item->id)->where('role', 'cover')->count())->toBe(1)
         ->and(DB::table('content.media_assets')->where('user_id', $userId)->count())->toBeGreaterThanOrEqual(1);
+
+    // A Bandcamp _10 cover is 1200px by the CDN's own naming: minted with
+    // DECLARED dims so best-cover can rank it against other sources.
+    $asset = DB::table('content.media_assets')->where('user_id', $userId)->where('source_url', 'like', '%a1_10.jpg')->first();
+    expect($asset)->not->toBeNull()
+        ->and((int) $asset->width)->toBe(1200)
+        ->and((int) $asset->height)->toBe(1200)
+        ->and($asset->dims_confidence)->toBe('declared');
 });
 
 // Nightwatch #370: SchemaOrgEventProjector writes zone_confidence
@@ -696,6 +709,91 @@ it('seeds position on insert but never overwrites an owner reorder', function ()
         ->and(DB::table('content.collections')->where('user_id', $userId)->count())->toBe(1);
 });
 
+// Session 3 (2026-08-18) F30/F31: the position of an ITEM INSIDE its category
+// (collection_items.position — the wire's collectionPositions, the Categories
+// sheet's order). It was ProjectionWriter's per-item counter (0 for every
+// single-category dish), and because a run deletes + reinserts its source's
+// membership rows, an owner's in-category drag was snapped back on the next
+// sync — the exact opposite of the category-position rule above.
+it('seeds the in-category order from the vendor, keeps an owner reorder across runs, and appends a new dish to a curated category', function () {
+    [$sourceId, $userId] = manualSourceFor();
+    $dish = fn (string $name, int $itemPosition) => [
+        'kind' => 'menu_item', 'headline' => $name,
+        'collections' => [['external_ref' => 'menu:mains', 'label' => 'Mains', 'kind' => 'menu_category', 'position' => 0, 'item_position' => $itemPosition]],
+    ];
+    $a = projectOne($sourceId, $userId, 'ue:x:a', $dish('Souva', 0));
+    $b = projectOne($sourceId, $userId, 'ue:x:b', $dish('Gyros', 1));
+    $c = projectOne($sourceId, $userId, 'ue:x:c', $dish('Falafel', 2));
+    $collectionId = DB::table('content.collections')->where('external_ref', 'menu:mains')->value('id');
+    $positions = function () use ($collectionId): array {
+        $out = DB::table('content.collection_items')->where('collection_id', $collectionId)->pluck('position', 'item_id')->map(fn ($p) => (int) $p)->all();
+        ksort($out);
+
+        return $out;
+    };
+    $expect = function (array $pairs) use ($positions): void {
+        ksort($pairs);
+        expect($positions())->toBe($pairs);
+    };
+
+    // Vendor order seeded 0/1/2, not 0/0/0.
+    $expect([$a => 0, $b => 1, $c => 2]);
+
+    // Owner drags Falafel to the top; a re-run of every dish keeps that.
+    DB::table('content.collection_items')->where('collection_id', $collectionId)->update(['position' => DB::raw('CASE item_id WHEN \''.$c.'\' THEN 0 WHEN \''.$a.'\' THEN 1 ELSE 2 END')]);
+    projectOne($sourceId, $userId, 'ue:x:a', $dish('Souva', 0));
+    projectOne($sourceId, $userId, 'ue:x:b', $dish('Gyros', 1));
+    projectOne($sourceId, $userId, 'ue:x:c', $dish('Falafel', 2));
+    $expect([$a => 1, $b => 2, $c => 0]);
+
+    // A NEW vendor dish lands at the end of a curated category, not at its
+    // vendor index (which would interleave with the owner's arrangement).
+    $d = projectOne($sourceId, $userId, 'ue:x:d', $dish('Halloumi', 1));
+    expect($positions()[$d])->toBe(3);
+});
+
+it('re-seeds an uncurated all-zero category from the vendor order on the next run (the pre-fix state)', function () {
+    [$sourceId, $userId] = manualSourceFor();
+    $dish = fn (string $name, int $itemPosition) => [
+        'kind' => 'menu_item', 'headline' => $name,
+        'collections' => [['external_ref' => 'menu:sides', 'label' => 'Sides', 'kind' => 'menu_category', 'position' => 0, 'item_position' => $itemPosition]],
+    ];
+    $a = projectOne($sourceId, $userId, 'ue:y:a', $dish('Chips', 0));
+    $b = projectOne($sourceId, $userId, 'ue:y:b', $dish('Wedges', 1));
+    $collectionId = DB::table('content.collections')->where('external_ref', 'menu:sides')->value('id');
+    // What every category looked like before the fix.
+    DB::table('content.collection_items')->where('collection_id', $collectionId)->update(['position' => 0]);
+
+    projectOne($sourceId, $userId, 'ue:y:b', $dish('Wedges', 1));
+
+    $out = DB::table('content.collection_items')->where('collection_id', $collectionId)->pluck('position', 'item_id')->map(fn ($p) => (int) $p)->all();
+    ksort($out);
+    $want = [$a => 0, $b => 1];
+    ksort($want);
+    expect($out)->toBe($want);
+});
+
+it('re-seeds category positions from the vendor when every machine-derived category still sits at 0 (never arranged), and only then', function () {
+    [$sourceId, $userId] = manualSourceFor();
+    $svc = fn (string $name, string $ref, int $categoryPosition) => [
+        'kind' => 'service', 'headline' => $name,
+        'collections' => [['external_ref' => $ref, 'label' => strtoupper($ref), 'kind' => 'service_category', 'position' => $categoryPosition, 'item_position' => 0]],
+    ];
+    // Landed before the seeds existed: both categories at 0.
+    projectOne($sourceId, $userId, 'fresha:x:s:1', $svc('Cut', 'haircut', 0));
+    projectOne($sourceId, $userId, 'fresha:x:s:2', $svc('Colour', 'colour', 0));
+    $pos = fn (string $ref) => (int) DB::table('content.collections')->where('user_id', $userId)->where('external_ref', $ref)->value('position');
+    expect($pos('haircut'))->toBe(0)->and($pos('colour'))->toBe(0);
+
+    // The next run carries the venue's order → taken.
+    projectOne($sourceId, $userId, 'fresha:x:s:2', $svc('Colour', 'colour', 1));
+    expect($pos('colour'))->toBe(1)->and($pos('haircut'))->toBe(0);
+
+    // From here the order is owned: the vendor moving colour to 5 changes nothing.
+    projectOne($sourceId, $userId, 'fresha:x:s:2', $svc('Colour', 'colour', 5));
+    expect($pos('colour'))->toBe(1);
+});
+
 it('never touches removed_at on a projection run', function () {
     [$sourceId, $userId] = manualSourceFor();
     $projection = [
@@ -725,11 +823,6 @@ it('is inert for a projection that carries no collections key', function () {
 function projectableGoogleReviews(array $docs): array
 {
     $userId = createTenant('gbstats-'.Str::lower(Str::random(6)))->id;
-
-    // google_business is eagerOnConnect since 2026-08-18 (R8): the observer
-    // would run the connector inline under the sync queue and mint the
-    // 'reviews' stream this helper builds by hand. Keep the eager run out.
-    Bus::fake([RunSourceJob::class]);
 
     $connection = IntegrationConnection::create([
         'user_id' => $userId,

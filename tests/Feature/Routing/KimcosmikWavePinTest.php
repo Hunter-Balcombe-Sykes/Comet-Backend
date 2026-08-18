@@ -92,7 +92,11 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
     expect($urls)->toContain('https://ra.co/dj/kimcosmik')
         ->and($urls)->toContain('https://kimcosmik.bandcamp.com/album/star-glider');
 
-    // Ledger balance — §3.6, executable: every anchor accounted for.
-    expect($result['connected'] + $result['suggested'] + $result['noted'] + $result['probed'])
-        ->toBe(15);
+    // Ledger balance — §3.6, executable: every anchor accounted for. 'dropped'
+    // is in the sum because it is a real bucket now (#R2): before, a rejected
+    // link was counted 'noted' and the equation balanced while a link was
+    // gone. A non-zero drop here should be read, not absorbed.
+    expect($result['connected'] + $result['suggested'] + $result['noted'] + $result['probed'] + $result['dropped'])
+        ->toBe(15)
+        ->and($result['dropped'])->toBe(0);
 });

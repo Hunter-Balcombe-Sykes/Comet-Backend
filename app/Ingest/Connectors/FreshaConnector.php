@@ -181,18 +181,28 @@ class FreshaConnector implements Connector
 
         $items = [];
         $unmapped = 0;
+        $categoryPosition = 0;
         foreach ($categories as $category) {
             $categoryName = is_string($category['name'] ?? null) ? $category['name'] : null;
             $categoryId = isset($category['id']) && is_scalar($category['id'])
                 ? (string) $category['id']
                 : null;
+            // The venue's own ordering — categories, and services inside each
+            // — rides on the record as seeds (F30, 2026-08-18); an owner's
+            // reorder in the Categories sheet wins on the next run.
+            $position = 0;
             foreach ((array) ($category['items'] ?? []) as $item) {
                 $mapped = $this->mapServiceItem($item, $categoryName, $categoryId);
                 if ($mapped !== null && $currency !== null) {
                     $mapped['currency'] = $currency;
                 }
+                if ($mapped !== null) {
+                    $mapped['category_position'] = $categoryPosition;
+                    $mapped['position'] = $position++;
+                }
                 $mapped === null ? $unmapped++ : $items[] = $mapped;
             }
+            $categoryPosition++;
         }
 
         if ($items === []) {

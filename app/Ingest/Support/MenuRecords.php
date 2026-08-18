@@ -24,10 +24,14 @@ final class MenuRecords
     public static function flatten(array $categories, ?string $storeName, ?string $currency): array
     {
         $out = [];
-        $position = 0;
+        $categoryPosition = 0;
 
         foreach ($categories as $category) {
             $categoryName = trim((string) ($category['name'] ?? '')) ?: 'Menu';
+            // Vendor order twice over (F30, 2026-08-18): the category's rank in
+            // the menu and the dish's rank inside its category. Both are
+            // seeds — an owner's reorder wins on the next run.
+            $position = 0;
 
             foreach ((array) ($category['items'] ?? []) as $item) {
                 if (! is_array($item)) {
@@ -56,10 +60,12 @@ final class MenuRecords
                         : ($currency !== null ? strtoupper($currency) : null),
                     'image' => isset($item['image']) && is_string($item['image']) && $item['image'] !== '' ? $item['image'] : null,
                     'category' => $categoryName,
+                    'category_position' => $categoryPosition,
                     'position' => $position++,
                     'store_name' => $storeName,
                 ], static fn ($v) => $v !== null)];
             }
+            $categoryPosition++;
         }
 
         return $out;

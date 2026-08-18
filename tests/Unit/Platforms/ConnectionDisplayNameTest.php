@@ -25,5 +25,9 @@ it('reads a feed platform\'s handle, not its latest item title, and humanises an
         ->and(D::for('uber_eats.order', ['url' => 'https://www.ubereats.com/au/store/top-choice-restaurant/rebBnbA2UJmwycojX-Gb8w', 'name' => 'Uber Eats']))->toBe('Top Choice Restaurant')
         ->and(D::for('doordash.order', ['url' => 'https://www.doordash.com/en-AU/store/top-choice-restaurant-wollongong-27510544', 'name' => 'DoorDash']))->toBe('Top Choice Restaurant Wollongong')
         ->and(D::for('menulog.order', ['url' => 'https://www.menulog.com.au/restaurants-top-choice-restaurant-wollongong-2500/menu', 'name' => 'Menulog']))->toBe('Top Choice Restaurant Wollongong')
-        ->and(D::for('nowbookit.reserve', ['url' => 'https://bookings.nowbookit.com/?accountid=x&venueid=1']))->toBeNull();
+        ->and(D::for('nowbookit.reserve', ['url' => 'https://bookings.nowbookit.com/?accountid=x&venueid=1']))->toBeNull()
+        // A bare host under payload.name (the menu lane's ordering rows) is
+        // not a name — the store slug wins (session 3, "def.uber.com").
+        ->and(D::for('uber_eats.order', ['url' => 'https://www.ubereats.com/au/store/souva-king/RV0ChXJAXiaEjATmAdjQeg', 'name' => 'def.uber.com']))->toBe('Souva King')
+        ->and(D::for('doordash.order', ['url' => 'https://www.doordash.com/store/souva-king-wollongong-23852127/', 'name' => 'doordash.com']))->toBe('Souva King Wollongong');
 });

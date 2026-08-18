@@ -86,16 +86,21 @@ it('still provisions instagram with auto_sync off — the eager run does not mak
 
 // ── It must NOT fire ────────────────────────────────────────────────────────
 
-it('does not dispatch for a free connector — the scheduler owns those', function () {
-    connectFor(eagerUser(), [
+it('dispatches one claimed run for a free connector too (F21) — connect should not wait for the 15-min tick', function () {
+    $connection = connectFor(eagerUser(), [
         'platform' => 'bandcamp',
         'payload' => ['url' => 'https://kinggizzard.bandcamp.com'],
     ]);
 
-    // bandcamp is CostClass::Free: provisioned auto_sync = true with
-    // next_attempt_at = now(), so ingest:dispatch picks it up within the tick.
-    // An eager run here would be a duplicate fetch, not a fix.
-    Bus::assertNotDispatched(RunSourceJob::class);
+    // bandcamp is CostClass::Free: it is ALSO provisioned auto_sync = true with
+    // next_attempt_at = now() for the scheduler, but the eager run is claimed
+    // (in_flight_*) so the next ingest:dispatch tick cannot fetch it a second
+    // time; RunSourceJob's release() then moves next_attempt_at forward.
+    $row = DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
+    expect((bool) $row->auto_sync)->toBeTrue()
+        ->and($row->in_flight_since)->not->toBeNull();
+    Bus::assertDispatchedTimes(RunSourceJob::class, 1);
+    Bus::assertDispatched(RunSourceJob::class, fn (RunSourceJob $job) => $job->sourceId === $row->id);
 });
 
 it('does not dispatch for a paid connector that has not opted in', function () {
@@ -233,4 +238,43 @@ it('Resync claims and runs the connection\'s ingest sources, not only the legacy
     $second = actingAsUser($user)->postJson('/api/platforms/youtube/refresh');
     expect(in_array($second->status(), [202, 429], true))->toBeTrue();
     Bus::assertNotDispatched(RunSourceJob::class);
+});
+
+it('Resync on a platform with no legacy refresh strategy runs its ingest sources (menus), addressed by slug or brand key, and polls pending while the source is in flight (F29)', function () {
+    // The menu platforms are not registry-refreshable, so /uber-eats/refresh
+    // answered 422 "refreshes on its own" and a changed menu waited for the
+    // weekly tick (session 3). Their connections DO carry an ingest source.
+    Bus::fake([RunSourceJob::class, MenuFetchJob::class]);
+    $userId = eagerUser();
+    $connection = connectFor($userId, [
+        'surface_key' => 'uber_eats.order', 'routing_class' => 'ordering',
+        'payload' => ['url' => 'https://www.ubereats.com/au/store/souva-king/RV0ChXJAXiaEjATmAdjQeg', 'name' => 'Uber Eats', 'provider' => 'Uber Eats'],
+    ]);
+    $sourceId = (string) DB::table('ingest.sources')->where('connection_id', $connection->id)->value('id');
+    expect($sourceId)->not->toBe('');
+    $user = User::query()->findOrFail($userId);
+
+    // Slug spelling (what the dashboard sends), 202 + statusUrl like the legacy path.
+    actingAsUser($user)->postJson('/api/platforms/uber-eats/refresh')
+        ->assertStatus(202)
+        ->assertJsonPath('status', 'pending')
+        ->assertJsonPath('refreshed', 1);
+    Bus::assertDispatched(RunSourceJob::class, fn ($job) => $job->sourceId === $sourceId);
+    expect(DB::table('ingest.sources')->where('id', $sourceId)->value('in_flight_since'))->not->toBeNull();
+
+    // While the source is claimed the poll reads pending; released → ready.
+    actingAsUser($user)->getJson('/api/platforms/uber-eats/refresh/status')->assertOk()->assertJsonPath('status', 'pending');
+    DB::table('ingest.sources')->where('id', $sourceId)->update(['in_flight_since' => null, 'in_flight_run_id' => null, 'last_run_at' => now()]);
+    actingAsUser($user)->getJson('/api/platforms/uber-eats/refresh/status')->assertOk()->assertJsonPath('status', 'ready');
+
+    // Rapid repeat = the cooldown.
+    actingAsUser($user)->postJson('/api/platforms/uber-eats/refresh')->assertStatus(429);
+
+    // A non-refreshable platform with NO ingest source still says so.
+    $other = eagerUser();
+    connectFor($other, [
+        'surface_key' => 'bopple.order', 'routing_class' => 'ordering',
+        'payload' => ['url' => 'https://bopple.app/lower-east-by-ruh', 'name' => 'Bopple', 'provider' => 'Bopple'],
+    ]);
+    actingAsUser(User::query()->findOrFail($other))->postJson('/api/platforms/bopple/refresh')->assertStatus(422);
 });

@@ -311,6 +311,25 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             'last_refresh_error' => $error,
             'consecutive_failures' => (int) $connection->consecutive_failures + 1,
         ])->saveQuietly();
+
+        // F26 (2026-08-18): a row that has NEVER fetched OK is not a
+        // connection. Left live after a failed first connect it showed as a
+        // connected account in the Platforms table (accountName derived from
+        // the input url), sat in /accounts, and had provisioned an ingest
+        // source that would fail on every tick. Soft-delete it — the status
+        // poll reads trashed failed rows (connectStatusRow) so the modal still
+        // shows the error and offers a retry; a retry writes a fresh row
+        // (the unique indexes are partial on deleted_at IS NULL). A RE-connect
+        // of an account that has fetched OK before keeps its row: the old
+        // payload is still good, only this attempt failed.
+        if ($connection->last_refreshed_at === null) {
+            Log::info('platform.connect_job.first_fetch_failed_row_removed', [
+                'connection_id' => $connection->id,
+                'platform' => $connection->platform,
+                'status' => $status,
+            ]);
+            $connection->delete();
+        }
     }
 
     /**

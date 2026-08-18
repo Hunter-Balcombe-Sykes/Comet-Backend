@@ -61,11 +61,16 @@ class RefreshController extends ApiController
             return $this->refreshInstagram($request);
         }
 
-        if (! $this->registry->isRefreshable($platform)) {
-            return $this->error('This connection refreshes on its own — there’s nothing to pull manually.', 422);
-        }
-
         $user = $this->currentUser($request);
+
+        if (! $this->registry->isRefreshable($platform)) {
+            // Not on the legacy refresh lane — but the connection may still
+            // feed an INGEST source (Uber Eats / DoorDash / Square menus,
+            // any brand connect with a connector). Resync then means "run
+            // those sources now" (F29, session 3: the menu platforms' Resync
+            // 422'd, so a changed menu waited for the weekly tick).
+            return $this->refreshIngestOnly($request, $user, $platform);
+        }
 
         // Atomic add doubles as the cooldown gate: a present key means the
         // button was hit moments ago, so we reject instead of re-scraping.
@@ -128,6 +133,115 @@ class RefreshController extends ApiController
         ], 202);
     }
 
+    /**
+     * Resync for a platform with no legacy refresh strategy: claim + run the
+     * ingest sources of its live connections. Same cooldown, same 10-minute
+     * per-source skip, same 202/statusUrl shape as the legacy path so the
+     * dashboard's button needs no second code path.
+     */
+    private function refreshIngestOnly(Request $request, $user, string $platform): JsonResponse
+    {
+        $rows = IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->whereIn('platform', self::platformSpellings($platform))
+            ->active()
+            ->get();
+        if ($rows->isEmpty()) {
+            // Same answer the legacy gate always gave for a platform outside
+            // the refreshable set: nothing here pulls on demand.
+            return $this->error('This connection refreshes on its own — there’s nothing to pull manually.', 422);
+        }
+
+        $sourceCount = 0;
+        try {
+            $sourceCount = DB::table('ingest.sources')
+                ->whereIn('connection_id', $rows->pluck('id')->map(fn ($id) => (string) $id)->all())
+                ->where('health', '!=', 'dead')
+                ->count();
+        } catch (QueryException $e) {
+            $missingRelation = (string) $e->getCode() === '42P01' || str_contains($e->getMessage(), 'no such table');
+            if (! $missingRelation) {
+                throw $e;
+            }
+        }
+        if ($sourceCount === 0) {
+            return $this->error('This connection refreshes on its own — there’s nothing to pull manually.', 422);
+        }
+
+        if (! Cache::add("integrations:refresh:{$user->id}:{$platform}", true, self::applyJitter(self::COOLDOWN_SECONDS))) {
+            return $this->error('Just refreshed — give it a few seconds before trying again.', 429);
+        }
+
+        foreach ($rows as $row) {
+            $this->runIngestSources((string) $row->id);
+        }
+
+        return $this->success([
+            'status' => 'pending',
+            'refreshed' => $rows->count(),
+            'statusUrl' => url("/api/platforms/{$platform}/refresh/status"),
+        ], 202);
+    }
+
+    /**
+     * Brand connects store the catalog brand key (`uber_eats`) in
+     * platform_connections.platform; the dashboard addresses the platform by
+     * its slug (`uber-eats`). Accept either on the way in.
+     *
+     * @return list<string>
+     */
+    private static function platformSpellings(string $platform): array
+    {
+        return array_values(array_unique([$platform, str_replace('-', '_', $platform), str_replace('_', '-', $platform)]));
+    }
+
+    /** True while any ingest source of these connections is claimed/in flight. */
+    private function ingestInFlight(array $connectionIds): bool
+    {
+        if ($connectionIds === []) {
+            return false;
+        }
+        try {
+            return DB::table('ingest.sources')
+                ->whereIn('connection_id', $connectionIds)
+                ->whereNotNull('in_flight_since')
+                ->where('in_flight_since', '>', now()->subMinutes(StrandedPendingWindow::MINUTES))
+                ->exists();
+        } catch (QueryException $e) {
+            $missingRelation = (string) $e->getCode() === '42P01' || str_contains($e->getMessage(), 'no such table');
+            if (! $missingRelation) {
+                throw $e;
+            }
+
+            return false;
+        }
+    }
+
+    /** Outcome of the most recent finished ingest run across these connections' sources, or null when none ran. */
+    private function latestIngestOutcome(array $connectionIds): ?string
+    {
+        if ($connectionIds === []) {
+            return null;
+        }
+        try {
+            $outcome = DB::table('ingest.runs')
+                ->join('ingest.sources', 'ingest.sources.id', '=', 'ingest.runs.source_id')
+                ->whereIn('ingest.sources.connection_id', $connectionIds)
+                ->whereNotNull('ingest.runs.finished_at')
+                ->orderByDesc('ingest.runs.started_at')
+                ->value('ingest.runs.outcome');
+
+            return $outcome === null ? null : (string) $outcome;
+        } catch (QueryException $e) {
+            $missingRelation = (string) $e->getCode() === '42P01' || str_contains($e->getMessage(), 'no such table');
+            if (! $missingRelation) {
+                throw $e;
+            }
+
+            return null;
+        }
+    }
+
     private function runIngestSources(string $connectionId): void
     {
         try {
@@ -168,12 +282,34 @@ class RefreshController extends ApiController
 
         $rows = IntegrationConnection::query()
             ->where('user_id', $user->id)
-            ->where('platform', $platform)
+            ->whereIn('platform', self::platformSpellings($platform))
             ->active()
             ->get();
 
         if ($rows->isEmpty()) {
             return $this->error('Nothing connected to refresh.', 404);
+        }
+
+        // An ingest run this Resync started is still the user's "refresh":
+        // report pending until the source is released, so the button does
+        // not read "ready" while the dishes/videos are still landing
+        // (session 3, F29 — the legacy job finishes in seconds, the ingest
+        // run can take a minute).
+        $connectionIds = $rows->pluck('id')->map(fn ($id) => (string) $id)->all();
+        if ($this->ingestInFlight($connectionIds)) {
+            return $this->success(['status' => 'pending']);
+        }
+
+        // Ingest-only platforms have no legacy status to read: the answer is
+        // the last ingest run's outcome for these connections.
+        if (! $this->registry->isRefreshable($platform) && $platform !== 'instagram') {
+            $outcome = $this->latestIngestOutcome($connectionIds);
+
+            return $this->success([
+                'status' => in_array($outcome, ['ok', 'not_modified', 'degraded', null], true) ? 'ready' : 'failed',
+                'refreshed' => $rows->count(),
+                'ok' => $outcome === null || in_array($outcome, ['ok', 'not_modified', 'degraded'], true) ? $rows->count() : 0,
+            ]);
         }
 
         // Stale-pending escape hatch, copied from connectStatus(): a row still

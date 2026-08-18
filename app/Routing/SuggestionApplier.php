@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\DB;
  */
 class SuggestionApplier
 {
+    public function __construct(private readonly ConnectionIdentity $identity) {}
+
     /**
      * Demote the conflicting incumbent (if any), create or reuse the
      * connection, and settle the intent — one transaction, so a replace never
@@ -56,7 +58,28 @@ class SuggestionApplier
                     ->update(['is_primary' => false]);
             }
 
-            $connection = IntegrationConnection::query()
+            // #R4: the identity this intent names may already exist under a
+            // different resource_id scheme — typically the legacy singleton
+            // marker the bespoke connect flows write. Without this, accepting a
+            // suggestion for an account the owner already has connected mints a
+            // duplicate, exactly as the harvest path did (see
+            // ConnectionIdentity, and SourceReconciler::applyIntent which
+            // resolves the same question for the automatic lane).
+            //
+            // The incumbent being REPLACED is excluded: a Replace must resolve
+            // to some other row, never to the very connection it just demoted.
+            $aliasConnectionId = $this->identity->matchExisting(
+                $user,
+                (string) $intent->surface_key,
+                (string) $intent->identifier,
+                $intent->conflicting_connection_id !== null ? (string) $intent->conflicting_connection_id : null,
+            );
+
+            $connection = $aliasConnectionId !== null
+                ? IntegrationConnection::query()->whereKey($aliasConnectionId)->first()
+                : null;
+
+            $connection ??= IntegrationConnection::query()
                 ->where('user_id', $user->id)
                 ->where('surface_key', $intent->surface_key)
                 ->where('resource_id', $intent->identifier)

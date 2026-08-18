@@ -3,6 +3,12 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\User\User;
+use App\Routing\IriCanonicalizer;
+use App\Routing\LinkObserver;
+use App\Routing\Placement;
+use App\Routing\Projection;
+use App\Routing\RoutingContext;
+use App\Routing\Verdict;
 use App\Services\Brand\StoreBrandSeeder;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
@@ -68,6 +74,11 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         public readonly string $url,
         public readonly ?string $category = null,
         public readonly ?string $platform = null,
+        // A pasted link (RoutingController::store): a storefront the probe
+        // recognises becomes a suggestion for the user to confirm, not a
+        // placed store — and the miss path writes no second link card (the
+        // paste already wrote one).
+        public readonly bool $suggestOnly = false,
     ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
@@ -83,6 +94,8 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         ShopProductSeeder $products,
         EventsSeeder $events,
         CustomLinkSeeder $links,
+        IriCanonicalizer $canonicalizer,
+        LinkObserver $observer,
     ): void {
         $user = User::find($this->userId);
         if ($user === null || $user->isPendingDeletion()) {
@@ -97,14 +110,14 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
                 'event' => $events->seedStandalone($user, (string) $this->platform, $this->url) !== null,
                 'event-organiser' => $events->seedAccount($user, (string) $this->platform, $this->url) !== null,
                 'shop' => $this->seedStore($brands, $user, $this->url),
-                default => $this->probe($generic, $brands, $products, $user),
+                default => $this->probe($generic, $brands, $products, $user, $canonicalizer, $observer),
             };
         } catch (Throwable $e) {
             report($e);
             $resolved = false;
         }
 
-        if (! $resolved) {
+        if (! $resolved && ! $this->suggestOnly) {
             $links->seedCustom($user, $this->url);
         }
 
@@ -120,11 +133,13 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         StoreBrandSeeder $brands,
         ShopProductSeeder $products,
         User $user,
+        IriCanonicalizer $canonicalizer,
+        LinkObserver $observer,
     ): bool {
         $read = $generic->readProductPage($this->url);
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_PRODUCT && is_array($read['product'])) {
-            return $products->seed($user, $read['product']);
+            return $products->seed($user, $read['product'], self::ORIGIN);
         }
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_STORE_PAGE && is_string($read['storeUrl'])) {
@@ -135,12 +150,32 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             return $this->seedStore($brands, $user, $this->url);
         }
 
+        // Nothing resolved — the page could not be fetched, or came back in a
+        // shape the reader could not use. Every OTHER arm of this method ends
+        // in a seeder that records its own decision; this one reaches no
+        // seeder at all, so without this write a link that fell all the way
+        // through to a plain custom link leaves no trace of having been looked
+        // at (R6, 2026-08-18 — the companion to the product lane's own gap).
+        //
+        // Note, not Reject: nothing was refused. The link is kept as a link
+        // item by seedCustom() in handle(), which is precisely what
+        // Verdict::Note means. Projection::none() because no detector and no
+        // probe ever claimed it — LinkObserver writes null confidence for an
+        // unmatched projection, so the row cannot read as a weak match.
+        $reason = 'probe_'.$read['outcome'];
+        $observer->record(
+            $canonicalizer->canonicalize($this->url),
+            Projection::none($reason),
+            new Placement(Verdict::Note, null, null, $reason),
+            RoutingContext::forUser($user, self::ORIGIN),
+        );
+
         return false;
     }
 
     private function seedStore(StoreBrandSeeder $brands, User $user, string $url): bool
     {
-        return $brands->seed($user, $url, self::ORIGIN)['outcome'] === 'placed';
+        return $brands->seed($user, $url, self::ORIGIN, suggestOnly: $this->suggestOnly)['outcome'] === 'placed';
     }
 
     public function failed(Throwable $e): void

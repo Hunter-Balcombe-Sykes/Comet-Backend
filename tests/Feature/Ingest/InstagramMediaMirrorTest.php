@@ -5,6 +5,7 @@ use App\Jobs\Media\MirrorMediaAssetJob;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 // Slice 1b D1/D8. Owned-class media gets its bytes mirrored after projection;
@@ -164,4 +165,97 @@ it('dispatches a mirror for a PRE-EXISTING unmirrored asset on a later sync (F14
     Cache::lock('laravel_unique_job:'.MirrorMediaAssetJob::class.':'.$assetId)->forceRelease();
     projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg'], '-again');
     Bus::assertDispatchedTimes(MirrorMediaAssetJob::class, 2);
+});
+
+// ── R8: the dispatch pass stops guessing and starts saying what it did ───────
+
+it('stops dispatching once an asset has exhausted its mirror attempts', function () {
+    // Before this, a permanently dead CDN link was re-fetched on every sync
+    // forever — storage_path IS NULL was the only terminator, and it never
+    // becomes non-null for a link that cannot be fetched.
+    config()->set('partna.media_mirror_max_attempts', 3);
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg']);
+    Bus::assertDispatchedTimes(MirrorMediaAssetJob::class, 1);
+
+    $assetId = (string) DB::table('content.media_assets')->where('user_id', $userId)->value('id');
+    DB::table('content.media_assets')->where('id', $assetId)->update(['mirror_attempts' => 3]);
+    Cache::lock('laravel_unique_job:'.MirrorMediaAssetJob::class.':'.$assetId)->forceRelease();
+
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg'], '-again');
+
+    Bus::assertDispatchedTimes(MirrorMediaAssetJob::class, 1);
+});
+
+it('keeps dispatching while the asset is still under the attempt cap', function () {
+    // The cap must bite at the boundary and not one attempt early, or a link
+    // that recovers on its last try never gets it.
+    config()->set('partna.media_mirror_max_attempts', 3);
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg']);
+
+    $assetId = (string) DB::table('content.media_assets')->where('user_id', $userId)->value('id');
+    DB::table('content.media_assets')->where('id', $assetId)->update(['mirror_attempts' => 2]);
+    Cache::lock('laravel_unique_job:'.MirrorMediaAssetJob::class.':'.$assetId)->forceRelease();
+
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg'], '-again');
+
+    Bus::assertDispatchedTimes(MirrorMediaAssetJob::class, 2);
+});
+
+it('logs how many mirror candidates it dispatched', function () {
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    Log::spy();
+
+    projectIgMedia($userId, 'ABC', [
+        'https://scontent.cdninstagram.com/v/a.jpg',
+        'https://scontent.cdninstagram.com/v/b.jpg',
+    ]);
+
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn ($message, $context) => $message === 'media_mirror.dispatch'
+            && $context['dispatched'] === 2)
+        ->once();
+});
+
+it('names the reason a candidate was skipped rather than dropping it silently', function () {
+    // The skip path logged NOTHING: a borrowed asset, an unresolved
+    // fingerprint and an already-capped asset all left the same trace as an
+    // asset that was never a candidate at all.
+    config()->set('partna.media_mirror_max_attempts', 3);
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg']);
+
+    $assetId = (string) DB::table('content.media_assets')->where('user_id', $userId)->value('id');
+    DB::table('content.media_assets')->where('id', $assetId)->update(['mirror_attempts' => 3]);
+    Log::spy();
+
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg'], '-again');
+
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn ($message, $context) => $message === 'media_mirror.dispatch'
+            && $context['dispatched'] === 0
+            && ($context['skipped']['capped'] ?? 0) === 1)
+        ->once();
+});
+
+it('reports a borrowed asset as skipped for not being owned', function () {
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    Log::spy();
+
+    app(ProjectionWriter::class)->writeManualItem($userId, 'manual:goog-1', [
+        'kind' => 'media',
+        'headline' => null,
+        'media' => [[
+            'role' => 'gallery',
+            'ref' => 'places/ChIJtest/photos/AWCwydtoken',
+            'url' => 'https://lh3.googleusercontent.com/place-photos/AG9NLjtest',
+        ]],
+    ]);
+
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn ($message, $context) => $message === 'media_mirror.dispatch'
+            && $context['dispatched'] === 0
+            && ($context['skipped']['not_owned'] ?? 0) === 1)
+        ->once();
 });

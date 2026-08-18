@@ -91,8 +91,32 @@ class LinkRoutingService
             // "cannot add" — a Note is kept as a link (Verdict::Note: never
             // dropped) and Choose/Hold go to the review inbox.
             'blockReason' => $placement->verdict === Verdict::Reject ? $placement->blockReason : null,
-            'explanation' => $isNote ? "We'll keep this as a link on your site." : $placement->explanation,
+            'explanation' => $isNote
+                ? (self::isStorefrontCandidate($projection, $placement)
+                    ? "We'll keep this as a link on your site — and if it turns out to be your online store, we'll offer to add it as one."
+                    : "We'll keep this as a link on your site.")
+                : $placement->explanation,
             'conflictingConnectionId' => $placement->conflictingConnectionId,
+            // Owner ask (2026-08-18): a pasted Shopify / WooCommerce / other
+            // own-domain storefront used to land as a bare link with no way
+            // in. When the catalog places nothing, the paste path runs the
+            // storefront probe (queue-only, budgeted) and a hit lands in the
+            // suggestions inbox as "Is this your store?" — never auto-applied
+            // from a paste. `probe` tells the dashboard so the preview can
+            // say so.
+            'probe' => self::isStorefrontCandidate($projection, $placement) ? 'store' : null,
         ];
+    }
+
+    /**
+     * A URL the catalog could not place at all — no surface, no detector hit
+     * — is worth a storefront probe: merchants' own domains (beardbrand.com,
+     * a WooCommerce shop) look like nothing to the pure projector.
+     */
+    public static function isStorefrontCandidate(Projection $projection, Placement $placement): bool
+    {
+        return $placement->verdict === Verdict::Note
+            && $placement->surfaceKey === null
+            && ! $projection->matched();
     }
 }

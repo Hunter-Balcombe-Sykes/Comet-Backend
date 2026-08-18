@@ -271,7 +271,7 @@ class GenericPlatformController extends ApiController
     public function connectStatus(Request $request): JsonResponse
     {
         $descriptor = $this->descriptor();
-        $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
+        $row = $this->connectStatusRow($this->currentUser($request), $request->query('account'));
 
         if ($row === null) {
             return $this->error('Account not found.', 404);

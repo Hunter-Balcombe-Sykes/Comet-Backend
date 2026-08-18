@@ -234,16 +234,26 @@ return [
         '3b8365f2b9b7', // ProjectionWriter:999 — $collection from the literal foreach array (:998)
         '677ef50b5100', // ProjectionWriterBatchingTest:128 — same $facet const in a test fixture
 
-        // Vetted 2026-07-31: the rebuild-chunking rewrite added a third interpolated
-        // call site in projectStream() and reddened CI. Provenance read at the current
-        // lines, both closed sets of string literals:
-        //   ProjectionWriter:791-795  $tables = ['item_media' => …, 'offers' => …, 'item_tags' => …]
-        //                             then `foreach ($tables as $table => $rows)` at :805
+        // Vetted 2026-07-31, re-read 2026-08-18: every interpolated call site in
+        // projectStream() binds $table from `foreach ($tables as $table => $rows)`
+        // over a literal map declared immediately above it — a closed set of string
+        // literals, no request input. item_ids and source_id travel as bindings via
+        // whereIn()/where(); the rows go through insert()/insertOrIgnore().
+        //   ProjectionWriter:1206-1217  $tables = ['item_media' => …, 'offers' => …,
+        //                               'item_tags' => …, 'item_variants' => …,
+        //                               'collection_items' => …]
+        //                               then `foreach ($tables as $table => $rows)` at :1227
         //   IngestProjectRebuildChunkingTest:162  foreach (['f_action','offers','item_tags', …] as $table)
-        // No request input reaches the table name; item_ids and source_id travel as
-        // bindings via whereIn()/where(), and the rows go through insert().
-        '66f9a31cbb50', // ProjectionWriter:806 — $table from the literal $tables map (:791)
-        'e835690783ba', // ProjectionWriter:812 — same $table, insert() inside the same loop
+        // These hashes are content-addressed per LINE, so a new call site on the same
+        // vetted pattern reopens the check and must be added here — which is what
+        // 95cca56b3 did (see 50df5e06ee4a). Line numbers above are provenance for the
+        // next reader, not part of the match.
+        '66f9a31cbb50', // ProjectionWriter:1228 — $table from the literal $tables map (:1206)
+        'e835690783ba', // ProjectionWriter:1248 — same $table, insert() inside the same loop
+        // 95cca56b3 (R18) split collection_items onto its own branch: a membership another
+        // source already listed is the SAME fact, so the chunk keeps it instead of dying on
+        // the (collection_id, item_id) PK. Same $table, same closed literal set.
+        '50df5e06ee4a', // ProjectionWriter:1243 — same $table, insertOrIgnore() on the collection_items branch
         '0f027c086763', // IngestProjectRebuildChunkingTest:163 — $table from the literal foreach array (:162)
 
         // ── Hardcoded secrets: false positives, vetted 2026-07-19 ──────────
