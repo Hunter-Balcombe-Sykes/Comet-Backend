@@ -184,3 +184,35 @@ it('is idempotent — a second scan of the same bio page adds nothing', function
     expect(liveConnections($pro, 'instagram.profile'))->toHaveCount(1)
         ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->count())->toBe(1);
 });
+
+it('matches a Fresha link carrying the ROTATED slug to the row healed by /team (canonical_key alias), and the OLD-slug link by resource_id', function () {
+    // Slug rotation (2026-08-18): FreshaController::team() heals a rotated
+    // venue by rewriting payload.url and stamping the current slug into
+    // canonical_key, leaving resource_id on the slug the bio link carries.
+    // Both link shapes must land on that one row — never a second Fresha
+    // connection, never a Hold against itself.
+    $pro = createTenant('r4-fresha-rot');
+    $healed = new IntegrationConnection([
+        'surface_key' => 'fresha.book',
+        'routing_class' => 'booking',
+        'resource_id' => 'anseo-studio-v0v92jna',
+        'canonical_key' => 'anseo-studio-melbourne-140a-chapel-street-w8ajp04r',
+        'payload' => ['url' => 'https://www.fresha.com/a/anseo-studio-melbourne-140a-chapel-street-w8ajp04r', 'source' => 'link_in_bio'],
+        'is_active' => true,
+    ]);
+    $healed->user_id = $pro->id;
+    $healed->save();
+
+    $new = app(LinkRoutingService::class)->route(
+        'https://www.fresha.com/a/anseo-studio-melbourne-140a-chapel-street-w8ajp04r/booking?menu=true&pId=2835260',
+        RoutingContext::forUser($pro, 'bio_harvest'),
+    );
+    $old = app(LinkRoutingService::class)->route(
+        'https://www.fresha.com/book-now/anseo-studio-v0v92jna/all-offer?share=true&pId=2835260',
+        RoutingContext::forUser($pro, 'bio_harvest'),
+    );
+
+    expect($new['verdict'])->toBe('place')->and($new['connectionId'])->toBe((string) $healed->id);
+    expect($old['verdict'])->toBe('place')->and($old['connectionId'])->toBe((string) $healed->id);
+    expect(liveConnections($pro, 'fresha.book'))->toHaveCount(1);
+});
