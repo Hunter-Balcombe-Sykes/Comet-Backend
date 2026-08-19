@@ -29,6 +29,9 @@ Nothing merged. Nothing pushed. No PR.
 | `fix(pools)` | `LIFE-2` `LIFE-4` `API-1` `LIFE-3` | **DO NOT MERGE** — public wire |
 | `fix(ingest,projection)` | `SCALE-5` ≡ `CACHE-3`, `LIFE-5` | **DO NOT MERGE** — identity spine |
 
+**17 of 101 boxes ticked** (4 were already fixed before this run, 13 by it).
+`TRIAGE.md` §1 updated to match.
+
 Every unit went plan → implement → **independent review**. Three of the five
 reviews returned FAIL first. Every fix was mutation-tested: the change was
 reverted and the new tests confirmed red, so nothing here is vacuously green.
@@ -53,6 +56,15 @@ reverted and the new tests confirmed red, so nothing here is vacuously green.
    already-open `LEGAL-2` item — same vendor, same subjects, two surfaces.
 3. **§8 — `LIFE-5` option (a) vs (b).** (a) shipped because it is additive and
    reversible; (b) is arguably better but needs a migration.
+
+### Final verification, both lanes
+
+| Lane | Baseline (branch base) | Final | Delta |
+|---|---|---|---|
+| SQLite (`artisan test`) | 8540 passed, 2 skipped, 0 failed | **8590 passed, 2 skipped, 0 failed** | +50, all new tests, all mine |
+| Postgres (`phpunit.pg.xml`) | 222 passed, 0 failed | **225 passed, 0 failed** | +3 |
+| `pint --test` (the CI gate) | — | **passed** | |
+| `phpstan` (whole project) | 7 errors | **7 errors, byte-identical** | none mine — `development` is red here, see §1.4 |
 
 ### What I could NOT verify
 
@@ -821,3 +833,23 @@ intervals, and asserts both the 7-day backoff (the premise) and prompt recovery
 `next_attempt_at` and would have passed against the blunt guard — a fixture
 chosen loosely enough to hide the thing it was meant to measure.
 
+
+---
+
+## 11. A second pre-existing red gate on `development`
+
+Alongside §1.1's migration-lint failure: **`vendor/bin/phpstan analyse` reports 7
+errors on a clean checkout of this branch's base**, and the same 7 byte-identical
+on my branch (diffed, not counted):
+
+- `app/Ingest/Connectors/FreshaConnector.php:187` — a redundant `??`
+  (`nullCoalesce.offset`);
+- 6 × `ignore.unmatched` — baseline ignore patterns in
+  `IndividualProfilePayloadBuilder.php` and `IndividualProfileResource.php` that
+  no longer match any reported error, i.e. the phpstan baseline has drifted ahead
+  of the code.
+
+None are mine. Both are one-line fixes and neither belongs in an audit-fix
+branch, but between this and the migration lint, **two of CI's gates are red on
+`development` independently of anything in this sweep** — worth knowing before
+anyone reads a red build here as caused by these commits.
