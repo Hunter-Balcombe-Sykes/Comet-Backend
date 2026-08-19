@@ -389,6 +389,37 @@ coverage before and whose absence is what let the regression through.
 holding a side-effect ordering invariant. Check what the code AFTER the catch
 does before you turn a bail-out into a `continue`.
 
+### 4.3 `#API-1` was fixed on three fields and missed a fourth — on the same wire
+
+The audit names three fields: `publishedAt`, `firstSeenAt`, `startsAt`. I fixed
+those three and stopped, because the audit stopped.
+
+`review.reviewedAt` (`PoolResolver.php`, inside the `review` sub-object) has the
+identical defect. `review` is a PUBLIC field — it is in `ITEM_KEYS` and NOT in
+`DASHBOARD_ONLY_ITEM_KEYS`, so `buildPools()` ships it — and
+`content.f_review.reviewed_at` is `timestamptz`. Verified by the reviewer on a
+live Postgres connection: pdo_pgsql returns `"2026-07-01 10:00:00+00"` — space
+separator, colon-less offset — **and the same instant renders differently
+depending on the session `TimeZone`** (`"2026-07-01 20:00:00+10"` under
+`Australia/Sydney`).
+
+**The part worth keeping.** `ReviewsPoolTest` already asserted
+`'reviewedAt' => '2026-07-01T10:00:00Z'` and passed — while the field was
+completely unconverted. It passed because **SQLite returns the seeded string
+verbatim**, so the assertion could never observe the Postgres rendering it
+appears to pin. A test that looks like coverage of exactly this defect was
+structurally incapable of detecting it.
+
+That is CLAUDE.md's "tests run SQLite, prod is Postgres" warning in its least
+obvious form: not a constraint that fails differently, but an assertion that
+passes for a reason unrelated to the thing it names.
+
+**WIRE CHANGE, flag it in review:** `reviewedAt` now emits `+00:00` rather than
+`Z`. Same instant, valid ISO-8601 either way, and it now matches the four
+sibling timestamps that all go through `Carbon::toIso8601String()`. I could find
+no consumer depending on the `Z` form, but this is a public payload and it is
+the owner's call to confirm.
+
 ---
 
 ## 5. The `#SEC-2` backfill — scoped, NOT done, needs a human
@@ -492,3 +523,126 @@ knowable at `dispatchMirrors()` time.
 
 The single most consequential open question from this run, because the answer
 changes six surfaces rather than three.
+
+---
+
+## 7. `#LIFE-5` — option (a) taken, and the prompt's predicate was wrong
+
+**Decision: implemented (a)**, a daily reconcile command
+(`ingest:reconcile-eager`, `app/Console/Commands/IngestReconcileEagerCommand.php`),
+scheduled at 04:10. Chosen because it is ADDITIVE and REVERSIBLE — it changes no
+existing write path, and if the owner prefers **(b)** a persisted "needs eager
+run" flag the scheduler selects, deleting this command costs nothing.
+
+**The alternative, stated fairly.** (b) is arguably the better shape: it puts the
+state on the row where it belongs instead of re-deriving it nightly, and it
+removes a scheduled entry. It is also a change to `SourceScheduler::scoreDue()`
+and a new column, i.e. a migration — which is inside the blocker gate, so it was
+not available tonight even if it were preferred.
+
+### The prompt's suggested predicate does not work — worth knowing before (b)
+
+The prompt said to find sources "with `auto_sync=false` and no successful
+`last_run_at`". `last_run_at IS NULL` is the wrong test, and it misses the exact
+case the finding describes:
+
+- `SourceScheduler::release()` stamps `last_run_at = now()` on **every** path,
+  including `release('error')` — which is what `maybeRunEagerly()`'s own catch
+  calls when the dispatch throws. So a source stranded by a failed dispatch has a
+  **non-null** `last_run_at` and would be skipped.
+- The other stranding route — dispatch succeeded, job never executed — is cleared
+  by `releaseStranded()`, which does **not** stamp `last_run_at`. So that one
+  leaves it null.
+
+Two routes to the same bug, opposite values in the field the prompt suggested
+gating on. The command therefore asks the only question that means the same thing
+in both cases:
+
+> no `ingest.runs` row for this source has ever reached a landing outcome
+> (`ok` / `not_modified` / `degraded`)
+
+`degraded` counts as landed deliberately: the fetch and the landing both
+succeeded and only a projection failed, which is fixed with `ingest:project`, not
+by re-fetching a metered vendor.
+
+### Guards, because this dispatches PAID connectors
+
+Thirteen of sixteen connectors run eagerly on connect, and several are Metered or
+Actor-billed. So the command will not re-dispatch when: the source is in flight,
+`health = 'dead'`, `consecutive_failures >= 3`, it is younger than a 30-minute
+grace window (its eager run may simply not have written its run row yet), its
+manifest does not ask for an eager run at all, or `auto_sync` is already true.
+`--limit` (default 50) bounds one pass and `--dry-run` reports without acting.
+Ten tests cover each of those.
+
+### `#LIFE-16` / `#LIFE-17` not repeated
+
+Those two findings record that the overnight run's two new scheduler entries
+omitted `withoutOverlapping(N)`, `runInBackground()` and `onFailure()`. This entry
+carries all four conventions from `routes/console.php`'s own header, plus a
+`description()`. It sits at **04:10**, outside the crowded 03:xx block, because it
+DISPATCHES ingest runs rather than doing local work and should not add a burst to
+the ingest queue on the same minute as a dozen prunes.
+
+**Fixing #LIFE-16/#LIFE-17 themselves is out of scope for this run** (P2, and a
+different file's units) — they stay open.
+
+---
+
+## 8. Unit 7 split: `#SCALE-5` done, `#SCALE-4` deliberately NOT
+
+The prompt calls both "mechanical batching". One of them is; the other is the
+same hazard `#LIFE-1` was held back for.
+
+### `#SCALE-5` (`writeFacets` — one upsert per facet per item per run) — DONE
+
+Genuinely batchable, but not naively. Three things make a flat "collect and
+upsert once per table" wrong, and all three are handled:
+
+1. **Heterogeneous column sets.** Each record contributes only the columns it
+   actually has. Laravel's `upsert()` takes its column list from the FIRST row,
+   so unioning rows and null-filling would generate an update list containing
+   columns a given record never mentioned — and NULL them on conflict, wiping a
+   value another source had legitimately written. Rows are therefore bucketed by
+   their exact column signature, one upsert per (facet, signature).
+2. **Same (item, source) twice in one batch.** A same-source merge puts two
+   records on one item — the case `writeFacets`'s own comment calls out. Two rows
+   with the same conflict target in ONE upsert payload raises Postgres 21000
+   ("ON CONFLICT DO UPDATE command cannot affect row a second time"), the exact
+   hazard `LanderBatchLandingTest` already pins for `record_state`.
+3. **What de-duplication must preserve.** Sequentially, the second upsert
+   overwrites only the columns IT names, so the stored row ends up a per-column
+   UNION with later values winning. A last-row-wins de-dup would silently drop
+   columns only the earlier record carried. The fold is therefore per-column, not
+   per-row, which reproduces the sequential result exactly.
+
+### `#SCALE-4` (`bindGroup` — one `item_anchors` read per identity group) — NOT DONE, box left open
+
+The remedy is "hoist the read above the loop". That loop's body **mutates the
+very table being prefetched**:
+
+- `bindGroup()` inserts into `content.item_anchors` (`insertOrIgnore`, #PGR-7);
+- on a lost race it UPDATEs `item_anchors.item_id` for coords bound earlier in
+  the same call;
+- `mergeInto()` rewrites `superseded_by` on anchors — and those can belong to
+  items OTHER groups in the same loop are about to read.
+
+So a snapshot taken before the loop can be stale by the time a later group reads
+it, and the failure mode is a group binding to an item id that no longer wins:
+a wrong merge on the content identity spine, which `mergeInto()` makes
+**partially irreversible** because it hard-deletes.
+
+That is the same class of hazard as `#LIFE-1`, on the same function, and
+`#LIFE-1` was explicitly held to PLAN ONLY tonight for that reason. Doing the
+cheaper half of the same problem unattended, without the locking `#LIFE-1`
+proposes, would be taking the risk while skipping the mitigation.
+
+**Recommendation: do `#SCALE-4` as part of `#LIFE-1`, not before it.** Once
+`resolveItems()` holds an advisory lock and one transaction
+(`2026-08-19-LIFE-1-identity-race-plan.md`), the prefetch becomes safe almost for
+free — the snapshot cannot go stale under a lock that no other writer can cross,
+and the read is inside the transaction that already serialises the loop. Two
+findings, one correct change, in that order.
+
+`#CACHE-5` (the per-coord anchor INSERT) is the same function and the same
+argument; it stays open too.

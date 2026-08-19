@@ -356,7 +356,7 @@
         }
         ```
 
-- [ ] **#LIFE-2** · P1 — `content.source_stats` review aggregate is not filtered by retired/disconnected source_items, republishing a hidden review score
+- [x] **#LIFE-2** · P1 — `content.source_stats` review aggregate is not filtered by retired/disconnected source_items, republishing a hidden review score
     - **Where:** app/Site/Pools/PoolResolver.php:314-321 (`statsFor()`)
     - **Affects:** Public reviews pool `stats` badge (star rating + count) for any site whose review-carrying platform connection is later disconnected or whose review source item is retired by absence-folding.
     - **Effort:** S (~0.5–1h)
@@ -374,7 +374,7 @@
             ->first(['ss.rating_avg', 'ss.rating_count', 'ss.summary_text']);
         ```
 
-- [ ] **#LIFE-3** · P1 — Item's fallback public `platform`/`url` can be derived from a retired or deactivated connection
+- [x] **#LIFE-3** · P1 — Item's fallback public `platform`/`url` can be derived from a retired or deactivated connection
     - **Where:** app/Site/Pools/PoolResolver.php:528-616 (`$sourceRows` query and `$sourcePlatforms` derivation)
     - **Affects:** Any public pool item with no `f_link` row of its own (e.g. a Fresha service, which has no per-service URL) whose only contributing connection is disconnected or deactivated after the item was landed.
     - **Effort:** S (~0.5–1h)
@@ -393,7 +393,7 @@
         })
         ```
 
-- [ ] **#LIFE-4** · P1 — Public pool `links` array can surface a link from a disconnected/retired source
+- [x] **#LIFE-4** · P1 — Public pool `links` array can surface a link from a disconnected/retired source
     - **Where:** app/Site/Pools/PoolResolver.php:485-496 (`$sourceLinks` query)
     - **Affects:** Public sitepage pool payloads (`watch`, `listen`, `media`, etc.) for any item that has both a live source (keeping it in the selection) and a stale `content.f_link` row from a source the owner later disconnected.
     - **Effort:** S (~0.5–1h)
@@ -2088,7 +2088,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **API-1** · P1 — Pool item payload mixes ISO-8601 and naive local timestamps on the public wire
+- [x] **API-1** · P1 — Pool item payload mixes ISO-8601 and naive local timestamps on the public wire
     - **Where:** app/Site/Pools/PoolResolver.php:584, 834-835, 860
     - **Affects:** Every unauthenticated public sitepage visitor viewing dated content — `publishedAt` (all pools), `firstSeenAt` (all pools), and `startsAt` (events/menus pools). Also the owner's dashboard, which reads the same `resolve()` output.
     - **Effort:** S (~0.5–1h)
