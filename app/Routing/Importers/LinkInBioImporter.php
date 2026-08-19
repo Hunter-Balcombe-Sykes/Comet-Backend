@@ -297,6 +297,19 @@ class LinkInBioImporter
             ?? $this->inline->read($baseUrl, $body)
             ?? $this->harvester->allOutboundLinks($body, $baseUrl);
 
+        // F12 (2026-08-20, the natalieannehair stan.store trace): the API and
+        // inline unrollers return the platform's TILE links and never see the
+        // shell's own footer SOCIAL anchors — her TikTok and Facebook sat in
+        // the delivered DOM, unseen. Merge just the SOCIAL-classified anchors
+        // back in: the conservative slice — tiles stay API-authoritative, and
+        // the shell's legal/asset links (assets.stanwith.me PDFs…) can't
+        // classify as social, so no junk rides along. $seen dedupes overlap.
+        $anchorSocials = array_values(array_filter(
+            $this->harvester->allOutboundLinks($body, $baseUrl),
+            fn (string $link): bool => ($this->harvester->classify($link)['category'] ?? null) === 'social',
+        ));
+        $links = array_merge($links, $anchorSocials);
+
         foreach ($links as $url) {
             if (count($seen) >= self::MAX_LINKS) {
                 return;
