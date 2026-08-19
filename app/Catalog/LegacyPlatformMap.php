@@ -91,13 +91,10 @@ class LegacyPlatformMap
         'youtube' => 'youtube.channel',
         'youtube-music' => 'youtube_music.channel',
         'zenoti' => 'zenoti.book',
-        // Pseudo buckets → hidden partna.* surfaces (alias back verbatim).
-        'custom' => 'partna.custom_link',
-        'events-custom' => 'partna.manual_event',
+        // Pseudo buckets → hidden partna.* surfaces. Only shop survives
+        // (partna.manual_product's sibling); the link-lane pseudo buckets were
+        // RETIRED 2026-08-19 — see RETIRED below.
         'shop' => 'partna.storefront',
-        'booking' => 'partna.booking_link',
-        'reservations' => 'partna.reserve_link',
-        'online-ordering' => 'partna.order_link',
     ];
 
     /**
@@ -119,6 +116,14 @@ class LegacyPlatformMap
         // Pinterest. Connector, catalog surface, legacy scraper and registry
         // entry all deleted in the same change.
         'pinterest' => 'pinterest.profile',
+        // Pseudo-platform link lane retired 2026-08-19 (owner): every routed
+        // link lands on its real brand surface via LinkRouter/SourceReconciler.
+        // Zero live rows carried any of these at deletion time (measured).
+        'custom' => 'partna.custom_link',
+        'events-custom' => 'partna.manual_event',
+        'booking' => 'partna.booking_link',
+        'reservations' => 'partna.reserve_link',
+        'online-ordering' => 'partna.order_link',
     ];
 
     /**
@@ -136,12 +141,7 @@ class LegacyPlatformMap
         'resident_advisor.tickets' => 'resident-advisor',
         'square.order' => 'square-ordering',
         'youtube_music.channel' => 'youtube-music',
-        'partna.custom_link' => 'custom',
-        'partna.manual_event' => 'events-custom',
         'partna.storefront' => 'shop',
-        'partna.booking_link' => 'booking',
-        'partna.reserve_link' => 'reservations',
-        'partna.order_link' => 'online-ordering',
     ];
 
     /** Surface key => routing class (P1 truth; must agree with the artefact). */
@@ -166,27 +166,22 @@ class LegacyPlatformMap
         'eventbrite.organiser' => 'events', 'humanitix.organiser' => 'events',
         'ticketek.tickets' => 'events', 'ticketmaster.tickets' => 'events', 'oztix.tickets' => 'events',
         'trybooking.tickets' => 'events', 'resident_advisor.tickets' => 'events',
-        'partna.manual_event' => 'events',
         // booking
         'fresha.book' => 'booking', 'square.book' => 'booking', 'booksy.book' => 'booking',
         'vagaro.book' => 'booking', 'timely.book' => 'booking', 'kitomba.book' => 'booking',
         'phorest.book' => 'booking', 'shortcuts.book' => 'booking', 'bella_booking.book' => 'booking',
         'boulevard.book' => 'booking', 'glossgenius.book' => 'booking', 'mangomint.book' => 'booking',
         'zenoti.book' => 'booking', 'mindbody.book' => 'booking', 'ovatu.book' => 'booking',
-        'partna.booking_link' => 'booking',
         // reservations
         'opentable.reserve' => 'reservations', 'resdiary.reserve' => 'reservations',
         'nowbookit.reserve' => 'reservations', 'resy.reserve' => 'reservations',
         'quandoo.reserve' => 'reservations', 'sevenrooms.reserve' => 'reservations',
         'tock.reserve' => 'reservations', 'tablecheck.reserve' => 'reservations',
-        'partna.reserve_link' => 'reservations',
         // ordering
         'square.order' => 'ordering', 'bopple.order' => 'ordering', 'hungrypanda.order' => 'ordering',
-        'easi.order' => 'ordering', 'partna.order_link' => 'ordering',
+        'easi.order' => 'ordering',
         // shop
         'partna.storefront' => 'shop', 'gumroad.store' => 'shop',
-        // link
-        'partna.custom_link' => 'link',
     ];
 
     public static function surfaceFor(string $legacyPlatform): ?string

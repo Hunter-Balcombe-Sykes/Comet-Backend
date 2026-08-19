@@ -140,8 +140,8 @@ class LinkRouter
     /**
      * Route ONE url through the ordering arm only, for a caller that already
      * knows it is handling an ordering link and has run its own capability gate
-     * (OnlineOrderingController::addEntry, GoogleBusinessAutoSync's ordering
-     * seed). Convergence Phase 6.
+     * (GoogleBusinessAutoSync's ordering seed; the retired ordering category
+     * controller was the other caller). Convergence Phase 6.
      *
      * Deliberately not route(): that classifies freely, so an Instagram URL
      * pasted into the ordering box would be SEEDED as a social connection before
@@ -295,28 +295,29 @@ class LinkRouter
     {
         $category = $classified['category'];
 
-        $resourceId = match ($category) {
-            'event' => $this->events->seedStandalone($user, $platform, $url),
-            'event-organiser' => $this->events->seedAccount($user, $platform, $url),
-            default => null,
-        };
+        // R7 (owner, 2026-08-19): a pasted EVENT link writes an events-pool
+        // item and nothing else — no connection row, no finding (the synced
+        // modal that read the finding is retired). handled:true so no caller
+        // files a link card for something the events pool now carries.
+        if ($category === 'event') {
+            $written = $this->events->seedStandalone($user, $platform, $url);
+
+            return $written !== null ? RouteResult::custom(handled: true) : RouteResult::custom();
+        }
+
+        $resourceId = $category === 'event-organiser'
+            ? $this->events->seedAccount($user, $platform, $url)
+            : null;
 
         if ($resourceId === null) {
             return RouteResult::custom();
         }
 
-        // F8: this used to seed with no finding at all, so a connected Eventbrite
-        // never appeared in the synced modal. The resourceId must be the row's
-        // OWN id, not the platform name every other category uses:
-        // shapeFinding() resolves a seeded finding by "platform|resourceId" and
-        // drops what it can't match, and an events platform holds many rows
-        // ('event-<id>' / 'acct-<hash>'). Same reason the remove path can't be
-        // the platform's forget route — that would delete every event the user
-        // has, not the one this finding is about. removeEvent() re-adds the
-        // 'event-' prefix itself; removeAccount() matches the full id.
-        $removePath = $category === 'event'
-            ? '/platforms/'.$platform.'/events/'.Str::after($resourceId, 'event-')
-            : '/platforms/'.$platform.'/accounts/'.$resourceId;
+        // F8: the resourceId must be the row's OWN id ('acct-<hash>'), not the
+        // platform name — an events platform holds many rows, and the remove
+        // path can't be the forget route (that would delete every account the
+        // user has, not the one this finding is about).
+        $removePath = '/platforms/'.$platform.'/accounts/'.$resourceId;
 
         return RouteResult::seeded($platform, $resourceId, $category, [
             $this->seededFinding($platform, $resourceId, $category, $classified['label'], $url, $removePath),
@@ -344,16 +345,43 @@ class LinkRouter
      */
     private function seedReservation(User $user, string $platform, string $url, array $classified): RouteResult
     {
+        // Reservations stay SINGLE-SLOT across the whole family. The legacy
+        // clear-then-write (ReservationsController::clearReservations) was
+        // deleted 2026-08-19 with the pseudo-platform lane, and this auto
+        // lane must neither silently replace the incumbent nor duplicate it
+        // — a taken family slot becomes a Swap offer in the inbox, exactly
+        // like the ordering arm below. routing_class is the family key, so
+        // this spans brands the classifier has never heard of.
+        $incumbent = IntegrationConnection::query()
+            ->where('user_id', (string) $user->id)
+            ->where('routing_class', 'reservations')
+            ->orderBy('created_at')
+            ->get()
+            ->first(fn (IntegrationConnection $row) => ! $this->sameUrl(
+                (string) (CardPayload::fromArray($row->payload)->url() ?? ''), $url,
+            ));
+
+        if ($incumbent !== null) {
+            app(SourceReconciler::class)->recordCapBlock(
+                $user,
+                LegacyPlatformMap::surfaceFor($platform) ?? $platform,
+                'reservations',
+                $this->brandResourceId($platform),
+                $url,
+                (string) $incumbent->id,
+                'auto',
+            );
+
+            return RouteResult::custom(handled: true);
+        }
+
         $payload = [
             'url' => $url,
             'provider' => $classified['label'],
             'source' => 'auto',
         ];
 
-        // Phase 6: the brand's own key, not the retired 'reservations' pseudo
-        // key. Reservations stay SINGLE-SLOT across the family — that invariant
-        // lives in ReservationsController::clearReservations() and now keys on
-        // routing_class, which is what lets it span brands it has never heard of.
+        // Phase 6: the brand's own key, not the retired 'reservations' pseudo key.
         $resourceId = $this->brandResourceId($platform);
         $this->write((string) $user->id, $platform, $resourceId, $payload);
 

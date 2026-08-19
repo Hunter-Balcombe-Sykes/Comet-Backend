@@ -218,3 +218,36 @@ it('accepts a bare handle for brands whose surface has a canonical template (F12
     actingAsUser($user)->postJson('/api/platforms/substack/connect', ['url' => 'myrestaurant.com.au'])
         ->assertStatus(422);
 });
+
+// Found live on dev (2026-08-19, big run): the slot guard only compared the
+// brand-slug rid, so a ROUTER-seeded incumbent ('order-<hash>') was invisible
+// to a manual connect and a second Uber Eats landed silently beside it.
+it('422s slot_taken against a ROUTER-seeded incumbent, and Swap retires it', function () {
+    $user = brandGuardUser('bg-router-incumbent');
+
+    // The router's write shape: url-derived rid on the same brand surface.
+    \App\Models\Core\Site\IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'uber_eats',
+        'surface_key' => 'uber_eats.order',
+        'resource_id' => 'order-'.substr(sha1('https://www.ubereats.com/au/store/first/aaa'), 0, 16),
+        'payload' => ['url' => 'https://www.ubereats.com/au/store/first/aaa', 'provider' => 'Uber Eats', 'source' => 'auto'],
+        'is_active' => true,
+    ]);
+
+    // A different store on the same single-slot surface → refused, naming the incumbent.
+    actingAsUser($user)
+        ->postJson('/api/platforms/uber_eats/connect', ['url' => 'https://www.ubereats.com/au/store/second/bbb'])
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'slot_taken');
+
+    // Swap: replace=true retires the router row — ONE live row afterwards.
+    actingAsUser($user)
+        ->postJson('/api/platforms/uber_eats/connect', ['url' => 'https://www.ubereats.com/au/store/second/bbb', 'replace' => true])
+        ->assertOk();
+
+    $rows = \App\Models\Core\Site\IntegrationConnection::query()
+        ->where('user_id', $user->id)->where('surface_key', 'uber_eats.order')->get();
+    expect($rows)->toHaveCount(1);
+    expect($rows->first()->payload['url'])->toBe('https://www.ubereats.com/au/store/second/bbb');
+});

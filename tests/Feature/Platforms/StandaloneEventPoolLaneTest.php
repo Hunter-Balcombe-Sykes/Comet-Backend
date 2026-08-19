@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 // Slice 7 Phase 4, round 2. Three live paths wrote a `resource_kind='event'`
 // connection, not one:
 //
-//   1. EventsCatalog::storeStandalone()          — the Tickets & Events card
+//   1. (retired 2026-08-19: the events/add facade lane)
 //   2. EventsPlatformController::addStandaloneEvent() — POST /platforms/{p}/events
 //   3. EventsSeeder::seedStandalone()            — the link-scan / signup lane
 //
@@ -114,13 +114,13 @@ it('lands a content item, not a connection, for POST /platforms/eventbrite/event
 // The coord is the whole point of one lane: the card path, the per-platform
 // path and the backfill all derive it from the event URL, so the same event
 // added twice by different routes is ONE item.
-it('folds the per-platform add onto the same coord the card path mints', function () {
+it('folds the per-platform add onto the same coord the scan lane mints', function () {
     $url = 'https://www.eventbrite.com/e/cool-show-123';
     speMockEventbrite();
     $user = speUser('spe2');
 
     actingAsUser($user)->postJson('/api/platforms/eventbrite/events', ['url' => $url])->assertOk();
-    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $url])->assertOk();
+    expect(app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $url))->toBe($url);
 
     expect(speItemCount($user))->toBe(1);
     expect(DB::connection('pgsql')->table('content.source_items')->value('coord'))
@@ -190,19 +190,18 @@ it('still 422s at the tenth standalone event on the per-platform route', functio
     expect(speItemCount($user))->toBe(ManualEventWriter::MAX_STANDALONE_EVENTS);
 });
 
-it('still 422s at the cap on the Tickets & Events card route', function () {
+it('still refuses at the cap on the scan lane', function () {
     $user = speUser('spe7');
 
     speMockEventbrite();
 
     for ($i = 0; $i < ManualEventWriter::MAX_STANDALONE_EVENTS; $i++) {
         $url = "https://www.eventbrite.com/e/card-{$i}";
-        actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $url])->assertOk();
+        expect(app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $url))->toBe($url);
     }
 
     $overflow = 'https://www.eventbrite.com/e/card-overflow';
-    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $overflow])
-        ->assertStatus(422);
+    expect(app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $overflow))->toBeNull();
 
     expect(speItemCount($user))->toBe(ManualEventWriter::MAX_STANDALONE_EVENTS);
 });
@@ -247,22 +246,18 @@ it('counts only the owner\'s own events, not a connector\'s', function () {
 // DUAL-WRITE, deliberately. The connection row is kept because the synced-modal
 // finding lane resolves by `platform|resourceId` against connection rows in TWO
 // controllers (InstagramController + GoogleBusinessController shapeFinding) and
-// derives its status from `last_refresh_status`. Teaching that lane about pool
-// items is its own piece of work. The row publishes `[]` either way — the item
-// is what reaches the sitepage.
-it('seeds BOTH a connection row and a content item from a scanned event link', function () {
+// R7 (2026-08-19): the scan lane is POOL-ONLY — no connection row at all.
+it('seeds a content item and NO connection row from a scanned event link', function () {
     $url = 'https://www.eventbrite.com/e/scanned-show';
     speMockEventbrite();
     $user = speUser('spe10');
 
-    $rid = app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $url);
+    $written = app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $url);
 
-    // The connection survives: the modal finding is keyed on this id.
-    expect($rid)->toStartWith('event-');
+    expect($written)->toBe($url);
     expect(IntegrationConnection::query()->where('user_id', $user->id)
-        ->where('resource_id', $rid)->where('resource_kind', 'event')->exists())->toBeTrue();
+        ->where('resource_kind', 'event')->exists())->toBeFalse();
 
-    // And the event actually publishes, which is the half round 1 was missing.
     expect(speItemCount($user))->toBe(1);
     expect(DB::connection('pgsql')->table('content.source_items')->value('coord'))
         ->toBe(ManualEventWriter::coordFor($url));
@@ -277,17 +272,13 @@ it('lists a seeded event once, not twice, in the unified selection', function ()
 
     app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $url);
 
-    $events = actingAsUser($user)->getJson('/api/platforms/events/selection')->assertOk()->json('selection.events');
-    expect($events)->toHaveCount(1);
-
     $perPlatform = actingAsUser($user)->getJson('/api/platforms/eventbrite/selection')->assertOk()->json('selection.events');
     expect($perPlatform)->toHaveCount(1);
 });
 
-// A siteless owner cannot hold a pool item. The scan lane must still seed the
-// connection rather than dropping the link on the floor — that is the whole
-// point of it being best-effort.
-it('still seeds the connection when the owner has no site to pin an item to', function () {
+// A siteless owner cannot hold a pool item, and the lane is pool-only now
+// (R7): nothing is written and the seeder reports it honestly.
+it('writes nothing for a siteless owner and reports null', function () {
     $url = 'https://www.eventbrite.com/e/scanned-show';
     speMockEventbrite();
     $user = User::create([
@@ -295,9 +286,10 @@ it('still seeds the connection when the owner has no site to pin an item to', fu
         'account_type' => 'business', 'auth_user_id' => (string) Str::uuid(), 'primary_email' => 'spe12@example.com',
     ]);
 
-    $rid = app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $url);
+    $written = app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $url);
 
-    expect($rid)->toStartWith('event-');
+    expect($written)->toBeNull();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
     expect(speItemCount($user))->toBe(0);
 });
 

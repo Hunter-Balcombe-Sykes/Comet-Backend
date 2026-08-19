@@ -241,30 +241,15 @@ it('humanitix connect surfaces a 422, not a 500, when the budget is exhausted in
     expect($spy->opened)->toBeTrue();
 });
 
-// ── Events (smart-detect facade over Eventbrite/Humanitix) ────────────────
-
-it('events add surfaces the existing 422, not a 500, when the fetch budget is exhausted', function () {
-    $this->app->instance(SafeUrlFetcher::class, exhaustedFetcher());
-
-    // An organiser URL the detector routes to Eventbrite (not an event URL,
-    // not a recognisable custom link) — reaches EventbriteScraper::fetchEvents.
-    $spy = budgetSpy();
-    $this->app->instance(FetchBudget::class, $spy);
-
-    actingAsUser(fbUser('fbev1'))
-        ->postJson('/api/platforms/events/add', ['url' => 'https://www.eventbrite.com/o/acme-1'])
-        ->assertStatus(422)
-        ->assertJsonPath('message', "Couldn't load that Eventbrite page.");
-
-    expect($spy->opened)->toBeTrue();
-});
+// ── The events/add facade left 2026-08-19; the eventbrite/humanitix connect
+// budget cases above cover the same exhaustion path. ────────────────────────
 
 // ── Happy path (byte-identical) ─────────────────────────────────────────────
 // The budget now wraps every happy path too, so proving the response is
 // unchanged is the other half of the contract. Apple connect, Eventbrite
 // connect, and Shopify addBrand are already exact-pinned in
 // PlatformResourceContractTest.php; Humanitix connect in
-// IntegrationsV2ConnectionTest.php; events/add in EventsCatalogTest.php.
+// IntegrationsV2ConnectionTest.php. (The events/add facade left 2026-08-19.)
 // Fresha connect (team mode — the branch a 'partna' account takes, since
 // can_book_storewide is business-only) has no existing happy-path pin, so it
 // is added here per the brief's escape hatch.

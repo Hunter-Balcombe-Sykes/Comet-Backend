@@ -454,11 +454,10 @@ it('keeps the Google Business selection business-info-only after enrichment', fu
         ->assertJsonMissingPath('selection.menu')
         ->assertJsonMissingPath('selection.socials');
 
-    // The reservation now lives on the Reservations integration instead.
-    actingAsUser($user)->getJson('/api/platforms/reservations/status')
-        ->assertOk()
-        ->assertJsonPath('connected', true)
-        ->assertJsonPath('provider', 'opentable');
+    // The reservation lives on its real brand connection (the category
+    // status endpoint left 2026-08-19 with the pseudo-platform retirement).
+    expect(IntegrationConnection::query()->where('user_id', $user->id)
+        ->where('platform', 'opentable')->where('is_active', true)->exists())->toBeTrue();
 
     // ...and the seeded rows exist as real connections. (Until 2026-08-19 this
     // read them back off the synced modal; the modal is retired, and the

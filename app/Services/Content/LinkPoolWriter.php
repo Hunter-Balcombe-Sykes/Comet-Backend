@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\DB;
  *
  * Phase 3 carried the 23 existing `partna.custom_link` connections onto
  * `content.*` and named this seam explicitly — "the pool is a SNAPSHOT until
- * Phase 6 … CustomLinkBackfiller::linkProjection() is public as the seam"
+ * Phase 6 … the (retired) custom-link backfiller's linkProjection() was the seam"
  * (parent spec §22). This is the other half: every NEW link is written straight
  * onto the pool, so nothing lands on the retired surface again.
  *
@@ -27,7 +27,7 @@ use Illuminate\Support\Facades\DB;
  * carrying its provider label rather than being dropped.
  *
  * COORD: `manual:{sha1(strtolower(trim(url)))}`, deliberately the URL and not a
- * uuid — byte-identical to what CustomLinkBackfiller and PoolItemCreateController
+ * uuid — byte-identical to what the retired custom-link backfiller and PoolItemCreateController
  * mint, so a link that arrives twice through two different doors updates ONE item
  * instead of forking. Two manual coords carrying one url would also poison that
  * url as a joining key for the whole resolution run (Resolver::poisonedKeys drops
@@ -100,7 +100,7 @@ class LinkPoolWriter
         ];
 
         // Omitted rather than written null when there is nothing to say — a new
-        // item has no stale body to clear (CustomLinkBackfiller does the same).
+        // item has no stale body to clear (the retired backfiller did the same).
         $description = trim((string) $description);
         if ($description !== '') {
             $projection['facets']['f_text']['body'] = $description;

@@ -45,7 +45,7 @@ trait ManagesIntegrationConnection
      * sees none of them. routing_class travels with surface_key on every row by
      * construction (IntegrationConnection::booted stamps it), so a brand added
      * later is covered without anyone remembering to widen a list — the same
-     * argument ReservationsController::clearReservations already makes.
+     * argument the retired reservations family clear made before it.
      *
      * platform() is still what the LOCK and FeatureAvailability key on: those
      * are per-FAMILY concerns, and the family key did not change.
@@ -381,20 +381,26 @@ trait ManagesIntegrationConnection
             return null;
         }
 
-        $existing = $user->integrationConnections()
+        // EVERY live row on the surface, not just the brand-slug rid: the
+        // router seeds these slots with url-derived resource ids
+        // ('order-<hash>'), and a guard that only saw its own rid let a
+        // manual connect write a silent second Uber Eats beside a
+        // router-seeded incumbent (found live on dev, 2026-08-19).
+        $rows = $user->integrationConnections()
             ->where('surface_key', $surfaceKey)
-            ->where('resource_id', $resourceId)
-            ->first();
-        if ($existing === null) {
-            return null;
+            ->get();
+
+        foreach ($rows as $existing) {
+            $existingUrl = CardPayload::fromArray($existing->payload)->url() ?? '';
+            if (trim($existingUrl) === '') {
+                continue; // nothing identifiable to keep — not an incumbent
+            }
+            if (! $this->sameLink($existingUrl, $incomingUrl)) {
+                return $existing;
+            }
         }
 
-        $existingUrl = CardPayload::fromArray($existing->payload)->url() ?? '';
-        if (trim($existingUrl) === '') {
-            return null; // nothing identifiable to keep — let the write proceed
-        }
-
-        return $this->sameLink($existingUrl, $incomingUrl) ? null : $existing;
+        return null;
     }
 
     /** Canonical-IRI equality, falling back to a trimmed compare when either side won't canonicalise. */

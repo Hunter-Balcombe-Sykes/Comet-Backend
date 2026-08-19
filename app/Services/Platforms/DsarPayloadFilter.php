@@ -80,8 +80,6 @@ final class DsarPayloadFilter
         'eventbrite' => ['url', 'next', 'upcoming', 'kind', 'id', 'name', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases', 'hiddenEventIds'],
         'humanitix' => ['url', 'next', 'upcoming', 'kind', 'id', 'name', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases', 'hiddenEventIds'],
         // venue removed (third-party identity); location kept (own geography).
-        'events-custom' => ['kind', 'id', 'name', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases'],
-        'custom' => ['kind', 'url', 'name', 'description', 'favicon', 'logo'],
         'facebook' => ['username', 'url'],
         'tiktok' => ['username', 'url'],
         'x' => ['username', 'url'],
@@ -126,9 +124,6 @@ final class DsarPayloadFilter
         'opentable' => ['url', 'rid', 'name', 'embedUrl'],
         'resdiary' => ['url', 'microsite', 'name', 'embedUrl'],
         'nowbookit' => ['url', 'accountId', 'venueId', 'name', 'embedUrl'],
-        'booking' => ['url', 'provider'],
-        'reservations' => ['url', 'provider'],
-        'online-ordering' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'booksy' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'vagaro' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'timely' => ['url', 'name', 'favicon', 'logo', 'provider'],

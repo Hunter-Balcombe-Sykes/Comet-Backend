@@ -4,8 +4,8 @@
 //
 // PWL-8: EnrichLinkCardJob's re-read+write half now takes the same per-user/
 // platform lock (CacheKeyGenerator::platformConnectionLock) the connect-time
-// controller writes hold (CustomLinksController::addLink,
-// OnlineOrderingController::addEntry via ManagesIntegrationConnection::
+// controller writes held (the retired custom-links/ordering category
+// controllers, via ManagesIntegrationConnection::
 // withConnectionLock) — closing a race where the job's slow-HTTP-then-
 // unlocked-update() could clobber a concurrent connect/forget on the same
 // row. The slow scraper->snapshot() HTTP call itself stays OUTSIDE the lock

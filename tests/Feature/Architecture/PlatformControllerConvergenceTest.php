@@ -10,12 +10,11 @@ use App\Services\Platforms\Registry\PlatformRouteShape;
 // adding a controller file = add a descriptor instead, or justify a new
 // allowlist entry in this file.
 
+// The five pseudo-platform category controllers left this list 2026-08-19
+// (pseudo-platform retirement) — deleted outright, not converged.
 const BESPOKE_CONTROLLER_ALLOWLIST = [
     'AppleController.php',            // dual music+podcast platforms in one controller
-    'BookingController.php',          // smart-detect category facade
-    'CustomLinksController.php',      // arbitrary link cards, not a platform
     'EventbriteController.php',       // events archetype (organiser accounts + standalone events)
-    'EventsController.php',           // events smart-detect facade
     'EventsPlatformController.php',   // shared events base
     'FreshaController.php',           // picker flow (team/services selection)
     'GenericPlatformController.php',  // THE registry-driven controller
@@ -25,11 +24,9 @@ const BESPOKE_CONTROLLER_ALLOWLIST = [
     'IntegrationsMetaController.php', // cross-platform sync metadata
     'MenuController.php',             // menu view, no connect
     'MenuContentController.php',      // owner-authored (manual) menu content CRUD, no connect
-    'OnlineOrderingController.php',   // ordering-links category
     'OpenTableController.php',        // suggestion() only — connect is registry-driven
     'RefreshController.php',          // manual refresh, cross-platform
     'DisplaySettingsController.php',  // display toggles, cross-platform (registry-driven)
-    'ReservationsController.php',     // smart-detect category facade
     'ShopController.php',             // multi-brand picker
     'SquareController.php',           // XOR-with-fresha guard on connect
 ];

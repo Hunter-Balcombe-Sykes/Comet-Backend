@@ -1,11 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\Platforms\AppleController;
-use App\Http\Controllers\Api\Platforms\BookingController;
-use App\Http\Controllers\Api\Platforms\CustomLinksController;
 use App\Http\Controllers\Api\Platforms\DisplaySettingsController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
-use App\Http\Controllers\Api\Platforms\EventsController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\GenericPlatformController;
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
@@ -14,10 +11,8 @@ use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\IntegrationsMetaController;
 use App\Http\Controllers\Api\Platforms\MenuContentController;
 use App\Http\Controllers\Api\Platforms\MenuController;
-use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
 use App\Http\Controllers\Api\Platforms\RefreshController;
-use App\Http\Controllers\Api\Platforms\ReservationsController;
 use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Http\Controllers\Api\Platforms\SquareController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
@@ -158,68 +153,13 @@ $registerIntegrationRoutes = function (string $base): void {
             });
     }
 
-    // Custom links — arbitrary URLs attached as branded link cards.
-    Route::prefix("{$base}/custom")
-        ->middleware($middleware)
-        ->group(function () {
-            Route::get('/links', [CustomLinksController::class, 'links']);
-            Route::post('/links', [CustomLinksController::class, 'addLink']);
-            Route::get('/links/{id}/status', [CustomLinksController::class, 'linkStatus'])->where('id', '[A-Za-z0-9._-]+');
-            Route::put('/links/order', [CustomLinksController::class, 'reorderLinks']);
-            Route::delete('/links/{id}', [CustomLinksController::class, 'removeLink'])->where('id', '[A-Za-z0-9._-]+');
-            Route::delete('/', [CustomLinksController::class, 'forget']);
-        });
-
-    // ── Integration CATEGORIES ───────────────────────────────────────────
-    // Smart URL-detect cards. /detect resolves the provider for a pasted link
-    // and tells the dashboard which existing flow to run (Fresha picker / Square
-    // / OpenTable embed); an unrecognised link is stored as a branded custom
-    // card. Known providers still store under their own platform keys (fresha /
-    // square / opentable); these category rows hold only the custom fallback
-    // (booking / reservations) or the ordering links (online-ordering).
-    // Dashboard-only — excluded from the public sitepage endpoint.
-    Route::prefix("{$base}/booking")
-        ->middleware($middleware)
-        ->group(function () {
-            Route::post('/detect', [BookingController::class, 'detect']);
-            Route::get('/detect/status', [BookingController::class, 'detectStatus']);
-            Route::get('/status', [BookingController::class, 'status']);
-            Route::delete('/', [BookingController::class, 'forget']);
-        });
-
-    Route::prefix("{$base}/reservations")
-        ->middleware($middleware)
-        ->group(function () {
-            Route::post('/detect', [ReservationsController::class, 'detect']);
-            Route::get('/detect/status', [ReservationsController::class, 'detectStatus']);
-            Route::get('/status', [ReservationsController::class, 'status']);
-            Route::get('/suggestion', [ReservationsController::class, 'suggestion']);
-            Route::delete('/', [ReservationsController::class, 'forget']);
-        });
-
-    Route::prefix("{$base}/online-ordering")
-        ->middleware($middleware)
-        ->group(function () {
-            Route::get('/entries', [OnlineOrderingController::class, 'entries']);
-            Route::post('/entries', [OnlineOrderingController::class, 'addEntry']);
-            Route::get('/entries/{id}/status', [OnlineOrderingController::class, 'entryStatus'])->where('id', '[A-Za-z0-9._-]+');
-            Route::delete('/entries/{id}', [OnlineOrderingController::class, 'removeEntry'])->where('id', '[A-Za-z0-9._-]+');
-            Route::delete('/', [OnlineOrderingController::class, 'forget']);
-        });
-
-    // Tickets & Events — smart-detect facade over the Eventbrite + Humanitix
-    // platforms plus custom links. /add detects the platform and decides event vs
-    // organiser-account vs custom; /selection returns the unified accounts +
-    // events list (each row tagged with its per-platform removePath); custom
-    // (events-custom) cards are removed here, platform rows via their own routes.
-    Route::prefix("{$base}/events")
-        ->middleware($middleware)
-        ->group(function () {
-            Route::post('/add', [EventsController::class, 'add']);
-            Route::get('/selection', [EventsController::class, 'selection']);
-            Route::put('/order', [EventsController::class, 'reorder']);
-            Route::delete('/custom/{id}', [EventsController::class, 'removeCustom'])->where('id', '[A-Za-z0-9._-]+');
-        });
+    // ── RETIRED (2026-08-19, pseudo-platform retirement) ─────────────────
+    // The custom / booking / reservations / online-ordering / events
+    // category prefixes are GONE. Every routed link goes through
+    // LinkRouter/LinkRoutingService → SourceReconciler → its real brand
+    // surface; a taken slot answers 422 slot_taken (manual) or a Swap
+    // suggestion in the inbox (auto). Events connect via eventbrite /
+    // humanitix; a pasted standalone event writes an events-pool item.
 
     // Menu — the fetched Uber Eats / DoorDash menu (the single site.menus row),
     // auto-populated from the online-ordering links, plus direct write paths:

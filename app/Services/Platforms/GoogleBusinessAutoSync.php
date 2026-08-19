@@ -44,16 +44,18 @@ class GoogleBusinessAutoSync
      * rows themselves moved to per-brand surfaces in convergence Phase 6, but the
      * read-then-write span this lock protects still covers the whole family, so
      * the key must stay family-wide (and byte-identical to what
-     * OnlineOrderingController::platform() takes, or the two stop excluding
+     * the retired ordering controller took (now only this class's), or writers stop excluding
      * each other).
      */
     private const ORDERING_FAMILY = 'online-ordering';
 
+    // Real reservation brands only — the 'reservations' pseudo-platform
+    // case left the enum 2026-08-19 with the pseudo-platform retirement.
     private const RESERVATION_PLATFORMS = [
-        Platform::OpenTable->value, Platform::Resdiary->value, Platform::Nowbookit->value, Platform::Reservations->value,
+        Platform::OpenTable->value, Platform::Resdiary->value, Platform::Nowbookit->value,
     ];
 
-    private const BOOKING_PLATFORMS = [Platform::Fresha->value, Platform::Square->value, Platform::Booking->value];
+    private const BOOKING_PLATFORMS = [Platform::Fresha->value, Platform::Square->value];
 
     public function __construct(
         private readonly OpenTableService $openTable,
