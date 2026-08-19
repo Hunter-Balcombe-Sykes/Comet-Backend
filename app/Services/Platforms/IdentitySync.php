@@ -325,6 +325,15 @@ class IdentitySync
             return;
         }
 
+        // The GOOGLE fold is business-only (2026-08-19 identity plan, decision
+        // 12): a partna's industry must not be set by where they WORK. Their
+        // only automated source is their own Instagram business category
+        // (InstagramIdentitySync), with a manual pick still outranking it.
+        // Gate the writer only — SectorProvenance's ladder is untouched.
+        if (! AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
+            return;
+        }
+
         if (! SectorProvenance::mayWrite($user, SectorProvenance::GOOGLE)) {
             return;
         }
@@ -353,6 +362,13 @@ class IdentitySync
     private function mirrorPublicContactNumber(User $user, bool $overwrite, ?string $phone): void
     {
         if ($phone === null) {
+            return;
+        }
+
+        // Same capability gate as WorkplaceObserver's identity mirror — for a
+        // partna the workplace's Google number must not re-couple onto the
+        // person's own public contact (2026-08-19 identity plan, decision 2).
+        if (! AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
             return;
         }
 

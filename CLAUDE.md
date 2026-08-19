@@ -2,7 +2,7 @@
 
 Laravel 12 + Supabase + PostgreSQL backend for individual professionals' public site pages.
 Full business context: `AI_CONTEXT.md`. API reference: `docs/api.md`.
-⚠️ **Dangling pointer — for the repo owner.** This line used to read *"Cross-project rules (git, tool routing, STOP gates) live in `../CLAUDE.md`"*. **That file does not exist** (checked 2026-08-17: no `CLAUDE.md` at the `Side Street/` root, at `~/Herd/`, or at `~/`; `~/.claude/CLAUDE.md` exists but is empty). So either those cross-project rules were never written, or they were lost — and every session reading this file has been told to consult a document it cannot open. Phase 8 flags it rather than inventing the content: **owner to either write `../CLAUDE.md` or delete this pointer.**
+Cross-repo rules (repo lanes, git workflow, tool routing, STOP gates) live in `~/Developer/CLAUDE.md` — the hub file, written 2026-08 (the old dangling-pointer warning here described a pre-hub state and was resolved 2026-08-19).
 
 ## Environments
 

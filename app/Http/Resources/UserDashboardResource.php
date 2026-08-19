@@ -100,6 +100,8 @@ class UserDashboardResource extends ApiResource
             'onboarding_step' => $this->onboarding_step,
             'public_contact_number' => $this->public_contact_number,
             'public_contact_email' => $this->public_contact_email,
+            // Owner-authored About Me paragraph (Identity page binds to this).
+            'bio' => $this->bio,
             'location_street_address' => $this->location_street_address,
             'location_city' => $this->location_city,
             'location_state' => $this->location_state,

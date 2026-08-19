@@ -28,6 +28,7 @@ use Illuminate\Support\Carbon;
  * @property string $handle
  * @property string $handle_lc
  * @property string $display_name
+ * @property string|null $bio Owner-authored About Me paragraph (max 1000 app-side); mirrored from workplaces.description for business accounts.
  * @property string $first_name
  * @property string|null $last_name
  * @property string|null $country_code
@@ -109,6 +110,9 @@ class User extends BaseModel
         // Public Accessible Contacts
         'public_contact_number',
         'public_contact_email',
+
+        // Owner-authored About Me paragraph (2026-08-19 identity plan).
+        'bio',
 
         // Location
         'location_street_address',
