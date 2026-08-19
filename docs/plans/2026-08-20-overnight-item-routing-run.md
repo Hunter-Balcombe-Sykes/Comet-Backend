@@ -174,7 +174,32 @@ Gate: scan fixture with a Shopify product URL → product item + store
 connection/suggestion per policy; a store the user disconnected stays
 disconnected.
 
-### T8 — Full-night backstop gates (run at the end, before the report)
+### T8 — One routing brain for EVERY scanned URL (owner, 2026-08-20)
+
+The full determination stack — catalog projection (platform account →
+connect/suggest with bands, slots, tombstones), item grammars (video /
+track / episode / event / product → pool item), store detection (storefront
+→ store platform + brand) — must apply to EVERY URL in EVERY scan lane.
+Scans are where this matters most: nothing may shortcut to a link card
+when a richer determination exists.
+
+- **Audit every lane** and trace what each URL type actually gets:
+  `LinkInBioImporter` (bio + previous-website), `InstagramAutoSync`,
+  `GoogleBusinessAutoSync` / `WebsiteLinkHarvester::harvest`,
+  `PreviousWebsiteGate`, `LinkRouter` (the engine lanes 2–3 call), and
+  `CommerceProbeJob`. T6/T7 add the media and store-connect arms; this
+  task is the COVERAGE guarantee across lanes — find and close any lane
+  that bypasses part of the chain (e.g. a lane that consults classify()
+  but never the item seeders, or probes commerce but never events/media).
+- **Coverage matrix test** as the gate: a fixture set of URL types
+  (platform profile, video, track, episode, event page, organiser page,
+  product page, storefront, unknown host) × each scan lane, asserting the
+  exact outcome per cell (connection or suggestion / pool item of the
+  right kind / store platform / link card ONLY for the unknown host).
+  The matrix is the pinned contract for every future lane and platform.
+- Order note: run AFTER T6+T7 land (they supply the arms this audits).
+
+### T9 — Full-night backstop gates (run at the end, before the report)
 
 - Full backend suite green; dashboard typecheck/lint clean.
 - Deploy both; remote-verify each task's gate on dev (tinker battery +
@@ -196,7 +221,8 @@ disconnected.
 - [ ] T5 — suggestion band UI matches connection sheet
 - [ ] T6 — scan lanes: media items
 - [ ] T7 — scan-seeded products connect their store
-- [ ] T8 — backstop gates + final critic pass + report
+- [ ] T8 — one routing brain for every scanned URL (audit + coverage matrix)
+- [ ] T9 — backstop gates + final critic pass + report
 
 ## Owner additions (queue below as they come — plan is open until "handoff")
 
