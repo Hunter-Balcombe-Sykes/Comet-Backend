@@ -63,6 +63,15 @@ cloud env:logs partna production --tail 50                # prod — confirm fir
 
 App = `partna`. Environments: `development` (default), `production` (gated).
 
+⚠️ **Never call `cloud env:logs` bare from a loop or in the background.** It has no guaranteed exit path — it can wedge on a dead connection and sleep forever, parentless and socketless, and `--live` backlogs-then-exits rather than streaming. On 2026-08-19 an 11-minute poll loop left **70 orphaned `php` processes alive for 6 hours**, driving load average to 45 on a 10-core machine and pinning `kernel_task` at 67% (macOS thermal throttle). Use the bounded wrapper instead — it kills the wedge and leaves no orphans:
+
+```bash
+scripts/env/cloud-logs.sh development --minutes 2 --json      # 60s bound by default
+CLOUD_LOGS_TIMEOUT=120 scripts/env/cloud-logs.sh production --tail 50
+```
+
+Exit 124 means it timed out and was killed — that is the guard working, not a log failure.
+
 **FORBIDDEN:** `mcp__laravel-boost__read-log-entries`, `mcp__laravel-boost__last-error`.
 
 **Debugging — check logs FIRST.** Before code: `cloud env:logs partna development --minutes 10`.
@@ -249,7 +258,7 @@ The Content Pool Convergence programme closed on dev 2026-08-17. **`content.*` i
 
 **Models without tables are DTO carriers — do not "tidy" them away.** `MenuItem`, `MenuCategory`, `MenuItemPlatform`, `Service`, `ServiceCategory` and `ShopBrand` survive their dropped tables because `ManualMenuItems`/`ManualServiceItems` hydrate them unpersisted (`exists = false`) for the dashboard shape. Deleting them breaks the surviving content lane. They MUST stay in `PurgeSoftDeleted::PURGE_EXEMPT` — a table-less model in `PURGE_HANDLED` makes that nightly 03:20 command throw `42P01` (it did; `d8beab929` fixed it, spec §28.3).
 
-**Cache invalidation is a THREE-lane contract** on any owner-initiated pool mutation (owner ruling 2026-08-17, spec §12.6): `BuildState::bump()` + `DB::table('site.sites')->update(['updated_at' => now()])` + conditional `CloudflareCachePurgeJob`. Lane 2 is the one people forget — the public payload cache keys off `site.sites.updated_at`, so skipping it serves stale content for the TTL while the CDN is correctly purged. `App\Site\Documents\SiteCacheLanes::bust()` is the shared seam for all three; `PoolController::poolChanged()`, `PoolItemCreateController::pin()`, `ItemController::destroy()`, `ItemLinkController::upsert()/destroy()` and `ProvisionShopPinsCommand::invalidate()` all route through it, pinned by `tests/Feature/Content/PoolCacheLanesTest.php`, `tests/Feature/Content/ShopPinProvisioningTest.php` and `tests/Feature/Architecture/PoolCacheLaneSeamTest.php`. `ProjectionWriter::bumpSite()` fires lane 1 ONLY, by design — it is a per-item primitive that batch callers invoke once per row, so lanes 2+3 are discharged once at the request boundary instead (see its docblock). `ManualOverrideController::bumpSites`, `ItemMerger::bumpSites` and `SectionItemController::upsert()/destroy()` still fire lane 1 only and are a known follow-up (P2), deliberately out of scope for #PGR-6.
+**Cache invalidation is a THREE-lane contract** on any owner-initiated pool mutation (owner ruling 2026-08-17, spec §12.6): `BuildState::bump()` + `DB::table('site.sites')->update(['updated_at' => now()])` + conditional `CloudflareCachePurgeJob`. Lane 2 is the one people forget — the public payload cache keys off `site.sites.updated_at`, so skipping it serves stale content for the TTL while the CDN is correctly purged. `App\Site\Documents\SiteCacheLanes::bust()` is the shared seam for all three; `PoolController::poolChanged()`, `PoolItemCreateController::pin()`, `ItemController::destroy()`, `ItemLinkController::upsert()/destroy()` and `ProvisionShopPinsCommand::invalidate()` all route through it, pinned by `tests/Feature/Content/PoolCacheLanesTest.php`, `tests/Feature/Content/ShopPinProvisioningTest.php` and `tests/Feature/Architecture/PoolCacheLaneSeamTest.php`. `ProjectionWriter::bumpSite()` fires lane 1 ONLY, by design — it is a per-item primitive that batch callers invoke once per row, so lanes 2+3 are discharged once at the request boundary instead (see its docblock). `ManualOverrideController::bumpSites`, `ItemMerger::bumpSites` and `SectionItemController::upsert()/destroy()` were the last lane-1-only writers; #PGR-36 (2026-08-18) routed all three through `SiteCacheLanes::bust()`, so every owner-initiated pool mutation now goes through the seam. Keep it that way — a new owner-write path calls `bust()`, never `BuildState::bump()` alone.
 
 **Gotchas that have each cost a session:**
 - A **live coverage gate is valid only until the next write.** This programme watched readings go stale mid-verification four times. Timestamp every figure; never gate on totals (net counts can FALL while uncovered rows appear).

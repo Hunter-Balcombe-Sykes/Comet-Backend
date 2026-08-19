@@ -89,15 +89,27 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
         $build->forceFill(['build_state' => PreAccountBuild::STATE_BUILDING])->save();
 
         try {
-            // Auto-connect a discovered booking menu ONLY for a staff/ManyChat
-            // build. Read off built_by_staff_id rather than the $publish flag:
-            // publish is a presentation choice that could change, whereas
-            // "a staff member built this for someone who is not here" is exactly
-            // the condition that makes a picker impossible. A public site-first
-            // signup has the person on the other end of the request and the
-            // frontend asks them to pick, same as the dashboard.
+            // Auto-connect a discovered booking menu for EVERY pre-account build.
+            // This read $build->built_by_staff_id !== null until 2026-08-19, on the
+            // reasoning that a public site-first signup has the person on the other
+            // end of the request and the frontend asks them to pick. That premise is
+            // false: an unclaimed pre-account site renders publicly from the moment
+            // it is built (the profiles route ignores is_published for 'unclaimed')
+            // and may sit unclaimed until expires_at. Nobody is asked anything in the
+            // meantime, so the Fresha connection landed selection-less and published
+            // no services at all — F7 of the 2026-08-10 build wave, re-found
+            // unchanged as R14 on 2026-08-19.
+            //
+            // This restores the scope the v3 design specified: its construction-site
+            // table marks every Instagram-origin site true, with only the dashboard
+            // paste false (docs/superpowers/specs/2026-08-10-fresha-auto-route-
+            // selection-design.md:103-108). FreshaAutoSelector decides whose menu —
+            // the account holder's when FreshaStaffMatcher identifies them, storewide
+            // when it cannot. Storewide understates prices, which that design accepts
+            // as the trade against publishing nothing, bounded by the owner
+            // correcting it after claim (payload.autoSelected surfaces the guess).
             $registry->for($build->source_type)->generate(
-                $user, $site, $build->source_ref, $build->built_by_staff_id !== null,
+                $user, $site, $build->source_ref, true,
             );
         } catch (SourceGenerationException $e) {
             // SEC-4: build_state/failure_code are no longer fillable — forceFill so a

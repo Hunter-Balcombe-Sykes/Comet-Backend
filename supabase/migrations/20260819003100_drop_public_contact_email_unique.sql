@@ -1,0 +1,42 @@
+-- =====================================================================
+-- A public contact email is shareable — drop its UNIQUE index
+-- =====================================================================
+-- `users_public_contact_email_unique` (partial UNIQUE on
+-- core.users.public_contact_email) encoded an invariant that is false in the
+-- real world: two users legitimately publish the SAME contact address —
+-- two stylists at one salon, a shared bookings@ inbox, a shopfront.
+--
+-- Nothing authenticates on this column. It is the address the owner CHOOSES to
+-- display publicly; the private login identity is `primary_email`, which keeps
+-- its own uniqueness (users_primary_email_unique) and is explicitly never put
+-- on the wire (PublicLoginIdentifierController, SEC-1 2026-08-17).
+--
+-- What the false invariant actually cost, observed on dev 2026-08-19:
+--   - PATCH /api/me carries no matching `Rule::unique`, so a collision surfaced
+--     as an unhandled 23505 -> HTTP 500 instead of a 422.
+--   - WorkplaceObserver::mirrorContactFields swallows the 23505 as a
+--     Log::warning, so the auto-mirror from a connected Google Business listing
+--     failed SILENTLY and left a stale number on the public page (user `ollies`
+--     rendered 0980-550 00 while their workplace phone read (03) 9132 8966,
+--     the number `fred-sarson` already held).
+--   - IdentitySync::mirrorPublicContactNumber runs inside a lockForUpdate
+--     transaction with no 23505 catch, so one duplicate phone aborted the WHOLE
+--     Google Business identity fold (sector + workplace + contact), not just
+--     the phone field.
+--
+-- Dropping the index removes the fault at its source: with sharing legal there
+-- is no violation to translate, swallow, or recover from.
+--
+-- CONCURRENTLY + no BEGIN/COMMIT: core.users is a HOT_TABLES member (read on
+-- every authenticated request) and a bare DROP INDEX takes ACCESS EXCLUSIVE on
+-- the table for the catalog write. CONVENTIONS.md §1.
+--
+-- Companion files (same change, one statement each per §1):
+--   20260819003101 — drop the public_contact_number twin
+--   20260819003102 — plain btree replacing the number lookup path
+-- =====================================================================
+-- ROLLBACK: CREATE UNIQUE INDEX CONCURRENTLY users_public_contact_email_unique ON core.users (public_contact_email) WHERE public_contact_email IS NOT NULL;
+--   Reversible ONLY while no duplicates have been written. Once two users share a
+--   public contact email -- which this migration exists to permit -- the rebuild
+--   fails with 23505 and reverting means choosing which user loses their address.
+DROP INDEX CONCURRENTLY IF EXISTS core.users_public_contact_email_unique;

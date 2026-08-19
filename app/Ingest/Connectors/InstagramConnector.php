@@ -34,9 +34,8 @@ use App\Ingest\Support\Fields;
  *
  * The hard cap lives where the money moves: ApifyBudget's per-actor + global
  * daily caps (config partna.limits.apify), claimed by InstagramActorDriver
- * immediately before the run. There is deliberately NO per-user cooldown —
- * `partna.instagram.apify_cooldown_seconds` is vestigial config with no reader,
- * and InstagramController documents the same decision for the connect path.
+ * immediately before the run. There is deliberately NO per-user cooldown, and
+ * InstagramController documents the same decision for the connect path.
  * This connector only DESCRIBES the effect, and a refused/failed effect verdict
  * folds into Unavailable exactly like an unreachable vendor.
  *

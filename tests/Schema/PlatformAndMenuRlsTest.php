@@ -1,9 +1,8 @@
 <?php
 
-// Regression guard for SCHEMA-1 + SCHEMA-2 (extended 2026-07-24 to cover
-// site.item_slugs): site.platform_connections must have
+// Regression guard for SCHEMA-1 + SCHEMA-2: site.platform_connections must have
 // FORCE ROW LEVEL SECURITY (it had ENABLE but not FORCE after
-// 20260609000000_harden_platform_connections.sql), and the five site.menu_* tables
+// 20260609000000_harden_platform_connections.sql), and the surviving site.menu_* tables
 // must have both ENABLE and FORCE plus an app_backend FOR ALL policy.
 //
 // Without FORCE the table owner can bypass all policies; without RLS entirely, any
@@ -33,10 +32,8 @@ uses(SchemaTestCase::class)->in(__FILE__);
 // platform_connections already has ENABLE + the policy; this guard adds FORCE.
 dataset('rls_tables', [
     'platform_connections' => ['site', 'platform_connections', 'platform_connections_app_backend_all'],
-    // item_slugs shipped in 20260724120000 without RLS, on a header rationale that
-    // wrongly claimed parity with menu_items/platform_connections above. Hardened
-    // to the identical shape in 20260724123223; guarded here so the claim stays true.
-    'item_slugs' => ['site', 'item_slugs', 'item_slugs_app_backend_all'],
+    // item_slugs dropped in 20260819130000 — its RLS policy went with the table,
+    // same as the four menu_* tables below.
     'menus' => ['site', 'menus',                'menus_app_backend_all'],
     'menu_platform_links' => ['site', 'menu_platform_links',  'menu_platform_links_app_backend_all'],
     // menu_categories / menu_items / menu_item_platforms / menu_item_categories

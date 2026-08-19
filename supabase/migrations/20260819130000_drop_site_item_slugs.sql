@@ -1,0 +1,58 @@
+-- 20260819130000_drop_site_item_slugs.sql
+--
+-- The last of the legacy slug registry. site.item_slugs was the per-profile
+-- public-URL slug store for the events and menu_item lanes, owned by
+-- App\Services\Site\ItemSlugAllocator.
+--
+-- Both ends of it are already gone:
+--   * READER  -- moved in slice 2 Task 9 (2026-08-12). PoolResolver::itemPayloads()
+--     serves slug/aliases from content.item_slugs, which is keyed item_id with a
+--     real FK to content.items instead of the (user_id, item_type, item_key)
+--     string tuple this table used.
+--   * WRITER  -- retired in slice 7 Phase 6 (2026-08-17). ItemSlugAllocator,
+--     EventSlugSync and MenuItemObserver are all deleted from the tree.
+--     20260817001100 then deleted the 11 event rows and left the menu_item rows
+--     in place, explicitly deferring them as "a separate concern". This file is
+--     that concern.
+--
+-- Why a DROP and not another DELETE. 271-PRIV-1 added retired_at
+-- (20260731090000) to give these name-derived slugs a retention window. With no
+-- writer left, nothing can ever stamp retired_at or clear is_current, so both
+-- arms of slugs:prune-retired matched zero rows by construction and the 261
+-- surviving menu_item rows were retained forever. A privacy control that cannot
+-- fire is worse than none; the table has to go, not the sweep.
+--
+-- Pre-image, dev, 2026-08-19: 261 rows, every one item_type='menu_item',
+-- is_current=true, retired_at NULL. Oldest created_at 2026-07-24, newest
+-- 2026-08-16 (the day before Phase 6 retired the writers).
+--
+-- pg_depend, re-checked against dev immediately before this file was applied:
+-- no inbound foreign keys, no views, no materialised views, no triggers, no
+-- function bodies. The only dependents are its own three indexes
+-- (item_slugs_lookup, item_slugs_one_current, item_slugs_unique_slug), its id
+-- default, its own constraints (item_slugs_pkey, item_slugs_type_check, and the
+-- outbound item_slugs_user_fk to core.users) and its RLS policy
+-- (item_slugs_app_backend_all).
+--
+-- No CASCADE, deliberately -- same reasoning as the slice 7 / shop re-home
+-- drops. A bare DROP that FAILS on an unexpected dependent is the safety
+-- property being bought here.
+--
+-- ORDERING: destructive, so CODE FIRST. The removal of the two dead
+-- site.item_slugs arms from PruneRetiredItemSlugs and of the truncate entry in
+-- ResetTestUserCommand must be merged to development before this is applied to
+-- dev Supabase, or the nightly 03:35 slugs:prune-retired run throws 42P01.
+--
+-- PRODUCTION IS OUT OF SCOPE and still carries this table along with the whole
+-- legacy menu lane; prod is four schemas behind and has no content.item_slugs
+-- to move to. Tracked in docs/superpowers/plans/2026-08-17-prod-schema-reconciliation.md.
+--
+-- ROLLBACK: no in-place rollback for a DROP. The 261 rows are discarded with no
+-- in-band pre-image, deliberately -- nothing has read them since 2026-08-12,
+-- and keeping a dump of over-retained user-derived slugs would preserve the
+-- exact privacy exposure this migration exists to close.
+BEGIN;
+
+DROP TABLE IF EXISTS site.item_slugs;
+
+COMMIT;

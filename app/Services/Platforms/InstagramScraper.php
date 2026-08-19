@@ -62,7 +62,7 @@ class InstagramScraper extends PlatformScraper
         // fetch returns null (nothing cached) so it is retried, not stuck.
         $cached = app(CacheLockService::class)->rememberLockedNullable(
             CacheKeyGenerator::instagramProfile($username),
-            (int) config('partna.instagram.profile_reuse_seconds', 900),
+            (int) config('partna.limits.platforms.instagram.profile_reuse_seconds', 900),
             function () use ($username, $userId): ?array {
                 $result = $this->fetchProfileResultUncached($username, $userId);
                 if ($result->profile === null || $result->thin) {

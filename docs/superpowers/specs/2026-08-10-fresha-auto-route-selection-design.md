@@ -1,7 +1,8 @@
 # Auto-routed Fresha connections: name-match selection with storewide fallback
 
 **Date:** 2026-08-10
-**Status:** Design agreed, revised after independent review, not yet implemented
+**Status:** **[v4]** Implemented — but see the v4 note below: what shipped was NARROWER than this
+document specifies, and the gap was live for eight days.
 **Origin:** Finding F7 of `docs/reviews/2026-08-10-instagram-build-wave-RESULTS.md`
 **Revision:** v3 — ready for an implementation plan.
 v2 corrected three implementation-blocking errors and several factual overstatements found by three
@@ -10,6 +11,54 @@ omitted (`FreshaAutoSelector`) and closes every remaining open decision. Correct
 / **[v3]** where a reader of an earlier revision would otherwise be misled.
 
 **All decisions are closed. Nothing in this spec requires a judgement call at implementation time.**
+
+---
+
+## [v4] 2026-08-19 — what actually shipped, and the eight days this document was wrong
+
+**Read this before trusting any scope statement above.** This spec and the code that shipped it landed
+in the *same commit* (`5f7a04ca4`, 2026-08-11) and disagreed with each other from that moment. The
+disagreement was never recorded here, so every subsequent reader — including two build-wave reviews and
+one full re-investigation on 2026-08-19 — was told by this document that auto-selection covered
+pre-account signups. It did not.
+
+| | This spec says | What shipped 2026-08-11 |
+|---|---|---|
+| Instagram direct bio link | `autoConnectBooking = true` (§ construction-site table, `:103-108`) | `true` **only if `built_by_staff_id !== null`** — an upstream gate in `GeneratePreAccountSiteJob` that this document never mentions |
+| Instagram → link-in-bio unroll | `true` | same staff-only gate; then made **fully inert** on 2026-08-18 when the lane migrated to `LinkRoutingService` and `LinkInBioScanJob::$autoConnectBooking` became vestigial |
+| `autoSaveUnmatchedLinks` | `true` | unchanged |
+| Dashboard paste | `false` | `false` ✅ |
+
+**Consequence.** A public site-first signup never auto-selected. Its Fresha connection landed with
+`selection: null` → `ingest.sources.selection_ref = NULL` → `FreshaConnector::pull()` refusing before
+any HTTP call, emitting `Note('no_selection')` into `ingest.runs.detail->notes`. That is the F7 defect
+this spec was written to fix, still live. It was re-found unchanged as **R14** of
+`docs/reviews/2026-08-19-instagram-build-wave-RESULTS.md` — nine days and five build waves later — and
+misread there as "an empty fetch" because the run's record counts were read but its `detail` was not.
+
+**Restored 2026-08-19** (owner ruling, re-affirmed with the storewide price risk restated):
+
+- `GeneratePreAccountSiteJob` and `ApproveEarlyAccessBuildJob` pass `true` for **every** pre-account
+  build. `built_by_staff_id` was never the right discriminator: an unclaimed site is public from the
+  moment it is built and may never be claimed, so "a staff member built this for someone who is not
+  here" and "a stranger signed up and left" are the same condition.
+- `SourceReconciler` dispatches for the aggregator lane, gated on **`$user->isUnclaimed()`** rather
+  than a caller flag — this lane already lost one flag to a migration.
+- Dispatch extracted to `App\Services\Platforms\AutoBookingConnectDispatcher`; the trait's two methods
+  delegate. The install-wide ceiling is now shared by three producers, and a test pins that
+  `DailyCounterClaim::claim` appears there and nowhere else.
+- **New, beyond this design:** `payload.autoSelected` marks a machine-chosen selection, surfaced
+  (conditionally) on `GET /platforms/fresha/selection`. v3 assumed "the existing picker corrects us
+  after claim"; the 2026-08-19 ruling is that the owner should be *prompted*, not left to notice.
+
+**The lesson worth more than the fix:** a spec that says "all decisions are closed" and a commit message
+that says "auto-match only where nobody can pick" described different systems, and only the commit
+message was true. When implementation deliberately narrows a spec, amend the spec in the same commit.
+
+The v3 table below is left UNEDITED on purpose — the divergence is the point, and rewriting it to match
+today's code would erase the evidence that this failure mode is possible.
+
+Plan: `docs/superpowers/plans/2026-08-19-fresha-auto-selection-preaccount.md`.
 
 ## Problem
 

@@ -60,7 +60,6 @@ beforeEach(function () {
     setupSiteMediaTable();
     // Slice 7 Task 8: the menu half of this scan lands in content.* through
     // MenuScanApplier → ManualMenuWriter, not in site.menu_items.
-    setupItemSlugsTable();
     setupContentTables();
 });
 

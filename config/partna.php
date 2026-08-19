@@ -296,11 +296,14 @@ return [
             'instagram' => [
                 // A fetched profile is reused across the connect scrape and the eager
                 // ingest run for this long (task #18, 2026-08-18) — one Apify run per connect.
+                // Read at this FULL path: `partna.instagram.*` is a different block (actor
+                // ids), so a lookup there resolves and silently returns the hardcoded
+                // fallback instead — which is how this knob sat inert until 2026-08-19.
                 'profile_reuse_seconds' => (int) env('PARTNA_INSTAGRAM_PROFILE_REUSE_SECONDS', 900),
-                // Per-user re-scrape cooldown (seconds) and the global daily run cap
-                // for the paid Apify scraper. See InstagramController::guardApifyBudget.
-                'apify_cooldown_seconds' => (int) env('PARTNA_INSTAGRAM_APIFY_COOLDOWN_SECONDS', 600),
-                'apify_daily_cap' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 200),
+                // No per-user cooldown and no per-integration daily cap belong here: the
+                // only paid-scrape ceiling is ApifyBudget's per-actor + global caps under
+                // `limits.apify`, claimed by InstagramActorDriver and consulted by
+                // InstagramController::guardApifyBudget. Do not re-add a key nothing reads.
             ],
         ],
 

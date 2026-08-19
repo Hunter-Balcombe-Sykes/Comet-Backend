@@ -31,7 +31,6 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    setupItemSlugsTable();
     // Convergence Phase 6: the custom branch writes an `events` POOL item.
     setupIngestTables();
     setupContentTables();
