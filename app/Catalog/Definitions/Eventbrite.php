@@ -25,8 +25,11 @@ use App\Catalog\SurfaceBuilder;
  */
 class Eventbrite
 {
-    /** Regional TLDs verbatim from PRSP:424's HostMatch regex. */
-    private const TLDS = [
+    /** Regional TLDs verbatim from PRSP:424's HostMatch regex. Single source
+     * of truth for the brand — consumed by WebsiteLinkHarvester::classify()
+     * and ItemLinkRules, never re-listed. (EventbriteScraper's regex-string
+     * TLDS predates this and stays: it is a pattern fragment, not a list.) */
+    public const TLDS = [
         'com', 'com.au', 'co.uk', 'co.nz', 'ca', 'de', 'fr', 'es', 'it', 'nl',
         'pt', 'ie', 'at', 'ch', 'dk', 'fi', 'se', 'be', 'sg', 'hk',
         'com.br', 'com.mx', 'com.ar', 'com.pe', 'cl',

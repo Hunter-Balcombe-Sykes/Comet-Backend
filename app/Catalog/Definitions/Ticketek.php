@@ -17,8 +17,13 @@ use App\Catalog\SurfaceBuilder;
  */
 class Ticketek
 {
-    /** @var list<string> */
-    private const TLDS = ['com', 'com.au', 'co.nz', 'com.ar'];
+    /**
+     * Single source of truth for this brand's regional TLDs — consumed by
+     * WebsiteLinkHarvester::classify() and ItemLinkRules, never re-listed.
+     *
+     * @var list<string>
+     */
+    public const TLDS = ['com', 'com.au', 'co.nz', 'com.ar'];
 
     public static function brand(): Brand
     {
