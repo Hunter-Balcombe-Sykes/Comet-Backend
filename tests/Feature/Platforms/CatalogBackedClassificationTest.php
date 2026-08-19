@@ -30,7 +30,10 @@ it('classifies a catalog-known host the hand tables have never heard of', functi
         ->toBe(['platform' => $platform, 'category' => 'link', 'label' => $label]);
 })->with([
     'bandcamp artist subdomain' => ['https://juno-records.bandcamp.com/', 'bandcamp', 'Bandcamp'],
-    'resident advisor event' => ['https://ra.co/events/1234567', 'resident-advisor', 'Resident Advisor'],
+    // events-parity 2026-08-19: an ra.co/events/<id> URL is now category
+    // 'event' (a real inline arm, seeds the events pool) — the catalog
+    // fallback keeps answering for RA's PROFILE pages.
+    'resident advisor dj profile' => ['https://ra.co/dj/some-artist', 'resident-advisor', 'Resident Advisor'],
     'ko-fi page' => ['https://ko-fi.com/acme', 'ko-fi', 'Ko-fi'],
     'gitlab profile' => ['https://gitlab.com/acme', 'gitlab', 'GitLab'],
     'medium profile' => ['https://medium.com/@acme', 'medium', 'Medium'],

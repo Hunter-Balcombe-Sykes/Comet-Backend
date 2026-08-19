@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
-use Mockery;
 
 // Uses https://example.com as the bio page: SafeUrlFetcher::assertSafe() does
 // a real DNS lookup before the fetch even under Http::fake(), so a

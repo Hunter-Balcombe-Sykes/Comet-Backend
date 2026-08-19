@@ -105,11 +105,9 @@ becomes a real event item. The SCAN lane extends to the known platforms.
 
 ## Execution ledger
 
-- [ ] Phase 1 — SchemaOrgEventNode + EventPageReader
-- [ ] Phase 2 — events lane in PoolItemCreateController
-- [ ] Phase 3 — classify keys + EventsSeeder generic arm
-- [ ] Phase 4 — Luma/Partiful catalog, TLD single-source, ItemLinkRules
-- [ ] Phase 5 — dashboard connect.ts domains
-- [ ] Phase 6 — tests green, deployed, live-verified
-
-(Tick with the real commit hash as each phase lands.)
+- [x] Phase 1 — shared mapping + EventPageReader (8ae56c498)
+- [x] Phase 2 — events lane in PoolItemCreateController (8c0c8fb20)
+- [x] Phase 3 — classify brand keys + EventsSeeder generic arm (dd4cfd1f5)
+- [x] Phase 4 — Luma/Partiful catalog, TLD single-source, ItemLinkRules (c31a0a26f)
+- [x] Phase 5 — dashboard roster: Luma+Partiful tiles, full TLDs (monorepo 4fb551d)
+- [ ] Phase 6 — full suite 8613 passed / 0 failed; deploy + live verification pending
