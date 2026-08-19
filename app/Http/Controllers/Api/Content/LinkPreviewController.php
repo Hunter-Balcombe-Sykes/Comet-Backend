@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Content;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Services\Content\PastedLinkClassifier;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\LinkCardScraper;
@@ -28,7 +29,22 @@ class LinkPreviewController extends ApiController
         private readonly LinkCardScraper $scraper,
         private readonly GenericShopScraper $shop,
         private readonly FetchBudget $budget,
+        private readonly PastedLinkClassifier $classifier,
     ) {}
+
+    /**
+     * POST /api/content/links/classify  { url } — the pure-grammar half of
+     * the preview, alone: no page fetch, so the pool add sheets can ask it
+     * per keystroke settle and show cross-pool/account guidance in step 1.
+     */
+    public function classify(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'url' => ['required', 'string', 'min:3', 'max:2048'],
+        ]);
+
+        return $this->success($this->classifier->classify($data['url']));
+    }
 
     /** POST /api/content/links/preview  { url, intent? }  intent: "link" (default) | "product" */
     public function show(Request $request): JsonResponse
@@ -94,6 +110,9 @@ class LinkPreviewController extends ApiController
             // the snapshot itself failed and only the minimal card came back.
             'fetched' => $card['description'] !== null || $card['logo'] !== null || $card['name'] !== (parse_url($url, PHP_URL_HOST) ?: $url),
             'product' => null,
+            // The pure-grammar classification, so the Links sheet can offer
+            // "this looks like a track — add it on Listen" in step 1.
+            'classification' => $this->classifier->classify($url),
         ]);
     }
 }
