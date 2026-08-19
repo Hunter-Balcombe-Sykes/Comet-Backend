@@ -325,7 +325,15 @@ final readonly class FreshaConnectFetch implements FetchStrategy
             'url' => $url,
             'selection' => $selection,
             'raw' => ['services' => $rawServices],
-            ...($auto ? ['matchTier' => $matchTier] : []),
+            // autoSelected rides WITH matchTier and only on the auto branch: it is
+            // the discriminator the dashboard needs at claim time. matchTier alone
+            // cannot carry it — a null tier means "storewide because nothing
+            // matched", which is indistinguishable from a storewide the owner chose
+            // deliberately in the picker. Cleared for free by saveSelection() /
+            // saveStorewide(), which persist through writeConnection() with
+            // mergePayload: false and so REPLACE the payload — no unset needed, and
+            // FreshaMarkerClearingTest pins that.
+            ...($auto ? ['matchTier' => $matchTier, 'autoSelected' => true] : []),
         ];
     }
 }
