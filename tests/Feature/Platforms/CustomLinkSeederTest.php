@@ -83,18 +83,19 @@ it('returns null for a URL that fails to normalize', function () {
 it('respects an existing link already at the cap — re-seeding it is still idempotent, not blocked', function () {
     Queue::fake();
     $user = seederUser(['account_type' => 'business']);
-    for ($i = 0; $i < 20; $i++) {
+    for ($i = 0; $i < 50; $i++) {
         app(CustomLinkSeeder::class)->seedCustom($user, "https://example{$i}.com");
     }
     // Re-seeding the FIRST link (already stored) must still succeed — the cap
     // only blocks genuinely NEW items, not idempotent re-seeds of an existing one.
     app(CustomLinkSeeder::class)->seedCustom($user, 'https://example0.com');
 
-    // Still 20, and still the SAME 20: the re-seed resolved to the existing
-    // coord rather than being refused by the cap or minting a 21st.
+    // Still 50, and still the SAME 50: the re-seed resolved to the existing
+    // coord rather than being refused by the cap or minting a 51st. Stored in
+    // CANONICAL form (F11): the root URL folds to its trailing-slash shape.
     $cards = app(LinkPoolReader::class)->cards($user->refresh());
-    expect($cards)->toHaveCount(20)
-        ->and(collect($cards)->pluck('url'))->toContain('https://example0.com');
+    expect($cards)->toHaveCount(50)
+        ->and(collect($cards)->pluck('url'))->toContain('https://example0.com/');
 });
 
 // ── seed() as the routing GATEWAY (link classification consolidation, Phase 5) ──

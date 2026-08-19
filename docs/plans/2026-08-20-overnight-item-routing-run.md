@@ -644,6 +644,11 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
   applyIntent dispatches ConnectFetchJob for content-class surfaces
   (booking deliberately excluded — the claimed-user picker rule caught
   the first cut). F9 commit on the branch.
+- [x] F10 — CustomLinkSeeder::MAX_LINKS (20) starved scan-miss cards on a
+  full Links pool (milo pass: urstudio.com.au + oneshot.behindthechair.com
+  dropped at 21 cards). 20 → 50 under the T9 grant (a knob the sweep
+  missed — the plan's list named platform_links_max, a different cap);
+  fixtures re-pinned, F10 commit on the branch.
 - [x] F5 — the sheets' Connect-store toast said "couldn't connect" while
   the queued probe was about to file the suggestion (verified live: the
   intent landed 3s after the click). Copy now says what happens
