@@ -399,11 +399,21 @@ afterAll(function () {
  * the advisory lock deleted. It did, until an independent review caught it.
  *
  * The manual coord's source item deliberately carries item_id NULL against a live anchor. That
- * is exactly what an interrupted resolve leaves behind — the state this fix exists to stop being
- * created — and it is what gives child A a PENDING final UPDATE without minting anything.
+ * is exactly what an interrupted resolve leaves behind, and it is the row the race is fought
+ * over: BOTH children resolve it (it is live, and resolveItemsLocked() binds every live source
+ * item of the (user, kind)), but NEITHER upserts it — each child writes its own fresh coord
+ * instead.
+ *
+ * That separation is the whole reason this file can detect the advisory lock at all. The upsert
+ * takes an exclusive row lock on the coord's source_items row and — since the upsert moved
+ * inside the locked transaction — holds it for the entire resolve. Two children writing the SAME
+ * coord are therefore serialised on that row lock whether or not the advisory lock exists, and
+ * every test here passed with the lock deleted until an independent review caught it. Distinct
+ * coords are invisible to each other (uncommitted), so nothing but the advisory lock can make
+ * child B wait.
  *
  * @return array{0: string, 1: string, 2: string, 3: string, 4: string}
- *                                                                      [userId, connectorCoord, connectorItemId, manualCoord, manualItemId]
+ *                                                                      [userId, connectorCoord, connectorItemId, unboundCoord, unboundItemId]
  */
 function pgirScenario(): array
 {
@@ -445,26 +455,26 @@ function pgirScenario(): array
 
     $manualSourceId = app(ProjectionWriter::class)->ensureManualSource($userId);
 
-    $manualItemId = (string) Str::uuid();
+    $unboundItemId = (string) Str::uuid();
     $pg->table('content.items')->insert([
-        'id' => $manualItemId, 'user_id' => $userId, 'kind' => 'link',
+        'id' => $unboundItemId, 'user_id' => $userId, 'kind' => 'link',
         'first_seen_at' => now()->subHour(), 'last_seen_at' => now()->subHour(),
         'created_at' => now()->subHour(), 'updated_at' => now()->subHour(),
     ]);
 
-    $manualCoord = 'manual:'.sha1('pgir-'.Str::random(8));
+    $unboundCoord = 'manual:'.sha1('pgir-unbound-'.Str::random(8));
     $pg->table('content.source_items')->insert([
-        'id' => (string) Str::uuid(), 'source_id' => $manualSourceId, 'coord' => $manualCoord,
+        'id' => (string) Str::uuid(), 'source_id' => $manualSourceId, 'coord' => $unboundCoord,
         // NULL, against a live anchor — see the docblock.
         'item_id' => null, 'kind' => 'link', 'projector_version' => 0,
         'first_seen_at' => now()->subHour(), 'last_seen_at' => now()->subHour(),
     ]);
     $pg->table('content.item_anchors')->insert([
-        'coord' => $manualCoord, 'user_id' => $userId,
-        'item_id' => $manualItemId, 'bound_at' => now()->subHour(),
+        'coord' => $unboundCoord, 'user_id' => $userId,
+        'item_id' => $unboundItemId, 'bound_at' => now()->subHour(),
     ]);
 
-    return [$userId, $connectorCoord, $connectorItemId, $manualCoord, $manualItemId];
+    return [$userId, $connectorCoord, $connectorItemId, $unboundCoord, $unboundItemId];
 }
 
 /**
@@ -537,16 +547,22 @@ function pgirChildConnection(): void
 function pgirRunRace(
     string $userId,
     string $connectorCoord,
-    string $manualCoord,
+    string $unboundCoord,
     ?string $bUserId = null,
     ?string $bConnectorCoord = null,
-    ?string $bManualCoord = null,
+    ?string $bUnboundCoord = null,
 ): Collection {
     pgirResetProbe();
 
     $bUserId ??= $userId;
     $bConnectorCoord ??= $connectorCoord;
-    $bManualCoord ??= $manualCoord;
+    $bUnboundCoord ??= $unboundCoord;
+
+    // Each child writes its OWN coord — see pgirScenario()'s docblock. Sharing one would put an
+    // exclusive source_items row lock between them and the advisory lock would stop being what
+    // serialises anything.
+    $aCoord = 'manual:'.sha1('pgir-a-'.Str::random(10));
+    $bCoord = 'manual:'.sha1('pgir-b-'.Str::random(10));
 
     $startAt = microtime(true) + 0.25;
 
@@ -589,7 +605,7 @@ function pgirRunRace(
                     DB::connection('pgsql')->select('select pg_sleep('.PGIR_HOLD_SECONDS.')');
                 });
 
-                app(ProjectionWriter::class)->writeManualItem($userId, $manualCoord, pgirLinkProjection($manualCoord));
+                app(ProjectionWriter::class)->writeManualItem($userId, $aCoord, pgirLinkProjection($aCoord));
                 pgirRecordProbe($i, 'ok', 0, $hooked);
                 exit(0);
             }
@@ -600,11 +616,11 @@ function pgirRunRace(
 
             DB::connection('pgsql')->table('content.identity_decisions')->insert([
                 'id' => (string) Str::uuid(), 'user_id' => $bUserId, 'verdict' => 'same',
-                'left_coord' => $bConnectorCoord, 'right_coord' => $bManualCoord, 'decided_at' => now(),
+                'left_coord' => $bConnectorCoord, 'right_coord' => $bUnboundCoord, 'decided_at' => now(),
             ]);
 
             $began = microtime(true);
-            app(ProjectionWriter::class)->writeManualItem($bUserId, $bManualCoord, pgirLinkProjection($bManualCoord));
+            app(ProjectionWriter::class)->writeManualItem($bUserId, $bCoord, pgirLinkProjection($bCoord));
             $elapsedMs = (int) round((microtime(true) - $began) * 1000);
 
             pgirRecordProbe($i, 'ok', $elapsedMs, false);
@@ -689,6 +705,22 @@ function pgirAssertConsistent(string $userId): void
     }
 }
 
+/** The item both of these coords resolved to — one value, or the union was lost. */
+function pgirSharedItem(string $userId, string $left, string $right): string
+{
+    $ids = DB::connection('pgsql')->table('content.source_items as si')
+        ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+        ->where('cs.user_id', $userId)->whereIn('si.coord', [$left, $right])
+        ->whereNull('si.removed_at')->distinct()->pluck('si.item_id');
+
+    expect($ids)->toHaveCount(
+        1,
+        "{$left} and {$right} did not end up on one item — the merge was lost.\n  ".pgirState($userId),
+    );
+
+    return (string) $ids->first();
+}
+
 /** Both children finished on their own terms, and child A's window actually opened. */
 function pgirAssertRanCleanly(Collection $probes): void
 {
@@ -708,15 +740,15 @@ it('does not lose the merge when a second resolveItems() commits inside the firs
         $this->markTestSkipped('pcntl_fork is not available in this runtime');
     }
 
-    [$userId, $connectorCoord, , $manualCoord] = pgirScenario();
+    [$userId, $connectorCoord, , $unboundCoord] = pgirScenario();
 
-    $probes = pgirRunRace($userId, $connectorCoord, $manualCoord);
+    $probes = pgirRunRace($userId, $connectorCoord, $unboundCoord);
 
     pgirAssertRanCleanly($probes);
 
-    // The union the owner asked for happened, and it survived.
-    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $userId)->count())
-        ->toBe(1, 'the two coords did not end up on one item — the merge was lost.'."\n  ".pgirState($userId));
+    // The union the owner asked for happened, and it survived. Each child also minted an item
+    // for its OWN coord, so the total is three — it is the UNITED pair that must be one.
+    pgirSharedItem($userId, $connectorCoord, $unboundCoord);
 
     pgirAssertConsistent($userId);
 });
@@ -726,17 +758,19 @@ it('makes the second caller wait for the first, rather than resolving against a 
         $this->markTestSkipped('pcntl_fork is not available in this runtime');
     }
 
-    [$userId, $connectorCoord, , $manualCoord] = pgirScenario();
+    [$userId, $connectorCoord, , $unboundCoord] = pgirScenario();
 
-    $probes = pgirRunRace($userId, $connectorCoord, $manualCoord);
+    $probes = pgirRunRace($userId, $connectorCoord, $unboundCoord);
 
     expect($probes->firstWhere('child_idx', 0)?->hooked)->toBeTrue('child A never held the window open — the measurement below is meaningless');
 
-    // Nothing in this scenario inserts an anchor (see pgirScenario()), so no unique-index row
-    // lock can serialise the two children. If child B waited, the advisory lock is the only
-    // thing that made it wait. Asserting on the WAIT rather than the outcome is deliberate: an
-    // outcome-only assertion passes with no lock whenever the scheduler happens to order the
-    // children favourably.
+    // The two children write DIFFERENT coords and share no row (see pgirScenario()), so no row
+    // lock can serialise them: child A's own coord is invisible to child B until A commits, and
+    // the coord they both RESOLVE is upserted by neither. If child B waited, the advisory lock
+    // is the only thing that made it wait — verified by deleting the lock, which drops B to
+    // ~20ms. Asserting on the WAIT rather than the outcome is deliberate: an outcome-only
+    // assertion passes with no lock whenever the scheduler happens to order the children
+    // favourably.
     $floorMs = (int) ((PGIR_HOLD_SECONDS * 1000) - (PGIR_B_DELAY_US / 1000) - 250);
     $elapsed = (int) ($probes->firstWhere('child_idx', 1)?->elapsed_ms ?? 0);
 
@@ -754,10 +788,10 @@ it('does not serialise a different owner behind the lock', function () {
     // The lock key is identity:{user_id}:{kind}. Keyed any more coarsely — per kind, or a single
     // global key — every assertion in this file would still pass while one owner's dashboard
     // write blocked every other owner's. That regression has no other detector.
-    [$userA, $connectorA, , $manualA] = pgirScenario();
-    [$userB, $connectorB, , $manualB] = pgirScenario();
+    [$userA, $connectorA, , $unboundA] = pgirScenario();
+    [$userB, $connectorB, , $unboundB] = pgirScenario();
 
-    $probes = pgirRunRace($userA, $connectorA, $manualA, bUserId: $userB, bConnectorCoord: $connectorB, bManualCoord: $manualB);
+    $probes = pgirRunRace($userA, $connectorA, $unboundA, bUserId: $userB, bConnectorCoord: $connectorB, bUnboundCoord: $unboundB);
 
     pgirAssertRanCleanly($probes);
 
@@ -771,7 +805,7 @@ it('does not serialise a different owner behind the lock', function () {
 
     pgirAssertConsistent($userA);
     pgirAssertConsistent($userB);
-    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $userB)->count())->toBe(1);
+    pgirSharedItem($userB, $connectorB, $unboundB);
 });
 
 // ── #SCALE-4's staleness guard ────────────────────────────────────────────────────────────────
@@ -1068,11 +1102,11 @@ it('treats a row-lock timeout inside the resolve as the same contention as the a
     config(['database.connections.pgsql_second' => config('database.connections.pgsql')]);
 
     $pg = DB::connection('pgsql');
-    [$userId, , , $manualCoord] = pgirScenario();
+    [$userId, , , $unboundCoord] = pgirScenario();
 
     // pgirScenario() leaves this coord anchored but with item_id NULL, so the closing per-target
     // UPDATE has to move it — and that is the statement the row lock below blocks.
-    $blockedId = $pg->table('content.source_items')->where('coord', $manualCoord)->value('id');
+    $blockedId = $pg->table('content.source_items')->where('coord', $unboundCoord)->value('id');
 
     $blocker = DB::connection('pgsql_second');
     $blocker->beginTransaction();

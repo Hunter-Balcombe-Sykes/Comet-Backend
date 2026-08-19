@@ -9,7 +9,8 @@ use Illuminate\Support\Facades\DB;
  * Acquires a Postgres advisory xact lock — auto-released by Postgres on
  * commit/rollback/connection loss, so it must be called from inside an explicit transaction on
  * the SAME connection. The service-lane callers wrap in DB::connection('pgsql')->transaction();
- * ProjectionWriter::resolveItems() wraps in DB::connection()->transaction() and names that
+ * ProjectionWriter::withIdentityLock() — the seam behind both resolveItems() and
+ * writeManualItem() — wraps in DB::connection()->transaction() instead, and names that
  * connection through $connectionName below, because a lock taken on a different connection than
  * the transaction is a silent no-op rather than an error.
  *

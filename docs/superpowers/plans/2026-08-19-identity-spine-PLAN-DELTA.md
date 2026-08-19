@@ -710,3 +710,56 @@ The lock covers the resolve, not the **use** of its result. `writeFacets()` and
 already have merged away. That is pre-existing and unchanged by this work, but it is the honest
 answer to "is the identity spine fully serialised": no — this closes `resolveItems()`, which is
 what #LIFE-1 asked for.
+
+---
+
+## 11. Independent review, round 5 — FAIL: round 4's fix reintroduced round 1's defect
+
+Round 5 confirmed the round-4 deletion is clean — `upsertSourceItem()` is byte-identical to
+`origin/development`, no compensation residue survives, and the import set matches development
+exactly. It also **proved no deadlock is possible via the advisory lock**: all 14
+`AdvisoryLock::acquire()` call sites in `app/` are the first statement of their transaction, so no
+transaction ever holds a row lock while queuing for an advisory one. And it measured the
+lengthened transaction as a small improvement, not a regression: lock acquisitions per
+`writeManualItem()` are unchanged at one, transactions drop 2→1, and the upsert now inherits the
+5s bound and the 423 instead of the 10s session ceiling and a 500.
+
+Then it found that **the three race tests pass with the advisory lock deleted** — round 1's
+finding, reintroduced by round 4's fix.
+
+Moving the upsert inside the transaction means `writeManualItem()` takes an exclusive row lock on
+its coord's `content.source_items` row as its *first* statement and holds it for the whole
+resolve. `pgirRunRace()` had both children writing the **same** coord, so child B was serialised
+on that row lock. The reviewer also showed that simply de-conflicting the coord is not enough:
+with a distinct coord, B still blocked on the closing `UPDATE` against rows A had locked. And a
+comment I had written asserted the opposite in as many words — *"the advisory lock is the only
+thing that made it wait"*.
+
+**Fix.** Each child now writes its **own** fresh coord, and the coord they fight over — the
+pre-existing manual row with `item_id NULL` — is upserted by neither. A's own row is uncommitted
+and therefore invisible to B; the contested row is touched by B during A's sleep and by A only
+afterwards. Nothing but the advisory lock can make B wait.
+
+Verified across three consecutive runs with the lock deleted: **3 of 7 fail**, child B returning
+in 34–64ms against a 950ms floor. Under round 4's fixture the same mutation was fully green.
+
+Two assertions had to change with the fixture and are stated more honestly for it: "exactly one
+item exists" became "the united pair resolves to one item", since each child now legitimately
+mints an item for its own coord.
+
+### The other round-5 findings
+
+- **`AdvisoryLock`'s docblock was stale again** — it still named `resolveItems()` as the wrapper,
+  which is now a one-line delegate; the wrapper is `withIdentityLock()`, and `writeManualItem()`
+  is a second entry point through it.
+- **The "known unlocked mutators" list was incomplete, and the omission is routed.**
+  `StaffServiceManagementController::forceDestroy()` (`DELETE
+  /professionals/{professional}/services/{service}/hard`) deletes the `source_items` rows and the
+  `content.items` row in a plain transaction with no identity lock. A concurrent resolve that has
+  already computed a target on that id takes a 23503 on its closing UPDATE. Pre-existing, not
+  introduced here, but unlike `ItemMerger` it has no "nothing can reach it" defence. Now recorded
+  on `withIdentityLock()` alongside the other two gaps; it belongs in the same standalone unit.
+- **40P01 is not reclassified**, only 55P03 — and the manual path now holds its row lock for the
+  whole resolve, widening the window for a cycle with an unlocked bulk writer. Deliberate and now
+  written down: deadlock detection fires at 1s, ahead of the 5s bound, and a deadlock is a
+  lock-ordering bug worth seeing rather than contention worth retrying.

@@ -685,6 +685,25 @@ class ProjectionWriter
      * the lock at all — a green `composer test` says nothing about it. tests/Postgres/ is where
      * it is proven.
      *
+     * WHAT THIS DOES NOT COVER. An advisory lock only serialises writers that take it, and three
+     * identity mutators still do not:
+     *   - writeFacets() and refreshItemCaches() run AFTER this commits, against item ids a later
+     *     resolve may already have merged away (pre-existing, unchanged here);
+     *   - ItemMerger::merge() repoints source_items, rewrites anchors and hard-deletes an item in
+     *     a plain transaction — currently unreachable, nothing in app/ or routes/ constructs it;
+     *   - StaffServiceManagementController::forceDestroy() (routed:
+     *     DELETE /professionals/{professional}/services/{service}/hard) deletes the source_items
+     *     and the content.items row outright. A resolve that has already computed a target on
+     *     that id takes a 23503 on its closing UPDATE.
+     * Both of the last two are hard-delete paths and belong in their own unit under fix-flow.md's
+     * "Standalone — do NOT bundle" rule, not in this one.
+     *
+     * A 40P01 deadlock is NOT reclassified below, only 55P03. Deadlock detection fires at 1s,
+     * ahead of this 5s bound, and the manual path now holds its coord's source_items row lock
+     * for the whole resolve rather than a few milliseconds — so the window for a cycle with an
+     * unlocked bulk writer is wider than it was. Left as a 500 deliberately: a deadlock is a
+     * lock-ordering bug worth seeing, not contention worth retrying.
+     *
      * @template TReturn
      *
      * @param  callable(): TReturn  $work
