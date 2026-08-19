@@ -625,6 +625,25 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
   duplicating seeded events (and ordering Swap offers) as link cards —
   contradicts RouteResult's documented handled contract. Fixed in T6's
   commit (`&& ! $result->handled`).
+- [x] F6 — LinkRouter's 'link' arm CARDED catalog-connectable brands
+  (the_046's Apple Music artist → "The 046 on Apple Music" card) while
+  every Engine-1 lane connected them. The arm asks Engine 1 first now;
+  marketplaces (no catalog surfaces) stay cards, pinned. `badcee370`.
+- [x] F7 — shopify.store (+6 sibling store surfaces) had NO multiAccount
+  in the catalog → Engine-1 store placements capped at ONE store while
+  every other door allows ten (the046.com blocked on cap_reached beside a
+  single store). All store surfaces ride multiAccount(10) now, pinned
+  per-surface; golden master re-pinned for gumroad's /accounts route.
+  `badcee370`.
+- F8 — WITHDRAWN: the "missing" YouTube bio link was a CONFLICT finding
+  against broken-oven's existing different-channel YouTube row (correct
+  Swap behaviour); the trace query's LIMIT had hidden the rows.
+- [x] F9 — reconciler-applied apple_music.artist row was a NAMELESS
+  URL-keyed account on the Platforms wire (id=<url>, name=null — the
+  integrity-check failure class). Detectors capture the numeric id now +
+  applyIntent dispatches ConnectFetchJob for content-class surfaces
+  (booking deliberately excluded — the claimed-user picker rule caught
+  the first cut). F9 commit on the branch.
 - [x] F5 — the sheets' Connect-store toast said "couldn't connect" while
   the queued probe was about to file the suggestion (verified live: the
   intent landed 3s after the click). Copy now says what happens

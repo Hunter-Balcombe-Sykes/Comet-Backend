@@ -225,7 +225,11 @@ it('a reconciler-applied connection captures a real ID and gets the enrichment f
     $conn = IntegrationConnection::query()
         ->where('user_id', $pro->id)->where('surface_key', 'apple_music.artist')->first();
     expect($conn)->not->toBeNull()
-        ->and($conn->resource_id)->toBe('1492426191');
+        ->and($conn->resource_id)->toBe('1492426191')
+        // The fetch strategies read payload['input'] — without it the first
+        // fetch throws missing_key:input and F26's removal UNDOES the
+        // placement (caught live on dev).
+        ->and($conn->payload['input'] ?? null)->toBe('https://music.apple.com/au/artist/the-046/1492426191');
     Queue::assertPushed(ConnectFetchJob::class);
 });
 
