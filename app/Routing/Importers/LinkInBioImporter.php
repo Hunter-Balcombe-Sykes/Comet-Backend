@@ -293,22 +293,33 @@ class LinkInBioImporter
         // whose links are already in the body we just fetched. Both answer null
         // for any host they cannot read — INCLUDING when the API is down — so
         // the anchor pass stays the default and the floor backstops all four.
-        $links = $this->api->unroll($baseUrl)
-            ?? $this->inline->read($baseUrl, $body)
-            ?? $this->harvester->allOutboundLinks($body, $baseUrl);
+        $apiLinks = $this->api->unroll($baseUrl)
+            ?? $this->inline->read($baseUrl, $body);
+        $links = $apiLinks ?? $this->harvester->allOutboundLinks($body, $baseUrl);
 
         // F12 (2026-08-20, the natalieannehair stan.store trace): the API and
         // inline unrollers return the platform's TILE links and never see the
         // shell's own footer SOCIAL anchors — her TikTok and Facebook sat in
         // the delivered DOM, unseen. Merge just the SOCIAL-classified anchors
-        // back in: the conservative slice — tiles stay API-authoritative, and
-        // the shell's legal/asset links (assets.stanwith.me PDFs…) can't
-        // classify as social, so no junk rides along. $seen dedupes overlap.
-        $anchorSocials = array_values(array_filter(
-            $this->harvester->allOutboundLinks($body, $baseUrl),
-            fn (string $link): bool => ($this->harvester->classify($link)['category'] ?? null) === 'social',
-        ));
-        $links = array_merge($links, $anchorSocials);
+        // back in: tiles stay API-authoritative and APPENDED-to (never
+        // replaced), and the shell's legal/asset links (assets.stanwith.me
+        // PDFs…) can't classify as social, so no junk rides along. Gated on
+        // the API/inline arm answering — when the anchor arm already produced
+        // $links this would be a second identical parse for zero new URLs
+        // ($seen would fold every one). classify() is grammar+catalog only,
+        // no fetches. Known, accepted exposure: a shell rendering the
+        // AGGREGATOR's own social badges would sweep them in, exactly as
+        // every anchor-harvested host always has (all four API shells
+        // inspected 2026-08-20: stan renders the creator's links, the other
+        // three are empty SPA shells). Socials append AFTER tiles, so
+        // MAX_LINKS starvation is only conceivable in multi-page batches.
+        if ($apiLinks !== null) {
+            $anchorSocials = array_values(array_filter(
+                $this->harvester->allOutboundLinks($body, $baseUrl),
+                fn (string $link): bool => ($this->harvester->classify($link)['category'] ?? null) === 'social',
+            ));
+            $links = array_merge($links, $anchorSocials);
+        }
 
         foreach ($links as $url) {
             if (count($seen) >= self::MAX_LINKS) {

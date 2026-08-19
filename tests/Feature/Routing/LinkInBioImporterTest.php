@@ -427,7 +427,12 @@ it('merges the shell\'s footer social anchors into an API unroll (F12)', functio
     expect($observations->pluck('surface_key')->all())
         ->toContain('tiktok.profile', 'facebook.profile')
         ->and($observations->filter(fn ($o) => str_contains((string) $o->raw_url, 'assets.stanwith.me')))
-        ->toHaveCount(0);
+        ->toHaveCount(0)
+        // The merge is ADDITIVE: the API tile must still route. An
+        // implementation that replaced tiles with the anchor socials would
+        // satisfy every assertion above — this one is the additive pin.
+        ->and($observations->filter(fn ($o) => str_contains((string) $o->raw_url, 'supernormal.net.au/menu')))
+        ->toHaveCount(1);
 });
 
 it('finds footer socials even when the stan API answers zero outward tiles (F12)', function () {
