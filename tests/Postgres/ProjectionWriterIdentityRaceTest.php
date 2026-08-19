@@ -851,17 +851,22 @@ it('re-reads a group\'s anchors after an earlier group in the same pass merged t
     pgirAssertConsistent($userId);
 });
 
-// ── what a lock timeout leaves behind ─────────────────────────────────────────────────────────
+// ── what a lock timeout leaves behind ────────────────────────────────────────────────────────
 //
-// writeManualItem() commits the source item and its identity keys BEFORE resolveItems() runs, so
-// #LIFE-1 made a timeout reachable between two committed states. Uncompensated, that row is
-// bound by the NEXT resolve to a freshly minted item that writeFacets() never populated — a
-// blank card, in a pool the owner was told had failed to save.
+// Nothing. writeManualItem() runs the source-item upsert, its identity keys and the resolve as
+// ONE transaction under the lock, so a timeout rolls all three back.
+//
+// This replaced a compensating "retire the row afterwards" pass that three review rounds could
+// not make correct. The compensation had to decide whether retiring the row destroyed anything,
+// and by the time it ran the answer had changed: resolveItemsLocked() binds EVERY live source
+// item of the (user, kind), so the lock holder that caused the timeout had already bound this
+// caller's row — while writeFacets() only ever covers the caller's own projection. "Is it bound"
+// could not tell "someone finished my write" from "someone bound my row and wrote no facets for
+// it", and the second was the common case.
 //
 // Slow by construction: the bound is IDENTITY_LOCK_TIMEOUT_MS and SET LOCAL overrides any
-// session value, so the wait cannot be shortened from the test side. It is here because the
-// alternative is an untested compensation on the content spine.
-it('retires a source item it created when identity resolution times out, and leaves a pre-existing one alone', function () {
+// session value, so the wait cannot be shortened from the test side.
+it('leaves no trace of a write whose identity resolution timed out, and does not disturb a pre-existing coord', function () {
     config(['database.connections.pgsql_second' => config('database.connections.pgsql')]);
 
     $pg = DB::connection('pgsql');
@@ -874,6 +879,7 @@ it('retires a source item it created when identity resolution times out, and lea
     // An item the owner already has, landed cleanly before any contention.
     $existingCoord = 'manual:'.sha1('pgir-existing-'.Str::random(8));
     $writer->writeManualItem($userId, $existingCoord, pgirLinkProjection($existingCoord));
+    $existingBefore = $pg->table('content.source_items')->where('coord', $existingCoord)->first();
 
     // A genuinely separate backend holds identity:{user}:link for the duration.
     $blocker = DB::connection('pgsql_second');
@@ -896,35 +902,29 @@ it('retires a source item it created when identity resolution times out, and lea
         expect($thrown->getMessage())->not->toContain($userId);
         expect($thrown->getMessage())->not->toContain('identity:');
 
-        $newRow = $pg->table('content.source_items')->where('coord', $newCoord)->first();
-        expect($newRow)->not->toBeNull('the source item was never committed, so there is nothing to compensate');
-        expect($newRow->removed_at)->not->toBeNull('a source item this call created was left live with no item — the next resolve binds it to a facet-less blank');
-        expect($newRow->item_id)->toBeNull();
+        // No half-written row for the next resolve to bind to a facet-less item.
+        expect($pg->table('content.source_items')->where('coord', $newCoord)->exists())
+            ->toBeFalse('the failed write left a source item behind');
+        expect($pg->table('content.identity_keys as ik')
+            ->join('content.source_items as si', 'si.id', '=', 'ik.source_item_id')
+            ->where('si.coord', $newCoord)->exists())
+            ->toBeFalse('the failed write left identity keys behind');
 
-        // The owner clicks "Add" again while the same sync still holds the lock. The retry's
-        // upsert clears removed_at, so a compensation keyed on "did I create it" walks straight
-        // past the second failure and leaves exactly the residue it exists to remove.
-        try {
-            $writer->writeManualItem($userId, $newCoord, pgirLinkProjection($newCoord));
-        } catch (Throwable) {
-            // expected — the lock is still held
-        }
-
-        $retryRow = $pg->table('content.source_items')->where('coord', $newCoord)->first();
-        expect($retryRow->removed_at)->not->toBeNull('a SECOND consecutive timeout on the same coord left the row live and unbound');
-
-        // The owner's existing row must survive the identical failure untouched.
-        $thrownAgain = null;
+        // And the owner's existing row is untouched by the identical failure — an idempotent
+        // re-add (MenuScanApplier, ShopContentWriter, every backfiller) must not lose content.
         try {
             $writer->writeManualItem($userId, $existingCoord, pgirLinkProjection($existingCoord));
-        } catch (Throwable $e) {
-            $thrownAgain = $e;
+        } catch (Throwable) {
+            // expected
         }
 
-        expect($thrownAgain)->toBeInstanceOf(AdvisoryLockTimeoutException::class);
-
-        $existingRow = $pg->table('content.source_items')->where('coord', $existingCoord)->first();
-        expect($existingRow->removed_at)->toBeNull('a re-add of an EXISTING coord retired the owner\'s real content');
+        $existingAfter = $pg->table('content.source_items')->where('coord', $existingCoord)->first();
+        expect($existingAfter->removed_at)->toBeNull('a re-add that timed out retired the owner\'s real content');
+        expect((string) $existingAfter->item_id)->toBe((string) $existingBefore->item_id);
+        expect((string) $existingAfter->last_seen_at)->toBe(
+            (string) $existingBefore->last_seen_at,
+            'the rolled-back re-add still committed its last_seen_at touch',
+        );
     } finally {
         $blocker->rollBack();
         DB::purge('pgsql_second');
@@ -1059,83 +1059,6 @@ it('picks the same merge survivor whether the group came from the prefetch or a 
     );
 });
 
-// ── the compensation must not retire a row somebody else just bound ───────────────────────────
-//
-// The wait it compensates for is up to IDENTITY_LOCK_TIMEOUT_MS long, and resolveItemsLocked()
-// is the only writer that turns source_items.item_id from NULL to bound — under the very lock
-// this caller is queued behind. So "was it unbound?" answered before the wait is a different
-// question from "is it unbound?" answered after it. A second request for the same coord that
-// queues ahead of this one wins the lock, binds the coord and runs writeFacets(); retiring its
-// row leaves a live faceted item with no source item, which is the ghost
-// preferOwnerAnchored()'s docblock exists to avoid.
-it('does not retire a source item that another writer bound while it was waiting for the lock', function () {
-    if (! function_exists('pcntl_fork')) {
-        $this->markTestSkipped('pcntl_fork is not available in this runtime');
-    }
-
-    config(['database.connections.pgsql_second' => config('database.connections.pgsql')]);
-
-    $pg = DB::connection('pgsql');
-    $userId = (string) Str::uuid();
-    $pg->table('core.users')->insert(['id' => $userId]);
-    $pg->table('site.sites')->insert(['id' => (string) Str::uuid(), 'user_id' => $userId]);
-    app(ProjectionWriter::class)->ensureManualSource($userId);
-
-    // The item the winning writer would have bound the coord to.
-    $winnerItemId = (string) Str::uuid();
-    $pg->table('content.items')->insert([
-        'id' => $winnerItemId, 'user_id' => $userId, 'kind' => 'link',
-        'first_seen_at' => now(), 'last_seen_at' => now(), 'created_at' => now(), 'updated_at' => now(),
-    ]);
-
-    $coord = 'manual:'.sha1('pgir-toctou-'.Str::random(8));
-
-    // Fork BEFORE the blocker connection exists. A child that inherited its PDO would close that
-    // socket on exit and the parent's rollBack() would die with "server closed the connection
-    // unexpectedly" — purging it in the child is no good either, since the socket is shared.
-    $startAt = microtime(true) + 1.0;
-
-    $pid = pcntl_fork();
-    if ($pid === -1) {
-        $this->fail('pcntl_fork failed');
-    }
-
-    if ($pid === 0) {
-        pgirChildConnection();
-        usleep((int) max(0, ($startAt - microtime(true)) * 1_000_000));
-        try {
-            app(ProjectionWriter::class)->writeManualItem($userId, $coord, pgirLinkProjection($coord));
-        } catch (Throwable) {
-            // expected: the lock is held for longer than the bound
-        }
-        exit(0);
-    }
-
-    $blocker = DB::connection('pgsql_second');
-    $blocker->beginTransaction();
-    $blocker->select('select pg_advisory_xact_lock(hashtext(?))', ["identity:{$userId}:link"]);
-
-    try {
-        // Long enough after the child's release gate for its first transaction (the source item
-        // and its identity keys) to have committed, and far short of the 5s timeout it is now
-        // sitting in.
-        usleep((int) max(0, ($startAt - microtime(true)) * 1_000_000) + 1_500_000);
-
-        $bound = $pg->table('content.source_items')->where('coord', $coord)
-            ->update(['item_id' => $winnerItemId]);
-        expect($bound)->toBe(1, 'the child had not committed its source item yet — the race never happened');
-
-        pcntl_waitpid($pid, $status);
-
-        $row = $pg->table('content.source_items')->where('coord', $coord)->first();
-        expect($row->item_id)->not->toBeNull();
-        expect($row->removed_at)->toBeNull('the compensation retired a row another writer had already bound');
-    } finally {
-        $blocker->rollBack();
-        DB::purge('pgsql_second');
-    }
-})->group('slow');
-
 // ── a ROW-lock timeout is contention too, and must land in the same place ─────────────────────
 //
 // SET LOCAL lock_timeout bounds every lock the resolve transaction takes, not just the advisory
@@ -1168,8 +1091,8 @@ it('treats a row-lock timeout inside the resolve as the same contention as the a
         expect($thrown)->toBeInstanceOf(AdvisoryLockTimeoutException::class);
         expect($thrown->getHttpStatusCode())->toBe(423);
 
-        $newRow = $pg->table('content.source_items')->where('coord', $newCoord)->first();
-        expect($newRow->removed_at)->not->toBeNull('a row-lock timeout skipped the compensation');
+        expect($pg->table('content.source_items')->where('coord', $newCoord)->exists())
+            ->toBeFalse('a row-lock timeout left the half-written row behind');
     } finally {
         $blocker->rollBack();
         DB::purge('pgsql_second');

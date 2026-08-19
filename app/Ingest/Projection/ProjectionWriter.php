@@ -23,7 +23,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Throwable;
 
 /**
  * The projection stage's ONE writer (plan §4 Landing → Projection, §5/§6
@@ -110,6 +109,16 @@ class ProjectionWriter
      *
      * NOTE the bound also applies to every subsequent row lock in the transaction: SET LOCAL
      * lock_timeout persists for the rest of it (see AdvisoryLockTimeoutException's docblock).
+     *
+     * WHAT A TIMEOUT COSTS, per path. writeManualItem() runs its upsert, keys and resolve as ONE
+     * transaction under this lock, so a timeout there rolls everything back and the owner simply
+     * sees a 423 to retry. projectStream() cannot: it commits per record across a lazy(500) loop
+     * before it resolves, so a timeout there leaves live source items bound to nothing until the
+     * next scheduled run re-projects them — and RunExecutor catches the throw and writes an
+     * ingest.anomalies row with severity 'critical', which per that file's own comment PAGES once
+     * per failure. So on the connector lane this is not the quiet retry the paragraph above
+     * describes. Left that way deliberately: a connector run repeats on a schedule, and
+     * suppressing the page would hide genuine contention on the identity spine.
      */
     private const IDENTITY_LOCK_TIMEOUT_MS = 5000;
 
@@ -417,11 +426,27 @@ class ProjectionWriter
         $contentSourceId = $this->ensureManualSource($userId);
         $kind = (string) $projection['kind'];
 
-        // Same one-transaction-per-record boundary the connector path uses,
-        // and for the same reason: a committed source item visible with zero
-        // identity keys resolves as an unrelated singleton and mints a
-        // spurious item. See the long note at the projectStream() call site.
-        $sourceItemId = DB::transaction(function () use ($contentSourceId, $coord, $kind, $projection) {
+        // ONE transaction, opened with the identity lock, spanning the source-item upsert, its
+        // identity keys AND the resolve. The connector path splits those (a transaction per
+        // record, then one resolve) because it is a LOOP and must not hold a write transaction
+        // open across every page of it. There is no loop here — one record — and joining them is
+        // what makes a lock timeout leave nothing behind at all.
+        //
+        // It has to be all-or-nothing, and an earlier version of this that committed the source
+        // item first and compensated afterwards could not be made correct. The compensation has
+        // to decide whether retiring the row destroys anything, and by the time it runs the
+        // answer has changed: resolveItemsLocked() binds EVERY live source item of the
+        // (user, kind), not just this caller's coord, so the lock holder that made this caller
+        // time out has already bound this row — while writeFacets() only ever covers the
+        // caller's OWN projection. "Is it bound" therefore stops distinguishing "someone else
+        // finished my write" from "someone else bound my row and wrote no facets for it", and
+        // the second is the common case. Rolling the upsert back removes the question.
+        //
+        // The keys must still land in the same transaction as the source item, for the original
+        // reason: a committed source item visible with ZERO identity keys resolves as an
+        // unrelated singleton, so createItem() mints a spurious content.items row and anchors the
+        // coord to it. See the long note at the projectStream() call site.
+        $itemByCoord = $this->withIdentityLock($userId, $kind, function () use ($contentSourceId, $coord, $kind, $projection, $userId) {
             $sourceItemId = $this->upsertSourceItem(
                 contentSourceId: $contentSourceId,
                 coord: $coord,
@@ -435,51 +460,8 @@ class ProjectionWriter
             );
             $this->writeIdentityKeys($sourceItemId, $coord, $projection);
 
-            return $sourceItemId;
+            return $this->resolveItemsLocked($userId, $kind);
         });
-
-        try {
-            $itemByCoord = $this->resolveItems($userId, $kind);
-        } catch (AdvisoryLockTimeoutException $e) {
-            // #LIFE-1 made a lock timeout reachable HERE, between two committed states: the
-            // transaction above has landed a live source item with its identity keys, and
-            // resolveItems() rolled its own back without binding it to anything. Left alone that
-            // row is picked up by the NEXT resolve for this (user, kind) and bound to a freshly
-            // minted item — but writeFacets() never ran for it, so what the owner eventually
-            // sees is a blank card they were told had failed to save.
-            //
-            // whereNull('item_id') is the whole guard, and it has to be evaluated HERE rather
-            // than carried down from the upsert above. Three cases, one predicate:
-            //   - a row this call minted: unbound, retired;
-            //   - a row an earlier failed resolve left behind: also unbound, also retired — and
-            //     it must be, because the upsert's update branch clears removed_at, so a flag
-            //     meaning "did I create it" would let a SECOND consecutive timeout for one coord
-            //     un-retire the row and then leave it live;
-            //   - a row that carries an item_id: the owner's real content, untouched. That
-            //     includes a row bound by a DIFFERENT writer during the up-to-5s wait above —
-            //     a second request for the same coord that queued ahead of this one, won the
-            //     lock, bound the coord and ran writeFacets(). Deciding from a value read
-            //     before the wait would retire that writer's live, faceted row and leave the
-            //     source-item-less ghost preferOwnerAnchored()'s docblock warns about.
-            //
-            // Catching here is safe: the transaction above has COMMITTED and resolveItems()' own
-            // has rolled back, so this runs outside every transaction and cannot poison one
-            // (25P02). It rethrows — the caller still learns the write failed.
-            try {
-                DB::table('content.source_items')
-                    ->where('id', $sourceItemId)
-                    ->whereNull('item_id')
-                    ->update(['removed_at' => now()]);
-            } catch (Throwable $cleanupFailure) {
-                // Best-effort. This UPDATE can itself block on the row lock of the writer that
-                // beat us and abort on the session lock_timeout; a failed CLEANUP must not
-                // replace the 423 the caller is owed with a 500 about the cleanup. Reported so
-                // the residue is visible rather than silent.
-                report($cleanupFailure);
-            }
-
-            throw $e;
-        }
 
         if (! isset($itemByCoord[$coord])) {
             // Unreachable: the row was just written live and resolveItems()
@@ -663,71 +645,84 @@ class ProjectionWriter
      */
     private function resolveItems(string $userId, string $kind): array
     {
-        // #LIFE-1: everything below is read -> compute -> write, and until this lock existed a
-        // second caller could commit between the two ends of it. The damage is not theoretical:
-        // mergeInto() hard-DELETEs the discarded item, so the loser's own final
-        // `source_items.item_id` UPDATE either takes a 23503 on a row that no longer exists, or
-        // — when curation spared the loser from the delete — silently reverts the merge and
-        // leaves a coord pointing at an item nothing else agrees with. Both are reproduced in
-        // tests/Postgres/ProjectionWriterIdentityRaceTest.php.
-        //
-        // Advisory rather than lockForUpdate(): the protected set is "every live source item of
-        // this (user, kind)", which the racing writer may GROW mid-computation, and you cannot
-        // lock rows that do not exist yet. It is also three tables (item_anchors, items,
-        // source_items), so one key beats an ordering discipline across all three.
-        //
-        // _xact_ rather than the session variant: it releases on COMMIT/ROLLBACK, so a killed
-        // worker cannot wedge a user's identity resolution until Supavisor reaps the connection.
-        //
-        // The transaction spans the WHOLE body — the reads, the resolve, bindGroup(),
-        // recordCandidates() AND the final per-target UPDATE loop. A lock that covers the read
-        // but not the write looks right, tests green, and fixes nothing.
-        //
-        // Callers must NOT wrap this: DB::transaction() would degrade to a SAVEPOINT and the
-        // lock would silently take the OUTER transaction's lifetime. Neither call site does
-        // (projectStream()'s transactions are per-record and closed; writeManualItem()'s closes
-        // before this), and every caller of writeManualItem() is already forbidden from nesting
-        // one by that method's own docblock.
-        //
-        // No try/catch inside: a catch that RECOVERS in here poisons the transaction with 25P02
-        // (this repo has shipped that three times — ItemSlugAllocatorSavepointTest). The
-        // lock-timeout path throws out through the transaction, as Lander::land() does, and
-        // surfaces as 423 via AdvisoryLockTimeoutException's HttpStatusCodeInterface contract.
-        //
-        // SQLite has neither pg_advisory_xact_lock nor hashtext, so the Feature lane cannot
-        // exercise this at all — a green `composer test` says nothing about it. tests/Postgres/
-        // is where it is proven.
+        return $this->withIdentityLock($userId, $kind, fn (): array => $this->resolveItemsLocked($userId, $kind));
+    }
+
+    /**
+     * Run $work as the whole of one transaction, holding identity:{user_id}:{kind} (#LIFE-1).
+     *
+     * Until this existed, resolveItems() was read -> compute -> write with nothing around it, and
+     * a second caller could commit between the two ends. The damage is not theoretical:
+     * mergeInto() hard-DELETEs the discarded item, so the loser's own closing
+     * `source_items.item_id` UPDATE either takes a 23503 on a row that no longer exists, or —
+     * when curation spared the loser from the delete — silently reverts the merge and leaves a
+     * coord pointing at an item nothing else agrees with. Both are reproduced in
+     * tests/Postgres/ProjectionWriterIdentityRaceTest.php.
+     *
+     * Advisory rather than lockForUpdate(): the protected set is "every live source item of this
+     * (user, kind)", which the racing writer may GROW mid-computation, and you cannot lock rows
+     * that do not exist yet. It is also three tables (item_anchors, items, source_items), so one
+     * key beats an ordering discipline across all three.
+     *
+     * _xact_ rather than the session variant: it releases on COMMIT/ROLLBACK, so a killed worker
+     * cannot wedge a user's identity resolution until Supavisor reaps the connection.
+     *
+     * $work must span the WHOLE cycle — the reads, the resolve, bindGroup(), recordCandidates()
+     * AND the closing per-target UPDATE. A lock that covers the read but not the write looks
+     * right, tests green, and fixes nothing.
+     *
+     * Callers must NOT wrap this: DB::transaction() would degrade to a SAVEPOINT and the lock
+     * would silently take the OUTER transaction's lifetime. No caller does — projectStream()'s
+     * transactions are per-record and closed before it resolves, and every caller of
+     * writeManualItem() is forbidden from nesting one by that method's own docblock.
+     *
+     * No try/catch inside $work: a catch that RECOVERS in there poisons the transaction with
+     * 25P02 (this repo has shipped that three times — ItemSlugAllocatorSavepointTest). The
+     * lock-timeout path throws out through the transaction and surfaces as 423 via
+     * AdvisoryLockTimeoutException's HttpStatusCodeInterface contract.
+     *
+     * SQLite has neither pg_advisory_xact_lock nor hashtext, so the Feature lane cannot exercise
+     * the lock at all — a green `composer test` says nothing about it. tests/Postgres/ is where
+     * it is proven.
+     *
+     * @template TReturn
+     *
+     * @param  callable(): TReturn  $work
+     * @return TReturn
+     */
+    private function withIdentityLock(string $userId, string $kind, callable $work): mixed
+    {
         $connection = DB::connection();
         $key = "identity:{$userId}:{$kind}";
 
         try {
-            return $connection->transaction(function () use ($connection, $key, $userId, $kind) {
+            return $connection->transaction(function () use ($connection, $key, $work) {
                 if ($connection->getDriverName() === 'pgsql') {
                     AdvisoryLock::acquire($key, self::IDENTITY_LOCK_TIMEOUT_MS, $connection->getName());
                 }
 
-                return $this->resolveItemsLocked($userId, $kind);
+                return $work();
             });
         } catch (QueryException $e) {
-            // OUTSIDE the transaction — DB::transaction() has already rolled back, so this
-            // cannot poison anything (25P02). It converts, it does not recover.
+            // OUTSIDE the transaction — DB::transaction() has already rolled back, so this cannot
+            // poison anything (25P02). It converts, it does not recover.
             //
             // SET LOCAL lock_timeout bounds every lock the transaction takes, not just the
             // advisory one, and a ROW lock aborting raises the same SQLSTATE 55P03 as a bare
             // QueryException rather than as AdvisoryLockTimeoutException — the closing
-            // `UPDATE content.source_items` waiting on a concurrent writeManualItem()'s own
-            // transaction is the reachable case. Undistinguished, that path skipped
-            // writeManualItem()'s compensation and surfaced as a 500 for what is ordinary
-            // contention. ReorderService::reorder() already reclassifies its row-lock timeout
-            // through this same helper for the same reason.
-            // SQLSTATE only, NOT AdvisoryLock::isLockTimeout(), whose second branch matches
-            // the substring 'lock timeout' anywhere in the message. QueryException interpolates
+            // `UPDATE content.source_items` waiting on a concurrent writer is the reachable case.
+            // Undistinguished, that path surfaces as a 500 for what is ordinary contention.
+            // ReorderService::reorder() already reclassifies its row-lock timeout through the
+            // same SQLSTATE for the same reason.
+            //
+            // SQLSTATE only, NOT AdvisoryLock::isLockTimeout(), whose second branch matches the
+            // substring 'lock timeout' anywhere in the message. QueryException interpolates
             // bindings into that message, and the bindings here include coord — built from
             // platform-supplied record keys (see projectStream()). A coord carrying that literal
             // would turn any error on any statement in the resolve (a 23505, a 23503, a
-            // statement_timeout) into a false 423 AND arm the destructive compensation above.
-            // The substring branch buys nothing here: Postgres reports 55P03 through getCode()
-            // for both the advisory lock and a row lock, which is the whole reachable set.
+            // statement_timeout) into a false 423. The substring branch buys nothing here:
+            // Postgres reports 55P03 through getCode() for both the advisory lock and a row lock,
+            // which is the whole reachable set.
             if ((string) $e->getCode() === AdvisoryLock::LOCK_NOT_AVAILABLE_SQLSTATE) {
                 throw new AdvisoryLockTimeoutException($key, $e);
             }
@@ -2359,7 +2354,7 @@ class ProjectionWriter
                     && in_array((string) $row->kind, ContentItemSlugAllocator::SLUGGED_KINDS, true)) {
                     try {
                         $this->slugs->ensureCurrent((string) $row->user_id, (string) $itemId, (string) $headline);
-                    } catch (Throwable $e) {
+                    } catch (\Throwable $e) {
                         report($e);
                     }
                 }

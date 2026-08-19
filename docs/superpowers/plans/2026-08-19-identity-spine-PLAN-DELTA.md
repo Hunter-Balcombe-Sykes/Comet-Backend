@@ -638,3 +638,75 @@ conservative rather than wrong. Left as measured through the real `writeManualIt
 | compensation keyed on created-only | timeout test fails on the SECOND timeout |
 | `whereNull('item_id')` dropped from the compensation | 2 fail, incl. the TOCTOU test |
 | `QueryException` reclassification removed | row-lock test fails |
+
+---
+
+## 10. Independent review, round 4 — FAIL, and the compensation was the wrong shape all along
+
+Round 4's P1 finally named what rounds 1–3 had been circling. `resolveItemsLocked()` binds
+**every** live source item of the `(user, kind)`, not just the caller's coord, while
+`writeFacets()` only ever covers the caller's own projection. So the lock holder that makes a
+caller time out has already bound that caller's row, and written no facets for it. "Is the row
+bound?" therefore cannot distinguish *"someone finished my write"* from *"someone bound my row
+and left it blank"* — and the second is the common case. Round 3's `whereNull('item_id')` made
+the compensation a **no-op in the dominant contention case**, reopening the exact blank card it
+was written to prevent. Reproduced end to end, both interleavings, including one where the
+compensation retires the row and the winner then binds the corpse.
+
+Rounds 1, 2 and 3 all tried to answer "may I retire this row?" — a question with no stable
+answer, because the state it asks about changes during the very wait it compensates for.
+
+### The fix: stop asking
+
+`writeManualItem()` now runs the source-item upsert, its identity keys **and** the resolve as ONE
+transaction under the lock. A timeout rolls all three back and leaves nothing behind, so there is
+nothing to compensate. The compensation, its inner `try/catch`, the `report()`, the
+`$created`/`$unbound` flag and `upsertSourceItem()`'s changed return type are all **deleted** —
+three rounds of accreted machinery leaves the diff entirely, and `upsertSourceItem()` is back to
+its original signature.
+
+The connector path is untouched: `projectStream()` is a loop and must not hold a write
+transaction open across every page of it. `writeManualItem()` is one record, which is what makes
+joining them free.
+
+The lock + transaction + SQLSTATE reclassification now live in one seam, `withIdentityLock()`,
+used by both entry points.
+
+Mutation-checked: moving the upsert back outside the lock fails both timeout tests.
+
+### The other round-4 findings
+
+- **N5 was never actually written down.** Round 3's commit message and this document both claimed
+  the RunExecutor paging note had been added to `IDENTITY_LOCK_TIMEOUT_MS`; it had not — the
+  docblock was byte-identical to round 2. The same defect class round 2 raised and round 3 fixed,
+  reintroduced as a *missing* comment. Now written, and the underlying claim verified against
+  `RunExecutor.php:245-275`: a projection throw becomes an `ingest.anomalies` row with severity
+  `critical`, which that file's own comment says pages once per failure.
+- **The compensation tests could not tell the good outcome from the defect** — the "winner" they
+  simulated was a bare `UPDATE … SET item_id` against an item with no facets and no anchor, i.e.
+  finding 1's residue. Both are replaced by one test asserting the stronger property the
+  restructure gives: after a timeout, no source item and no identity keys exist for that coord,
+  and a pre-existing coord is bit-for-bit untouched (including `last_seen_at`).
+- **`report()` can rethrow** and **the compensating UPDATE was bounded at 10–30s, not 5s** — both
+  moot; the code they concerned is gone.
+
+### Deliberately NOT done — for a separate unit
+
+**`ItemMerger::merge()` performs the same identity mutation with no identity lock**
+(`app/Services/Content/ItemMerger.php:52-90`): `foldInto()` repoints `content.source_items` and
+rewrites `content.item_anchors`, then hard-deletes `content.items`, inside a plain
+`DB::transaction()`. An advisory lock only works if every writer takes it, so this is a real gap.
+
+Not bundled here, for two reasons. It is **unwired today** — nothing in `app/` or `routes/`
+constructs it; only tests and comments reference it, so no request can reach it and there is no
+live race. And under `fix-flow.md` a locked DB write on a hard-delete path is explicitly
+"Standalone — do NOT bundle". It needs its own branch, its own concurrency test and its own
+review, and it should get one before anything wires that class to a controller.
+
+### Still true, and worth stating plainly
+
+The lock covers the resolve, not the **use** of its result. `writeFacets()` and
+`refreshItemCaches()` run after the transaction commits, against item ids a later resolve may
+already have merged away. That is pre-existing and unchanged by this work, but it is the honest
+answer to "is the identity spine fully serialised": no — this closes `resolveItems()`, which is
+what #LIFE-1 asked for.
