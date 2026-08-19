@@ -11,6 +11,7 @@ use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
+use App\Services\Platforms\LinkInBioApiUnroller;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -57,6 +58,7 @@ class LinkInBioImporter
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly WebsiteLinkHarvester $harvester,
+        private readonly LinkInBioApiUnroller $api,
         private readonly LinkRoutingService $routing,
         private readonly CustomLinkSeeder $seeder,
         private readonly EventsSeeder $events,
@@ -184,7 +186,14 @@ class LinkInBioImporter
     {
         $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
 
-        foreach ($this->harvester->allOutboundLinks($body, $baseUrl) as $url) {
+        // Some aggregators ship no anchors at all — linkin.bio's delivered page
+        // is an empty Ember shell, so the harvest below reads zero links off a
+        // page that has eight (N2). The unroller answers null for any host it
+        // cannot read, INCLUDING when its API is down, so the anchor pass stays
+        // the default and the zero-yield floor still backstops both.
+        $links = $this->api->unroll($baseUrl) ?? $this->harvester->allOutboundLinks($body, $baseUrl);
+
+        foreach ($links as $url) {
             if (count($seen) >= self::MAX_LINKS) {
                 return;
             }
