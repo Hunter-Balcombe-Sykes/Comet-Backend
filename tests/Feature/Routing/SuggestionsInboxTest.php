@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -112,6 +113,38 @@ it('writes the payload through ConnectionPayload so a handle surface carries use
     expect($payload['username'])->toBe('someone')
         ->and($payload['url'])->toBe('https://www.instagram.com/someone')
         ->and($payload['source'])->toBe('suggestion');
+});
+
+it('dispatches the enrichment fetch when accepting a content suggestion (F14)', function () {
+    // F9 covered the reconciler's AUTO-place path; T9b's parent suggestions
+    // are suggest-only by design, so the connections that feature produces
+    // are born here — via accept — and were landing as nameless
+    // URL-as-account rows until the next scheduled refresh.
+    Queue::fake();
+    $pro = createTenant('inbox-accept-fetch');
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'identifier' => 'somechannel', 'canonical_url' => 'https://www.youtube.com/@somechannel',
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    $connection = IntegrationConnection::query()->where('user_id', $pro->id)->first();
+    Queue::assertPushed(ConnectFetchJob::class, fn ($job) => $job->connectionId === (string) $connection->id);
+});
+
+it('does not dispatch the enrichment fetch for a non-content accept (F14)', function () {
+    // Same class rule as SourceReconciler::applyIntent: booking enrichment is
+    // owned by AutoBookingConnectDispatcher's claimed/unclaimed rule, shop by
+    // its own connect jobs, and socials have no fetch capability to run.
+    Queue::fake();
+    $pro = createTenant('inbox-accept-nofetch');
+    $intentId = seedIntent($pro->id);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->exists())->toBeTrue();
+    Queue::assertNotPushed(ConnectFetchJob::class);
 });
 
 it('demotes the incumbent rather than deleting it when replacing', function () {

@@ -2,6 +2,8 @@
 
 namespace App\Routing;
 
+use App\Catalog\LegacyPlatformMap;
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -163,6 +165,28 @@ class SuggestionApplier
                 ]);
                 $connection->user()->associate($user);
                 $connection->save();
+
+                // F14 (2026-08-20, whole-run critic): F9 wired the enrichment
+                // fetch into SourceReconciler::applyIntent — the AUTO-place
+                // path — but T9b is suggest-only by design, so every
+                // connection its feature produces is born HERE, via accept,
+                // and sat as the same nameless URL-as-account row F9 exists
+                // to prevent until a scheduled refresh happened by. Same rule
+                // as applyIntent, verbatim: CONTENT class only (booking
+                // enrichment is owned by AutoBookingConnectDispatcher's
+                // claimed/unclaimed rule; shop rows enrich through their own
+                // connect jobs), only when the surface declares a fetch, and
+                // afterCommit because this runs inside the transaction. Only
+                // for a row created here — a matched-existing row came from a
+                // lane that already owns its enrichment.
+                $fetch = $surface['capabilities']['fetch'] ?? null;
+                if ((string) $intent->routing_class === 'content' && is_string($fetch) && $fetch !== '') {
+                    ConnectFetchJob::dispatch(
+                        (string) $connection->id,
+                        LegacyPlatformMap::legacyFor((string) $intent->surface_key),
+                        systemInitiated: true,
+                    )->afterCommit();
+                }
             }
 
             // A booking-class Replace makes the new row the primary; a cap
