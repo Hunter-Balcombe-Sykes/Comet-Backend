@@ -63,6 +63,15 @@ cloud env:logs partna production --tail 50                # prod — confirm fir
 
 App = `partna`. Environments: `development` (default), `production` (gated).
 
+⚠️ **Never call `cloud env:logs` bare from a loop or in the background.** It has no guaranteed exit path — it can wedge on a dead connection and sleep forever, parentless and socketless, and `--live` backlogs-then-exits rather than streaming. On 2026-08-19 an 11-minute poll loop left **70 orphaned `php` processes alive for 6 hours**, driving load average to 45 on a 10-core machine and pinning `kernel_task` at 67% (macOS thermal throttle). Use the bounded wrapper instead — it kills the wedge and leaves no orphans:
+
+```bash
+scripts/env/cloud-logs.sh development --minutes 2 --json      # 60s bound by default
+CLOUD_LOGS_TIMEOUT=120 scripts/env/cloud-logs.sh production --tail 50
+```
+
+Exit 124 means it timed out and was killed — that is the guard working, not a log failure.
+
 **FORBIDDEN:** `mcp__laravel-boost__read-log-entries`, `mcp__laravel-boost__last-error`.
 
 **Debugging — check logs FIRST.** Before code: `cloud env:logs partna development --minutes 10`.
