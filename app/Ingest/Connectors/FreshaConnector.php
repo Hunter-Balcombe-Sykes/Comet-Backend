@@ -184,7 +184,8 @@ class FreshaConnector implements Connector
     private function resolveCurrentSlug(string $slug, Io $io): ?string
     {
         $response = $io->get('https://www.fresha.com/book-now/'.rawurlencode($slug).'/all-offer');
-        if (($response['status'] ?? 0) !== 200) {
+        // No `?? 0`: Io::get() returns array{status: int, body: string, headers: array}.
+        if ($response['status'] !== 200) {
             return null;
         }
         $final = (string) ($response['headers']['final-url'] ?? '');

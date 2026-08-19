@@ -103,10 +103,11 @@ class IdentitySync
             return [];
         }
 
-        return array_values(array_keys(array_filter(
+        // array_keys() already returns a list — no array_values() needed.
+        return array_keys(array_filter(
             $this->googleCandidates($payload),
             fn ($value) => $value !== null,
-        )));
+        ));
     }
 
     /**
@@ -148,7 +149,7 @@ class IdentitySync
 
         $this->applyWorkplaceFields($site, $candidates, true);
 
-        return array_values(array_keys($candidates));
+        return array_keys($candidates);
     }
 
     /** The user's Google Business connection payload, or null when unconnected. */
@@ -157,7 +158,10 @@ class IdentitySync
         $connection = $user->integrationConnections()
             ->where('platform', Platform::GoogleBusiness->value)
             ->first();
-        if ($connection === null || ! is_array($connection->payload)) {
+        // No is_array() guard: site.platform_connections.payload is NOT NULL with
+        // DEFAULT '{}' in Postgres AND in the SQLite test mirror, and the model casts
+        // it to array — so it is never anything else.
+        if ($connection === null) {
             return null;
         }
         $payload = GoogleBusinessPayload::fromArray($connection->payload);
