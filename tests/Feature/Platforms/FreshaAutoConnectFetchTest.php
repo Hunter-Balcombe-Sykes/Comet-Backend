@@ -191,3 +191,73 @@ it('keeps the auto projection under the booking-XOR lock guards', function () {
 
     expect(DB::table('services')->where('user_id', $user->id)->count())->toBe(0);
 });
+
+it('marks an auto-chosen selection so the owner can be asked to confirm it', function () {
+    // The marker is what makes "we guessed, and nobody has confirmed it" legible
+    // at claim time. matchTier alone cannot carry it: a null tier means "storewide
+    // because nothing matched", which is indistinguishable from a storewide the
+    // owner deliberately chose in the picker.
+    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser']);
+    stubMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]);
+
+    $next = app(FreshaConnectFetch::class)->fetch(autoConnectionFor($user));
+
+    expect($next['selection']['mode'])->toBe('storewide')
+        ->and($next['autoSelected'])->toBeTrue()
+        ->and($next['matchTier'])->toBeNull();
+});
+
+it('marks an auto-chosen EMPLOYEE selection too, not just the storewide fallback', function () {
+    // A confident match is still a machine's guess — the tier is evidence, not
+    // consent. Pinned separately because stamping the marker only on the fallback
+    // would look correct in the storewide test above and silently skip every
+    // account the matcher actually recognised.
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+
+    test()->mock(FreshaScraper::class, function (MockInterface $m) {
+        $m->shouldReceive('fetchMenu')->once()->andReturn([
+            'storeName' => 'Anseo Studio',
+            'team' => [['employeeId' => 'e1', 'displayName' => 'Simon Doyle']],
+            'services' => [[
+                'serviceId' => 's:1', 'name' => 'Cut', 'duration' => '30min', 'description' => null,
+                'price' => 'A$50', 'priceValue' => 50, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
+            ]],
+        ]);
+        $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('fetchEmployeeServices')->andReturn([[
+            'serviceId' => 's:9', 'name' => 'Simon Cut', 'duration' => '45min', 'description' => null,
+            'price' => 'A$80', 'priceValue' => 80, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
+        ]]);
+    });
+
+    $next = app(FreshaConnectFetch::class)->fetch(autoConnectionFor($user));
+
+    expect($next['selection']['mode'])->toBe('employee')
+        ->and($next['autoSelected'])->toBeTrue()
+        ->and($next['matchTier'])->toBe('exact');
+});
+
+it('never stamps the marker on a dashboard storewide connect', function () {
+    // The negative half. A human who picked storewide in the picker must not be
+    // asked to confirm a choice they made themselves.
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+    stubMenu();
+
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'fresha',
+        'resource_id' => 'fresha',
+        'payload' => [
+            'url' => 'https://www.fresha.com/a/anseo-studio-v0v92jna',
+            'selection' => null,
+            'connectMode' => 'storewide',
+        ],
+        'is_active' => true,
+    ]);
+
+    $next = app(FreshaConnectFetch::class)->fetch($connection);
+
+    expect($next['selection']['mode'])->toBe('storewide')
+        ->and($next)->not->toHaveKey('autoSelected')
+        ->and($next)->not->toHaveKey('matchTier');
+});

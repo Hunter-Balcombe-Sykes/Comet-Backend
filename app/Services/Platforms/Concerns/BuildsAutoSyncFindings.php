@@ -9,6 +9,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\DailyCounterClaim;
+use App\Services\Platforms\AutoBookingConnectDispatcher;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -567,22 +568,14 @@ trait BuildsAutoSyncFindings
      */
     protected function dispatchAutoBookingConnect(string $userId): void
     {
-        if (! $this->claimAutoBookingBudget()) {
-            return;
-        }
-
-        $row = IntegrationConnection::query()
-            ->where('user_id', $userId)
-            ->where('platform', Platform::Fresha->value)
-            ->first();
-
-        if ($row === null) {
-            return;
-        }
-
-        $row->forceFill(['payload' => [...$row->payload, 'connectMode' => 'auto']])->saveQuietly();
-
-        ConnectFetchJob::dispatch((string) $row->id, Platform::Fresha->value, systemInitiated: true)->afterCommit();
+        // Delegates since 2026-08-19: a third producer (the routing lane's
+        // SourceReconciler, for unclaimed pre-account sites) needed this and
+        // could not take the trait — it would have acquired write()/
+        // resolveBookingLink() alongside, contradicting its single-writer
+        // property. The implementation moved to AutoBookingConnectDispatcher;
+        // this method stays so both legacy producers are unchanged and the
+        // shared-cap invariant still reads true.
+        app(AutoBookingConnectDispatcher::class)->dispatchFor($userId);
     }
 
     /**
@@ -604,21 +597,11 @@ trait BuildsAutoSyncFindings
      */
     protected function claimAutoBookingBudget(): bool
     {
-        $cap = (int) config('partna.connect.auto_booking.global_daily_cap', 500);
-
-        try {
-            if (! DailyCounterClaim::claim(CacheKeyGenerator::freshaAutoConnectDaily(now()->format('Y-m-d')), $cap)) {
-                Log::warning('fresha.auto_connect.daily_cap_reached', ['cap' => $cap]);
-
-                return false;
-            }
-
-            return true;
-        } catch (\Throwable $e) {
-            report($e);
-
-            return true;
-        }
+        // Delegates for the same reason as dispatchAutoBookingConnect above. The
+        // ceiling must stay ONE counter across every producer — a copy here
+        // would make it per-route, which is exactly what this method exists to
+        // prevent.
+        return app(AutoBookingConnectDispatcher::class)->claimBudget();
     }
 
     /** @return array{platform:string, resourceId:string, payload:array<string,mixed>} */

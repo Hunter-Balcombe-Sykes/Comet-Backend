@@ -615,7 +615,8 @@ class FreshaController extends ApiController
     public function selection(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $payload = SelectionPayload::fromArray($this->readConnection($user) ?? []);
+        $raw = $this->readConnection($user) ?? [];
+        $payload = SelectionPayload::fromArray($raw);
 
         return $this->success([
             'selection' => $payload->selection !== null
@@ -624,6 +625,31 @@ class FreshaController extends ApiController
             // Pending (Google-seeded) connections have a url but no selection — the
             // dashboard uses it to show "Finish setup" and open the picker.
             'url' => $payload->url,
+            // A selection FreshaAutoSelector chose, not the owner — the dashboard
+            // asks them to confirm it at claim. Siblings of `selection` rather than
+            // members of it because FreshaSelectionResource renders the INNER
+            // selection array and never sees the payload these live on; and because
+            // they describe HOW the choice was made, not what it is.
+            //
+            // CONDITIONAL, not always-present: every connection that predates the
+            // auto lane, and every one the owner picked themselves, keeps this
+            // endpoint's exact existing shape. Two assertExactJson contract tests
+            // (FreshaPayloadTest, PlatformResourceContractTest) pin that shape, and
+            // widening it unconditionally would have meant editing them to match —
+            // which is what makes a contract test worthless. Absent reads falsy to
+            // the client, so `if (autoSelected)` works either way.
+            //
+            // matchTier rides in the same branch because a null tier is only
+            // meaningful ALONGSIDE the marker: it then means "storewide because
+            // nothing matched", not "no auto-selection happened".
+            //
+            // OWNER-FACING ONLY. Never add either key to
+            // PublicIntegrationConnectionResource::ALLOWLIST — `fresha` has no
+            // public allowlist entry at all today and must not gain one here.
+            ...(($raw['autoSelected'] ?? false) ? [
+                'autoSelected' => true,
+                'matchTier' => $raw['matchTier'] ?? null,
+            ] : []),
         ]);
     }
 
