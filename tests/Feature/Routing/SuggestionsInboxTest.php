@@ -175,10 +175,39 @@ it('offers a swap for a cap-blocked link on a single-account surface, and swappi
 it('keeps a cap-blocked link on a multi-account surface dismiss-only', function () {
     // Five Instagrams already: no one row a swap could mean.
     $pro = createTenant('inbox-cap-multi');
+    foreach (range(1, 5) as $n) {
+        (new IntegrationConnection([
+            'user_id' => $pro->id, 'surface_key' => 'instagram.profile',
+            'routing_class' => 'social', 'resource_id' => "acct-{$n}",
+            'payload' => [], 'is_active' => true,
+        ]))->save();
+    }
     seedIntent($pro->id, ['state' => 'blocked', 'block_reason' => 'cap_reached']);
 
     expect(actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions.0.actions'))
         ->toBe(['dismiss']);
+});
+
+it('un-blocks a cap-blocked link once the cap is no longer reached', function () {
+    // The catalog widened under a standing intent (Mixcloud went 1 → 5,
+    // 2026-08-19), or the owner disconnected one: it is a plain proposal
+    // again, not a dead "you've reached the limit".
+    $pro = createTenant('inbox-cap-lifted');
+    (new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'mixcloud.player',
+        'routing_class' => 'content', 'resource_id' => 'https://www.mixcloud.com/one',
+        'payload' => [], 'is_active' => true,
+    ]))->save();
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'mixcloud.player', 'routing_class' => 'content',
+        'identifier' => 'https://www.mixcloud.com/two', 'canonical_url' => 'https://www.mixcloud.com/two',
+        'state' => 'blocked', 'block_reason' => 'cap_reached',
+    ]);
+
+    $listed = actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions.0');
+    expect($listed['state'])->toBe('proposed')
+        ->and($listed['actions'])->toBe(['accept', 'dismiss']);
+    expect(DB::table('routing.source_intents')->where('id', $intentId)->value('state'))->toBe('proposed');
 });
 
 it('never re-asks a question the user already dismissed', function () {

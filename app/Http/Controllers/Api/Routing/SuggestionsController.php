@@ -158,13 +158,16 @@ class SuggestionsController extends ApiController
     }
 
     /**
+     * Settle a cap-blocked intent against the cap AS IT IS NOW.
+     *
      * A cap-blocked intent on a SINGLE-account surface names the one row a
      * Swap would replace (SourceReconciler::soleIncumbentFor writes it at
      * reconcile time since 2026-08-19). Intents recorded before that carry
      * null; resolving it here at read time gives them the same Swap, and
-     * persisting it keeps accept() and the inbox in agreement. Mutates
-     * $intent in place. Nothing for a multi-account surface — there is no
-     * one row a swap could mean.
+     * persisting it keeps accept() and the inbox in agreement. A cap that is
+     * no longer reached lifts the block entirely. A multi-account surface
+     * still at its cap is left alone — there is no one row a swap could
+     * mean. Mutates $intent in place.
      *
      * @param  array<string, mixed>|null  $surface
      */
@@ -172,17 +175,39 @@ class SuggestionsController extends ApiController
     {
         if ($intent->block_reason !== 'cap_reached'
             || $intent->conflicting_connection_id !== null
-            || $surface === null
-            || (int) ($surface['max_accounts'] ?? 1) > 1) {
+            || $surface === null) {
             return;
         }
 
-        $incumbent = IntegrationConnection::query()
+        $others = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('surface_key', $intent->surface_key)
             ->where('resource_id', '!=', (string) $intent->identifier)
             ->orderBy('created_at')
-            ->value('id');
+            ->pluck('id');
+        $max = max(1, (int) ($surface['max_accounts'] ?? 1));
+
+        // The cap has moved under a standing intent — the catalog widened
+        // (2026-08-19: content and events surfaces went 1 → 5) or the owner
+        // disconnected one — so it is no longer blocked at all: back to a
+        // plain proposal, asked once as "add this?".
+        if ($others->count() < $max) {
+            DB::table('routing.source_intents')->where('id', $intent->id)->update([
+                'state' => 'proposed',
+                'block_reason' => null,
+                'updated_at' => now(),
+            ]);
+            $intent->state = 'proposed';
+            $intent->block_reason = null;
+
+            return;
+        }
+
+        if ($max > 1) {
+            return;
+        }
+
+        $incumbent = $others->first();
         if ($incumbent === null) {
             return;
         }
