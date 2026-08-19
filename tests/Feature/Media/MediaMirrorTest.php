@@ -427,7 +427,65 @@ it('will not land one user\'s bytes on another user\'s asset row, and says so ra
         ->and($row->mirror_last_reason)->toBeNull();
 });
 
-it('refuses a format GD decodes but getimagesize cannot read, however small (SEC-1, review follow-up)', function () {
+/**
+ * Bytes in a format GD may decode but `getimagesize*` cannot parse.
+ *
+ * GD2 is the specimen — but **GD2 support is a PHP BUILD OPTION**, present on a
+ * stock macOS build and DISABLED on CI's (`imagegd2(): GD2 image support has
+ * been disabled`). So the fixture is produced by `imagegd2()` where the build
+ * allows it, and hand-written from the GD2 header format where it does not.
+ *
+ * That distinction is deliberate rather than a convenience: what the guard has
+ * to do is REFUSE bytes finfo does not recognise as jpeg/png/webp, and that
+ * obligation does not depend on whether the machine running the test happens to
+ * be able to produce or decode the attack. Skipping the case where GD2 is
+ * unavailable would disable the assertion precisely on CI, which is the one
+ * place it needs to hold.
+ *
+ * @return array{0: string, 1: bool} the bytes, and whether GD can really decode them here
+ */
+function mirrorGd2Bytes(): array
+{
+    $depth = ob_get_level();
+    $img = imagecreatetruecolor(64, 64);
+    imagefill($img, 0, 0, imagecolorallocate($img, 1, 2, 3));
+
+    $bytes = '';
+    try {
+        ob_start();
+        $ok = @imagegd2($img);
+        $bytes = $ok ? (string) ob_get_clean() : '';
+        if (! $ok && ob_get_level() > $depth) {
+            ob_end_clean();
+        }
+    } catch (Throwable) {
+        // Laravel turns warnings into ErrorException; a build without GD2 write
+        // support lands here rather than returning false.
+        while (ob_get_level() > $depth) {
+            ob_end_clean();
+        }
+        $bytes = '';
+    } finally {
+        imagedestroy($img);
+    }
+
+    if ($bytes === '') {
+        // Minimal GD2 header: signature, version 2, 64x64, chunk size, format.
+        // Enough for finfo to decline to call it an image, which is all the
+        // allowlist is asked about.
+        $bytes = "gd2\x00".pack('nnnnn', 2, 64, 64, 128, 2).str_repeat("\x00", 32);
+    }
+
+    $decoded = @imagecreatefromstring($bytes);
+    $gdCanDecode = $decoded !== false;
+    if ($decoded !== false) {
+        imagedestroy($decoded);
+    }
+
+    return [$bytes, $gdCanDecode];
+}
+
+it('refuses a format getimagesize cannot read, whether or not GD can decode it (SEC-1, review follow-up)', function () {
     // The bypass an independent review found in the first cut of this guard.
     // imagecreatefromstring() decodes strictly MORE formats than
     // getimagesizefromstring() can parse — GD's own GD2 among them — so a guard
@@ -436,24 +494,24 @@ it('refuses a format GD decodes but getimagesize cannot read, however small (SEC
     // GD2 image is ~854 KB on the wire, getimagesizefromstring() returns false
     // for it, and GD decodes it into 144 million pixels.
     //
-    // Asserted here at 64x64 deliberately: the fix is a FORMAT allowlist, so it
-    // refuses GD2 at any size and the test needs no half-gigabyte fixture to
-    // prove the hole is closed.
-    $img = imagecreatetruecolor(64, 64);
-    imagefill($img, 0, 0, imagecolorallocate($img, 1, 2, 3));
-    ob_start();
-    imagegd2($img);
-    $gd2 = (string) ob_get_clean();
-    imagedestroy($img);
+    // Asserted at 64x64 deliberately: the fix is a FORMAT allowlist, so it
+    // refuses GD2 at any size and this needs no half-gigabyte fixture.
+    [$gd2, $gdCanDecode] = mirrorGd2Bytes();
 
-    // The premise, asserted rather than assumed.
+    // Premise that holds on every build: the header reader cannot see it.
     expect(@getimagesizefromstring($gd2))->toBeFalse();
-    $decoded = @imagecreatefromstring($gd2);
-    expect($decoded)->not->toBeFalse();
-    imagedestroy($decoded);
+
+    // Premise that holds only where the build kept GD2 READ support. Where it
+    // does, this is the bypass in its literal form — bytes GD would happily
+    // rasterise. Where it does not, the refusal below still has to hold, which
+    // is the whole point of asserting it unconditionally.
+    if ($gdCanDecode) {
+        expect(ImagePixelBudget::decodable($gd2))->toBeFalse();
+    }
 
     $user = createTenant('gd2-'.Str::lower(Str::random(6)));
     $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:GD2:0'));
+    // A lying content-type, because finfo byte-sniffs and does not trust it.
     Http::fake(['*' => Http::response($gd2, 200, ['Content-Type' => 'image/png'])]);
 
     $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/x.gd2');
