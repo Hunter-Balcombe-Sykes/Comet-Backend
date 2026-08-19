@@ -720,9 +720,19 @@ class PoolResolver
 
             return $out;
         });
+        // #LIFE-3: the liveness filter belongs HERE, not on $sourceRows. That
+        // query also feeds the item sheet's Sources list, which deliberately
+        // KEEPS a paused connection so it can badge it `active: false` — the
+        // owner needs to see the source it paused. This map is the public-wire
+        // consumer: it supplies an item's fallback platform/url when the item
+        // has no link of its own, so a paused connection reaching it publishes
+        // exactly what LiveSourceScope hides everywhere else (owner ruling
+        // 2026-08-19: pause = hide). The #LIFE-4 fix makes this path HOTTER,
+        // not colder — dropping a paused source's f_link is precisely what
+        // leaves $primary null and falls through to here.
         $sourcePlatforms = $sourceRows
             ->map(function ($rows): ?object {
-                $rows = $rows->filter(fn ($r) => $r->source_kind !== 'manual' && $r->connection_id !== null);
+                $rows = $rows->filter(fn ($r) => $r->source_kind !== 'manual' && $r->connection_id !== null && (bool) $r->is_active);
                 $row = $rows->first();
                 if ($row === null || ! is_string($row->platform) || $row->platform === '') {
                     return null;

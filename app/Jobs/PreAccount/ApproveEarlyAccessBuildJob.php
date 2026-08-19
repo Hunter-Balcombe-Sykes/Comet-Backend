@@ -91,7 +91,11 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
         if ($needsScrape) {
             $build->forceFill(['build_state' => PreAccountBuild::STATE_BUILDING])->save();
             try {
-                $registry->for($build->source_type)->generate($user, $site, $build->source_ref);
+                // TRUE for the same reason as GeneratePreAccountSiteJob: an approved
+                // early-access build creates a public unclaimed site with no human
+                // present to answer "whose menu is this?". Taking the `false` default
+                // here would have left this lane on the pre-2026-08-19 behaviour.
+                $registry->for($build->source_type)->generate($user, $site, $build->source_ref, true);
             } catch (SourceGenerationException $e) {
                 $build->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => $e->failureCode])->save();
                 report($e);
