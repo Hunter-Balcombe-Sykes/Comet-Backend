@@ -39,7 +39,7 @@ class Vimeo
                 ->refreshEvery(43200)
                 ->connect('connect.vimeo.url.v1')
                 ->fetch('fetch.vimeo.api.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('vimeo.com')
                         ->path('#^/channels/(?<name>[A-Za-z0-9_-]+)/?$#')

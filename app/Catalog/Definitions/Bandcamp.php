@@ -39,7 +39,7 @@ class Bandcamp
                 ->canonicalUrl('https://{handle}.bandcamp.com')
                 ->connect('connect.bandcamp.url.v1')
                 ->fetch('fetch.bandcamp.scrape.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('bandcamp.com')
                         ->subdomain('#^(?<handle>[a-z0-9][a-z0-9-]*)$#i')

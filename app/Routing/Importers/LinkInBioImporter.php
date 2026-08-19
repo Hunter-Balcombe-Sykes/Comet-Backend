@@ -13,6 +13,7 @@ use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\LinkInBioApiUnroller;
 use App\Services\Platforms\LinkInBioInlinePayloadReader;
+use App\Services\Platforms\MediaSeeder;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -45,16 +46,16 @@ class LinkInBioImporter
      * acquisition, so it gets one budget; a single-URL import is a batch of
      * one and sees the identical cap it always had.
      */
-    private const MAX_LINKS = 100;
+    private const MAX_LINKS = 300;
 
     /** Hard cap on pages fetched in one run. */
-    private const MAX_PAGES = 20;
+    private const MAX_PAGES = 50;
 
     /** Run kinds this importer may record. Mirrors routing.import_runs.kind. */
     private const KINDS = ['link_in_bio', 'bio_harvest'];
 
     /** Probe budget per RUN — parity with the legacy RouteContext::DEFAULT_MAX_PROBES. */
-    private const MAX_PROBES = 6;
+    private const MAX_PROBES = 18;
 
     /**
      * Substrings that identify a Cloudflare refusal page rather than the site.
@@ -77,6 +78,7 @@ class LinkInBioImporter
         private readonly LinkRoutingService $routing,
         private readonly CustomLinkSeeder $seeder,
         private readonly EventsSeeder $events,
+        private readonly MediaSeeder $media,
     ) {}
 
     /**
@@ -91,7 +93,7 @@ class LinkInBioImporter
         }
 
         $pages = $this->normalisePages($bioPageUrls);
-        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'unavailable_reasons' => [], 'bio_url_seeded' => false];
+        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'unavailable_reasons' => [], 'bio_url_seeded' => false];
 
         if ($pages === []) {
             return ['outcome' => 'unavailable'] + $empty;
@@ -106,7 +108,7 @@ class LinkInBioImporter
         }
 
         $context = RoutingContext::forUser($user, $kind, $runId);
-        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0];
+        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0];
         $seen = [];
         $probedHosts = [];
         $placedKeys = [];
@@ -143,6 +145,12 @@ class LinkInBioImporter
 
         $fetched = count($pages) - $unavailable;
         $observations = count($seen);
+
+        // Suppression is READ, not absorbed (critic, 2026-08-20): a
+        // tombstoned item/event counts in its lane's tally as HANDLED (no
+        // card may carry it), and this says how many of those handled were
+        // deliberate no-writes.
+        $tally['tombstoned'] = $this->media->tombstonedThisRun() + $this->events->tombstonedThisRun();
 
         // Zero-yield floor (N2): a MATCHED bio host that unrolls to nothing is
         // a silent total loss — the detector claimed the URL, so no other path
@@ -268,7 +276,7 @@ class LinkInBioImporter
     }
 
     /**
-     * @param  array{connected:int, suggested:int, noted:int, probed:int, dropped:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $seen
      * @param  array<string, true>  $probedHosts
      * @param  array<string, true>  $placedKeys
@@ -328,7 +336,7 @@ class LinkInBioImporter
      * router's Issue-M rule, carried).
      *
      * @param  array<string, mixed>  $result
-     * @param  array{connected:int, suggested:int, noted:int, probed:int, dropped:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $placedKeys
      */
     private function handlePlaced(string $url, array $result, RoutingContext $context, array &$tally, array &$placedKeys): void
@@ -363,7 +371,7 @@ class LinkInBioImporter
      * site's nav exhaust the whole budget (found live 2026-08-10).
      *
      * @param  array<string, mixed>  $result
-     * @param  array{connected:int, suggested:int, noted:int, probed:int, dropped:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $probedHosts
      * @param  array<string, int>  $droppedReasons  reason => count, for the run detail
      */
@@ -380,6 +388,33 @@ class LinkInBioImporter
         }
 
         if ($result['verdict'] === 'note') {
+            $classified = $this->harvester->classify($url);
+
+            // T6 (2026-08-20): media ITEMS — a video/track/release/episode
+            // URL becomes a real watch/listen pool item (library, never
+            // auto-pinned), the media twin of the events arm below. The
+            // grammar is MediaPageReader's own (shared via classify), so the
+            // scan lane and the paste lane can never disagree about what an
+            // item is. A failed read or a tombstoned item cards the link —
+            // nothing vanishes. Spends NO commerce budget.
+            if (($classified['category'] ?? null) === 'content-item') {
+                try {
+                    $seeded = $this->media->seedItem($context->user, $url, origin: $context->origin);
+                } catch (\Throwable $e) {
+                    report($e);
+                    $seeded = null;
+                }
+
+                if ($seeded !== null) {
+                    $tally['items']++;
+                } else {
+                    $tally['noted']++;
+                    $this->seeder->seedCustom($context->user, $url);
+                }
+
+                return;
+            }
+
             // Standalone EVENT pages (an Eventbrite /e/… link, a Humanitix
             // event) carry a Note-strength detector at best — never a
             // placement — so they land here. The legacy classifier still
@@ -392,7 +427,6 @@ class LinkInBioImporter
             // link is a real account and does connect. Spends NO commerce
             // budget: events were never probes. A seeder failure cards the
             // link, never drops it.
-            $classified = $this->harvester->classify($url);
             if (in_array($classified['category'] ?? null, ['event', 'event-organiser'], true)) {
                 try {
                     $seeded = $classified['category'] === 'event'

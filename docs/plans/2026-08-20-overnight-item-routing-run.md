@@ -453,25 +453,174 @@ the WHOLE run.
   open. Delete this plan file per convention only if every task ticked;
   otherwise leave it with the ledger updated.
 
+## Execution refinement (run session, 2026-08-20 — superpowers:writing-plans pass)
+
+The plan above is the owner contract and stands unchanged. This section pins
+what the executing session verified and decided at run start: exact paths,
+dependency order, and interfaces between tasks — so no task starts on a
+guessed filename and the order respects what each task consumes.
+
+### Execution order & batching (dependency-driven)
+
+1. **Batch A — dashboard sheets (monorepo, main):** T1 then T2 — same two
+   files (`pool-add-sheet.tsx`, `link-add-sheet.tsx`), one typecheck+lint
+   gate, one critic pass over both, commit + push. Browser verification on
+   **app.partna.au** (owner logged a session into the built-in browser tab;
+   localhost:3000 belongs to another chat's server AND fails account
+   bootstrap — F1 below).
+2. **Batch B — T3 then T4.** T3's known-platform test lands server-side in
+   `PastedLinkClassifier` (one source for the sheet band AND the 422), so
+   T4's sheet-side band reuses T3's shape. T4's scan-side probe fix
+   (`LinkInBioImporter` root-first probing) is independent and may land
+   first if T3 drags.
+3. **T5** (dashboard-only restyle, `components/blocks/overlays/connection-sheet.tsx`
+   is the reference) — after T1–T4 so every band it restyles exists.
+4. **Batch C — backend scan arms:** T6 (harvester media grammar +
+   MediaSeeder) → T6b (catalog Definitions narrowed; its audit list feeds
+   T8's matrix) → T7 (ShopProductSeeder → ConnectStoreFromProductJob).
+5. **T8** after Batch C (it audits the arms C supplies). The coverage
+   matrix test is T8's deliverable and becomes the pinned contract.
+6. **T9** (caps; mechanical but touches many pinned tests) after T8 so the
+   matrix pins behaviour before knobs move. **T9b** after T6 (it consumes
+   MediaPageReader's oEmbed author_url plumbing).
+7. **T10** fix-and-repeat loop (whole-run gate) → **T11** backstop + report.
+
+### Pinned paths (all verified to exist on disk, 2026-08-20)
+
+Backend (Comet-Backend, branch `feat/overnight-item-routing-2026-08-20`):
+`app/Services/Platforms/{MediaPageReader,EventPageReader,LinkRouter,EventsSeeder,ShopProductSeeder,WebsiteLinkHarvester,ShopProviderDetector,InstagramAutoSync,GoogleBusinessAutoSync,PreviousWebsiteGate,LinkCardScraper,GenericShopScraper}.php`,
+`app/Services/Content/{PastedLinkClassifier,ManualEventWriter}.php`,
+`app/Services/Brand/StoreBrandSeeder.php`, `app/Services/Shop/ProductPageAdder.php`,
+`app/Routing/Importers/{LinkInBioImporter,WebsiteImporter}.php`,
+`app/Jobs/Platforms/{CommerceProbeJob,ConnectStoreFromProductJob,ScanPreviousWebsiteContentJob,GoogleMenuPhotoScanJob,RefreshConnectionJob}.php`,
+`app/Http/Controllers/Api/Content/PoolItemCreateController.php`,
+`app/Http/Controllers/Api/Routing/RoutingController.php`,
+`app/Http/Controllers/Api/Platforms/ShopController.php`, `config/partna.php`.
+Platform detectors are DATA in `app/Catalog/Definitions/*.php`
+(Spotify = `Definitions/Spotify.php`) compiled via `app/Catalog/*` —
+T6b's sweep is that directory, not a service class.
+
+Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
+`components/blocks/link-add-sheet.tsx`,
+`components/blocks/overlays/connection-sheet.tsx`,
+`lib/queries/content-pools.ts` (classifyLink + `LinkClassification`
+{belongsTo: {pool, kind, pageLabel} | null, account: string | null}).
+
+### Interfaces the tasks share
+
+- `LinkClassification` is the wire contract for every band (T1–T4): any T3
+  server extension (e.g. a refusal/`unknown` answer) EXTENDS this type in
+  `content-pools.ts` in the same push — both sheets read it.
+- T3's known-platform authority = `PastedLinkClassifier` (or a sibling it
+  owns); `PoolItemCreateController` enforces the 422 from the SAME source.
+- T6's media grammar = `MediaPageReader::classifyItem` shared into
+  `WebsiteLinkHarvester::classify()` (share, don't copy); `MediaSeeder`
+  mirrors `EventsSeeder`'s shape (canonical-URL folding, tombstones,
+  origin tag, per-run cap — T9 sets it to 30).
+- T7 reuses `ConnectStoreFromProductJob` exactly as `ProductPageAdder`
+  dispatches it; tombstone logic stays in `StoreBrandSeeder`'s reconciler.
+
+### Decisions taken at execution time (recorded as made)
+
+- **T1:** Enter shares the button's `submitBlocked` condition; `create`
+  settles the classification INLINE (tagged answer for the exact URL →
+  else inline `classifyLink` → silent return when a band applies, band
+  tagged so it shows). Classify failure stays non-blocking; the server 422
+  remains the backstop.
+- **T2:** step-1 band added with the same 350ms debounced classify +
+  tagged-answer staleness; step-2 band KEPT as reinforcement — StepCard
+  bodies render only while `active`, so the two can never co-display.
+  Cross-pool "Add to X" action shared between both bands.
+
 ## Ledger (tick with the real commit hash)
 
-- [ ] T1 — Enter-key race / error toast
-- [ ] T2 — Links sheet step-1 guidance
-- [ ] T3 — non-Links pools refuse unknown platforms (server + sheets)
-- [ ] T4 — store-suggestion diagnosis + fix (natalieanne.com repro)
-- [ ] T5 — suggestion band UI matches connection sheet
-- [ ] T6 — scan lanes: media items
-- [ ] T6b — media catalog surfaces stop placing item urls as accounts (spotify episode repro)
-- [ ] T7 — scan-seeded products connect their store
+- [x] T1 — Enter-key race / error toast — monorepo `2fc118e`; critic
+  blocker (success-tick on cancelled add) fixed; gate verified LIVE on
+  app.partna.au: spotify track in Watch → band, Continue disabled, Enter
+  inert, zero toasts
+- [x] T2 — Links sheet step-1 guidance — same commit; verified LIVE:
+  step-1 band + Add-to-Listen action, Continue stays enabled (advisory)
+- [x] T3 — non-Links pools refuse unknown platforms — backend `fd6d8fa18`
+  (claims() in PastedLinkClassifier, controller gate, events host-agnostic
+  add closed, social-profile answers with strict shape check) + monorepo
+  `53e91bd` (refusal band + Add-to-Links action); critic blockers (media
+  pool dead end, reel-as-profile) fixed same commit
+- [x] T4 — store suggestion everywhere — same commits. Root cause
+  CONFIRMED: the bio's education link 404s for every UA (dead link, no
+  fetch-posture bug); CommerceProbeJob asks the ORIGIN on unreachable;
+  preview carries storefront markers (StorefrontMarkers); classifier
+  answers store for store-platform hosts; both sheets show Connect-store
+  bands wired to routeLink
+- [x] T5 — suggestion band UI matches the suggestions inbox's row grammar
+  (the Platforms page's "Found on your platforms" list — the established
+  presentation) — monorepo `3eabb76`, SuggestionBanner shared by both
+  sheets, verified LIVE on app.partna.au (screenshot: Item row, kind
+  glyph, solid commit button, Continue disabled below)
+- [x] T6 — scan lanes: media items — backend `89df37f64` + critic fixes in
+  `08ab05389` (F2 both halves + order-independence test). Gate test green:
+  channel + 3 videos → 1 connection + 3 REAL video items, canonical
+  folding, library-only, origin-tagged, idempotent, tombstone-safe
+- [x] T6b — item URLs never place connections — same commits. Spotify
+  detector → artist|playlist|show|user (playlist KEPT, owner-flagged);
+  SoundCloud detector → single-segment profile; SpotifyConnect +
+  SoundcloudConnect (the manual door) narrowed the same way (critic);
+  `platforms:convert-media-item-connections` ready for the dev sweep
+- [x] T7 — scan-seeded products connect their store — `14e381bf8`, via
+  StoreBrandSeeder (policy-owned tombstone, pinned); NOT
+  ConnectStoreFromProductJob (no tombstone check — paste-only)
 - [ ] T8 — one routing brain everywhere: every add lane (Links included) + every scan lane (audit + coverage matrix)
-- [ ] T9 — every cap/budget raised 2–3x (owner permission recorded in the task)
+- [x] T9 — every cap/budget raised 2–3x — `08ab05389`, full knob table
+  (old → new, every one) in the commit message; 12 pinned-test collisions
+  re-pinned with the caps still binding; pairs raised together
+  (connect_budget 45 WITH job timeouts 75; refresh 100 WITH 150; apify
+  125 under the callers' bounds); probe daily caps raised as the T4
+  fallback mitigation; SSRF/abuse throttles untouched; full suite green
 - [ ] T9b — item → parent account suggestions (store pattern for media; easy set first)
 - [ ] T10 — live E2E loop: 3 Instagrams + Shopify breadth + natalieannehair reconnect + scanner-vs-reality audit + platform integrity, until clean (WHOLE-RUN GATE)
 - [ ] T11 — backstop gates + final critic pass + report
 
+### T8 audit — remaining gaps DOCUMENTED as open items (architecture debt,
+### not tonight's scope; full trace table in the run report)
+
+- CommerceProbeJob's `event`/`event-organiser` match arms are dead code —
+  no dispatcher ever passes those categories (every call site passes none
+  or 'shop'). Harmless; remove in P8.
+- Organiser pages have two writers with two id schemes: catalog paste →
+  SourceReconciler generic row; scans → EventsSeeder `acct-*` rows. Same
+  brand, two shapes — P8 consolidation.
+- A pasted `x.myshopify.com` root places via the catalog's generic
+  connection write, not StoreBrandSeeder/ShopContentWriter — whether the
+  generic ingest-source path syncs the catalogue equivalently is
+  unverified; T10's Shopify breadth step exercises it live.
+- ProductPageAdder::writeIndividual and ShopProductSeeder::seed are two
+  implementations of the same individual-bucket merge (caps read one
+  const, so they can't drift on the number) — P8 consolidation.
+- The note-arm (classify → item/event seeding) now exists in THREE places
+  (LinkRouter, LinkInBioImporter, WebsiteImporter) — flagged for one
+  shared service in P8; tonight the three are line-for-line parallel.
+- GoogleBusinessAutoSync's harvestHtml socials bucket never sees the media
+  arm (dormant for media keys — seedSocials only acts on fb/tiktok/x/
+  linkedin/instagram); the NEW WebsiteImporter wiring covers the same
+  page's media/event links properly.
+
 ### Found-issues ledger (standing rule — append here during the run, then fix)
 
-- (F1… — one line each, file ref, then ticked when fixed+tested)
+- [x] F2 — LinkRouter consumed the per-platform slot for ITEM categories
+  (`routeClassified`, handled:true → seenPlatforms): the 2nd event/video
+  from one platform in a run degraded to a bare card. Items aren't
+  connections. Fixed in T6's commit (slot skip for event/content-item).
+- [x] F3 — InstagramAutoSync surfaced `custom(handled:true)` routes as
+  unmatched custom-link suggestions (`InstagramAutoSync.php` ~163),
+  duplicating seeded events (and ordering Swap offers) as link cards —
+  contradicts RouteResult's documented handled contract. Fixed in T6's
+  commit (`&& ! $result->handled`).
+- [x] F1 — localhost:3000 "We couldn't load your account": NOT a bug.
+  `apps/dashboard/.env.local` deliberately points
+  NEXT_PUBLIC_API_BASE_URL at http://localhost:8000 (switched 2026-08-18;
+  the backup beside it still shows dev-api.partna.au) and the LOCAL
+  backend wasn't running — the bootstrap had no API to load the account
+  from. Fixed by starting the `comet-backend` launch config (:8000,
+  health 200); localhost login will bootstrap now. No code change needed.
 
 ## Owner additions (queue below as they come — plan is open until "handoff")
 

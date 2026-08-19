@@ -39,7 +39,7 @@ class ApplePodcasts
                 ->identifier(IdentifierKind::Handle)
                 ->refreshEvery(43200)
                 ->fetch('fetch.apple_podcasts.itunes.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     // Keyed on the REGISTRABLE domain + product subdomain —
                     // see the note in AppleMusic: a full-host key is never

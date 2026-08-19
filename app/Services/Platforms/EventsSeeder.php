@@ -10,6 +10,7 @@ use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 // Job-context seeding of Eventbrite/Humanitix rows from scanned links
@@ -29,7 +30,7 @@ use Illuminate\Support\Facades\Log;
 class EventsSeeder
 {
     /** Mirrors ManagesIntegrationConnection::maxAccounts() — keep in lockstep. */
-    private const MAX_ACCOUNTS = 5;
+    private const MAX_ACCOUNTS = 10;
 
     /**
      * The scan lane's OWN cap, per platform, on CONNECTION rows — deliberately
@@ -58,6 +59,15 @@ class EventsSeeder
         'luma', 'partiful', 'ticketmaster', 'ticketek', 'oztix', 'trybooking',
         'resident-advisor', 'events-custom',
     ];
+
+    /** Handled-without-write count (tombstoned re-scans) — see MediaSeeder's
+     * twin: the importer surfaces it so suppression is read, not absorbed. */
+    private int $tombstonedThisRun = 0;
+
+    public function tombstonedThisRun(): int
+    {
+        return $this->tombstonedThisRun;
+    }
 
     public function __construct(
         private readonly EventbriteScraper $eventbrite,
@@ -204,6 +214,22 @@ class EventsSeeder
 
         $payload = EventsPayload::standalonePayload($event);
 
+        // F4 (2026-08-20): a re-SCAN never resurrects a removed item.
+        // ManualEventWriter::write() un-deletes by design — a PERSON re-adding
+        // the link means "bring it back" — but this is the scan lane, and the
+        // next bio re-scan was quietly resurrecting events the owner removed.
+        // Returned as HANDLED (the canonical), not null: null sends the
+        // caller to its card write, and a link card for a removed event
+        // resurrects it in another pool. Origin 'paste' (the routing paste,
+        // T8) IS a person's direct request and wins the tombstone — same
+        // doctrine as RoutingContext::isDirectRequest.
+        if ($origin !== 'paste' && $this->itemTombstoned($user, $canonical)) {
+            Log::info('events_seeder.tombstoned', ['user_id' => (string) $user->id, 'platform' => $platform]);
+            $this->tombstonedThisRun++;
+
+            return $canonical;
+        }
+
         // R7 (owner, 2026-08-19): a standalone event is an events-POOL item
         // and nothing else — the dual-write `resource_kind='event'`
         // connection row is retired for every lane (existing rows converted
@@ -241,6 +267,21 @@ class EventsSeeder
             ->where('user_id', $user->id)
             ->where('platform', $platform)
             ->get();
+    }
+
+    /** The owner removed this exact ITEM before (items.removed_at on the
+     * manual-source coord) — the pool-item twin of wasDisconnected(). */
+    private function itemTombstoned(User $user, string $canonical): bool
+    {
+        return DB::connection('pgsql')->table('content.items as i')
+            ->join('content.source_items as csi', 'csi.item_id', '=', 'i.id')
+            ->join('content.sources as cs', function ($join) {
+                $join->on('cs.id', '=', 'csi.source_id')->where('cs.kind', '=', 'manual');
+            })
+            ->where('i.user_id', (string) $user->id)
+            ->where('csi.coord', ManualEventWriter::coordFor($canonical))
+            ->whereNotNull('i.removed_at')
+            ->exists();
     }
 
     private function wasDisconnected(User $user, string $platform, string $resourceId): bool

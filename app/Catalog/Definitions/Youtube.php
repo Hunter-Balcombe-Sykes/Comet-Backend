@@ -41,7 +41,7 @@ class Youtube
                 ->canonicalUrl('https://www.youtube.com/@{handle}')
                 ->connect('connect.youtube.url.v1')
                 ->fetch('fetch.youtube.scrape.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('youtube.com')
                         ->path('#^/channel/(?<id>UC[A-Za-z0-9_-]{22})#')

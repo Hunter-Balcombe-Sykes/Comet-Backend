@@ -39,7 +39,13 @@ class MediaPageReader extends PlatformScraper
      * or the page gave us no title — a rich item without a real title is
      * worse than the card fallback.
      *
-     * @return array{platform: string, kind: string, canonical: string, title: string, thumbnail: ?string}|null
+     * `authorUrl` (T9b, 2026-08-20) is the item's PARENT account when the
+     * platform hands it to us for free — oEmbed's author_url (YouTube,
+     * Vimeo, SoundCloud, Mixcloud), Bandcamp's artist subdomain, a Twitch
+     * clip's channel path — so the caller can file a connect SUGGESTION
+     * beside the item. Null when the platform doesn't say.
+     *
+     * @return array{platform: string, kind: string, canonical: string, title: string, thumbnail: ?string, authorUrl: ?string}|null
      */
     public function read(string $url): ?array
     {
@@ -71,7 +77,30 @@ class MediaPageReader extends PlatformScraper
             'canonical' => $item['canonical'],
             'title' => trim($meta['title']),
             'thumbnail' => $meta['thumbnail'],
+            'authorUrl' => $meta['authorUrl'] ?? $this->derivedAuthorUrl($item),
         ];
+    }
+
+    /**
+     * The parent-account URL platforms encode in the item URL itself —
+     * no request needed. Bandcamp's artist IS the subdomain; a Twitch
+     * clip's path carries the channel login.
+     *
+     * @param  array{platform: string, kind: string, canonical: string}  $item
+     */
+    private function derivedAuthorUrl(array $item): ?string
+    {
+        if ($item['platform'] === 'bandcamp') {
+            $host = strtolower((string) parse_url($item['canonical'], PHP_URL_HOST));
+
+            return $host === '' ? null : 'https://'.$host.'/';
+        }
+        if ($item['platform'] === 'twitch'
+            && preg_match('~^https://www\.twitch\.tv/([A-Za-z0-9_]+)/clip/~', $item['canonical'], $m)) {
+            return 'https://www.twitch.tv/'.$m[1];
+        }
+
+        return null;
     }
 
     /**
@@ -308,8 +337,11 @@ class MediaPageReader extends PlatformScraper
         // Mixcloud serves the cover as `image`, not the spec's thumbnail_url.
         $thumb = is_string($json['thumbnail_url'] ?? null) ? $json['thumbnail_url']
             : (is_string($json['image'] ?? null) ? $json['image'] : null);
+        // The item's parent account, when oEmbed carries it (T9b).
+        $author = is_string($json['author_url'] ?? null) && $json['author_url'] !== ''
+            ? $json['author_url'] : null;
 
-        return $title === null && $thumb === null ? null : ['title' => $title, 'thumbnail' => $thumb];
+        return $title === null && $thumb === null ? null : ['title' => $title, 'thumbnail' => $thumb, 'authorUrl' => $author];
     }
 
     /** @return array{title: ?string, thumbnail: ?string}|null */

@@ -139,7 +139,37 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         $read = $generic->readProductPage($this->url);
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_PRODUCT && is_array($read['product'])) {
-            return $products->seed($user, $read['product'], self::ORIGIN);
+            $seeded = $products->seed($user, $read['product'], self::ORIGIN);
+
+            // T7 (2026-08-20): the paste lane auto-connects a product's store
+            // (ProductPageAdder → ConnectStoreFromProductJob); the scan lane
+            // seeded the product and STOPPED — a scanned Shopify product link
+            // never connected its store. Same brain now: ask the store
+            // question at the ORIGIN, through StoreBrandSeeder, whose
+            // PlacementPolicy owns the tombstone (never resurrect a
+            // disconnected store — deliberately NOT ConnectStoreFromProductJob,
+            // which carries no tombstone check and is scoped to the
+            // user-initiated paste). Best-effort: the product is already in.
+            //
+            // ALWAYS suggest-only (critic blocker, 2026-08-20): a product
+            // link is the classic "shop my friend's boutique" shout-out
+            // shape — auto-connecting its store would attribute someone
+            // else's business to the scanned account. Same principle T9b
+            // pins for media parents: from an ITEM, the parent is a
+            // QUESTION. (The paste lane keeps its auto-connect — a person
+            // pasting their own product asked for it.)
+            if ($seeded) {
+                $origin = $this->origin($this->url);
+                if ($origin !== null) {
+                    try {
+                        $brands->seed($user, $origin, self::ORIGIN, suggestOnly: true);
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
+                }
+            }
+
+            return $seeded;
         }
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_STORE_PAGE && is_string($read['storeUrl'])) {
@@ -148,6 +178,29 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_NO_PRODUCT) {
             return $this->seedStore($brands, $user, $this->url);
+        }
+
+        // T4 (2026-08-20): an UNREACHABLE deep page still gets the store
+        // question — asked at the ORIGIN. The storefront probes hang off the
+        // origin anyway (ShopifyStorefrontProbe reads /meta.json, never the
+        // pasted path), and the live failure was a stale bio link:
+        // natalieanne.com/pages/natalie-anne-education 404s for every UA, the
+        // ONE probe that host would ever get was spent on it, and the
+        // homepage that identifies Shopify instantly was never asked. The
+        // origin (not the dead deep URL) becomes the brand's sourceUrl so
+        // re-fetches read a page that exists. On a MISS the deep URL's own
+        // probe_unreachable note below still writes (R6 unchanged); on a
+        // PLACE the trace is the seeder's own rows keyed to the ORIGIN —
+        // the deep URL's story is then the custom-link card handle() skips
+        // (resolved=true) plus the seeder's intent ledger. Budget note: this
+        // fallback spends a real ProbeBudget slot per dead link — accepted
+        // (owner, 2026-08-20: waste beats missing a store) with T9 raising
+        // the daily caps in step.
+        if ($read['outcome'] === GenericShopScraper::OUTCOME_UNREACHABLE) {
+            $origin = $this->origin($this->url);
+            if ($origin !== null && $this->seedStore($brands, $user, $origin)) {
+                return true;
+            }
         }
 
         // Nothing resolved — the page could not be fetched, or came back in a
@@ -176,6 +229,17 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
     private function seedStore(StoreBrandSeeder $brands, User $user, string $url): bool
     {
         return $brands->seed($user, $url, self::ORIGIN, suggestOnly: $this->suggestOnly)['outcome'] === 'placed';
+    }
+
+    /** scheme://host of the probed URL, or null when it has neither. */
+    private function origin(string $url): ?string
+    {
+        $scheme = parse_url($url, PHP_URL_SCHEME);
+        $host = parse_url($url, PHP_URL_HOST);
+
+        return is_string($scheme) && is_string($host) && $host !== ''
+            ? strtolower($scheme).'://'.strtolower($host).'/'
+            : null;
     }
 
     public function failed(Throwable $e): void
