@@ -750,6 +750,12 @@ it('does not lose the merge when a second resolveItems() commits inside the firs
     // for its OWN coord, so the total is three — it is the UNITED pair that must be one.
     pgirSharedItem($userId, $connectorCoord, $unboundCoord);
 
+    // The total, not just the union: pgirSharedItem() alone would pass an OVER-merge, where one
+    // child's own fresh item folded into the contested pair. Three is exact — the united pair
+    // plus one item per child.
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $userId)->count())
+        ->toBe(3, 'unexpected item count — a merge went further than the owner asked for.'."\n  ".pgirState($userId));
+
     pgirAssertConsistent($userId);
 });
 

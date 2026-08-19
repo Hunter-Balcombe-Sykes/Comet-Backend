@@ -763,3 +763,77 @@ mints an item for its own coord.
   whole resolve, widening the window for a cycle with an unlocked bulk writer. Deliberate and now
   written down: deadlock detection fires at 1s, ahead of the 5s bound, and a deadlock is a
   lock-ordering bug worth seeing rather than contention worth retrying.
+
+---
+
+## 12. Independent review, round 6 — PASS
+
+The first PASS in six rounds. Round 6 attacked the round-5 fixture specifically, since twice
+before a fix had quietly cost the tests their ability to see the lock.
+
+**The fixture does measure the advisory lock.** With `AdvisoryLock::acquire()` gated off, three
+consecutive runs: the damage test fails every time with `23503 source_items_item_id_fkey`, and
+child B returns in **43 / 59 / 56 ms** against the 950ms floor. Under the full pre-branch shape,
+three more runs, same 23503 every time. That SQLSTATE is the decisive evidence — it can only be
+produced by B committing its merge inside A's window, so the file reproduces #LIFE-1 itself
+rather than measuring an artefact.
+
+Every other candidate serialiser was ruled out individually — `ensureManualSource()` (runs before
+the lock, in autocommit), the two children's own coords (distinct keys, and A's row is
+uncommitted and invisible to B), `identity_keys`, `content.items`, `item_anchors` (both contested
+coords are already anchored, so nothing inserts them — round 1's defect is genuinely gone),
+`identity_candidates` (no candidate pair is produced by this fixture), `site_build_state` (written
+after commit), and page/sequence LWLocks (microseconds). The 43–59ms measurements settle it
+empirically regardless.
+
+**The margins are not marginal.** With the lock in place, child B measured **1284–1293 ms** across
+five runs against the 950ms floor (+35%); without it, 40–78 ms (−92%). Load pushes away from the
+floor rather than toward it, because B's elapsed is A's transaction length minus the head start.
+
+**All seven tests have a real behavioural killing mutation**, each named and run — no test is
+killed only by "it no longer compiles" or by a timeout. `pgirSharedItem()` was shown to have teeth
+of its own (making the resolver ignore `identity_decisions` fails it with a lost merge and no
+exception), and `pgirAssertConsistent()` likewise (deleting the closing UPDATE loop fails four
+tests).
+
+### The six findings, all P3/P4, and what I did
+
+- **F1 — the unlocked-mutator list was one short.** `ContentRetireChannelKindCommand` also
+  hard-deletes `source_items` and `items` unlocked. Added, with the honest note that it is inert
+  in practice (dry-run by default, one-shot, and nothing emits `kind='channel'` any more), plus
+  the distinction the reviewer drew: writers that only set `removed_at` change the resolve's
+  input set but create no dangling reference.
+- **F2 — the damage assertion lost its over-merge half.** `pgirSharedItem()` pins that the united
+  pair shares an item but pins no total, so a spurious over-merge would pass. Restored as an exact
+  count of 3 (the united pair plus one item per child), which the reviewer measured as
+  deterministic.
+- **F5 — the no-nesting rule had no detector**, and it is now load-bearing in a new way: inside an
+  outer transaction the lock silently takes that transaction's lifetime and `SET LOCAL
+  lock_timeout` stretches over it, invisibly. Now a `transactionLevel() > 0` check that throws.
+  Safe to make loud: nothing nests today (verified across every call site, twice, from both
+  directions), and the suites do not wrap either — `RefreshDatabase` is deliberately off in
+  `tests/Pest.php`. This is the same "the guard had no detector" class as round 2's finding 3, so
+  it gets the same treatment.
+- **F3 — the paging row lost its identifying detail.** Recorded rather than changed. The generic
+  423 copy now flows into `ingest.anomalies.summary`, so a connector-lane page reads "Another
+  change is still saving" rather than naming the key. Weaker than it first appears: that row also
+  carries `source_id`, `stream_id` and `run_id`, so the alert is still fully attributable, and
+  `report($e)` puts the key in the log via `context()` first. Changing `RunExecutor` to fold
+  `context()` into `detail` would be a general improvement to every exception type on that lane —
+  which is precisely why it is not this unit's change to make.
+- **F4 — a count in round 5's commit message.** It said 14 `AdvisoryLock::acquire()` call sites;
+  there are 17. The substantive claim was re-derived independently and holds: all 17 are the first
+  statement of their transaction, so no transaction holds a row lock while queuing for an advisory
+  one, and none takes two. Commit messages are immutable; corrected here instead.
+- **F6 — one claim the reviewer did not attempt to reproduce**: the `IDENTITY_LOCK_TIMEOUT_MS`
+  benchmark (120ms steady / 2,267ms cold at 2,000 items). Round 3 re-measured it independently and
+  called it conservative; round 6 left it alone. Noted as measured once and corroborated once, not
+  as independently confirmed twice.
+
+### Where this leaves the unit
+
+Six rounds, five FAILs, one PASS. Every claim in the change is now pinned by a mutation that kills
+it, and the residual known gaps — `ItemMerger::merge()`, `StaffServiceManagementController::
+forceDestroy()`, `ContentRetireChannelKindCommand`, and the post-commit `writeFacets()` /
+`refreshItemCaches()` window — are written down on the seam itself rather than left for the next
+session to rediscover. They are hard-delete paths and belong in their own unit.

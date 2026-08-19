@@ -685,7 +685,7 @@ class ProjectionWriter
      * the lock at all — a green `composer test` says nothing about it. tests/Postgres/ is where
      * it is proven.
      *
-     * WHAT THIS DOES NOT COVER. An advisory lock only serialises writers that take it, and three
+     * WHAT THIS DOES NOT COVER. An advisory lock only serialises writers that take it, and four
      * identity mutators still do not:
      *   - writeFacets() and refreshItemCaches() run AFTER this commits, against item ids a later
      *     resolve may already have merged away (pre-existing, unchanged here);
@@ -694,9 +694,15 @@ class ProjectionWriter
      *   - StaffServiceManagementController::forceDestroy() (routed:
      *     DELETE /professionals/{professional}/services/{service}/hard) deletes the source_items
      *     and the content.items row outright. A resolve that has already computed a target on
-     *     that id takes a 23503 on its closing UPDATE.
-     * Both of the last two are hard-delete paths and belong in their own unit under fix-flow.md's
-     * "Standalone — do NOT bundle" rule, not in this one.
+     *     that id takes a 23503 on its closing UPDATE;
+     *   - ContentRetireChannelKindCommand hard-deletes source_items and items for kind='channel'
+     *     in a plain transaction — inert in practice (dry-run by default, one-shot, and nothing
+     *     emits that kind any more), listed for completeness.
+     * The last three are hard-delete paths and belong in their own unit under fix-flow.md's
+     * "Standalone — do NOT bundle" rule, not in this one. (Writers that only set removed_at —
+     * FreshaController, ContentRepairEventItemsCommand — change the resolve's INPUT SET and can
+     * make a resolution stale, but create no dangling reference, so they are a different and
+     * much smaller problem.)
      *
      * A 40P01 deadlock is NOT reclassified below, only 55P03. Deadlock detection fires at 1s,
      * ahead of this 5s bound, and the manual path now holds its coord's source_items row lock
@@ -713,6 +719,20 @@ class ProjectionWriter
     {
         $connection = DB::connection();
         $key = "identity:{$userId}:{$kind}";
+
+        // The no-nesting rule above is load-bearing and, until this line, had nothing enforcing
+        // it: inside an outer transaction DB::transaction() degrades to a SAVEPOINT, the advisory
+        // lock silently takes the OUTER transaction's lifetime, and SET LOCAL lock_timeout
+        // stretches over it too. All of that is invisible — the tests stay green and the lock
+        // stops meaning what the docblock says. Loud beats silent on a path whose merges hard-
+        // delete. (Nothing nests today; verified across every call site of writeManualItem() and
+        // projectStream(). The test suites do not wrap either — RefreshDatabase is deliberately
+        // off in tests/Pest.php.)
+        if ($connection->transactionLevel() > 0) {
+            throw new \LogicException(
+                "resolveItems()/writeManualItem() must not run inside a transaction: the advisory lock {$key} would take the outer transaction's lifetime.",
+            );
+        }
 
         try {
             return $connection->transaction(function () use ($connection, $key, $work) {
