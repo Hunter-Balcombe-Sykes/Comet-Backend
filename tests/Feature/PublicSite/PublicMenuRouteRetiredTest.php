@@ -33,7 +33,6 @@ beforeEach(function () {
     setupSitesTable();
     // Slice 7 Task 8: MenuScanApplier seeds this file's fixture menu into
     // content.* through ManualMenuWriter, not into site.menu_items.
-    setupItemSlugsTable();
     setupContentTables();
 });
 

@@ -29,8 +29,19 @@ reasons this document has to exist before anyone repeats the teardown on prod:
 - Migration ledger ends at `20260817001100_delete_legacy_event_item_slugs`.
 - Dropped: `site.menu_item_categories`, `site.menu_item_platforms`,
   `site.menu_items`, `site.menu_categories`, `site.content_selection`.
-- `site.item_slugs` retains 293 `menu_item` rows, 0 `event` rows, and has **no
-  writer at all** — a write-free orphan.
+- ~~`site.item_slugs` retains 293 `menu_item` rows, 0 `event` rows, and has **no
+  writer at all** — a write-free orphan.~~ **DROPPED on dev 2026-08-19**
+  (`20260819130000_drop_site_item_slugs.sql`), at 261 rows. It was not merely
+  write-free: with no writer left to stamp `retired_at` or clear `is_current`,
+  both arms of `slugs:prune-retired` matched zero rows by construction, so the
+  271-PRIV-1 retention window added in `20260731090000` could never fire and the
+  name-derived slugs were retained forever. The same change stripped the two dead
+  `site` predicates from `PruneRetiredItemSlugs`; its `content.item_slugs` arms
+  are live and stay.
+  **Prod still carries this table**, along with the whole legacy menu lane and
+  no `content.item_slugs` to move to — so the drop must come *after* prod has the
+  `content` schema and the pool readers, not before. Sequence it with the
+  `site.menu_*` drops in §3, never ahead of them.
 - Still present and still legacy: `site.services`, `site.service_categories`,
   `site.service_category_assignments`, `site.shop_brands`, `site.shop_products`.
 - One migration is **written, committed and deliberately unapplied**:

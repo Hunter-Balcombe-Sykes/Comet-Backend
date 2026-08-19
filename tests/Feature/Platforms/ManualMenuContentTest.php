@@ -23,9 +23,6 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    // MenuFetchJob mints site.item_slugs best-effort — with no table it
-    // swallows "no such table" and masks real slug regressions.
-    setupItemSlugsTable();
     // Slice 7 Task 6: the ten owner verbs write content.* now. Dishes are
     // content.items + facets, categories are content.collections kind
     // 'menu_category', the owner-edit marker is content.manual_overrides and

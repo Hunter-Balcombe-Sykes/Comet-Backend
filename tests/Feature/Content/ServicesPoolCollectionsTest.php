@@ -14,7 +14,6 @@ use Illuminate\Support\Facades\Queue;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    setupItemSlugsTable();
     setupIngestTables();
     setupContentTables();
     setupSectionsTables();

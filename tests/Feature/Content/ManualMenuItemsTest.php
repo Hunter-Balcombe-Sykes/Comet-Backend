@@ -19,7 +19,6 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    setupItemSlugsTable();
     setupContentTables();
     Queue::fake();
 });
