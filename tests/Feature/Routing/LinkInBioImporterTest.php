@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
+use Mockery;
 
 // Uses https://example.com as the bio page: SafeUrlFetcher::assertSafe() does
 // a real DNS lookup before the fetch even under Http::fake(), so a
@@ -493,4 +494,111 @@ it('unrolls a client-rendered liinks.co page from the body it already has', func
 
     expect($result['observations'])->toBe(1)
         ->and($result['bio_url_seeded'])->toBeFalse();
+});
+
+// ── Telling a bot-block apart from a dead page (2026-08-19) ──────────────────
+// `pages_unavailable: 1` was the ONLY signal, and it reads identically whether
+// the host refused us, the page 404'd, or the domain is dead. Four detector
+// hosts serve a Cloudflare refusal at the edge, so that difference decides
+// whether a fix is even possible — and nothing surfaced it.
+
+it('names a Cloudflare challenge as a bot block, not a generic failure', function () {
+    $pro = createTenant('bio-reason-challenge');
+    Http::fake(['*' => Http::response('<html><head><title>Just a moment...</title></head></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    expect($result['unavailable_reasons'])->toBe(['bot_challenge' => 1]);
+});
+
+it('names a hard Cloudflare WAF block as a bot block too', function () {
+    // beacons.ai's shape — a firewall rule, not a solvable challenge, but the
+    // same conclusion for us: the host is refusing this caller.
+    $pro = createTenant('bio-reason-waf');
+    Http::fake(['*' => Http::response('<html><title>Attention Required! | Cloudflare</title></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    expect($result['unavailable_reasons'])->toBe(['bot_challenge' => 1]);
+});
+
+it('does NOT call a missing page a bot block', function () {
+    // The whole point of the split. A 404 is the page's problem, not ours, and
+    // must not raise a signal that says "a host is refusing us".
+    $pro = createTenant('bio-reason-404');
+    Http::fake(['*' => Http::response('<html><body>Not found</body></html>', 404)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/gone');
+
+    expect($result['unavailable_reasons'])->toBe(['not_found' => 1]);
+});
+
+it('does not mistake a plain 403 with no challenge markers for a bot block', function () {
+    // A genuinely private page is forbidden, not fighting us.
+    $pro = createTenant('bio-reason-403');
+    Http::fake(['*' => Http::response('<html><body>This page is private.</body></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/private');
+
+    expect($result['unavailable_reasons'])->toBe(['refused' => 1]);
+});
+
+it('logs a distinct, greppable line when a host refuses us', function () {
+    // The "would I ever notice?" test. This line is the trigger to revisit a
+    // residential-proxy vendor; without it the block stays invisible.
+    Log::spy();
+    $pro = createTenant('bio-reason-log');
+    Http::fake(['*' => Http::response('<html><title>Just a moment...</title></html>', 403)]);
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => $message === 'platforms.link_in_bio.host_blocked_us'
+            && $context['host'] === 'example.com'
+            && $context['status'] === 403)
+        ->once();
+});
+
+it('stays quiet for an ordinary dead page', function () {
+    // The counter-check: if this warning fired on every 404 it would be noise,
+    // and noise is how a real signal gets ignored.
+    Log::spy();
+    $pro = createTenant('bio-reason-quiet');
+    Http::fake(['*' => Http::response('', 404)]);
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/gone');
+
+    // Bare, on purpose. `shouldNotHaveReceived('warning', [$message])` matches
+    // a call whose FULL arg list is that one string — which never happens, so
+    // it passes vacuously; and `shouldHaveReceived(...)->never()` asserts >=1
+    // call before never() is reached. A 404 import warns about nothing at all,
+    // so "no warnings" is both true and the thing worth pinning.
+    // Pin the MESSAGE with a wildcard context. A bare shouldNotHaveReceived
+    // ('warning') is too strict — the test env emits an unrelated
+    // `feature_availability.resolve_overrides_failed` — while passing only the
+    // message string matches a one-arg call that never happens, so it passes
+    // vacuously. Two args, message fixed, context any.
+    Log::shouldNotHaveReceived('warning', ['platforms.link_in_bio.host_blocked_us', Mockery::any()]);
+});
+
+it('records the reasons on the run itself, so they can be counted in SQL', function () {
+    // A log line answers "did it happen"; the run detail answers "how often,
+    // and to whom" without shipping logs anywhere.
+    $pro = createTenant('bio-reason-detail');
+    Http::fake([
+        'example.com/up*' => Http::response('<html><body><a href="https://www.instagram.com/a">IG</a></body></html>', 200),
+        'example.com/blocked*' => Http::response('<html><title>Just a moment...</title></html>', 403),
+        'example.com/gone*' => Http::response('', 404),
+    ]);
+
+    app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/up',
+        'https://example.com/blocked',
+        'https://example.com/gone',
+    ]);
+
+    $detail = json_decode((string) DB::table('routing.import_runs')
+        ->where('user_id', $pro->id)->value('detail'), true);
+
+    expect($detail['unavailable_reasons'])->toBe(['bot_challenge' => 1, 'not_found' => 1]);
 });
