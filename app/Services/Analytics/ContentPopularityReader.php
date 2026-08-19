@@ -59,6 +59,45 @@ class ContentPopularityReader
     }
 
     /**
+     * Flat content_key => blended score for the ITEM feed (spec:
+     * 2026-08-19-item-feed-design.md §4 score mode). Excludes the derived
+     * 'action' rows and the 'page' rows — everything else is an item family
+     * (shop_product keys on handle, the rest on content item id; the feed
+     * looks up by id then slug, so one flat map serves both). Collisions
+     * across families keep the max — scores share one formula, so max is the
+     * honest "this thing is popular" signal. Fail-open like forSite().
+     *
+     * @return array<string, float>
+     */
+    public function itemScoresForSite(?string $siteId): array
+    {
+        if ($siteId === null || $siteId === '') {
+            return [];
+        }
+
+        try {
+            $rows = DB::connection('pgsql')
+                ->table('analytics.content_popularity_scores')
+                ->where('site_id', $siteId)
+                ->whereNotIn('content_type', [RankedActionsComputer::CONTENT_TYPE, 'page'])
+                ->get(['content_key', 'score']);
+        } catch (QueryException $e) {
+            Log::warning('analytics.item_scores_read_failed', ['site_id' => $siteId, 'error' => $e->getMessage()]);
+
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            $key = (string) $row->content_key;
+            $score = (float) $row->score;
+            $out[$key] = max($out[$key] ?? $score, $score);
+        }
+
+        return $out;
+    }
+
+    /**
      * The unified ranked-action rows for a site (content_type='action', keyed
      * '<kind>:<ref>'), ordered by rank. Same fail-open posture as forSite():
      * any read fault returns [] so the payload degrades to its prior-ordered
