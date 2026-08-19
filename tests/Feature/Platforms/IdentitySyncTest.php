@@ -211,10 +211,13 @@ it('partna google connect only fills blank fields and never clobbers manual valu
     expect($workplace->field_sources['website']['source'])->toBe('google-business');
     expect($workplace->opening_hours['mon'])->toBe([['open' => '0900', 'close' => '1730']]);
 
-    // Sector was blank → filled. Phone was manual → NOT mirrored over.
+    // 2026-08-19 identity plan: NOTHING mirrors onto a partna's user row from
+    // a workplace sync. Sector stays blank (Instagram is their one automated
+    // source now) and the public contact number is untouched — the workplace
+    // is where they WORK, not who they are.
     $user->refresh();
-    expect($user->sector)->toBe('barber');
-    expect($user->sector_source)->toBe('google-business');
+    expect($user->sector)->toBeNull();
+    expect($user->sector_source)->toBeNull();
     expect($user->public_contact_number)->toBe('(03) 1111 1111');
 });
 
@@ -324,9 +327,10 @@ it('overwrites an instagram-sourced sector on a business google resync', functio
         ->and($user->sector_source)->toBe('google-business');
 });
 
-it('overwrites an instagram-sourced sector on a partna account too', function () {
-    // The account type Instagram pre-account builds actually produce.
-    // Site before forceFill+save — see the comment on the test above.
+it('leaves a partna sector alone entirely — Google no longer writes it (2026-08-19 identity plan)', function () {
+    // Reverses the pre-plan rule this test used to pin: a partna's industry
+    // must not be set by where they WORK. Instagram (their own account) is
+    // the sole automated source now; the Google fold is business-only.
     $user = idsyncUser('partnagooglesector', 'partna');
     idsyncSite($user);
     $user->forceFill(['sector' => 'artist', 'sector_source' => 'instagram'])->save();
@@ -334,8 +338,8 @@ it('overwrites an instagram-sourced sector on a partna account too', function ()
     app(IdentitySync::class)->applyFromGooglePayload($user, ['category' => 'Barber shop']);
 
     $user->refresh();
-    expect($user->sector)->toBe('barber')
-        ->and($user->sector_source)->toBe('google-business');
+    expect($user->sector)->toBe('artist')
+        ->and($user->sector_source)->toBe('instagram');
 });
 
 it('never overwrites a manual sector pick, on either account type', function (string $accountType) {
@@ -421,7 +425,9 @@ it('never writes contact_email from a google connect, even for business', functi
 
 // ── (d) Manual upsert: manual provenance + mirrors + (business) display_name ─
 
-it('manual upsert stamps manual source and mirrors public contact fields', function () {
+it('manual upsert stamps manual source and mirrors NOTHING onto a partna user row', function () {
+    // 2026-08-19 identity plan: the workplace's contact pair no longer
+    // mirrors for partna — workplace fields and user fields are independent.
     $user = idsyncUser('manualp', 'partna');
     idsyncSite($user);
 
@@ -438,29 +444,37 @@ it('manual upsert stamps manual source and mirrors public contact fields', funct
     expect($workplace->field_sources['contact_email']['source'])->toBe('manual');
     expect($workplace->field_sources['website']['source'])->toBe('manual');
 
-    // Mirrored onto the user's public contact columns.
+    // The user's own public pair stays untouched — TWO of each thing.
     $user->refresh();
-    expect($user->public_contact_number)->toBe('(03) 2222 2222');
-    expect($user->public_contact_email)->toBe('hello@handtyped.example');
+    expect($user->public_contact_number)->toBeNull();
+    expect($user->public_contact_email)->toBeNull();
     // partna account → display_name NOT adopted from the workplace name.
     expect($user->display_name)->toBe('Manualp');
 });
 
-it('manual upsert on a business account mirrors the name to display_name', function () {
+it('manual upsert on a business account mirrors identity fields but NOT display_name', function () {
+    // Decision 8 (2026-08-19): display_name is user-owned after Google's
+    // initial seed — the manual workplace-name mirror is gone. The identity
+    // mirror (contact, description, address) still runs for business.
     $user = idsyncUser('manualbiz', 'business');
     idsyncSite($user);
 
-    // Manual entry is capped at 15 chars by UpsertWorkplaceRequest (unlike
-    // the auto-adopted Google path, which word-trims instead of rejecting).
     actingAsUser($user)->putJson('/api/site/workplace', [
         'name' => 'Trading Name',
         'phone' => '(03) 3333 3333',
+        'contact_email' => 'shop@trading.example',
+        'description' => 'A very fine shop.',
+        'address_line1' => '1 Mirror Lane',
+        'city' => 'Melbourne',
     ])->assertOk();
 
     $user->refresh();
-    // Business capability google_business_sets_display_name → name adopted.
-    expect($user->display_name)->toBe('Trading Name');
+    expect($user->display_name)->toBe('Manualbiz');
     expect($user->public_contact_number)->toBe('(03) 3333 3333');
+    expect($user->public_contact_email)->toBe('shop@trading.example');
+    expect($user->bio)->toBe('A very fine shop.');
+    expect($user->location_street_address)->toBe('1 Mirror Lane');
+    expect($user->location_city)->toBe('Melbourne');
 });
 
 it('manual upsert preserves a google-business badge on a field the user did not send', function () {
