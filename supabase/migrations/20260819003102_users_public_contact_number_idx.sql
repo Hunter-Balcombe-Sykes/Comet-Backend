@@ -1,0 +1,23 @@
+-- =====================================================================
+-- Keep the public_contact_number lookup path indexed (non-unique)
+-- =====================================================================
+-- The UNIQUE index dropped in 20260819003101 was doing double duty: besides
+-- enforcing the false invariant, it served the equality lookup in
+-- PublicSignupAvailabilityController::check —
+--
+--     ->where('phone', $phone)->orWhere('public_contact_number', $phone)
+--
+-- which runs on every signup availability keystroke. Replace it with a plain
+-- partial btree so dropping the constraint does not silently regress that probe
+-- into a seq scan on core.users.
+--
+-- No email counterpart, deliberately: the same controller matches email with
+-- `LOWER(public_contact_email) = ?`, which a btree on the RAW column cannot
+-- serve — the dropped unique index never served it either, so nothing regresses.
+-- A functional index on lower(public_contact_email) would be a genuine
+-- improvement, but it is a pre-existing seq scan, not something this change
+-- introduces, so it stays out of scope here.
+-- =====================================================================
+-- ROLLBACK: DROP INDEX CONCURRENTLY IF EXISTS core.users_public_contact_number_idx;
+--   Fully reversible -- a non-unique index carries no data and enforces nothing.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS users_public_contact_number_idx ON core.users (public_contact_number) WHERE public_contact_number IS NOT NULL;
