@@ -1,11 +1,18 @@
 <?php
 
 use App\Models\Core\Site\Site;
+use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Cache\CacheLockService;
+use App\Services\Content\ContentItemSlugAllocator;
+use App\Services\Media\MediaUrlResolver;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Pools\PoolResolver;
+use App\Site\Pools\PoolSectionProvisioner;
+use App\Site\Sections\SectionCandidates;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 // #LIFE-6 (also #CCH-3, #API-3 — one defect, three ids).
 //
@@ -60,12 +67,12 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
             // uninitialised fails somewhere unrelated and looks like a bug in
             // the code under test.
             parent::__construct(
-                app(App\Site\Pools\PoolSectionProvisioner::class),
-                app(App\Site\Sections\SectionCandidates::class),
-                app(App\Services\Content\ContentItemSlugAllocator::class),
-                app(App\Services\Media\MediaUrlResolver::class),
-                app(App\Services\Analytics\ContentPopularityReader::class),
-                app(App\Services\Cache\CacheLockService::class),
+                app(PoolSectionProvisioner::class),
+                app(SectionCandidates::class),
+                app(ContentItemSlugAllocator::class),
+                app(MediaUrlResolver::class),
+                app(ContentPopularityReader::class),
+                app(CacheLockService::class),
             );
         }
 
@@ -87,7 +94,7 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
 }
 
 it('drops only the pool that failed, still publishes the others, and marks the build degraded', function () {
-    $pro = createTenant('deg-'.\Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(6)));
+    $pro = createTenant('deg-'.Str::lower(Str::random(6)));
     $site = Site::where('user_id', $pro->id)->first();
 
     $surviving = [
@@ -103,7 +110,9 @@ it('drops only the pool that failed, still publishes the others, and marks the b
 
     $builder = app(IndividualProfilePayloadBuilder::class);
     $payload = $builder->build($pro, $site);
-    $pools = $payload['profile']['pools'] ?? [];
+    // The payload casts an empty pools map to an object so it serialises as
+    // `{}` and not `[]`; cast back before asserting on keys.
+    $pools = (array) ($payload['profile']['pools'] ?? []);
 
     // The load-bearing assertion. Before the fix this was [] — the media pool
     // was thrown away because the shop pool threw.
@@ -121,7 +130,7 @@ it('drops only the pool that failed, still publishes the others, and marks the b
 });
 
 it('does not mark a build degraded when every pool resolves', function () {
-    $pro = createTenant('ok-'.\Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(6)));
+    $pro = createTenant('ok-'.Str::lower(Str::random(6)));
     $site = Site::where('user_id', $pro->id)->first();
 
     // No failing pool at all — '' matches none of the registry keys.
@@ -139,7 +148,7 @@ it('shares one resolver instance, so a pool fault is visible to the controller t
     // The wiring #LIFE-6 turns on: the builder marks the flag on the SAME
     // SitepageDataResolverService the controller later asks. If these two ever
     // resolve to different instances the fix is silently inert.
-    $pro = createTenant('wire-'.\Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(6)));
+    $pro = createTenant('wire-'.Str::lower(Str::random(6)));
     $site = Site::where('user_id', $pro->id)->first();
 
     $resolver = app(SitepageDataResolverService::class);
@@ -151,4 +160,94 @@ it('shares one resolver instance, so a pool fault is visible to the controller t
     app(IndividualProfilePayloadBuilder::class)->build($pro, $site);
 
     expect($resolver->hasDegraded())->toBeTrue();
+});
+
+it('bails on the whole lane — and does NOT mark degraded — when the content tables do not exist at all', function () {
+    // The other half of the branch, and a real regression caught by review-by-
+    // test-suite: the first cut of #LIFE-6 treated "content.* does not exist"
+    // as "one pool failed" and continued the loop. resolve() provisions a
+    // section row as a SIDE EFFECT, so continuing minted a section for every
+    // pool while content.* was absent, and SiteActionsService -> LinkPoolReader
+    // is not guarded against that pairing: the public profile endpoint went
+    // from 200 to 500 in any environment without the content lane.
+    //
+    // "A missing lane yields no pools, never a 500" is the contract the
+    // original `return []` kept, and it still has to hold. It is also not a
+    // DEGRADATION — the schema is missing, not unwell — so the payload must
+    // cache at the normal TTL rather than the 10s degraded one.
+    $pro = createTenant('nolane-'.Str::lower(Str::random(6)));
+    $site = Site::where('user_id', $pro->id)->first();
+
+    app()->instance(PoolResolver::class, new class extends PoolResolver
+    {
+        public function __construct() {}
+
+        public function resolve(Site $site, string $pool): array
+        {
+            // Exactly what SQLite raises for an unprovisioned lane, and what
+            // Postgres raises as SQLSTATE 42P01.
+            throw new QueryException(
+                'pgsql',
+                'select * from "content"."items"',
+                [],
+                new RuntimeException('SQLSTATE[HY000]: General error: 1 no such table: content.items'),
+            );
+        }
+
+        public function hasSelection(Site $site, string $pool): bool
+        {
+            return false;
+        }
+    });
+
+    $builder = app(IndividualProfilePayloadBuilder::class);
+    $payload = $builder->build($pro, $site);
+
+    expect((array) ($payload['profile']['pools'] ?? []))->toBe([]);
+    expect($builder->lastBuildDegraded())->toBeFalse();
+});
+
+it('recognises the POSTGRES undefined-table code, not just the SQLite message', function () {
+    // Review gap, closed. The case above injects a SQLite-shaped error, so it
+    // only exercises the str_contains('no such table') arm — and SQLite is the
+    // arm that does NOT run in production. This one carries SQLSTATE 42P01 with
+    // a message containing no such substring, so it can only pass via
+    // $e->getCode(). If that arm were dead, production would take the DEGRADED
+    // branch on a genuinely missing table and mint a section row per pool: the
+    // exact 500 this branch exists to prevent, reachable only on Postgres and
+    // invisible to the whole SQLite suite.
+    $pro = createTenant('pg42-'.Str::lower(Str::random(6)));
+    $site = Site::where('user_id', $pro->id)->first();
+
+    app()->instance(PoolResolver::class, new class extends PoolResolver
+    {
+        public function __construct() {}
+
+        public function resolve(Site $site, string $pool): array
+        {
+            $previous = new class('SQLSTATE[42P01]: Undefined table: 7 ERROR:  relation "content.items" does not exist') extends PDOException
+            {
+                public function __construct(string $message)
+                {
+                    parent::__construct($message);
+                    // PDO reports SQLSTATE as a STRING code; Exception::$code is
+                    // protected, so a subclass is the only way to set it here.
+                    $this->code = '42P01';
+                }
+            };
+
+            throw new QueryException('pgsql', 'select * from "content"."items"', [], $previous);
+        }
+
+        public function hasSelection(Site $site, string $pool): bool
+        {
+            return false;
+        }
+    });
+
+    $builder = app(IndividualProfilePayloadBuilder::class);
+    $payload = $builder->build($pro, $site);
+
+    expect((array) ($payload['profile']['pools'] ?? []))->toBe([]);
+    expect($builder->lastBuildDegraded())->toBeFalse();
 });

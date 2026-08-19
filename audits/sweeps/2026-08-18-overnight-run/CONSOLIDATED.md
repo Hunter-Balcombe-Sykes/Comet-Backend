@@ -116,7 +116,7 @@
         }
         ```
 
-- [ ] **#SEC-2** · P1 — Google Business photo attribution PII survives the `when_unclaimed` redaction for unclaimed listings
+- [x] **#SEC-2** · P1 — Google Business photo attribution PII survives the `when_unclaimed` redaction for unclaimed listings
     - **Where:** app/Ingest/Connectors/GoogleBusinessConnector.php:98-103 (manifest redactions), :281-300 (`mapPhoto()`); app/Ingest/Landing/Redactor.php:31-63 (`strip()`)
     - **Affects:** Third-party Google reviewers/photographers whose name and profile URI are stored on any unclaimed business listing — GDPR/DSAR exposure for data subjects who never consented and whose data the owner never claimed responsibility for.
     - **Effort:** S (~0.5–1h)
@@ -435,7 +435,7 @@
         }
         ```
 
-- [ ] **#LIFE-6** · P1 — `buildPools()` swallows a query failure and blanks every pool for the full-length cache TTL
+- [x] **#LIFE-6** · P1 — `buildPools()` swallows a query failure and blanks every pool for the full-length cache TTL
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:240-248 (`buildPools()`)
     - **Affects:** Every public sitepage visitor for a site whose pool resolution hits a transient `QueryException` — content vanishes entirely (not just the failing pool) and the empty result is cacheable for the full 60s TTL, not the 10s degraded TTL.
     - **Effort:** S (~0.5–1h)
@@ -476,7 +476,7 @@
         // instead of a fixed lookback — larger work, likely a schema change, deferred.
         ```
 
-- [ ] **#LIFE-8** · P2 — `ItemLinkRules::syncedPlatformsFor()` counts a retired/disconnected source link as still-synced, blocking a manual link add
+- [x] **#LIFE-8** · P2 — `ItemLinkRules::syncedPlatformsFor()` counts a retired/disconnected source link as still-synced, blocking a manual link add
     - **Where:** app/Site/Pools/ItemLinkRules.php:82-92
     - **Affects:** Dashboard pool curation — an owner cannot hand-add a platform link for an item if a stale `content.f_link` row still names that platform, even after disconnecting the platform.
     - **Effort:** S (~0.5–1h)
@@ -1806,7 +1806,7 @@ None.
         }
         ```
 
-- [ ] **#CCH-3** · P2 · Category 10 — `buildPools()` swallows `QueryException` on the hottest read path in the codebase and caches the empty result under the full TTL
+- [x] **#CCH-3** · P2 · Category 10 — `buildPools()` swallows `QueryException` on the hottest read path in the codebase and caches the empty result under the full TTL
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:241-248 (`buildPools()`), app/Services/PublicSite/IndividualProfilePayloadBuilder.php:690-693 (`lastBuildDegraded()`)
     - **Affects:** Visitors to `GET /api/public/profiles/{handle}` (via `IndividualProfileController` / `WarmPublicSiteCacheJob`) during any transient DB error hit while resolving a content pool; their watch/listen/media/menus/shop/services/custom-links sections vanish from the public payload for up to the full primary+stale cache window.
     - **Effort:** S (~0.5–1h)

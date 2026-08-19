@@ -321,3 +321,174 @@ attempt option 1 or 2 now finds out immediately if they break the shape.
 `SELECT id FROM (SELECT items.id, items.first_seen_at, (SELECT MAX(...)) AS cand_sort_at FROM ... WHERE ...) t ORDER BY cand_sort_at DESC NULLS LAST, COALESCE(cand_sort_at, first_seen_at) DESC, id DESC`
 — which is alias-legal because the alias is an input column of the outer query.
 Verify on the **Postgres** lane, not SQLite.
+
+---
+
+## 4. Two things the independent reviews caught that I had wrong
+
+Recorded because both are the kind of mistake that looks fine in a green suite,
+and because they are the strongest argument for keeping `fix-flow.md`'s
+independent-review step even at 3am.
+
+### 4.1 The first `#SEC-1` guard was bypassable — I mirrored half of the precedent
+
+`ImageVariantService::loadImage()` does TWO things: `assertImageMime($path)` (a
+byte-sniffed format allowlist) and then the pixel-count check. I built the
+string-based twin with only the second, and reasoned in the docblock that
+"a bomb necessarily has a READABLE header".
+
+That is false. `imagecreatefromstring()` decodes strictly more formats than
+`getimagesizefromstring()` can parse — GD's own **GD2** among them. Measured:
+
+```
+gd2   bytes=854298   getimagesizefromstring=FALSE
+imagecreatefromstring on those bytes → DECODED: 12000x12000 = 144,000,000 pixels
+```
+
+854 KB through a 15 MB byte cap and a pixel guard that had just declared the
+bytes harmless. Fixed by adding the finfo allowlist AND flipping `exceeds()` to
+fail **closed** on an unreadable header. A second review then established, by
+mutation, that the fail-closed flip is what actually stops GD2, while the
+allowlist narrows the accepted surface and supplies an honest failure reason —
+the docblock now says that, rather than my original guess.
+
+**Transferable lesson:** when an audit points at a precedent, copy ALL of it. The
+half I dropped was the half that mattered.
+
+### 4.2 The first `#LIFE-6` fix turned a 200 into a 500
+
+The obvious reading of "don't discard every pool because one failed" is: catch
+per pool, `continue`. That is wrong here, and the original code's one-line
+comment — *"A missing lane yields no pools, never a 500"* — was load-bearing in a
+way the audit never mentioned.
+
+`PoolResolver::resolve()` provisions a `site.sections` row as a **side effect**.
+Bailing at the first failure minted one section row; continuing through all seven
+minted seven — including `custom_links`. `SiteActionsService` → `LinkPoolReader`
+then reads that section's pinned items against a `content.f_link` table that does
+not exist in a partial environment, unguarded, and the public profile endpoint
+returned **500**.
+
+Caught by `tests/Feature/PublicSite/IncompleteBookingPagePresenceTest.php`, which
+does not call `setupContentTables()` — so every pool throws there. Verified it as
+a genuine regression rather than a flake by running the same test in the pristine
+baseline worktree (passed) and in isolation on the branch (failed).
+
+The fix distinguishes the two failures, which the original single `return []`
+conflated:
+
+| Failure | Signal | Handling |
+|---|---|---|
+| The content lane does not exist | SQLSTATE `42P01`, or `no such table` | `return []`, do NOT mark degraded — the schema is missing, not unwell |
+| A pool query failed | anything else | drop that pool, keep the rest, mark degraded (10s TTL) |
+
+Both branches are now pinned by tests, including the lane-absent one that had no
+coverage before and whose absence is what let the regression through.
+
+**Transferable lesson:** a `catch` that looks like clumsy over-catching may be
+holding a side-effect ordering invariant. Check what the code AFTER the catch
+does before you turn a bail-out into a `continue`.
+
+---
+
+## 5. The `#SEC-2` backfill — scoped, NOT done, needs a human
+
+The prompt's instruction was: ship the code fix, do not touch landed data, write
+the backfill question down. Here it is, with real numbers.
+
+**No data was modified.** The queries below are read-only counts. Deliberately no
+names in this file — it is git-tracked, and copying the PII into the remediation
+ticket would be its own disclosure.
+
+### Scope, measured on DEV (`glncumufgaqcmqhzwrxm`) 2026-08-19
+
+| | |
+|---|---|
+| `content.media_assets` rows with a non-null `attribution` | **129** |
+| …carrying at least one author entry | **129** (all of them) |
+| Total author entries | **129** |
+| **Distinct named people** | **59** |
+| Author entries carrying a Google profile URI | **129** (all of them) |
+| Distinct site owners affected | 12 |
+| Of those owners, `status = 'unclaimed'` | **4**, holding **40** of the entries |
+| Landed between | 2026-08-12 and 2026-08-18 |
+
+Production holds **none** of this — it has no `content` schema at all — so this is
+a dev-only remediation and there is no customer-facing exposure to race.
+
+### The decision needed
+
+**(a) Which rows?** The 40 entries on the 4 unclaimed sites are unambiguous: the
+`when_unclaimed` scope says we should never have held them. The other 89 sit on
+claimed sites, where the declared policy is that the credit stays. Narrow
+remediation = 40 entries; the conservative reading = all 129, on the grounds that
+they were landed BEFORE the scope was enforceable and nobody has re-consented.
+
+**(b) Redact or delete?** Two shapes:
+- **Redact in place** — `jsonb_set` the `authors` key out, leaving `maps_uri` /
+  `flag_uri` intact. Keeps the photo displayable with its link-back, and matches
+  exactly what the code fix now does on ingest. Recommended.
+- **Delete the whole `attribution` value** — simpler, and loses the link-back
+  half of the Places obligation for rows that are still displayed. Worse.
+
+Note the code fix does NOT heal these rows on its own: `resolveMediaAssets()` is
+**mint-only** by design (a Google photo ref rotates every fetch, so a re-fetch
+arrives as a NEW row). Existing rows keep their credit until something rewrites
+them. So this backfill is genuinely required, not merely tidy.
+
+**(c) Does it interact with `LEGAL-2`?** Yes — same vendor, same data subjects,
+same legal basis question, different surface (reviewer names vs photo
+contributors). `project_google_reviewer_pii_open` is already flagged
+**LEGAL-2 before pilot**. Do these together; deciding them separately risks two
+different answers to one question.
+
+### Why it was not done tonight
+
+A redaction pass over live rows is a locked DB write on a table with data,
+against a policy question nobody has ruled on, at 3am. That is three separate
+reasons to stop, any one of which would be enough.
+
+Suggested shape when someone does it — as a reviewed command with a `--dry-run`,
+not a psql one-liner:
+
+```sql
+-- narrow scope; widen the WHERE to all rows if (a) is answered "all 129"
+UPDATE content.media_assets ma
+   SET attribution = ma.attribution - 'authors'
+  FROM core.users u
+ WHERE u.id = ma.user_id
+   AND u.status = 'unclaimed'
+   AND ma.attribution ? 'authors';
+```
+
+---
+
+## 6. Open follow-ups this run surfaced but did not fix
+
+### 6.1 `WarmPublicSiteCacheJob` ignores the degraded flag (found during #LIFE-6 review, P2)
+
+`IndividualProfileController` is the ONLY caller that checks
+`lastBuildDegraded()` and rewrites the keys via `CacheLockService::shortenDegraded()`.
+`App\Jobs\Cache\WarmPublicSiteCacheJob::handle()` calls `rememberLocked($key,
+$builder->cacheTtl(), fn () => $builder->build(...))` and never asks.
+
+So a WARM-triggered build that degrades caches a partial payload at the full 60s
+TTL plus its ×10 stale twin. A later visitor gets a cache HIT, which by the
+controller's own comment never re-runs the resolver — so nothing can shorten it
+retroactively, and #LIFE-6's "heals seconds after the database does" does not
+hold on that path.
+
+**Pre-existing, not a regression** — the asymmetry existed before this unit,
+when only `safeQuery()` could arm the flag. Strictly better than the old
+all-or-nothing `return []`. But it is the natural next fix, and it is small:
+hoist the shorten-if-degraded check to wherever both callers can share it.
+
+### 6.2 `#SCALE-15` ≡ `#LIFE-19` has a known cheap fix — see §3.4
+
+Not a mystery any more, just unscheduled. The `ref` ends with `:video`, which is
+knowable at `dispatchMirrors()` time.
+
+### 6.3 The `LiveSourceScope` pause ruling — see §3.1
+
+The single most consequential open question from this run, because the answer
+changes six surfaces rather than three.

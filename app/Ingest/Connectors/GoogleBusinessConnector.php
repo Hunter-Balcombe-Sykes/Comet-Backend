@@ -95,11 +95,36 @@ class GoogleBusinessConnector implements Connector
             // run at connect so the library fills on day one, then the
             // scheduler cadence under the platform's budget cap.
             eagerOnConnect: true,
-            redactions: ['author', 'author_uri', 'author_photo'],
+            // #SEC-2. The first three are the REVIEW shape (mapReview() emits
+            // author/author_uri/author_photo as top-level keys, and Redactor
+            // walks declared paths from the root). mapPhoto() emits a
+            // differently-shaped `attribution` block — authors[].name,
+            // authors[].uri, maps_uri, flag_uri — that no declared path named,
+            // so ProjectionWriter::resolveMediaAssets() persisted the full
+            // credit, reviewer names included, into content.media_assets
+            // .attribution regardless of claim status. Same data subject, same
+            // vendor, second surface.
+            //
+            // The whole `attribution.authors` path rather than
+            // 'attribution.authors.*.name'. Redactor DOES support the wildcard
+            // (verified executably, not assumed), but it leaves `authors: [[],
+            // []]` — empty husks that still disclose how many people
+            // contributed photos, and that read downstream as a bug rather than
+            // as absent vendor data.
+            //
+            // maps_uri and flag_uri deliberately SURVIVE. They carry no personal
+            // data and they are the link-back half of the Places attribution
+            // obligation, which still attaches because an unclaimed pre-account
+            // site is public by design. Redacting the credit while continuing to
+            // display the photo is a real tension, written up for a human in
+            // docs/superpowers/plans/2026-08-19-P1-overnight-DECISIONS.md §3.2
+            // alongside the open LEGAL-2 reviewer-PII item.
+            redactions: ['author', 'author_uri', 'author_photo', 'attribution.authors'],
             redactionScopes: [
                 'author' => 'when_unclaimed',
                 'author_uri' => 'when_unclaimed',
                 'author_photo' => 'when_unclaimed',
+                'attribution.authors' => 'when_unclaimed',
             ],
         );
     }
