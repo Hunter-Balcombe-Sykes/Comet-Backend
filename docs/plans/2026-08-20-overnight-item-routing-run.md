@@ -299,7 +299,50 @@ Rules for the task:
   moderation throttles) — those are not "limits", they're the fence.
 - Report lists every knob: old → new.
 
-### T10 — Full-night backstop gates (run at the end, before the report)
+### T10 — Live E2E validation loop: three real Instagrams, until clean (owner, 2026-08-20)
+
+At the END of the run (after T1–T9 are live on dev), validate the WHOLE
+scan stack against real accounts — the exact method used for the
+natalieannehair diagnosis (routing.link_observations + Supabase queries +
+Laravel tinker + dev logs), but as a fix-and-repeat LOOP:
+
+1. Connect each test Instagram on a test account, let the auto scan lanes
+   run to completion:
+   - https://www.instagram.com/the_046_official/
+   - https://www.instagram.com/barber.milo.le/
+   - https://www.instagram.com/by.albertkim/
+2. Trace EVERYTHING that happened per account: every bio link observed,
+   its verdict, what it became (connection / suggestion / pool item of
+   the right kind / store / link card), what was missed, what was wrong.
+   This covers ALL scan behaviour — platforms, socials, booking,
+   stores, menus, findings — not just the new item lanes.
+3. Fix every issue found (real fixes with tests, not patches), deploy,
+   RESET the test state (disconnect/remove what the bad pass created),
+   and re-run the same account until it comes through perfectly clean.
+   Only then move to the next account.
+4. **Shopify (and store) breadth**: beyond the Instagrams, test several
+   DIFFERENT Shopify stores (and at least one WooCommerce/other) through
+   both lanes — pasted product, pasted storefront, storefront found in a
+   scan — asserting product items + store connect/suggestion per policy.
+5. **natalieannehair reconnect must come through clean**: reconnect it
+   (any test user) and verify the full corrected outcome — store
+   suggested/connected, the Spotify episode NEVER a platform (T6b), the
+   YouTube link a video item (T6), no junk link cards for things with a
+   richer home.
+
+Standing freedoms for this task (owner grant): use ANY Supabase user or
+the account already logged in on localhost in the built-in browser;
+add/remove items and platforms freely on test accounts; run the LOCAL
+backend (keys are configured) when that's faster for iteration — but the
+FINAL clean pass per account must be verified against DEV, since dev is
+what the dashboard talks to. Paid-scrape spend for these connects is
+expected and approved (T9 raised the budgets).
+
+Exit gate: all three Instagrams + the natalieannehair reconnect each have
+a documented clean pass (the trace table per account goes in the report),
+and every fix made inside this loop has its own committed test.
+
+### T11 — Full-night backstop gates (run at the end, before the report)
 
 - Full backend suite green; dashboard typecheck/lint clean.
 - Deploy both; remote-verify each task's gate on dev (tinker battery +
@@ -324,7 +367,8 @@ Rules for the task:
 - [ ] T7 — scan-seeded products connect their store
 - [ ] T8 — one routing brain for every scanned URL (audit + coverage matrix)
 - [ ] T9 — every cap/budget raised 2–3x (owner permission recorded in the task)
-- [ ] T10 — backstop gates + final critic pass + report
+- [ ] T10 — live E2E loop: 3 Instagrams + Shopify breadth + natalieannehair reconnect, until clean
+- [ ] T11 — backstop gates + final critic pass + report
 
 ## Owner additions (queue below as they come — plan is open until "handoff")
 
