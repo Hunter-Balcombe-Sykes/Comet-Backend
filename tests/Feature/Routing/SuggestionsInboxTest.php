@@ -139,6 +139,48 @@ it('demotes the incumbent rather than deleting it when replacing', function () {
         ->toBe('opentable.reserve');
 });
 
+it('offers a swap for a cap-blocked link on a single-account surface, and swapping retires the incumbent', function () {
+    // Owner, 2026-08-19: a limited kind of link (one Fresha, one Behance)
+    // that is already filled shows Swap, not a dead "you've reached the
+    // limit". The incumbent is resolved at read time for intents recorded
+    // before the reconciler wrote it, and a swap soft-deletes it — one
+    // Behance for another, not two Behances with a demoted flag.
+    $pro = createTenant('inbox-swap');
+
+    $incumbent = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'behance.profile',
+        'routing_class' => 'social', 'resource_id' => 'old-handle',
+        'payload' => [], 'is_active' => true,
+    ]);
+    $incumbent->save();
+
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'behance.profile', 'routing_class' => 'social',
+        'identifier' => 'new-handle', 'canonical_url' => 'https://www.behance.net/new-handle',
+        'state' => 'blocked', 'block_reason' => 'cap_reached',
+    ]);
+
+    $listed = actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions.0');
+    expect($listed['actions'])->toBe(['replace', 'dismiss'])
+        ->and($listed['question'])->toContain('swap')
+        ->and($listed['conflictingConnectionId'])->toBe($incumbent->id);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    expect(IntegrationConnection::withTrashed()->whereKey($incumbent->id)->value('deleted_at'))->not->toBeNull()
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'behance.profile')->pluck('resource_id')->all())
+        ->toBe(['new-handle']);
+});
+
+it('keeps a cap-blocked link on a multi-account surface dismiss-only', function () {
+    // Five Instagrams already: no one row a swap could mean.
+    $pro = createTenant('inbox-cap-multi');
+    seedIntent($pro->id, ['state' => 'blocked', 'block_reason' => 'cap_reached']);
+
+    expect(actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions.0.actions'))
+        ->toBe(['dismiss']);
+});
+
 it('never re-asks a question the user already dismissed', function () {
     $pro = createTenant('inbox-dismiss');
     $intentId = seedIntent($pro->id);

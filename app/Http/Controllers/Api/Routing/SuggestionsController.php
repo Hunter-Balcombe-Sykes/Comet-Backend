@@ -6,6 +6,8 @@ use App\Catalog\CompiledCatalog;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
 use App\Routing\SuggestionApplier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,8 +50,9 @@ class SuggestionsController extends ApiController
             ->limit(100)
             ->get();
 
-        $suggestions = $intents->map(function (object $intent): array {
+        $suggestions = $intents->map(function (object $intent) use ($user): array {
             $surface = CompiledCatalog::surface($intent->surface_key);
+            $this->resolveSwapIncumbent($user, $intent, $surface);
 
             return [
                 'id' => $intent->id,
@@ -88,6 +91,7 @@ class SuggestionsController extends ApiController
         if ($surface === null) {
             return $this->error('That platform is no longer supported.', 422);
         }
+        $this->resolveSwapIncumbent($user, $intent, $surface);
 
         // Shared with the synced-modal's "Change to" swap (SyncFindingsBridge)
         // — one writer for intent application, wherever the user answered.
@@ -153,6 +157,43 @@ class SuggestionsController extends ApiController
         return $this->success(['dismissed' => true]);
     }
 
+    /**
+     * A cap-blocked intent on a SINGLE-account surface names the one row a
+     * Swap would replace (SourceReconciler::soleIncumbentFor writes it at
+     * reconcile time since 2026-08-19). Intents recorded before that carry
+     * null; resolving it here at read time gives them the same Swap, and
+     * persisting it keeps accept() and the inbox in agreement. Mutates
+     * $intent in place. Nothing for a multi-account surface — there is no
+     * one row a swap could mean.
+     *
+     * @param  array<string, mixed>|null  $surface
+     */
+    private function resolveSwapIncumbent(User $user, object $intent, ?array $surface): void
+    {
+        if ($intent->block_reason !== 'cap_reached'
+            || $intent->conflicting_connection_id !== null
+            || $surface === null
+            || (int) ($surface['max_accounts'] ?? 1) > 1) {
+            return;
+        }
+
+        $incumbent = IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('surface_key', $intent->surface_key)
+            ->where('resource_id', '!=', (string) $intent->identifier)
+            ->orderBy('created_at')
+            ->value('id');
+        if ($incumbent === null) {
+            return;
+        }
+
+        DB::table('routing.source_intents')->where('id', $intent->id)->update([
+            'conflicting_connection_id' => $incumbent,
+            'updated_at' => now(),
+        ]);
+        $intent->conflicting_connection_id = $incumbent;
+    }
+
     private function findIntent(string $userId, string $intentId): ?object
     {
         return DB::table('routing.source_intents')
@@ -169,7 +210,12 @@ class SuggestionsController extends ApiController
 
         return match ($intent->block_reason) {
             'conflict' => "You already have a {$intent->routing_class} link. Use this {$name} one instead?",
-            'cap_reached' => "You've reached the limit for {$name} accounts.",
+            // A single-account surface at its cap names its one incumbent
+            // (SourceReconciler::soleIncumbentFor), so the ask is a swap;
+            // a multi-account surface at its cap has no one row to swap.
+            'cap_reached' => $intent->conflicting_connection_id !== null
+                ? "You already have a {$name} — swap it for this one?"
+                : "You've reached the limit for {$name} accounts.",
             'gate' => "{$name} isn't available on your account type.",
             'below_threshold' => "Is this your {$name}?",
             default => "Add this {$name} link?",
@@ -181,7 +227,8 @@ class SuggestionsController extends ApiController
     {
         return match ($intent->block_reason) {
             'conflict' => ['replace', 'dismiss'],
-            'gate', 'cap_reached' => ['dismiss'],
+            'cap_reached' => $intent->conflicting_connection_id !== null ? ['replace', 'dismiss'] : ['dismiss'],
+            'gate' => ['dismiss'],
             default => ['accept', 'dismiss'],
         };
     }
