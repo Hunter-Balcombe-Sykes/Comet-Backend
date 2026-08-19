@@ -20,6 +20,7 @@ use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // CA-W6/CA-W7: completes a pending Fresha connect (either mode) by scraping
@@ -242,6 +243,25 @@ final readonly class FreshaConnectFetch implements FetchStrategy
 
         if ($menu['services'] === []) {
             throw new FetchUnavailableException('fresha_empty_menu');
+        }
+
+        // Fresha rotates venue slugs, and fetchLocation() absorbs that silently —
+        // 404, resolve, retry — exposing what it landed on via lastResolvedSlug().
+        // FreshaController::team() has always persisted that for the dashboard
+        // lane; this lane never did, so a rotated venue re-resolved on EVERY
+        // refresh and handed the stale slug to the employee leg (which is why
+        // FreshaAutoSelector now retries). Write it down once and the stale slug
+        // stops being the starting point.
+        //
+        // Only on a real resolution: null means either no rotation or a cache hit
+        // where fetchMenu never ran, and neither is a reason to touch the url.
+        // AUTO ONLY: the dashboard lanes already handle rotation their own way
+        // (FreshaController::team() writes both payload.url and canonical_key),
+        // and widening this would change a flow nobody reported a problem with.
+        $rotated = $auto ? $this->scraper->lastResolvedSlug() : null;
+        if ($rotated !== null && $rotated !== $this->scraper->slugFromUrl($url)) {
+            Log::info('fresha.auto_connect.slug_persisted', ['to' => $rotated, 'connection_id' => (string) $connection->id]);
+            $url = 'https://www.fresha.com/a/'.rawurlencode($rotated);
         }
 
         $this->offerVenueToGoogle($user, $menu);

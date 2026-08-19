@@ -47,6 +47,8 @@ function stubMenu(array $team = []): void
             ]],
         ]);
         $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('lastResolvedSlug')->andReturn(null);
+        $m->shouldReceive('resolveCurrentSlug')->andReturn(null);
         $m->shouldReceive('fetchEmployeeServices')->andReturn(null);
     });
 }
@@ -74,6 +76,8 @@ it('selects the matched employee menu in auto mode', function () {
             ]],
         ]);
         $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('lastResolvedSlug')->andReturn(null);
+        $m->shouldReceive('resolveCurrentSlug')->andReturn(null);
         $m->shouldReceive('fetchEmployeeServices')->andReturn([[
             'serviceId' => 's:9', 'name' => 'Simon Cut', 'duration' => '45min', 'description' => null,
             'price' => 'A$80', 'priceValue' => 80, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
@@ -125,6 +129,8 @@ function countingMenuStub(): stdClass
             ];
         });
         $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('lastResolvedSlug')->andReturn(null);
+        $m->shouldReceive('resolveCurrentSlug')->andReturn(null);
         $m->shouldReceive('fetchEmployeeServices')->andReturn(null);
     });
 
@@ -183,6 +189,8 @@ it('keeps the auto projection under the booking-XOR lock guards', function () {
             ];
         });
         $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('lastResolvedSlug')->andReturn(null);
+        $m->shouldReceive('resolveCurrentSlug')->andReturn(null);
         $m->shouldReceive('fetchEmployeeServices')->andReturn(null);
     });
 
@@ -224,6 +232,8 @@ it('marks an auto-chosen EMPLOYEE selection too, not just the storewide fallback
             ]],
         ]);
         $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('lastResolvedSlug')->andReturn(null);
+        $m->shouldReceive('resolveCurrentSlug')->andReturn(null);
         $m->shouldReceive('fetchEmployeeServices')->andReturn([[
             'serviceId' => 's:9', 'name' => 'Simon Cut', 'duration' => '45min', 'description' => null,
             'price' => 'A$80', 'priceValue' => 80, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
@@ -260,4 +270,56 @@ it('never stamps the marker on a dashboard storewide connect', function () {
     expect($next['selection']['mode'])->toBe('storewide')
         ->and($next)->not->toHaveKey('autoSelected')
         ->and($next)->not->toHaveKey('matchTier');
+});
+
+it('persists the rotated slug so the stale one stops being the starting point', function () {
+    // Fresha rotates venue slugs. fetchLocation() absorbs that transparently and
+    // reports what it landed on via lastResolvedSlug(); the dashboard lane has
+    // always written that back, this lane never did — so a rotated venue
+    // re-resolved on every refresh and kept feeding the employee leg a dead slug.
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+
+    test()->mock(FreshaScraper::class, function (MockInterface $m) {
+        $m->shouldReceive('fetchMenu')->once()->andReturn([
+            'storeName' => 'Anseo Studio',
+            'team' => [],
+            'services' => [[
+                'serviceId' => 's:1', 'name' => 'Cut', 'duration' => '30min', 'description' => null,
+                'price' => 'A$50', 'priceValue' => 50, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
+            ]],
+        ]);
+        $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('lastResolvedSlug')->andReturn('anseo-studio-melbourne-140a-chapel-street-w8ajp04r');
+        $m->shouldReceive('fetchEmployeeServices')->andReturn(null);
+        $m->shouldReceive('resolveCurrentSlug')->andReturn('anseo-studio-melbourne-140a-chapel-street-w8ajp04r');
+    });
+
+    $next = app(FreshaConnectFetch::class)->fetch(autoConnectionFor($user));
+
+    expect($next['url'])->toBe('https://www.fresha.com/a/anseo-studio-melbourne-140a-chapel-street-w8ajp04r');
+    expect($next['selection']['url'])->toBe('https://www.fresha.com/a/anseo-studio-melbourne-140a-chapel-street-w8ajp04r');
+});
+
+it('leaves the url alone when nothing rotated', function () {
+    // The happy path must not rewrite anything: lastResolvedSlug() is null both
+    // when the slug is current AND on a menu-cache hit where fetchMenu never ran.
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+    test()->mock(FreshaScraper::class, function (MockInterface $m) {
+        $m->shouldReceive('fetchMenu')->andReturn([
+            'storeName' => 'Anseo Studio',
+            'team' => [],
+            'services' => [[
+                'serviceId' => 's:1', 'name' => 'Cut', 'duration' => '30min', 'description' => null,
+                'price' => 'A$50', 'priceValue' => 50, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
+            ]],
+        ]);
+        $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('lastResolvedSlug')->andReturn(null);
+        $m->shouldReceive('fetchEmployeeServices')->andReturn(null);
+        $m->shouldReceive('resolveCurrentSlug')->andReturn(null);
+    });
+
+    $next = app(FreshaConnectFetch::class)->fetch(autoConnectionFor($user));
+
+    expect($next['url'])->toBe('https://www.fresha.com/a/anseo-studio-v0v92jna');
 });

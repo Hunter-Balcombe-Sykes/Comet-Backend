@@ -85,6 +85,10 @@ it('falls back to storewide when the employee menu comes back empty', function (
 
     $this->mock(FreshaScraper::class, function (MockInterface $m) {
         $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        // The slug has NOT rotated — resolving returns the same one, so the
+        // rotation retry correctly declines to spend a second fetch and `once()`
+        // still means what it always meant here.
+        $m->shouldReceive('resolveCurrentSlug')->andReturn('anseo-studio-v0v92jna');
         $m->shouldReceive('fetchEmployeeServices')->once()->andReturn(null);
     });
 
@@ -119,4 +123,85 @@ it('carries the store name onto the selection', function () use ($canonical) {
 
     expect($result['selection']['storeName'])->toBe('Anseo Studio')
         ->and($result['selection']['url'])->toBe($canonical);
+});
+
+it('retries the employee menu on the rotated slug instead of degrading to storewide', function () {
+    // Measured live on dev 2026-08-19: Fresha rotated anseo-studio-v0v92jna to
+    // anseo-studio-melbourne-140a-chapel-street-w8ajp04r. The storewide fetch
+    // follows the rotation transparently, but the employee leg was handed
+    // slugFromUrl() off the STORED url, hit the dead slug, returned no
+    // categories, and silently degraded to the whole salon's "from" prices —
+    // for a user the matcher had positively identified.
+    //
+    // matchTier 'first-exact' + mode 'storewide' is that bug's signature.
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+
+    $this->mock(FreshaScraper::class, function (MockInterface $m) {
+        $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        // The dead slug yields nothing...
+        $m->shouldReceive('fetchEmployeeServices')
+            ->with('anseo-studio-v0v92jna', 'e1')->andReturn(null);
+        // ...the current one is resolvable, and serves the employee's real menu.
+        $m->shouldReceive('resolveCurrentSlug')
+            ->andReturn('anseo-studio-melbourne-140a-chapel-street-w8ajp04r');
+        $m->shouldReceive('fetchEmployeeServices')
+            ->with('anseo-studio-melbourne-140a-chapel-street-w8ajp04r', 'e1')
+            ->andReturn([[
+                'serviceId' => 's:9', 'name' => 'Simon Cut', 'duration' => '45min', 'description' => null,
+                'price' => 'A$80', 'priceValue' => 80, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
+            ]]);
+    });
+
+    $result = app(FreshaAutoSelector::class)->select(
+        $user,
+        autoMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]),
+        'https://www.fresha.com/a/anseo-studio-v0v92jna',
+    );
+
+    expect($result['selection']['mode'])->toBe('employee');
+    expect($result['matchTier'])->toBe('exact');
+    expect($result['selection']['employee']['employeeId'])->toBe('e1');
+});
+
+it('still degrades to storewide when the rotated slug also has no employee menu', function () {
+    // The retry is one extra attempt, not a loop. A venue that genuinely has no
+    // per-employee menu must still land a WORKING storewide selection.
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+
+    $this->mock(FreshaScraper::class, function (MockInterface $m) {
+        $m->shouldReceive('slugFromUrl')->andReturn('old-slug');
+        $m->shouldReceive('resolveCurrentSlug')->andReturn('new-slug');
+        $m->shouldReceive('fetchEmployeeServices')->andReturn(null);
+    });
+
+    $result = app(FreshaAutoSelector::class)->select(
+        $user,
+        autoMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]),
+        'https://www.fresha.com/a/old-slug',
+    );
+
+    expect($result['selection']['mode'])->toBe('storewide');
+});
+
+it('does not re-resolve when the stored slug already serves the employee menu', function () {
+    // The retry must cost nothing on the happy path — no second outbound call
+    // for the overwhelming majority of venues whose slug never moved.
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+
+    $this->mock(FreshaScraper::class, function (MockInterface $m) {
+        $m->shouldReceive('slugFromUrl')->andReturn('live-slug');
+        $m->shouldReceive('fetchEmployeeServices')->with('live-slug', 'e1')->andReturn([[
+            'serviceId' => 's:9', 'name' => 'Simon Cut', 'duration' => '45min', 'description' => null,
+            'price' => 'A$80', 'priceValue' => 80, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
+        ]]);
+        $m->shouldReceive('resolveCurrentSlug')->never();
+    });
+
+    $result = app(FreshaAutoSelector::class)->select(
+        $user,
+        autoMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]),
+        'https://www.fresha.com/a/live-slug',
+    );
+
+    expect($result['selection']['mode'])->toBe('employee');
 });
