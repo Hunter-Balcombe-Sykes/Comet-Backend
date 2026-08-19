@@ -143,6 +143,8 @@
   fixture: { id: unknown }
 - route: "api/platforms/humanitix/accounts/{id}"
   fixture: { id: unknown }
+- route: "api/platforms/gumroad/accounts/{id}"
+  fixture: { id: unknown }
 - route: "api/platforms/kajabi/accounts/{id}"
   fixture: { id: unknown }
 - route: "api/platforms/luma/accounts/{id}"

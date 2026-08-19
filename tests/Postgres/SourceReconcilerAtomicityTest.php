@@ -125,6 +125,10 @@ beforeEach(function () {
         is_active boolean NOT NULL DEFAULT true,
         is_primary boolean NOT NULL DEFAULT false,
         last_refresh_status text,
+        -- Same trap as canonical_key above: the reconcile writes
+        -- last_refresh_error alongside last_refresh_status, so omitting it
+        -- fails this file with 42703 before the CHECK under test can fire.
+        last_refresh_error text,
         created_by_catalog_digest text,
         created_at timestamptz,
         updated_at timestamptz,
