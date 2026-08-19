@@ -137,13 +137,35 @@
   fixture: { id: unknown }
 - route: "api/platforms/bandcamp/accounts/{id}"
   fixture: { id: unknown }
+- route: "api/platforms/circle/accounts/{id}"
+  fixture: { id: unknown }
 - route: "api/platforms/eventbrite/accounts/{id}"
   fixture: { id: unknown }
 - route: "api/platforms/humanitix/accounts/{id}"
   fixture: { id: unknown }
+- route: "api/platforms/kajabi/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/luma/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/mixcloud/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/oztix/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/partiful/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/resident-advisor/accounts/{id}"
+  fixture: { id: unknown }
 - route: "api/platforms/soundcloud/accounts/{id}"
   fixture: { id: unknown }
 - route: "api/platforms/spotify/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/ticketek/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/ticketmaster/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/tidal/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/trybooking/accounts/{id}"
   fixture: { id: unknown }
 - route: "api/platforms/vimeo/accounts/{id}"
   fixture: { id: unknown }
@@ -153,19 +175,9 @@
   fixture: { id: unknown }
 
 # ── Platform content rows ────────────────────────────────────────────────────
-- route: "api/platforms/custom/links/{id}"
-  fixture: { id: unknown }
-- route: "api/platforms/custom/links/{id}/status"
-  fixture: { id: unknown }
 - route: "api/platforms/eventbrite/events/{id}"
   fixture: { id: unknown }
 - route: "api/platforms/humanitix/events/{id}"
-  fixture: { id: unknown }
-- route: "api/platforms/events/custom/{id}"
-  fixture: { id: unknown }
-- route: "api/platforms/online-ordering/entries/{id}"
-  fixture: { id: unknown }
-- route: "api/platforms/online-ordering/entries/{id}/status"
   fixture: { id: unknown }
 
 # ── Shop / Shopify — {id} is an external brand_id, {productId} a vendor id ────
