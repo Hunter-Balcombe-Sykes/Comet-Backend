@@ -115,12 +115,21 @@ Reproduction: `natalieanne.com` (a Shopify store) pasted into Links — no
 "connect as store" suggestion; pasted into Listen — was silently added as
 a bare item (T3 fixes the add; this task fixes the missing suggestion).
 
-Diagnosis to CONFIRM first (hypothesis from 2026-08-20 scoping): the
-commerce probe / store suggestion machinery only runs on the ROUTING lane
-(RoutingController → LinkRouter → CommerceProbeJob suggestOnly), never on
-the POOL lane the add sheets post to; and `PastedLinkClassifier` is pure
-grammar with no storefront knowledge. Verify by tracing a natalieanne.com
-paste through both lanes on dev (tinker + logs), then fix:
+Diagnosis CONFIRMED on dev (routing.link_observations, gsnwilliams,
+2026-08-19 15:19 UTC — the natalieannehair Instagram bio scan):
+1. **Scan side**: the importer spends its ONE commerce probe per host on
+   whichever URL it reaches first — it probed
+   `/pages/natalie-anne-education`, that read answered
+   `probe_unreachable`, and the HOMEPAGE (which identifies Shopify
+   instantly — the paste lane connected this exact store at 15:49) was
+   never probed. Fix: probe the host ROOT/origin, not the first deep URL,
+   and fall back to the origin when a deep-page probe is unreachable.
+   Also investigate why GenericShopScraper found the education page
+   unreachable while LinkCardScraper fetched the same site fine seconds
+   later (different fetch posture?).
+2. **Sheet side** (as scoped): the pool lane never probes, and
+   `PastedLinkClassifier` is pure grammar with no storefront knowledge.
+   Fix:
 - Links preview already fetches the page (`LinkCardScraper`) — detect
   storefront markers from the HTML already in hand (Shopify/Woo/BigCartel
   signatures; `ShopProviderDetector` has the knowledge) and return a
@@ -160,6 +169,31 @@ events did it on 2026-08-19:
 - Gate: a fixture bio page with a channel link + 3 video links yields one
   connection/suggestion + 3 real video items (not link cards), idempotent
   on re-scan, removed items stay removed.
+
+### T6b — Media catalog surfaces stop placing ITEM urls as accounts
+
+CONFIRMED live repro (gsnwilliams, 2026-08-19 15:19 UTC): the
+natalieannehair bio's `open.spotify.com/episode/6AZW9ZuDZrI3f7MTFnh4j9`
+link AUTO-CONNECTED as a "Spotify" platform at confidence 99 — resource_id
+= the episode id, payload just {url, source} (no name, so the UI shows
+"open.spotify.com"). Cause: `spotify.player`'s detector deliberately
+accepts ALL SEVEN entity kinds (artist|album|playlist|track|show|episode|
+user) as a connection — a pre-pools "embed any Spotify URL" design. The
+same Eventbrite-/e/ class of bug the events work fixed in the catalog.
+
+- Spotify: the detector narrows to the ACCOUNT kinds (artist|show|user —
+  playlist is an owner call, note the decision); track/album/episode
+  become reservedPaths-style item shapes that fall through to the T6
+  media seeder (Listen items). Existing wrongly-placed connections on dev:
+  find and convert/remove (one-off command, counts in the report).
+- AUDIT every Content-class surface's detectors for item-shaped paths
+  that can place a connection (youtube-music watch URLs, soundcloud track
+  paths, apple-music song/album, vimeo video ids, twitch vods, mixcloud
+  shows…) — the grammar in MediaPageReader::classifyItem is the reference
+  for what counts as an item. Add the coverage to T8's matrix.
+- Gate: re-run the natalieannehair bio scan on dev — the episode link
+  yields a Listen item (or a card until T6 lands, never a connection),
+  and no bogus platform row is created.
 
 ### T7 — Scan-seeded products auto-connect their store (the known gap)
 
@@ -220,6 +254,7 @@ when a richer determination exists.
 - [ ] T4 — store-suggestion diagnosis + fix (natalieanne.com repro)
 - [ ] T5 — suggestion band UI matches connection sheet
 - [ ] T6 — scan lanes: media items
+- [ ] T6b — media catalog surfaces stop placing item urls as accounts (spotify episode repro)
 - [ ] T7 — scan-seeded products connect their store
 - [ ] T8 — one routing brain for every scanned URL (audit + coverage matrix)
 - [ ] T9 — backstop gates + final critic pass + report
