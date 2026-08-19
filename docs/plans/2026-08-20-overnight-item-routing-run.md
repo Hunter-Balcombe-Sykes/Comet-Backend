@@ -208,16 +208,17 @@ Gate: scan fixture with a Shopify product URL → product item + store
 connection/suggestion per policy; a store the user disconnected stays
 disconnected.
 
-### T8 — One routing brain for EVERY scanned URL (owner, 2026-08-20)
+### T8 — One routing brain EVERYWHERE — every add lane AND every scan lane (owner, 2026-08-20)
 
 The full determination stack — catalog projection (platform account →
 connect/suggest with bands, slots, tombstones), item grammars (video /
 track / episode / event / product → pool item), store detection (storefront
-→ store platform + brand) — must apply to EVERY URL in EVERY scan lane.
-Scans are where this matters most: nothing may shortcut to a link card
-when a richer determination exists.
+→ store platform + brand) — must apply to EVERY URL on EVERY surface a
+URL can enter through. No lane gets a partial brain: nothing may shortcut
+to a link card when a richer determination exists.
 
-- **Audit every lane** and trace what each URL type actually gets:
+**Scan lanes (where it matters most):**
+- Audit every lane and trace what each URL type actually gets:
   `LinkInBioImporter` (bio + previous-website), `InstagramAutoSync`,
   `GoogleBusinessAutoSync` / `WebsiteLinkHarvester::harvest`,
   `PreviousWebsiteGate`, `LinkRouter` (the engine lanes 2–3 call), and
@@ -225,13 +226,34 @@ when a richer determination exists.
   task is the COVERAGE guarantee across lanes — find and close any lane
   that bypasses part of the chain (e.g. a lane that consults classify()
   but never the item seeders, or probes commerce but never events/media).
-- **Coverage matrix test** as the gate: a fixture set of URL types
-  (platform profile, video, track, episode, event page, organiser page,
-  product page, storefront, unknown host) × each scan lane, asserting the
-  exact outcome per cell (connection or suggestion / pool item of the
-  right kind / store platform / link card ONLY for the unknown host).
-  The matrix is the pinned contract for every future lane and platform.
-- Order note: run AFTER T6+T7 land (they supply the arms this audits).
+  A video link in a scan lands as a WATCH item; a product link lands as a
+  product item AND its store connects (T7); a storefront lands as a store
+  platform; an event page lands as an event item — in every lane alike.
+
+**Add lanes (every pool's add sheet, Links included):**
+- Every `POST /content/pools/{pool}/items` entry point runs the same
+  determination, not just the pools that happen to have a bespoke arm
+  today: a product URL pasted into LINKS gets the product/store
+  determination (suggest "add as product / connect store", per T4), a
+  video gets the Watch hand-off (T2 band + button), an event page the
+  Events hand-off — and the T3 refusal covers what none of the grammars
+  claim on the non-Links pools. The Links pool remains the one place a
+  plain card is always allowed, but never SILENTLY when a richer home
+  exists: the suggestion must show.
+- The routing paste lane (RoutingController / connect surfaces) is
+  audited to the same standard — it already probes; confirm its arms
+  match the pool lanes' after T6/T6b/T7.
+
+**Coverage matrix test** as the gate: a fixture set of URL types
+(platform profile, video, track, episode, event page, organiser page,
+product page, storefront, unknown host) × EVERY entry surface — each scan
+lane, each pool add endpoint (links included), the routing paste —
+asserting the exact outcome per cell (connection or suggestion / pool
+item of the right kind / store platform + brand / link card ONLY where a
+card is the right answer). The matrix is the pinned contract for every
+future lane and platform.
+
+Order note: run AFTER T6+T6b+T7 land (they supply the arms this audits).
 
 ### T9 — Every cap and budget raised 2–3x (EXPLICIT OWNER PERMISSION, 2026-08-20)
 
@@ -365,7 +387,7 @@ and every fix made inside this loop has its own committed test.
 - [ ] T6 — scan lanes: media items
 - [ ] T6b — media catalog surfaces stop placing item urls as accounts (spotify episode repro)
 - [ ] T7 — scan-seeded products connect their store
-- [ ] T8 — one routing brain for every scanned URL (audit + coverage matrix)
+- [ ] T8 — one routing brain everywhere: every add lane (Links included) + every scan lane (audit + coverage matrix)
 - [ ] T9 — every cap/budget raised 2–3x (owner permission recorded in the task)
 - [ ] T10 — live E2E loop: 3 Instagrams + Shopify breadth + natalieannehair reconnect, until clean
 - [ ] T11 — backstop gates + final critic pass + report
