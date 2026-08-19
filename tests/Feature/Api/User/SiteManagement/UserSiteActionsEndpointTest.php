@@ -80,3 +80,36 @@ it('serves the feed preview beside the actions data', function () {
     expect($response['feed']['mode'])->toBe('newest');
     expect($response['feed']['manual'])->toBe([]);
 });
+
+// Pins spec §6's no-drift guarantee itself: the dashboard's feed.entries must
+// come from the SAME publicPools() resolution the public payload serves, not
+// merely have the right shape. poolTenant() + shopStore() + shopProduct() +
+// poolPin() is the established fixture family (see
+// tests/Feature/Api/PublicSite/IndividualProfileControllerTest.php's feed
+// tests) for landing one real, pinned content.* item that a pool actually
+// serves — setupContentTables() (idempotent) brings in the source/collection/
+// storefront tables this file's beforeEach doesn't otherwise need.
+it('resolves feed.entries identically to the public payload for the same site', function () {
+    setupContentTables();
+    // The public profile endpoint also loads the design kit row + site media
+    // (unrelated to feed resolution) — this file's beforeEach never needed
+    // those tables until this test hits the public payload builder directly.
+    setupDesignKitsTable();
+    setupMediaTables();
+
+    [$pro, $siteId] = poolTenant();
+    $store = shopStore($pro->id);
+    poolPin($siteId, 'shop', shopProduct($pro->id, $store, 'Hat'));
+
+    $dashboardFeed = actingAsUser($pro)->getJson('/api/site/actions')->assertOk()->json('feed');
+    $publicFeed = $this->getJson("/api/public/profiles/{$pro->handle}")->assertOk()->json('data.profile.feed');
+
+    // A stub returning a hardcoded ['mode' => 'newest', 'entries' => [], 'manual' => []]
+    // would pass the shape test above but fail here twice over: entries would
+    // be empty (the real resolution over a pinned product is not), and even a
+    // stub that happened to return a non-empty literal would still diverge
+    // from whatever the public payload actually serves for this site.
+    expect($dashboardFeed['entries'])->not->toBeEmpty();
+    expect($dashboardFeed['mode'])->toBe($publicFeed['mode']);
+    expect($dashboardFeed['entries'])->toBe($publicFeed['entries']);
+});
