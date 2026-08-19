@@ -27,10 +27,6 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    // MenuFetchJob + MenuItemObserver both write site.item_slugs. Without the
-    // table their best-effort try/catch swallows a "no such table" and any slug
-    // assertion below would silently pass against nothing.
-    setupItemSlugsTable();
     // Slice 7 Task 5: MenuPayloadComposer reads content.* for the dishes and
     // only falls back to site.menu_* when that lane holds nothing for the
     // owner. The tables have to EXIST for the fallback to be reachable — the
@@ -1713,32 +1709,15 @@ it('serves an explicit platforms:[] (not an omitted key) for a scanned item on a
     expect($items['Scraped Dish']['platforms'])->toHaveCount(1);
 });
 
-// ── 271-DINT-1: the wholesale rebuild must keep site.item_slugs in step ──
+// ── 271-DINT-1: the wholesale rebuild must keep item slugs in step ──
 // persist() writes items through the query builder (bulk insert + mass
-// delete), which bypasses MenuItemObserver entirely — so pre-fix a scraped
-// dish never got a pretty URL at all, and a dropped dish squatted its slug
-// forever (item_slugs_unique_slug is NOT partial, so even a retired row
-// blocks reuse). The reconcile still runs AFTER the rebuild transaction
-// commits — best-effort per-dish work that must not be able to roll the
-// rebuild back — though the allocator is now safe inside a transaction too
-// (insertOrIgnore behind a savepoint; see ItemSlugAllocator::insertUnique).
-
-/** The live item_slugs row (id + slug) for a menu item, or null. */
-function menuSlugRow(User $user, string $itemId): ?object
-{
-    return DB::connection('pgsql')->table('site.item_slugs')
-        ->where('user_id', $user->id)->where('item_type', 'menu_item')
-        ->where('item_key', $itemId)->where('is_current', 1)
-        ->first(['id', 'slug']);
-}
-
-/** Every item_slugs row for a menu item, current and retired. */
-function menuSlugRowCount(User $user, string $itemId): int
-{
-    return DB::connection('pgsql')->table('site.item_slugs')
-        ->where('user_id', $user->id)->where('item_type', 'menu_item')
-        ->where('item_key', $itemId)->count();
-}
+// delete), so pre-fix a scraped dish never got a pretty URL at all, and a
+// dropped dish squatted its slug forever (idx_item_slugs_unique is NOT
+// partial, so even a retired row blocks reuse). The reconcile still runs
+// AFTER the rebuild transaction commits — best-effort per-dish work that must
+// not be able to roll the rebuild back — though the allocator is safe inside a
+// transaction too (insertOrIgnore behind a savepoint; see
+// ContentItemSlugAllocator::insertUnique).
 
 /**
  * Slice 7 Task 7: a scraped dish's permalink lives in content.item_slugs now,
@@ -1795,8 +1774,6 @@ it('mints an item_slugs row for a brand-new scraped dish', function () {
 
     expect(menuContentSlugRow($user, menuContentId($user, 'Fish Tacos'))?->slug)->toBe('fish-tacos');
     expect(menuContentSlugRow($user, menuContentId($user, 'Beef Tacos'))?->slug)->toBe('beef-tacos');
-    // The scrape no longer touches the legacy lane at all.
-    expect(DB::connection('pgsql')->table('site.item_slugs')->where('item_type', 'menu_item')->count())->toBe(0);
 });
 
 it('frees a dropped dish slug on the next scrape and leaves the survivor row untouched', function () {

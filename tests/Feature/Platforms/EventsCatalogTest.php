@@ -18,7 +18,6 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    setupItemSlugsTable();
     // Convergence Phase 6: a hand-added event is an `events` POOL item, so
     // these cases need the content lane.
     setupIngestTables();
@@ -158,36 +157,6 @@ it('mints a content.item_slugs permalink for a pasted single event', function ()
     $slug = DB::connection('pgsql')->table('content.item_slugs')
         ->where('user_id', $user->id)->where('is_current', true)->value('slug');
     expect($slug)->toBe('cool-show');
-
-    // And nothing lands in the legacy registry any more.
-    expect(DB::connection('pgsql')->table('site.item_slugs')
-        ->where('user_id', $user->id)->where('item_type', 'event')->count())->toBe(0);
-});
-
-it('no longer mints legacy item_slugs rows for an organiser account payload', function () {
-    setupItemSlugsTable();
-    $url = 'https://www.eventbrite.com/o/my-org-456';
-    $scraper = Mockery::mock(EventbriteScraper::class);
-    $scraper->shouldReceive('normalizeEventUrl')->andReturn(null);
-    $scraper->shouldReceive('normalizeOrgUrl')->andReturn($url);
-    $scraper->shouldReceive('fetchEvents')->with($url)->andReturn([
-        'organiser' => 'My Org',
-        'events' => [
-            sampleEvent('https://www.eventbrite.com/e/a-1'),
-            sampleEvent('https://www.eventbrite.com/e/b-2', '2099-02-01T10:00:00+10:00'),
-        ],
-    ]);
-    app()->instance(EventbriteScraper::class, $scraper);
-    $user = eventsUser('ev5');
-
-    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $url])->assertOk();
-
-    // Phase 6: site.item_slugs is no longer minted for events. Its last reader
-    // moved to content.item_slugs in slice 2 Task 9 (PoolResolver serves event
-    // slug/aliases from the content lane), so the legacy registry was retired
-    // rather than kept in step with a lane nothing read.
-    expect(DB::connection('pgsql')->table('site.item_slugs')
-        ->where('user_id', $user->id)->where('item_type', 'event')->count())->toBe(0);
 });
 
 it('stores a non-platform link as a custom event', function () {

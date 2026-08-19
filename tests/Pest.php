@@ -1356,43 +1356,6 @@ function setupSitesTable(): void
 }
 
 /**
- * site.item_slugs — URL-slug registry for events + menu items.
- * Mirrors migration 20260724120000. SQLite supports partial unique indexes,
- * so the production constraints port directly; is_current stored as 0/1.
- */
-function setupItemSlugsTable(): void
-{
-    attachTestSchemas();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.item_slugs (
-        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-        user_id TEXT NOT NULL,
-        item_type TEXT NOT NULL,
-        item_key TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        is_current INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NULL,
-        retired_at TEXT NULL
-    )');
-    // SQLite's CREATE INDEX grammar puts the schema qualifier on the INDEX
-    // name (not the table name) — an index must live in the same attached
-    // database as its table.
-    try {
-        DB::connection('pgsql')->statement(
-            'CREATE UNIQUE INDEX IF NOT EXISTS site.item_slugs_unique_slug ON item_slugs (user_id, slug)'
-        );
-    } catch (Throwable $e) {
-        // already exists / unsupported — ignore
-    }
-    try {
-        DB::connection('pgsql')->statement(
-            'CREATE UNIQUE INDEX IF NOT EXISTS site.item_slugs_one_current ON item_slugs (user_id, item_type, item_key) WHERE is_current = 1'
-        );
-    } catch (Throwable $e) {
-        // already exists / unsupported — ignore
-    }
-}
-
-/**
  * site.workplaces — 1:1 child of site.sites, promoted from settings JSONB (FOUND-4).
  * FK is omitted on SQLite (not enforced anyway); site_id is the PK.
  */

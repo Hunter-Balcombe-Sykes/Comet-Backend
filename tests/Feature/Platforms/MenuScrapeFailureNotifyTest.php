@@ -29,9 +29,6 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();          // site.menus (looked up in failed())
     setupContactInboxSchema();  // notifications.notifications
-    // MenuFetchJob + MenuItemObserver write site.item_slugs best-effort — without
-    // the table their try/catch swallows a "no such table" and masks slug bugs.
-    setupItemSlugsTable();
     // Slice 7 Task 5: MenuPayloadComposer reads content.* for the dishes and
     // only falls back to site.menu_* when that lane holds nothing for the
     // owner — the tables have to EXIST for the fallback to be reachable.
