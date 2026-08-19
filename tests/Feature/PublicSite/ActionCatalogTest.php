@@ -15,8 +15,12 @@ beforeEach(function () {
     tenantHelpersEnsureTables();
     setupSitesTable();
     // SiteActionsService reads the `custom_links` pool for the `custom:`
-    // action family (convergence Phase 6), so site.sections must exist.
+    // action family (convergence Phase 6), so site.sections must exist —
+    // and the D2 cases WRITE pool links now (LinkPoolWriter), so the
+    // content/ingest lanes must too.
     setupSectionsTables();
+    setupIngestTables();
+    setupContentTables();
     setupBlocksTable();
     setupServicesTable();
 });
@@ -39,8 +43,10 @@ function insertConnection(object $tenant, string $platform, array $payload = [],
     DB::connection('pgsql')->table('site.platform_connections')->insert(array_merge([
         'id' => $id,
         'user_id' => $tenant->id,
-        'surface_key' => LegacyPlatformMap::surfaceFor($platform),
-        'routing_class' => LegacyPlatformMap::routingClassFor(LegacyPlatformMap::surfaceFor($platform)),
+        // Retired legacy slugs map to null now — fall back to the slug so a
+        // caller overriding surface_key/routing_class via $attrs still works.
+        'surface_key' => $surface = (LegacyPlatformMap::surfaceFor($platform) ?? $platform),
+        'routing_class' => LegacyPlatformMap::routingClassFor($surface),
         'resource_id' => 'r-'.Str::random(8),
         // Account rows carry a NULL resource_kind in prod — the discriminator is
         // only stamped for 'event' / 'link' rows (platform_connections_resource_kind_check).
@@ -236,7 +242,9 @@ it('D4: a platform-tagged link block alone still yields the social action', func
 
 it('D3: online-ordering actions come from connection entries only, gated by capability', function () {
     $tenant = makeFoodBusiness('cat-d3-ordering');
-    $connId = insertConnection($tenant, 'online-ordering', [], ['resource_id' => 'order-uber']);
+    // A router-seeded ordering row on its REAL brand surface — the
+    // 'online-ordering' pseudo surface was retired 2026-08-19.
+    $connId = insertConnection($tenant, 'uber_eats', [], ['resource_id' => 'order-uber', 'surface_key' => 'uber_eats.order', 'routing_class' => 'ordering']);
     DB::connection('pgsql')->table('site.platform_connections')->where('id', $connId)->update([
         'payload' => json_encode(['url' => 'https://ubereats.com/store/maha', 'name' => 'Uber Eats']),
     ]);
@@ -255,7 +263,7 @@ it('D3: online-ordering actions come from connection entries only, gated by capa
 
 it('D3: online-ordering entries are excluded for a non-food-business account (capability gate)', function () {
     $tenant = createTenant('cat-d3-gated'); // plain partna — no online-ordering capability
-    $connId = insertConnection($tenant, 'online-ordering', [], ['resource_id' => 'order-uber']);
+    $connId = insertConnection($tenant, 'uber_eats', [], ['resource_id' => 'order-uber', 'surface_key' => 'uber_eats.order', 'routing_class' => 'ordering']);
     DB::connection('pgsql')->table('site.platform_connections')->where('id', $connId)->update([
         'payload' => json_encode(['url' => 'https://ubereats.com/store/x', 'name' => 'Uber Eats']),
     ]);
@@ -265,10 +273,12 @@ it('D3: online-ordering entries are excluded for a non-food-business account (ca
     expect($pool->filter(fn ($a) => str_starts_with($a['id'], 'ordering:')))->toHaveCount(0);
 });
 
-it('D2: a custom link block and a same-URL custom connection dedupe to ONE action, block wins', function () {
+it('D2: a custom link block and a same-URL POOL link dedupe to ONE action, block wins', function () {
+    // The 'custom' pseudo connection was retired 2026-08-19 — the pool card
+    // is the other custom-link lane now, same ??= dedupe, block still wins.
     $tenant = createTenant('cat-d2-dedupe');
     $blockId = insertLinkBlockRow($tenant, ['category' => 'custom', 'platform' => null, 'title' => 'My Site', 'url' => 'https://mysite.example']);
-    insertConnection($tenant, 'custom', ['url' => 'https://mysite.example', 'name' => 'My Site (dup)'], ['resource_id' => 'custom-dup']);
+    app(\App\Services\Content\LinkPoolWriter::class)->add($tenant->refresh(), 'https://mysite.example', 'My Site (dup)', enrich: false);
 
     $pool = collect(actionsPool($tenant));
     $customs = $pool->filter(fn ($a) => str_starts_with($a['id'], 'custom:'));
@@ -278,10 +288,10 @@ it('D2: a custom link block and a same-URL custom connection dedupe to ONE actio
         ->and($customs->first())->toMatchArray(['label' => 'My Site', 'url' => 'https://mysite.example']);
 });
 
-it('D2: a custom connection with a distinct URL yields its own separate action', function () {
+it('D2: a POOL link with a distinct URL yields its own separate action', function () {
     $tenant = createTenant('cat-d2-distinct');
     insertLinkBlockRow($tenant, ['category' => 'custom', 'platform' => null, 'title' => 'Site A', 'url' => 'https://a.example']);
-    insertConnection($tenant, 'custom', ['url' => 'https://b.example', 'name' => 'Site B'], ['resource_id' => 'custom-b']);
+    app(\App\Services\Content\LinkPoolWriter::class)->add($tenant->refresh(), 'https://b.example', 'Site B', enrich: false);
 
     $pool = collect(actionsPool($tenant));
     $customs = $pool->filter(fn ($a) => str_starts_with($a['id'], 'custom:'));

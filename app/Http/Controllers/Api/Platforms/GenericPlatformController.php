@@ -11,6 +11,7 @@ use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\ConnectResolver;
+use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Registry\PlatformDescriptor;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -86,10 +87,45 @@ class GenericPlatformController extends ApiController
 
         $resourceClass = $descriptor->resourceClass();
 
+        // The brand's one slot is already filled by a DIFFERENT link (owner,
+        // 2026-08-19). Refuse rather than overwrite: writeBrandCard's
+        // updateOrCreate would silently replace the incumbent, and the legacy
+        // ordering controller's answer — filing the second store as a
+        // links-pool item — was a decision nobody asked for. The dashboard
+        // turns this into "You already have an Uber Eats" with Swap (re-posts
+        // with replace=true) and Keep mine.
+        $replace = $request->boolean('replace');
+        $incumbent = $replace ? null : $this->slotIncumbent($user, $surfaceKey, $descriptor->key(), $result->selection);
+        if ($incumbent !== null) {
+            return $this->error(
+                'You already have a '.$descriptor->getLabel().' link connected.',
+                422,
+                extra: [
+                    'code' => 'slot_taken',
+                    'incumbentConnectionId' => (string) $incumbent->id,
+                    'incumbentUrl' => CardPayload::fromArray($incumbent->payload)->url(),
+                    'displayName' => $descriptor->getLabel(),
+                ],
+            );
+        }
+
         // PWL-2: serialise against ConnectFetchJob / ScheduledRefresh, same as
         // connect() — a link brand has no refresh today, but the lock is keyed
         // per user, not per platform, so skipping it would weaken the others.
         return $this->withConnectionLock($user, function () use ($user, $descriptor, $surfaceKey, $result, $resourceClass): JsonResponse {
+            // ONE row per single-slot brand surface, whatever rid it carries: a
+            // Swap (replace=true) retires the incumbent it is replacing, and a
+            // re-connect of the same URL retires the router-seeded twin
+            // ('order-<hash>') instead of standing a brand-rid duplicate next
+            // to it. Multi-account brand surfaces keep their rows.
+            if (! $descriptor->multiAccount()) {
+                $user->integrationConnections()
+                    ->where('surface_key', $surfaceKey)
+                    ->where('resource_id', '!=', $descriptor->key())
+                    ->get()
+                    ->each(fn (IntegrationConnection $stale) => $stale->delete());
+            }
+
             $row = $this->writeBrandCard($user, $surfaceKey, $descriptor->key(), $result->selection);
 
             // The card is written 'pending' and NOTHING used to flip it: 43 of

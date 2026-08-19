@@ -103,16 +103,18 @@ it('projects is_staff=false when there is no partna_staff relation', function ()
 
 // ── PATCH /me: display_name cap follows the business-name rule ────────────────
 
-it('caps display_name at 15 chars for a business account (display name IS the business name)', function () {
+it('gives business the same 255-char display_name as partna (identity plan decision 9, 2026-08-19)', function () {
+    // The 15-char workplace-name cap no longer leaks onto display_name —
+    // display_name is user-owned after Google's initial seed.
     $user = accountTypeUser('bizdncap', 'business');
 
     actingAsUser($user)
         ->patchJson('/api/me', ['display_name' => 'Sixteen Char Nme!'])
-        ->assertStatus(422);
+        ->assertOk();
 
     actingAsUser($user)
-        ->patchJson('/api/me', ['display_name' => 'D.O.C Pizza'])
-        ->assertOk();
+        ->patchJson('/api/me', ['display_name' => str_repeat('x', 256)])
+        ->assertStatus(422);
 });
 
 it('keeps the roomy 255-char display_name for a partna account (personal names are long)', function () {

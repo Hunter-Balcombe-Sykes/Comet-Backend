@@ -102,7 +102,7 @@ class ManualEventWriter
      * it, and "agrees facet-for-facet with SchemaOrgEventProjector" was
      * simply untrue on media (2026-08-18).
      *
-     * Public + static because StandaloneEventBackfiller writes the SAME shape
+     * Public + static because the standalone-event conversion one-off writes the SAME shape
      * for the rows that predate the cutover — one mapper, so the backfill and
      * the live path cannot drift.
      *
@@ -174,7 +174,7 @@ class ManualEventWriter
 
     /**
      * Write (or update) a standalone event scraped from its own URL, and pin
-     * it. The live counterpart of StandaloneEventBackfiller — same coord, same
+     * it. The live counterpart of the standalone-event conversion — same coord, same
      * projection, so an event added today and one migrated yesterday are the
      * same row.
      *

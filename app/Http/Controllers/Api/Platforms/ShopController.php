@@ -569,11 +569,10 @@ class ShopController extends ApiController
     // discount code and the referral URL (stored as its parsed query suffix).
     // Every field is optional; only what's present is applied.
     //
-    // linkMode is still ACCEPTED here for backward compatibility but is DORMANT
-    // as of 2026-07-08: it became one GLOBAL site setting (site.sites.shop_link_mode
-    // via /platforms/shop/settings), and the public payload always stamps linkMode
-    // from the global — so a per-brand write to it is inert on the wire. The
-    // dashboard no longer sends it.
+    // The per-brand linkMode was DELETED 2026-08-19 (dormant since
+    // 2026-07-08): link mode is one GLOBAL site setting
+    // (site.sites.shop_link_mode via /platforms/shop/settings). The request
+    // no longer accepts the key and the resource no longer echoes it.
     //
     // selectionMode is NOT dormant — #SEM-1: setting it to 'latest' clears
     // products_curated_at (the opt-BACK-IN path after setProducts() curated the

@@ -2,7 +2,7 @@
 
 Laravel 12 + Supabase + PostgreSQL backend for individual professionals' public site pages.
 Full business context: `AI_CONTEXT.md`. API reference: `docs/api.md`.
-⚠️ **Dangling pointer — for the repo owner.** This line used to read *"Cross-project rules (git, tool routing, STOP gates) live in `../CLAUDE.md`"*. **That file does not exist** (checked 2026-08-17: no `CLAUDE.md` at the `Side Street/` root, at `~/Herd/`, or at `~/`; `~/.claude/CLAUDE.md` exists but is empty). So either those cross-project rules were never written, or they were lost — and every session reading this file has been told to consult a document it cannot open. Phase 8 flags it rather than inventing the content: **owner to either write `../CLAUDE.md` or delete this pointer.**
+Cross-repo rules (repo lanes, git workflow, tool routing, STOP gates) live in `~/Developer/CLAUDE.md` — the hub file, written 2026-08 (the old dangling-pointer warning here described a pre-hub state and was resolved 2026-08-19).
 
 ## Environments
 
@@ -283,6 +283,7 @@ DIY k6 harness against dev only (README + plan: `docs/superpowers/plans/2026-07-
 - Over-engineer simple fixes
 - Reintroduce `site.themes` or `settings.design.*`
 - Reintroduce any of the ten dropped legacy tables, or write a new read path against one — curated content lives in `content.*`
+- Reintroduce the pseudo-platform link lane (retired 2026-08-19): no `custom`/`booking`/`reservations`/`online-ordering`/`events-custom` category controllers or `partna.*_link`/`partna.manual_event` surfaces. Every routed link goes `LinkRouter`/`LinkRoutingService` → `SourceReconciler` → its real brand surface; a taken single-slot brand answers 422 `slot_taken` (manual) or a Swap suggestion in the `/routing/suggestions` inbox (auto); a standalone event is an events-POOL item (`ManualEventWriter`), never a connection row
 - Delete a table-less DTO model (`MenuItem`, `MenuCategory`, `MenuItemPlatform`, `Service`, `ServiceCategory`, `ShopBrand`) or move one into `PurgeSoftDeleted::PURGE_HANDLED`
 - Mutate a pool without all three cache lanes (build state + `site.sites.updated_at` + edge purge)
 - Assume dev's schema says anything about production's — prod lacks four whole schemas

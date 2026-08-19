@@ -978,44 +978,6 @@ it('unions both platforms and persists a per-platform availability list', functi
 
 // ── Online-ordering store consolidation (one store = one entry) ────────
 
-it('collapses a pickup and delivery link for one store into a single entry', function () {
-    $user = menuUser('m15');
-    // The Google-harvest scenario: same Uber Eats store, two typed rows (the
-    // diningMode query param differs, so they were two rows / a visible dupe).
-    ordering($user, 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP', 'pickup', '2026-06-17 09:00:00');
-    ordering($user, 'https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY', 'delivery', '2026-06-17 10:00:00');
-
-    $res = actingAsUser($user)->getJson('/api/platforms/online-ordering/entries')->assertOk();
-
-    // ONE consolidated entry carrying both mode URLs.
-    expect($res->json('entries'))->toHaveCount(1);
-    $entry = $res->json('entries.0');
-    expect($entry['data']['pickupUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP');
-    expect($entry['data']['deliveryUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
-});
-
-it('merges a second mode link for the same store into the existing entry on add', function () {
-    Queue::fake();
-    $user = menuUser('m16');
-    fakeEchoOrderingScraper();
-
-    // First add — a pickup-typed Uber Eats link. Returns 202 (async JOB-1).
-    actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
-        'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP',
-    ])->assertStatus(202)->assertJsonCount(1, 'entries');
-
-    // Second add — the SAME store, delivery variant — folds into the same row.
-    $res = actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
-        'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY',
-    ])->assertStatus(202);
-
-    // Still ONE row in the DB (no duplicate) and one consolidated entry.
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->count())->toBe(1);
-    expect($res->json('entries'))->toHaveCount(1);
-    expect($res->json('entries.0.data.pickupUrl'))->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP');
-    expect($res->json('entries.0.data.deliveryUrl'))->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
-});
-
 // ── DoorDash locale address — data minimisation (PRIV-2) ─────────────
 // The full street address must never leave the backend towards Apify.
 // Only city + state are forwarded; when neither is stored the field is null

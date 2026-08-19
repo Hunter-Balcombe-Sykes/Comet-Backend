@@ -17,7 +17,21 @@ final readonly class YoutubeFetch implements FetchStrategy
     {
         $payload = $connection->payload ?? [];
 
+        // Router-created connections store the resolved identity as `username`
+        // (ConnectionPayload's contract with the public wire), not `handle`.
+        // The shim lives HERE, at the legacy reader — widening the router's
+        // key set to satisfy this lane would push compatibility into the
+        // canonical writer. The guards mirror the writer's own handle test:
+        // non-empty, no slash. An empty `username` still throws — the router
+        // resolving an empty identifier is a write defect (defect B) and
+        // accepting "" would turn that loud failure into a vendor error.
         $handle = $payload['handle'] ?? null;
+        if (! $handle) {
+            $username = $payload['username'] ?? null;
+            if (is_string($username) && $username !== '' && ! str_contains($username, '/')) {
+                $handle = $username;
+            }
+        }
         if (! $handle) {
             throw new FetchShapeException('missing_key: handle');
         }

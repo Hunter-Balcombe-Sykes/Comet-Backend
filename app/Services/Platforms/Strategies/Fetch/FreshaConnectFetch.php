@@ -183,8 +183,8 @@ final readonly class FreshaConnectFetch implements FetchStrategy
      * as ConnectFetchJob itself). The re-assert + projection run inside
      * CacheKeyGenerator::bookingXorLock — NOT the per-platform key
      * (ConnectFetchJob takes that one for its own write, sequentially after
-     * this returns) — because forget() / BookingController::clearBooking()
-     * take the SAME booking-XOR lock for their delete. The lock is still
+     * this returns) — because forget() takes the SAME booking-XOR lock
+     * for its delete. The lock is still
      * mandatory: the closure re-checks that the connection row survived the
      * scrape and re-asserts the Square XOR, and a disconnect landing between
      * the scrape and the write would otherwise be resurrected by

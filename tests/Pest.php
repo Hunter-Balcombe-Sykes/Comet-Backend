@@ -511,11 +511,12 @@ function setupUsersTable(): void
         -- Deliberately stricter than prod, which still tolerates \'staff\'.
         account_type TEXT NOT NULL DEFAULT \'partna\' CHECK (account_type IN (\'partna\',\'business\')),
         status TEXT NOT NULL DEFAULT \'active\' CHECK (status IN (\'active\',\'suspended\',\'disabled\',\'pending_deletion\',\'unclaimed\')),
-        -- bio: dropped from prod by 20260705120002_drop_dead_profile_columns_tables.
+        -- bio: RE-ADDED 20260819140000 (identity plan) — the About Me
+        -- paragraph, with live consumers now. (It was dropped as dead by
+        -- 20260705120002; this is a deliberate re-add, not drift.)
         -- icon_bucket/icon_path/headshot_bucket/headshot_path: dropped pre-baseline
         -- (see baseline:313-315 comment) and never existed in any migration here.
-        -- All five were phantom here with zero read/write consumers, caught by
-        -- FixtureSchemaParityTest (#FFLAG-1 sibling finding).
+        bio TEXT NULL,
         country_code TEXT NULL,
         timezone TEXT NULL,
         onboarding_step INTEGER NOT NULL DEFAULT 0,
@@ -535,8 +536,9 @@ function setupUsersTable(): void
 
     // Defensive ALTERs for suites that created core.users before the sector
     // columns existed (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to
-    // an already-created table within a run). Mirrors migration 20260705150100.
-    foreach (['sector', 'sector_source'] as $col) {
+    // an already-created table within a run). Mirrors migrations 20260705150100
+    // and 20260819140000 (bio).
+    foreach (['sector', 'sector_source', 'bio'] as $col) {
         try {
             DB::connection('pgsql')->statement("ALTER TABLE core.users ADD COLUMN {$col} TEXT NULL");
         } catch (Throwable $e) {
@@ -2787,7 +2789,11 @@ function setupSectionsTables(): void
  */
 function pinPoolPresence(Site $site): void
 {
-    foreach (['watch', 'listen', 'events'] as $pool) {
+    // custom_links joined the presence loop 2026-08-19 (pool-only links must
+    // flip the Links page) — pinned here for the same reason as the others:
+    // the probe tests need every pool probe short-circuited so only the
+    // probe under test faults.
+    foreach (['watch', 'listen', 'events', 'custom_links'] as $pool) {
         $section = app(PoolSectionProvisioner::class)->ensure($site, $pool);
         DB::connection('pgsql')->table('site.section_items')->insert([
             'id' => (string) Str::uuid(),

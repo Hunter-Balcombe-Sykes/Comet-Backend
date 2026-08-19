@@ -53,7 +53,6 @@ trait BuildsAutoSyncFindings
     private const BOOKING_SLOT_PLATFORMS = [
         Platform::Fresha->value,
         Platform::Square->value,
-        Platform::Booking->value,
     ];
 
     /**
@@ -65,7 +64,6 @@ trait BuildsAutoSyncFindings
         Platform::OpenTable->value,
         Platform::Resdiary->value,
         Platform::Nowbookit->value,
-        Platform::Reservations->value,
     ];
 
     /**
@@ -254,8 +252,8 @@ trait BuildsAutoSyncFindings
             // booking and reservations platforms) must hold BOTH XOR locks
             // for the whole remove+write span, or whichever family only got
             // the other lock would have its delete race that family's own
-            // controller (e.g. the opentable delete below racing
-            // ReservationsController::forget()). No real producer emits a
+            // writers (e.g. the opentable delete below racing another
+            // reservations-family delete on the same lock). No real producer emits a
             // remove list spanning both families today (each conflictFinding
             // call site hardcodes a single family's platform list) — this is
             // belt-and-braces for a legacy/hand-crafted finding, same spirit

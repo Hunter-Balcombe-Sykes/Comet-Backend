@@ -101,7 +101,7 @@ class IntegrationConnection extends BaseModel
     // Mass-assignment posture (SEC-1): `user_id` is KEPT fillable on purpose —
     // mirrors the User.handle precedent. The updateOrCreate() idiom in
     // ManagesIntegrationConnection::writeConnection() (and the analogous calls
-    // in GoogleBusinessAutoSync/CustomLinkSeeder/EventsCatalog/InstagramController)
+    // in GoogleBusinessAutoSync/CustomLinkSeeder/InstagramController)
     // passes `user_id` in the lookup-attributes array, which Eloquent
     // mass-assigns through create() on the not-found path — removing it from
     // $fillable would silently null out the tenant on every new connection.

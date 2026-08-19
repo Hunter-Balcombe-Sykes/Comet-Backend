@@ -160,7 +160,7 @@ class EventsSeeder
      * event URL in that mode — a non-null "written" signal for the caller's
      * tally, never a resource_id (there is none).
      */
-    public function seedStandalone(User $user, string $platform, string $url, bool $withConnectionRow = true, ?string $origin = null): ?string
+    public function seedStandalone(User $user, string $platform, string $url, ?string $origin = null): ?string
     {
         if (! in_array($platform, self::PLATFORMS, true)) {
             return null;
@@ -181,91 +181,35 @@ class EventsSeeder
         }
 
         $payload = EventsPayload::standalonePayload($event);
-        $rid = 'event-'.$payload['id'];
 
-        if (! $withConnectionRow) {
-            // No wasDisconnected() here: that tombstone is "the owner removed
-            // this CONNECTION row" (the legacy dual write left one behind, and
-            // migrated accounts still carry soft-deleted ones). The pool item
-            // has its own remove semantics (removed_at on the item), which
-            // ManualEventWriter honours the same way for a hand re-add.
-            $writer = app(ManualEventWriter::class);
-            if ($writer->wouldExceedCap($user, $canonical)) {
-                Log::info('events_seeder.event_cap', ['user_id' => (string) $user->id, 'platform' => $platform, 'lane' => 'pool']);
+        // R7 (owner, 2026-08-19): a standalone event is an events-POOL item
+        // and nothing else — the dual-write `resource_kind='event'`
+        // connection row is retired for every lane (existing rows converted
+        // one-off by events:convert-standalone). No wasDisconnected() here:
+        // that tombstone is "the owner removed this CONNECTION row"; the pool
+        // item has its own remove semantics (removed_at on the item), which
+        // ManualEventWriter honours the same way for a hand re-add. Returns
+        // the canonical event URL as the caller's "written" signal — there is
+        // no resource_id.
+        $writer = app(ManualEventWriter::class);
+        if ($writer->wouldExceedCap($user, $canonical)) {
+            Log::info('events_seeder.event_cap', ['user_id' => (string) $user->id, 'platform' => $platform, 'lane' => 'pool']);
 
-                return null;
-            }
-
-            try {
-                $item = $writer->addStandalone($user, $canonical, StandaloneEventPayload::fromArray($payload)->event(), $origin);
-            } catch (\Throwable $e) {
-                report($e);
-                Log::warning('events_seeder.pool_write_failed', [
-                    'user_id' => (string) $user->id, 'platform' => $platform, 'error' => $e->getMessage(),
-                ]);
-
-                return null;
-            }
-
-            return $item === null ? null : $canonical;
-        }
-
-        if ($this->wasDisconnected($user, $platform, $rid)) {
             return null;
         }
 
-        $written = $this->locked($platform, $user, function () use ($user, $platform, $rid, $payload): ?string {
-            $events = $this->liveRows($user, $platform)
-                ->filter(fn (IntegrationConnection $r) => $r->resource_kind === 'event');
-
-            if ($events->firstWhere('resource_id', $rid) === null
-                && $events->count() >= self::MAX_STANDALONE_EVENTS) {
-                Log::info('events_seeder.event_cap', ['user_id' => (string) $user->id, 'platform' => $platform]);
-
-                return null;
-            }
-
-            IntegrationConnection::updateOrCreate(
-                ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $rid],
-                [
-                    'payload' => $payload,
-                    'resource_kind' => 'event',
-                    'is_active' => true,
-                    'last_refreshed_at' => now(),
-                    'last_refresh_status' => 'ok',
-                    'last_refresh_error' => null,
-                    'consecutive_failures' => 0,
-                ],
-            );
-
-            return $rid;
-        });
-
-        if ($written === null) {
-            return null;
-        }
-
-        // The publishing half, OUTSIDE the connection lock: it writes
-        // content.*, not site.platform_connections, so holding a
-        // platform-connection key across it would serialise two unrelated
-        // stores. Best-effort for the same reason the whole seeder is — a
-        // scan seed must never throw into its caller — and a siteless owner
-        // simply has nowhere to pin a pool item, which is an ordinary outcome
-        // here rather than a failure.
         try {
-            app(ManualEventWriter::class)->addStandalone(
-                $user,
-                $canonical,
-                StandaloneEventPayload::fromArray($payload)->event(),
-            );
+            $item = $writer->addStandalone($user, $canonical, StandaloneEventPayload::fromArray($payload)->event(), $origin);
         } catch (\Throwable $e) {
             report($e);
             Log::warning('events_seeder.pool_write_failed', [
                 'user_id' => (string) $user->id, 'platform' => $platform, 'error' => $e->getMessage(),
             ]);
+
+            return null;
         }
 
-        return $written;
+        return $item === null ? null : $canonical;
     }
 
     /** @return Collection<int, IntegrationConnection> */

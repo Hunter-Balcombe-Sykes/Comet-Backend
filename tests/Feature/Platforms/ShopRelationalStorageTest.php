@@ -565,24 +565,22 @@ function modesBrandFor(User $user): void
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://m.example.com'])->assertOk();
 }
 
-it('updateBrand persists selectionMode/linkMode and parses the referral URL to its query suffix', function () {
+it('updateBrand parses the referral URL to its query suffix', function () {
     $user = shopStorageUser('modes1');
     modesBrandFor($user);
 
+    // The per-brand linkMode key is GONE from the wire (2026-08-19) — link
+    // mode is one site-wide value on /platforms/shop/settings, pinned by
+    // ShopGlobalSettingsTest.
     $res = actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', [
-        'linkMode' => 'checkout',
         'referralUrl' => 'https://m.example.com/landing?ref=abc123&utm_source=friend',
     ]);
     $res->assertOk()
-        ->assertJsonPath('linkMode', 'checkout')
+        ->assertJsonMissingPath('linkMode')
         ->assertJsonPath('referralQuery', 'ref=abc123&utm_source=friend');
 
-    // Re-home Task 7: of the three, only referral_query still has storage —
-    // it keeps its name on content.storefronts. linkMode is one SITE-wide
-    // setting (site.sites.shop_link_mode) and selectionMode is a derived
-    // constant ('manual', ShopContentReader gap 3), so the legacy per-store
-    // columns had nothing left reading them even before the DROP; the wire
-    // assertions above are what still pins those two.
+    // Re-home Task 7: referral_query keeps its storage on
+    // content.storefronts.
     expect(DB::table('content.storefronts')->where('external_ref', 'modes-brand')->value('referral_query'))
         ->toBe('ref=abc123&utm_source=friend');
 
@@ -765,8 +763,10 @@ it('rejects invalid mode values', function () {
 
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['selectionMode' => 'auto'])
         ->assertStatus(422);
+    // linkMode left the request contract 2026-08-19 — an unknown key is
+    // simply ignored, never validated.
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['linkMode' => 'cart'])
-        ->assertStatus(422);
+        ->assertOk()->assertJsonMissingPath('linkMode');
 });
 
 // W9 unit 1: content-proxy for the connect_status column — the column must be

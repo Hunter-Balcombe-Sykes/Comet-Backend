@@ -19,7 +19,7 @@ use Illuminate\Http\JsonResponse;
  * and the Eventbrite/Humanitix pair (via EventsPlatformController). Instagram
  * uses bespokeConnectStatus() ALONE — its connect is driven by
  * InstagramConnectJob, not ConnectFetchJob, and it is not flag-gated (R7).
- * EventsController's own events/add facade deliberately does NOT use this
+ * The retired events/add facade deliberately did NOT use this
  * trait — see its own docblock for why.
  *
  * The using class MUST also `use ManagesIntegrationConnection` and extend

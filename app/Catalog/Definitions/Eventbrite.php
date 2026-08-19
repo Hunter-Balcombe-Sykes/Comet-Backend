@@ -14,7 +14,7 @@ use App\Catalog\Surface;
 use App\Catalog\SurfaceBuilder;
 
 /**
- * Eventbrite. Bespoke connect (EventsCatalog/EventsPlatformController) — no
+ * Eventbrite. Bespoke connect (EventsPlatformController) — no
  * connect capability. 25 regional TLDs verbatim from the HostMatch regex
  * (PRSP:424); each gets an organiser-page detector (/o/<org>), strength
  * DeepLinkWithSlug. A single-event URL (/e/…) is NOT an organiser-connect

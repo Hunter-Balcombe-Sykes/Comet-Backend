@@ -57,6 +57,36 @@ it('YoutubeFetch throws FetchShapeException when handle is missing (refresher st
     expect(fn () => (new YoutubeFetch(app(YoutubeScraper::class)))->fetch($strategyRow))->toThrow(FetchShapeException::class);
 });
 
+// Router-created connections (ConnectionPayload) store the identity as
+// `username`, never `handle` — the legacy lane must accept that shape
+// (2026-08-19 missing_key plan, Phase 1). Guards mirror the writer's own
+// handle test: non-empty, no slash.
+it('YoutubeFetch accepts a router-shaped payload (url/source/username)', function () {
+    $videos = [
+        ['videoId' => 'v1', 'name' => 'Fresh', 'description' => 'nd', 'link' => 'nl', 'date' => '2026-03-03T00:00:00+00:00', 'thumbnail' => 'nt'],
+    ];
+    $this->mock(YoutubeScraper::class, fn ($m) => $m->shouldReceive('fetchRecentVideos')->with('dvlpmnttv')->andReturn($videos));
+
+    $stored = ['url' => 'https://www.youtube.com/@dvlpmnttv', 'source' => 'website_harvest', 'username' => 'dvlpmnttv'];
+    $strategyRow = gmSeed(gmUser('gmyt7'), 'youtube', $stored);
+    $result = (new YoutubeFetch(app(YoutubeScraper::class)))->fetch($strategyRow);
+
+    expect($result['latest'])->toBe($videos[0]);
+    // The router's identity keys survive the refresh, same as `handle` does.
+    expect($result['username'])->toBe('dvlpmnttv');
+    expect($result['url'])->toBe('https://www.youtube.com/@dvlpmnttv');
+});
+
+it('YoutubeFetch still throws on an EMPTY router username (defect B stays loud)', function () {
+    $strategyRow = gmSeed(gmUser('gmyt8'), 'youtube', ['url' => 'https://www.youtube.com/@x', 'source' => 'website_harvest', 'username' => '']);
+    expect(fn () => (new YoutubeFetch(app(YoutubeScraper::class)))->fetch($strategyRow))->toThrow(FetchShapeException::class);
+});
+
+it('YoutubeFetch refuses a slash-bearing username (not a handle)', function () {
+    $strategyRow = gmSeed(gmUser('gmyt9'), 'youtube', ['url' => 'https://www.youtube.com/@x', 'source' => 'website_harvest', 'username' => 'c/whatever']);
+    expect(fn () => (new YoutubeFetch(app(YoutubeScraper::class)))->fetch($strategyRow))->toThrow(FetchShapeException::class);
+});
+
 it('YoutubeFetch throws FetchUnavailableException when no videos (refresher status=unavailable)', function () {
     $this->mock(YoutubeScraper::class, fn ($m) => $m->shouldReceive('fetchRecentVideos')->andReturn([]));
 

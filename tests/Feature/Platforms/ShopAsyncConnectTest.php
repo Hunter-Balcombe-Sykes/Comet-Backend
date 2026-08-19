@@ -136,7 +136,6 @@ it('T1: with the deferred flag empty, addBrand returns the pre-change 200 shape 
             // already accepted for brand-b. A real dashboard user always has a
             // site by the time they can connect a shop, so this never surfaces
             // in production.
-            'linkMode' => 'checkout',
             'referralQuery' => '',
             'individual' => false,
             'products' => [],
@@ -559,7 +558,6 @@ it('T5: a pending brand settles to ready after the job runs, and the poll report
                 // fallback needed) — same site-default divergence as T1
                 // above ('checkout' vs the legacy per-brand 'product'
                 // default), shopAsyncUser() has no site row.
-                'linkMode' => 'checkout',
                 'referralQuery' => '',
                 'individual' => false,
                 'products' => [],

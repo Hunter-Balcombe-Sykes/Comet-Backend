@@ -17,6 +17,10 @@ beforeEach(function () {
     // SiteActionsService reads the `custom_links` pool for the `custom:`
     // action family (convergence Phase 6), so site.sections must exist.
     setupSectionsTables();
+    // Link items live in the custom_links POOL now (2026-08-19) — the
+    // freshness reader joins content.items + f_link.
+    setupIngestTables();
+    setupContentTables();
     setupBlocksTable();
     setupServicesTable();
     setupSectionViewsTable();
@@ -37,18 +41,7 @@ function popularityScoreRow(string $siteId, string $type, string $key): ?object
 
 it('seeds brand-new content with a freshness-only score (page + link item, zero events)', function () {
     $tenant = createTenant('cmd-fresh');
-    DB::connection('pgsql')->table('site.platform_connections')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $tenant->id,
-        'surface_key' => 'partna.custom_link',
-        'routing_class' => 'link',
-        'resource_id' => 'link-'.Str::random(8),
-        'resource_kind' => 'link',
-        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/fresh']),
-        'is_active' => 1,
-        'created_at' => now()->toISOString(),
-        'updated_at' => now()->toISOString(),
-    ]);
+    $poolItemId = app(\App\Services\Content\LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/fresh', enrich: false);
 
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
@@ -70,19 +63,8 @@ it('seeds brand-new content with a freshness-only score (page + link item, zero 
 
 it('seeds nothing for ancient connections (boost below the floor) — the action layer still cold-starts, no freshness gate', function () {
     $tenant = createTenant('cmd-ancient');
-    $resourceId = 'link-'.Str::random(8);
-    DB::connection('pgsql')->table('site.platform_connections')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $tenant->id,
-        'surface_key' => 'partna.custom_link',
-        'routing_class' => 'link',
-        'resource_id' => $resourceId,
-        'resource_kind' => 'link',
-        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/old', 'name' => 'Old link']),
-        'is_active' => 1,
-        'created_at' => now()->subDays(200)->toISOString(),
-        'updated_at' => now()->subDays(200)->toISOString(),
-    ]);
+    $poolItemId = app(\App\Services\Content\LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/old', 'Old link', enrich: false);
+    DB::connection('pgsql')->table('content.items')->where('id', $poolItemId)->update(['created_at' => now()->subDays(200)->toISOString()]);
 
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
@@ -95,10 +77,10 @@ it('seeds nothing for ancient connections (boost below the floor) — the action
 
     // ...but the action layer (2026-07-23 rebuild) has no freshness/floor gate
     // at all — it cold-starts every pool entry at its prior CTR regardless of
-    // the underlying connection's age. The 200-day-old custom connection
-    // still yields its custom:<resource_id> action, scored at the 'custom'
-    // family's prior (0.05).
-    $row = popularityScoreRow($tenant->site->id, 'action', 'custom:'.$resourceId);
+    // age. The 200-day-old POOL link still yields its custom:<itemId> action
+    // (the pool card's key since the connection lane retired, 2026-08-19),
+    // scored at the 'custom' family's prior (0.05).
+    $row = popularityScoreRow($tenant->site->id, 'action', 'custom:'.$poolItemId);
     expect($row)->not->toBeNull()
         ->and((float) $row->score)->toEqualWithDelta(0.05, 0.0001);
 });
@@ -224,19 +206,7 @@ it('reports (but does not throw) when the ranked-actions layer fails, and still 
     Exceptions::fake();
 
     $tenant = createTenant('cmd-obs3');
-    $resourceId = 'link-'.Str::random(8);
-    DB::connection('pgsql')->table('site.platform_connections')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $tenant->id,
-        'surface_key' => 'partna.custom_link',
-        'routing_class' => 'link',
-        'resource_id' => $resourceId,
-        'resource_kind' => 'link',
-        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/obs3', 'name' => 'Obs3 link']),
-        'is_active' => 1,
-        'created_at' => now()->toISOString(),
-        'updated_at' => now()->toISOString(),
-    ]);
+    $poolItemId = app(\App\Services\Content\LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/obs3', 'Obs3 link', enrich: false);
 
     // Force the action layer (RankedActionsComputer::computeForSite) to blow up
     // AFTER page/item scores have already been computed for this run.
@@ -256,7 +226,7 @@ it('reports (but does not throw) when the ranked-actions layer fails, and still 
     expect(popularityScoreRow($tenant->site->id, 'link_item', 'https://example.com/obs3'))->not->toBeNull();
 
     // The action layer itself produced nothing — it exploded before writing.
-    expect(popularityScoreRow($tenant->site->id, 'action', 'custom:'.$resourceId))->toBeNull();
+    expect(popularityScoreRow($tenant->site->id, 'action', 'custom:'.$poolItemId))->toBeNull();
 });
 
 // ── SCALE-3: the full sweep (no --site) scopes to sites with recent events ──
@@ -279,18 +249,7 @@ it('processes a site with a recent event but skips a published site with none, i
     // Idle site: no events at all, but it DOES have a fresh platform connection —
     // pre-fix, the full sweep would still process it and seed a freshness-only
     // score. Post-fix it must be skipped entirely (zero rows, any content_type).
-    DB::connection('pgsql')->table('site.platform_connections')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $idle->id,
-        'surface_key' => 'partna.custom_link',
-        'routing_class' => 'link',
-        'resource_id' => 'link-'.Str::random(8),
-        'resource_kind' => 'link',
-        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/idle']),
-        'is_active' => 1,
-        'created_at' => now()->toISOString(),
-        'updated_at' => now()->toISOString(),
-    ]);
+    $poolItemId = app(\App\Services\Content\LinkPoolWriter::class)->add($idle->refresh(), 'https://example.com/idle', enrich: false);
 
     // No --site — the periodic scheduled full sweep.
     $this->artisan('analytics:compute-popularity')->assertExitCode(0);
@@ -327,18 +286,7 @@ it('treats an event older than the recent-events window as no signal in a full s
 
 it('an explicit --site bypasses the recent-events scope even with zero recent events', function () {
     $idle = createTenant('scale3-explicit');
-    DB::connection('pgsql')->table('site.platform_connections')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $idle->id,
-        'surface_key' => 'partna.custom_link',
-        'routing_class' => 'link',
-        'resource_id' => 'link-'.Str::random(8),
-        'resource_kind' => 'link',
-        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/explicit']),
-        'is_active' => 1,
-        'created_at' => now()->toISOString(),
-        'updated_at' => now()->toISOString(),
-    ]);
+    $poolItemId = app(\App\Services\Content\LinkPoolWriter::class)->add($idle->refresh(), 'https://example.com/explicit', enrich: false);
 
     $this->artisan('analytics:compute-popularity', ['--site' => $idle->site->id])->assertExitCode(0);
 

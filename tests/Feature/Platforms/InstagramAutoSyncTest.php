@@ -146,10 +146,10 @@ it('seeds only the FIRST booking platform from a bio listing both fresha and squ
     expect($fresha)->toMatchArray(['url' => 'https://www.fresha.com/a/doc-cuts', 'selection' => null, 'source' => 'instagram']);
 
     $squareConflict = $result['findings'][1];
-    // Decision 10 widened the XOR set: every non-Fresha/Square brand (Booksy,
-    // Timely, Vagaro, …) lives on the shared 'booking' key, so a swap must
-    // remove that too or it would leave two live booking providers.
-    expect($squareConflict['apply']['remove'])->toBe(['fresha', 'square', 'booking']);
+    // The XOR set covers the real booking providers only now: the 'booking'
+    // pseudo-platform left the enum 2026-08-19 and no row can carry it, so
+    // the swap has nothing of that name left to remove.
+    expect($squareConflict['apply']['remove'])->toBe(['fresha', 'square']);
     expect($squareConflict['apply']['write']['platform'])->toBe('square');
 });
 
@@ -190,7 +190,7 @@ it('never writes a second live booking provider — an existing Square connectio
     expect($result['findings'])->toHaveCount(1);
     expect($result['findings'][0]['outcome'])->toBe('conflict');
     expect($result['findings'][0]['platform'])->toBe('fresha');
-    expect($result['findings'][0]['apply']['remove'])->toBe(['fresha', 'square', 'booking']); // Decision 10 XOR set
+    expect($result['findings'][0]['apply']['remove'])->toBe(['fresha', 'square']); // XOR set — real providers only since 2026-08-19
     expect($result['findings'][0]['apply']['write']['platform'])->toBe('fresha');
 
     $square = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->firstOrFail()->payload;

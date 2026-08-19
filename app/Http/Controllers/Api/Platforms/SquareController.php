@@ -45,8 +45,7 @@ class SquareController extends ApiController
         // validated, nothing slow. U1: the conflict check moves INSIDE the
         // lock (was a bare unsynchronised exists() before this unit) — no
         // per-platform 'square' lock is taken, because every writer of the
-        // square row (BookingController::clearBooking,
-        // GoogleBusinessAutoSync::seedBooking, InstagramAutoSync::
+        // square row (GoogleBusinessAutoSync::seedBooking, InstagramAutoSync::
         // resolveBookingLink, BuildsAutoSyncFindings::applyFinding, and this
         // connect itself) is already serialised on bookingXorLock alone.
         $url = $request->validated()['url'];
