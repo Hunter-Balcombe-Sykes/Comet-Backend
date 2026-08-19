@@ -1,8 +1,10 @@
 <?php
 
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
@@ -42,11 +44,43 @@ it('records an unreachable probe as a note, not silence', function () {
 
     app()->call([new CommerceProbeJob((string) $user->id, 'https://unreachable.example.com/thing'), 'handle']);
 
-    $observation = DB::table('routing.link_observations')->where('user_id', $user->id)->first();
+    // Filtered to the DEEP url: the T4 origin fallback asks the store
+    // question at the root first, and that miss records its own trace row.
+    $observation = DB::table('routing.link_observations')
+        ->where('user_id', $user->id)
+        ->where('raw_url', 'https://unreachable.example.com/thing')
+        ->first();
 
     expect($observation)->not->toBeNull();
     expect($observation->source)->toBe('commerce_probe');
     expect($observation->verdict)->toBe('note');
     expect($observation->block_reason)->toBe('probe_unreachable');
     expect($observation->confidence)->toBeNull();
+});
+
+it('asks the ORIGIN the store question when the deep page is unreachable (T4 — the natalieanne repro)', function () {
+    // The live failure (routing.link_observations, gsnwilliams, 2026-08-19):
+    // the host's ONE probe was spent on a stale bio link that 404s for every
+    // UA, so the homepage that identifies Shopify instantly was never asked
+    // and the store was never suggested. The fallback asks the origin.
+    // example.com, not a made-up subdomain: SafeUrlFetcher resolves DNS
+    // before fetching (SSRF guard), and Http::fake can't intercept DNS.
+    $user = probeObservationUser();
+    Bus::fake();
+    Http::fake([
+        'https://example.com/meta.json' => Http::response(
+            ['id' => 987654, 'name' => 'Natalie Example', 'currency' => 'AUD', 'myshopify_domain' => 'natalie-example.myshopify.com'],
+            200,
+            ['Content-Type' => 'application/json'],
+        ),
+        '*' => Http::response('', 404),
+    ]);
+
+    app()->call([new CommerceProbeJob((string) $user->id, 'https://example.com/pages/dead-education-page'), 'handle']);
+
+    $connection = IntegrationConnection::query()
+        ->where('user_id', $user->id)->first();
+    expect($connection)->not->toBeNull()
+        ->and($connection->surface_key)->toBe('shopify.store')
+        ->and($connection->resource_id)->toBe('987654');
 });

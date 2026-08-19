@@ -11,6 +11,7 @@ use App\Models\Content\ManualOverride;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Services\Content\ManualEventWriter;
+use App\Services\Content\PastedLinkClassifier;
 use App\Services\Platforms\EventPageReader;
 use App\Services\Platforms\MediaPageReader;
 use App\Services\Shop\ProductPageAdder;
@@ -50,6 +51,7 @@ class PoolItemCreateController extends ApiController
         private readonly EventPageReader $events,
         private readonly ManualEventWriter $eventWriter,
         private readonly MediaPageReader $media,
+        private readonly PastedLinkClassifier $classifier,
     ) {}
 
     /** POST /api/content/pools/{pool}/items  { url, title?, description?, favicon?, logo?, kind? } */
@@ -120,7 +122,14 @@ class PoolItemCreateController extends ApiController
                 abort(422, "That looks like a {$organiser} organiser page, not a single event. Connect it as a platform to bring in its upcoming events, or paste one event's page.");
             }
 
-            $read = $this->events->read($data['url']);
+            // T3 (owner, 2026-08-20): only KNOWN events platforms get the
+            // page read — the host-agnostic JSON-LD add (a venue's own site)
+            // is deliberately gone. Meetup counts as known (classify names
+            // it). A known-but-unreadable page falls to the card path below,
+            // which the T3 gate allows for a claimed URL.
+            $read = $this->classifier->claims($data['url'], 'events')
+                ? $this->events->read($data['url'])
+                : null;
             if ($read !== null) {
                 // Same cap + copy as the platform addEvent verbs — this is the
                 // same lane, entered from the pool side.
@@ -174,6 +183,35 @@ class PoolItemCreateController extends ApiController
                 $readKind = $read['kind'];
                 $readTitle = $read['title'];
                 $readThumb = $read['thumbnail'];
+            }
+        }
+
+        // T3 (owner, 2026-08-20): "no events or listen items for random
+        // foreign links." Every pool except Links (a plain card IS its
+        // product) and Sell (STORE-FIRST reads any product page — owner kept
+        // it) accepts only URLs the grammar CLAIMS for this pool
+        // (PastedLinkClassifier — the same class the sheets' step-1 band
+        // reads via /content/links/classify, so band and 422 cannot
+        // disagree). The lanes above answer their own platforms with richer
+        // copy first; this is the universal backstop that closes the card
+        // fall-through for everything else.
+        if (! in_array($pool, ['custom_links', 'shop'], true)) {
+            $answer = $this->classifier->classify($url);
+            $belongs = $answer['belongsTo'];
+            if ($belongs === null || $belongs['pool'] !== $pool) {
+                if ($belongs !== null) {
+                    abort(422, "That looks like a {$belongs['kind']} — add it on the {$belongs['pageLabel']} page instead.");
+                }
+                if ($answer['store'] !== null) {
+                    abort(422, 'That looks like an online store — connect it on your Sell page to bring in its products, or add it to your Links page.');
+                }
+                if ($answer['account'] !== null) {
+                    $an = preg_match('~^[aeiou]~i', $answer['account']) === 1 ? 'an' : 'a';
+                    abort(422, "That looks like {$an} {$answer['account']} profile — connect it as a platform to bring its content in automatically, or add it to your Links page.");
+                }
+                $noun = str_replace('_', ' ', $kinds[0] === 'media' ? 'gallery item' : $kinds[0]);
+                $article = preg_match('~^[aeiou]~', $noun) === 1 ? 'an' : 'a';
+                abort(422, "We don't recognise this link as {$article} {$noun} — add it to your Links page instead.");
             }
         }
 

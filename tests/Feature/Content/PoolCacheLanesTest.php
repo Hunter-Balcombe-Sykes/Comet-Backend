@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
@@ -23,6 +24,13 @@ use Illuminate\Support\Facades\Queue;
 beforeEach(function () {
     setupContentCurationTables();
     Queue::fake();
+    // T3 (2026-08-20): the hand-add lane refuses unclaimed URLs, so the
+    // hand-add case pastes a claimed shape with its reader's fetch stubbed
+    // dead — the lanes under test are the cache lanes, not the reader.
+    app()->instance(SafeUrlFetcher::class, Mockery::mock(SafeUrlFetcher::class, function ($m) {
+        $m->shouldReceive('tryFetch')->andReturnNull()->byDefault();
+        $m->shouldIgnoreMissing();
+    }));
 });
 
 it('a pool reorder fires all three cache lanes, exactly once', function () {
@@ -71,7 +79,7 @@ it('a pool hand-add fires all three cache lanes, with content_revision bumped TW
     // the cache-purge lane only, not an unrelated enrichment job.
     actingAsUser($user)
         ->postJson('/api/content/pools/watch/items', [
-            'url' => 'https://example.com/videos/one',
+            'url' => 'https://vimeo.com/123456789',
             'title' => 'A hand-added video',
         ])
         ->assertCreated();

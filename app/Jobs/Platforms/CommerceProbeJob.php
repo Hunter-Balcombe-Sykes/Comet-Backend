@@ -150,6 +150,29 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             return $this->seedStore($brands, $user, $this->url);
         }
 
+        // T4 (2026-08-20): an UNREACHABLE deep page still gets the store
+        // question — asked at the ORIGIN. The storefront probes hang off the
+        // origin anyway (ShopifyStorefrontProbe reads /meta.json, never the
+        // pasted path), and the live failure was a stale bio link:
+        // natalieanne.com/pages/natalie-anne-education 404s for every UA, the
+        // ONE probe that host would ever get was spent on it, and the
+        // homepage that identifies Shopify instantly was never asked. The
+        // origin (not the dead deep URL) becomes the brand's sourceUrl so
+        // re-fetches read a page that exists. On a MISS the deep URL's own
+        // probe_unreachable note below still writes (R6 unchanged); on a
+        // PLACE the trace is the seeder's own rows keyed to the ORIGIN —
+        // the deep URL's story is then the custom-link card handle() skips
+        // (resolved=true) plus the seeder's intent ledger. Budget note: this
+        // fallback spends a real ProbeBudget slot per dead link — accepted
+        // (owner, 2026-08-20: waste beats missing a store) with T9 raising
+        // the daily caps in step.
+        if ($read['outcome'] === GenericShopScraper::OUTCOME_UNREACHABLE) {
+            $origin = $this->origin($this->url);
+            if ($origin !== null && $this->seedStore($brands, $user, $origin)) {
+                return true;
+            }
+        }
+
         // Nothing resolved — the page could not be fetched, or came back in a
         // shape the reader could not use. Every OTHER arm of this method ends
         // in a seeder that records its own decision; this one reaches no
@@ -176,6 +199,17 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
     private function seedStore(StoreBrandSeeder $brands, User $user, string $url): bool
     {
         return $brands->seed($user, $url, self::ORIGIN, suggestOnly: $this->suggestOnly)['outcome'] === 'placed';
+    }
+
+    /** scheme://host of the probed URL, or null when it has neither. */
+    private function origin(string $url): ?string
+    {
+        $scheme = parse_url($url, PHP_URL_SCHEME);
+        $host = parse_url($url, PHP_URL_HOST);
+
+        return is_string($scheme) && is_string($host) && $host !== ''
+            ? strtolower($scheme).'://'.strtolower($host).'/'
+            : null;
     }
 
     public function failed(Throwable $e): void

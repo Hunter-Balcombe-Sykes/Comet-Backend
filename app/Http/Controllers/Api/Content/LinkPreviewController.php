@@ -8,6 +8,7 @@ use App\Services\Content\PastedLinkClassifier;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\LinkCardScraper;
+use App\Services\Platforms\StorefrontMarkers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -100,6 +101,16 @@ class LinkPreviewController extends ApiController
         // exactly what the create endpoint would have stored anyway.
         $card = $this->scraper->snapshotOrMinimal($url);
 
+        // T4 (2026-08-20): the page we just read IS a storefront — its HTML
+        // carries a store platform's runtime markers — so the sheet can offer
+        // "connect it as a store" beside the card instead of letting a pasted
+        // natalieanne.com quietly become a flat link. The pure grammar below
+        // can only know platform-OWNED hosts (myshopify.com); this marker
+        // read covers merchant domains, off the fetch already in hand.
+        $storefront = $card['storefront'] ?? null;
+        $scheme = parse_url($card['url'], PHP_URL_SCHEME);
+        $host = parse_url($card['url'], PHP_URL_HOST);
+
         return $this->success([
             'url' => $card['url'],
             'name' => $card['name'],
@@ -113,6 +124,11 @@ class LinkPreviewController extends ApiController
             // The pure-grammar classification, so the Links sheet can offer
             // "this looks like a track — add it on Listen" in step 1.
             'classification' => $this->classifier->classify($url),
+            'store' => $storefront === null || ! is_string($scheme) || ! is_string($host) ? null : [
+                'provider' => $storefront,
+                'label' => StorefrontMarkers::LABELS[$storefront] ?? $storefront,
+                'url' => strtolower($scheme).'://'.strtolower($host).'/',
+            ],
         ]);
     }
 }

@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\DB;
 // kind from the URL grammar, the page's own title and cover via oEmbed —
 // exactly as ticket pages land in the events pool. Profile URLs get the
 // connect hint, wrong-pool items get pointed at their own page, and unknown
-// hosts keep the card path byte-identical.
+// hosts are REFUSED with the Links hand-off (T3, owner 2026-08-20: "no
+// events or listen items for random foreign links"). Known-but-unreadable
+// item URLs keep the card path — the grammar claimed them.
 
 beforeEach(function () {
     setupUsersTable();
@@ -114,18 +116,80 @@ it('reads a Spotify album into Listen as a release', function () {
     expect(DB::table('content.f_link')->value('url'))->toBe('https://open.spotify.com/album/79dL7FLiJFOO0EoehUHQBv');
 });
 
-it('keeps the card path byte-identical for unknown hosts and failed reads', function () {
+it('refuses an unknown host with the Links hand-off (T3)', function () {
     [$user] = makeShopUser(withSite: true);
 
-    // Unknown host: no grammar match, no fetch at all.
+    // Unknown host: no grammar match, no fetch, no item — the 422 is the
+    // contract behind the sheet's refusal band.
     mipMockFetch([]);
-    $res = actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
         'url' => 'https://some-blog.example/my-video-post',
-    ])->assertCreated();
-    $item = collect($res->json('selection'))->firstWhere('headline', 'some-blog.example');
-    expect($item)->not->toBeNull()->and($item['kind'])->toBe('video');
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as a video — add it to your Links page instead."]);
 
-    // Known shape, dead oEmbed + dead page: falls to the card titled by host.
+    // The natalieanne.com repro (2026-08-19): a Shopify storefront pasted
+    // into Listen was silently added as a bare "track". Never again.
+    actingAsUser($user)->postJson('/api/content/pools/listen/items', [
+        'url' => 'https://natalieanne.com/pages/education',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as a track — add it to your Links page instead."]);
+
+    expect(DB::connection('pgsql')->table('content.items')->count())->toBe(0);
+});
+
+it('refuses a known SOCIAL profile with the connect hint, not "unknown" (T3)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://www.instagram.com/natalieannehair/',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => 'That looks like an Instagram profile — connect it as a platform to bring its content in automatically, or add it to your Links page.']);
+});
+
+it('never calls a social ITEM url a profile — reels and posts get the honest refusal (T3 critic)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://www.instagram.com/reel/Cxxxxxxxxxx/',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as a video — add it to your Links page instead."]);
+
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://www.tiktok.com/@someuser/video/7123456789012345678',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as a video — add it to your Links page instead."]);
+});
+
+it('refuses a known store-platform host with the store hand-off (T4)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    actingAsUser($user)->postJson('/api/content/pools/listen/items', [
+        'url' => 'https://cool-shop.myshopify.com/products/thing',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => 'That looks like an online store — connect it on your Sell page to bring in its products, or add it to your Links page.']);
+});
+
+it('refuses every URL add into the gallery — nothing claims kind media (T3 critic)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    // The media grid's add sheet is select-only for exactly this reason; the
+    // 422 is the server contract behind it.
+    actingAsUser($user)->postJson('/api/content/pools/media/items', [
+        'url' => 'https://youtu.be/dQw4w9WgXcQ',
+    ])->assertStatus(422);
+
+    actingAsUser($user)->postJson('/api/content/pools/media/items', [
+        'url' => 'https://example.com/photo.jpg',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as a gallery item — add it to your Links page instead."]);
+});
+
+it('keeps the card path for a claimed item whose read fails', function () {
+    [$user] = makeShopUser(withSite: true);
+    mipMockFetch([]);
+
+    // Known shape, dead oEmbed + dead page: falls to the card titled by
+    // host — the grammar claimed it, so T3 lets it through.
     $res = actingAsUser($user)->postJson('/api/content/pools/watch/items', [
         'url' => 'https://vimeo.com/123456789',
     ])->assertCreated();
@@ -202,6 +266,25 @@ it('classifies pasted links for step-1 guidance — pure, no fetch', function ()
     actingAsUser($user)->postJson('/api/content/links/classify', [
         'url' => 'https://www.eventbrite.com.au/o/some-org-123',
     ])->assertOk()->assertJson(['belongsTo' => null, 'account' => 'Eventbrite']);
+
+    // A social profile → connect guidance (T3: the harvester's social arm
+    // surfaces through the classifier, so an Instagram profile pasted into
+    // a pool says "connect it", not "unknown").
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://www.instagram.com/natalieannehair/',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => 'Instagram']);
+
+    // A social ITEM url is NOT a profile (T3 critic): the classifier's
+    // profile-shape check refuses reel/post/video paths that the harvester's
+    // loose bio-scan heuristic would have called profiles.
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://www.instagram.com/reel/Cxxxxxxxxxx/',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => null, 'store' => null]);
+
+    // A store-platform host → the store answer (T4).
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://cool-shop.myshopify.com/',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => null, 'store' => 'Shopify']);
 
     // A plain page → neither.
     actingAsUser($user)->postJson('/api/content/links/classify', [
