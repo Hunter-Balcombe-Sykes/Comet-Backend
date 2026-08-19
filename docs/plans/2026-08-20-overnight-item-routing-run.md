@@ -233,7 +233,73 @@ when a richer determination exists.
   The matrix is the pinned contract for every future lane and platform.
 - Order note: run AFTER T6+T7 land (they supply the arms this audits).
 
-### T9 — Full-night backstop gates (run at the end, before the report)
+### T9 — Every cap and budget raised 2–3x (EXPLICIT OWNER PERMISSION, 2026-08-20)
+
+Owner grant, verbatim intent: "for every cap / budget etc make them way
+less conservative — I give explicit permission to increase them by a
+decent amount, double and triple what they are now. Much rather we waste
+more or take longer than it hits a limit and doesn't work." This task IS
+that permission — no further confirmation needed during the run.
+
+Target values (2–3x current; runner may land anywhere in that band, and
+records the final number per knob in the commit):
+
+Scan/import:
+- LinkInBioImporter::MAX_LINKS 100 → 300; MAX_PAGES 20 → 50;
+  MAX_PROBES 6 → 18 (T4 also makes the per-host probe smarter — root-first
+  + unreachable fallback; keep 1-per-host DEDUP but the budget stops
+  starving multi-host bios)
+- WebsiteImporter::MAX_LINKS 200 → 500
+- WebsiteLinkHarvester extractLinks 500 → 1000
+- ScanPreviousWebsiteContentJob::MAX_PDF_SCANS 5 → 12
+- GoogleMenuPhotoScanJob::MAX_OCR_CALLS 12 → 30
+
+Per-user content caps:
+- ManualEventWriter::MAX_STANDALONE_EVENTS 10 → 30 (mirror copy in the
+  controller/pool 422s reads the const — no second number)
+- EventsSeeder::MAX_ACCOUNTS 5 → 10; catalog multiAccount(5) → 10 across
+  the events/content surfaces (one sweep, note in CatalogSync)
+- ProductPageAdder::MAX_INDIVIDUAL_PRODUCTS 20 → 50
+- ShopController::MAX_BRANDS + ConnectStoreFromProductJob::MAX_BRANDS
+  5 → 10 (keep the two in lockstep — same number, same commit)
+- partna.platform_links_max 7 → 15 (frontend mirrors this constant —
+  update the dashboard mirror in the SAME push)
+- streaming max_live_check_per_site 5 → 10
+
+Paid budgets (config/partna.php `limits.*` — env-tunable defaults; bump
+the DEFAULTS so dev/prod inherit without env work):
+- apify.global_daily_cap 1000 → 3000; instagram 200 → 600;
+  menu 300 → 900; google-business 300 → 900; music actors 50 → 150 each
+- ai_spend.global 500 → 1500; mistral_ocr/deepseek_structure 300 → 900
+- places.global 500 → 1500; per_user 60 → 180; details 200 → 600;
+  photos 400 → 1200
+- T6's new media-scan per-run cap: set generous from birth (30, not 10)
+
+Fetch/time budgets (raise, but RESPECT the pinned invariants — raise the
+PAIRS together or the suite fails by design):
+- http_fetch.timeout_seconds 8 → 15; connect_timeout 3 → 6;
+  max_redirects 5 → 8; max_bytes 10MB → 25MB
+- connect_budget_seconds 20 → 45
+- refresh_budget_seconds 90 → 100 AND RefreshConnectionJob $timeout
+  120 → 150 (RefreshBudgetInvariantTest pins budget < job timeout)
+- apify run_sync_timeout 110 → 125 ONLY with the calling jobs' timeouts
+  raised in step (HorizonQueueCoverageTest pins those bounds) — if the
+  arithmetic gets delicate, leave this one and note it
+- fetch_many pool 6 → 12; ytimg pool 10 → 20; places pool 5 → 8
+
+Route throttles: previews/classify 60/120 per min → 180/300; leave the
+public-site/leads/bot throttles ALONE (abuse surface, not a product cap).
+
+Rules for the task:
+- Every knob change lands with its test updated in the same commit (many
+  are pinned); grep for each old literal so no stale mirror survives
+  (dashboard mirrors of platform_links_max and MAX_INDIVIDUAL_PRODUCTS
+  especially).
+- Do NOT touch SSRF/security bounds (denied_host_suffixes, bot tokens,
+  moderation throttles) — those are not "limits", they're the fence.
+- Report lists every knob: old → new.
+
+### T10 — Full-night backstop gates (run at the end, before the report)
 
 - Full backend suite green; dashboard typecheck/lint clean.
 - Deploy both; remote-verify each task's gate on dev (tinker battery +
@@ -257,7 +323,8 @@ when a richer determination exists.
 - [ ] T6b — media catalog surfaces stop placing item urls as accounts (spotify episode repro)
 - [ ] T7 — scan-seeded products connect their store
 - [ ] T8 — one routing brain for every scanned URL (audit + coverage matrix)
-- [ ] T9 — backstop gates + final critic pass + report
+- [ ] T9 — every cap/budget raised 2–3x (owner permission recorded in the task)
+- [ ] T10 — backstop gates + final critic pass + report
 
 ## Owner additions (queue below as they come — plan is open until "handoff")
 
