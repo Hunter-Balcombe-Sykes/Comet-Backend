@@ -260,27 +260,6 @@ class User extends BaseModel
         return $this->hasMany(LinkClick::class, 'user_id');
     }
 
-    /**
-     * DORMANT since the services cutover (2026-08-17): site.services is
-     * DROPPED, so calling this in app code is a 42P01. No caller remains —
-     * every service read goes through ManualServiceItems (kind='manual') or
-     * FreshaServiceItems ('connection'), and the routes bind a raw string id
-     * rather than a model. Kept only because the legacy-id test fixtures still
-     * seed the SQLite stand-in through it; it goes when they do.
-     *
-     * @return HasMany<Service, $this>
-     */
-    public function services(): HasMany
-    {
-        return $this->hasMany(Service::class, 'user_id');
-    }
-
-    /** DORMANT — see services() above; site.service_categories is dropped too. */
-    public function serviceCategories()
-    {
-        return $this->hasMany(ServiceCategory::class, 'user_id');
-    }
-
     public function emailSubscriptions(): HasMany
     {
         return $this->hasMany(EmailSubscription::class, 'user_id');
