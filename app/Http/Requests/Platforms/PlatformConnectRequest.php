@@ -92,7 +92,7 @@ class PlatformConnectRequest extends FormRequest
         // Two brands are matched by inline regexes inside classify() that yield
         // the legacy pseudo-slug 'events-custom' rather than the brand's own key.
         // Without this they would 422 on a perfectly valid URL.
-        if (in_array($actual, DerivedDescriptorFactory::CLASSIFIER_ALIASES[$slug] ?? [], true)) {
+        if (in_array($actual, DerivedDescriptorFactory::classifierAliases()[$slug] ?? [], true)) {
             return;
         }
 

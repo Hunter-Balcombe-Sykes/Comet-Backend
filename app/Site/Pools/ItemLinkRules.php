@@ -2,6 +2,9 @@
 
 namespace App\Site\Pools;
 
+use App\Catalog\Definitions\Eventbrite;
+use App\Catalog\Definitions\Ticketek;
+use App\Catalog\Definitions\Ticketmaster;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -87,9 +90,9 @@ class ItemLinkRules
     private static function hostsFor(string $platform): array
     {
         return match ($platform) {
-            'eventbrite' => array_map(static fn (string $t): string => "eventbrite.{$t}", \App\Catalog\Definitions\Eventbrite::TLDS),
-            'ticketmaster' => array_map(static fn (string $t): string => "ticketmaster.{$t}", \App\Catalog\Definitions\Ticketmaster::TLDS),
-            'ticketek' => array_map(static fn (string $t): string => "ticketek.{$t}", \App\Catalog\Definitions\Ticketek::TLDS),
+            'eventbrite' => array_map(static fn (string $t): string => "eventbrite.{$t}", Eventbrite::TLDS),
+            'ticketmaster' => array_map(static fn (string $t): string => "ticketmaster.{$t}", Ticketmaster::TLDS),
+            'ticketek' => array_map(static fn (string $t): string => "ticketek.{$t}", Ticketek::TLDS),
             default => self::HOSTS[$platform] ?? [],
         };
     }

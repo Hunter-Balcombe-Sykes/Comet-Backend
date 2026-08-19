@@ -59,9 +59,17 @@ class DerivedDescriptorFactory
      * the 'events-custom' aliases papered over. The mechanism stays for the
      * next brand whose classifier key can't equal its slug.
      *
-     * @var array<string, list<string>>
+     * @return array<string, list<string>>
      */
-    public const CLASSIFIER_ALIASES = [];
+    public static function classifierAliases(): array
+    {
+        // Empty today: the two brands this existed for went with the
+        // pseudo-platform link lane (ea6450eda). Kept as the extension point
+        // its docblock describes — and as a METHOD rather than a const so the
+        // declared array<string, list<string>> survives, instead of PHPStan
+        // narrowing an empty const to array{} and calling every consumer dead.
+        return [];
+    }
 
     /**
      * Hand-written slugs that must NEVER be upgraded to the Brand shape, even

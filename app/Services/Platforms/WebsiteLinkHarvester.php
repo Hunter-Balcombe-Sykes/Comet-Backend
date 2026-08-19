@@ -4,6 +4,9 @@ namespace App\Services\Platforms;
 
 use App\Catalog\CatalogNotCompiled;
 use App\Catalog\CompiledCatalog;
+use App\Catalog\Definitions\Eventbrite;
+use App\Catalog\Definitions\Ticketek;
+use App\Catalog\Definitions\Ticketmaster;
 use App\Catalog\LegacyPlatformMap;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkProjector;
@@ -495,7 +498,7 @@ class WebsiteLinkHarvester
         // lanes — EventsSeeder via LinkRouter/LinkInBioImporter — can act on
         // every brand, not just the two bespoke ones. TLD alternations come
         // from each brand's catalog definition, the single source of truth.
-        if (preg_match(self::brandTldRegex('eventbrite', \App\Catalog\Definitions\Eventbrite::TLDS), $host)) {
+        if (preg_match(self::brandTldRegex('eventbrite', Eventbrite::TLDS), $host)) {
             if ($this->eventbrite()->normalizeOrgUrl($url) !== null) {
                 return ['platform' => 'eventbrite', 'category' => 'event-organiser', 'label' => 'Eventbrite'];
             }
@@ -530,7 +533,7 @@ class WebsiteLinkHarvester
 
             return ['platform' => 'partiful', 'category' => 'event', 'label' => 'Partiful'];
         }
-        if (preg_match(self::brandTldRegex('ticketmaster', \App\Catalog\Definitions\Ticketmaster::TLDS), $host)) {
+        if (preg_match(self::brandTldRegex('ticketmaster', Ticketmaster::TLDS), $host)) {
             // Only real event pages (…/event/<id>) are events; artist and
             // discovery pages also embed Event JSON-LD lists, and seeding an
             // arbitrary first event from those would be wrong — they fall to
@@ -539,7 +542,7 @@ class WebsiteLinkHarvester
                 return ['platform' => 'ticketmaster', 'category' => 'event', 'label' => 'Ticketmaster'];
             }
         }
-        if (preg_match(self::brandTldRegex('ticketek', \App\Catalog\Definitions\Ticketek::TLDS), $host)) {
+        if (preg_match(self::brandTldRegex('ticketek', Ticketek::TLDS), $host)) {
             return ['platform' => 'ticketek', 'category' => 'event', 'label' => 'Ticketek'];
         }
         if (preg_match('~(^|\.)oztix\.com\.au$~', $host)) {
