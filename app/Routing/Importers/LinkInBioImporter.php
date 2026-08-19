@@ -12,6 +12,7 @@ use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\LinkInBioApiUnroller;
+use App\Services\Platforms\LinkInBioInlinePayloadReader;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -59,6 +60,7 @@ class LinkInBioImporter
         private readonly SafeUrlFetcher $fetcher,
         private readonly WebsiteLinkHarvester $harvester,
         private readonly LinkInBioApiUnroller $api,
+        private readonly LinkInBioInlinePayloadReader $inline,
         private readonly LinkRoutingService $routing,
         private readonly CustomLinkSeeder $seeder,
         private readonly EventsSeeder $events,
@@ -115,11 +117,24 @@ class LinkInBioImporter
 
         // Zero-yield floor (N2): a MATCHED bio host that unrolls to nothing is
         // a silent total loss — the detector claimed the URL, so no other path
-        // will ever write it. linkin.bio (an Ember SPA, zero anchors in the
-        // delivered shell) is the live case. Keyed on nothing-routable, so an
-        // all-own-chrome page floors identically.
+        // will ever write it (InstagramAutoSync dispatches this job and
+        // `continue`s: "Nothing about the bio-link URL itself is persisted").
+        // linkin.bio (an Ember SPA, zero anchors in the delivered shell) is the
+        // live case. Keyed on nothing-routable, so an all-own-chrome page floors
+        // identically.
+        //
+        // The `$fetched > 0` guard this used to carry made the floor inert in
+        // the one case that needs it most. Five detector hosts — bio.link,
+        // heylink.me, direct.me, lnk.bio, beacons.ai — sit behind a Cloudflare
+        // challenge or WAF block and answer 403 to both of SafeUrlFetcher's UA
+        // attempts. Every page then counts as unavailable, `$fetched` is 0, the
+        // floor did not fire, and the user's bio link was dropped ENTIRELY: no
+        // links AND no card, strictly worse than the inert card linkin.bio got.
+        // A URL we could not read is still a URL the owner published, so it
+        // floors too. `$pages` is non-empty here — the `$pages === []` early
+        // return above guarantees it.
         $bioUrlSeeded = false;
-        if ($fetched > 0 && $observations === 0) {
+        if ($observations === 0) {
             $this->seeder->seedCustom($user, $pages[0]);
             $bioUrlSeeded = true;
         }
@@ -186,12 +201,16 @@ class LinkInBioImporter
     {
         $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
 
-        // Some aggregators ship no anchors at all — linkin.bio's delivered page
-        // is an empty Ember shell, so the harvest below reads zero links off a
-        // page that has eight (N2). The unroller answers null for any host it
-        // cannot read, INCLUDING when its API is down, so the anchor pass stays
-        // the default and the zero-yield floor still backstops both.
-        $links = $this->api->unroll($baseUrl) ?? $this->harvester->allOutboundLinks($body, $baseUrl);
+        // Some aggregators ship no anchors at all — linkin.bio, taplink.cc and
+        // stan.store deliver empty SPA shells, so the harvest below reads zero
+        // links off a page that has eight (N2). Two seams answer them: an API
+        // read for those three, and an inline-payload parse for liinks.co,
+        // whose links are already in the body we just fetched. Both answer null
+        // for any host they cannot read — INCLUDING when the API is down — so
+        // the anchor pass stays the default and the floor backstops all four.
+        $links = $this->api->unroll($baseUrl)
+            ?? $this->inline->read($baseUrl, $body)
+            ?? $this->harvester->allOutboundLinks($body, $baseUrl);
 
         foreach ($links as $url) {
             if (count($seen) >= self::MAX_LINKS) {
