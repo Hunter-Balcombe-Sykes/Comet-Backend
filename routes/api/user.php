@@ -198,6 +198,11 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::post('/content/links/preview', [LinkPreviewController::class, 'show'])
             ->middleware('throttle:60,1')
             ->name('content.links.preview');
+        // The pure-grammar half of the preview alone (no page fetch) — the
+        // pool add sheets ask it as the URL settles, for step-1 guidance.
+        Route::post('/content/links/classify', [LinkPreviewController::class, 'classify'])
+            ->middleware('throttle:120,1')
+            ->name('content.links.classify');
         Route::delete('/content/items/{item}', [ItemController::class, 'destroy'])
             ->whereUuid('item')->name('content.items.destroy');
 

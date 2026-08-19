@@ -12,6 +12,7 @@ use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Services\Content\ManualEventWriter;
 use App\Services\Platforms\EventPageReader;
+use App\Services\Platforms\MediaPageReader;
 use App\Services\Shop\ProductPageAdder;
 use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolRegistry;
@@ -48,6 +49,7 @@ class PoolItemCreateController extends ApiController
         private readonly ProductPageAdder $products,
         private readonly EventPageReader $events,
         private readonly ManualEventWriter $eventWriter,
+        private readonly MediaPageReader $media,
     ) {}
 
     /** POST /api/content/pools/{pool}/items  { url, title?, description?, favicon?, logo?, kind? } */
@@ -99,7 +101,7 @@ class PoolItemCreateController extends ApiController
                 $this->applyCheckedWords($user->id, $added['itemId'], $data);
                 $this->pin($site, $pool, $added['itemId']);
 
-                return $this->success($this->resolver->resolve($site, $pool), 201);
+                return $this->created($site, $pool, $added['itemId']);
             }
             // no_product / unreachable → the card path below.
         }
@@ -132,10 +134,47 @@ class PoolItemCreateController extends ApiController
                     // checked words from the two-step Add remain to apply.
                     $this->applyCheckedWords($user->id, $added['id'], $data);
 
-                    return $this->success($this->resolver->resolve($site, $pool), 201);
+                    return $this->created($site, $pool, $added['id']);
                 }
             }
             // no event markup / unreachable → the card path below.
+        }
+
+        // ITEM-FIRST for the watch/listen pools (media parity, 2026-08-20):
+        // the same discipline as shop and events, done as INPUT ENRICHMENT
+        // over the one card write below rather than a parallel writer — a
+        // pasted video/track URL gets its platform-canonical URL (which is
+        // what lets the identity spine fold it into its synced twin — the
+        // canonical_url key is lowercased f_link.url and nothing else), its
+        // real kind from the URL grammar, and the page's own title/cover as
+        // defaults under whatever the owner typed. Profile URLs get the
+        // connect hint; an item that belongs to the OTHER pool gets pointed
+        // there; unknown hosts and failed reads keep the card path
+        // byte-identical.
+        $url = $data['url'];
+        $readKind = null;
+        $readTitle = null;
+        $readThumb = null;
+        if (in_array($pool, ['watch', 'listen'], true)) {
+            $account = $this->media->accountPlatformLabel($url);
+            if ($account !== null) {
+                abort(422, "That looks like a {$account} profile, not a single {$kinds[0]}. Connect {$account} as a platform to bring its content in automatically, or paste one {$kinds[0]}'s link.");
+            }
+
+            $item = $this->media->classifyItem($url);
+            if ($item !== null && ! in_array($item['kind'], $kinds, true)) {
+                $home = PoolRegistry::poolForKind($item['kind']);
+                $label = $home === null ? null : (PoolRegistry::PAGE_LABELS[$home] ?? null);
+                abort(422, "That looks like a {$item['kind']}".($label === null ? '.' : " — add it on the {$label} page instead."));
+            }
+
+            $read = $item === null ? null : $this->media->read($url);
+            if ($read !== null) {
+                $url = $read['canonical'];
+                $readKind = $read['kind'];
+                $readTitle = $read['title'];
+                $readThumb = $read['thumbnail'];
+            }
         }
 
         // ONE coord per url, never a fresh uuid per request. Two manual coords
@@ -144,8 +183,10 @@ class PoolItemCreateController extends ApiController
         // twice, and a user has exactly one manual source — which would stop
         // the synced item unioning too. Canonicalised the same way
         // KeyClass::CanonicalUrl does it, so two urls that would union always
-        // share a coord.
-        $coord = 'manual:'.sha1(strtolower(trim($data['url'])));
+        // share a coord. ($url is the platform-canonical form when the media
+        // arm above recognised the paste — youtu.be/X and watch?v=X must
+        // share one coord for the same reason.)
+        $coord = 'manual:'.sha1(strtolower(trim($url)));
 
         // What this url already resolved to, if the owner has added it before.
         // Three of the decisions below turn on it, and a deterministic coord
@@ -164,7 +205,7 @@ class PoolItemCreateController extends ApiController
         // anchored items.kind, and the item then has no live source item of
         // its own kind — no future resolveItems($user, $kind) pass ever touches
         // it again.
-        $kind = $data['kind'] ?? $kinds[0];
+        $kind = $data['kind'] ?? $readKind ?? $kinds[0];
         if ($existing !== null && (string) $existing->kind !== $kind) {
             if (isset($data['kind'])) {
                 abort(422, "This link is already in your library as a '{$existing->kind}'. Remove it first to add it as a '{$kind}'.");
@@ -181,7 +222,8 @@ class PoolItemCreateController extends ApiController
             // overwrite the owner's real title with "vimeo.com" and win against
             // every connector headline product-wide.
             $title = $this->storedHeadline($user->id, $existing?->item_id)
-                ?? (string) (parse_url($data['url'], PHP_URL_HOST) ?: $data['url']);
+                ?? $readTitle
+                ?? (string) (parse_url($url, PHP_URL_HOST) ?: $url);
         }
 
         // No wrapping transaction: writeManualItem() manages its own, and
@@ -194,7 +236,7 @@ class PoolItemCreateController extends ApiController
         $projection = [
             'kind' => $kind,
             'headline' => $title,
-            'facets' => ['f_link' => ['url' => $data['url']]],
+            'facets' => ['f_link' => ['url' => $url]],
         ];
         $description = trim((string) ($data['description'] ?? ''));
         if ($description !== '') {
@@ -208,6 +250,11 @@ class PoolItemCreateController extends ApiController
         }
         if ($favicon !== '') {
             $media[] = ['role' => 'logo', 'url' => $favicon];
+        }
+        // The page's own cover, only when the owner sent no image of their
+        // own — same deference the title shows to the checked words.
+        if ($media === [] && $readThumb !== null && $readThumb !== '') {
+            $media[] = ['role' => 'cover', 'url' => $readThumb];
         }
         if ($media !== []) {
             $projection['media'] = $media;
@@ -242,7 +289,24 @@ class PoolItemCreateController extends ApiController
 
         $this->pin($site, $pool, $itemId);
 
-        return $this->success($this->resolver->resolve($site, $pool), 201);
+        return $this->created($site, $pool, $itemId);
+    }
+
+    /**
+     * The 201 body: the pool wire plus the created (or folded-into) item's
+     * id at the TOP LEVEL — beside selection/library, never inside an item,
+     * so PoolWireShapeTest's per-item key pins are untouched. The add sheet
+     * used to re-find the new item by matching the PASTED url against the
+     * wire, which broke the moment the media/events lanes started storing
+     * platform-CANONICAL urls (youtu.be/X lands as watch?v=X): every add
+     * succeeded and then toasted "we couldn't find it" (owner, 2026-08-20).
+     */
+    private function created(Site $site, string $pool, string $itemId): JsonResponse
+    {
+        return $this->success([
+            ...$this->resolver->resolve($site, $pool),
+            'addedItemId' => $itemId,
+        ], 201);
     }
 
     /**
