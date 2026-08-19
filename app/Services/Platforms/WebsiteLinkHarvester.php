@@ -484,13 +484,18 @@ class WebsiteLinkHarvester
             }
         }
 
-        // Events (signup-v2 C1): organiser pages vs single events. Pattern
-        // authority stays with each scraper's own pure-regex normalizers so
-        // classify() can never drift from what the connect flow accepts —
-        // HumanitixScraper::resolveHostUrl() is deliberately NOT used (its
-        // event-URL branch fetches). Humanitix org runs BEFORE event: the two
-        // shapes share a host and only '/host/' discriminates.
-        if (preg_match('~(^|\.)eventbrite\.(com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)$~', $host)) {
+        // Events (signup-v2 C1; events-parity 2026-08-19): organiser pages vs
+        // single events. Pattern authority stays with each scraper's own
+        // pure-regex normalizers so classify() can never drift from what the
+        // connect flow accepts — HumanitixScraper::resolveHostUrl() is
+        // deliberately NOT used (its event-URL branch fetches). Humanitix org
+        // runs BEFORE event: the two shapes share a host and only '/host/'
+        // discriminates. Platform values are the REAL brand keys (the
+        // 'events-custom' pseudo-slug is gone from these arms) so the seeding
+        // lanes — EventsSeeder via LinkRouter/LinkInBioImporter — can act on
+        // every brand, not just the two bespoke ones. TLD alternations come
+        // from each brand's catalog definition, the single source of truth.
+        if (preg_match(self::brandTldRegex('eventbrite', \App\Catalog\Definitions\Eventbrite::TLDS), $host)) {
             if ($this->eventbrite()->normalizeOrgUrl($url) !== null) {
                 return ['platform' => 'eventbrite', 'category' => 'event-organiser', 'label' => 'Eventbrite'];
             }
@@ -506,28 +511,54 @@ class WebsiteLinkHarvester
                 return ['platform' => 'humanitix', 'category' => 'event', 'label' => 'Humanitix'];
             }
         }
-        // Expanded 2026-07-25 — link classification consolidation
-        if (preg_match('~(^|\.)lu\.ma$~', $host)) {
-            if (preg_match('~^https?://lu\.ma/[a-z0-9-]+$~i', $url)) {
-                return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Luma'];
-            }
-            if (preg_match('~^https?://lu\.ma/user/[a-z0-9-]+~i', $url)) {
-                return ['platform' => 'events-custom', 'category' => 'event-organiser', 'label' => 'Luma'];
+        // Expanded 2026-07-25 — link classification consolidation.
+        // luma.com added 2026-08-19: Luma rebranded and lu.ma now 301s there.
+        if (preg_match('~(^|\.)(lu\.ma|luma\.com)$~', $host)) {
+            if (preg_match('~^https?://(?:www\.)?(?:lu\.ma|luma\.com)/user/[a-z0-9-]+~i', $url)) {
+                return ['platform' => 'luma', 'category' => 'event-organiser', 'label' => 'Luma'];
             }
 
-            return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Luma'];
+            // A bare lu.ma slug is an EVENT by default (calendar slugs share
+            // the shape and cannot be told apart statically — the seeding
+            // lane's JSON-LD read self-filters a calendar page to a card).
+            return ['platform' => 'luma', 'category' => 'event', 'label' => 'Luma'];
         }
         if (preg_match('~(^|\.)partiful\.com$~', $host)) {
             if (preg_match('~^https?://partiful\.com/u/[a-zA-Z0-9-]+~i', $url)) {
-                return ['platform' => 'events-custom', 'category' => 'event-organiser', 'label' => 'Partiful'];
+                return ['platform' => 'partiful', 'category' => 'event-organiser', 'label' => 'Partiful'];
             }
 
-            return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Partiful'];
+            return ['platform' => 'partiful', 'category' => 'event', 'label' => 'Partiful'];
         }
-        if (preg_match('~(^|\.)ticketmaster\.(com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|be|dk|se|no|fi|at|ch|ie|com\.mx|sg|ae)$~', $host)) {
-            return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Ticketmaster'];
+        if (preg_match(self::brandTldRegex('ticketmaster', \App\Catalog\Definitions\Ticketmaster::TLDS), $host)) {
+            // Only real event pages (…/event/<id>) are events; artist and
+            // discovery pages also embed Event JSON-LD lists, and seeding an
+            // arbitrary first event from those would be wrong — they fall to
+            // classifyFromCatalog's link card instead.
+            if (str_contains(strtolower((string) parse_url($url, PHP_URL_PATH)), '/event/')) {
+                return ['platform' => 'ticketmaster', 'category' => 'event', 'label' => 'Ticketmaster'];
+            }
+        }
+        if (preg_match(self::brandTldRegex('ticketek', \App\Catalog\Definitions\Ticketek::TLDS), $host)) {
+            return ['platform' => 'ticketek', 'category' => 'event', 'label' => 'Ticketek'];
+        }
+        if (preg_match('~(^|\.)oztix\.com\.au$~', $host)) {
+            return ['platform' => 'oztix', 'category' => 'event', 'label' => 'Oztix'];
+        }
+        if (preg_match('~(^|\.)trybooking\.com$~', $host)) {
+            return ['platform' => 'trybooking', 'category' => 'event', 'label' => 'TryBooking'];
+        }
+        if (preg_match('~(^|\.)(ra\.co|residentadvisor\.net)$~', $host)) {
+            // RA serves DJ/promoter profiles beside event pages on one host;
+            // only /events/<id> is an event. Everything else keeps its
+            // catalog link card.
+            if (preg_match('~^/events/~i', (string) parse_url($url, PHP_URL_PATH))) {
+                return ['platform' => 'resident-advisor', 'category' => 'event', 'label' => 'Resident Advisor'];
+            }
         }
         if (preg_match('~(^|\.)meetup\.com$~', $host)) {
+            // No brand key of its own yet — the generic events-pool reader
+            // covers a pasted Meetup event page; scans card it.
             return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Meetup'];
         }
 
@@ -616,6 +647,14 @@ class WebsiteLinkHarvester
             // before this fallback existed. Never fatal on a scrape path.
             return null;
         }
+    }
+
+    /** Host regex for a brand across its catalog-declared regional TLDs. */
+    private static function brandTldRegex(string $brand, array $tlds): string
+    {
+        $alts = implode('|', array_map(static fn (string $t): string => preg_quote($t, '~'), $tlds));
+
+        return '~(^|\.)'.preg_quote($brand, '~').'\.(?:'.$alts.')$~i';
     }
 
     /** Whether $host matches ANY pattern in a label => regex map. */

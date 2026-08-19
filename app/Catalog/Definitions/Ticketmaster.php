@@ -25,7 +25,9 @@ use App\Catalog\SurfaceBuilder;
 class Ticketmaster
 {
     /** @var list<string> */
-    private const TLDS = ['com', 'com.au', 'co.uk', 'co.nz', 'ca', 'de', 'fr', 'es', 'it', 'nl', 'be', 'dk', 'se', 'no', 'fi', 'at', 'ch', 'ie', 'com.mx', 'sg', 'ae'];
+    /** Single source of truth for this brand's regional TLDs — consumed by
+     * WebsiteLinkHarvester::classify() and ItemLinkRules, never re-listed. */
+    public const TLDS = ['com', 'com.au', 'co.uk', 'co.nz', 'ca', 'de', 'fr', 'es', 'it', 'nl', 'be', 'dk', 'se', 'no', 'fi', 'at', 'ch', 'ie', 'com.mx', 'sg', 'ae'];
 
     public static function brand(): Brand
     {

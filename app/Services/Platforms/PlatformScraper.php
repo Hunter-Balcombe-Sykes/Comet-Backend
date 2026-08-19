@@ -160,11 +160,15 @@ abstract class PlatformScraper
     }
 
     // Flatten every <script type="application/ld+json"> block (expanding
-    // @graph and top-level arrays) into one list of nodes.
+    // @graph and top-level arrays) into one list of nodes. The type attribute
+    // is matched ANYWHERE in the tag: Luma emits
+    // `<script data-cfasync="false" type="application/ld+json" …>` and the
+    // old first-attribute-only pattern silently missed the whole block
+    // (found live, events-parity 2026-08-19).
     protected function jsonLdNodes(string $html): array
     {
         $nodes = [];
-        if (preg_match_all('~<script type="application/ld\+json"[^>]*>(.+?)</script>~s', $html, $m)) {
+        if (preg_match_all('~<script[^>]*\stype="application/ld\+json"[^>]*>(.+?)</script>~s', $html, $m)) {
             foreach ($m[1] as $block) {
                 $data = json_decode(trim($block), true);
                 if (! is_array($data)) {
@@ -285,6 +289,65 @@ abstract class PlatformScraper
         }
 
         return null;
+    }
+
+    /**
+     * One schema.org Event JSON-LD node → the stored event shape every events
+     * lane shares. Extracted from EventbriteScraper::parseEvent and
+     * HumanitixScraper::parseEventNode, whose mappings were field-for-field
+     * identical (same first-entry offers collapse, same lowest-price scan of
+     * the RAW offers list, same image-list collapse). Eventbrite's regional
+     * host rewrite is the one per-platform delta and stays in that scraper,
+     * applied over this result's `link`.
+     *
+     * @param  array<string, mixed>  $event
+     * @return array{name:?string, venue:?string, location:?string, startDate:?string, endDate:?string, description:?string, startsAt:?string, endsAt:?string, price:?string, priceMin:?float, currency:?string, availability:?string, soldOut:bool, image:?string, link:string}
+     */
+    protected function schemaOrgEventNode(array $event, string $fallbackUrl): array
+    {
+        $loc = is_array($event['location'] ?? null) ? $event['location'] : [];
+        // $offers keeps the historical first-entry collapse (price string +
+        // availability read it); lowestOffer() scans the RAW value so a multi-
+        // tier offers list still yields the true minimum.
+        $offersRaw = $event['offers'] ?? [];
+        $offers = $offersRaw;
+        if (isset($offers[0])) {
+            $offers = $offers[0];
+        }
+        if (! is_array($offers)) {
+            $offers = [];
+        }
+        $image = $event['image'] ?? null;
+        if (is_array($image)) {
+            $image = $image[0] ?? null;
+        }
+
+        $availability = $this->normalizeAvailability(data_get($offers, 'availability'));
+        $lowest = $this->lowestOffer($offersRaw);
+        $venue = data_get($loc, 'name');
+        $link = $event['url'] ?? null;
+
+        return [
+            'name' => $event['name'] ?? null,
+            'venue' => $venue !== null ? trim((string) $venue) : null,
+            'location' => data_get($loc, 'address.addressLocality') ?? data_get($loc, 'address.addressRegion'),
+            'startDate' => $event['startDate'] ?? null,
+            'endDate' => $event['endDate'] ?? null,
+            // startsAt/endsAt are the contract-named ISO aliases of start/endDate
+            // (kept: existing consumers read the old keys); price stays the legacy
+            // display STRING while priceMin/currency carry the machine-readable
+            // lowest ticket price; soldOut is the boolean face of availability.
+            'description' => $this->sanitizeDescription($event['description'] ?? null),
+            'startsAt' => $event['startDate'] ?? null,
+            'endsAt' => $event['endDate'] ?? null,
+            'price' => $this->formatPrice($offers),
+            'priceMin' => $lowest['priceMin'],
+            'currency' => $lowest['currency'],
+            'availability' => $availability,
+            'soldOut' => $availability === 'sold_out',
+            'image' => is_string($image) ? $image : null,
+            'link' => is_string($link) && $link !== '' ? $link : $fallbackUrl,
+        ];
     }
 
     // Sort scraped events soonest-first, in place. Events with an empty/missing
