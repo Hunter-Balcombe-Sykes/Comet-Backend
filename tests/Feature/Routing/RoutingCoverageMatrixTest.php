@@ -2,6 +2,7 @@
 
 use App\Catalog\CompiledCatalog;
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\RouteContext;
@@ -206,6 +207,26 @@ it('legacy scan lane: a catalog-only brand CONNECTS instead of carding (F6 — t
         + DB::table('routing.source_intents')->where('user_id', $pro->id)
             ->where('surface_key', 'apple_music.artist')->whereIn('state', ['proposed', 'applied'])->count())
         ->toBeGreaterThan(0);
+});
+
+it('a reconciler-applied connection captures a real ID and gets the enrichment fetch — never a nameless URL row (F9)', function () {
+    // the_046_official live trace: the Engine-1-applied apple_music.artist
+    // row was keyed on the FULL URL with payload {url, source} — the
+    // Platforms page showed the URL as the account. Two halves: the detector
+    // captures the artist id now, and applyIntent dispatches the same
+    // ConnectFetchJob the interactive connect flows use.
+    Queue::fake();
+    $pro = createTenant('f9-apple');
+    Http::fake(['*' => Http::response('', 404)]);
+
+    app(LinkRouter::class)
+        ->route($pro, 'https://music.apple.com/au/artist/the-046/1492426191', new RouteContext);
+
+    $conn = IntegrationConnection::query()
+        ->where('user_id', $pro->id)->where('surface_key', 'apple_music.artist')->first();
+    expect($conn)->not->toBeNull()
+        ->and($conn->resource_id)->toBe('1492426191');
+    Queue::assertPushed(ConnectFetchJob::class);
 });
 
 it('legacy scan lane: marketplaces stay CARDS — the LINK_ONLY flavour is byte-identical (F6)', function () {
