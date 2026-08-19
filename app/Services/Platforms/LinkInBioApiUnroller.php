@@ -62,6 +62,21 @@ class LinkInBioApiUnroller
     private const TIMEOUT_SECONDS = 5;
 
     /**
+     * stan's user.data.socials stores SOME networks as bare handles which its
+     * own client expands into profile URLs. Only the expansions CONFIRMED
+     * against a live store are listed (natalieannehair, 2026-08-20:
+     * tiktok "natalieannehair" → tiktok.com/@natalieannehair, instagram
+     * "Natalieannehair" → instagram.com/Natalieannehair — both verified in
+     * the hydrated DOM). A key not listed here is skipped unless its value
+     * is already a full URL; add expansions when a real page exercises them,
+     * never by guessing — a wrong guess MINTS a URL, worse than missing one.
+     */
+    private const STAN_SOCIAL_PROFILES = [
+        'tiktok' => 'https://www.tiktok.com/@%s',
+        'instagram' => 'https://www.instagram.com/%s',
+    ];
+
+    /**
      * Destination URLs the page owner has published, in page order.
      *
      * @return list<string>|null null when this class cannot answer for the URL
@@ -185,8 +200,19 @@ class LinkInBioApiUnroller
      */
     private function stanStore(string $slug): ?array
     {
-        $pages = $this->json(self::STAN_API_URL, ['username' => $slug], 'store.pages', 'stan.store');
-        if ($pages === null) {
+        $doc = $this->jsonDoc(self::STAN_API_URL, ['username' => $slug]);
+        if ($doc === null) {
+            return null;
+        }
+
+        $pages = data_get($doc, 'store.pages');
+        if (! is_array($pages)) {
+            Log::warning('platforms.link_in_bio_api.unrecognised_payload', [
+                'host' => 'stan.store',
+                'path' => 'store.pages',
+                'keys' => array_keys($doc),
+            ]);
+
             return null;
         }
 
@@ -201,6 +227,35 @@ class LinkInBioApiUnroller
             $this->collect($urls, is_string($link) ? $link : '');
         }
 
+        // F12 (2026-08-20, natalieannehair): the owner's SOCIALS are neither
+        // tiles nor anchors — the delivered shell carries them only inside
+        // the minified __NUXT__ blob, so the anchor harvest can never see
+        // them either. The API carries them at user.data.socials in MIXED
+        // shapes, confirmed live: facebook is a full URL, tiktok/instagram
+        // are bare handles the client expands. Full URLs pass through
+        // whatever their key; only handle keys named in STAN_SOCIAL_PROFILES
+        // are expanded (same rule as linkinBio() above: shapes are quoted
+        // from live responses, never guessed — a wrong guess would MINT a
+        // URL, worse than missing one). mail_to is an email; collect()'s
+        // http(s) test already refuses it.
+        foreach ((array) data_get($doc, 'user.data.socials', []) as $key => $value) {
+            if (! is_string($value) || trim($value) === '') {
+                continue;
+            }
+            $value = trim($value);
+
+            if (preg_match('~^https?://~i', $value) === 1) {
+                $this->collect($urls, $value);
+
+                continue;
+            }
+
+            $format = self::STAN_SOCIAL_PROFILES[$key] ?? null;
+            if ($format !== null && ! str_contains($value, '/')) {
+                $this->collect($urls, sprintf($format, rawurlencode(ltrim($value, '@'))));
+            }
+        }
+
         return $urls;
     }
 
@@ -213,6 +268,39 @@ class LinkInBioApiUnroller
      */
     private function json(string $url, array $query, string $path, string $host): ?array
     {
+        $doc = $this->jsonDoc($url, $query);
+        if ($doc === null) {
+            return null;
+        }
+
+        $found = data_get($doc, $path);
+        if (! is_array($found)) {
+            // The vendor revved their API. Say so — the alternative is this
+            // class quietly returning nothing forever, which is the exact
+            // failure it was written to end.
+            Log::warning('platforms.link_in_bio_api.unrecognised_payload', [
+                'host' => $host,
+                'path' => $path,
+                'keys' => array_keys($doc),
+            ]);
+
+            return null;
+        }
+
+        return $found;
+    }
+
+    /**
+     * One GET, the whole decoded document. stanStore() reads TWO paths out of
+     * one response (tiles + socials), so the fetch and the path-extraction had
+     * to come apart; json() above keeps the one-path convenience for the hosts
+     * that need only one.
+     *
+     * @param  array<string, string>  $query
+     * @return array<int|string, mixed>|null
+     */
+    private function jsonDoc(string $url, array $query): ?array
+    {
         $response = Http::timeout(self::TIMEOUT_SECONDS)
             ->connectTimeout((int) config('partna.http_fetch.connect_timeout_seconds', 3))
             ->get($url, $query);
@@ -221,21 +309,9 @@ class LinkInBioApiUnroller
             return null;
         }
 
-        $found = $response->json($path);
-        if (! is_array($found)) {
-            // The vendor revved their API. Say so — the alternative is this
-            // class quietly returning nothing forever, which is the exact
-            // failure it was written to end.
-            Log::warning('platforms.link_in_bio_api.unrecognised_payload', [
-                'host' => $host,
-                'path' => $path,
-                'keys' => array_keys((array) $response->json()),
-            ]);
+        $doc = $response->json();
 
-            return null;
-        }
-
-        return $found;
+        return is_array($doc) ? $doc : null;
     }
 
     /**
