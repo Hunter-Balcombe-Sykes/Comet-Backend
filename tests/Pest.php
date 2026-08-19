@@ -2789,7 +2789,11 @@ function setupSectionsTables(): void
  */
 function pinPoolPresence(Site $site): void
 {
-    foreach (['watch', 'listen', 'events'] as $pool) {
+    // custom_links joined the presence loop 2026-08-19 (pool-only links must
+    // flip the Links page) — pinned here for the same reason as the others:
+    // the probe tests need every pool probe short-circuited so only the
+    // probe under test faults.
+    foreach (['watch', 'listen', 'events', 'custom_links'] as $pool) {
         $section = app(PoolSectionProvisioner::class)->ensure($site, $pool);
         DB::connection('pgsql')->table('site.section_items')->insert([
             'id' => (string) Str::uuid(),

@@ -268,6 +268,27 @@ class LegacyPlatformMap
         return self::SPECIAL_TO_LEGACY;
     }
 
+    /**
+     * Live special aliases plus the retired pseudo-surface ones — what the
+     * APPLIED generated-column CASE (20260727110004, and the SQLite mirror in
+     * tests/Pest.php) still contains: an applied migration records what ran,
+     * and the retired surfaces alias harmlessly with zero rows to alias.
+     * Only the lockstep test should need this.
+     *
+     * @return array<string, string>
+     */
+    public static function historicalSpecialToLegacyMap(): array
+    {
+        $all = self::SPECIAL_TO_LEGACY;
+        foreach (self::RETIRED as $legacy => $surface) {
+            if (str_starts_with($surface, 'partna.')) {
+                $all[$surface] = $legacy;
+            }
+        }
+
+        return $all;
+    }
+
     /** @return array<string, string> */
     public static function routingClassMap(): array
     {

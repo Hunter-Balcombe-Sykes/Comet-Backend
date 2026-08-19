@@ -62,20 +62,25 @@ function fakeEventbrite(): void
 
 // ── The finding must resolve to the row that was written ─────────────────────
 
-it('stamps a standalone event finding with the resource id of the row it actually wrote', function () {
+it('routes a standalone event to the POOL — no connection row, no finding (R7, 2026-08-19)', function () {
+    // The synced modal that consumed the finding is retired, and the dual
+    // write went with it: the events pool item is the whole outcome — which
+    // needs a site to pin it to.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
     $user = User::factory()->create(['account_type' => 'partna']);
+    $site = new \App\Models\Core\Site\Site(['subdomain' => 'esf-standalone', 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
     fakeEventbrite();
 
     $result = app(LinkRouter::class)->route($user, EB_EVENT_URL, new RouteContext);
 
-    $row = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->firstOrFail();
-    expect($result->findings)->toHaveCount(1);
-    expect($result->findings[0]['outcome'])->toBe('seeded');
-    expect($result->findings[0]['platform'])->toBe('eventbrite');
-    // The lookup key shapeFinding() uses. 'eventbrite' as the resourceId — the
-    // shape every other platform has — would silently drop off the modal.
-    expect($result->findings[0]['resourceId'])->toBe($row->resource_id);
-    expect($row->resource_id)->toStartWith('event-');
+    expect($result->outcome)->toBe('custom');
+    expect($result->handled)->toBeTrue();
+    expect($result->findings)->toBeEmpty();
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->exists())->toBeFalse();
 });
 
 it('stamps an organiser finding with the resource id of the account row it actually wrote', function () {
@@ -109,18 +114,8 @@ it('reuses the resource id of an existing organiser row rather than the id it wo
 
 // ── Remove path must target the one event/account ────────────────────────────
 
-it('points a standalone event finding at the single-event remove route', function () {
-    // '/platforms/eventbrite' is DELETE forget() — it would drop every event
-    // the user has. removeEvent() takes the BARE id ('event-' is re-added).
-    $user = User::factory()->create(['account_type' => 'partna']);
-    fakeEventbrite();
-
-    $result = app(LinkRouter::class)->route($user, EB_EVENT_URL, new RouteContext);
-
-    $row = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->firstOrFail();
-    $bareId = substr($row->resource_id, strlen('event-'));
-    expect($result->findings[0]['removePath'])->toBe('/platforms/eventbrite/events/'.$bareId);
-});
+// (The standalone-event remove-path pin left with the finding itself — R7:
+// a pasted event is a pool item; the pool row carries its own remove.)
 
 it('points an organiser finding at the single-account remove route', function () {
     // removeAccount() matches on the FULL resource_id, unlike removeEvent().

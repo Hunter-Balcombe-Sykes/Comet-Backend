@@ -1,3 +1,5 @@
+-- ROLLBACK: NONE. Both UPDATEs overwrite without a recorded pre-image
+-- (nulled partna contact pairs, copied business description/address).
 -- Identity-mirror backfill (2026-08-19 plan, decision 11).
 --
 -- partna: the workplace is WHERE THEY WORK — its contact pair should never

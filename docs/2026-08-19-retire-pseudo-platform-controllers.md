@@ -324,3 +324,48 @@ cheap to assume compromised and expensive to be wrong about.
 
 The three later commits (`7c4e29bb4`, `deda1ab3f` and this one) do not touch
 the file; only `cde935ae9` needs the edit.
+
+---
+
+# EXECUTION STATE 2 — Phases 4+5 DONE (2026-08-19 big run)
+
+## Resume actions (all done)
+- `.env.backup-2026-08-18-pre-overnight` stripped from the Phase-1 commit via
+  rebase (`cde935ae9` → `7e2cacdaf`), `.gitignore` gains `.env.backup-*`,
+  branch pushed. **Credential rotation (Apify token + Supabase secret key)
+  still owner-owned — not done in this run.**
+- Full suite baseline post-Phase-3: 8571 passed, 0 failed.
+
+## Phase 4 — done (commit `ea6450eda` + test-fix follow-ups)
+- Five controllers + route groups deleted; `route:list` shows zero retired
+  prefixes (gate run, 0 matches).
+- **EventsCatalog deleted too** — beyond the plan's letter but within its
+  spirit: the facade was its only consumer, so the whole engine (addByUrl /
+  store* / selection / reorder) was dead the moment the controller fell.
+  EventsPlatformController has its own engine and is untouched.
+- Enum cases, LegacyPlatformMap entries (moved to RETIRED), Partna.php bridge
+  surfaces, DSAR + public allowlists (R8), catalog recompiled
+  (108 brands / 111 surfaces / 281 detectors).
+- Reservations family XOR moved into `LinkRouter::seedReservation` as a
+  cap-block intent (Swap offer) — refuse, never silent-replace.
+- R7: `seedStandalone` pool-only for every lane;
+  `content:convert-standalone-events` one-off written (1 row on dev to convert).
+- **Bonus fix (found live)**: `slotIncumbent` only compared the brand-slug
+  rid, so a router-seeded incumbent (`order-<hash>`) was invisible to the
+  manual connect — a second Uber Eats landed silently. Now family-wide, and
+  connectBrand retires other-rid rows on a single-slot surface inside the
+  write lock (Swap actually swaps). Regression test in BrandConnectGuardTest;
+  reproduced + verified fixed live against the local backend.
+- Tests: 8 whole-file suites of deleted endpoints removed
+  (Booking/Reservations/CustomLinks/OnlineOrdering controller tests,
+  BookingSetupState, IntegrationCategories, EventsCatalog{,AsyncConnect},
+  SessionA4); ~15 files edited onto successor lanes; the XOR-lock discipline
+  survives in FreshaForgetXorLockTest + SessionA5.
+
+## Phase 5 — done (monorepo `d352770`)
+As planned; suggestions inbox verified live with 2 ordinary rows.
+
+## Remaining (Phase 6)
+Deploy dashboard → then backend branch → development; then run on dev:
+`content:enrich-pool-links --missing`, `content:prune-overflow-links`,
+`content:convert-standalone-events`. Record counts here.

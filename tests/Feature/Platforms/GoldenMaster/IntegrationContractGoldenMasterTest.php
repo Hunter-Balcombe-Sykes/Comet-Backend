@@ -447,36 +447,8 @@ it('freezes the shop brands list contract', function () {
 // These pins freeze the empty-state contract so a structural change to the
 // status aggregators is immediately visible as a test failure.
 
-// booking/status: aggregates fresha > square > custom booking connections.
-// Empty state: no connection of any booking-family type.
-it('freezes booking status contract when nothing is connected', function () {
-    $user = gmUser('gmbook');
-    actingAsUser($user)->getJson('/api/platforms/booking/status')
-        ->assertOk()
-        ->assertExactJson([
-            'connected' => false,
-            'provider' => null,
-            'name' => null,
-            'url' => null,
-            'setup' => null,
-        ]);
-});
-
-// reservations/status: aggregates opentable > resdiary > nowbookit > custom.
-// Empty state includes embedUrl (null) — that key is absent from booking/status.
-it('freezes reservations status contract when nothing is connected', function () {
-    $user = gmUser('gmres');
-    actingAsUser($user)->getJson('/api/platforms/reservations/status')
-        ->assertOk()
-        ->assertExactJson([
-            'connected' => false,
-            'provider' => null,
-            'name' => null,
-            'url' => null,
-            'embedUrl' => null,
-        ]);
-});
-
+// The booking/reservations category status pins left 2026-08-19 with their
+// endpoints (pseudo-platform retirement).
 // menu/status: driven by online-ordering entries (Uber Eats / DoorDash).
 // No ordering entries → not connected. itemCount, source, fetchStatus are all
 // surfaced even in the disconnected state (drives the dashboard card loading).
@@ -581,7 +553,9 @@ it('covers every integration GET read-route in the golden master', function () {
     // multiAccount() emits the /accounts pair, so the 11 of them that are not
     // LinkOnly (skool and strava expose /selection alone) each contribute one
     // GET. 139 -> 150.
-    expect($readRoutes->count())->toBe(150);
+    // 150 → 141 on 2026-08-19: the nine pseudo-platform category reads and the
+    // reservations suggestion left with the retirement.
+    expect($readRoutes->count())->toBe(141);
     expect($readRoutes->all())->toEqual([
         'api/platforms/acuity/selection',
         'api/platforms/apple/music/accounts',
@@ -595,8 +569,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/bandcamp/selection',
         'api/platforms/behance/selection',
         'api/platforms/bella-booking/selection',
-        'api/platforms/booking/detect/status',
-        'api/platforms/booking/status',
         'api/platforms/booksy/selection',
         'api/platforms/bopple/selection',
         'api/platforms/boulevard/selection',
@@ -607,8 +579,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/circle/accounts',
         'api/platforms/circle/selection',
         'api/platforms/codepen/selection',
-        'api/platforms/custom/links',
-        'api/platforms/custom/links/{id}/status',
         'api/platforms/deliveroo/selection',
         'api/platforms/discord/selection',
         'api/platforms/doordash/selection',
@@ -618,7 +588,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/eventbrite/accounts',
         'api/platforms/eventbrite/connect/status',
         'api/platforms/eventbrite/selection',
-        'api/platforms/events/selection',
         'api/platforms/facebook/selection',
         'api/platforms/fresha/connect/status',
         'api/platforms/fresha/selection',
@@ -655,8 +624,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/mixcloud/selection',
         'api/platforms/noterro/selection',
         'api/platforms/nowbookit/selection',
-        'api/platforms/online-ordering/entries',
-        'api/platforms/online-ordering/entries/{id}/status',
         'api/platforms/opentable/selection',
         'api/platforms/order_online/selection',
         'api/platforms/ordermate/selection',
@@ -670,8 +637,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/quandoo/selection',
         'api/platforms/reddit/selection',
         'api/platforms/resdiary/selection',
-        'api/platforms/reservations/detect/status',
-        'api/platforms/reservations/status',
         'api/platforms/resident-advisor/accounts',
         'api/platforms/resident-advisor/selection',
         'api/platforms/resy/selection',
