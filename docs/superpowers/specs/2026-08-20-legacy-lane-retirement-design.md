@@ -66,12 +66,18 @@ This matters because `isKnownSurface()` and `routingClassFor()` both justify the
 
 `PartnaAu/partna-frontend` @ `main` (local clean checkout `partna-frontend-main`):
 
-| File | Use |
-|---|---|
-| `lib/staff/types.ts:80,120` | typed field on two staff payloads |
-| `app/(app)/account/(dashboard)/staff/users/[id]/page.tsx:232` | **renders it in the staff UI** |
-| `lib/schemas/account.ts:199-213` | Zod parses `architectureId` + legacy `skeletonId` |
-| `lib/account/map-snapshot-to-account.ts:110-123,237` | reads it into account state |
+Verified against **live `main` @ `a93ecaf` (2026-07-28) via `gh api`**, not the local `partna-frontend-main` checkout (clean `main` but HEAD 2026-07-25 — 3 commits behind; treat it as a staleness trap).
+
+| File | Use | Behaviour if the field disappears |
+|---|---|---|
+| `staff/users/[id]/page.tsx:232` | renders it in the staff UI | `{design.architecture_id ?? 'staple'}` — **explicit fallback; renders the identical string**, since the CHECK permits only `'staple'` |
+| `lib/schemas/account.ts:205-206` | Zod parses `architectureId` + `skeletonId` | both `.optional().nullable()` inside `.passthrough()` — **does not throw on absence** |
+| `lib/account/map-snapshot-to-account.ts:119,237` | reads into account state | `readString(site?.architecture_id) ?? …` fallback chain |
+| `lib/staff/types.ts:80,120` | typed field on two staff payloads | hand-written TS type; `lib/staff/api.ts` does **no** runtime validation (no `zod`, no `.parse`) — compile-time only |
+
+**The field is referenced but NOT load-bearing.** Every consumer is defensively coded. Removing it from the dashboard wire produces **no user-visible change** — the fallback value equals the only permitted value. The residual is a compile-time type tidy-up inside the frontend repo.
+
+An earlier draft of this spec rated this a "High — render break". That was an unjustified leap from *referenced* to *load-bearing*; the consumption shape (`?? fallback`, `.optional()`, types without runtime validation) says the producer can stop sending it. Corrected 2026-08-20.
 
 All four are **dashboard** surfaces reading `SiteResource` / `Staff*Resource`. None consume the public profile payload. That is what makes the Phase 1/2 split in §9 coherent rather than arbitrary.
 
@@ -267,7 +273,8 @@ Note `tests/` runs SQLite while prod is Postgres. §7.4/7.5 are constraint-bound
 | Risk | Severity | Mitigation |
 |---|---|---|
 | Astro sitepage still calls `/platforms` | High — integration cards vanish | Unverifiable locally; owner-accepted 2026-08-20. Confirm before Phase 1 merge, or hold §6 to Phase 3. |
-| Astro sitepage reads `architectureId`/`skeletonId` | High — render break | Same. §7.1's public-wire half is Phase 2; the `skeletonId` alias was already marked "drop once confirmed" and never was. |
+| Astro sitepage reads `architectureId`/`skeletonId` | Medium — unverified consumer | Sitepage is not checked out; unlike the dashboard (§2.5) its consumption shape is unknown, so it cannot be discounted the same way. §7.1's public-wire half is Phase 2; the `skeletonId` alias was already marked "drop once confirmed" and never was. |
+| Dashboard reads `architecture_id` | **Low** — no user-visible change | Verified on live `main`: every consumer has a fallback or is `.optional()` (§2.5). Frontend PR is a type tidy-up, not a blocker. |
 | `compiled.php` merge conflict | High — silent identity corruption | Phase 2 gating (§9). Never hand-resolve; re-run `catalog:compile`. |
 | Stored settings carry `book` after re-measure | Medium — read-path break | §2.7 caveat; re-measure gates the deletion. |
 | Column drop irreversible | Medium | Phase 3, separate migration, after FE deploy. |
