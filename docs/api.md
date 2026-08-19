@@ -859,6 +859,12 @@ key set is `PoolResolver::ITEM_KEYS`, pinned by `tests/Feature/Content/PoolWireS
   `content:prune-orphaned-review-pii` and the DSAR omission all govern.
 - **`headline` is `null` on review items** by contract, and so is `description`. Render the
   card from the `review` block; there is deliberately no title to fall back to.
+- **`handle`** (2026-08-19) — the `content.f_catalog` product handle on a `shop`
+  item, `null` on every other kind. Not the same thing as `creator`, which can
+  fall back to a source *channel* handle (`content.f_channel.handle`) — two
+  different tables, same column name. Exists so `profile.feed`'s score mode can
+  match a shop item against its `analytics.content_popularity_scores` row,
+  which keys on this handle rather than the item id.
 
 **`pools.reviews.stats`** — `{ratingAvg, ratingCount, summaryText}`, the connected Google
 place's own aggregates, read from `content.source_stats`. Absent when null (the same

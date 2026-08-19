@@ -63,15 +63,14 @@ class ContentPopularityReader
      * 2026-08-19-item-feed-design.md §4 score mode, §7). Excludes the derived
      * 'action' rows and the 'page' rows — everything else is an item family
      * (shop_product keys on `f_catalog.handle`, the rest on content item id).
-     * The max-on-collision rule below exists to reconcile the handle family
-     * with the id families into one flat map, so a key present in both would
-     * keep the higher score rather than whichever row the query happened to
-     * see last. That reconciliation is currently MOOT: no wire item key ever
-     * carries a shop product's handle (`ItemFeedService::scoreFor()`'s slug
-     * fallback looks up `content.item_slugs`, not the catalog handle), so a
-     * shop_product row never collides with anything — it just sits in the map
-     * unread. Shop products are unscored in score mode today; see
-     * `ItemFeedService::scoreFor()`. Fail-open like forSite().
+     * The max-on-collision rule below genuinely reconciles the handle family
+     * with the id families into one flat map: `PoolResolver` now emits the
+     * catalog handle as a shop item's `handle` wire key, and
+     * `ItemFeedService::scoreFor()` tries id, then handle, then slug — so a
+     * shop_product row's `content_key` (a handle) can collide with another
+     * family's row keyed on that same string as an item id. Collision keeps
+     * the higher score rather than whichever row the query happened to see
+     * last. Fail-open like forSite().
      *
      * @return array<string, float>
      */

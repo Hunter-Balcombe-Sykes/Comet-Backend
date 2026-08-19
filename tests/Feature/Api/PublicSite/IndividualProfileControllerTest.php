@@ -1139,3 +1139,34 @@ it('honours the stored feed_mode', function () {
     // Manual with no stored list = strict empty (spec §4).
     expect($feed['mode'])->toBe('manual')->and($feed['entries'])->toBe([]);
 });
+
+// #PGR follow-up (2026-08-19): closes a gap a prior review named explicitly —
+// nothing previously drove a populated score map end-to-end through the
+// public payload. Shop products score via `f_catalog.handle`
+// (`analytics.content_popularity_scores.content_key`), not by item id/slug.
+it('scores a shop product in the served feed via its catalog handle', function () {
+    setupContentPopularityScoresTable();
+
+    [$pro, $siteId] = poolTenant();
+    $store = shopStore($pro->id);
+    $itemId = shopProduct($pro->id, $store, 'Hat');
+    poolPin($siteId, 'shop', $itemId);
+
+    $handle = DB::connection('pgsql')->table('content.f_catalog')->where('item_id', $itemId)->value('handle');
+
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+        'id' => (string) Str::uuid(), 'site_id' => $siteId,
+        'content_type' => 'shop_product', 'content_key' => $handle,
+        'score' => 0.8, 'rank' => 1, 'computed_at' => now(),
+    ]);
+
+    $site = Site::query()->findOrFail($siteId);
+    $site->update(['settings' => [...$site->settings, 'feed_mode' => 'score']]);
+
+    $feed = $this->getJson("/api/public/profiles/{$pro->handle}")->assertOk()->json('data.profile.feed');
+
+    $entry = collect($feed['entries'])->firstWhere('itemId', $itemId);
+    expect($entry)->not->toBeNull()
+        ->and($entry['pool'])->toBe('shop')
+        ->and($entry['score'])->toBe(0.8);
+});

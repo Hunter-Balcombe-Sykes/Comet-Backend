@@ -62,7 +62,8 @@ class ItemFeedService
     /**
      * Enumerate candidates from the wire pools. Each candidate is a wire entry
      * plus private sort facets (stripped before emit): _ts (recency epoch),
-     * _score (float|null), _items (category members with their own facets).
+     * _score (float|null), _slug/_handle (scoreFor() lookup keys), _items
+     * (category members with their own facets).
      *
      * @return list<array<string, mixed>>
      */
@@ -135,6 +136,7 @@ class ItemFeedService
             'kind' => 'item', 'pool' => $pool, 'itemId' => (string) ($item['id'] ?? ''),
             '_ts' => is_string($ts) ? (strtotime($ts) ?: 0) : 0,
             '_slug' => isset($item['slug']) && is_string($item['slug']) ? $item['slug'] : null,
+            '_handle' => isset($item['handle']) && is_string($item['handle']) ? $item['handle'] : null,
         ];
     }
 
@@ -199,19 +201,21 @@ class ItemFeedService
     }
 
     /**
-     * Lookup by item id, then by `_slug`. The slug fallback resolves for no
-     * pool today: `content_popularity_scores` rows for `shop_product` key on
-     * `f_catalog.handle` (the catalog handle), but the wire item's `slug` is a
-     * `content.item_slugs` URL slug — and `ContentItemSlugAllocator::SLUGGED_KINDS`
-     * only covers `event`/`menu_item`, so a `kind: 'product'` item's slug is
-     * null anyway. No pool item key on the wire carries the handle at all, so
-     * shop products are unscored in score mode today (spec §7). The fallback
-     * branch stays — harmless, and free if a future wire ever carries a
-     * matching key — but nothing today reaches it.
+     * Lookup by item id, then by `_handle`, then by `_slug`. Id resolves most
+     * families directly (`content_popularity_scores.content_key` = the
+     * content item id for everything except shop_product). Shop products key
+     * on `f_catalog.handle` instead — `PoolResolver` now emits that as the
+     * item's `handle` wire key (2026-08-19 follow-up), which is what the
+     * `_handle` facet carries. `_slug` stays as a third fallback: it is a
+     * `content.item_slugs` URL slug (`ContentItemSlugAllocator::SLUGGED_KINDS`
+     * = `event`/`menu_item` only), never populated for a product, and no
+     * popularity row keys on it today — but harmless to keep, and free if a
+     * future wire ever carries a matching key.
      */
     private function scoreFor(array $candidate, array $scores): ?float
     {
         return $scores[$candidate['itemId']]
+            ?? ($candidate['_handle'] !== null ? ($scores[$candidate['_handle']] ?? null) : null)
             ?? ($candidate['_slug'] !== null ? ($scores[$candidate['_slug']] ?? null) : null);
     }
 

@@ -105,6 +105,31 @@ it('score mode orders by score, category takes best item, unscored sort after sc
     expect($block['itemIds'])->toBe(['d-1', 'd-2'])->and($block['score'])->toBe(0.5);
 });
 
+it('scores a shop item by its catalog handle when id and slug both miss', function () {
+    // s-1 carries no id/slug match in $scores (product slugs are always null
+    // — allocated only for event/menu_item) but DOES carry `handle`, which
+    // PoolResolver now emits from f_catalog. Discriminating: under the
+    // current (broken) id-then-slug lookup, s-1 scores null and — tied with
+    // every other unscored item — sorts by recency, LOSING to v-new (newer).
+    // Once scoreFor() also tries `handle`, s-1's 0.9 beats v-new's null and
+    // the order flips.
+    $pools = [
+        'shop' => ['items' => [
+            ['id' => 's-1', 'slug' => null, 'handle' => 'the-handle', 'publishedAt' => '2026-01-01T00:00:00Z', 'firstSeenAt' => '2026-01-01T00:00:00Z', 'collectionIds' => []],
+        ]],
+        'watch' => ['items' => [
+            ['id' => 'v-new', 'slug' => null, 'publishedAt' => '2026-08-15T00:00:00Z', 'firstSeenAt' => '2026-08-15T00:00:00Z', 'collectionIds' => []],
+        ]],
+    ];
+    $scores = ['the-handle' => 0.9];
+
+    $out = (new ItemFeedService)->resolve($pools, 'score', [], $scores);
+
+    expect(array_map(fn ($e) => $e['itemId'], $out['entries']))->toBe(['s-1', 'v-new']);
+    expect($out['entries'][0]['score'])->toBe(0.9);
+    expect($out['entries'][1]['score'])->toBeNull();
+});
+
 it('newest and manual modes carry null scores', function () {
     $out = (new ItemFeedService)->resolve(feedPools(), 'newest', [], ['v-new' => 0.9]);
     expect(collect($out['entries'])->pluck('score')->unique()->all())->toBe([null]);

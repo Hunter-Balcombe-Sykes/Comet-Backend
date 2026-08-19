@@ -62,7 +62,7 @@ class PoolResolver
         'platform', 'creator', 'publishedAt', 'firstSeenAt', 'durationSeconds',
         'thumbnail', 'favicon', 'frames', 'startsAt', 'startsAtLocal', 'endsAtLocal',
         'timezone', 'venue', 'locality', 'price', 'availability', 'links',
-        'popularityRank', 'description', 'vendor', 'variants', 'collectionIds',
+        'popularityRank', 'handle', 'description', 'vendor', 'variants', 'collectionIds',
         'review', 'selected', 'origin', 'overrides', 'sources',
         'format', 'album', 'trackNumber', 'collectionPositions', 'duplicateCandidates',
     ];
@@ -1024,6 +1024,15 @@ class PoolResolver
                 'availability' => $offers[$itemId]->availability ?? null,
                 'links' => $links,
                 'popularityRank' => $handle !== '' ? ($ranks[$handle] ?? null) : null,
+                // The f_catalog product handle (2026-08-19, item-feed follow-up)
+                // — NOT $channels[$itemId]->handle above, which is a source
+                // channel handle (e.g. a YouTube handle) feeding `creator`.
+                // Null on every non-product item, same as popularityRank, which
+                // already keys off this value. Exists so ItemFeedService::
+                // scoreFor() has a key to match a shop_product popularity row
+                // against: those rows key on this handle, not the item id or
+                // the (product-less) content.item_slugs `slug`.
+                'handle' => $handle !== '' ? $handle : null,
                 // Additive and nullable on EVERY item, never a kind-shaped
                 // sub-object — the same contract startsAt / venue / price
                 // already follow, so the wire shape does not vary with kind.

@@ -191,16 +191,21 @@ Extend `GET /api/site/actions` (no new endpoint — the design page stays one fe
    SSRF/scheme concerns, no `safeHref` in the feed.
 5. **Unclaimed (pre-account) sites** serve the feed normally — public-by-design,
    like every other payload engine.
-6. **Shop products are unscored in score mode.** `content_popularity_scores`
-   rows for `shop_product` key on `f_catalog.handle`; the wire item carries no
-   handle (`slug` is a `content.item_slugs` URL slug, allocated only for
-   `event`/`menu_item` kinds — a `product` item's `slug` is always null), so
-   `ItemFeedService::scoreFor()`'s id-then-slug lookup never resolves for a
-   shop item. It sorts into the unscored-by-recency tail like any other
-   unranked item — degrade-safe, not an error. Emitting the score pool-side
-   (so a shop item's wire entry carries a key `scoreFor()` can actually match)
-   is the real fix; deferred as follow-up, out of scope here since it touches
-   the pool wire shape.
+6. **Shop products score via the catalog handle (fixed 2026-08-19, follow-up).**
+   `content_popularity_scores` rows for `shop_product` key on `f_catalog.handle`,
+   but no pool item wire key originally carried that value — `slug` is a
+   `content.item_slugs` URL slug, allocated only for `event`/`menu_item` kinds,
+   so a `product` item's `slug` is always null, and `ItemFeedService::scoreFor()`'s
+   original id-then-slug lookup never resolved for a shop item. Fixed by
+   emitting the value pool-side: `PoolResolver` now carries the `f_catalog`
+   handle (already fetched for `popularityRank`) as a new item key, `handle`
+   — additive on `PoolResolver::ITEM_KEYS`, null for every item without a
+   catalog handle, same contract `vendor`/`popularityRank` already follow.
+   `scoreFor()` tries id, then `handle`, then `slug`. `ContentPopularityReader::
+   itemScoresForSite()`'s max-on-collision reconciliation, previously moot, now
+   does real work: a handle string can collide with another family's row keyed
+   on that same string as an item id. Wire change: `docs/wire-changes/
+   2026-08-19-item-feed.md`.
 
 ## 8. Testing
 
