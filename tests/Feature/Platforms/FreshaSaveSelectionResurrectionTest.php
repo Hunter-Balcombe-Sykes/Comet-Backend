@@ -66,7 +66,7 @@ it('does not resurrect the fresha connection when forget() lands during saveSele
     // A previously-synced service — forget() soft-deletes rows like this with
     // deleted_origin='sync'; FreshaServiceProjector::sync() would otherwise
     // resurrect it, which is exactly what must NOT happen here.
-    $service = $user->services()->create([
+    $service = createServiceFor($user, [
         'title' => 'Haircut',
         'source' => 'fresha',
         'is_manual' => false,
