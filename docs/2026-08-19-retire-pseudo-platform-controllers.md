@@ -365,7 +365,16 @@ the file; only `cde935ae9` needs the edit.
 ## Phase 5 — done (monorepo `d352770`)
 As planned; suggestions inbox verified live with 2 ordinary rows.
 
-## Remaining (Phase 6)
-Deploy dashboard → then backend branch → development; then run on dev:
-`content:enrich-pool-links --missing`, `content:prune-overflow-links`,
-`content:convert-standalone-events`. Record counts here.
+## Phase 6 — DONE (2026-08-19 big run)
+- Dashboard deployed first (Vercel, commit 32b23c7 READY), then backend:
+  branch merged → `development` (two live-session merges reconciled — the
+  fill-only contact mirror from PR #294 is SUPERSEDED by the identity plan's
+  capability-gated mirror, resolved in 609b746d1) → pushed `e3468fd12` →
+  Laravel Cloud deployment.succeeded. Merged-tree suite: 8538 passed, 0 failed.
+- Public wire verified live on dev-api (bio + workplace.contactEmail served).
+- One-offs on dev, counts:
+  - `content:convert-standalone-events` — converted 1 of 1 (kebab-acai's
+    Eventbrite event → pool item); zero `resource_kind='event'` rows remain.
+  - `content:enrich-pool-links --missing` — queued 20 pool links.
+  - `content:prune-overflow-links` — removed 2 of 53 (the souva-king
+    Uber Eats + beardbrand pool cards duplicating live connections — R5).
