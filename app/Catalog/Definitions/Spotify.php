@@ -16,6 +16,15 @@ use App\Catalog\SurfaceBuilder;
  * Spotify — oEmbed music embed. SpotifyConnect (Deferred) resolves any
  * open.spotify.com entity link; the {kind, id} pair together is the real
  * identity (a bare id collides across kinds), hence Composite.
+ *
+ * T6b (2026-08-20): the detector narrows to ACCOUNT kinds — artist, show,
+ * user, playlist. track/album/episode are ITEMS and belong in the
+ * watch/listen pools (MediaPageReader's grammar claims them; the scan lanes
+ * seed them via MediaSeeder) — the pre-pools "embed any Spotify URL" design
+ * auto-connected a bio's podcast EPISODE link as a "Spotify" platform at
+ * confidence 99 (natalieannehair, 2026-08-19). Playlist KEPT as connectable
+ * (owner-flagged decision): a playlist is a curated collection — closer to
+ * an account than an item — and no grammar can make it a pool item.
  */
 class Spotify
 {
@@ -43,11 +52,11 @@ class Spotify
                     ['autoplay', 'clipboard-write', 'encrypted-media', 'fullscreen', 'picture-in-picture'],
                     false,
                 )
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('spotify.com')
                         ->subdomain('#^open$#')
-                        ->path('#^/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(?<kind>artist|album|playlist|track|show|episode|user)/(?<id>[A-Za-z0-9]+)#')
+                        ->path('#^/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(?<kind>artist|playlist|show|user)/(?<id>[A-Za-z0-9]+)#')
                         ->captures('id')
                         ->from(IdentifierSource::Path)
                         ->strength(EvidenceStrength::DeepLinkWithSlug),

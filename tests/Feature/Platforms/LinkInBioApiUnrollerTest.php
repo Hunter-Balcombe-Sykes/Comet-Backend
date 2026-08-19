@@ -2,6 +2,7 @@
 
 use App\Services\Platforms\LinkInBioApiUnroller;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 // N2 (2026-08-19): linkin.bio delivers an empty Ember shell — zero <a> anchors —
 // so the anchor harvest returns nothing and the whole page is lost. The links are
@@ -220,6 +221,79 @@ it('skips a stan page the owner has not published', function () {
 
     expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))
         ->toBe(['https://live.example.com']);
+});
+
+it('surfaces the owner\'s socials from the stan API payload (F12)', function () {
+    // The socials are neither tiles nor anchors — the raw shell carries them
+    // only inside its __NUXT__ blob (natalieannehair, 2026-08-20: her TikTok
+    // and Facebook were invisible to BOTH arms). The API carries them at
+    // user.data.socials in MIXED shapes, confirmed live: full URLs pass
+    // through, named handle keys expand, mail_to is an email and must not
+    // become a "link".
+    fakeStan(stanStore([
+        ['type' => 'link', 'status' => 2, 'slug' => 'my-shop', 'data' => ['product' => ['link' => ['url' => 'https://shop.example.com']]]],
+    ]) + ['user' => ['data' => ['socials' => [
+        'link' => 'https://example.com',
+        'tiktok' => 'natalieannehair',
+        'instagram' => '@Natalieannehair',
+        'facebook' => 'https://www.facebook.com/natalieannehairstylist',
+        'mail_to' => 'sales@example.com',
+    ]]]]);
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))
+        ->toBe([
+            'https://shop.example.com',
+            'https://example.com',
+            'https://www.tiktok.com/@natalieannehair',
+            'https://www.instagram.com/Natalieannehair',
+            'https://www.facebook.com/natalieannehairstylist',
+        ]);
+});
+
+it('never MINTS a social URL from a shape it cannot name (F12)', function () {
+    // A handle key not confirmed against a live store is skipped, and a
+    // slash-carrying value is refused even for a named key — expanding either
+    // would fabricate a URL the owner never published, which is worse than
+    // missing one (the class's own linkinBio() rule).
+    fakeStan(stanStore([]) + ['user' => ['data' => ['socials' => [
+        'snapchat' => 'somehandle',
+        'tiktok' => 'weird/shape',
+        'twitter' => 'someone',
+    ]]]]);
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))->toBe([]);
+});
+
+it('answers the socials even when the stan store has zero outward tiles (F12)', function () {
+    // The hosted-products-only store is stan's COMMON case; before F12 it
+    // answered [] and the owner's socials were lost entirely.
+    fakeStan(stanStore([
+        ['type' => 'digital-download', 'status' => 2, 'slug' => 'ebook', 'data' => []],
+    ]) + ['user' => ['data' => ['socials' => ['tiktok' => 'natalieannehair']]]]);
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))
+        ->toBe(['https://www.tiktok.com/@natalieannehair']);
+});
+
+it('refuses to mint a profile URL from a handle that is only @-signs (F12)', function () {
+    // ltrim('@', '@') is '' — expanding that would emit a bare
+    // "https://www.tiktok.com/@", a URL the owner never published.
+    fakeStan(stanStore([]) + ['user' => ['data' => ['socials' => ['tiktok' => '@']]]]);
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))->toBe([]);
+});
+
+it('logs the unrecognised-payload warning when a 200 body is not JSON at all', function () {
+    // An HTML challenge page served with a 200 must not become a silent null
+    // forever — the warning is the class's whole reason for logging at all.
+    Log::spy();
+    fakeStan([], 200);
+    Http::fake(['api.stanwith.me/*' => Http::response('<html>not json</html>', 200)]);
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))->toBeNull();
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($msg) => $msg === 'platforms.link_in_bio_api.unrecognised_payload')
+        ->once();
 });
 
 it('declines every new host when its API is down, so the floor still backstops', function () {

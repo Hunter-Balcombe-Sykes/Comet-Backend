@@ -40,24 +40,25 @@ it('cards a matched-but-unconnectable link instead of dropping it', function () 
     Queue::assertNotPushed(CommerceProbeJob::class); // recognised host: no probe
 });
 
-it('probes an unknown host instead of carding it, within a budget of six', function () {
+it('probes an unknown host instead of carding it, within the probe budget', function () {
     Queue::fake();
     $pro = createTenant('imp-probe');
     $anchors = '';
-    foreach (range(1, 8) as $i) {
+    // Two more distinct hosts than the run's probe budget (18, T9 2026-08-20).
+    foreach (range(1, 20) as $i) {
         $anchors .= '<a href="https://unknown-shop-'.$i.'.example/">S'.$i.'</a>';
     }
     Http::fake(['linktr.ee/*' => Http::response($anchors, 200)]);
 
     $result = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/shops');
 
-    Queue::assertPushed(CommerceProbeJob::class, 6);          // budget parity with legacy
-    expect($result['probed'])->toBe(6);
+    Queue::assertPushed(CommerceProbeJob::class, 18);
+    expect($result['probed'])->toBe(18);
     // The two past-budget links must be CARDED — silent truncation is the
     // failure mode 3.9 hunts; a probe-starved link still lands somewhere.
     $urls = array_column(app(LinkPoolReader::class)->cards($pro->refresh()), 'url');
-    expect($urls)->toContain('https://unknown-shop-7.example/')
-        ->and($urls)->toContain('https://unknown-shop-8.example/');
+    expect($urls)->toContain('https://unknown-shop-19.example/')
+        ->and($urls)->toContain('https://unknown-shop-20.example/');
 });
 
 it('seeds the bio url itself when the page yields nothing routable', function () {

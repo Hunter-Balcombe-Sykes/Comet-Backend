@@ -8,10 +8,12 @@ use Illuminate\Support\Facades\DB;
 // EVENT-FIRST events-pool hand-add (Eventbrite-parity, 2026-08-19): a ticket
 // page pasted into POST /content/pools/events/items is read as an EVENT
 // (schema.org JSON-LD) and written through ManualEventWriter — the same lane
-// the platform addEvent verbs use — so ANY platform's event page (Luma,
-// Ticketmaster, Partiful, a venue's own site) lands as a real event card with
+// the platform addEvent verbs use — so a KNOWN events platform's page (Luma,
+// Ticketmaster, Partiful, Meetup…) lands as a real event card with
 // dates/venue/price, exactly as an Eventbrite one does. Organiser pages get
-// the connect hint; pages without event markup keep the old card behaviour.
+// the connect hint. T3 (owner, 2026-08-20) closed the host-agnostic arm: an
+// unknown host — a venue's own site included, JSON-LD or not — is refused
+// with the Links hand-off; a known host without event markup keeps the card.
 
 beforeEach(function () {
     setupUsersTable();
@@ -56,12 +58,12 @@ function eppMockFetch(?string $body, int $status = 200): void
     }));
 }
 
-it('reads a generic ticket page as a real event — dates, venue, price — and pins it', function () {
+it('reads a known events platform page as a real event — dates, venue, price — and pins it', function () {
     [$user] = makeShopUser(withSite: true);
     eppMockFetch(eppHtml());
 
     $res = actingAsUser($user)->postJson('/api/content/pools/events/items', [
-        'url' => 'https://tickets.example/warehouse-rave',
+        'url' => 'https://lu.ma/warehouse-rave',
     ])->assertCreated();
 
     $item = collect($res->json('selection'))->firstWhere('headline', 'Warehouse Rave');
@@ -82,7 +84,7 @@ it('keeps the checked title as an override on the event the page became', functi
     eppMockFetch(eppHtml());
 
     $res = actingAsUser($user)->postJson('/api/content/pools/events/items', [
-        'url' => 'https://tickets.example/warehouse-rave',
+        'url' => 'https://lu.ma/warehouse-rave',
         'title' => 'My Big Night',
     ])->assertCreated();
 
@@ -104,18 +106,35 @@ it('refuses an organiser page with the connect hint', function () {
     ])->assertStatus(422);
 });
 
-it('falls through to the plain card when the page carries no event markup', function () {
+it('falls through to the plain card when a KNOWN platform page carries no event markup', function () {
     [$user] = makeShopUser(withSite: true);
     eppMockFetch('<html><head></head><body>No JSON-LD here.</body></html>');
 
     $res = actingAsUser($user)->postJson('/api/content/pools/events/items', [
-        'url' => 'https://tickets.example/no-markup',
+        'url' => 'https://lu.ma/no-markup',
     ])->assertCreated();
 
-    // The old behaviour, unchanged: an event-kind card titled by host.
-    $item = collect($res->json('selection'))->firstWhere('headline', 'tickets.example');
+    // The old card behaviour, kept only for claimed hosts: titled by host.
+    $item = collect($res->json('selection'))->firstWhere('headline', 'lu.ma');
     expect($item)->not->toBeNull()
         ->and(DB::table('content.f_occurrence')->count())->toBe(0);
+});
+
+it('refuses an unknown venue site even when its page carries event JSON-LD (T3)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    // The owner rule (2026-08-20): "no events or listen items for random
+    // foreign links." The venue's-own-site JSON-LD add is deliberately gone —
+    // the fetch must not even happen (the mock would have served a valid
+    // Event node; the 422 arrives before any read).
+    eppMockFetch(eppHtml());
+    actingAsUser($user)->postJson('/api/content/pools/events/items', [
+        'url' => 'https://tickets.example/warehouse-rave',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as an event — add it to your Links page instead."]);
+
+    expect(DB::table('content.f_occurrence')->count())->toBe(0)
+        ->and(DB::connection('pgsql')->table('content.items')->count())->toBe(0);
 });
 
 it('enforces the standalone-event cap with the writer’s own limit', function () {
@@ -132,7 +151,7 @@ it('enforces the standalone-event cap with the writer’s own limit', function (
 
     eppMockFetch(eppHtml());
     actingAsUser($user)->postJson('/api/content/pools/events/items', [
-        'url' => 'https://tickets.example/warehouse-rave',
+        'url' => 'https://lu.ma/warehouse-rave',
     ])->assertStatus(422)
         ->assertJsonFragment(['message' => 'You can add up to '.ManualEventWriter::MAX_STANDALONE_EVENTS.' events.']);
 });

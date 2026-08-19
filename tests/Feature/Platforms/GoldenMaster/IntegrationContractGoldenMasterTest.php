@@ -555,7 +555,10 @@ it('covers every integration GET read-route in the golden master', function () {
     // GET. 139 -> 150.
     // 150 → 141 on 2026-08-19: the nine pseudo-platform category reads and the
     // reservations suggestion left with the retirement.
-    expect($readRoutes->count())->toBe(141);
+    // 141 → 142 on 2026-08-20 (F7): gumroad.store joined the multi-account
+    // store caps (10, lockstep with MAX_BRANDS), which grows its registry
+    // routes by the /accounts read.
+    expect($readRoutes->count())->toBe(142);
     expect($readRoutes->all())->toEqual([
         'api/platforms/acuity/selection',
         'api/platforms/apple/music/accounts',
@@ -597,6 +600,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/glossgenius/selection',
         'api/platforms/google-business/selection',
         'api/platforms/grubhub/selection',
+        'api/platforms/gumroad/accounts',
         'api/platforms/gumroad/selection',
         'api/platforms/humanitix/accounts',
         'api/platforms/humanitix/connect/status',

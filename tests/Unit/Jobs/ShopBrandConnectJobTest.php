@@ -159,7 +159,7 @@ it('defines the required queue-hygiene properties, keyed on the store not the co
     expect($job->tries)->toBe(3)
         ->and($job->backoff)->toBe([5, 20])
         ->and($job->maxExceptions)->toBe(2)
-        ->and($job->timeout)->toBe(45)
+        ->and($job->timeout)->toBe(75)
         ->and($job->uniqueFor)->toBe(120)
         // Must exceed the job's own $timeout — same HorizonQueueCoverageTest invariant ConnectFetchJobTest pins.
         ->and($job->uniqueFor)->toBeGreaterThan($job->timeout)

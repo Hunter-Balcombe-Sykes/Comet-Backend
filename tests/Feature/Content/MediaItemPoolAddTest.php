@@ -3,13 +3,16 @@
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\MediaPageReader;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 // ITEM-FIRST watch/listen hand-add (media parity, 2026-08-20): a pasted
 // video/track URL lands as a real pool item — platform-canonical URL, real
 // kind from the URL grammar, the page's own title and cover via oEmbed —
 // exactly as ticket pages land in the events pool. Profile URLs get the
 // connect hint, wrong-pool items get pointed at their own page, and unknown
-// hosts keep the card path byte-identical.
+// hosts are REFUSED with the Links hand-off (T3, owner 2026-08-20: "no
+// events or listen items for random foreign links"). Known-but-unreadable
+// item URLs keep the card path — the grammar claimed them.
 
 beforeEach(function () {
     setupUsersTable();
@@ -114,18 +117,131 @@ it('reads a Spotify album into Listen as a release', function () {
     expect(DB::table('content.f_link')->value('url'))->toBe('https://open.spotify.com/album/79dL7FLiJFOO0EoehUHQBv');
 });
 
-it('keeps the card path byte-identical for unknown hosts and failed reads', function () {
+it('refuses an unknown host with the Links hand-off (T3)', function () {
     [$user] = makeShopUser(withSite: true);
 
-    // Unknown host: no grammar match, no fetch at all.
+    // Unknown host: no grammar match, no fetch, no item — the 422 is the
+    // contract behind the sheet's refusal band.
     mipMockFetch([]);
-    $res = actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
         'url' => 'https://some-blog.example/my-video-post',
-    ])->assertCreated();
-    $item = collect($res->json('selection'))->firstWhere('headline', 'some-blog.example');
-    expect($item)->not->toBeNull()->and($item['kind'])->toBe('video');
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as a video — add it to your Links page instead."]);
 
-    // Known shape, dead oEmbed + dead page: falls to the card titled by host.
+    // The natalieanne.com repro (2026-08-19): a Shopify storefront pasted
+    // into Listen was silently added as a bare "track". Never again.
+    actingAsUser($user)->postJson('/api/content/pools/listen/items', [
+        'url' => 'https://natalieanne.com/pages/education',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as a track — add it to your Links page instead."]);
+
+    expect(DB::connection('pgsql')->table('content.items')->count())->toBe(0);
+});
+
+it('refuses a known SOCIAL profile with the connect hint, not "unknown" (T3)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://www.instagram.com/natalieannehair/',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => 'That looks like an Instagram profile — connect it as a platform to bring its content in automatically, or add it to your Links page.']);
+});
+
+it('never calls a social ITEM url a profile — reels and posts get the honest refusal (T3 critic)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://www.instagram.com/reel/Cxxxxxxxxxx/',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as a video — add it to your Links page instead."]);
+
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://www.tiktok.com/@someuser/video/7123456789012345678',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as a video — add it to your Links page instead."]);
+});
+
+it('refuses a known store-platform host with the store hand-off (T4)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    actingAsUser($user)->postJson('/api/content/pools/listen/items', [
+        'url' => 'https://cool-shop.myshopify.com/products/thing',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => 'That looks like an online store — connect it on your Sell page to bring in its products, or add it to your Links page.']);
+});
+
+it('refuses every URL add into the gallery — nothing claims kind media (T3 critic)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    // The media grid's add sheet is select-only for exactly this reason; the
+    // 422 is the server contract behind it.
+    actingAsUser($user)->postJson('/api/content/pools/media/items', [
+        'url' => 'https://youtu.be/dQw4w9WgXcQ',
+    ])->assertStatus(422);
+
+    actingAsUser($user)->postJson('/api/content/pools/media/items', [
+        'url' => 'https://example.com/photo.jpg',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "We don't recognise this link as a gallery item — add it to your Links page instead."]);
+});
+
+it('suggests the video\'s CHANNEL beside a pool paste — suggest-only (T9b)', function () {
+    setupRoutingTables();
+    [$user] = makeShopUser(withSite: true);
+    mipMockFetch([
+        'youtube.com/oembed' => json_encode([
+            'title' => 'Studio Tour 2026', 'thumbnail_url' => null,
+            'author_url' => 'https://www.youtube.com/channel/UCparentparentparentpar1',
+        ]),
+    ]);
+
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://youtu.be/dQw4w9WgXcQ',
+    ])->assertCreated();
+
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $user->id)->where('surface_key', 'youtube.channel')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->identifier)->toBe('UCparentparentparentpar1');
+});
+
+it('never re-suggests a DISMISSED parent on a later paste — derived is not direct (T9b critic)', function () {
+    setupRoutingTables();
+    [$user] = makeShopUser(withSite: true);
+    // The user dismissed this channel's suggestion once — dismiss() writes
+    // exactly this tombstone. A later paste of ANOTHER video from the same
+    // channel must not resurrect the question.
+    DB::table('routing.item_tombstones')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'source_ref' => 'youtube.channel:UCparentparentparentpar1',
+        'scope' => 'this_source',
+        'reason' => 'user dismissed the suggestion',
+        'created_at' => now(),
+    ]);
+    mipMockFetch([
+        'youtube.com/oembed' => json_encode([
+            'title' => 'Another Video', 'thumbnail_url' => null,
+            'author_url' => 'https://www.youtube.com/channel/UCparentparentparentpar1',
+        ]),
+    ]);
+
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://youtu.be/dQw4w9WgXcQ',
+    ])->assertCreated();
+
+    expect(DB::table('routing.source_intents')
+        ->where('user_id', $user->id)->where('surface_key', 'youtube.channel')
+        ->whereIn('state', ['proposed', 'blocked'])->count())->toBe(0);
+});
+
+it('keeps the card path for a claimed item whose read fails', function () {
+    [$user] = makeShopUser(withSite: true);
+    mipMockFetch([]);
+
+    // Known shape, dead oEmbed + dead page: falls to the card titled by
+    // host — the grammar claimed it, so T3 lets it through.
     $res = actingAsUser($user)->postJson('/api/content/pools/watch/items', [
         'url' => 'https://vimeo.com/123456789',
     ])->assertCreated();
@@ -202,6 +318,25 @@ it('classifies pasted links for step-1 guidance — pure, no fetch', function ()
     actingAsUser($user)->postJson('/api/content/links/classify', [
         'url' => 'https://www.eventbrite.com.au/o/some-org-123',
     ])->assertOk()->assertJson(['belongsTo' => null, 'account' => 'Eventbrite']);
+
+    // A social profile → connect guidance (T3: the harvester's social arm
+    // surfaces through the classifier, so an Instagram profile pasted into
+    // a pool says "connect it", not "unknown").
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://www.instagram.com/natalieannehair/',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => 'Instagram']);
+
+    // A social ITEM url is NOT a profile (T3 critic): the classifier's
+    // profile-shape check refuses reel/post/video paths that the harvester's
+    // loose bio-scan heuristic would have called profiles.
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://www.instagram.com/reel/Cxxxxxxxxxx/',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => null, 'store' => null]);
+
+    // A store-platform host → the store answer (T4).
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://cool-shop.myshopify.com/',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => null, 'store' => 'Shopify']);
 
     // A plain page → neither.
     actingAsUser($user)->postJson('/api/content/links/classify', [

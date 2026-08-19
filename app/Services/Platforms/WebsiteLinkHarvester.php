@@ -301,6 +301,15 @@ class WebsiteLinkHarvester
         return $this->humanitixScraper ??= new HumanitixScraper($this->fetcher);
     }
 
+    private ?MediaPageReader $mediaPageReader = null;
+
+    /** Same lazy-direct construction as the two scrapers above (and for the
+     * same no-booted-app reason); classifyItem() is pure and never fetches. */
+    private function mediaReader(): MediaPageReader
+    {
+        return $this->mediaPageReader ??= new MediaPageReader($this->fetcher);
+    }
+
     // Built lazily and directly — NOT resolved from the container — for the
     // same reason the two scrapers above are: classify() gains catalog
     // awareness without changing this class's construction contract
@@ -456,6 +465,23 @@ class WebsiteLinkHarvester
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         if ($host === '') {
             return null;
+        }
+
+        // MEDIA ITEMS FIRST (T6, 2026-08-20): a video/track/release/episode
+        // URL is an ITEM, and an item claim always wins over every account
+        // answer — the same precedence MediaPageReader::accountPlatformLabel
+        // applies internally. The grammar is SHARED with the paste lane
+        // (classifyItem), not copied, so the two can never drift. Carries
+        // kind + canonical so the seeding lanes don't re-derive them.
+        $item = $this->mediaReader()->classifyItem($url);
+        if ($item !== null) {
+            return [
+                'platform' => $item['platform'],
+                'category' => 'content-item',
+                'label' => $item['platform'],
+                'kind' => $item['kind'],
+                'canonical' => $item['canonical'],
+            ];
         }
 
         foreach (self::SOCIAL_HOSTS as $key => $pattern) {
@@ -672,7 +698,7 @@ class WebsiteLinkHarvester
         return false;
     }
 
-    /** Absolute, deduped, http(s)-only hrefs from the page (≤500 to bound work). */
+    /** Absolute, deduped, http(s)-only hrefs from the page (≤1000 to bound work — T9). */
     private function extractLinks(string $html, string $baseUrl): array
     {
         $doc = new \DOMDocument;
@@ -694,7 +720,7 @@ class WebsiteLinkHarvester
             $abs = $this->absolutize($href, $baseUrl);
             if ($abs !== null && ! isset($seen[$abs])) {
                 $seen[$abs] = true;
-                if (count($seen) >= 500) {
+                if (count($seen) >= 1000) {
                     break;
                 }
             }

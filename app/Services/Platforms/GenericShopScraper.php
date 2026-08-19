@@ -166,18 +166,12 @@ class GenericShopScraper extends PlatformScraper
 
     /**
      * Deterministic storefront-tech markers for the platforms we can connect
-     * as a brand. Asset/runtime signatures only (not prose mentioning a
-     * platform), so a positive means a brand connect is likely to work.
+     * as a brand. The signatures live in StorefrontMarkers (T4) so the Links
+     * preview reads the same list; behaviour here is unchanged.
      */
     private function looksLikeStorefront(string $html): bool
     {
-        return (bool) preg_match(
-            '~cdn\.shopify\.com|/cdn/shop/|window\.Shopify|Shopify\.theme'
-            .'|plugins/woocommerce|class=["\'][^"\']*\bwoocommerce'
-            .'|Static\.SQUARESPACE_CONTEXT|assets\.squarespace\.com'
-            .'|bigcartel\.com~i',
-            $html,
-        );
+        return StorefrontMarkers::detect($html) !== null;
     }
 
     /**

@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -112,6 +113,81 @@ it('writes the payload through ConnectionPayload so a handle surface carries use
     expect($payload['username'])->toBe('someone')
         ->and($payload['url'])->toBe('https://www.instagram.com/someone')
         ->and($payload['source'])->toBe('suggestion');
+});
+
+it('dispatches the enrichment fetch when accepting a content suggestion (F14)', function () {
+    // F9 covered the reconciler's AUTO-place path; T9b's parent suggestions
+    // are suggest-only by design, so the connections that feature produces
+    // are born here — via accept — and were landing as nameless
+    // URL-as-account rows until the next scheduled refresh.
+    Queue::fake();
+    $pro = createTenant('inbox-accept-fetch');
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'identifier' => 'somechannel', 'canonical_url' => 'https://www.youtube.com/@somechannel',
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    $connection = IntegrationConnection::query()->where('user_id', $pro->id)->first();
+    Queue::assertPushed(ConnectFetchJob::class, fn ($job) => $job->connectionId === (string) $connection->id);
+});
+
+it('does not dispatch the fetch for a content surface with no fetch capability (F14)', function () {
+    // The other half of the guard: mixcloud.player is content-class but
+    // declares no capabilities.fetch in the catalog. A regression that kept
+    // the class check and dropped the capability check would pass the
+    // social-accept test and still dispatch a job no strategy can serve.
+    Queue::fake();
+    $pro = createTenant('inbox-accept-nofetchcap');
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'mixcloud.player', 'routing_class' => 'content',
+        'identifier' => 'someone', 'canonical_url' => 'https://www.mixcloud.com/someone/',
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->exists())->toBeTrue();
+    Queue::assertNotPushed(ConnectFetchJob::class);
+});
+
+it('does not re-dispatch the fetch when the accept resolves to an existing row (F14)', function () {
+    // The dispatch lives in the CREATE branch only: a matched-existing row
+    // came from a lane that already owns its enrichment, and re-fetching it
+    // on every accept would be a duplicate job per suggestion.
+    Queue::fake();
+    $pro = createTenant('inbox-accept-existing');
+
+    $existing = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'youtube.channel',
+        'routing_class' => 'content', 'resource_id' => 'somechannel',
+        'payload' => ['username' => 'somechannel'], 'is_active' => true,
+    ]);
+    $existing->save();
+
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'identifier' => 'somechannel', 'canonical_url' => 'https://www.youtube.com/@somechannel',
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
+    Queue::assertNotPushed(ConnectFetchJob::class);
+});
+
+it('does not dispatch the enrichment fetch for a non-content accept (F14)', function () {
+    // Same class rule as SourceReconciler::applyIntent: booking enrichment is
+    // owned by AutoBookingConnectDispatcher's claimed/unclaimed rule, shop by
+    // its own connect jobs, and socials have no fetch capability to run.
+    Queue::fake();
+    $pro = createTenant('inbox-accept-nofetch');
+    $intentId = seedIntent($pro->id);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->exists())->toBeTrue();
+    Queue::assertNotPushed(ConnectFetchJob::class);
 });
 
 it('demotes the incumbent rather than deleting it when replacing', function () {

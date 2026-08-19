@@ -53,7 +53,7 @@ class GenericStore
                 ->shelf(Shelf::Commerce)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->notConnectable()
                 ->lifecycle(Lifecycle::Hidden)
                 ->note('the storefront whose platform has no name — Product JSON-LD only; connects through ShopController detection, never a picker')

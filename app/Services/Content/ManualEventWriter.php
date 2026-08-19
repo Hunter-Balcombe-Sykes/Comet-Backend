@@ -64,7 +64,7 @@ class ManualEventWriter
      *     the point of converging them — so the count cannot be narrowed
      *     without reintroducing one.
      */
-    public const MAX_STANDALONE_EVENTS = 10;
+    public const MAX_STANDALONE_EVENTS = 30;
 
     public function __construct(
         private readonly ProjectionWriter $writer,
