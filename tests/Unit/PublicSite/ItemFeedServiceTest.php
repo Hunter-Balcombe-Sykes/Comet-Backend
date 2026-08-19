@@ -89,6 +89,15 @@ it('manual mode is strict: stored order applied, stale refs dropped, nothing aut
     expect($out['entries'][1]['itemIds'])->toBe(['d-2', 'd-1']);
 });
 
+it('manual category block whose every listed item is stale is dropped entirely, not emitted empty', function () {
+    $manual = [
+        ['kind' => 'category', 'pool' => 'menus', 'ref' => 'cat-starters', 'items' => ['d-gone']],
+    ];
+    $out = (new ItemFeedService)->resolve(feedPools(), 'manual', $manual, []);
+
+    expect($out['entries'])->toBe([]);
+});
+
 it('empty pools resolve to an empty entries list, never an error', function () {
     $out = (new ItemFeedService)->resolve([], 'score', [], []);
     expect($out)->toBe(['mode' => 'score', 'entries' => []]);
