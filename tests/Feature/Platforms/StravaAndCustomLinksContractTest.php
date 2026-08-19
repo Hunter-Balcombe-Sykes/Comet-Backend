@@ -7,6 +7,7 @@
 // class. Neither had an exact-shape snapshot before this test.
 
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Content\LinkPoolWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -72,7 +73,7 @@ it('the link card freezes the exact per-link shape and strips payload-only field
         'computed_at' => now()->toDateTimeString(),
     ]);
 
-    expect(app(\App\Services\Content\LinkPoolReader::class)->cards($user->refresh()))
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))
         ->toEqual([[
             'id' => $id,
             'url' => 'https://acme.example',
@@ -104,7 +105,7 @@ it('the link card emits nulls for absent optional fields and unseeded ranks', fu
     // site exists and the reader runs its real query, it just finds nothing to
     // key against. The legitimate "no rank yet" contract, not the RANK-1
     // mismatch (which produced null for every link, seeded or not).
-    expect(app(\App\Services\Content\LinkPoolReader::class)->cards($user->refresh()))
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))
         ->toEqual([[
             'id' => $id,
             'url' => 'https://minimal.example',

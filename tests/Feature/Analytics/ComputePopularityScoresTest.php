@@ -2,6 +2,7 @@
 
 use App\Console\Commands\ComputeContentPopularityScores;
 use App\Services\Analytics\RankedActionsComputer;
+use App\Services\Content\LinkPoolWriter;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
@@ -41,7 +42,7 @@ function popularityScoreRow(string $siteId, string $type, string $key): ?object
 
 it('seeds brand-new content with a freshness-only score (page + link item, zero events)', function () {
     $tenant = createTenant('cmd-fresh');
-    $poolItemId = app(\App\Services\Content\LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/fresh', enrich: false);
+    $poolItemId = app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/fresh', enrich: false);
 
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
@@ -63,7 +64,7 @@ it('seeds brand-new content with a freshness-only score (page + link item, zero 
 
 it('seeds nothing for ancient connections (boost below the floor) — the action layer still cold-starts, no freshness gate', function () {
     $tenant = createTenant('cmd-ancient');
-    $poolItemId = app(\App\Services\Content\LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/old', 'Old link', enrich: false);
+    $poolItemId = app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/old', 'Old link', enrich: false);
     DB::connection('pgsql')->table('content.items')->where('id', $poolItemId)->update(['created_at' => now()->subDays(200)->toISOString()]);
 
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
@@ -206,7 +207,7 @@ it('reports (but does not throw) when the ranked-actions layer fails, and still 
     Exceptions::fake();
 
     $tenant = createTenant('cmd-obs3');
-    $poolItemId = app(\App\Services\Content\LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/obs3', 'Obs3 link', enrich: false);
+    $poolItemId = app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/obs3', 'Obs3 link', enrich: false);
 
     // Force the action layer (RankedActionsComputer::computeForSite) to blow up
     // AFTER page/item scores have already been computed for this run.
@@ -249,7 +250,7 @@ it('processes a site with a recent event but skips a published site with none, i
     // Idle site: no events at all, but it DOES have a fresh platform connection —
     // pre-fix, the full sweep would still process it and seed a freshness-only
     // score. Post-fix it must be skipped entirely (zero rows, any content_type).
-    $poolItemId = app(\App\Services\Content\LinkPoolWriter::class)->add($idle->refresh(), 'https://example.com/idle', enrich: false);
+    $poolItemId = app(LinkPoolWriter::class)->add($idle->refresh(), 'https://example.com/idle', enrich: false);
 
     // No --site — the periodic scheduled full sweep.
     $this->artisan('analytics:compute-popularity')->assertExitCode(0);
@@ -286,7 +287,7 @@ it('treats an event older than the recent-events window as no signal in a full s
 
 it('an explicit --site bypasses the recent-events scope even with zero recent events', function () {
     $idle = createTenant('scale3-explicit');
-    $poolItemId = app(\App\Services\Content\LinkPoolWriter::class)->add($idle->refresh(), 'https://example.com/explicit', enrich: false);
+    $poolItemId = app(LinkPoolWriter::class)->add($idle->refresh(), 'https://example.com/explicit', enrich: false);
 
     $this->artisan('analytics:compute-popularity', ['--site' => $idle->site->id])->assertExitCode(0);
 

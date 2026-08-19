@@ -21,8 +21,6 @@
 // in-process ArrayLock — the block(5, ...) wait in withConnectionLock() is
 // genuine wall time, not mocked. That wall-clock cost per test IS the proof.
 
-use App\Jobs\Platforms\MenuFetchJob;
-use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Shop\ShopConnections;
@@ -30,7 +28,6 @@ use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {

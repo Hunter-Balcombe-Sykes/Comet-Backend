@@ -5,6 +5,7 @@ namespace App\Services\Analytics;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Services\PublicSite\SitepageDataResolverService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -102,7 +103,7 @@ class ContentFreshness
                         $pageNewest['links'] = $createdAt;
                     }
                 });
-        } catch (\Illuminate\Database\QueryException) {
+        } catch (QueryException) {
             // content.* not provisioned — no pool, no boost.
         }
 

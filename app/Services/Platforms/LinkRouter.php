@@ -11,7 +11,6 @@ use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Profile\SectorTaxonomy;
-use Illuminate\Support\Str;
 
 /**
  * Single classification+routing gateway for every link entering the system.
