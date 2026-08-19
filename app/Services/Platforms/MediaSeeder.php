@@ -33,6 +33,15 @@ class MediaSeeder
 
     private int $seededThisRun = 0;
 
+    /** Handled-without-write count (tombstoned re-scans) — the importer
+     * surfaces it in the run detail so suppression is read, not absorbed. */
+    private int $tombstonedThisRun = 0;
+
+    public function tombstonedThisRun(): int
+    {
+        return $this->tombstonedThisRun;
+    }
+
     public function __construct(
         private readonly MediaPageReader $reader,
         private readonly ProjectionWriter $writer,
@@ -81,6 +90,7 @@ class MediaSeeder
             // resurrects it in another pool. The URL's home is the (removed)
             // item; removed stays removed, and nothing else may carry it.
             Log::info('media_seeder.tombstoned', ['user_id' => (string) $user->id, 'coord' => $coord]);
+            $this->tombstonedThisRun++;
 
             return $canonical;
         }

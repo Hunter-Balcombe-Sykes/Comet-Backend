@@ -25,7 +25,7 @@ use App\Services\Platforms\WebsiteLinkHarvester;
 class WebsiteImporter
 {
     /** Hard cap on links considered from one page. */
-    private const MAX_LINKS = 200;
+    private const MAX_LINKS = 500;
 
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,

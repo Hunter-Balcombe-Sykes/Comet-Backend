@@ -52,7 +52,7 @@ class Spotify
                     ['autoplay', 'clipboard-write', 'encrypted-media', 'fullscreen', 'picture-in-picture'],
                     false,
                 )
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('spotify.com')
                         ->subdomain('#^open$#')

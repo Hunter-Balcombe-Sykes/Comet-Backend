@@ -86,7 +86,7 @@ it('seed() re-adding an already-present product moves it to the front without du
 it('caps the individual bucket at MAX_INDIVIDUAL_PRODUCTS across repeated seed() calls', function () {
     $user = shopSeederUser('seeder3');
 
-    foreach (range(1, 21) as $n) {
+    foreach (range(1, 51) as $n) {
         app(ShopProductSeeder::class)->seed($user, [
             'productId' => "p{$n}", 'title' => "Product {$n}", 'url' => "https://example.com/p{$n}",
         ]);
@@ -100,9 +100,9 @@ it('caps the individual bucket at MAX_INDIVIDUAL_PRODUCTS across repeated seed()
         ->pluck('f.sku')
         ->all();
 
-    expect($skus)->toHaveCount(20)
-        ->and($skus[0])->toBe('p21') // newest first
-        ->and($skus)->not->toContain('p1'); // oldest evicted by the 20-cap
+    expect($skus)->toHaveCount(50)
+        ->and($skus[0])->toBe('p51') // newest first
+        ->and($skus)->not->toContain('p1'); // oldest evicted by the 50-cap (T9)
 });
 
 /**

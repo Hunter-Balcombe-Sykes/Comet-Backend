@@ -91,7 +91,11 @@ class LinkRouter
         // second LTK link, a "watch this video" beside a channel link) was written
         // NOWHERE. custom() routes it to the caller's card write, which is what
         // every other dead end in this method already does.
-        if (isset($ctx->seenPlatforms[$platform])) {
+        // Item categories bypass the slot on BOTH sides (F2, both halves —
+        // the critic reproduced the asymmetry: an artist link consuming the
+        // slot degraded the SAME bio's track link to a card, order-dependent).
+        $itemCategory = $category === 'event' || $category === 'content-item';
+        if (! $itemCategory && isset($ctx->seenPlatforms[$platform])) {
             return RouteResult::custom();
         }
 
@@ -132,7 +136,7 @@ class LinkRouter
             // and an event/video is not a connection — consuming it turned
             // the SECOND event or video from one platform in a run into a
             // bare card. Issue M's own words: "never about links".
-            if ($result->handled && $category !== 'event' && $category !== 'content-item') {
+            if ($result->handled && ! $itemCategory) {
                 $ctx->seenPlatforms[$platform] = true;
             }
 

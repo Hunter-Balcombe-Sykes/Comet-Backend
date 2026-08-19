@@ -240,7 +240,7 @@ it('spends one link budget across the whole batch', function () {
     $pro = createTenant('bio-batch-budget');
     $page = function (string $prefix): string {
         $links = '';
-        for ($i = 0; $i < 80; $i++) {
+        for ($i = 0; $i < 170; $i++) {
             $links .= '<a href="https://'.$prefix.$i.'.test/x">L</a>';
         }
 
@@ -256,9 +256,9 @@ it('spends one link budget across the whole batch', function () {
         'https://example.com/two',
     ]);
 
-    // 80 distinct links per page, two pages, cap 100 — the second page is cut
-    // off rather than doubling the spend to 160.
-    expect($result['observations'])->toBe(100);
+    // 170 distinct links per page, two pages, cap 300 (T9) — the second page
+    // is cut off rather than doubling the spend to 340.
+    expect($result['observations'])->toBe(300);
 });
 
 // ── #R2: nothing the owner published leaves without a trace ──────────────────

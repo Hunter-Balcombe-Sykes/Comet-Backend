@@ -99,7 +99,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
     public int $uniqueFor = 300;
 
     /** Safety cap on how many PDFs get their own scan job from one page — not a "pick one" limit. */
-    private const MAX_PDF_SCANS = 5;
+    private const MAX_PDF_SCANS = 12;
 
     /** Checked against a PDF link's own text AND its URL path — either counts. */
     private const MENU_KEYWORDS = [

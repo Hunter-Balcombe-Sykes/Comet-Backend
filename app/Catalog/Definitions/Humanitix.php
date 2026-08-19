@@ -41,7 +41,7 @@ class Humanitix
                 ->refreshEvery(21600)
                 ->canonicalUrl('https://humanitix.com/host/{org}')
                 ->fetch('fetch.humanitix.scrape.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('humanitix.com')
                         ->path('#^/host/(?<org>[a-zA-Z0-9-]{3,80})/?$#')

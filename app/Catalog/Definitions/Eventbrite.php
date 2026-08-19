@@ -74,7 +74,7 @@ class Eventbrite
                 // seeds the event through EventsSeeder as a pool item.
                 ->reservedPaths('/e/')
                 ->fetch('fetch.eventbrite.scrape.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(...$detectors)
                 ->note('bespoke connect flow (P1)')
                 ->build(),

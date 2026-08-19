@@ -53,7 +53,7 @@ class ConnectStoreFromProductJob implements ShouldBeUnique, ShouldQueue
     public int $uniqueFor = 300;
 
     /** Mirrors ShopController::MAX_BRANDS. */
-    private const MAX_BRANDS = 5;
+    private const MAX_BRANDS = 10;
 
     /**
      * @param  array<string, mixed>  $detected  ShopProviderDetector's detected block

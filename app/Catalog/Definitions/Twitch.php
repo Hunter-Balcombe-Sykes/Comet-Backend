@@ -39,7 +39,7 @@ class Twitch
                 ->canonicalUrl('https://www.twitch.tv/{login}')
                 ->connect('connect.twitch.url.v1')
                 ->embed('https://player.twitch.tv/?channel={login}&parent={host}', 'ratio:wide', ['autoplay', 'fullscreen'], true)
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('twitch.tv')
                         ->path('#^/(?!(?:'.self::RESERVED.')(?:/|$))(?<login>[A-Za-z0-9_]{3,25})/?$#')

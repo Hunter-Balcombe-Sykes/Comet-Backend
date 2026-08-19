@@ -46,7 +46,7 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
     private const MENU_TEXT_MIN_CHARS = 150;
 
     /** Hard cap on billed OCR calls per scan, across both photo tiers. */
-    private const MAX_OCR_CALLS = 12;
+    private const MAX_OCR_CALLS = 30;
 
     /** Stop OCR-ing once this many menu-dense photos are in hand. */
     private const ENOUGH_DENSE_PAGES = 4;

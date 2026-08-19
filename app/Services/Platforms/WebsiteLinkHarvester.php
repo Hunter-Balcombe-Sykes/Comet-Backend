@@ -698,7 +698,7 @@ class WebsiteLinkHarvester
         return false;
     }
 
-    /** Absolute, deduped, http(s)-only hrefs from the page (≤500 to bound work). */
+    /** Absolute, deduped, http(s)-only hrefs from the page (≤1000 to bound work — T9). */
     private function extractLinks(string $html, string $baseUrl): array
     {
         $doc = new \DOMDocument;
@@ -720,7 +720,7 @@ class WebsiteLinkHarvester
             $abs = $this->absolutize($href, $baseUrl);
             if ($abs !== null && ! isset($seen[$abs])) {
                 $seen[$abs] = true;
-                if (count($seen) >= 500) {
+                if (count($seen) >= 1000) {
                     break;
                 }
             }

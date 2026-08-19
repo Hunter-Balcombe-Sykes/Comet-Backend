@@ -46,16 +46,16 @@ class LinkInBioImporter
      * acquisition, so it gets one budget; a single-URL import is a batch of
      * one and sees the identical cap it always had.
      */
-    private const MAX_LINKS = 100;
+    private const MAX_LINKS = 300;
 
     /** Hard cap on pages fetched in one run. */
-    private const MAX_PAGES = 20;
+    private const MAX_PAGES = 50;
 
     /** Run kinds this importer may record. Mirrors routing.import_runs.kind. */
     private const KINDS = ['link_in_bio', 'bio_harvest'];
 
     /** Probe budget per RUN — parity with the legacy RouteContext::DEFAULT_MAX_PROBES. */
-    private const MAX_PROBES = 6;
+    private const MAX_PROBES = 18;
 
     /**
      * Substrings that identify a Cloudflare refusal page rather than the site.
@@ -145,6 +145,12 @@ class LinkInBioImporter
 
         $fetched = count($pages) - $unavailable;
         $observations = count($seen);
+
+        // Suppression is READ, not absorbed (critic, 2026-08-20): a
+        // tombstoned item/event counts in its lane's tally as HANDLED (no
+        // card may carry it), and this says how many of those handled were
+        // deliberate no-writes.
+        $tally['tombstoned'] = $this->media->tombstonedThisRun() + $this->events->tombstonedThisRun();
 
         // Zero-yield floor (N2): a MATCHED bio host that unrolls to nothing is
         // a silent total loss — the detector claimed the URL, so no other path

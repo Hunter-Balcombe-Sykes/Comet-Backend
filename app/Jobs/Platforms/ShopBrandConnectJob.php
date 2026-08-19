@@ -54,7 +54,7 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
 
     // Must exceed config('partna.http_fetch.connect_budget_seconds') (20s
     // default) with headroom, same reasoning as ConnectFetchJob::$timeout.
-    public int $timeout = 45;
+    public int $timeout = 75;
 
     // Short on purpose — a user who retries within two minutes must get a
     // fresh job, not be silently swallowed by a cron-length dedupe window.

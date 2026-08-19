@@ -608,17 +608,17 @@ it('T10: the 6th store still 422s synchronously, and dispatches nothing new', fu
 
     Bus::fake();
 
-    foreach (['a', 'b', 'c', 'd', 'e'] as $s) {
+    foreach (['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'] as $s) {
         actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => "https://{$s}.t10cap.example.com"])
             ->assertStatus(202);
     }
-    Bus::assertDispatchedTimes(ShopBrandConnectJob::class, 5);
+    Bus::assertDispatchedTimes(ShopBrandConnectJob::class, 10);
 
-    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://f.t10cap.example.com'])
+    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://k.t10cap.example.com'])
         ->assertStatus(422)
-        ->assertJsonPath('message', 'You can connect up to 5 stores.');
+        ->assertJsonPath('message', 'You can connect up to 10 stores.');
 
-    Bus::assertDispatchedTimes(ShopBrandConnectJob::class, 5);
+    Bus::assertDispatchedTimes(ShopBrandConnectJob::class, 10);
 });
 
 // ── T11 — re-adding a settled brand while deferred is non-destructive ───────

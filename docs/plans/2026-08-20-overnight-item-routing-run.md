@@ -542,7 +542,11 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
   step-1 band + Add-to-Listen action, Continue stays enabled (advisory)
 - [ ] T3 — non-Links pools refuse unknown platforms (server + sheets)
 - [ ] T4 — store-suggestion diagnosis + fix (natalieanne.com repro)
-- [ ] T5 — suggestion band UI matches connection sheet
+- [x] T5 — suggestion band UI matches the suggestions inbox's row grammar
+  (the Platforms page's "Found on your platforms" list — the established
+  presentation) — monorepo `3eabb76`, SuggestionBanner shared by both
+  sheets, verified LIVE on app.partna.au (screenshot: Item row, kind
+  glyph, solid commit button, Continue disabled below)
 - [ ] T6 — scan lanes: media items
 - [ ] T6b — media catalog surfaces stop placing item urls as accounts (spotify episode repro)
 - [ ] T7 — scan-seeded products connect their store
@@ -563,11 +567,13 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
   duplicating seeded events (and ordering Swap offers) as link cards —
   contradicts RouteResult's documented handled contract. Fixed in T6's
   commit (`&& ! $result->handled`).
-- [ ] F1 — localhost:3000 dashboard fails account bootstrap on login ("We
-  couldn't load your account"; owner hit it at run start, logged into
-  app.partna.au instead). Server belongs to another chat session — diagnose
-  with this session's own dev server (apps/dashboard proxy → dev API?)
-  before T10; if it blocks nothing, report with diagnosis.
+- [x] F1 — localhost:3000 "We couldn't load your account": NOT a bug.
+  `apps/dashboard/.env.local` deliberately points
+  NEXT_PUBLIC_API_BASE_URL at http://localhost:8000 (switched 2026-08-18;
+  the backup beside it still shows dev-api.partna.au) and the LOCAL
+  backend wasn't running — the bootstrap had no API to load the account
+  from. Fixed by starting the `comet-backend` launch config (:8000,
+  health 200); localhost login will bootstrap now. No code change needed.
 
 ## Owner additions (queue below as they come — plan is open until "handoff")
 

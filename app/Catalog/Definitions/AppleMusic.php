@@ -37,7 +37,7 @@ class AppleMusic
                 ->identifier(IdentifierKind::Handle)
                 ->refreshEvery(43200)
                 ->fetch('fetch.apple_music.itunes.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     // Keyed on the REGISTRABLE domain with the product
                     // subdomain as its own rule: the router looks detectors up

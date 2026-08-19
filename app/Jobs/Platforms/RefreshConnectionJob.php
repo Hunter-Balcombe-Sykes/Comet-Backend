@@ -40,7 +40,7 @@ class RefreshConnectionJob implements ShouldBeUnique, ShouldQueue
     /** Backoff (seconds) between exception-triggered retries (not rate-limit releases). */
     public array $backoff = [30, 120, 300];
 
-    public int $timeout = 120;
+    public int $timeout = 150;
 
     /**
      * Dedup window — matches the retryUntil() horizon so the hourly dispatcher can't

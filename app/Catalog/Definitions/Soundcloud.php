@@ -45,7 +45,7 @@ class Soundcloud
                 ->connect('connect.soundcloud.url.v1')
                 ->fetch('fetch.soundcloud.oembed.v1')
                 ->embed('https://w.soundcloud.com/player/?url={url}', 'fixed:166', [], false)
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('soundcloud.com')
                         ->path('#^/(?!(?:discover|search|upload|stream|library|charts|feed|you|messages|notifications|settings|pro|premium|mobile|imprint|terms-of-use|jobs|blog|pages)(?:/|$))(?<username>[a-z0-9_-]+)/?$#')

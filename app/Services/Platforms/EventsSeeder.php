@@ -30,7 +30,7 @@ use Illuminate\Support\Facades\Log;
 class EventsSeeder
 {
     /** Mirrors ManagesIntegrationConnection::maxAccounts() — keep in lockstep. */
-    private const MAX_ACCOUNTS = 5;
+    private const MAX_ACCOUNTS = 10;
 
     /**
      * The scan lane's OWN cap, per platform, on CONNECTION rows — deliberately
@@ -59,6 +59,15 @@ class EventsSeeder
         'luma', 'partiful', 'ticketmaster', 'ticketek', 'oztix', 'trybooking',
         'resident-advisor', 'events-custom',
     ];
+
+    /** Handled-without-write count (tombstoned re-scans) — see MediaSeeder's
+     * twin: the importer surfaces it so suppression is read, not absorbed. */
+    private int $tombstonedThisRun = 0;
+
+    public function tombstonedThisRun(): int
+    {
+        return $this->tombstonedThisRun;
+    }
 
     public function __construct(
         private readonly EventbriteScraper $eventbrite,
@@ -214,6 +223,7 @@ class EventsSeeder
         // resurrects it in another pool.
         if ($this->itemTombstoned($user, $canonical)) {
             Log::info('events_seeder.tombstoned', ['user_id' => (string) $user->id, 'platform' => $platform]);
+            $this->tombstonedThisRun++;
 
             return $canonical;
         }

@@ -37,7 +37,7 @@ class EnforcePlatformLinkCapCommand extends Command
     public function handle(): int
     {
         $cappedCategories = (array) config('partna.platform_links_categories', []);
-        $max = (int) config('partna.platform_links_max', 7);
+        $max = (int) config('partna.platform_links_max', 15);
         $dryRun = (bool) $this->option('dry-run');
 
         if (empty($cappedCategories) || $max <= 0) {

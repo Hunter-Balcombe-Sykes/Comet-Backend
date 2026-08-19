@@ -3,8 +3,10 @@
 use App\Ingest\Projection\ProjectionWriter;
 use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\MediaPageReader;
 use App\Services\Platforms\MediaSeeder;
+use App\Services\Platforms\RouteContext;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -93,10 +95,12 @@ it('re-scans idempotently and never resurrects a removed item — no duplicate, 
 
     $again = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/mediascan', 'bio_harvest');
 
-    // Still three "handled" items in the tally (the tombstoned one is
-    // handled-without-write), still exactly three item rows, the removed one
-    // still removed, and NO link card was written for it.
-    expect($again['items'])->toBe(3);
+    // Still three "handled" items in the tally, and the run detail SAYS one
+    // of them was a deliberate no-write (suppression read, not absorbed) —
+    // still exactly three item rows, the removed one still removed, and NO
+    // link card was written for it.
+    expect($again['items'])->toBe(3)
+        ->and($again['tombstoned'])->toBe(1);
     expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'video')->count())->toBe(3)
         ->and(DB::connection('pgsql')->table('content.items')->where('id', $removedId)->value('removed_at'))->not->toBeNull()
         ->and(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0);
@@ -144,6 +148,29 @@ it('classifies media ITEM urls as content-item — kind and canonical riding alo
     // ACCOUNT shapes stay accounts — the item arm must not swallow them.
     expect($harvester->classify('https://open.spotify.com/artist/4gzpq5DPGxSnKTe4SA8HAU')['category'] ?? null)
         ->not->toBe('content-item');
+});
+
+it('routes a platform ITEM even after that platform\'s ACCOUNT consumed the slot — order-independent (F2)', function () {
+    // The critic reproduced the asymmetry: [artist, track] lost the track to
+    // a card while [track, artist] landed both. The slot rule is about
+    // CONNECTIONS; items bypass it on BOTH the check and the set.
+    Queue::fake();
+    $pro = createTenant('f2-order');
+    Http::fake([
+        'open.spotify.com/oembed*' => Http::response(json_encode(['title' => 'The Track', 'thumbnail_url' => null]), 200, ['Content-Type' => 'application/json']),
+        '*' => Http::response('', 404),
+    ]);
+
+    $ctx = new RouteContext;
+    $router = app(LinkRouter::class);
+    // Account first — consumes the spotify slot…
+    $router->route($pro, 'https://open.spotify.com/artist/4gzpq5DPGxSnKTe4SA8HAU', $ctx);
+    // …and the ITEM from the same platform must still become an item.
+    $result = $router->route($pro, 'https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp', $ctx);
+
+    expect($result->handled)->toBeTrue()
+        ->and(DB::connection('pgsql')->table('content.items')
+            ->where('user_id', $pro->id)->where('kind', 'track')->count())->toBe(1);
 });
 
 it('caps one run at MAX_ITEMS_PER_RUN seeds', function () {
