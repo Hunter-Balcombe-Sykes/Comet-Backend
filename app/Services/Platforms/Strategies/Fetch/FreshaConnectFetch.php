@@ -144,7 +144,10 @@ final readonly class FreshaConnectFetch implements FetchStrategy
 
         $this->offerVenueToGoogle($user, $menu);
 
-        // The venue block is for the linker, not the stored snapshot.
+        // The venue block is for the linker, not the stored snapshot. `venue` is a
+        // real optional key — offerVenueToGoogle() reads it just above — so the unset
+        // is live, not dead code.
+        /** @var array<string, mixed> $menu */
         unset($menu['venue']);
 
         return [...$next, 'teamMenu' => $menu, 'connectPendingAt' => null];

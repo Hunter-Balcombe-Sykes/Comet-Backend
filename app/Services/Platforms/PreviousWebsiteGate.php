@@ -65,7 +65,9 @@ final class PreviousWebsiteGate
 
         try {
             $classified = $this->harvester->classify($url);
-            if (is_array($classified) && isset($classified['platform'])) {
+            // is_array() is the null check — classify() returns ?array, and every
+            // non-null return carries 'platform'.
+            if (is_array($classified)) {
                 return (string) $classified['platform'];
             }
         } catch (Throwable $e) {
