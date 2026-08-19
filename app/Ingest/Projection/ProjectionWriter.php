@@ -699,10 +699,13 @@ class ProjectionWriter
      *     in a plain transaction — inert in practice (dry-run by default, one-shot, and nothing
      *     emits that kind any more), listed for completeness.
      * The last three are hard-delete paths and belong in their own unit under fix-flow.md's
-     * "Standalone — do NOT bundle" rule, not in this one. (Writers that only set removed_at —
-     * FreshaController, ContentRepairEventItemsCommand — change the resolve's INPUT SET and can
-     * make a resolution stale, but create no dangling reference, so they are a different and
-     * much smaller problem.)
+     * "Standalone — do NOT bundle" rule, not in this one. That list of four is the complete set
+     * of unlocked writers that can leave a DANGLING reference — every hard delete of, or repoint
+     * across, content.{source_items,items,item_anchors} in app/. Several others (FreshaController,
+     * ContentRepairEventItemsCommand, RetireLegacyGooglePhotoRecordsCommand,
+     * PurgeReviewHeadlinePiiCommand) only set removed_at or clear a cache column: they change the
+     * resolve's INPUT SET and can make a resolution stale, which is a different and much smaller
+     * problem, and they are not enumerated exhaustively here.
      *
      * A 40P01 deadlock is NOT reclassified below, only 55P03. Deadlock detection fires at 1s,
      * ahead of this 5s bound, and the manual path now holds its coord's source_items row lock
@@ -727,7 +730,14 @@ class ProjectionWriter
         // stops meaning what the docblock says. Loud beats silent on a path whose merges hard-
         // delete. (Nothing nests today; verified across every call site of writeManualItem() and
         // projectStream(). The test suites do not wrap either — RefreshDatabase is deliberately
-        // off in tests/Pest.php.)
+        // off in tests/Pest.php, and tests/TestCase.php forces database.default to 'pgsql' in
+        // every lane, so this and DB::connection('pgsql') are always the same instance.)
+        //
+        // How loud depends on the lane: on the HTTP paths this surfaces as a 500 and a Nightwatch
+        // exception, but RunExecutor catches \Throwable around projectStream() and converts it
+        // into a report() plus a critical ingest.anomalies row and a 'degraded' run — attributable
+        // and paged, but a demoted alert rather than a crash. Guarded by
+        // tests/Postgres/ProjectionWriterIdentityRaceTest.php.
         if ($connection->transactionLevel() > 0) {
             throw new \LogicException(
                 "resolveItems()/writeManualItem() must not run inside a transaction: the advisory lock {$key} would take the outer transaction's lifetime.",

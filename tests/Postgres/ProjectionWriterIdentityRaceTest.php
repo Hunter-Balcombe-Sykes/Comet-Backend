@@ -1138,3 +1138,38 @@ it('treats a row-lock timeout inside the resolve as the same contention as the a
         DB::purge('pgsql_second');
     }
 })->group('slow');
+
+// ── the no-nesting rule, enforced rather than documented ──────────────────────────────────────
+//
+// Inside a caller's transaction, DB::transaction() degrades to a SAVEPOINT: the advisory lock
+// would silently take the OUTER transaction's lifetime and SET LOCAL lock_timeout would stretch
+// over it, with every assertion in this file still green. That is the same correct-looking,
+// green-and-wrong shape that cost two review rounds here, which is why it throws.
+//
+// This test exists because the guard was itself an untested behavioural branch — reviewers
+// pointed out, fairly, that adding an unguarded guard to enforce an unguarded rule just moves the
+// problem. Deleting the `if` block fails this and nothing else.
+it('refuses to resolve inside a caller\'s transaction, where the lock would silently take the outer scope', function () {
+    $pg = DB::connection('pgsql');
+    [$userId] = pgirScenario();
+
+    $coord = 'manual:'.sha1('pgir-nested-'.Str::random(8));
+
+    // Caught OUTSIDE the transaction: the guard throws before any statement runs, so nothing is
+    // poisoned, and letting it propagate rolls the caller's transaction back the way a real
+    // caller's would.
+    $thrown = null;
+    try {
+        $pg->transaction(function () use ($userId, $coord) {
+            app(ProjectionWriter::class)->writeManualItem($userId, $coord, pgirLinkProjection($coord));
+        });
+    } catch (Throwable $e) {
+        $thrown = $e;
+    }
+
+    expect($thrown)->toBeInstanceOf(LogicException::class);
+    expect($thrown->getMessage())->toContain('must not run inside a transaction');
+
+    // And nothing landed — the caller's rollback took the source item with it.
+    expect($pg->table('content.source_items')->where('coord', $coord)->exists())->toBeFalse();
+});

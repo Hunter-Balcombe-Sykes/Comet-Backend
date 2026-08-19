@@ -837,3 +837,60 @@ it, and the residual known gaps — `ItemMerger::merge()`, `StaffServiceManageme
 forceDestroy()`, `ContentRetireChannelKindCommand`, and the post-commit `writeFacets()` /
 `refreshItemCaches()` window — are written down on the seam itself rather than left for the next
 session to rediscover. They are hard-delete paths and belong in their own unit.
+
+---
+
+## 13. Independent review, round 7 — PASS, narrow, on the guard itself
+
+Round 7 reviewed only the round-6 delta, because one of its three parts throws in production.
+
+**It could not find a nesting path.** Two independent exhaustive upward sweeps plus a
+cross-reference of every file in `app/` containing both a `transaction(` and a writer reference:
+8 `writeManualItem()` entry points, 2 `projectStream()` entry points, none nested. Observers reach
+writers only via job dispatch and are `$afterCommit = true`; the complete `dispatchSync` inventory
+is 7 sites, of which the 2 on these chains open no transaction; `Bus::batch`, `DB::afterCommit`,
+listeners and middleware are absent from every chain; and `grep` for `beginTransaction` /
+`->commit()` / `->rollBack()` in `app/` returns **nothing** — every transaction is closure-form,
+so no leaked level can produce a false positive.
+
+It also strengthened one of my claims: `tests/TestCase.php:31` forces `database.default = 'pgsql'`
+in **every** lane, overriding `phpunit.xml`'s `DB_CONNECTION=sqlite`. So `DB::connection()` and
+`DB::connection('pgsql')` are the same cached instance everywhere, production and all four test
+lanes — the guard cannot miss a transaction opened through the explicit name. And it confirmed
+`RefreshDatabase`/`DatabaseTransactions`/`DatabaseMigrations` appear zero times in `tests/` outside
+comments.
+
+### F1 — the guard was itself an untested behavioural branch. Fixed.
+
+Fairly caught, and the sharpest finding of the round: I added an unguarded guard to enforce an
+unguarded rule. Proven both directions — forcing the condition true fails all seven tests (so it
+is live code on every path), while deleting the whole `if` left 8640 + 232 tests green.
+
+There is now a test that opens a caller transaction, calls `writeManualItem()`, and expects the
+`LogicException` — and asserts nothing landed, since the caller's rollback takes the source item
+with it. Deleting the guard fails that test and only that test.
+
+### F2, F3 — two more comment claims corrected
+
+- The `removed_at` parenthetical named two soft mutators as though that were the set; there are at
+  least four. Rewritten to claim exhaustiveness only where it is earned: the list of **four** is
+  the complete set of unlocked writers that can leave a *dangling reference* — verified by
+  sweeping every delete/update/insert against `content.{source_items,items,item_anchors}` in
+  `app/` — while the soft set is explicitly not enumerated.
+- "Loud" is lane-dependent. On HTTP the `LogicException` is a 500 plus Nightwatch; on the ingest
+  lane `RunExecutor` catches `\Throwable` and demotes it to a `report()` + a critical
+  `ingest.anomalies` row + a `degraded` outcome. Attributable and paged, but not a crash — now
+  stated, so a future reader does not expect one.
+
+### Recorded, not changed
+
+`WorkplaceObserver.php:126` dispatches its job bare where the sibling
+`IntegrationConnectionObserver.php:411` uses `->afterCommit()` on top of the class-level flag, and
+that chain reaches `MenuScanApplier` → `writeManualItem()`. Pre-existing, unreachable in
+production (the queue is redis), and the class-level `$afterCommit = true` holds it even under a
+sync queue — but it is a single point of failure where the sibling has two. Someone else's file,
+someone else's unit.
+
+Also noted: round 6's commit message quoted 30,898 assertions where round 7 measured 30,896 on the
+same tree, with identical pass/skip/warning counts — an environment-dependent skip, not a
+behavioural difference.
