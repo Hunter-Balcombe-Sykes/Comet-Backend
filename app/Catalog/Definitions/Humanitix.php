@@ -13,7 +13,7 @@ use App\Catalog\Surface;
 use App\Catalog\SurfaceBuilder;
 
 /**
- * Humanitix. Bespoke connect (EventsCatalog/EventsPlatformController, same
+ * Humanitix. Bespoke connect (EventsPlatformController, same
  * shape as Eventbrite) — no connect capability. Path capture translated
  * from config('partna.social_platforms').humanitix's url_path_extractor
  * (config/partna.php:675-685): /host/<org> — the same organiser-page

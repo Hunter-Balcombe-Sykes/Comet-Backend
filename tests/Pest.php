@@ -511,11 +511,12 @@ function setupUsersTable(): void
         -- Deliberately stricter than prod, which still tolerates \'staff\'.
         account_type TEXT NOT NULL DEFAULT \'partna\' CHECK (account_type IN (\'partna\',\'business\')),
         status TEXT NOT NULL DEFAULT \'active\' CHECK (status IN (\'active\',\'suspended\',\'disabled\',\'pending_deletion\',\'unclaimed\')),
-        -- bio: dropped from prod by 20260705120002_drop_dead_profile_columns_tables.
+        -- bio: RE-ADDED 20260819140000 (identity plan) — the About Me
+        -- paragraph, with live consumers now. (It was dropped as dead by
+        -- 20260705120002; this is a deliberate re-add, not drift.)
         -- icon_bucket/icon_path/headshot_bucket/headshot_path: dropped pre-baseline
         -- (see baseline:313-315 comment) and never existed in any migration here.
-        -- All five were phantom here with zero read/write consumers, caught by
-        -- FixtureSchemaParityTest (#FFLAG-1 sibling finding).
+        bio TEXT NULL,
         country_code TEXT NULL,
         timezone TEXT NULL,
         onboarding_step INTEGER NOT NULL DEFAULT 0,
@@ -535,8 +536,9 @@ function setupUsersTable(): void
 
     // Defensive ALTERs for suites that created core.users before the sector
     // columns existed (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to
-    // an already-created table within a run). Mirrors migration 20260705150100.
-    foreach (['sector', 'sector_source'] as $col) {
+    // an already-created table within a run). Mirrors migrations 20260705150100
+    // and 20260819140000 (bio).
+    foreach (['sector', 'sector_source', 'bio'] as $col) {
         try {
             DB::connection('pgsql')->statement("ALTER TABLE core.users ADD COLUMN {$col} TEXT NULL");
         } catch (Throwable $e) {
@@ -2787,7 +2789,11 @@ function setupSectionsTables(): void
  */
 function pinPoolPresence(Site $site): void
 {
-    foreach (['watch', 'listen', 'events'] as $pool) {
+    // custom_links joined the presence loop 2026-08-19 (pool-only links must
+    // flip the Links page) — pinned here for the same reason as the others:
+    // the probe tests need every pool probe short-circuited so only the
+    // probe under test faults.
+    foreach (['watch', 'listen', 'events', 'custom_links'] as $pool) {
         $section = app(PoolSectionProvisioner::class)->ensure($site, $pool);
         DB::connection('pgsql')->table('site.section_items')->insert([
             'id' => (string) Str::uuid(),
@@ -3360,6 +3366,48 @@ function setupIngestTables(): void
  * a single table with the same columns. Partition routing itself is covered
  * by the Postgres lane, not here.
  */
+/**
+ * catalog runtime tables (migration 20260727100000) — SQLite mirror.
+ *
+ * "Runtime" as opposed to the compiled half (brands/surfaces/detectors/…),
+ * which `catalog:sync` upserts from the artefact and which no test needs a
+ * table for because CompiledCatalog reads the PHP artefact directly. These two
+ * are the ACCUMULATED half — written by the router, never by the compiler, and
+ * not re-derivable from a recompile.
+ *
+ * Column types follow the SQLite mirror convention used throughout this file
+ * (timestamps as TEXT); the NOT NULLs and the primary keys are copied verbatim
+ * from the migration, because those are what a write path can actually
+ * violate.
+ */
+function setupCatalogRuntimeTables(): void
+{
+    attachTestSchemas();
+    $pg = DB::connection('pgsql');
+
+    // supabase/migrations/20260727100000_catalog_schema.sql:132-138.
+    // No FK to catalog.detectors, deliberately — a suspension must outlive the
+    // detector being recompiled or tombstoned.
+    $pg->statement('CREATE TABLE IF NOT EXISTS catalog.detector_suspensions (
+        detector_id TEXT PRIMARY KEY NOT NULL,
+        reason TEXT NOT NULL,
+        set_by TEXT NULL,
+        set_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    )');
+
+    // supabase/migrations/20260727100000_catalog_schema.sql:143-152.
+    $pg->statement('CREATE TABLE IF NOT EXISTS catalog.unmatched_domains (
+        registrable_key TEXT PRIMARY KEY NOT NULL,
+        sample_path_shape TEXT NULL,
+        hits INTEGER NOT NULL DEFAULT 1,
+        has_detectors INTEGER NOT NULL DEFAULT 0,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        triaged_at TEXT NULL
+    )');
+}
+
 function setupRoutingTables(): void
 {
     attachTestSchemas();

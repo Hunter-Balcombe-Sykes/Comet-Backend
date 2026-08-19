@@ -5,31 +5,37 @@ namespace App\Routing;
 use App\Catalog\CatalogNotCompiled;
 use App\Catalog\CompiledCatalog;
 use App\Catalog\LegacyPlatformMap;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * B4 (p8 deletion readiness): the findings / synced-modal contract.
+ * The bridge between the legacy `payload.syncFindings` ledger and the intent
+ * ledger — now pointing the other way.
  *
- * The new pipeline records a scan-discovered conflict as a HOLD intent
- * (`routing.source_intents`, state=blocked, block_reason=conflict) — but the
- * dashboard's existing Instagram modal reads `payload.syncFindings` via
- * GET /platforms/instagram/synced. Without this fold, migrating
- * LinkInBioScanJob / InstagramAutoSync onto the new router would succeed
- * mechanically and silently stop telling users about conflicts.
+ * B4 (p8 deletion readiness) built it to fold new-pipeline Hold intents INTO
+ * the per-platform synced modal, so migrating a scan path would not silently
+ * stop telling users about conflicts. The owner retired that modal on
+ * 2026-08-19 — two places to answer the same question ("we found this, what do
+ * you want to do?") is one place too many — so the direction inverts: the
+ * suggestions inbox is the sink, and the legacy payload findings fold INTO it.
  *
- * This bridge folds those Hold intents into the findings RESPONSE at read
- * time (never into the stored payload — one source of truth, no writer to
- * un-ship later), shaped exactly like a legacy conflict finding so the modal
- * renders them unchanged. Scoped by origin: only the bio-scan origins the
- * Instagram modal owns; other scan surfaces fold their own origins when they
- * migrate.
+ * Both directions live here while the legacy ledger still exists. Neither ever
+ * writes a fold into stored state: one source of truth, nothing to un-ship.
+ * When InstagramAutoSync and GoogleBusinessAutoSync move onto the new router
+ * there are no payload findings left, and this class goes with them.
  */
 class SyncFindingsBridge
 {
     /** Origins whose scans surface in the Instagram synced modal. */
     public const BIO_ORIGINS = ['bio_harvest', 'link_in_bio'];
+
+    /** The two platforms whose payloads carry a syncFindings ledger. */
+    public const FINDING_HOLDERS = ['instagram', 'google-business'];
+
+    /** Prefix marking a suggestion id that addresses a payload finding, not an intent. */
+    public const PAYLOAD_ID_PREFIX = 'sync:';
 
     /**
      * Hold-intent conflicts shaped as legacy findings ({platform, category,
@@ -49,6 +55,122 @@ class SyncFindingsBridge
     {
         return $this->conflicts($user)
             ->first(fn (object $intent) => LegacyPlatformMap::legacyFor($intent->surface_key) === $legacyPlatform);
+    }
+
+    /**
+     * The legacy ledger's unresolved conflicts, shaped as SUGGESTION rows for
+     * the inbox (2026-08-19, replacing the retired synced modal).
+     *
+     * Only `conflict` findings cross over. A `seeded` finding says "we
+     * connected this for you", which the Platforms page already shows — an
+     * inbox is for what still needs an answer, and re-listing settled work is
+     * how an inbox becomes something people stop reading.
+     *
+     * The id is `sync:{holder}:{platform}` — the address of a finding inside a
+     * payload, since a payload finding has no id of its own. accept/dismiss
+     * route on that prefix.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function payloadSuggestions(User $user): array
+    {
+        $rows = [];
+
+        foreach ($this->findingHolders($user) as $holder => $connection) {
+            foreach ($this->findingsOf($connection) as $finding) {
+                if (($finding['outcome'] ?? null) !== 'conflict') {
+                    continue;
+                }
+
+                $platform = (string) ($finding['platform'] ?? '');
+                if ($platform === '') {
+                    continue;
+                }
+
+                $surfaceKey = LegacyPlatformMap::surfaceFor($platform) ?? $platform;
+                $label = (string) ($finding['label'] ?? $platform);
+
+                $rows[] = [
+                    'id' => self::PAYLOAD_ID_PREFIX.$holder.':'.$platform,
+                    'state' => 'blocked',
+                    'blockReason' => 'conflict',
+                    'surfaceKey' => $surfaceKey,
+                    'displayName' => $label,
+                    'brandKey' => LegacyPlatformMap::legacyFor($surfaceKey),
+                    'routingClass' => (string) ($finding['category'] ?? ''),
+                    'identifier' => null,
+                    'url' => is_string($finding['foundUrl'] ?? null) ? $finding['foundUrl'] : null,
+                    'origin' => $holder === 'instagram' ? 'bio_harvest' : 'google_business',
+                    'firstSeenAt' => null,
+                    'conflictingConnectionId' => null,
+                    'question' => "You already have a {$finding['category']} link. Use this {$label} one instead?",
+                    'actions' => ['replace', 'dismiss'],
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    /** Resolve a `sync:` suggestion id to its holder connection and finding index. */
+    public function locatePayloadFinding(User $user, string $suggestionId): ?array
+    {
+        [$holder, $platform] = array_pad(explode(':', substr($suggestionId, strlen(self::PAYLOAD_ID_PREFIX)), 2), 2, null);
+        if (! is_string($holder) || ! is_string($platform) || ! in_array($holder, self::FINDING_HOLDERS, true)) {
+            return null;
+        }
+
+        $connection = $this->findingHolders($user)[$holder] ?? null;
+        if ($connection === null) {
+            return null;
+        }
+
+        foreach ($this->findingsOf($connection) as $index => $finding) {
+            if (($finding['platform'] ?? null) === $platform && ($finding['outcome'] ?? null) === 'conflict') {
+                return ['holder' => $holder, 'connection' => $connection, 'index' => $index, 'finding' => $finding];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Settle one payload finding in place — 'seeded' once its swap is applied,
+     * 'dismissed' when the owner said no. Both stop it being re-offered, which
+     * is the whole job: an inbox that re-asks an answered question is noise.
+     */
+    public function settlePayloadFinding(IntegrationConnection $connection, int $index, string $outcome): void
+    {
+        $payload = is_array($connection->payload) ? $connection->payload : [];
+        $findings = $this->findingsOf($connection);
+        if (! isset($findings[$index])) {
+            return;
+        }
+
+        $findings[$index]['outcome'] = $outcome;
+        $findings[$index]['apply'] = null;
+
+        $connection->forceFill(['payload' => [...$payload, 'syncFindings' => array_values($findings)]])->saveQuietly();
+    }
+
+    /** @return array<string, IntegrationConnection> */
+    private function findingHolders(User $user): array
+    {
+        return $user->integrationConnections()
+            ->whereIn('platform', self::FINDING_HOLDERS)
+            ->get()
+            ->keyBy(fn (IntegrationConnection $row) => (string) $row->platform)
+            ->all();
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function findingsOf(IntegrationConnection $connection): array
+    {
+        $findings = is_array($connection->payload) ? ($connection->payload['syncFindings'] ?? []) : [];
+
+        return is_array($findings)
+            ? array_values(array_filter($findings, 'is_array'))
+            : [];
     }
 
     /** @return Collection<int, \stdClass> */

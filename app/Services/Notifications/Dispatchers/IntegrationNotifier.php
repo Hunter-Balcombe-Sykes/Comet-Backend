@@ -28,7 +28,7 @@ class IntegrationNotifier
      * existing connection, not the addition of one.
      *
      * Both guards below live HERE rather than at the call sites: ConnectFetchJob is
-     * dispatched by EventsController for a deferred organiser connect, so a
+     * dispatched by the events connect lane for a deferred organiser connect, so a
      * call-site guard would require proving no event/link row can ever reach that
      * job, for every present and future dispatcher of it.
      */

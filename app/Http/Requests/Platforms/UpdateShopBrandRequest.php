@@ -26,7 +26,6 @@ class UpdateShopBrandRequest extends FormRequest
             // the site-wide /shop/settings autoLatest, which writes every
             // store at once.
             'autoLatest' => ['sometimes', 'boolean'],
-            'linkMode' => ['sometimes', 'string', 'in:product,checkout'],
             // Full URL or bare query — the controller parses out the query
             // suffix; empty/null clears the stored referral.
             'referralUrl' => ['sometimes', 'nullable', 'string', 'max:2000'],

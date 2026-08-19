@@ -563,7 +563,7 @@ class PlatformDescriptor
      * Whether this connection has publishable content. Read by the public
      * page-presence gate (SitepageDataResolverService::presentPageIds), the
      * Book-now fallback (SiteActionsService::pool), the dashboard status
-     * endpoint (BookingController::statusFor) and the reconcile command.
+     * endpoint (the retired booking category controller) and the reconcile command.
      *
      * A predicate MAY query — shop's does — so callers on the public render
      * path wrap it in safeQuery() and fail CLOSED (hide the page), matching the

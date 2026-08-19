@@ -230,7 +230,7 @@ abstract class EventsPlatformController extends ApiController
 
         // Slice 7 Phase 4: this writes a `content.items` row in the `events`
         // pool, not a `resource_kind='event'` connection. It is the SAME lane
-        // EventsCatalog's card path and StandaloneEventBackfiller use, on the
+        // the retired events-catalogue card path used (and the standalone-event backfill), on the
         // same URL-derived coord, so an event added here and one added there
         // are one item.
         //

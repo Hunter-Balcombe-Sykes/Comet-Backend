@@ -1,13 +1,15 @@
 <?php
 
-// PWL-13: EventsCatalog wrote site.platform_connections rows (storeAccount/
+// PWL-13: the events catalogue wrote site.platform_connections rows (storeAccount/
 // storeStandalone) with NO lock, even though EventsPlatformController::
 // addAccount()/addStandaloneEvent() (via ManagesIntegrationConnection::
 // withConnectionLock) and ScheduledRefresh already serialise writes to the
 // SAME eventbrite/humanitix rows behind CacheKeyGenerator::
-// platformConnectionLock($platform, $userId). EventsController::add() ->
-// EventsCatalog::addByUrl() -> storeAccount()/storeStandalone() was therefore
-// an unlocked duplicate writer — a lost-update window.
+// platformConnectionLock($platform, $userId). The catalogue's own
+// storeAccount()/storeStandalone() writers were therefore an unlocked
+// duplicate lane — a lost-update window. (The events/add facade that first
+// exposed this left 2026-08-19; the live entry is the platform's own
+// /connect, same catalogue underneath.)
 //
 // This proves the fix: pre-acquire the exact key a real writer would need
 // ('eventbrite', $user->id — the SAME formula EventbriteController::platform()
@@ -84,7 +86,7 @@ it('returns 423 and writes no row when storeAccount contends on the eventbrite p
     expect($lock->get())->toBeTrue();
 
     try {
-        actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $orgUrl])
+        actingAsUser($user)->postJson('/api/platforms/eventbrite/connect', ['url' => $orgUrl])
             ->assertStatus(423)
             ->assertJson(['message' => 'Another change is still saving — please retry in a moment.']);
     } finally {
@@ -102,7 +104,7 @@ it('returns 423 and writes no row when storeAccount contends on the eventbrite p
 // Kept rather than deleted, and asserted as a success: silently dropping the
 // case would leave the lock's disappearance unwitnessed, and a future
 // re-introduction of a connection write here would then pass unnoticed.
-it('does NOT contend on the eventbrite platform lock, because storeStandalone writes no connection', function () {
+it('does NOT contend on the eventbrite platform lock, because the standalone-event write is pool-only', function () {
     $eventUrl = 'https://www.eventbrite.com/e/cool-show-123';
     $scraper = Mockery::mock(EventbriteScraper::class);
     $scraper->shouldReceive('normalizeEventUrl')->andReturn($eventUrl);
@@ -119,7 +121,9 @@ it('does NOT contend on the eventbrite platform lock, because storeStandalone wr
     expect($lock->get())->toBeTrue();
 
     try {
-        actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $eventUrl])->assertOk();
+        // The router's event arm — the live standalone lane since 2026-08-19.
+        expect(app(\App\Services\Platforms\EventsSeeder::class)->seedStandalone($user, 'eventbrite', $eventUrl))
+            ->toBe($eventUrl);
     } finally {
         $lock->release();
     }

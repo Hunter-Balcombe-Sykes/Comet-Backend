@@ -515,8 +515,8 @@ class FreshaController extends ApiController
         // per-platform lock INNER — the exact structure connect()/
         // connectDeferred() above use (and FreshaConnectFetch.php:155-184 for
         // the async path). The earlier pt.2 guard re-checked existence under
-        // the 'fresha' platform key ALONE, but forget()/BookingController::
-        // clearBooking() delete under bookingXorLock — a DIFFERENT key — so the
+        // the 'fresha' platform key ALONE, but forget() deletes under
+        // bookingXorLock — a DIFFERENT key — so the
         // two never excluded each other: a forget()+Square-connect landing
         // between the re-check and the write still resurrected Fresha alongside
         // an active Square, the very at-most-one-booking-provider violation U1

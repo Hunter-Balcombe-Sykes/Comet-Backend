@@ -70,9 +70,11 @@ it('decides auto-connect from built_by_staff_id at the one place that knows', fu
 });
 
 it('leaves the dashboard paste path unmarked', function () {
+    // RoutingController::addManual is the dashboard paste path now — the
+    // custom-links controller it replaced was retired 2026-08-19.
     $this->assertStringNotContainsString(
         'autoConnectBooking',
-        file_get_contents(base_path('app/Http/Controllers/Api/Platforms/CustomLinksController.php')),
+        file_get_contents(base_path('app/Http/Controllers/Api/Routing/RoutingController.php')),
         'A dashboard paste has a human in the loop and must never auto-connect a booking platform on their behalf.'
     );
 });

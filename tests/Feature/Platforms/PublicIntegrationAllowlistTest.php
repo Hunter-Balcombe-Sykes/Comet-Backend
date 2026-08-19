@@ -429,7 +429,7 @@ it('publishes nothing for a retired events row, ACCOUNT or STANDALONE', function
     // retired the STANDALONE half. Both kinds now publish `[]`, and every
     // event reaches the wire through profile.pools.events instead — the
     // standalone ones because StandaloneEventBackfiller carried them onto
-    // content.* and EventsCatalog::storeStandalone() lands new ones there.
+    // content.* and the standalone-event lane lands new ones there.
     IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'eventbrite',

@@ -107,7 +107,11 @@ class EnrichPoolLinkJob implements ShouldBeUnique, ShouldQueue
             return; // nothing the page can add
         }
 
-        $writer->add($user, $this->url, $titleUpgrade, $bodyUpgrade, $favicon, $logo);
+        // enrich: false — this IS the enrichment. LinkPoolWriter::add() now
+        // dispatches this job whenever a write brings no images and no body
+        // (2026-08-19), and a page that yields only a title upgrade would
+        // otherwise re-dispatch the job that just ran, on a loop.
+        $writer->add($user, $this->url, $titleUpgrade, $bodyUpgrade, $favicon, $logo, enrich: false);
     }
 
     /**

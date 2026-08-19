@@ -177,20 +177,6 @@ parameters:
             count: 1
             path: app/Services/Streaming/StreamingTokenManager.php
 
-        # EventsCatalog::reorder() re-reads site.settings under lockForUpdate and
-        # merges, so that two writers cannot clobber each other's unrelated keys
-        # (LIFE-3). Site::$settings is annotated array<string,mixed> and the column
-        # is jsonb NOT NULL DEFAULT '{}' — but NOT NULL forbids SQL NULL, not
-        # 'null'::jsonb or a scalar, so the annotation is a claim about writers,
-        # not a constraint the DB enforces. If that claim ever drifts, dropping
-        # this is_array() would auto-vivify $settings and silently discard every
-        # other settings key — the exact data loss the method exists to prevent.
-        # The same guard is house style at SiteResource.php:90. Cost: nothing.
-        -
-            message: '#^Call to function is_array\(\) with array<string, mixed> will always evaluate to true\.$#'
-            identifier: function.alreadyNarrowedType
-            count: 1
-            path: app/Services/Platforms/EventsCatalog.php
 
         # BaseTransactionalMail::buildView() derives the text/plain part (P3,
         # 2026-08-12) only when the subclass didn't set one. Illuminate\Mail\

@@ -5,7 +5,6 @@ namespace App\Models\Core\Site;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Carbon;
 
 // One menu category (e.g. "Mains", "Sides") under a site.menus row. Categories
@@ -49,19 +48,5 @@ class MenuCategory extends BaseModel
     public function menu(): BelongsTo
     {
         return $this->belongsTo(Menu::class, 'menu_id');
-    }
-
-    /**
-     * The dishes listed under this category, in this category's display order
-     * (the pivot's per-membership `position`).
-     *
-     * @return BelongsToMany<MenuItem, $this>
-     */
-    public function items(): BelongsToMany
-    {
-        return $this->belongsToMany(MenuItem::class, 'site.menu_item_categories', 'menu_category_id', 'menu_item_id')
-            ->withPivot('position')
-            ->withTimestamps()
-            ->orderByPivot('position');
     }
 }

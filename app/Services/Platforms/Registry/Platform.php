@@ -13,12 +13,8 @@ namespace App\Services\Platforms\Registry;
 enum Platform: string
 {
     case GoogleBusiness = 'google-business';
-    case OnlineOrdering = 'online-ordering';
     case Fresha = 'fresha';
     case Square = 'square';
-    case Reservations = 'reservations';
-    case Custom = 'custom';
-    case Booking = 'booking';
     case OpenTable = 'opentable';
     case Resdiary = 'resdiary';
     case Nowbookit = 'nowbookit';

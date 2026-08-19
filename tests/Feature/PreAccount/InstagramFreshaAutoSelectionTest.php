@@ -43,6 +43,8 @@ it('matches the account holder to their salon profile end to end', function () {
             ]],
         ]);
         $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('lastResolvedSlug')->andReturn(null);
+        $m->shouldReceive('resolveCurrentSlug')->andReturn(null);
         $m->shouldReceive('fetchEmployeeServices')->andReturn([[
             'serviceId' => 's:9', 'name' => 'Simon Cut', 'duration' => '45min', 'description' => null,
             'price' => 'A$80', 'priceValue' => 80, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
@@ -91,6 +93,8 @@ it('degrades to storewide when the surname never made it onto the user', functio
             ]],
         ]);
         $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('lastResolvedSlug')->andReturn(null);
+        $m->shouldReceive('resolveCurrentSlug')->andReturn(null);
         $m->shouldReceive('fetchEmployeeServices')->andReturn(null);
     });
 

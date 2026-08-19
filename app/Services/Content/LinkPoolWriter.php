@@ -3,6 +3,7 @@
 namespace App\Services\Content;
 
 use App\Ingest\Projection\ProjectionWriter;
+use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -15,7 +16,7 @@ use Illuminate\Support\Facades\DB;
  *
  * Phase 3 carried the 23 existing `partna.custom_link` connections onto
  * `content.*` and named this seam explicitly — "the pool is a SNAPSHOT until
- * Phase 6 … CustomLinkBackfiller::linkProjection() is public as the seam"
+ * Phase 6 … the (retired) custom-link backfiller's linkProjection() was the seam"
  * (parent spec §22). This is the other half: every NEW link is written straight
  * onto the pool, so nothing lands on the retired surface again.
  *
@@ -26,7 +27,7 @@ use Illuminate\Support\Facades\DB;
  * carrying its provider label rather than being dropped.
  *
  * COORD: `manual:{sha1(strtolower(trim(url)))}`, deliberately the URL and not a
- * uuid — byte-identical to what CustomLinkBackfiller and PoolItemCreateController
+ * uuid — byte-identical to what the retired custom-link backfiller and PoolItemCreateController
  * mint, so a link that arrives twice through two different doors updates ONE item
  * instead of forking. Two manual coords carrying one url would also poison that
  * url as a joining key for the whole resolution run (Resolver::poisonedKeys drops
@@ -66,6 +67,9 @@ class LinkPoolWriter
     /**
      * @param  string|null  $logo  the page's share image (og:image) → cover role
      * @param  string|null  $favicon  the site's icon → logo role
+     * @param  bool  $enrich  false ONLY for EnrichPoolLinkJob's own write-back —
+     *                        a page that yielded a title and nothing else would
+     *                        otherwise re-dispatch the job that just ran, for ever
      */
     public function add(
         User $user,
@@ -74,6 +78,7 @@ class LinkPoolWriter
         ?string $description = null,
         ?string $favicon = null,
         ?string $logo = null,
+        bool $enrich = true,
     ): string {
         $url = trim($url);
         $coord = self::coordFor($url);
@@ -95,7 +100,7 @@ class LinkPoolWriter
         ];
 
         // Omitted rather than written null when there is nothing to say — a new
-        // item has no stale body to clear (CustomLinkBackfiller does the same).
+        // item has no stale body to clear (the retired backfiller did the same).
         $description = trim((string) $description);
         if ($description !== '') {
             $projection['facets']['f_text']['body'] = $description;
@@ -134,6 +139,23 @@ class LinkPoolWriter
         if ($site instanceof Site) {
             $this->pin($site, $itemId);
             SiteCacheLanes::bust([(string) $site->id]);
+        }
+
+        // Read the page for the things the caller did not bring (owner,
+        // 2026-08-19). Every writer that reaches this method used to decide for
+        // itself whether to enrich, and most did not: the ordering fallbacks,
+        // the Google harvest and the Phase-3 backfill all wrote a bare
+        // host-titled row, so Ruh's three Bopple links sat with no favicon, no
+        // share image and no description while a dashboard-added link had all
+        // three. Deciding it HERE means every lane gets it, including lanes
+        // written later.
+        //
+        // Only when this write brought neither images nor a body — a caller
+        // that already checked the page has nothing to gain from a second
+        // fetch — and never from the job's own write-back ($enrich false),
+        // which is what stops a title-only page looping through here.
+        if ($enrich && $media === [] && $description === '' && $url !== '') {
+            EnrichPoolLinkJob::dispatch($userId, $url)->afterCommit();
         }
 
         return $itemId;

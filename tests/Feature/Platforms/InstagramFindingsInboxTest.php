@@ -2,18 +2,29 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
-// BE2 wire contract (FE9 builds against this verbatim):
-//   GET  /api/platforms/instagram/synced       -> {"synced":[{platform,category,label,status,foundUrl,removePath}], "unmatched":[{url,label}]}
-//   POST /api/platforms/instagram/synced/apply {platform} -> same payload, conflict resolved
-// Mirrors GoogleBusinessController::synced()/applySync() semantics exactly.
+// What a bio scan found, and what the owner does about it.
+//
+// Was InstagramSyncedTest, against GET/POST /platforms/instagram/synced. The
+// owner retired that modal on 2026-08-19 — the same question ("we found this,
+// what do you want to do?") was being asked in two places — so every scenario
+// here moved to the one place it is asked now: GET /routing/suggestions, with
+// legacy payload findings folded in as rows addressed
+// `sync:{holder}:{platform}` and accepted through the inbox's own accept.
+//
+// The shape of the answer changed with it. A CONFLICT is a row: it still needs
+// a decision. A SEEDED finding is not: it says "we connected this for you",
+// which the Platforms page already shows — an inbox that re-lists settled work
+// is one people stop reading. The tests that pinned the modal's rendering of
+// seeded findings (status synced/syncing, removePath) now pin that they stay
+// OUT of the inbox and that the connection itself is right, which is the part
+// that was ever load-bearing.
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    // /synced now also folds new-pipeline Hold intents (SyncFindingsBridge),
-    // so the routing tables must exist even for payload-only cases.
     setupRoutingTables();
 });
 
@@ -30,17 +41,21 @@ function igSyncedUser(string $h): User
     ]);
 }
 
-// ── GET /synced ────────────────────────────────────────────────────────────────
+/** Only the rows folded from a payload ledger — the intent-backed ones are SuggestionsInboxTest's. */
+function foldedRows(User $user): Collection
+{
+    return collect(actingAsUser($user)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions'))
+        ->filter(fn (array $row) => str_starts_with((string) $row['id'], 'sync:'))
+        ->values();
+}
 
-it('returns empty synced + unmatched when the user has no Instagram connection at all', function () {
-    $user = igSyncedUser('igsy1');
+// ── what the inbox lists ──────────────────────────────────────────────────────
 
-    actingAsUser($user)->getJson('/api/platforms/instagram/synced')
-        ->assertOk()
-        ->assertExactJson(['synced' => [], 'unmatched' => []]);
+it('has nothing to fold when the user has no Instagram connection at all', function () {
+    expect(foldedRows(igSyncedUser('igsy1'))->all())->toBe([]);
 });
 
-it('returns empty synced + unmatched for an old connection that predates bio-sync (no syncFindings/unmatched keys at all)', function () {
+it('has nothing to fold for an old connection that predates bio-sync (no syncFindings key at all)', function () {
     $user = igSyncedUser('igsy2');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
@@ -49,12 +64,10 @@ it('returns empty synced + unmatched for an old connection that predates bio-syn
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    actingAsUser($user)->getJson('/api/platforms/instagram/synced')
-        ->assertOk()
-        ->assertExactJson(['synced' => [], 'unmatched' => []]);
+    expect(foldedRows($user)->all())->toBe([]);
 });
 
-it('shapes a seeded finding as synced when its connection row is ok, with the exact contract keys', function () {
+it('never asks about a finding it already seeded — that work is done and shows on Platforms', function () {
     $user = igSyncedUser('igsy3');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
@@ -69,22 +82,19 @@ it('shapes a seeded finding as synced when its connection row is ok, with the ex
         ],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
-    IntegrationConnection::create([
+    $seeded = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'facebook', 'resource_id' => 'facebook',
         'payload' => ['username' => 'docpizzabar', 'url' => 'https://www.facebook.com/docpizzabar', 'source' => 'instagram'],
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    $response = actingAsUser($user)->getJson('/api/platforms/instagram/synced')->assertOk();
-
-    $response->assertExactJson(['synced' => [[
-        'platform' => 'facebook', 'category' => 'social', 'label' => 'Facebook',
-        'status' => 'synced', 'foundUrl' => 'https://www.facebook.com/docpizzabar',
-        'removePath' => '/platforms/facebook',
-    ]], 'unmatched' => [['url' => 'https://linktr.ee/docpizza', 'label' => 'linktr.ee']]]);
+    expect(foldedRows($user)->all())->toBe([])
+        ->and($seeded->fresh()->payload['url'])->toBe('https://www.facebook.com/docpizzabar');
 });
 
-it('shapes a seeded finding as syncing while its connection row is still pending', function () {
+it('does not ask about a seeded finding whose connection is still syncing', function () {
+    // The modal drew a 'syncing' pill off last_refresh_status. Nothing to ask
+    // either way — the row exists and the fetch is the fetch's business.
     $user = igSyncedUser('igsy4');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
@@ -101,12 +111,12 @@ it('shapes a seeded finding as syncing while its connection row is still pending
         'is_active' => false, 'last_refresh_status' => 'pending',
     ]);
 
-    $synced = actingAsUser($user)->getJson('/api/platforms/instagram/synced')->assertOk()->json('synced');
-
-    expect($synced[0]['status'])->toBe('syncing');
+    expect(foldedRows($user)->all())->toBe([]);
 });
 
-it('drops a seeded finding whose connection row the user already removed', function () {
+it('does not resurrect a seeded finding whose connection the user removed', function () {
+    // The modal dropped these so a removed row could not linger in the list.
+    // The inbox never listed them, so removal cannot bring one back either.
     $user = igSyncedUser('igsy5');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
@@ -119,11 +129,10 @@ it('drops a seeded finding whose connection row the user already removed', funct
     ]);
     // No tiktok row exists — user removed it after it seeded.
 
-    actingAsUser($user)->getJson('/api/platforms/instagram/synced')
-        ->assertOk()->assertJsonPath('synced', []);
+    expect(foldedRows($user)->all())->toBe([]);
 });
 
-it('shapes a conflict finding with a null removePath and does not require an existing row', function () {
+it('asks about a conflict, as an ordinary Swap row', function () {
     $user = igSyncedUser('igsy6');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
@@ -144,18 +153,18 @@ it('shapes a conflict finding with a null removePath and does not require an exi
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    $synced = actingAsUser($user)->getJson('/api/platforms/instagram/synced')->assertOk()->json('synced');
-
-    expect($synced[0])->toBe([
-        'platform' => 'facebook', 'category' => 'social', 'label' => 'Facebook',
-        'status' => 'conflict', 'foundUrl' => 'https://www.facebook.com/docpizzabar',
-        'removePath' => null,
-    ]);
+    $row = foldedRows($user)->first();
+    expect($row['id'])->toBe('sync:instagram:facebook')
+        ->and($row['displayName'])->toBe('Facebook')
+        ->and($row['url'])->toBe('https://www.facebook.com/docpizzabar')
+        ->and($row['blockReason'])->toBe('conflict')
+        ->and($row['actions'])->toBe(['replace', 'dismiss'])
+        ->and($row['origin'])->toBe('bio_harvest');
 });
 
-// ── POST /synced/apply ────────────────────────────────────────────────────────
+// ── answering one ─────────────────────────────────────────────────────────────
 
-it('applySync swaps a conflict in, flips outcome to seeded, and returns fresh synced()', function () {
+it('swaps the conflict in on accept, and settles the finding so it is not re-asked', function () {
     $user = igSyncedUser('igsy7');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
@@ -176,22 +185,45 @@ it('applySync swaps a conflict in, flips outcome to seeded, and returns fresh sy
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    $response = actingAsUser($user)->postJson('/api/platforms/instagram/synced/apply', ['platform' => 'facebook'])->assertOk();
-
-    $response->assertJsonPath('synced.0.status', 'synced');
-    $response->assertJsonPath('synced.0.platform', 'facebook');
+    actingAsUser($user)->postJson('/api/routing/suggestions/sync:instagram:facebook/accept')
+        ->assertOk()
+        ->assertJsonPath('displayName', 'Facebook');
 
     $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->get();
-    expect($fb)->toHaveCount(1);
-    expect($fb->first()->payload['source'])->toBe('instagram');
-    expect($fb->first()->payload['url'])->toBe('https://www.facebook.com/docpizzabar');
+    expect($fb)->toHaveCount(1)
+        ->and($fb->first()->payload['source'])->toBe('instagram')
+        ->and($fb->first()->payload['url'])->toBe('https://www.facebook.com/docpizzabar');
 
-    // The instagram connection's persisted syncFindings reflect the flip.
     $ig = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->firstOrFail();
     expect($ig->payload['syncFindings'][0]['outcome'])->toBe('seeded');
+
+    // And it is gone from the inbox — an answered question is not re-asked.
+    expect(foldedRows($user)->all())->toBe([]);
 });
 
-it('applySync 404s when there is nothing to change for that platform', function () {
+it('drops the finding on Not now, without connecting anything', function () {
+    $user = igSyncedUser('igsy7b');
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => ['syncFindings' => [[
+            'platform' => 'facebook', 'resourceId' => 'facebook', 'category' => 'social',
+            'label' => 'Facebook', 'foundUrl' => 'https://www.facebook.com/docpizzabar',
+            'outcome' => 'conflict',
+            'apply' => ['remove' => ['facebook'], 'write' => [
+                'platform' => 'facebook', 'resourceId' => 'facebook',
+                'payload' => ['username' => 'docpizzabar', 'url' => 'https://www.facebook.com/docpizzabar', 'source' => 'instagram'],
+            ]],
+        ]], 'unmatched' => []],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    actingAsUser($user)->postJson('/api/routing/suggestions/sync:instagram:facebook/dismiss')->assertOk();
+
+    expect(foldedRows($user)->all())->toBe([])
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
+});
+
+it('404s when there is nothing to change for that platform', function () {
     $user = igSyncedUser('igsy8');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
@@ -199,18 +231,20 @@ it('applySync 404s when there is nothing to change for that platform', function 
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    actingAsUser($user)->postJson('/api/platforms/instagram/synced/apply', ['platform' => 'facebook'])
+    actingAsUser($user)->postJson('/api/routing/suggestions/sync:instagram:facebook/accept')
         ->assertStatus(404);
 });
 
-it('applySync 404s when the user has no Instagram connection at all', function () {
-    $user = igSyncedUser('igsy9');
-
-    actingAsUser($user)->postJson('/api/platforms/instagram/synced/apply', ['platform' => 'facebook'])
+it('404s when the user has no Instagram connection at all', function () {
+    actingAsUser(igSyncedUser('igsy9'))
+        ->postJson('/api/routing/suggestions/sync:instagram:facebook/accept')
         ->assertStatus(404);
 });
 
-it('applySync rejects a platform not registered in the platform registry', function () {
+it('404s an id naming a holder that carries no findings ledger', function () {
+    // The old endpoint validated `platform` against the registry. The id is
+    // the address of a finding now, so an id addressing nothing simply finds
+    // nothing — same answer, one fewer thing to keep in sync.
     $user = igSyncedUser('igsy10');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
@@ -218,11 +252,11 @@ it('applySync rejects a platform not registered in the platform registry', funct
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    actingAsUser($user)->postJson('/api/platforms/instagram/synced/apply', ['platform' => 'not-a-real-platform'])
-        ->assertStatus(422);
+    actingAsUser($user)->postJson('/api/routing/suggestions/sync:tiktok:facebook/accept')->assertStatus(404);
+    actingAsUser($user)->postJson('/api/routing/suggestions/sync:instagram:not-a-real-platform/accept')->assertStatus(404);
 });
 
-it('preserves an unrelated existing finding when applying a swap for a different platform', function () {
+it('preserves an unrelated finding when applying a swap for a different platform', function () {
     $user = igSyncedUser('igsy11');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
@@ -255,9 +289,11 @@ it('preserves an unrelated existing finding when applying a swap for a different
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    actingAsUser($user)->postJson('/api/platforms/instagram/synced/apply', ['platform' => 'facebook'])->assertOk();
+    actingAsUser($user)->postJson('/api/routing/suggestions/sync:instagram:facebook/accept')->assertOk();
 
-    $synced = collect(actingAsUser($user)->getJson('/api/platforms/instagram/synced')->json('synced'));
-    expect($synced->firstWhere('platform', 'facebook')['status'])->toBe('synced');
-    expect($synced->firstWhere('platform', 'tiktok')['status'])->toBe('synced'); // untouched by the facebook swap
+    $findings = IntegrationConnection::query()->where('user_id', $user->id)
+        ->where('platform', 'instagram')->firstOrFail()->payload['syncFindings'];
+    expect($findings)->toHaveCount(2)
+        ->and(collect($findings)->firstWhere('platform', 'facebook')['outcome'])->toBe('seeded')
+        ->and(collect($findings)->firstWhere('platform', 'tiktok')['outcome'])->toBe('seeded');
 });

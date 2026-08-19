@@ -2,7 +2,6 @@
 
 namespace App\Services\Platforms;
 
-use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
@@ -176,9 +175,9 @@ class CustomLinkSeeder
             return ['status' => 'busy', 'row' => null];
         }
 
-        if ($status === 'created') {
-            EnrichPoolLinkJob::dispatch((string) $user->id, $normalized)->afterCommit();
-        }
+        // No dispatch here since 2026-08-19: LinkPoolWriter::add() enriches
+        // any write that brings no images and no body, which is every write
+        // this lane makes — one decision, in the writer, for every lane.
 
         // `row` is null on every path now — there is no connection to hand back.
         // Every caller already discarded it (Issue F), which is why seedCustom()

@@ -34,15 +34,17 @@ function customLinksUser(string $h): User
 // (f_link.url, f_text.headline/body) rather than a connection payload blob.
 // favicon/logo are null BY DESIGN — see LinkPoolWriter.
 it('lists a stored custom link with its full card shape', function () {
+    // The /platforms/custom/links endpoint left 2026-08-19; LinkPoolReader's
+    // cards() IS the card shape every live reader consumes.
     $user = customLinksUser('clink');
     $id = app(LinkPoolWriter::class)->add($user, 'https://acme.test', 'Acme', 'Best');
 
-    actingAsUser($user)->getJson('/api/platforms/custom/links')
-        ->assertOk()
-        ->assertJsonPath('links.0.id', $id)
-        ->assertJsonPath('links.0.url', 'https://acme.test')
-        ->assertJsonPath('links.0.name', 'Acme')
-        ->assertJsonPath('links.0.description', 'Best')
-        ->assertJsonPath('links.0.favicon', null)
-        ->assertJsonPath('links.0.logo', null);
+    $cards = app(\App\Services\Content\LinkPoolReader::class)->cards($user->refresh());
+    expect($cards)->toHaveCount(1);
+    expect($cards[0]['id'])->toBe($id);
+    expect($cards[0]['url'])->toBe('https://acme.test');
+    expect($cards[0]['name'])->toBe('Acme');
+    expect($cards[0]['description'])->toBe('Best');
+    expect($cards[0]['favicon'])->toBeNull();
+    expect($cards[0]['logo'])->toBeNull();
 });

@@ -60,10 +60,12 @@ it('emits exactly the documented top-level and profile-nested key set', function
     // regain a public projection — see BrandWireTest. `links` / `services`
     // (the pre-pool engine lists) and the top-level `popularity` map left
     // 2026-08-19: pools carry the content, per-item popularityRank the rank.
+    // `bio` joined 2026-08-19 (identity plan): the owner's About Me
+    // paragraph, string|null, plumbed not mounted.
     expect(array_keys($array['profile']))->toBe([
         'handle', 'displayName', 'accountType', 'site_id',
         'pools', 'brand',
-        'document', 'newsletter', 'contact', 'publicContact', 'workplace',
+        'document', 'newsletter', 'contact', 'publicContact', 'bio', 'workplace',
     ]);
 
     // (The skeletonId transition alias was dropped 2026-08-05 — apps/pages

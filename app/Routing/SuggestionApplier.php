@@ -19,6 +19,43 @@ class SuggestionApplier
     public function __construct(private readonly ConnectionIdentity $identity) {}
 
     /**
+     * Connect a link that has no intent behind it — the standing Google-listing
+     * OpenTable suggestion (2026-08-19), which is derived from the Google
+     * Business payload on every read rather than recorded by the router.
+     *
+     * Same payload writer as every other lane (ConnectionPayload::forWrite):
+     * a handle-identity surface needs `username` on the public wire, and a
+     * hand-rolled ['url','source'] array is precisely the third writer that
+     * once served blank sitepages.
+     */
+    public function applyDirect(User $user, string $surfaceKey, string $routingClass, string $identifier, string $url): IntegrationConnection
+    {
+        $connection = IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('surface_key', $surfaceKey)
+            ->where('resource_id', $identifier)
+            ->whereNull('deleted_at')
+            ->first();
+
+        if ($connection !== null) {
+            return $connection;
+        }
+
+        $connection = new IntegrationConnection([
+            'surface_key' => $surfaceKey,
+            'routing_class' => $routingClass,
+            'resource_id' => $identifier,
+            'payload' => ConnectionPayload::forWrite($url, $identifier, 'url', 'suggestion'),
+            'is_active' => true,
+            'last_refresh_status' => 'pending',
+        ]);
+        $connection->user()->associate($user);
+        $connection->save();
+
+        return $connection;
+    }
+
+    /**
      * Demote the conflicting incumbent (if any), create or reuse the
      * connection, and settle the intent — one transaction, so a replace never
      * has a two-primaries or half-applied window.
@@ -49,13 +86,32 @@ class SuggestionApplier
         }
 
         return DB::transaction(function () use ($user, $intent, $surface) {
-            // Replacing an incumbent: demote it rather than delete it. The
-            // user asked for a different primary, not for their data to go.
+            // Replacing an incumbent. Two shapes share this column:
+            //  - a booking-class CONFLICT: demote it rather than delete it —
+            //    the user asked for a different primary, not for their data
+            //    to go;
+            //  - a single-account surface at its CAP (2026-08-19): a Swap.
+            //    Here the incumbent IS the thing being replaced — one Mixcloud
+            //    for another — so it is soft-deleted the way Disconnect does
+            //    (observers fire: purge, ingest source, selections), and its
+            //    primary flag, if it held one, carries over below.
+            $inheritsPrimary = false;
             if ($intent->conflicting_connection_id !== null) {
-                IntegrationConnection::query()
+                $incumbent = IntegrationConnection::query()
                     ->where('id', $intent->conflicting_connection_id)
                     ->where('user_id', $user->id)
-                    ->update(['is_primary' => false]);
+                    ->first();
+                if ($incumbent !== null && $intent->block_reason === 'cap_reached') {
+                    $inheritsPrimary = (bool) $incumbent->is_primary;
+                    if ($inheritsPrimary) {
+                        // The partial unique index (one primary per class)
+                        // must be clear before the new row takes it.
+                        IntegrationConnection::query()->whereKey($incumbent->id)->update(['is_primary' => false]);
+                    }
+                    $incumbent->delete();
+                } elseif ($incumbent !== null) {
+                    IntegrationConnection::query()->whereKey($incumbent->id)->update(['is_primary' => false]);
+                }
             }
 
             // #R4: the identity this intent names may already exist under a
@@ -109,7 +165,9 @@ class SuggestionApplier
                 $connection->save();
             }
 
-            if ($intent->conflicting_connection_id !== null) {
+            // A booking-class Replace makes the new row the primary; a cap
+            // Swap only does so when the row it retired held that flag.
+            if ($intent->conflicting_connection_id !== null && ($intent->block_reason !== 'cap_reached' || $inheritsPrimary)) {
                 $connection->forceFill(['is_primary' => true])->save();
             }
 

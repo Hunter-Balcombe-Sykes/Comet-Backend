@@ -6,7 +6,7 @@ use App\Jobs\Platforms\ConnectFetchJob;
 // End-to-end wiring of the integration-connected bell notice at every emit point:
 // the controller trait (synchronous connects), ConnectFetchJob (deferred ones),
 // and the three paths that bypass the trait but are still user-initiated —
-// InstagramConnectJob, EnrichLinkCardJob and EventsCatalog::writeRow.
+// InstagramConnectJob, EnrichLinkCardJob and the events account writers.
 
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Jobs\Platforms\InstagramConnectJob;
@@ -92,8 +92,9 @@ it('notifies on a synchronous dashboard connect', function () {
 it('does not notify when a custom link is added', function () {
     $user = icwUser('icw2');
 
+    // The routing lane's manual add — successor to the retired custom/links.
     actingAsUser($user)
-        ->postJson('/api/platforms/custom/links', ['url' => 'https://example.com', 'label' => 'My site'])
+        ->postJson('/api/routing/links', ['url' => 'https://example.com'])
         ->assertSuccessful();
 
     expect(icwRows($user))->toHaveCount(0);
@@ -365,7 +366,7 @@ it('notifies on a synchronous events-organiser connect', function () {
     config(['partna.connect.deferred' => []]);
     $user = icwUser('icw11');
 
-    // Scraper stubbing copied from EventsCatalogTest's organiser test.
+    // Scraper stubbing copied from the retired events-catalogue organiser test.
     $url = 'https://www.eventbrite.com/o/my-org-456';
     $scraper = Mockery::mock(EventbriteScraper::class);
     $scraper->shouldReceive('normalizeEventUrl')->andReturn(null);
@@ -373,7 +374,7 @@ it('notifies on a synchronous events-organiser connect', function () {
     $scraper->shouldReceive('fetchEvents')->with($url)->andReturn(['organiser' => 'My Org', 'events' => []]);
     app()->instance(EventbriteScraper::class, $scraper);
 
-    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $url])->assertOk();
+    actingAsUser($user)->postJson('/api/platforms/eventbrite/connect', ['url' => $url])->assertOk();
 
     $rows = icwRows($user);
     expect($rows)->toHaveCount(1);

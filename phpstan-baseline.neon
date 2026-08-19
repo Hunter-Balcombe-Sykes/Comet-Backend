@@ -46,30 +46,6 @@ parameters:
 			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
-			path: app/Http/Controllers/Api/Platforms/BookingController.php
-
-		-
-			message: '#^Offset ''error'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/EventsController.php
-
-		-
-			message: '#^Offset ''ok'' on array\{ok\: bool, error\?\: string, status\?\: int, selection\?\: array\|null, pending\?\: array\{platform\: string, connectionId\: string, resourceId\: string\}\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/EventsController.php
-
-		-
-			message: '#^Offset ''status'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/EventsController.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
 			path: app/Http/Controllers/Api/Platforms/EventsPlatformController.php
 
 		-
@@ -95,18 +71,6 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/InstagramController.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/OnlineOrderingController.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ReservationsController.php
 
 		-
 			message: '#^Using nullsafe property access "\?\-\>position" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'

@@ -17,6 +17,28 @@ use Illuminate\Support\Facades\DB;
 // individual; no account-type restrictions.
 class UserSectionBlockController extends ApiController
 {
+    /**
+     * Section types seeded LIVE rather than in draft — their dashboard switch is
+     * opt-OUT. Everything else starts off and the owner publishes it.
+     *
+     * `workplace` (owner, 2026-08-19): the sitepage's About page renders
+     * "Workplace info" from it for partna accounts.
+     *
+     * `public_contact` (owner, 2026-08-19): a contact detail the owner has
+     * supplied is not something they should have to find a switch to publish.
+     *
+     * Defaulting a section live is only safe when the type CANNOT publish an
+     * empty section, and for these two that safety comes from the visibility
+     * rule, not from this list. PublicContactVisibility sets is_enabled only
+     * once public_contact_number or public_contact_email is non-empty, and
+     * SitepageDataResolverService::sectionEnvelope requires is_enabled AND
+     * is_active — so a seeded-live block with no contact data still resolves to
+     * `publicContact: null` on the wire. Adding a type here WITHOUT such a rule
+     * would publish an empty section on every new site. Pinned both ways by
+     * tests/Feature/Site/SectionDefaultActiveTest.php.
+     */
+    private const SEEDED_LIVE_SECTIONS = ['workplace', 'public_contact'];
+
     use ResolveCurrentSite;
     use ResolveCurrentUser;
 
@@ -339,10 +361,8 @@ class UserSectionBlockController extends ApiController
 
                 $block->settings = [];
                 // Sections start OFF and the owner publishes them — except the
-                // workplace section (owner, 2026-08-19): it defaults ON, since
-                // the sitepage's About page renders "Workplace info" from it
-                // for partna accounts and the dashboard's switch is opt-OUT.
-                $block->is_active = $blockType === 'workplace';
+                // two in SEEDED_LIVE_SECTIONS, whose dashboard switch is opt-OUT.
+                $block->is_active = in_array($blockType, self::SEEDED_LIVE_SECTIONS, true);
                 $block->sort_order = ++$maxSortOrder;
 
                 // Seed is_enabled honestly from current data state. One exists()

@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Catalog\CompiledCatalog;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
@@ -13,7 +12,6 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Routing\SuggestionApplier;
 use App\Routing\SyncFindingsBridge;
-use App\Rules\PlatformInRegistry;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\InstagramAutoSync;
@@ -23,7 +21,6 @@ use App\Services\Platforms\Registry\Platform;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
 // Instagram integration endpoints. A single automatic connect: connect() queues a
@@ -174,199 +171,6 @@ class InstagramController extends ApiController
 
             return $this->success(['selection' => null]);
         });
-    }
-
-    // GET /api/platforms/instagram/synced
-    // The platforms THIS Instagram connect's bio harvest found — read from the
-    // connection's recorded syncFindings (scoped to the latest scrape), each
-    // re-shaped with a live status (synced / syncing / conflict), plus the bio
-    // links that didn't classify into an auto-synced platform ("add as custom
-    // link" leftovers). An old connection with no bio-sync data yet (or none at
-    // all) simply returns both as empty — never breaks. Mirrors
-    // GoogleBusinessController::synced() exactly.
-    public function synced(Request $request): JsonResponse
-    {
-        $user = $this->currentUser($request);
-        $ig = $user->integrationConnections()->where('platform', Platform::Instagram->value)->first();
-        $payload = InstagramPayload::fromArray($ig?->payload);
-
-        // Pre-load all connections keyed by "platform|resource_id" so shapeFinding
-        // can look up each seeded row in O(1) instead of issuing a DB query per finding.
-        $connections = $user->integrationConnections()
-            ->get()
-            ->keyBy(fn ($r) => $r->platform.'|'.$r->resource_id);
-
-        $synced = collect($payload->syncFindings)
-            ->map(fn ($f) => is_array($f) ? $this->shapeFinding($f, $connections) : null)
-            ->filter()
-            ->values()
-            ->all();
-
-        // B4 (p8 readiness blocker 4): the new router records scan conflicts
-        // as Hold intents, not payload findings — fold them into this response
-        // so a migrated scan path keeps telling users about conflicts. Deduped
-        // by platform; a recorded payload finding for the platform stands.
-        $seenPlatforms = array_flip(array_column($synced, 'platform'));
-        foreach ($this->findingsBridge->conflictFindings($user) as $folded) {
-            if (! isset($seenPlatforms[$folded['platform']])) {
-                $seenPlatforms[$folded['platform']] = true;
-                $synced[] = $folded;
-            }
-        }
-
-        return $this->success(['synced' => $synced, 'unmatched' => $payload->unmatched]);
-    }
-
-    // POST /api/platforms/instagram/synced/apply
-    // "Change to" — swap the user's existing connection for the one the bio
-    // harvest found (a conflict finding): remove the existing, install the
-    // found link, and flip the finding to seeded so it shows as synced.
-    // Mirrors GoogleBusinessController::applySync() exactly.
-    public function applySync(Request $request, InstagramAutoSync $autoSync): JsonResponse
-    {
-        $user = $this->currentUser($request);
-        $platform = $request->validate(['platform' => ['required', 'string', 'max:40', new PlatformInRegistry]])['platform'];
-
-        $ig = $user->integrationConnections()->where('platform', Platform::Instagram->value)->first();
-        $igp = InstagramPayload::fromArray($ig?->payload);
-        $payload = $igp->toArray();
-        $findings = $igp->syncFindings;
-
-        $idx = null;
-        foreach ($findings as $i => $f) {
-            if (is_array($f) && ($f['platform'] ?? null) === $platform && ($f['outcome'] ?? null) === 'conflict') {
-                $idx = $i;
-                break;
-            }
-        }
-        if ($idx === null || $ig === null) {
-            // B4: no recorded payload finding — the conflict may be a Hold
-            // intent the new router wrote instead. Same swap, new ledger.
-            return $this->applyIntentConflict($request, $user, $platform);
-        }
-
-        // PWL-7: applyFinding() writes OTHER platforms' rows (remove + write the
-        // found connection) and may dispatch a job — it MUST stay outside the
-        // lock, same reasoning as connect()'s job dispatch. Only the IG row's
-        // own read-modify-write (marking the finding 'seeded' below) is the
-        // authoritative, contended span, so that alone is locked — re-reading
-        // $ig inside the closure for the authoritative state.
-        //
-        // U1: applyFinding() now takes its own lock internally (bookingXorLock
-        // / reservationsXorLock) for a booking/reservations-slot finding,
-        // returning false on contention. Staying outside the platform lock
-        // here is ALSO what keeps that lock-ordering acyclic (mirrors
-        // GoogleBusinessController::applySync — see its comment) — this call
-        // fully releases before the platform lock below is even requested.
-        if (! $autoSync->applyFinding((string) $user->id, $findings[$idx])) {
-            // Contended booking/reservations-slot lock — nothing was removed
-            // or written. Must NOT fall through to the flip below: that would
-            // mark the finding 'seeded' for a change that never happened.
-            return $this->error('Another change is still saving — please retry in a moment.', 423);
-        }
-
-        try {
-            Cache::lock(CacheKeyGenerator::platformConnectionLock($this->platform(), $user->id), 10)->block(5, function () use ($user, $platform) {
-                $ig = $user->integrationConnections()->where('platform', Platform::Instagram->value)->first();
-                if (! $ig) {
-                    return;
-                }
-                $igp = InstagramPayload::fromArray($ig->payload);
-                $payload = $igp->toArray();
-                $findings = $igp->syncFindings;
-
-                $idx = null;
-                foreach ($findings as $i => $f) {
-                    if (is_array($f) && ($f['platform'] ?? null) === $platform && ($f['outcome'] ?? null) === 'conflict') {
-                        $idx = $i;
-                        break;
-                    }
-                }
-                if ($idx === null) {
-                    return;
-                }
-
-                $findings[$idx]['outcome'] = 'seeded';
-                $findings[$idx]['apply'] = null;
-                $ig->forceFill(['payload' => [...$payload, 'syncFindings' => $findings]])->saveQuietly();
-            });
-        } catch (LockTimeoutException) {
-            return $this->error('Another change is still saving — please retry in a moment.', 423);
-        }
-
-        return $this->synced($request);
-    }
-
-    /**
-     * "Change to" for a conflict the NEW pipeline recorded (a Hold intent
-     * folded into /synced by SyncFindingsBridge): apply the intent through the
-     * same demote/create/settle transaction the suggestions inbox uses. No
-     * platform lock needed — nothing here touches the IG row's payload.
-     */
-    private function applyIntentConflict(Request $request, User $user, string $platform): JsonResponse
-    {
-        $intent = $this->findingsBridge->findConflict($user, $platform);
-        if ($intent === null) {
-            return $this->error('Nothing to change for that platform.', 404);
-        }
-
-        $surface = CompiledCatalog::surface($intent->surface_key);
-        if ($surface === null) {
-            return $this->error('That platform is no longer supported.', 422);
-        }
-
-        $this->applier->apply($user, $intent, $surface);
-
-        return $this->synced($request);
-    }
-
-    /**
-     * Shape one recorded finding for the popup, re-deriving live status. Returns
-     * null when a seeded row was since removed (so it drops off the list).
-     *
-     * @param  Collection<string, IntegrationConnection>  $connections  pre-loaded keyed by "platform|resource_id"
-     * @param  array<string,mixed>  $finding
-     * @return array<string,mixed>|null
-     */
-    private function shapeFinding(array $finding, Collection $connections): ?array
-    {
-        $platform = (string) ($finding['platform'] ?? '');
-        $category = (string) ($finding['category'] ?? 'other');
-        $label = (string) ($finding['label'] ?? $platform);
-        $foundUrl = is_string($finding['foundUrl'] ?? null) ? $finding['foundUrl'] : null;
-
-        if (($finding['outcome'] ?? 'seeded') === 'conflict') {
-            return [
-                'platform' => $platform,
-                'category' => $category,
-                'label' => $label,
-                'status' => 'conflict',
-                'foundUrl' => $foundUrl,
-                'removePath' => null,
-            ];
-        }
-
-        // Seeded — drop if the user already removed it; else derive synced/syncing.
-        $resourceId = (string) ($finding['resourceId'] ?? '');
-        $row = $connections->get($platform.'|'.$resourceId);
-        if ($row === null) {
-            return null;
-        }
-
-        // A finding may name its own remove path: an events platform holds many
-        // rows, so "/platforms/eventbrite" (forget) would drop all of them
-        // instead of the one this row is about. Everything else takes the
-        // default, where the platform IS the row.
-        $removePath = $finding['removePath'] ?? null;
-
-        return [
-            'platform' => $platform,
-            'category' => $category,
-            'label' => $label,
-            'status' => $row->last_refresh_status === 'pending' ? 'syncing' : 'synced',
-            'foundUrl' => $foundUrl,
-            'removePath' => is_string($removePath) && $removePath !== '' ? $removePath : '/platforms/'.$platform,
-        ];
     }
 
     // ── internals ────────────────────────────────────────────────

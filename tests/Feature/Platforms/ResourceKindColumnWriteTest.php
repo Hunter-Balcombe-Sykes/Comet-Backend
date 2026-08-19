@@ -26,17 +26,10 @@ beforeEach(function () {
     setupSectionsTables(); // also creates site.platform_connections
 });
 
-// REPOINTED 2026-08-16 (slice 7 Phase 4). The INTERACTIVE add verbs — the
-// Tickets & Events card and POST /platforms/{platform}/events — stopped writing
-// a connection at all: a standalone event is a content item in the events pool
-// now, so there is no resource_kind for them to stamp. That half is asserted as
-// its absence in StandaloneEventPoolLaneTest.
-//
-// EventsSeeder (the link-scan / signup lane) still writes the row, deliberately
-// — the synced-modal finding lane resolves against connections — so it is now
-// the writer this FOUND-34 column assertion covers. The column and its
-// str_starts_with-replacing filter are still live; only the caller moved.
-it('seeding a standalone event stamps resource_kind = event', function () {
+// R7 (2026-08-19): EVERY standalone-event lane is pool-only now — the
+// synced-modal finding lane that once needed the connection row is retired.
+// Inverted to pin the absence, same shape as the custom-link case below.
+it('seeding a standalone event writes NO connection row (pool-only lane)', function () {
     $url = 'https://www.eventbrite.com/e/cool-show-123';
     $scraper = Mockery::mock(EventbriteScraper::class);
     $scraper->shouldReceive('normalizeEventUrl')->andReturn($url);
@@ -49,15 +42,14 @@ it('seeding a standalone event stamps resource_kind = event', function () {
 
     $user = createTenant('rk-event');
 
-    expect(app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $url))->toStartWith('event-');
+    // A siteless tenant would return null; give them a site so the pool
+    // write can land, then assert the connection store stayed empty.
+    expect(app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $url))->toBeIn([null, $url]);
 
-    $row = IntegrationConnection::query()
+    expect(IntegrationConnection::query()
         ->where('user_id', $user->id)
         ->where('platform', 'eventbrite')
-        ->firstOrFail();
-
-    expect($row->resource_id)->toStartWith('event-');
-    expect($row->resource_kind)->toBe('event');
+        ->exists())->toBeFalse();
 });
 
 // Convergence Phase 6 retired this behaviour rather than changing it: a custom
@@ -65,14 +57,16 @@ it('seeding a standalone event stamps resource_kind = event', function () {
 // Kept as the inverse assertion — the column's OTHER writers (events, booking
 // and reservation link cards) are covered by the cases around it, and this one
 // now guards against a custom link quietly coming BACK as a connection row.
-it('adding a custom link writes no connection row at all', function () {
+it('adding a manual link writes no connection row at all', function () {
     Queue::fake();
     Http::fake();
 
     $user = createTenant('rk-link');
 
-    actingAsUser($user)->postJson('/api/platforms/custom/links', ['url' => 'https://www.example.com/x'])
-        ->assertStatus(202);
+    // The routing lane's manual add — the successor to the retired
+    // /platforms/custom/links endpoint (2026-08-19).
+    actingAsUser($user)->postJson('/api/routing/links', ['url' => 'https://www.example.com/x'])
+        ->assertSuccessful();
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(0)
         ->and(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1);

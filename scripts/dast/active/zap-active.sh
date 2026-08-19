@@ -256,8 +256,6 @@ IDOR_SURFACES=(
     "platform-account|DELETE|/api/platforms/spotify/accounts/%s|PLATFORM_ACCOUNT_ID"
     "platform-events-account|DELETE|/api/platforms/eventbrite/accounts/%s|PLATFORM_EVENTS_ACCOUNT_ID"
     "platform-events-event|DELETE|/api/platforms/eventbrite/events/%s|PLATFORM_EVENT_ID"
-    "platform-custom-link|DELETE|/api/platforms/custom/links/%s|PLATFORM_LINK_ID"
-    "platform-custom-event|DELETE|/api/platforms/events/custom/%s|PLATFORM_CUSTOM_EVENT_ID"
 )
 
 # The fixture prefixes named by the table, derived once. Used both to validate

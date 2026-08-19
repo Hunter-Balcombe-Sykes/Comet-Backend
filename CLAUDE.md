@@ -2,7 +2,7 @@
 
 Laravel 12 + Supabase + PostgreSQL backend for individual professionals' public site pages.
 Full business context: `AI_CONTEXT.md`. API reference: `docs/api.md`.
-⚠️ **Dangling pointer — for the repo owner.** This line used to read *"Cross-project rules (git, tool routing, STOP gates) live in `../CLAUDE.md`"*. **That file does not exist** (checked 2026-08-17: no `CLAUDE.md` at the `Side Street/` root, at `~/Herd/`, or at `~/`; `~/.claude/CLAUDE.md` exists but is empty). So either those cross-project rules were never written, or they were lost — and every session reading this file has been told to consult a document it cannot open. Phase 8 flags it rather than inventing the content: **owner to either write `../CLAUDE.md` or delete this pointer.**
+Cross-repo rules (repo lanes, git workflow, tool routing, STOP gates) live in `~/Developer/CLAUDE.md` — the hub file, written 2026-08 (the old dangling-pointer warning here described a pre-hub state and was resolved 2026-08-19).
 
 ## Environments
 
@@ -81,7 +81,7 @@ Exit 124 means it timed out and was killed — that is the guard working, not a 
 ### Database — Supabase Only
 - **Never create Laravel migration files.** Composer guard rejects them.
 - All schema changes in `supabase/migrations/` as raw SQL. Baseline: `20260726000000_baseline_pilot.sql` (snapshot of the verified dev schema, 2026-07-26). Historical in `supabase/migrations-archive/`.
-- Schemas: `public` (Laravel infra), `core` (users, staff, flags, handles, config), `site` (sites, blocks, design_kits, media, customers, enquiries, aliases, section_items), `notifications`, `analytics`, `audit` (append-only — `app_backend` SELECT/INSERT only), `moderation`, `catalog` (platform surface registry — surfaces, brands, detectors), `content` (**the curation store** — items, collections, sources, source_items, manual_overrides, item_slugs, storefronts), `ingest` (connector ingest pipeline — runs, sources, streams, record_versions), `routing` (link routing — link_observations, source_intents). No `brand`, `commerce`, `billing`.
+- Schemas: `public` (Laravel infra), `core` (users, staff, flags, handles, config), `site` (sites, blocks, design_kits, media, customers, enquiries, aliases, section_items), `notifications`, `analytics`, `audit` (append-only — `app_backend` SELECT/INSERT only), `moderation`, `catalog` (platform surface registry — surfaces, brands, detectors, plus the two RUNTIME tables: detector_suspensions, unmatched_domains), `content` (**the curation store** — items, collections, sources, source_items, manual_overrides, item_slugs, storefronts), `ingest` (connector ingest pipeline — runs, sources, streams, record_versions), `routing` (link routing — link_observations, source_intents). No `brand`, `commerce`, `billing`.
 - **`site` no longer owns services, menus or shop content** — all of it lives in `content.*`. See "Content pools" below for the drop list and the rules.
 
 ### Code Organization
@@ -130,6 +130,20 @@ All resource authorization via Laravel Policies in `app/Policies/`. Every policy
 - **D — FixedHostVariablePath** — host hardcoded, path variable; the variable segment MUST be validated against a strict pattern const.
 
 Adding an allowlist entry is **not** the default fix — if the URL is externally influenced, the answer is B. Laravel's `url` validation rule does NOT prevent SSRF (`http://169.254.169.254/` passes it). Spec: `docs/superpowers/specs/2026-07-30-outbound-http-guard-design.md`.
+
+### Catalog runtime tables — the two the compiler never touches
+
+`catalog.*` is mostly the compiled artefact projected by `catalog:sync` (upsert + tombstone). Two tables are **accumulated at runtime instead**, are not re-derivable from a recompile, and were wired on 2026-08-19 after shipping writerless since 2026-07-27:
+
+- **`catalog.detector_suspensions`** — the staff kill-switch for one detector. Read by `App\Catalog\DetectorSuspensions`, folded onto the `Rulepack` singleton in `AppServiceProvider` via `withSuspensions()`, honoured in `LinkProjector::project()`. Operated with `php artisan catalog:suspend-detector <id> --reason=… [--hours=24] [--release] [--list]` (window capped at 720h; the id is validated against the compiled catalog because a typo would otherwise suspend nothing silently).
+- **`catalog.unmatched_domains`** — the triage queue ranking domains the router could not place. Written by `App\Catalog\UnmatchedDomains` from `LinkObserver::record()`. Read with `php artisan catalog:unmatched [--all] [--triage=<key>]`.
+
+Hard rules:
+- **The suspension set reaches the projector as DATA, never as a query.** `LinkProjector` is `f(Iri, Rulepack) → Projection` with no I/O — that purity is what makes `routing:reproject` a real diff tool. Resolve suspensions when the singleton is built; never read the table inside `project()`.
+- **A suspended detector still sets `anyRuleExists`**, so the no-match reason stays `no-rule-matched`, not `unknown-domain`. Those two strings are what `unmatched_domains.has_detectors` is derived from.
+- **Both lookups FAIL OPEN and log.** Production has no `catalog` schema at all, so both throw there on every call; a kill-switch that 500s the paste preview is worse than the detector it disables. While the read is broken, a suspension is not in force — stated, not hidden.
+- **`unmatched_domains` stores a registrable key and a MASKED path shape only** — never a raw path, never a query string. It carries no `user_id`, so it has no account-deletion cascade and anything identifying written there outlives its owner. The raw URL belongs in `routing.link_observations`, which is user-scoped and cascade-deleted.
+- `catalog:sync` / `catalog:compile` still never touch either table, and `Rulepack::fromCompiledCatalog()` without `withSuspensions()` is the PURE pack that compile/reproject/corpus deliberately use.
 
 ### MFA / AAL2
 
@@ -283,6 +297,8 @@ DIY k6 harness against dev only (README + plan: `docs/superpowers/plans/2026-07-
 - Over-engineer simple fixes
 - Reintroduce `site.themes` or `settings.design.*`
 - Reintroduce any of the ten dropped legacy tables, or write a new read path against one — curated content lives in `content.*`
+- Reintroduce the pseudo-platform link lane (retired 2026-08-19): no `custom`/`booking`/`reservations`/`online-ordering`/`events-custom` category controllers or `partna.*_link`/`partna.manual_event` surfaces. Every routed link goes `LinkRouter`/`LinkRoutingService` → `SourceReconciler` → its real brand surface; a taken single-slot brand answers 422 `slot_taken` (manual) or a Swap suggestion in the `/routing/suggestions` inbox (auto); a standalone event is an events-POOL item (`ManualEventWriter`), never a connection row
 - Delete a table-less DTO model (`MenuItem`, `MenuCategory`, `MenuItemPlatform`, `Service`, `ServiceCategory`, `ShopBrand`) or move one into `PurgeSoftDeleted::PURGE_HANDLED`
 - Mutate a pool without all three cache lanes (build state + `site.sites.updated_at` + edge purge)
 - Assume dev's schema says anything about production's — prod lacks four whole schemas
+- Re-add `analytics.site_metrics_daily`/`_hourly`, `content.source_routes` or `content.item_refs` — dropped 2026-08-19 (`20260819140000`), all four writerless. `content.f_file` looks identical and is NOT dead: it is a live facet in `ProjectionWriter`/`KindRegistry`/`FacetRegistry`, empty only because the `document` kind is poolless

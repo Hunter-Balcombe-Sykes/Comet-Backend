@@ -87,8 +87,6 @@ class IndividualProfileResource extends ApiResource
         //   - links/services (the pre-pool engine lists) LEFT the wire
         //     2026-08-19: `pools.custom_links` / `pools.services` are the
         //     public truth and the sitepage never read the old keys.
-        //   (bio was removed with the dead-profile-features cleanup,
-        //   migration 20260705120000.)
         return [
             // Content data — the profile itself + engine outputs. camelCase
             // keys for engine fields per spec §5 wire convention.
@@ -115,6 +113,9 @@ class IndividualProfileResource extends ApiResource
                 'newsletter' => $this->sections['newsletter'] ?? null,
                 'contact' => $this->sections['contact'] ?? null,
                 'publicContact' => $this->sections['publicContact'] ?? null,
+                // Owner-authored About Me (users.bio, re-added 2026-08-19) —
+                // string | null; the renderer owns the mount.
+                'bio' => $this->sections['bio'] ?? null,
                 'workplace' => $this->sections['workplace'] ?? null,
             ],
 
