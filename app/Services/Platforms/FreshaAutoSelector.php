@@ -52,6 +52,29 @@ final readonly class FreshaAutoSelector
                 $services = $this->scraper->fetchEmployeeServices($slug, $match['employeeId']);
             }
 
+            // Fresha ROTATES venue slugs. The storewide fetch above absorbs that
+            // silently (fetchLocation 404s, resolves the current slug, retries),
+            // but this leg was handed slugFromUrl() off the STORED url and so
+            // fired at the dead slug — no categories, silent degrade to the whole
+            // salon's "from" prices for someone the matcher had positively
+            // identified. Measured live on dev 2026-08-19: anseo-studio-v0v92jna →
+            // anseo-studio-melbourne-140a-chapel-street-w8ajp04r, matchTier
+            // 'first-exact' with mode 'storewide'.
+            //
+            // Re-resolve and retry ONCE. Not a loop, and not on the happy path:
+            // the overwhelming majority of venues never move, and they must not
+            // pay an extra outbound request. Deliberately independent of
+            // lastResolvedSlug() — that is per-scraper-instance state this class
+            // does not share (no singleton binding), and the auto path's menu
+            // cache means fetchMenu may not have run at all this request.
+            if (($services === null || $services === []) && $slug !== null) {
+                $current = $this->scraper->resolveCurrentSlug($url);
+                if ($current !== null && $current !== $slug) {
+                    Log::info('fresha.auto_selection.slug_retry', ['from' => $slug, 'to' => $current]);
+                    $services = $this->scraper->fetchEmployeeServices($current, $match['employeeId']);
+                }
+            }
+
             if ($services !== null && $services !== []) {
                 $employee = $this->employeeFrom($menu['team'], $match['employeeId']);
             } else {
