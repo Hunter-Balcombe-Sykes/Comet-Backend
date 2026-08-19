@@ -568,14 +568,25 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
 - [x] T7 — scan-seeded products connect their store — `14e381bf8`, via
   StoreBrandSeeder (policy-owned tombstone, pinned); NOT
   ConnectStoreFromProductJob (no tombstone check — paste-only)
-- [ ] T8 — one routing brain everywhere: every add lane (Links included) + every scan lane (audit + coverage matrix)
+- [x] T8 — one routing brain everywhere — audit (10-gap trace table),
+  paste-lane item arms (`0c16ff999`), WebsiteImporter revived + item arms
+  wired into the previous-website scan, Links product suggestion,
+  RoutingCoverageMatrixTest as the pinned contract; critic blockers fixed
+  in `db630910f` (importer AFTER the rich seed — the false-conflict-bell
+  race; scheme-less pastes; paste observation + FetchBudget); remaining
+  architecture gaps documented above as P8 debt
 - [x] T9 — every cap/budget raised 2–3x — `08ab05389`, full knob table
   (old → new, every one) in the commit message; 12 pinned-test collisions
   re-pinned with the caps still binding; pairs raised together
   (connect_budget 45 WITH job timeouts 75; refresh 100 WITH 150; apify
   125 under the callers' bounds); probe daily caps raised as the T4
   fallback mitigation; SSRF/abuse throttles untouched; full suite green
-- [ ] T9b — item → parent account suggestions (store pattern for media; easy set first)
+- [x] T9b — item → parent suggestions (easy set: oEmbed author_url +
+  Bandcamp subdomain + Twitch clip path) — `be85bb856`; suggest-only on
+  EVERY lane incl. paste (auto-connect upgrade = owner decision, see
+  report); critic blocker fixed in `db630910f` (a DERIVED parent never
+  inherits paste-directness — dismissed suggestions stay dismissed,
+  pinned). Moderate set (Spotify/Apple/Tidal) deliberately not reached.
 - [ ] T10 — live E2E loop: 3 Instagrams + Shopify breadth + natalieannehair reconnect + scanner-vs-reality audit + platform integrity, until clean (WHOLE-RUN GATE)
 - [ ] T11 — backstop gates + final critic pass + report
 
@@ -614,6 +625,10 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
   duplicating seeded events (and ordering Swap offers) as link cards —
   contradicts RouteResult's documented handled contract. Fixed in T6's
   commit (`&& ! $result->handled`).
+- [x] F5 — the sheets' Connect-store toast said "couldn't connect" while
+  the queued probe was about to file the suggestion (verified live: the
+  intent landed 3s after the click). Copy now says what happens
+  (monorepo, F5 commit).
 - [x] F1 — localhost:3000 "We couldn't load your account": NOT a bug.
   `apps/dashboard/.env.local` deliberately points
   NEXT_PUBLIC_API_BASE_URL at http://localhost:8000 (switched 2026-08-18;

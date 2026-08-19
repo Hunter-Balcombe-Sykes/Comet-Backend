@@ -1,7 +1,10 @@
 <?php
 
+use App\Catalog\CompiledCatalog;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\LinkRouter;
+use App\Services\Platforms\RouteContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -184,6 +187,47 @@ it('routing paste: a removed item is RESURRECTED by a fresh paste (direct reques
         ->assertStatus(202)->assertJsonPath('outcome', 'item');
 
     expect(DB::connection('pgsql')->table('content.items')->where('id', $itemId)->value('removed_at'))->toBeNull();
+});
+
+it('legacy scan lane: a catalog-only brand CONNECTS instead of carding (F6 — the_046_official trace)', function () {
+    // An Apple Music artist link in an Instagram bio was carded ("The 046 on
+    // Apple Music") while the same URL through the P8 importer or a paste
+    // became a connection. The 'link' arm asks Engine 1 first now.
+    Queue::fake();
+    $pro = createTenant('f6-apple');
+    Http::fake(['*' => Http::response('', 404)]);
+
+    $result = app(LinkRouter::class)
+        ->route($pro, 'https://music.apple.com/au/artist/the-046/1492426191', new RouteContext);
+
+    expect($result->handled)->toBeTrue();
+    expect(IntegrationConnection::query()
+        ->where('user_id', $pro->id)->where('surface_key', 'apple_music.artist')->count()
+        + DB::table('routing.source_intents')->where('user_id', $pro->id)
+            ->where('surface_key', 'apple_music.artist')->whereIn('state', ['proposed', 'applied'])->count())
+        ->toBeGreaterThan(0);
+});
+
+it('legacy scan lane: marketplaces stay CARDS — the LINK_ONLY flavour is byte-identical (F6)', function () {
+    Queue::fake();
+    $pro = createTenant('f6-amazon');
+    Http::fake(['*' => Http::response('', 404)]);
+
+    $result = app(LinkRouter::class)
+        ->route($pro, 'https://www.amazon.com.au/dp/B0EXAMPLE1', new RouteContext);
+
+    expect($result->outcome)->toBe('custom')
+        ->and($result->handled)->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+});
+
+it('catalog store caps ride in lockstep with the shop family cap (F7 — the046.com trace)', function () {
+    // shopify.store defaulted to ONE account in the catalog while every
+    // other door allowed ten — the046.com's store blocked on cap_reached
+    // beside a single existing store.
+    foreach (['shopify.store', 'woocommerce.store', 'squarespace.store', 'bigcartel.store', 'generic.store', 'bandcamp.store', 'gumroad.store', 'stan.store'] as $key) {
+        expect((int) CompiledCatalog::surface($key)['max_accounts'])->toBe(10, "surface {$key}");
+    }
 });
 
 it('routing paste: an unknown-host deep URL of the product-page SHAPE cards the link and dispatches the store probe as a SUGGESTION', function () {
