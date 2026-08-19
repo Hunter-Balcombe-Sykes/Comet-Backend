@@ -453,6 +453,85 @@ the WHOLE run.
   open. Delete this plan file per convention only if every task ticked;
   otherwise leave it with the ledger updated.
 
+## Execution refinement (run session, 2026-08-20 — superpowers:writing-plans pass)
+
+The plan above is the owner contract and stands unchanged. This section pins
+what the executing session verified and decided at run start: exact paths,
+dependency order, and interfaces between tasks — so no task starts on a
+guessed filename and the order respects what each task consumes.
+
+### Execution order & batching (dependency-driven)
+
+1. **Batch A — dashboard sheets (monorepo, main):** T1 then T2 — same two
+   files (`pool-add-sheet.tsx`, `link-add-sheet.tsx`), one typecheck+lint
+   gate, one critic pass over both, commit + push. Browser verification on
+   **app.partna.au** (owner logged a session into the built-in browser tab;
+   localhost:3000 belongs to another chat's server AND fails account
+   bootstrap — F1 below).
+2. **Batch B — T3 then T4.** T3's known-platform test lands server-side in
+   `PastedLinkClassifier` (one source for the sheet band AND the 422), so
+   T4's sheet-side band reuses T3's shape. T4's scan-side probe fix
+   (`LinkInBioImporter` root-first probing) is independent and may land
+   first if T3 drags.
+3. **T5** (dashboard-only restyle, `components/blocks/overlays/connection-sheet.tsx`
+   is the reference) — after T1–T4 so every band it restyles exists.
+4. **Batch C — backend scan arms:** T6 (harvester media grammar +
+   MediaSeeder) → T6b (catalog Definitions narrowed; its audit list feeds
+   T8's matrix) → T7 (ShopProductSeeder → ConnectStoreFromProductJob).
+5. **T8** after Batch C (it audits the arms C supplies). The coverage
+   matrix test is T8's deliverable and becomes the pinned contract.
+6. **T9** (caps; mechanical but touches many pinned tests) after T8 so the
+   matrix pins behaviour before knobs move. **T9b** after T6 (it consumes
+   MediaPageReader's oEmbed author_url plumbing).
+7. **T10** fix-and-repeat loop (whole-run gate) → **T11** backstop + report.
+
+### Pinned paths (all verified to exist on disk, 2026-08-20)
+
+Backend (Comet-Backend, branch `feat/overnight-item-routing-2026-08-20`):
+`app/Services/Platforms/{MediaPageReader,EventPageReader,LinkRouter,EventsSeeder,ShopProductSeeder,WebsiteLinkHarvester,ShopProviderDetector,InstagramAutoSync,GoogleBusinessAutoSync,PreviousWebsiteGate,LinkCardScraper,GenericShopScraper}.php`,
+`app/Services/Content/{PastedLinkClassifier,ManualEventWriter}.php`,
+`app/Services/Brand/StoreBrandSeeder.php`, `app/Services/Shop/ProductPageAdder.php`,
+`app/Routing/Importers/{LinkInBioImporter,WebsiteImporter}.php`,
+`app/Jobs/Platforms/{CommerceProbeJob,ConnectStoreFromProductJob,ScanPreviousWebsiteContentJob,GoogleMenuPhotoScanJob,RefreshConnectionJob}.php`,
+`app/Http/Controllers/Api/Content/PoolItemCreateController.php`,
+`app/Http/Controllers/Api/Routing/RoutingController.php`,
+`app/Http/Controllers/Api/Platforms/ShopController.php`, `config/partna.php`.
+Platform detectors are DATA in `app/Catalog/Definitions/*.php`
+(Spotify = `Definitions/Spotify.php`) compiled via `app/Catalog/*` —
+T6b's sweep is that directory, not a service class.
+
+Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
+`components/blocks/link-add-sheet.tsx`,
+`components/blocks/overlays/connection-sheet.tsx`,
+`lib/queries/content-pools.ts` (classifyLink + `LinkClassification`
+{belongsTo: {pool, kind, pageLabel} | null, account: string | null}).
+
+### Interfaces the tasks share
+
+- `LinkClassification` is the wire contract for every band (T1–T4): any T3
+  server extension (e.g. a refusal/`unknown` answer) EXTENDS this type in
+  `content-pools.ts` in the same push — both sheets read it.
+- T3's known-platform authority = `PastedLinkClassifier` (or a sibling it
+  owns); `PoolItemCreateController` enforces the 422 from the SAME source.
+- T6's media grammar = `MediaPageReader::classifyItem` shared into
+  `WebsiteLinkHarvester::classify()` (share, don't copy); `MediaSeeder`
+  mirrors `EventsSeeder`'s shape (canonical-URL folding, tombstones,
+  origin tag, per-run cap — T9 sets it to 30).
+- T7 reuses `ConnectStoreFromProductJob` exactly as `ProductPageAdder`
+  dispatches it; tombstone logic stays in `StoreBrandSeeder`'s reconciler.
+
+### Decisions taken at execution time (recorded as made)
+
+- **T1:** Enter shares the button's `submitBlocked` condition; `create`
+  settles the classification INLINE (tagged answer for the exact URL →
+  else inline `classifyLink` → silent return when a band applies, band
+  tagged so it shows). Classify failure stays non-blocking; the server 422
+  remains the backstop.
+- **T2:** step-1 band added with the same 350ms debounced classify +
+  tagged-answer staleness; step-2 band KEPT as reinforcement — StepCard
+  bodies render only while `active`, so the two can never co-display.
+  Cross-pool "Add to X" action shared between both bands.
+
 ## Ledger (tick with the real commit hash)
 
 - [ ] T1 — Enter-key race / error toast
@@ -471,7 +550,11 @@ the WHOLE run.
 
 ### Found-issues ledger (standing rule — append here during the run, then fix)
 
-- (F1… — one line each, file ref, then ticked when fixed+tested)
+- [ ] F1 — localhost:3000 dashboard fails account bootstrap on login ("We
+  couldn't load your account"; owner hit it at run start, logged into
+  app.partna.au instead). Server belongs to another chat session — diagnose
+  with this session's own dev server (apps/dashboard proxy → dev API?)
+  before T10; if it blocks nothing, report with diagnosis.
 
 ## Owner additions (queue below as they come — plan is open until "handoff")
 
