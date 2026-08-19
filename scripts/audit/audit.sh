@@ -315,7 +315,7 @@ write-paths|app/Observers app/Listeners app/Jobs/Cache app/Jobs/Cloudflare app/J
 platforms-services|app/Services/Platforms app/Services/Shop app/Jobs/Platforms
 platforms-controllers|app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/HealthController.php
 controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
-routing-probes|app/Routing/Probes app/Services/Brand
+routing-probes|app/Routing/Probes app/Services/Brand app/Catalog
 design|app/Services/Design
 ingest-billed-effects|app/Ingest/Runtime/Effects app/Ingest/Runtime/EffectLedger.php
 EOF

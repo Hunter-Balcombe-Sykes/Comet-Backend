@@ -1,0 +1,98 @@
+-- 20260819140000_drop_unreferenced_tables.sql
+--
+-- Four tables with no reader and no writer anywhere in the tree. Each was
+-- verified individually rather than as a batch, because "empty + no grep hit"
+-- is not the same claim as "dead" — two neighbours of these tables (content.
+-- f_file and catalog.detector_suspensions) failed exactly that test and are
+-- deliberately NOT in this file. See the tail of this header.
+--
+-- Verified against dev (glncumufgaqcmqhzwrxm) 2026-08-19: all four hold 0
+-- rows, have 0 inbound foreign keys, and have 0 dependent views or matviews
+-- (pg_constraint.confrelid + pg_depend/pg_rewrite).
+--
+-- ── analytics.site_metrics_daily, analytics.site_metrics_hourly ────────────
+-- Pre-standalone v2 rollups (visits_count / unique_visitors / clicks_count /
+-- unique_clickers, keyed user_id + day|hour). DEFINED BUT NEVER POPULATED: no
+-- command, no job, no scheduled task, no trigger, no function ever wrote a row
+-- in either. Every analytics read computes on the fly from the raw event
+-- tables (analytics.site_visits, .link_clicks) via AnalyticsQueryService.
+--
+-- These were already dropped once, by 20260506500000_drop_legacy_aggregates
+-- alongside the six other *_metrics_* rollups. They came back because the
+-- 2026-07-26 baseline was a snapshot of the schema AS BUILT and that drop had
+-- not been applied to the database it was taken from. This time the code
+-- comments that named them go in the same commit.
+--
+-- Worth recording because a grant decision rests on it:
+-- 20260607000000_restrict_app_backend_append_only_grants.sql:27 states these
+-- tables "are UPSERTed (UPDATE on conflict)" and uses that to justify leaving
+-- UPDATE/DELETE on the whole analytics schema. That claim was false when it
+-- was written. The grant is left alone here — PurgeRawAnalyticsEvents really
+-- does batch-DELETE the raw tables, so the conclusion survives its broken
+-- premise — but nobody should read that comment as evidence again.
+--
+-- ── content.source_routes ──────────────────────────────────────────────────
+-- The rebuild plan's §8 design for per-connection routing: destination_kind,
+-- is_enabled, sync_scope, scope_selection, priority. That job shipped
+-- elsewhere. Scope selection lives on content.sources.selection_ref
+-- (SourceProvisioner, FreshaConnector, Lander, RunExecutor) and the per-kind
+-- switches are PoolRegistry's auto_sync_latest / auto_sync_latest_track. This
+-- table is the design that lost, kept alive only by its own DDL.
+--
+-- ── content.item_refs ──────────────────────────────────────────────────────
+-- One of two candidate designs for per-item platform links, both written down
+-- in docs/2026-08-05-platforms-as-sources.md:351. The other one won:
+-- content.item_links has a controller (ItemLinkController), rules
+-- (ItemLinkRules), cache-lane coverage and rows on dev. item_refs never got a
+-- writer.
+--
+-- ORDERING: destructive, so CODE FIRST. The 'item_refs' entry in
+-- SectionCandidates::FACET_TABLES must be merged to development before this
+-- file is applied to dev Supabase. That map is a closed allowlist reached by
+-- stored section-rule JSON, so a leftover entry means a `has_facet: item_refs`
+-- rule builds SQL against a missing relation and 42P01s a public document
+-- build. With the entry gone, an off-map facet matches nothing — which is the
+-- documented behaviour for an impossible ask.
+--
+-- ── NOT IN THIS FILE, on purpose ───────────────────────────────────────────
+-- content.f_file: also empty, and it reads as dead from SectionCandidates
+-- alone. It is not. It is a wired singleton facet — ProjectionWriter's
+-- FACET_COLUMNS and required-column maps, KindRegistry's `document` kind,
+-- FacetRegistry's manual-override allowlist, SectionRule's English rendering,
+-- IngestProjectCommand, and the stand-in DDL in three tests/Postgres/ files.
+-- It is empty because the `document` kind is poolless (PoolRegistry::POOLS has
+-- no entry owning it, same as `channel` and `article`), not because nothing
+-- can write it. Dropping it would break the projector for a kind the code
+-- still declares; retiring the kind is a separate decision and the table would
+-- follow it.
+--
+-- catalog.detector_suspensions and catalog.unmatched_domains: also empty, also
+-- writerless, and also NOT dropped — they were WIRED instead, in this same
+-- branch. The suspensions table is now read by DetectorSuspensions and folded
+-- onto the Rulepack; unmatched_domains is now written by UnmatchedDomains from
+-- LinkObserver. Both have operator commands (catalog:suspend-detector,
+-- catalog:unmatched). An empty kill-switch table that nothing consults is
+-- worse than no table, because it reads as a safety control that exists.
+--
+-- PRODUCTION: analytics.site_metrics_daily/_hourly DO exist there (0 rows) and
+-- this file drops them when prod is reconciled. The two content.* tables do
+-- not exist on prod at all — prod is missing the content, ingest, routing and
+-- catalog schemas outright — so those statements are no-ops there, which is
+-- what the IF EXISTS is carrying. Tracked in
+-- docs/superpowers/plans/2026-08-17-prod-schema-reconciliation.md.
+--
+-- No CASCADE, deliberately: a bare DROP that FAILS on an unexpected dependent
+-- is the safety property being bought. Same reasoning as the slice 7 and shop
+-- re-home drops.
+--
+-- ROLLBACK: no in-place rollback for a DROP, and none is needed — all four
+-- tables are empty, so recreating the DDL from this repo's history restores
+-- the full pre-image.
+BEGIN;
+
+DROP TABLE IF EXISTS analytics.site_metrics_hourly;
+DROP TABLE IF EXISTS analytics.site_metrics_daily;
+DROP TABLE IF EXISTS content.source_routes;
+DROP TABLE IF EXISTS content.item_refs;
+
+COMMIT;

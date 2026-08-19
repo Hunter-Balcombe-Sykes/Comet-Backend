@@ -3,6 +3,7 @@
 namespace App\Routing;
 
 use App\Catalog\CompiledCatalog;
+use App\Catalog\UnmatchedDomains;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -18,12 +19,20 @@ use Illuminate\Support\Str;
  */
 class LinkObserver
 {
+    public function __construct(private readonly UnmatchedDomains $unmatchedDomains) {}
+
     public function record(
         Iri $iri,
         Projection $projection,
         Placement $placement,
         RoutingContext $context,
     ): ?string {
+        // Before the ledger insert, and in its own failure envelope: the
+        // triage aggregate is the cheaper of the two records, so it must never
+        // be able to cost us the one `routing:reproject` replays. Its own
+        // internal catch is what makes this safe to call first.
+        $this->unmatchedDomains->record($iri, $projection);
+
         try {
             $id = (string) Str::uuid();
 
