@@ -299,3 +299,28 @@ sheet will 404 on open.
 Backend branch → `development` FIRST (NOT done — needs owner sign-off), then the
 dashboard. Then run on dev: `content:enrich-pool-links --missing`,
 `content:prune-overflow-links`, and (after Phase 4) `content:convert-standalone-events`.
+
+## ⚠️ FIRST THING ON RESUME — the branch cannot be pushed yet
+
+`git push` is blocked by GitHub push protection. Commit `cde935ae9`
+(Phase 1) accidentally includes **`.env.backup-2026-08-18-pre-overnight`** —
+a real secrets file that was sitting untracked in the working tree and got
+swept in by a `git add -A`. It carries an Apify API token and a Supabase
+secret key.
+
+Do NOT click the "allow the secret" unblock URL. Fix it properly:
+
+```bash
+git rebase -i cde935ae9~1     # edit cde935ae9
+git rm --cached .env.backup-2026-08-18-pre-overnight
+echo '.env.backup-*' >> .gitignore
+git commit --amend --no-edit
+git rebase --continue
+git push origin feat/suggestion-swap-and-link-caps
+```
+
+Then rotate both credentials — they were written to a local commit, which is
+cheap to assume compromised and expensive to be wrong about.
+
+The three later commits (`7c4e29bb4`, `deda1ab3f` and this one) do not touch
+the file; only `cde935ae9` needs the edit.
