@@ -9,6 +9,7 @@ use App\Jobs\Ingest\RunSourceJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -215,8 +216,20 @@ class IntegrationConnectionObserver
         // site. Placed right after refresh() — refresher->refresh() never
         // throws (catches internally) — and BEFORE the best-effort cleanup
         // calls below, so a failure in any of them can never skip this.
+        // Resolved by user_id, NOT by walking $connection->user?->site. This hook
+        // runs during ACCOUNT TEARDOWN as well as an ordinary disconnect
+        // (PruneExpiredPreAccountBuilds deletes connection rows through Eloquent
+        // so the R2 reclaim fires), and there the user row is on its way out with
+        // neither relation loaded. Model::preventLazyLoading is armed everywhere
+        // except production, so that two-hop walk THREW — and because this
+        // observer is $afterCommit, Laravel ran it inside DB::transaction() after
+        // the commit, so the delete had already landed and only the command's
+        // return value was lost. Live on dev 2026-08-19: "Pruned 0 of 1 (1 failed,
+        // will retry next run)" with every row in fact deleted.
+        //
+        // One query instead of two, and it cannot lazy-load by construction.
         if (app(PlatformRegistry::class)->get($connection->platform)?->hasCompletenessPredicate()) {
-            $connection->user?->site?->touch();
+            Site::query()->where('user_id', $connection->user_id)->first()?->touch();
         }
 
         $this->cleanupMirroredMedia($connection);
