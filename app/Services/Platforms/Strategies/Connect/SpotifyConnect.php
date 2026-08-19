@@ -59,10 +59,19 @@ class SpotifyConnect implements DeferredConnect
         ]);
     }
 
-    /** @return array{0:string, 1:string}|null [type, id] from any entity link. */
+    /**
+     * [type, id] from an ACCOUNT-kind entity link. T6b (2026-08-20): the
+     * manual connect door narrows exactly as the detector did — track/album/
+     * episode are ITEMS (they belong in the watch/listen pools, and a
+     * connection row named by an episode id is the natalieannehair bug
+     * through the front door). Playlist kept — the same owner-flagged call
+     * as the detector.
+     *
+     * @return array{0:string, 1:string}|null
+     */
     private function parseEntity(string $url): ?array
     {
-        if (preg_match('~^https?://open\.spotify\.com/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(artist|album|playlist|track|show|episode|user)/([A-Za-z0-9]+)~i', PlatformInput::urlish($url), $m)) {
+        if (preg_match('~^https?://open\.spotify\.com/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(artist|playlist|show|user)/([A-Za-z0-9]+)~i', PlatformInput::urlish($url), $m)) {
             return [strtolower($m[1]), $m[2]];
         }
 

@@ -638,7 +638,7 @@ trait ManagesIntegrationConnection
     /** Max connected accounts per platform (mirrors shop's MAX_BRANDS). */
     protected function maxAccounts(): int
     {
-        return 5;
+        return 10;
     }
 
     /**

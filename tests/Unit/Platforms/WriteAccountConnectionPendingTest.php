@@ -147,8 +147,8 @@ it('a pending write still enforces the account cap and returns null — the pend
     $user = pcwUser('pcw4');
     $controller = pcwController('bandcamp');
 
-    // Fill every account slot (maxAccounts() = 5) with completed connections.
-    for ($i = 0; $i < 5; $i++) {
+    // Fill every account slot (maxAccounts() = 10, raised T9 2026-08-20) with completed connections.
+    for ($i = 0; $i < 10; $i++) {
         $controller->callWriteAccountConnection($user, "https://artist{$i}.bandcamp.com", ['url' => "https://artist{$i}.bandcamp.com"], false);
     }
 

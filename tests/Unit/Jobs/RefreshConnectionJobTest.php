@@ -35,7 +35,7 @@ it('defines the required queue-hygiene properties', function () {
     expect($job->tries)->toBe(0)
         ->and($job->maxExceptions)->toBe(3)
         ->and($job->backoff)->toBe([30, 120, 300])
-        ->and($job->timeout)->toBe(120)
+        ->and($job->timeout)->toBe(150)
         ->and($job->retryUntil())->toBeInstanceOf(DateTimeInterface::class);
 });
 

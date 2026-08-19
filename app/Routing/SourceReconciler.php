@@ -3,6 +3,8 @@
 namespace App\Routing;
 
 use App\Catalog\CompiledCatalog;
+use App\Catalog\LegacyPlatformMap;
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AutoBookingConnectDispatcher;
@@ -448,6 +450,25 @@ class SourceReconciler
             if (! $hasPrimary) {
                 $connection->forceFill(['is_primary' => true])->save();
             }
+        }
+
+        // F9 (2026-08-20, the_046_official trace): a reconciler-applied row
+        // starts as {url, source} — no name, no thumbnail — so the Platforms
+        // page showed the bare URL as the account (the exact integrity
+        // failure the spotify-episode bug shipped with). The interactive
+        // connect flows enrich via ConnectFetchJob; system placements now
+        // get the same job when the surface declares a fetch capability.
+        //
+        // CONTENT class only, deliberately: booking's enrichment is OWNED by
+        // AutoBookingConnectDispatcher with its claimed/unclaimed rule (a
+        // claimed user keeps the team-member picker — an unconditional fetch
+        // here would auto-complete it; UnclaimedAutoBookingConnectTest pins
+        // that), and shop rows enrich through their own connect jobs.
+        // afterCommit: this runs inside reconcile()'s transaction.
+        $surface = CompiledCatalog::surface($surfaceKey);
+        $fetch = $surface['capabilities']['fetch'] ?? null;
+        if ($routingClass === 'content' && is_string($fetch) && $fetch !== '') {
+            ConnectFetchJob::dispatch((string) $connection->id, LegacyPlatformMap::legacyFor($surfaceKey), systemInitiated: true)->afterCommit();
         }
 
         return (string) $connection->id;

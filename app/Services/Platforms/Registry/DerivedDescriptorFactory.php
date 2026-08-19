@@ -53,19 +53,15 @@ class DerivedDescriptorFactory
     ];
 
     /**
-     * Slug => the label WebsiteLinkHarvester::classify() actually returns for this
-     * brand's hosts. classify() matches partiful.com and ticketmaster.* with inline
-     * regexes that yield the legacy pseudo-slug 'events-custom', never the brand's
-     * own key, so a strict brand-match guard would 422 a perfectly valid URL. These
-     * two are allowed to answer to that alias. Every other brand answers to itself.
+     * Slug => extra classify() answers this brand may answer to. EMPTY since
+     * events-parity (2026-08-19): classify()'s events arms now return the
+     * real brand keys (luma/partiful/ticketmaster), which was the only thing
+     * the 'events-custom' aliases papered over. The mechanism stays for the
+     * next brand whose classifier key can't equal its slug.
      *
      * @var array<string, list<string>>
      */
-    public const CLASSIFIER_ALIASES = [
-        'partiful' => ['events-custom'],
-        'ticketmaster' => ['events-custom'],
-        'luma' => ['events-custom'],
-    ];
+    public const CLASSIFIER_ALIASES = [];
 
     /**
      * Hand-written slugs that must NEVER be upgraded to the Brand shape, even

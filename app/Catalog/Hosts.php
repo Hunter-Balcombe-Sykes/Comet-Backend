@@ -21,6 +21,13 @@ class Hosts
             'm.facebook.com' => 'facebook.com',
             'spoti.fi' => 'spotify.com',
             'on.soundcloud.com' => 'soundcloud.com',
+            // RA's legacy domain still resolves and circulates in old bios;
+            // its links are the same pages ra.co serves (events-parity).
+            'residentadvisor.net' => 'ra.co',
+            // Luma rebranded onto luma.com — lu.ma now 301s there, and the
+            // event pages people copy carry the new host (found live,
+            // events-parity 2026-08-19). Same pages, same path grammar.
+            'luma.com' => 'lu.ma',
         ];
     }
 

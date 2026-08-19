@@ -130,7 +130,7 @@ class StoreLinkBlockRequest extends BaseFormRequest
 
             $cappedCategories = (array) config('partna.platform_links_categories', []);
             if (is_string($effectiveCategory) && in_array($effectiveCategory, $cappedCategories, true)) {
-                $max = (int) config('partna.platform_links_max', 7);
+                $max = (int) config('partna.platform_links_max', 15);
                 // Resolve the professional whose cap we're enforcing. Auth::user()
                 // is always null under Supabase JWT, so $this->user() can't be
                 // used. Prefer the route-bound target (staff path:

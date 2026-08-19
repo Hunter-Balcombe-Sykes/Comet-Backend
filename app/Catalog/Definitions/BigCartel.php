@@ -28,6 +28,11 @@ class BigCartel
     {
         return [
             SurfaceBuilder::for('bigcartel.store')
+                // F7 (2026-08-20): in lockstep with the shop family's
+                // MAX_BRANDS (10, T9) — the catalog's default of 1 was
+                // blocking Engine-1 store placements at ONE store while every
+                // other door allowed ten (caught live: the046.com).
+                ->multiAccount(10)
                 ->displayName('Big Cartel store')
                 ->routing(RoutingClass::Shop)
                 ->shelf(Shelf::Commerce)

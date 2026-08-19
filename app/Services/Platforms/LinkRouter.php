@@ -6,12 +6,13 @@ use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\LinkRoutingService;
+use App\Routing\RoutingContext;
 use App\Routing\SourceReconciler;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Profile\SectorTaxonomy;
-use Illuminate\Support\Str;
 
 /**
  * Single classification+routing gateway for every link entering the system.
@@ -35,6 +36,7 @@ class LinkRouter
     public function __construct(
         private readonly WebsiteLinkHarvester $harvester,
         private readonly EventsSeeder $events,
+        private readonly MediaSeeder $media,
     ) {}
 
     /**
@@ -91,7 +93,11 @@ class LinkRouter
         // second LTK link, a "watch this video" beside a channel link) was written
         // NOWHERE. custom() routes it to the caller's card write, which is what
         // every other dead end in this method already does.
-        if (isset($ctx->seenPlatforms[$platform])) {
+        // Item categories bypass the slot on BOTH sides (F2, both halves —
+        // the critic reproduced the asymmetry: an artist link consuming the
+        // slot degraded the SAME bio's track link to a card, order-dependent).
+        $itemCategory = $category === 'event' || $category === 'content-item';
+        if (! $itemCategory && isset($ctx->seenPlatforms[$platform])) {
             return RouteResult::custom();
         }
 
@@ -105,13 +111,19 @@ class LinkRouter
                 'social' => $this->seedSocial($user, $platform, $url, $classified),
                 'booking' => $this->seedBooking($user, $platform, $url, $classified, $ctx),
                 'event', 'event-organiser' => $this->seedEvent($user, $platform, $url, $classified),
+                'content-item' => $this->seedMediaItem($user, $url),
                 'shop' => $this->seedShop($user, $url, $ctx),
-                // Recognised, deliberately not connected — a marketplace or
-                // board (Amazon, LTK, Pinterest). custom() with handled:false so
-                // the platform slot stays open and a creator's second LTK link
-                // gets its own card instead of being skipped. Spends no probe:
-                // that is the entire reason these hosts are classified at all.
-                'link' => RouteResult::custom(),
+                // Recognised host with no legacy arm of its own. Two flavours
+                // share this category: marketplaces/boards that must NEVER
+                // connect (Amazon, LTK — LINK_ONLY_HOSTS), and CONNECTABLE
+                // catalog brands the legacy tables simply never learned
+                // (Apple Music artist, Tidal, Booksy…). F6 (2026-08-20, the
+                // the_046_official trace): the second flavour was CARDED here
+                // while the same URL through the P8 importer or the paste
+                // lane became a connection/suggestion. Ask Engine 1 first —
+                // the narrow slice of the gap-9 P8 promotion, done at the one
+                // call site every Engine-2 lane shares.
+                'link' => $this->seedCatalogLink($user, $url),
                 'reservations' => $this->seedReservation($user, $platform, $url, $classified),
                 // 'bio_harvest': route() is the SCAN gateway (Instagram bio,
                 // link-in-bio unroll). routeOrdering() below is the Google
@@ -125,7 +137,13 @@ class LinkRouter
             // link. A gate denial or a thrown seeder must leave it open so a
             // later same-platform link in this run still gets its attempt —
             // the rule the deleted handleClassifiedLink() followed.
-            if ($result->handled) {
+            //
+            // ITEM categories never consume the slot (F2, 2026-08-20): the
+            // slot rule is about CONNECTIONS ("you have one Fresha account"),
+            // and an event/video is not a connection — consuming it turned
+            // the SECOND event or video from one platform in a run into a
+            // bare card. Issue M's own words: "never about links".
+            if ($result->handled && ! $itemCategory) {
                 $ctx->seenPlatforms[$platform] = true;
             }
 
@@ -212,6 +230,8 @@ class LinkRouter
             'social' => true, // Decision 8: everyone
             'booking' => $isBusiness ? ! $isFood : true, // partna always, business non-food only
             'event', 'event-organiser' => true,
+            'content-item' => true, // T6: a video/track/episode is the owner's own content
+
             'shop' => true,
             'link' => true, // recognised-but-never-connected; its arm returns custom() and the caller writes the card
             'reservations' => $isBusiness && $isFood, // business food only
@@ -322,6 +342,49 @@ class LinkRouter
         return RouteResult::seeded($platform, $resourceId, $category, [
             $this->seededFinding($platform, $resourceId, $category, $classified['label'], $url, $removePath),
         ]);
+    }
+
+    /**
+     * T6 (2026-08-20): a scanned VIDEO/TRACK/RELEASE/EPISODE link writes a
+     * watch/listen-pool item and nothing else — the media twin of the
+     * 'event' arm above. handled:true so no caller files a link card for
+     * something the pool now carries; a failed read falls through to the
+     * caller's card write. Lands in the LIBRARY, never auto-pinned.
+     */
+    private function seedMediaItem(User $user, string $url): RouteResult
+    {
+        $written = $this->media->seedItem($user, $url);
+
+        return $written !== null ? RouteResult::custom(handled: true) : RouteResult::custom();
+    }
+
+    /**
+     * F6: run a catalog-recognised URL through the P8 pipeline. A placement
+     * or suggestion rides the reconciler (tombstones, caps, aliases all
+     * apply exactly as for a paste); anything Engine 1 can't place falls
+     * back to the card this arm always wrote. A 'choose'/'hold' answers
+     * handled — the suggestions inbox owns the link now, and a card beside
+     * an open question would double it (the same reason F3 exists).
+     */
+    private function seedCatalogLink(User $user, string $url): RouteResult
+    {
+        try {
+            $result = app(LinkRoutingService::class)
+                ->route($url, RoutingContext::forUser($user, 'bio_harvest'));
+        } catch (\Throwable $e) {
+            report($e);
+
+            return RouteResult::custom();
+        }
+
+        return match ($result['verdict']) {
+            'place' => RouteResult::seeded('catalog', (string) ($result['connectionId'] ?? ''), 'link', []),
+            'choose', 'hold' => RouteResult::custom(handled: true),
+            // note/reject: the card path — LINK_ONLY_HOSTS land here by
+            // construction (their catalog class refuses placement), so the
+            // Amazon/LTK behaviour is byte-identical.
+            default => RouteResult::custom(),
+        };
     }
 
     private function seedShop(User $user, string $url, RouteContext $ctx): RouteResult

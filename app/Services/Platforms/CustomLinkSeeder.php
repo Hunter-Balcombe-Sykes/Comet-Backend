@@ -4,6 +4,7 @@ namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\IriCanonicalizer;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Content\LinkPoolReader;
 use App\Services\Content\LinkPoolWriter;
@@ -27,7 +28,7 @@ use Illuminate\Support\Facades\Log;
  */
 class CustomLinkSeeder
 {
-    public const MAX_LINKS = 20;
+    public const MAX_LINKS = 50;
 
     public function __construct(
         private readonly LinkCardScraper $scraper,
@@ -81,6 +82,17 @@ class CustomLinkSeeder
         $normalized = $this->scraper->normalizeUrl($url);
         if ($normalized === null) {
             return null;
+        }
+
+        // F11 (2026-08-20, milo pass): two lanes carding one bio link in
+        // slash variants ('…com.au' from the probe's miss path, '…com.au/'
+        // from the unroll) wrote TWO cards — normalizeUrl() doesn't fold
+        // those, the canonicaliser does. Best-effort: an uncanonicalisable
+        // URL keeps its normalized form, exactly as before.
+        try {
+            $normalized = app(IriCanonicalizer::class)->canonicalize($normalized)->canonical ?? $normalized;
+        } catch (\Throwable) {
+            // keep $normalized
         }
 
         $previousWebsite = $user->site?->workplace?->previous_website;

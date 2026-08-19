@@ -51,6 +51,36 @@ it('previews what a pasted link would become', function () {
     ]);
 });
 
+it('offers the store connect when the previewed page carries storefront markers (T4)', function () {
+    // The natalieanne.com repro: a Shopify store on a merchant domain pasted
+    // into Links got NO store suggestion — the pure grammar can't know a
+    // merchant domain, but the preview just READ the page, and its HTML says
+    // Shopify. The wire now carries that answer.
+    [$pro] = poolTenant();
+
+    $this->mock(LinkCardScraper::class, function ($m) {
+        $m->shouldReceive('normalizeUrl')->with('natalieanne.com')->andReturn('https://natalieanne.com');
+        $m->shouldReceive('snapshotOrMinimal')->with('https://natalieanne.com')->andReturn([
+            'url' => 'https://natalieanne.com/',
+            'name' => 'Natalie Anne',
+            'description' => null,
+            'favicon' => null,
+            'logo' => null,
+            'storefront' => 'shopify',
+        ]);
+    });
+
+    $request = Request::create('/api/content/links/preview', 'POST', ['url' => 'natalieanne.com']);
+    $request->attributes->set('professional', $pro);
+    $data = app(LinkPreviewController::class)->show($request)->getData(true);
+
+    expect($data['store'])->toBe([
+        'provider' => 'shopify',
+        'label' => 'Shopify',
+        'url' => 'https://natalieanne.com/',
+    ]);
+});
+
 it('previews a product page with its price when asked for a product', function () {
     [$pro] = poolTenant();
 

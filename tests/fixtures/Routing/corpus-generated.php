@@ -1103,13 +1103,13 @@ return array (
   ),
   116 => 
   array (
-    'url' => 'https://lu.ma/aa',
+    'url' => 'https://lu.ma/user/aa',
     'expect' => 
     array (
       'surface' => 'luma.calendar',
       'identifier' => 'aa',
     ),
-    'detector' => '3d851d87a1fb17a6',
+    'detector' => '78c2099e5558ad1f',
   ),
   117 => 
   array (
@@ -1169,12 +1169,13 @@ return array (
   ),
   123 => 
   array (
-    'url' => 'https://music.apple.com/artist/',
+    'url' => 'https://music.apple.com/artist/1',
     'expect' => 
     array (
       'surface' => 'apple_music.artist',
+      'identifier' => '1',
     ),
-    'detector' => '5bd13f6b6b58f78b',
+    'detector' => 'a013bd51e02c8976',
   ),
   124 => 
   array (
@@ -1203,7 +1204,7 @@ return array (
       'surface' => 'spotify.player',
       'identifier' => 'aaa',
     ),
-    'detector' => '7f003fa8f0a7739c',
+    'detector' => 'c8ec1b8650ca53b2',
   ),
   127 => 
   array (
@@ -1601,12 +1602,13 @@ return array (
   ),
   167 => 
   array (
-    'url' => 'https://podcasts.apple.com/podcast/',
+    'url' => 'https://podcasts.apple.com/podcast/id1',
     'expect' => 
     array (
       'surface' => 'apple_podcasts.show',
+      'identifier' => '1',
     ),
-    'detector' => '27447bc42ec80512',
+    'detector' => '649cd477e1185e84',
   ),
   168 => 
   array (
@@ -1821,13 +1823,13 @@ return array (
   ),
   191 => 
   array (
-    'url' => 'https://soundcloud.com/aaa/aaa',
+    'url' => 'https://soundcloud.com/aaa',
     'expect' => 
     array (
       'surface' => 'soundcloud.player',
       'identifier' => 'aaa',
     ),
-    'detector' => '1c9ae2d43d220458',
+    'detector' => '5d1faaba140ed77a',
   ),
   192 => 
   array (

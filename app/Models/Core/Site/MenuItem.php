@@ -105,6 +105,11 @@ class MenuItem extends BaseModel
      * Every category this dish is listed under. The pivot's `position` orders
      * the dish within EACH category independently.
      *
+     * READ ONLY as a pre-set property. `ManualMenuItems::toMenuItemModel()`
+     * setRelation()s this from content.*; the pivot `site.menu_item_categories`
+     * was dropped by slice 7, so `->categories()`, `with('categories')` or any
+     * other form that actually queries is a guaranteed 42P01 on Postgres.
+     *
      * @return BelongsToMany<MenuCategory, $this>
      */
     public function categories(): BelongsToMany
@@ -121,6 +126,10 @@ class MenuItem extends BaseModel
 
     /**
      * Per-platform availability (one row per ordering platform, per-mode prices/urls).
+     *
+     * READ ONLY as a pre-set property — same rule as categories() above.
+     * `ManualMenuItems::toMenuItemModel()` setRelation()s this from content.*;
+     * `site.menu_item_platforms` is dropped, so any real query is a 42P01.
      *
      * @return HasMany<MenuItemPlatform, $this>
      */

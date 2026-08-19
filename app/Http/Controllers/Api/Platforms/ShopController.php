@@ -100,7 +100,7 @@ class ShopController extends ApiController
     use ResolveCurrentSite;
     use ResolveCurrentUser;
 
-    private const MAX_BRANDS = 5;
+    private const MAX_BRANDS = 10;
 
     // How long the picker-warmed product catalog stays cached, so a PUT
     // /selection right after the picker opened reuses it instead of re-scraping.

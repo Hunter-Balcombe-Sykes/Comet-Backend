@@ -240,7 +240,7 @@ it('spends one link budget across the whole batch', function () {
     $pro = createTenant('bio-batch-budget');
     $page = function (string $prefix): string {
         $links = '';
-        for ($i = 0; $i < 80; $i++) {
+        for ($i = 0; $i < 170; $i++) {
             $links .= '<a href="https://'.$prefix.$i.'.test/x">L</a>';
         }
 
@@ -256,9 +256,9 @@ it('spends one link budget across the whole batch', function () {
         'https://example.com/two',
     ]);
 
-    // 80 distinct links per page, two pages, cap 100 — the second page is cut
-    // off rather than doubling the spend to 160.
-    expect($result['observations'])->toBe(100);
+    // 170 distinct links per page, two pages, cap 300 (T9) — the second page
+    // is cut off rather than doubling the spend to 340.
+    expect($result['observations'])->toBe(300);
 });
 
 // ── #R2: nothing the owner published leaves without a trace ──────────────────
@@ -399,6 +399,64 @@ it('unrolls a client-rendered linkin.bio page through its API, not its empty she
         ->and($result['bio_url_seeded'])->toBeFalse();
 });
 
+it('merges the shell\'s footer social anchors into an API unroll (F12)', function () {
+    // F12 (2026-08-20, the natalieannehair stan.store trace): the API unroll
+    // returns the platform's TILE links only, and her TikTok and Facebook sat
+    // as plain anchors in the delivered shell, unseen. The social-classified
+    // anchors merge back in; the shell's own asset/legal links must NOT ride
+    // along (they don't classify as social).
+    $pro = createTenant('bio-stan-socials');
+    Http::fake([
+        'api.stanwith.me/*' => Http::response(['store' => ['pages' => [
+            ['type' => 'link', 'status' => 2, 'data' => ['product' => ['link' => [
+                'url' => 'https://supernormal.net.au/menu',
+            ]]]],
+        ]]], 200),
+        'stan.store/*' => Http::response('<html><body>
+            <a href="https://www.tiktok.com/@natalieannehair">TikTok</a>
+            <a href="https://www.facebook.com/natalieannehairstylist">Facebook</a>
+            <a href="https://assets.stanwith.me/legal/terms-of-service.pdf">Terms</a>
+        </body></html>', 200),
+        '*' => Http::response('<html><body>ok</body></html>', 200),
+    ]);
+    Queue::fake();
+
+    app(LinkInBioImporter::class)->import($pro, 'https://stan.store/Natalieanne');
+
+    $observations = DB::table('routing.link_observations')->where('source', 'link_in_bio')->get();
+    expect($observations->pluck('surface_key')->all())
+        ->toContain('tiktok.profile', 'facebook.profile')
+        ->and($observations->filter(fn ($o) => str_contains((string) $o->raw_url, 'assets.stanwith.me')))
+        ->toHaveCount(0)
+        // The merge is ADDITIVE: the API tile must still route. An
+        // implementation that replaced tiles with the anchor socials would
+        // satisfy every assertion above — this one is the additive pin.
+        ->and($observations->filter(fn ($o) => str_contains((string) $o->raw_url, 'supernormal.net.au/menu')))
+        ->toHaveCount(1);
+});
+
+it('finds footer socials even when the stan API answers zero outward tiles (F12)', function () {
+    // The empty-array answer is the COMMON one for stan (hosted products
+    // only). Before F12 it also silenced the shell's social anchors entirely —
+    // the ?? chain treats [] as a real answer, so the anchor pass never ran
+    // and the zero-yield floor fired on a page with links in plain sight.
+    $pro = createTenant('bio-stan-empty');
+    Http::fake([
+        'api.stanwith.me/*' => Http::response(['store' => ['pages' => []]], 200),
+        'stan.store/*' => Http::response('<html><body>
+            <a href="https://www.tiktok.com/@natalieannehair">TikTok</a>
+        </body></html>', 200),
+        '*' => Http::response('<html><body>ok</body></html>', 200),
+    ]);
+    Queue::fake();
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://stan.store/Natalieanne');
+
+    expect(DB::table('routing.link_observations')->where('source', 'link_in_bio')->pluck('surface_key')->all())
+        ->toContain('tiktok.profile')
+        ->and($result['bio_url_seeded'])->toBeFalse();
+});
+
 it('falls back to the anchor harvest when the linkin.bio API cannot be read', function () {
     // Later going down, or revving its API, must cost the user nothing they had
     // before: the anchor pass still runs and the zero-yield floor still fires.
@@ -493,4 +551,111 @@ it('unrolls a client-rendered liinks.co page from the body it already has', func
 
     expect($result['observations'])->toBe(1)
         ->and($result['bio_url_seeded'])->toBeFalse();
+});
+
+// ── Telling a bot-block apart from a dead page (2026-08-19) ──────────────────
+// `pages_unavailable: 1` was the ONLY signal, and it reads identically whether
+// the host refused us, the page 404'd, or the domain is dead. Four detector
+// hosts serve a Cloudflare refusal at the edge, so that difference decides
+// whether a fix is even possible — and nothing surfaced it.
+
+it('names a Cloudflare challenge as a bot block, not a generic failure', function () {
+    $pro = createTenant('bio-reason-challenge');
+    Http::fake(['*' => Http::response('<html><head><title>Just a moment...</title></head></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    expect($result['unavailable_reasons'])->toBe(['bot_challenge' => 1]);
+});
+
+it('names a hard Cloudflare WAF block as a bot block too', function () {
+    // beacons.ai's shape — a firewall rule, not a solvable challenge, but the
+    // same conclusion for us: the host is refusing this caller.
+    $pro = createTenant('bio-reason-waf');
+    Http::fake(['*' => Http::response('<html><title>Attention Required! | Cloudflare</title></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    expect($result['unavailable_reasons'])->toBe(['bot_challenge' => 1]);
+});
+
+it('does NOT call a missing page a bot block', function () {
+    // The whole point of the split. A 404 is the page's problem, not ours, and
+    // must not raise a signal that says "a host is refusing us".
+    $pro = createTenant('bio-reason-404');
+    Http::fake(['*' => Http::response('<html><body>Not found</body></html>', 404)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/gone');
+
+    expect($result['unavailable_reasons'])->toBe(['not_found' => 1]);
+});
+
+it('does not mistake a plain 403 with no challenge markers for a bot block', function () {
+    // A genuinely private page is forbidden, not fighting us.
+    $pro = createTenant('bio-reason-403');
+    Http::fake(['*' => Http::response('<html><body>This page is private.</body></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/private');
+
+    expect($result['unavailable_reasons'])->toBe(['refused' => 1]);
+});
+
+it('logs a distinct, greppable line when a host refuses us', function () {
+    // The "would I ever notice?" test. This line is the trigger to revisit a
+    // residential-proxy vendor; without it the block stays invisible.
+    Log::spy();
+    $pro = createTenant('bio-reason-log');
+    Http::fake(['*' => Http::response('<html><title>Just a moment...</title></html>', 403)]);
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => $message === 'platforms.link_in_bio.host_blocked_us'
+            && $context['host'] === 'example.com'
+            && $context['status'] === 403)
+        ->once();
+});
+
+it('stays quiet for an ordinary dead page', function () {
+    // The counter-check: if this warning fired on every 404 it would be noise,
+    // and noise is how a real signal gets ignored.
+    Log::spy();
+    $pro = createTenant('bio-reason-quiet');
+    Http::fake(['*' => Http::response('', 404)]);
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/gone');
+
+    // Bare, on purpose. `shouldNotHaveReceived('warning', [$message])` matches
+    // a call whose FULL arg list is that one string — which never happens, so
+    // it passes vacuously; and `shouldHaveReceived(...)->never()` asserts >=1
+    // call before never() is reached. A 404 import warns about nothing at all,
+    // so "no warnings" is both true and the thing worth pinning.
+    // Pin the MESSAGE with a wildcard context. A bare shouldNotHaveReceived
+    // ('warning') is too strict — the test env emits an unrelated
+    // `feature_availability.resolve_overrides_failed` — while passing only the
+    // message string matches a one-arg call that never happens, so it passes
+    // vacuously. Two args, message fixed, context any.
+    Log::shouldNotHaveReceived('warning', ['platforms.link_in_bio.host_blocked_us', Mockery::any()]);
+});
+
+it('records the reasons on the run itself, so they can be counted in SQL', function () {
+    // A log line answers "did it happen"; the run detail answers "how often,
+    // and to whom" without shipping logs anywhere.
+    $pro = createTenant('bio-reason-detail');
+    Http::fake([
+        'example.com/up*' => Http::response('<html><body><a href="https://www.instagram.com/a">IG</a></body></html>', 200),
+        'example.com/blocked*' => Http::response('<html><title>Just a moment...</title></html>', 403),
+        'example.com/gone*' => Http::response('', 404),
+    ]);
+
+    app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/up',
+        'https://example.com/blocked',
+        'https://example.com/gone',
+    ]);
+
+    $detail = json_decode((string) DB::table('routing.import_runs')
+        ->where('user_id', $pro->id)->value('detail'), true);
+
+    expect($detail['unavailable_reasons'])->toBe(['bot_challenge' => 1, 'not_found' => 1]);
 });

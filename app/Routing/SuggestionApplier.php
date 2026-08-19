@@ -2,17 +2,21 @@
 
 namespace App\Routing;
 
+use App\Catalog\LegacyPlatformMap;
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Applies a held/proposed source intent: the one write path shared by the
- * suggestions inbox (accept) and the legacy synced-modal's "Change to" swap
- * (B4 fold). Extracting it is what keeps intent application a single writer —
- * two controllers re-implementing the demote/create/settle transaction is the
- * drift class that produced three ConnectionPayload writers.
+ * Applies a held/proposed source intent: the one write path behind the
+ * suggestions inbox (accept). The legacy synced-modal's "Change to" swap
+ * (B4 fold) used to share it — today its injection point in
+ * InstagramController is dead and accept() is the only live caller, but the
+ * extraction still stands for the original reason: two controllers
+ * re-implementing the demote/create/settle transaction is the drift class
+ * that produced three ConnectionPayload writers.
  */
 class SuggestionApplier
 {
@@ -163,6 +167,28 @@ class SuggestionApplier
                 ]);
                 $connection->user()->associate($user);
                 $connection->save();
+
+                // F14 (2026-08-20, whole-run critic): F9 wired the enrichment
+                // fetch into SourceReconciler::applyIntent — the AUTO-place
+                // path — but T9b is suggest-only by design, so every
+                // connection its feature produces is born HERE, via accept,
+                // and sat as the same nameless URL-as-account row F9 exists
+                // to prevent until a scheduled refresh happened by. Same rule
+                // as applyIntent, verbatim: CONTENT class only (booking
+                // enrichment is owned by AutoBookingConnectDispatcher's
+                // claimed/unclaimed rule; shop rows enrich through their own
+                // connect jobs), only when the surface declares a fetch, and
+                // afterCommit because this runs inside the transaction. Only
+                // for a row created here — a matched-existing row came from a
+                // lane that already owns its enrichment.
+                $fetch = $surface['capabilities']['fetch'] ?? null;
+                if ((string) $intent->routing_class === 'content' && is_string($fetch) && $fetch !== '') {
+                    ConnectFetchJob::dispatch(
+                        (string) $connection->id,
+                        LegacyPlatformMap::legacyFor((string) $intent->surface_key),
+                        systemInitiated: true,
+                    )->afterCommit();
+                }
             }
 
             // A booking-class Replace makes the new row the primary; a cap
