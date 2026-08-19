@@ -60,9 +60,11 @@ it('emits exactly the documented top-level and profile-nested key set', function
     // regain a public projection — see BrandWireTest. `links` / `services`
     // (the pre-pool engine lists) and the top-level `popularity` map left
     // 2026-08-19: pools carry the content, per-item popularityRank the rank.
+    // `feed` joined 2026-08-19 (spec `docs/superpowers/specs/2026-08-19-item-feed-design.md`
+    // §3): ordered references into `pools`, always present.
     expect(array_keys($array['profile']))->toBe([
         'handle', 'displayName', 'accountType', 'site_id',
-        'pools', 'brand',
+        'pools', 'feed', 'brand',
         'document', 'newsletter', 'contact', 'publicContact', 'workplace',
     ]);
 

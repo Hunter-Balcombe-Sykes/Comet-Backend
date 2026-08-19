@@ -1,7 +1,7 @@
 # Item Feed — item-level ranked list for the lander
 
 **Date:** 2026-08-19
-**Status:** Approved design, pre-implementation
+**Status:** Implemented 2026-08-19, branch `feature/item-feed-2026-08-19`
 **Owner decisions:** all sections approved in-session 2026-08-19
 
 ## 1. What this is

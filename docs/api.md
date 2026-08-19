@@ -877,6 +877,48 @@ dashboard resource still reads all four.
 `state: pinned`, `POST /api/content/pools/reviews/items`). Excluding and deselecting
 return 200. Every other pool is unaffected.
 
+### Item feed on `GET /api/public/profiles/{handle}`
+
+`profile.feed` = `{mode, entries}` — one mixed, ordered list of **references**
+into `profile.pools` (never duplicated item bodies), rendered by the lander
+alongside — not replacing — `rankedActions`. Always present; `entries` is `[]`
+when nothing resolves. `mode` ∈ `manual|newest|score` (default `newest`,
+`settings.feed_mode`).
+
+```jsonc
+"feed": {
+  "mode": "score",
+  "entries": [
+    { "kind": "item",     "pool": "watch", "itemId": "<content item id>", "score": 0.41 },
+    { "kind": "category", "pool": "menus", "collectionId": "<id>",
+      "itemIds": ["<id>", "<id>"],         "score": 0.29 },
+    { "kind": "item",     "pool": "shop",  "itemId": "<id>",              "score": null }
+  ]
+}
+```
+
+- `kind` is a discriminator: `item` ⇒ `itemId` (no `itemIds`/`collectionId`);
+  `category` ⇒ `collectionId` + `itemIds`. Join `itemId` against
+  `pools.<pool>.items[].id`, `collectionId` against the pool's `collections` map.
+- **Category entries come from `menus` and `services` only** — shop has
+  `collections` too, but shop products float individually as plain `item`
+  entries (owner decision). A menu/service item with no `collectionIds` also
+  floats as a plain `item` entry rather than vanishing.
+- Sources: every pool except `reviews` (a review has no destination and is
+  exclusion-only by contract). No server cap — the lander truncates.
+- `score` is the blended popularity score in score mode, `null` in every other
+  mode.
+- **Forward-compat:** an entry only ever references an item present in the
+  served `pools` payload — refs never dangle, pinned by test.
+
+Ordering is set via `PATCH /api/site`: `settings.feed_mode` (`manual|newest|score`)
+and `settings.manual_feed` (consulted only in manual mode; ≤`config('partna.feed.manual_max')`
+entries, default 100; strict discriminated-union entries — `item` requires
+`pool`+`ref` and rejects `items`, `category` requires `pool`+`ref`+`items` and
+its `pool` must be `menus` or `services`; duplicate `(kind, pool, ref)` pairs
+422; the list REPLACES atomically on write, same contract as `manual_actions`).
+Spec: `docs/superpowers/specs/2026-08-19-item-feed-design.md`.
+
 ---
 
 ## 8) User Dashboard API
@@ -960,15 +1002,17 @@ HTTP 423 Locked
 - Common status codes: 200, 401, 403, 422
 - Banners are managed via `POST /api/uploads` (pool=content) and the frontend picks from `optimized` / `maximized`. No banner fields are accepted on this endpoint.
 - Ordering settings (actions system): `settings.smart_page_order` (bool, default true), `settings.manual_page_order` (list of taxonomy page-ids, distinct, ≤16), `settings.smart_actions` (bool, default true), `settings.manual_actions` (≤12 ordered entries, each ONE of `{kind:"page",ref:"<page-id>"}` / `{kind:"item",ref:"<itemType>:<itemKey>"}` / `{kind:"button",ref:"<platform slug>"}` (`booking` = the general booking link) / `{kind:"custom",label:"...",url:"https://..."}`). Strict: non-custom entries reject label/url, custom rejects ref; duplicate kind:ref pairs 422; both lists REPLACE atomically on write. The public payload's `pageOrder` / `rankedActions` apply these server-side.
+- Item feed settings: `settings.feed_mode` (`manual|newest|score`, default `newest`), `settings.manual_feed` (consulted only in manual mode; ≤`config('partna.feed.manual_max')` entries, default 100; each entry ONE of `{kind:"item",pool:"<feed pool>",ref:"<item id>"}` / `{kind:"category",pool:"menus"|"services",ref:"<collection id>",items:["<item id>",...]}`). Strict: `item` rejects `items`; duplicate `(kind,pool,ref)` pairs 422; the list REPLACES atomically on write. See "Item feed on `GET /api/public/profiles/{handle}`" above.
 
 ### `GET /api/site/actions`
 
 - Purpose: dashboard picker data for the design page's "Pages" / "Action buttons" controls
 - Auth: Required
-- Response (200): `{ "pool": [ActionEntry], "rankedActions": [ActionEntry], "ordering": { "smartPageOrder": bool, "manualPageOrder": [...], "smartActions": bool, "manualActions": [...] } }` (no data envelope)
+- Response (200): `{ "pool": [ActionEntry], "rankedActions": [ActionEntry], "ordering": { "smartPageOrder": bool, "manualPageOrder": [...], "smartActions": bool, "manualActions": [...] }, "feed": { "mode": "manual|newest|score", "entries": [FeedEntry], "manual": [...] } }` (no data envelope)
 - `ActionEntry` = `{ "kind": "page|item|button|custom", "ref": "book" | "service:<id>" | "instagram" | null, "label": string|null, "url": string|null, "pageId": string|null, "itemType": string|null, "itemKey": string|null, "score": number|null }`
 - `pool` = every action currently available (score = stored blended score or null); `rankedActions` = what the sitepage lander currently serves (override-applied). Writes go through `PATCH /api/site` settings.
 - The public profile payload (`GET /api/public/profiles/{handle}`) carries the same data as top-level `rankedActions` (ordered, lander renders top 6) + `ordering`; its `pageOrder` reflects `manual_page_order` when `smart_page_order` is false.
+- `feed`: the item feed preview (see "Item feed on `GET /api/public/profiles/{handle}`" above). `entries` is resolved through the same pools the public payload serves, so the dashboard preview cannot drift from the lander. `manual` is the stored raw `settings.manual_feed` list, for the editor (`[]` when unset). Writes go through `PATCH /api/site` — `settings.feed_mode` / `settings.manual_feed`.
 
 ### Per-brand platform routes (uniformity Phase B, 2026-08-17)
 
