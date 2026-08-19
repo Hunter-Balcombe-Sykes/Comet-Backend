@@ -3360,6 +3360,48 @@ function setupIngestTables(): void
  * a single table with the same columns. Partition routing itself is covered
  * by the Postgres lane, not here.
  */
+/**
+ * catalog runtime tables (migration 20260727100000) — SQLite mirror.
+ *
+ * "Runtime" as opposed to the compiled half (brands/surfaces/detectors/…),
+ * which `catalog:sync` upserts from the artefact and which no test needs a
+ * table for because CompiledCatalog reads the PHP artefact directly. These two
+ * are the ACCUMULATED half — written by the router, never by the compiler, and
+ * not re-derivable from a recompile.
+ *
+ * Column types follow the SQLite mirror convention used throughout this file
+ * (timestamps as TEXT); the NOT NULLs and the primary keys are copied verbatim
+ * from the migration, because those are what a write path can actually
+ * violate.
+ */
+function setupCatalogRuntimeTables(): void
+{
+    attachTestSchemas();
+    $pg = DB::connection('pgsql');
+
+    // supabase/migrations/20260727100000_catalog_schema.sql:132-138.
+    // No FK to catalog.detectors, deliberately — a suspension must outlive the
+    // detector being recompiled or tombstoned.
+    $pg->statement('CREATE TABLE IF NOT EXISTS catalog.detector_suspensions (
+        detector_id TEXT PRIMARY KEY NOT NULL,
+        reason TEXT NOT NULL,
+        set_by TEXT NULL,
+        set_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    )');
+
+    // supabase/migrations/20260727100000_catalog_schema.sql:143-152.
+    $pg->statement('CREATE TABLE IF NOT EXISTS catalog.unmatched_domains (
+        registrable_key TEXT PRIMARY KEY NOT NULL,
+        sample_path_shape TEXT NULL,
+        hits INTEGER NOT NULL DEFAULT 1,
+        has_detectors INTEGER NOT NULL DEFAULT 0,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        triaged_at TEXT NULL
+    )');
+}
+
 function setupRoutingTables(): void
 {
     attachTestSchemas();
