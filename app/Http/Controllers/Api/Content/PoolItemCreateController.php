@@ -10,6 +10,8 @@ use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Content\ManualOverride;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
+use App\Services\Content\ManualEventWriter;
+use App\Services\Platforms\EventPageReader;
 use App\Services\Shop\ProductPageAdder;
 use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolRegistry;
@@ -44,6 +46,8 @@ class PoolItemCreateController extends ApiController
         private readonly PoolSectionProvisioner $provisioner,
         private readonly ProjectionWriter $writer,
         private readonly ProductPageAdder $products,
+        private readonly EventPageReader $events,
+        private readonly ManualEventWriter $eventWriter,
     ) {}
 
     /** POST /api/content/pools/{pool}/items  { url, title?, description?, favicon?, logo?, kind? } */
@@ -98,6 +102,40 @@ class PoolItemCreateController extends ApiController
                 return $this->success($this->resolver->resolve($site, $pool), 201);
             }
             // no_product / unreachable → the card path below.
+        }
+
+        // EVENT-FIRST for the events pool (Eventbrite-parity, 2026-08-19):
+        // read the pasted page as an EVENT (schema.org JSON-LD — name, dates,
+        // venue, lowest ticket price, cover) and write it through the same
+        // ManualEventWriter lane the platform addEvent verbs use, so a
+        // Ticketmaster/Luma/Partiful ticket page lands as a real event card,
+        // not a link with a picture. Mirrors the shop lane above: organiser
+        // pages get the connect hint, pages with no event markup fall through
+        // to the plain card path.
+        if ($pool === 'events' && ($data['kind'] ?? 'event') === 'event') {
+            $organiser = $this->events->organiserPlatformLabel($data['url']);
+            if ($organiser !== null) {
+                abort(422, "That looks like a {$organiser} organiser page, not a single event. Connect it as a platform to bring in its upcoming events, or paste one event's page.");
+            }
+
+            $read = $this->events->read($data['url']);
+            if ($read !== null) {
+                // Same cap + copy as the platform addEvent verbs — this is the
+                // same lane, entered from the pool side.
+                if ($this->eventWriter->wouldExceedCap($user, $read['canonical'])) {
+                    abort(422, 'You can add up to '.ManualEventWriter::MAX_STANDALONE_EVENTS.' events.');
+                }
+
+                $added = $this->eventWriter->addStandalone($user, $read['canonical'], $read['event']);
+                if ($added !== null) {
+                    // addStandalone() pinned + busted already; only the owner's
+                    // checked words from the two-step Add remain to apply.
+                    $this->applyCheckedWords($user->id, $added['id'], $data);
+
+                    return $this->success($this->resolver->resolve($site, $pool), 201);
+                }
+            }
+            // no event markup / unreachable → the card path below.
         }
 
         // ONE coord per url, never a fresh uuid per request. Two manual coords
