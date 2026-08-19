@@ -534,8 +534,12 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
 
 ## Ledger (tick with the real commit hash)
 
-- [ ] T1 — Enter-key race / error toast
-- [ ] T2 — Links sheet step-1 guidance
+- [x] T1 — Enter-key race / error toast — monorepo `2fc118e`; critic
+  blocker (success-tick on cancelled add) fixed; gate verified LIVE on
+  app.partna.au: spotify track in Watch → band, Continue disabled, Enter
+  inert, zero toasts
+- [x] T2 — Links sheet step-1 guidance — same commit; verified LIVE:
+  step-1 band + Add-to-Listen action, Continue stays enabled (advisory)
 - [ ] T3 — non-Links pools refuse unknown platforms (server + sheets)
 - [ ] T4 — store-suggestion diagnosis + fix (natalieanne.com repro)
 - [ ] T5 — suggestion band UI matches connection sheet
@@ -550,6 +554,15 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
 
 ### Found-issues ledger (standing rule — append here during the run, then fix)
 
+- [ ] F2 — LinkRouter consumed the per-platform slot for ITEM categories
+  (`routeClassified`, handled:true → seenPlatforms): the 2nd event/video
+  from one platform in a run degraded to a bare card. Items aren't
+  connections. Fixed in T6's commit (slot skip for event/content-item).
+- [ ] F3 — InstagramAutoSync surfaced `custom(handled:true)` routes as
+  unmatched custom-link suggestions (`InstagramAutoSync.php` ~163),
+  duplicating seeded events (and ordering Swap offers) as link cards —
+  contradicts RouteResult's documented handled contract. Fixed in T6's
+  commit (`&& ! $result->handled`).
 - [ ] F1 — localhost:3000 dashboard fails account bootstrap on login ("We
   couldn't load your account"; owner hit it at run start, logged into
   app.partna.au instead). Server belongs to another chat session — diagnose

@@ -4,6 +4,9 @@ namespace App\Services\Platforms;
 
 use App\Catalog\CatalogNotCompiled;
 use App\Catalog\CompiledCatalog;
+use App\Catalog\Definitions\Eventbrite;
+use App\Catalog\Definitions\Ticketek;
+use App\Catalog\Definitions\Ticketmaster;
 use App\Catalog\LegacyPlatformMap;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkProjector;
@@ -298,6 +301,15 @@ class WebsiteLinkHarvester
         return $this->humanitixScraper ??= new HumanitixScraper($this->fetcher);
     }
 
+    private ?MediaPageReader $mediaPageReader = null;
+
+    /** Same lazy-direct construction as the two scrapers above (and for the
+     * same no-booted-app reason); classifyItem() is pure and never fetches. */
+    private function mediaReader(): MediaPageReader
+    {
+        return $this->mediaPageReader ??= new MediaPageReader($this->fetcher);
+    }
+
     // Built lazily and directly — NOT resolved from the container — for the
     // same reason the two scrapers above are: classify() gains catalog
     // awareness without changing this class's construction contract
@@ -455,6 +467,23 @@ class WebsiteLinkHarvester
             return null;
         }
 
+        // MEDIA ITEMS FIRST (T6, 2026-08-20): a video/track/release/episode
+        // URL is an ITEM, and an item claim always wins over every account
+        // answer — the same precedence MediaPageReader::accountPlatformLabel
+        // applies internally. The grammar is SHARED with the paste lane
+        // (classifyItem), not copied, so the two can never drift. Carries
+        // kind + canonical so the seeding lanes don't re-derive them.
+        $item = $this->mediaReader()->classifyItem($url);
+        if ($item !== null) {
+            return [
+                'platform' => $item['platform'],
+                'category' => 'content-item',
+                'label' => $item['platform'],
+                'kind' => $item['kind'],
+                'canonical' => $item['canonical'],
+            ];
+        }
+
         foreach (self::SOCIAL_HOSTS as $key => $pattern) {
             // No isset() guard needed: SOCIAL_PLATFORM is hand-maintained with the
             // exact same 7 keys as SOCIAL_HOSTS, so the lookup below can never
@@ -495,7 +524,7 @@ class WebsiteLinkHarvester
         // lanes — EventsSeeder via LinkRouter/LinkInBioImporter — can act on
         // every brand, not just the two bespoke ones. TLD alternations come
         // from each brand's catalog definition, the single source of truth.
-        if (preg_match(self::brandTldRegex('eventbrite', \App\Catalog\Definitions\Eventbrite::TLDS), $host)) {
+        if (preg_match(self::brandTldRegex('eventbrite', Eventbrite::TLDS), $host)) {
             if ($this->eventbrite()->normalizeOrgUrl($url) !== null) {
                 return ['platform' => 'eventbrite', 'category' => 'event-organiser', 'label' => 'Eventbrite'];
             }
@@ -530,7 +559,7 @@ class WebsiteLinkHarvester
 
             return ['platform' => 'partiful', 'category' => 'event', 'label' => 'Partiful'];
         }
-        if (preg_match(self::brandTldRegex('ticketmaster', \App\Catalog\Definitions\Ticketmaster::TLDS), $host)) {
+        if (preg_match(self::brandTldRegex('ticketmaster', Ticketmaster::TLDS), $host)) {
             // Only real event pages (…/event/<id>) are events; artist and
             // discovery pages also embed Event JSON-LD lists, and seeding an
             // arbitrary first event from those would be wrong — they fall to
@@ -539,7 +568,7 @@ class WebsiteLinkHarvester
                 return ['platform' => 'ticketmaster', 'category' => 'event', 'label' => 'Ticketmaster'];
             }
         }
-        if (preg_match(self::brandTldRegex('ticketek', \App\Catalog\Definitions\Ticketek::TLDS), $host)) {
+        if (preg_match(self::brandTldRegex('ticketek', Ticketek::TLDS), $host)) {
             return ['platform' => 'ticketek', 'category' => 'event', 'label' => 'Ticketek'];
         }
         if (preg_match('~(^|\.)oztix\.com\.au$~', $host)) {

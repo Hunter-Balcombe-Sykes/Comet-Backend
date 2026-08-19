@@ -1203,7 +1203,7 @@ return array (
       'surface' => 'spotify.player',
       'identifier' => 'aaa',
     ),
-    'detector' => '7f003fa8f0a7739c',
+    'detector' => 'c8ec1b8650ca53b2',
   ),
   127 => 
   array (
@@ -1821,13 +1821,13 @@ return array (
   ),
   191 => 
   array (
-    'url' => 'https://soundcloud.com/aaa/aaa',
+    'url' => 'https://soundcloud.com/aaa',
     'expect' => 
     array (
       'surface' => 'soundcloud.player',
       'identifier' => 'aaa',
     ),
-    'detector' => '1c9ae2d43d220458',
+    'detector' => '5d1faaba140ed77a',
   ),
   192 => 
   array (
