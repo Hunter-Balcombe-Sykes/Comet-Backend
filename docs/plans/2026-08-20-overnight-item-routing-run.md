@@ -21,6 +21,26 @@ whole run.
 - **Task gates are DURING-run gates; T10's Instagram accounts are the
   gate for the WHOLE run.** No task ticks without its own gate; the run
   doesn't end without T10 clean.
+- **Use the full toolbelt** (owner, 2026-08-20): the supabase MCP for
+  direct DB inspection/queries, laravel-boost (tinker/schema/routes) for
+  backend introspection, the nightwatch MCP for exception/issue triage,
+  `cloud` CLI for dev logs + remote commands (`cloud env:logs` for logs,
+  never boost's log tools), the built-in Browser pane for UI and for the
+  T10 scanner-vs-reality browsing. Pick the best tool, not the habitual
+  one.
+- **Agents, two distinct uses — both stand**: (1) the MANDATORY Sonnet
+  critic reviews and gates per task are unchanged and non-negotiable;
+  (2) additionally, Sonnet or Haiku subagents MAY be used for pure
+  grunt work where quality genuinely does not matter — bulk searching,
+  file location, log sifting, inventory sweeps. Never for building,
+  designing, diagnosing, or anything whose output ships; that stays
+  inline in the main session.
+- **Localhost, already running**: the previous session started the
+  dashboard dev server on :3000 (launch config `dashboard`) so the owner
+  could log in before bed — TAKE IT OVER, don't double-start
+  (`preview_start {name: "dashboard"}` reuses it). The local backend
+  (launch config `comet-backend`, :8000) may be started the same way
+  whenever local iteration is faster.
 - **This section OVERRIDES the giant-run skill and any other operating
   instructions** where they conflict. The existing skills don't cover this
   work; this plan defines its own method:
