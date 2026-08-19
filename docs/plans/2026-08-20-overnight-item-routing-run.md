@@ -587,8 +587,40 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
   report); critic blocker fixed in `db630910f` (a DERIVED parent never
   inherits paste-directness — dismissed suggestions stay dismissed,
   pinned). Moderate set (Spotify/Apple/Tidal) deliberately not reached.
-- [ ] T10 — live E2E loop: 3 Instagrams + Shopify breadth + natalieannehair reconnect + scanner-vs-reality audit + platform integrity, until clean (WHOLE-RUN GATE)
-- [ ] T11 — backstop gates + final critic pass + report
+- [x] T10 — live E2E loop, CLEAN: the_046_official (3 passes; surfaced
+  F6/F7/F9), barber.milo.le (surfaced F10/F11), by.albertkim
+  (clean-per-state: Fresha held as suggestion because broken-oven is
+  business+food — gateAllows denies booking auto-connect by design;
+  fresha auto-connected fine on the non-food user). Shopify/store
+  breadth: pasted product → item + store auto-connect (natalieanne),
+  pasted storefronts → suggestions incl. WooCommerce
+  (barefootbuttons.com, choose woocommerce.store), scan storefronts →
+  named connections (The 046 Store, 4BARBERS Supply). natalieannehair
+  reconnect: episode NEVER a platform, youtube link a video item +
+  parent-channel suggestion (T9b live), store connected + named via T4
+  origin fallback, and after F12 her TikTok/Facebook/Instagram all
+  observed + placed — scanner-vs-reality diff EMPTY. Platform
+  integrity: every scan-created row swept — real accounts, correct
+  resource identities, named (apple_music/youtube name = latest
+  release BY DESIGN of their fetch strategies; dvlpmnttv backfilled
+  via F9's ConnectFetchJob path, refresh ok; fresha names live at
+  selection.storeName; relational store rows carry names in
+  content.storefronts+collections). No bogus rows.
+- [x] T11 — backstop gates: full backend suite green on every merge
+  (final runs 8600+ passing, exit 0); dashboard typecheck 0 errors,
+  lint 0 errors (38 pre-existing warnings); final deploys live on both
+  rails (backend `84ffb915d` on Laravel Cloud dev, monorepo `48e65fa`
+  READY on Vercel production); fresh 10-min post-deploy log scan — 0
+  errors, one pre-existing slow_public_profile telemetry warning;
+  final whole-run Sonnet critic over both repos' full diff — its two
+  findings became F13 (its BLOCKER escalation on the summary screen
+  included) and F14, both fixed with pins, re-gated, merged, deployed;
+  F14 re-verified LIVE (accepting the @agencypodcast T9b suggestion
+  enriched + named the row in seconds). F13's UI path note: no tile
+  offered to the test account reaches the generic-router arm (roster
+  is capability-filtered), so the fix is typecheck/critic-verified
+  defensive hardening — the flow could not be driven in the browser
+  on this account, and equally the original lie could not fire there.
 
 ### T8 audit — remaining gaps DOCUMENTED as open items (architecture debt,
 ### not tonight's scope; full trace table in the run report)
@@ -664,14 +696,25 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
   seedCustom() canonicalizes via IriCanonicalizer now (best-effort — an
   uncanonicalisable URL keeps its normalized form). `ba7a970d5`; the
   stray milo dup was removed by hand as hygiene before the fix landed.
-- [x] F12 — the bio unroll's API/inline arms return the platform's TILE
-  links only, and having answered non-null (or even `[]`, stan's common
-  answer) the anchor pass never ran — natalieannehair's own TikTok and
-  Facebook sat in the delivered stan.store DOM with NO observations.
-  unroll() now merges the SOCIAL-classified shell anchors back in
-  (grammar-only classify, no fetches; asset/legal links can't classify
-  social so no junk rides along; $seen dedupes overlap when the anchor
-  arm already ran). Two pins verified red→green. `3aa4ab2e9`.
+- [x] F12 — natalieannehair's own TikTok and Facebook produced NO
+  observations from her stan.store scan. TWO-part fix, and the first
+  live re-run corrected the diagnosis: (1) the importer merges
+  SOCIAL-classified shell anchors into an API unroll (`3aa4ab2e9`,
+  critic pass `57d03cf92` gated it on the API arm answering + pinned
+  the merge as additive) — but the re-run still missed them, because
+  stan's RAW shell ships no social anchors at all; the browser
+  inventory had seen the HYDRATED DOM. (2) The Stan API carries them
+  at `user.data.socials` in mixed shapes (facebook: full URL;
+  tiktok/instagram: bare handles) — stanStore() now emits them: URLs
+  pass through, only live-confirmed handle keys expand (a wrong guess
+  would MINT a URL), mail_to refused by collect()'s http test
+  (`f0df9a884`; second critic pass `c36daf886` — no @-only mints, no
+  silent non-JSON 200s). The anchor merge stays as insurance for a
+  future server-rendering API host. VERIFIED by dev re-run 21:32Z:
+  place tiktok.profile + facebook.profile + instagram.profile — tiktok
+  and facebook became connections with real handle identities, the
+  instagram place folded into her existing row (no dup), tiles
+  unchanged. Scanner-vs-reality diff for stan.store/Natalieanne: EMPTY.
 - VERIFIED-NOT-A-BUG — natalieannehair run tally said `suggested: 0`
   while a `choose youtube.channel` observation (@agencypodcast) landed
   in the same second. That observation is MediaParentSuggester's (T9b:
@@ -679,6 +722,22 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
   stan page), written with the scan's origin as source. The importer
   tally counts the importer's own route verdicts; the parent suggestion
   is the seeder's product. Accounting is honest; no change.
+- [x] F13 — (whole-run critic) connection-sheet arm 4 said "Successfully
+  connected" for EVERY non-null routeLink outcome: a video pasted under
+  a marketplace tile became a content ITEM on the backend while the
+  sheet reported a platform connection that never happened (same lie,
+  pre-existing, for 'link' and 'review'). The done screen now names the
+  real destination, with explainers for item/review. Monorepo F13
+  commit; state reset on every startConnect.
+- [x] F14 — (whole-run critic) F9's enrichment fetch covered only the
+  reconciler's AUTO-place path, but T9b is suggest-only BY DESIGN — so
+  every connection its parent-suggestion feature produces is born in
+  SuggestionApplier::apply() via accept, and landed as the exact
+  nameless URL-as-account row F9 exists to prevent (self-healing at the
+  next scheduled refresh, but wrong on arrival). apply() now dispatches
+  ConnectFetchJob afterCommit under F9's rule verbatim: content class
+  only, fetch-capable surfaces only, new rows only. Two pins. F14
+  commit on the branch.
 - [x] F1 — localhost:3000 "We couldn't load your account": NOT a bug.
   `apps/dashboard/.env.local` deliberately points
   NEXT_PUBLIC_API_BASE_URL at http://localhost:8000 (switched 2026-08-18;
