@@ -399,6 +399,64 @@ it('unrolls a client-rendered linkin.bio page through its API, not its empty she
         ->and($result['bio_url_seeded'])->toBeFalse();
 });
 
+it('merges the shell\'s footer social anchors into an API unroll (F12)', function () {
+    // F12 (2026-08-20, the natalieannehair stan.store trace): the API unroll
+    // returns the platform's TILE links only, and her TikTok and Facebook sat
+    // as plain anchors in the delivered shell, unseen. The social-classified
+    // anchors merge back in; the shell's own asset/legal links must NOT ride
+    // along (they don't classify as social).
+    $pro = createTenant('bio-stan-socials');
+    Http::fake([
+        'api.stanwith.me/*' => Http::response(['store' => ['pages' => [
+            ['type' => 'link', 'status' => 2, 'data' => ['product' => ['link' => [
+                'url' => 'https://supernormal.net.au/menu',
+            ]]]],
+        ]]], 200),
+        'stan.store/*' => Http::response('<html><body>
+            <a href="https://www.tiktok.com/@natalieannehair">TikTok</a>
+            <a href="https://www.facebook.com/natalieannehairstylist">Facebook</a>
+            <a href="https://assets.stanwith.me/legal/terms-of-service.pdf">Terms</a>
+        </body></html>', 200),
+        '*' => Http::response('<html><body>ok</body></html>', 200),
+    ]);
+    Queue::fake();
+
+    app(LinkInBioImporter::class)->import($pro, 'https://stan.store/Natalieanne');
+
+    $observations = DB::table('routing.link_observations')->where('source', 'link_in_bio')->get();
+    expect($observations->pluck('surface_key')->all())
+        ->toContain('tiktok.profile', 'facebook.profile')
+        ->and($observations->filter(fn ($o) => str_contains((string) $o->raw_url, 'assets.stanwith.me')))
+        ->toHaveCount(0)
+        // The merge is ADDITIVE: the API tile must still route. An
+        // implementation that replaced tiles with the anchor socials would
+        // satisfy every assertion above — this one is the additive pin.
+        ->and($observations->filter(fn ($o) => str_contains((string) $o->raw_url, 'supernormal.net.au/menu')))
+        ->toHaveCount(1);
+});
+
+it('finds footer socials even when the stan API answers zero outward tiles (F12)', function () {
+    // The empty-array answer is the COMMON one for stan (hosted products
+    // only). Before F12 it also silenced the shell's social anchors entirely —
+    // the ?? chain treats [] as a real answer, so the anchor pass never ran
+    // and the zero-yield floor fired on a page with links in plain sight.
+    $pro = createTenant('bio-stan-empty');
+    Http::fake([
+        'api.stanwith.me/*' => Http::response(['store' => ['pages' => []]], 200),
+        'stan.store/*' => Http::response('<html><body>
+            <a href="https://www.tiktok.com/@natalieannehair">TikTok</a>
+        </body></html>', 200),
+        '*' => Http::response('<html><body>ok</body></html>', 200),
+    ]);
+    Queue::fake();
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://stan.store/Natalieanne');
+
+    expect(DB::table('routing.link_observations')->where('source', 'link_in_bio')->pluck('surface_key')->all())
+        ->toContain('tiktok.profile')
+        ->and($result['bio_url_seeded'])->toBeFalse();
+});
+
 it('falls back to the anchor harvest when the linkin.bio API cannot be read', function () {
     // Later going down, or revving its API, must cost the user nothing they had
     // before: the anchor pass still runs and the zero-yield floor still fires.
