@@ -343,12 +343,12 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         // it (the reconciler's #R4 identity resolution) instead of racing it.
         try {
             $imported = app(WebsiteImporter::class)->import($user, $baseUrl);
-            if (($imported['outcome'] ?? null) !== 'ok') {
+            if ($imported['outcome'] !== 'ok') {
                 // A capped/unreachable import must not be invisible (the
                 // 10/day ImportRun cap writes no run row when it refuses).
                 Log::info('website_scan.importer_skipped', [
                     'user_id' => $this->userId,
-                    'outcome' => $imported['outcome'] ?? null,
+                    'outcome' => $imported['outcome'],
                 ]);
             }
         } catch (Throwable $e) {

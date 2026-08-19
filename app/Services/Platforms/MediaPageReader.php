@@ -316,7 +316,7 @@ class MediaPageReader extends PlatformScraper
         return [$host, $path, $query];
     }
 
-    /** @return array{title: ?string, thumbnail: ?string}|null null when the endpoint gave nothing usable */
+    /** @return array{title: ?string, thumbnail: ?string, authorUrl: ?string}|null null when the endpoint gave nothing usable */
     private function oembed(string $platform, string $canonical): ?array
     {
         $endpoint = self::OEMBED[$platform] ?? null;

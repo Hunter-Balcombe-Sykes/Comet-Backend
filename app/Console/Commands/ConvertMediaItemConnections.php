@@ -82,7 +82,8 @@ class ConvertMediaItemConnections extends Command
 
     private function payloadUrl(IntegrationConnection $row): ?string
     {
-        $url = is_array($row->payload) ? ($row->payload['url'] ?? null) : null;
+        // payload is `array<string, mixed>` on the model (NOT NULL, default '{}').
+        $url = $row->payload['url'] ?? null;
 
         return is_string($url) && $url !== '' ? $url : null;
     }

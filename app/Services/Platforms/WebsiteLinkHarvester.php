@@ -454,7 +454,7 @@ class WebsiteLinkHarvester
      * still answer FIRST and are still hand-maintained; see that method for why
      * the order is not the other way round.
      *
-     * @return array{platform:string, category:string, label:string}|null
+     * @return array{platform:string, category:string, label:string, kind?:string, canonical?:string}|null
      */
     public function classify(string $url): ?array
     {

@@ -43,7 +43,7 @@ class LinkCardScraper
      * the HTML carries (T4 — the preview offers "connect it as a store" off
      * the page already in hand), null for a plain page.
      *
-     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string, storefront:?string}|null
+     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string, storefront?:?string, productMarkup?:bool}|null
      */
     public function snapshot(string $url): ?array
     {
@@ -95,7 +95,7 @@ class LinkCardScraper
      * attached as a branded card. The server never re-fetches a stored link, so
      * skipping the fetch here introduces no SSRF surface.
      *
-     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string}
+     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string, storefront?:?string, productMarkup?:bool}
      */
     public function snapshotOrMinimal(string $url): array
     {
@@ -108,7 +108,7 @@ class LinkCardScraper
      * doesn't load). Public so the async connect flow can call it directly to
      * return an immediate placeholder card before the snapshot job runs.
      *
-     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string}
+     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string, storefront?:?string, productMarkup?:bool}
      */
     public function minimalCard(string $url): array
     {
