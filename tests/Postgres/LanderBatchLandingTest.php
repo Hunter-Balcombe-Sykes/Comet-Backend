@@ -18,12 +18,16 @@
 //      land() must then land the surviving records durably — direct
 //      executable proof the transaction-boundary trade (catch OUTSIDE
 //      DB::transaction()) is sound.
+//   4. WHK-1: that isolation must hold for the records AFTER the poison, not
+//      only the ones before it, and a chunk where EVERY record is poisoned
+//      must report failed == seen with changed == 0 so RunExecutor can tell a
+//      broken stream from a quiet one. Neither is reproducible on SQLite: the
+//      whole scenario is a NUL byte that only jsonb rejects.
 
 use App\Ingest\Landing\Lander;
 use App\Ingest\Manifest\SourceProfile;
 use App\Ingest\Manifest\StreamSpec;
 use App\Ingest\Message\Record;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
@@ -231,7 +235,7 @@ it('lands a chunk carrying a duplicate key without raising 21000 on the record_s
     expect((int) $state->current_version_id)->toBe((int) $k1Current[0]->id);
 });
 
-it('rolls back the whole chunk on a doc containing a literal NUL byte, then the per-record fallback lands the OTHER records durably before re-raising on the poisoned one', function () {
+it('rolls back the whole chunk on a doc containing a literal NUL byte, then the per-record fallback lands the OTHER records durably and isolates the poisoned one', function () {
     config(['partna.ingest.land_chunk' => 500]);
     $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror);
     $lander = app(Lander::class);
@@ -244,25 +248,27 @@ it('rolls back the whole chunk on a doc containing a literal NUL byte, then the 
     // 25P02 — the savepoint bug this repo has shipped three times).
     $poisonedDoc = ['title' => "bad\0byte"];
 
-    // The poisoned record is LAST in iteration order. landRecordsIndividually()
-    // is retained VERBATIM per the plan (no catch of its own — that's Unit 2's
-    // shape, not something this unit is allowed to change), so once the
-    // fallback's own per-record loop reaches the poisoned record, its
-    // individual transaction raises the same 22P05 and that propagates
-    // uncaught out of land() — this run legitimately fails. But good1 and
-    // good2's OWN transactions already committed independently before the
-    // loop ever reached the poisoned record, so they stay durably landed
-    // regardless of what happens to it. This is DINT-9's guarantee at
-    // per-record granularity: one bad record never costs another record its
-    // already-committed durable log entry.
+    // The poisoned record is LAST in iteration order. Until WHK-1,
+    // landRecordsIndividually() had no catch of its own (deliberately deferred
+    // when this test was written), so its transaction re-raised the 22P05 and
+    // that propagated uncaught out of land() — this assertion used to be
+    // ->toThrow(QueryException::class). It no longer throws: the per-record
+    // catch isolates the poisoned record and reports it through the `failed`
+    // count instead. good1 and good2 were already durable either way, because
+    // their OWN transactions committed before the loop reached the poison —
+    // that is DINT-9's guarantee at per-record granularity, and it is
+    // unchanged. What WHK-1 adds is that records AFTER the poison survive too;
+    // this ordering cannot see that — the case below puts the poison FIRST.
     $records = [
         new Record('releases', 'good1', ['title' => 'fine 1']),
         new Record('releases', 'good2', ['title' => 'fine 2']),
         new Record('releases', 'poisoned', $poisonedDoc),
     ];
 
-    expect(fn () => $lander->land($streamId, (string) Str::uuid(), $spec, $records, null))
-        ->toThrow(QueryException::class);
+    $result = $lander->land($streamId, (string) Str::uuid(), $spec, $records, null);
+
+    expect($result['failed'])->toBe(1);
+    expect($result['changed'])->toBe(2);
 
     $good = DB::connection('pgsql')->table('ingest.record_versions')
         ->where('stream_id', $streamId)->whereIn('key', ['good1', 'good2'])->get();
@@ -275,4 +281,64 @@ it('rolls back the whole chunk on a doc containing a literal NUL byte, then the 
     $goodState = DB::connection('pgsql')->table('ingest.record_state')
         ->where('stream_id', $streamId)->whereIn('key', ['good1', 'good2'])->get();
     expect($goodState)->toHaveCount(2);
+});
+
+it('isolates a poisoned record that comes FIRST, so every record after it still lands durably', function () {
+    config(['partna.ingest.land_chunk' => 500]);
+    $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror);
+    $lander = app(Lander::class);
+    $streamId = $this->streamId;
+
+    // Ordering is the whole point. With the poison LAST, the records before it
+    // are durable purely because their own transactions had already committed
+    // — true even before WHK-1, which is why the sibling case above passed on
+    // a Lander that had no per-record catch at all. Put the poison FIRST and
+    // nothing after it ever got a transaction: land() threw out of the loop on
+    // record 1 and good1/good2 were silently dropped. That is the defect.
+    $records = [
+        new Record('releases', 'poisoned', ['title' => "bad\0byte"]),
+        new Record('releases', 'good1', ['title' => 'fine 1']),
+        new Record('releases', 'good2', ['title' => 'fine 2']),
+    ];
+
+    $result = $lander->land($streamId, (string) Str::uuid(), $spec, $records, null);
+
+    expect($result['seen'])->toBe(3);
+    expect($result['changed'])->toBe(2);
+    expect($result['failed'])->toBe(1);
+
+    $landed = DB::connection('pgsql')->table('ingest.record_versions')
+        ->where('stream_id', $streamId)->orderBy('key')->pluck('key')->all();
+    expect($landed)->toBe(['good1', 'good2']);
+
+    // The pointer rows matter as much as the version rows: a version with no
+    // record_state entry is invisible to absence folding and to projection.
+    $state = DB::connection('pgsql')->table('ingest.record_state')
+        ->where('stream_id', $streamId)->orderBy('key')->pluck('key')->all();
+    expect($state)->toBe(['good1', 'good2']);
+});
+
+it('reports failed == seen and changed == 0 when every record in the chunk is poisoned', function () {
+    config(['partna.ingest.land_chunk' => 500]);
+    $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror);
+    $lander = app(Lander::class);
+    $streamId = $this->streamId;
+
+    // This is the shape RunExecutor treats as a STREAM failure rather than a
+    // degraded run: nothing landed at all, which in practice means the
+    // database is unwell rather than one caption being malformed. Reporting it
+    // as merely "degraded" would leave a broken stream with no backoff.
+    $records = [
+        new Record('releases', 'p1', ['title' => "bad\0one"]),
+        new Record('releases', 'p2', ['title' => "bad\0two"]),
+    ];
+
+    $result = $lander->land($streamId, (string) Str::uuid(), $spec, $records, null);
+
+    expect($result['seen'])->toBe(2);
+    expect($result['changed'])->toBe(0);
+    expect($result['failed'])->toBe(2);
+
+    expect(DB::connection('pgsql')->table('ingest.record_versions')
+        ->where('stream_id', $streamId)->count())->toBe(0);
 });
