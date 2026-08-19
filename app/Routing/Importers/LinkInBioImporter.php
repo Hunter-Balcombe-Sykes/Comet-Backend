@@ -56,6 +56,19 @@ class LinkInBioImporter
     /** Probe budget per RUN — parity with the legacy RouteContext::DEFAULT_MAX_PROBES. */
     private const MAX_PROBES = 6;
 
+    /**
+     * Substrings that identify a Cloudflare refusal page rather than the site.
+     * Two products, two shapes: a managed challenge the browser can solve, and
+     * a firewall block that nothing can. Both are 403 to us.
+     */
+    private const CHALLENGE_MARKERS = [
+        'Just a moment',
+        'Attention Required',
+        '__cf_chl',
+        'cf-browser-verification',
+        'Checking your browser',
+    ];
+
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly WebsiteLinkHarvester $harvester,
@@ -69,7 +82,7 @@ class LinkInBioImporter
     /**
      * @param  string|list<string>  $bioPageUrls  one page, or the list a bio harvest produced
      * @param  string  $kind  'link_in_bio' (a page the user named) | 'bio_harvest' (URLs lifted off a profile)
-     * @return array{outcome: string, observations: int, connected: int, suggested: int, noted: int, dropped: int, skipped_chrome: int, pages: int, pages_unavailable: int}
+     * @return array{outcome: string, observations: int, connected: int, suggested: int, noted: int, dropped: int, skipped_chrome: int, pages: int, pages_unavailable: int, unavailable_reasons: array<string, int>}
      */
     public function import(User $user, string|array $bioPageUrls, string $kind = 'link_in_bio'): array
     {
@@ -78,7 +91,7 @@ class LinkInBioImporter
         }
 
         $pages = $this->normalisePages($bioPageUrls);
-        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'bio_url_seeded' => false];
+        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'unavailable_reasons' => [], 'bio_url_seeded' => false];
 
         if ($pages === []) {
             return ['outcome' => 'unavailable'] + $empty;
@@ -99,12 +112,28 @@ class LinkInBioImporter
         $placedKeys = [];
         $droppedReasons = [];
         $unavailable = 0;
+        $unavailableReasons = [];
 
         foreach ($pages as $pageUrl) {
             $response = $this->fetcher->tryFetch($pageUrl);
 
             if ($response === null || $response['status'] !== 200 || $response['body'] === '') {
                 $unavailable++;
+                $reason = $this->unavailableReason($response);
+                $unavailableReasons[$reason] = ($unavailableReasons[$reason] ?? 0) + 1;
+
+                // A bot challenge is the only reason worth waking someone for:
+                // it means the host is refusing US specifically, and no amount
+                // of parsing will fix it (bio.link, heylink.me, direct.me and
+                // beacons.ai sit behind one). Every other reason is the page's
+                // own problem and stays in the run detail tally.
+                if ($reason === 'bot_challenge') {
+                    Log::warning('platforms.link_in_bio.host_blocked_us', [
+                        'user_id' => (string) $user->id,
+                        'host' => strtolower((string) parse_url($pageUrl, PHP_URL_HOST)),
+                        'status' => $response['status'] ?? null,
+                    ]);
+                }
 
                 continue;
             }
@@ -160,7 +189,7 @@ class LinkInBioImporter
             // dropped_reasons is the durable half of the drop trace: the log
             // line ages out, this row does not, so "which link went where"
             // stays answerable per run without replaying the page (#R2).
-            detail: $tally + ['dropped_reasons' => $droppedReasons, 'pages' => array_map(SecretParams::minimiseUrl(...), $pages), 'pages_unavailable' => $unavailable, 'bio_url_seeded' => $bioUrlSeeded],
+            detail: $tally + ['dropped_reasons' => $droppedReasons, 'pages' => array_map(SecretParams::minimiseUrl(...), $pages), 'pages_unavailable' => $unavailable, 'unavailable_reasons' => $unavailableReasons, 'bio_url_seeded' => $bioUrlSeeded],
         );
 
         // Conflict parity with the legacy job: the findings themselves are
@@ -187,7 +216,55 @@ class LinkInBioImporter
             );
         }
 
-        return ['outcome' => $outcome, 'observations' => $observations, 'pages' => $fetched, 'pages_unavailable' => $unavailable, 'bio_url_seeded' => $bioUrlSeeded] + $tally;
+        return ['outcome' => $outcome, 'observations' => $observations, 'pages' => $fetched, 'pages_unavailable' => $unavailable, 'unavailable_reasons' => $unavailableReasons, 'bio_url_seeded' => $bioUrlSeeded] + $tally;
+    }
+
+    /**
+     * Why a page could not be read — so "the host refuses us" stops looking
+     * identical to "the page is gone".
+     *
+     * The old log said only `pages_unavailable: 1`, which cannot tell a bot
+     * block from a 404 or a dead domain. That mattered: four detector hosts
+     * (bio.link, heylink.me, direct.me, beacons.ai) serve a Cloudflare refusal
+     * at the EDGE, so nothing downstream — not an API seam, not a better
+     * parser — can reach them, and we had no way to notice it was happening.
+     *
+     * `bot_challenge` covers both of Cloudflare's shapes: the managed JS
+     * challenge ("Just a moment…") and the hard WAF block ("Attention
+     * Required!"). Both arrive as 403 AFTER SafeUrlFetcher has already retried
+     * with its honest-bot UA, so reaching here means both attempts were
+     * refused and the User-Agent was not the reason.
+     *
+     * @param  array{status:int, body:string}|null  $response
+     */
+    private function unavailableReason(?array $response): string
+    {
+        // No response at all: DNS failure, SSRF refusal, or transport error.
+        if ($response === null) {
+            return 'unreachable';
+        }
+
+        $status = $response['status'];
+        $body = $response['body'];
+
+        if (in_array($status, [401, 403, 503], true)) {
+            foreach (self::CHALLENGE_MARKERS as $marker) {
+                if (str_contains($body, $marker)) {
+                    return 'bot_challenge';
+                }
+            }
+
+            return 'refused';
+        }
+
+        return match (true) {
+            $status === 404 || $status === 410 => 'not_found',
+            $status >= 500 => 'server_error',
+            // A 200 that reaches here had an empty body — the shell served
+            // nothing at all, which is not the same as being turned away.
+            $status === 200 => 'empty_body',
+            default => 'http_'.$status,
+        };
     }
 
     /**
