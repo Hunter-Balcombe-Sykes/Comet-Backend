@@ -3,6 +3,7 @@
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\MediaPageReader;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 // ITEM-FIRST watch/listen hand-add (media parity, 2026-08-20): a pasted
 // video/track URL lands as a real pool item — platform-canonical URL, real
@@ -203,6 +204,36 @@ it('suggests the video\'s CHANNEL beside a pool paste — suggest-only (T9b)', f
     expect($intent)->not->toBeNull()
         ->and($intent->state)->toBe('proposed')
         ->and($intent->identifier)->toBe('UCparentparentparentpar1');
+});
+
+it('never re-suggests a DISMISSED parent on a later paste — derived is not direct (T9b critic)', function () {
+    setupRoutingTables();
+    [$user] = makeShopUser(withSite: true);
+    // The user dismissed this channel's suggestion once — dismiss() writes
+    // exactly this tombstone. A later paste of ANOTHER video from the same
+    // channel must not resurrect the question.
+    DB::table('routing.item_tombstones')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'source_ref' => 'youtube.channel:UCparentparentparentpar1',
+        'scope' => 'this_source',
+        'reason' => 'user dismissed the suggestion',
+        'created_at' => now(),
+    ]);
+    mipMockFetch([
+        'youtube.com/oembed' => json_encode([
+            'title' => 'Another Video', 'thumbnail_url' => null,
+            'author_url' => 'https://www.youtube.com/channel/UCparentparentparentpar1',
+        ]),
+    ]);
+
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://youtu.be/dQw4w9WgXcQ',
+    ])->assertCreated();
+
+    expect(DB::table('routing.source_intents')
+        ->where('user_id', $user->id)->where('surface_key', 'youtube.channel')
+        ->whereIn('state', ['proposed', 'blocked'])->count())->toBe(0);
 });
 
 it('keeps the card path for a claimed item whose read fails', function () {

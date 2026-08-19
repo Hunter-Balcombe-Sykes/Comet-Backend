@@ -26,9 +26,16 @@ use Illuminate\Support\Facades\Log;
 // catalog is DOWNGRADED to Choose here, never applied.
 //
 // Tombstone-safe by REUSE, not reimplementation: the parent URL runs through
-// the real projector + PlacementPolicy first, so a platform the owner
-// disconnected answers Reject('tombstoned') exactly as it would for any
-// scanned link, and this class stays out of the tombstone business.
+// the real projector + PlacementPolicy first, AND the tombstone is asked
+// explicitly afterwards (policy skips it for direct requests; a DERIVED
+// parent is never a direct request, whatever the item's origin was).
+//
+// Known, accepted narrowing (critic, 2026-08-20): the pre-reconcile
+// downgrade to Choose means the reconciler's Place-gated account-cap /
+// booking-XOR checks don't run for these intents. Every surface reachable
+// through the easy set is a multiAccount(10) Content surface, so nothing
+// bites today — re-visit before wiring the moderate set (Spotify/Apple
+// Music/Tidal) if any of those land with tighter caps.
 class MediaParentSuggester
 {
     /** Origins the intent ledger accepts — anything else skips quietly. */
@@ -66,6 +73,16 @@ class MediaParentSuggester
             // exactly as they would to the URL itself.
             $placement = $this->policy->decide($projection, $context);
             if (! in_array($placement->verdict, [Verdict::Place, Verdict::Choose], true) || $placement->surfaceKey === null) {
+                return null;
+            }
+
+            // The tombstone, asked EXPLICITLY (critic blocker, 2026-08-20):
+            // decide() skips it for direct requests, but the parent was
+            // DERIVED from the item — the user never pasted the channel, so
+            // 'direct request beats tombstone' must not apply. Without this,
+            // one dismissed suggestion resurrected on every later paste from
+            // the same channel.
+            if ($this->policy->tombstoned($user, $placement->surfaceKey, $placement->identifier ?? $iri->canonical, $context)) {
                 return null;
             }
 

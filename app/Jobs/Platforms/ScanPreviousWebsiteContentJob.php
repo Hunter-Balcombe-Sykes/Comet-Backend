@@ -301,20 +301,6 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             }
         }
 
-        // T8 (owner, 2026-08-20): route EVERY outbound link on the page
-        // through the P8 pipeline — WebsiteImporter was built for exactly
-        // this and sat dormant, which is why a shop link, an event page or a
-        // video on a scanned previous website left ZERO trace (no card, no
-        // probe, no observation). It records its own import run, respects
-        // its own cooldown, and its note arms seed real pool items; the
-        // harvestHtml seed below keeps its social/booking/ordering
-        // categories exactly as before (the importer never wrote those).
-        try {
-            app(WebsiteImporter::class)->import($user, $baseUrl);
-        } catch (Throwable $e) {
-            report($e);
-        }
-
         // General link-harvesting — reuse the already-public, already-gated
         // seed() wholesale, not private sub-methods (the fix for the
         // capability-gate-bypass bug class this job's design deliberately avoids).
@@ -338,6 +324,35 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                     'Your website mentions an integration that clashes with one you have connected — review it in Integrations.',
                 );
             }
+        }
+
+        // T8 (owner, 2026-08-20): route EVERY outbound link on the page
+        // through the P8 pipeline — WebsiteImporter was built for exactly
+        // this and sat dormant, which is why a shop link, an event page or a
+        // video on a scanned previous website left ZERO trace (no card, no
+        // probe, no observation). It records its own import run, respects
+        // its own daily cap, and its note arms seed real pool items.
+        //
+        // AFTER the harvestHtml seed above, deliberately (critic blocker,
+        // 2026-08-20): the importer running FIRST auto-placed a thin
+        // instagram.profile connection off the site's own Instagram link,
+        // which made seedInstagram()'s has() guard skip the rich Apify
+        // connect and emit a false 'clashes with one you have connected'
+        // bell on virtually every first scan. Seed first: the rich connect
+        // wins, and the importer's later route of the same link aliases onto
+        // it (the reconciler's #R4 identity resolution) instead of racing it.
+        try {
+            $imported = app(WebsiteImporter::class)->import($user, $baseUrl);
+            if (($imported['outcome'] ?? null) !== 'ok') {
+                // A capped/unreachable import must not be invisible (the
+                // 10/day ImportRun cap writes no run row when it refuses).
+                Log::info('website_scan.importer_skipped', [
+                    'user_id' => $this->userId,
+                    'outcome' => $imported['outcome'] ?? null,
+                ]);
+            }
+        } catch (Throwable $e) {
+            report($e);
         }
 
         // Gallery photos — its own dispatched job (like the PDF/HTML menu

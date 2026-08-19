@@ -150,11 +150,19 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             // disconnected store — deliberately NOT ConnectStoreFromProductJob,
             // which carries no tombstone check and is scoped to the
             // user-initiated paste). Best-effort: the product is already in.
+            //
+            // ALWAYS suggest-only (critic blocker, 2026-08-20): a product
+            // link is the classic "shop my friend's boutique" shout-out
+            // shape — auto-connecting its store would attribute someone
+            // else's business to the scanned account. Same principle T9b
+            // pins for media parents: from an ITEM, the parent is a
+            // QUESTION. (The paste lane keeps its auto-connect — a person
+            // pasting their own product asked for it.)
             if ($seeded) {
                 $origin = $this->origin($this->url);
                 if ($origin !== null) {
                     try {
-                        $this->seedStore($brands, $user, $origin);
+                        $brands->seed($user, $origin, self::ORIGIN, suggestOnly: true);
                     } catch (Throwable $e) {
                         report($e);
                     }

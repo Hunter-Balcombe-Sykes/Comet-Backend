@@ -41,12 +41,21 @@ it('routing paste: a media ITEM url becomes a REAL pinned pool item, never a car
         '*' => Http::response('', 404),
     ]);
 
+    $siteId = (string) $pro->site->id;
+    $revisionBefore = (int) (DB::connection('pgsql')->table('site.site_build_state')
+        ->where('site_id', $siteId)->value('content_revision') ?? 0);
+
     $res = actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://youtu.be/dQw4w9WgXcQ'])
         ->assertStatus(202)
         ->assertJsonPath('outcome', 'item')
         ->assertJsonPath('pool', 'watch');
 
     expect($res->json('canonicalUrl'))->toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+    // The same +2 hand-add cache contract PoolCacheLanesTest pins for the
+    // pool endpoint: writeManualItem bumps lane 1, the pin busts all three.
+    expect((int) DB::connection('pgsql')->table('site.site_build_state')
+        ->where('site_id', $siteId)->value('content_revision'))->toBe($revisionBefore + 2);
 
     $item = DB::connection('pgsql')->table('content.items')
         ->where('user_id', $pro->id)->where('kind', 'video')->first();
@@ -59,6 +68,25 @@ it('routing paste: a media ITEM url becomes a REAL pinned pool item, never a car
         // And NO link card beside it.
         ->and(DB::connection('pgsql')->table('content.items')
             ->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0);
+});
+
+it('routing paste: a SCHEME-LESS media url still becomes the item (the share-sheet shape)', function () {
+    // RouteLinkRequest deliberately accepts scheme-less input; the item arm
+    // must normalize before the grammar asks (critic: a bare youtu.be paste
+    // skipped the arm AND spent a storefront probe on a video link).
+    Queue::fake();
+    $pro = createTenant('matrix-bare');
+    Http::fake([
+        'youtube.com/oembed*' => Http::response(json_encode(['title' => 'Bare Paste', 'thumbnail_url' => null]), 200, ['Content-Type' => 'application/json']),
+        '*' => Http::response('', 404),
+    ]);
+
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'youtu.be/dQw4w9WgXcQ'])
+        ->assertStatus(202)
+        ->assertJsonPath('outcome', 'item')
+        ->assertJsonPath('pool', 'watch');
+
+    Queue::assertNotPushed(CommerceProbeJob::class);
 });
 
 it('routing paste: a spotify EPISODE becomes a Listen item — never a platform connection (T6b end-to-end)', function () {
@@ -158,7 +186,11 @@ it('routing paste: a removed item is RESURRECTED by a fresh paste (direct reques
     expect(DB::connection('pgsql')->table('content.items')->where('id', $itemId)->value('removed_at'))->toBeNull();
 });
 
-it('routing paste: an unknown-host PRODUCT page cards the link and dispatches the store probe as a SUGGESTION', function () {
+it('routing paste: an unknown-host deep URL of the product-page SHAPE cards the link and dispatches the store probe as a SUGGESTION', function () {
+    // Honest scope note: the probe is queued (Queue::fake), so this row pins
+    // the paste lane's DISPATCH contract (suggestOnly). What the probe does
+    // with a real product page — item + store suggestion — is pinned in
+    // CommerceProbeObservationTest.
     Queue::fake();
     $pro = createTenant('matrix-product');
     Http::fake(['*' => Http::response('', 404)]);

@@ -59,10 +59,13 @@ it('records an unreachable probe as a note, not silence', function () {
     expect($observation->confidence)->toBeNull();
 });
 
-it('connects a scanned product\'s STORE beside the product item (T7)', function () {
+it('suggests a scanned product\'s STORE beside the product item — never auto-connects it (T7)', function () {
     // ShopProductSeeder seeded the product and STOPPED — a scanned Shopify
-    // product link never connected its store, while the paste lane did
-    // (ProductPageAdder → ConnectStoreFromProductJob). Same brain now.
+    // product link never surfaced its store, while the paste lane did
+    // (ProductPageAdder → ConnectStoreFromProductJob). Same brain now, but
+    // SUGGEST-ONLY: a bio's product link is the classic "shop my friend's
+    // boutique" shape, and auto-connecting would attribute someone else's
+    // store to the scanned account (critic, 2026-08-20).
     $user = probeObservationUser();
     Bus::fake();
     $productHtml = '<html><head><script type="application/ld+json">'.json_encode([
@@ -81,10 +84,14 @@ it('connects a scanned product\'s STORE beside the product item (T7)', function 
 
     expect(DB::connection('pgsql')->table('content.items')->where('user_id', $user->id)->where('kind', 'product')->count())->toBe(1);
 
-    $connection = IntegrationConnection::query()
+    // The store is a QUESTION in the suggestions inbox — proposed, never
+    // applied.
+    expect(IntegrationConnection::query()
+        ->where('user_id', $user->id)->where('surface_key', 'shopify.store')->count())->toBe(0);
+    $intent = DB::table('routing.source_intents')
         ->where('user_id', $user->id)->where('surface_key', 'shopify.store')->first();
-    expect($connection)->not->toBeNull()
-        ->and($connection->resource_id)->toBe('555001');
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed');
 });
 
 it('never reconnects a DISCONNECTED store from a scanned product (T7 tombstone, policy-owned)', function () {
