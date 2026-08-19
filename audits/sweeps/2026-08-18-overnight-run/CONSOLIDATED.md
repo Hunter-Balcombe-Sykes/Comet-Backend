@@ -2147,7 +2147,7 @@ None.
             ->get(['content_type', 'content_key', 'rank']);
         ```
 
-- [ ] **API-3** · P2 — A `QueryException` while resolving any one pool silently drops every pool from the public profile response
+- [x] **API-3** · P2 — A `QueryException` while resolving any one pool silently drops every pool from the public profile response
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:240-251
     - **Affects:** Unauthenticated public profile visitors; clients rendering the profile's watch/listen/media/menus/shop/services/events/custom-links pools.
     - **Technical:** `buildPools()` loops over `PoolRegistry::POOLS`, but `catch (QueryException) { return []; }` returns from the whole method on the first failure, not just the failed pool, and the exception is neither logged nor reported to Nightwatch. A partial database fault (one lane's table temporarily unreachable) is therefore indistinguishable, at the HTTP layer, from "this owner selected no content for any pool" — a 200 that looks identical to a legitimately empty profile. CLAUDE.md's observability contract is explicit that a failure needing attention "must throw or `$this->fail($e)`"; a bare swallow here means Nightwatch never sees it. The comment justifying the catch ("Partial test envs may not provision the content/sections tables … in production they always exist") is about *why* the guard exists for tests, not a case for silencing a genuine production fault the same way.
