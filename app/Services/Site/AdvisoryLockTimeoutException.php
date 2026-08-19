@@ -21,13 +21,28 @@ use App\Contracts\HttpStatusCodeInterface;
 // caller can't tell which lock contended either way.
 class AdvisoryLockTimeoutException extends \RuntimeException implements HttpStatusCodeInterface
 {
+    /**
+     * The message is USER-FACING copy, not diagnostics — bootstrap/app.php renders
+     * getMessage() verbatim into the 423 body for every HttpStatusCodeInterface exception,
+     * regardless of APP_DEBUG. It used to read `advisory lock timed out waiting on
+     * "identity:{user-uuid}:{kind}"`, which put an internal key and a user id on the wire the
+     * moment this class started declaring a status code. The key is still on $lockKey and in
+     * context() below, so logs lose nothing.
+     */
     public function __construct(public readonly string $lockKey, ?\Throwable $previous = null)
     {
-        parent::__construct("advisory lock timed out waiting on \"{$lockKey}\"", previous: $previous);
+        parent::__construct('Another change is still saving — please retry in a moment.', previous: $previous);
+    }
+
+    /** Laravel folds this into the log record, which is where the key belongs. */
+    public function context(): array
+    {
+        return ['lock_key' => $this->lockKey];
     }
 
     /**
-     * 423, matching what the controllers above already return by hand.
+     * 423, matching what the controllers above already return by hand — the same status AND now
+     * the same copy.
      *
      * Declared here rather than added as another per-controller catch because #LIFE-1 made this
      * exception reachable from resolveItems(), i.e. from EVERY writeManualItem() caller —

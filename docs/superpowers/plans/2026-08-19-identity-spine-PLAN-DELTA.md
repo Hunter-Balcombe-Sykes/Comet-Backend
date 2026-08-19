@@ -345,3 +345,97 @@ No migration: this adds no column, so nothing to apply to dev Supabase before me
 prompt describes them as "closed with written reasons". An unticked box blocks
 auto-archive and keeps the sweep reading red. Not touched here — closing someone else's
 finding is their call, not this unit's.
+
+---
+
+## 7. Independent review, round 1 — FAIL, and it was right
+
+A separate instance that did not write the code reviewed it and returned **FAIL** on six
+findings. It confirmed the two questions the brief says matter most — the lock does cover
+the write, and no `bindGroup()` path escapes the `$merged` invalidation — but broke the
+**evidence**. All six are fixed; each fix is mutation-checked.
+
+### 1 + 2. The tests proved the transaction, never the lock — DEFECT, fixed
+
+The reviewer gated the `AdvisoryLock::acquire()` call behind `if (false && …)`, leaving the
+transaction, and **all three tests still passed**. The wait the timing test measured was
+not the advisory lock at all: both children bound the *same* `$manualCoord`, so
+`content.item_anchors`' PK serialised them on the unique index whether or not a lock
+existed. The same three passed with the closing re-read and UPDATE loop moved outside the
+transaction — verbatim the failure mode `resolveItems()`'s own docblock warns about.
+
+That is exactly the vacuity the brief predicted, and my "it failed before the fix" evidence
+did not catch it: pre-fix there was no transaction either, so the anchor insert committed
+immediately and never blocked anyone.
+
+**Fix — the fixture no longer inserts any anchor.** Both coords are pre-anchored, and the
+manual coord's source item carries `item_id NULL` against a live anchor (what an interrupted
+resolve actually leaves). Child A therefore has a pending final UPDATE without minting
+anything, no PK row lock exists for child B to block on, and the hook moved from the anchor
+INSERT to the **closing `source_items` re-read** — the last statement before the UPDATE loop.
+
+Mutation-checked, both ways:
+
+| mutation | result |
+|---|---|
+| `AdvisoryLock::acquire()` removed, transaction kept | **2 of 4 fail** |
+| transaction ends before the closing re-read + UPDATE | **2 of 4 fail** |
+| lock key coarsened to a constant | isolation test fails |
+
+### 3. The `$merged` guard had no detector — DEFECT, fixed
+
+The reviewer deleted `$merged = true` from the losers loop and ran the whole PG lane plus
+`tests/Feature/{Ingest,Content}`: **nothing failed**. The single flag keeping #SCALE-4's
+prefetch honest was unguarded.
+
+**Fix — a new single-process test.** Three coords where two share an item; the owner unites
+the first pair; that merge hard-deletes the shared item and `ON DELETE CASCADE` takes the
+third coord's anchor with it. A later group reading the pre-merge snapshot binds to the
+deleted item and the closing UPDATE raises `23503`. Deleting the flag now fails that test
+with exactly that SQLSTATE.
+
+### 4. The tie-break rationale was factually wrong — fixed
+
+I wrote that a `bound_at` tie "can only arise among coords bound by ONE insertOrIgnore
+batch". False. Laravel's grammar formats timestamps as `Y-m-d H:i:s`, so **every `bound_at`
+is stored truncated to whole seconds** — ties between different calls binding different
+items are routine. The comment now says so, and the `$snapshot === null` fallback query
+gained the matching `->orderBy('coord')` so the two paths cannot order a tie differently
+within one pass.
+
+"Oldest binding wins" is only true to the second. That is a property of the column, not of
+this change, but the hard delete rests on it, so it is written down.
+
+### 5. The 423 body leaked the lock key — fixed
+
+`bootstrap/app.php` renders `getMessage()` verbatim for every `HttpStatusCodeInterface`
+exception, regardless of `APP_DEBUG`. The message was `advisory lock timed out waiting on
+"identity:{user-uuid}:{kind}"` — an internal key and a user id on the wire, and the same for
+the seven pre-existing lock keys wherever they escape a hand-written catch. The message is
+now the same user-facing copy the controllers already return; the key moved to `context()`,
+which Laravel folds into the log record.
+
+### 6. A lock timeout left a residue — fixed
+
+`writeManualItem()` commits the source item and its identity keys *before* `resolveItems()`
+runs, so a timeout leaves a live, unbound row. The next resolve binds it to a freshly minted
+item that `writeFacets()` never populated: a blank card in a pool the owner was told had
+failed to save.
+
+Fixed in `writeManualItem()` rather than in `UserServiceController` — all ten callers get it.
+`upsertSourceItem()` now reports whether **it** created the row, and only a row this call
+created is retired; an idempotent re-add (`MenuScanApplier`, `ShopContentWriter`, the
+backfillers) must never have the owner's real content retired under it. The catch sits
+outside every transaction and rethrows, so it cannot poison one (25P02).
+
+Mutation-checked both halves: removing the compensation fails the "created row is retired"
+assertion; dropping the `$created` guard fails the "existing row untouched" one.
+
+### Non-findings the reviewer explicitly cleared
+
+`#CACHE-5`'s batched insert is outcome-identical to the per-coord loop (hand-diffed against
+`35ab6b7d8`); `bindGroup()` has one caller and nothing expected the old string return; the
+new `AdvisoryLock` parameter preserves all seven existing call sites; lock and transaction
+are provably on the same backend (`pg_locks` on `pg_backend_pid()`); no caller nests
+`resolveItems()` in an outer transaction, traced transitively; no `try/catch` inside the
+locked call graph.

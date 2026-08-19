@@ -39,6 +39,7 @@
 // moveSlugs() / curation check; every test here does, and without them the lane fails 42P01.
 
 use App\Ingest\Projection\ProjectionWriter;
+use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -383,9 +384,20 @@ afterAll(function () {
 });
 
 /**
- * The pre-race state: one connector-landed link, already bound to its own item.
+ * The pre-race state.
  *
- * @return array{0: string, 1: string, 2: string, 3: string} [userId, connectorCoord, connectorItemId, manualCoord]
+ * TWO coords, BOTH already anchored, so nothing in the race inserts an anchor. That is not
+ * incidental — it is what makes the lock the only thing that can serialise the two callers.
+ * content.item_anchors' PK is (user_id, coord), so if child A inserted an anchor inside its
+ * open transaction, child B would block on THAT row lock and the whole file would go green with
+ * the advisory lock deleted. It did, until an independent review caught it.
+ *
+ * The manual coord's source item deliberately carries item_id NULL against a live anchor. That
+ * is exactly what an interrupted resolve leaves behind — the state this fix exists to stop being
+ * created — and it is what gives child A a PENDING final UPDATE without minting anything.
+ *
+ * @return array{0: string, 1: string, 2: string, 3: string, 4: string}
+ *                                                                      [userId, connectorCoord, connectorItemId, manualCoord, manualItemId]
  */
 function pgirScenario(): array
 {
@@ -406,7 +418,7 @@ function pgirScenario(): array
         'connection_id' => $connectionId, 'label' => 'pgir.connector',
     ]);
 
-    // Bound EARLIER than anything the race mints, so oldest-binding-wins is deterministic.
+    // Bound a day earlier than the manual side, so oldest-binding-wins is deterministic.
     $connectorItemId = (string) Str::uuid();
     $pg->table('content.items')->insert([
         'id' => $connectorItemId, 'user_id' => $userId, 'kind' => 'link',
@@ -425,7 +437,28 @@ function pgirScenario(): array
         'item_id' => $connectorItemId, 'bound_at' => now()->subDay(),
     ]);
 
-    return [$userId, $connectorCoord, $connectorItemId, 'manual:'.sha1('pgir-'.Str::random(8))];
+    $manualSourceId = app(ProjectionWriter::class)->ensureManualSource($userId);
+
+    $manualItemId = (string) Str::uuid();
+    $pg->table('content.items')->insert([
+        'id' => $manualItemId, 'user_id' => $userId, 'kind' => 'link',
+        'first_seen_at' => now()->subHour(), 'last_seen_at' => now()->subHour(),
+        'created_at' => now()->subHour(), 'updated_at' => now()->subHour(),
+    ]);
+
+    $manualCoord = 'manual:'.sha1('pgir-'.Str::random(8));
+    $pg->table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $manualSourceId, 'coord' => $manualCoord,
+        // NULL, against a live anchor — see the docblock.
+        'item_id' => null, 'kind' => 'link', 'projector_version' => 0,
+        'first_seen_at' => now()->subHour(), 'last_seen_at' => now()->subHour(),
+    ]);
+    $pg->table('content.item_anchors')->insert([
+        'coord' => $manualCoord, 'user_id' => $userId,
+        'item_id' => $manualItemId, 'bound_at' => now()->subHour(),
+    ]);
+
+    return [$userId, $connectorCoord, $connectorItemId, $manualCoord, $manualItemId];
 }
 
 /**
@@ -482,11 +515,18 @@ function pgirChildConnection(): void
 }
 
 /**
- * Fork child A (the add whose read->write window is held open) and child B (the "these two are
- * the same" decision plus its own resolve, landing inside that window).
+ * Fork child A (whose read->write window is held open) and child B (the "these two are the same"
+ * decision plus its own re-add, landing inside that window).
  *
- * When $bUserId differs from $userId, child B is a DIFFERENT owner doing the same thing to their
- * own pool — the isolation case, which must NOT be serialised behind A.
+ * Child A's hook fires on the FINAL source_items re-read — the last statement before the
+ * per-target UPDATE loop — not on anything inside bindGroup(). That placement is what makes the
+ * file detect BOTH failures the brief names: with no lock, child B commits its merge during the
+ * sleep and child A's UPDATE lands on a hard-deleted item; and if the transaction were shortened
+ * to end before this tail, the sleep itself would fall outside the lock and child B would get in
+ * anyway. Hooking inside bindGroup() detects neither — it detects only the missing transaction.
+ *
+ * When $bUserId differs, child B is a DIFFERENT owner doing the same thing to their own pool —
+ * the isolation case, which must NOT be serialised behind A.
  */
 function pgirRunRace(
     string $userId,
@@ -525,17 +565,18 @@ function pgirRunRace(
 
         try {
             if ($i === 0) {
-                // Child A: hold the window open, once, immediately after binding its own coord.
-                // The hook is timing only — it commits nothing and changes no state.
-                DB::listen(function ($query) use (&$hooked, $manualCoord) {
+                // Timing only — commits nothing, changes no state.
+                DB::listen(function ($query) use (&$hooked) {
                     if ($hooked) {
                         return; // fire-once: the pg_sleep below re-enters this listener.
                     }
                     $sql = strtolower($query->sql);
-                    if (! str_contains($sql, 'item_anchors') || ! str_contains($sql, 'insert')) {
+                    // resolveItems()' closing re-read: the only statement that selects item_id
+                    // from an UNALIASED content.source_items by a subquery of ids.
+                    if (! str_contains($sql, 'from "content"."source_items" where "id" in (select')) {
                         return;
                     }
-                    if (! in_array($manualCoord, $query->bindings, true)) {
+                    if (! str_contains($sql, '"item_id"')) {
                         return;
                     }
                     $hooked = true;
@@ -652,7 +693,7 @@ function pgirAssertRanCleanly(Collection $probes): void
         ->toHaveCount(0, "A child raised instead of resolving cleanly. Outcomes: {$outcomes}");
 
     expect($probes->firstWhere('child_idx', 0)?->hooked)->toBeTrue(
-        'child A never reached its own anchor insert — the race never happened and every assertion here is vacuous',
+        'child A never reached the final source_items re-read — the window never opened and every assertion here is vacuous',
     );
 }
 
@@ -662,7 +703,6 @@ it('does not lose the merge when a second resolveItems() commits inside the firs
     }
 
     [$userId, $connectorCoord, , $manualCoord] = pgirScenario();
-    app(ProjectionWriter::class)->ensureManualSource($userId);
 
     $probes = pgirRunRace($userId, $connectorCoord, $manualCoord);
 
@@ -681,17 +721,16 @@ it('makes the second caller wait for the first, rather than resolving against a 
     }
 
     [$userId, $connectorCoord, , $manualCoord] = pgirScenario();
-    app(ProjectionWriter::class)->ensureManualSource($userId);
 
     $probes = pgirRunRace($userId, $connectorCoord, $manualCoord);
 
     expect($probes->firstWhere('child_idx', 0)?->hooked)->toBeTrue('child A never held the window open — the measurement below is meaningless');
 
-    // Child A pins the window for PGIR_HOLD_SECONDS starting before child B even wakes, so a
-    // child B that is genuinely serialised behind it cannot return in less than the remainder.
-    // Asserting on the WAIT, not on the outcome: an outcome-only assertion would pass with no
-    // lock at all whenever the scheduler happened to order the two children favourably, which
-    // is the usual way this kind of work goes vacuously green.
+    // Nothing in this scenario inserts an anchor (see pgirScenario()), so no unique-index row
+    // lock can serialise the two children. If child B waited, the advisory lock is the only
+    // thing that made it wait. Asserting on the WAIT rather than the outcome is deliberate: an
+    // outcome-only assertion passes with no lock whenever the scheduler happens to order the
+    // children favourably.
     $floorMs = (int) ((PGIR_HOLD_SECONDS * 1000) - (PGIR_B_DELAY_US / 1000) - 250);
     $elapsed = (int) ($probes->firstWhere('child_idx', 1)?->elapsed_ms ?? 0);
 
@@ -711,8 +750,6 @@ it('does not serialise a different owner behind the lock', function () {
     // write blocked every other owner's. That regression has no other detector.
     [$userA, $connectorA, , $manualA] = pgirScenario();
     [$userB, $connectorB, , $manualB] = pgirScenario();
-    app(ProjectionWriter::class)->ensureManualSource($userA);
-    app(ProjectionWriter::class)->ensureManualSource($userB);
 
     $probes = pgirRunRace($userA, $connectorA, $manualA, bUserId: $userB, bConnectorCoord: $connectorB, bManualCoord: $manualB);
 
@@ -726,8 +763,152 @@ it('does not serialise a different owner behind the lock', function () {
         "a second owner's write took {$elapsed}ms — it was serialised behind an unrelated owner's lock",
     );
 
-    // And each owner's own pool still resolved correctly.
     pgirAssertConsistent($userA);
     pgirAssertConsistent($userB);
     expect(DB::connection('pgsql')->table('content.items')->where('user_id', $userB)->count())->toBe(1);
 });
+
+// ── #SCALE-4's staleness guard ────────────────────────────────────────────────────────────────
+//
+// The run-wide anchor prefetch is dropped the moment any group merges, because mergeInto()'s
+// anchor UPDATE is keyed on the ITEM (item_id / superseded_by), not on the group's coords, and
+// its hard DELETE cascades content.item_anchors. A later group reading the pre-merge snapshot
+// therefore binds to an item that no longer exists.
+//
+// This needs no concurrency at all — one pass, two groups, the first merging and the second
+// reading. It exists because the whole 20-line rationale on that guard had NO detector: deleting
+// `$merged = true` from the losers loop left the entire PG lane and tests/Feature/{Ingest,Content}
+// green.
+it('re-reads a group\'s anchors after an earlier group in the same pass merged the item they point at', function () {
+    $pg = DB::connection('pgsql');
+
+    $userId = (string) Str::uuid();
+    $pg->table('core.users')->insert(['id' => $userId]);
+    $pg->table('site.sites')->insert(['id' => (string) Str::uuid(), 'user_id' => $userId]);
+
+    $connectionId = (string) Str::uuid();
+    $pg->table('site.platform_connections')->insert([
+        'id' => $connectionId, 'user_id' => $userId, 'resource_id' => 'pgir', 'deleted_at' => null,
+    ]);
+    $sourceId = (string) Str::uuid();
+    $pg->table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'connection_id' => $connectionId, 'label' => 'pgir.connector',
+    ]);
+
+    // Two items. R shares Q's item — the ordinary residue of an earlier merge.
+    $keptItemId = (string) Str::uuid();
+    $doomedItemId = (string) Str::uuid();
+    foreach ([[$keptItemId, 3], [$doomedItemId, 2]] as [$itemId, $hoursAgo]) {
+        $pg->table('content.items')->insert([
+            'id' => $itemId, 'user_id' => $userId, 'kind' => 'link',
+            'first_seen_at' => now()->subHours($hoursAgo), 'last_seen_at' => now()->subHours($hoursAgo),
+            'created_at' => now()->subHours($hoursAgo), 'updated_at' => now()->subHours($hoursAgo),
+        ]);
+    }
+
+    // first_seen_at fixes the read order, and DisjointSet::groups() emits groups in the order
+    // their first member was read — so {P,Q} is processed before {R}, which is the whole point.
+    $coords = [
+        ['pgir:p', $keptItemId, 3],
+        ['pgir:q', $doomedItemId, 2],
+        ['pgir:r', $doomedItemId, 1],
+    ];
+    foreach ($coords as [$coord, $itemId, $hoursAgo]) {
+        $pg->table('content.source_items')->insert([
+            'id' => (string) Str::uuid(), 'source_id' => $sourceId, 'coord' => $coord,
+            'item_id' => $itemId, 'kind' => 'link', 'projector_version' => 1,
+            'first_seen_at' => now()->subHours($hoursAgo), 'last_seen_at' => now()->subHours($hoursAgo),
+        ]);
+        $pg->table('content.item_anchors')->insert([
+            'coord' => $coord, 'user_id' => $userId, 'item_id' => $itemId,
+            'bound_at' => now()->subHours($hoursAgo),
+        ]);
+    }
+
+    // The owner unites P and Q. That merge discards $doomedItemId and hard-deletes it — taking
+    // R's anchor row with it, via item_anchors.item_id's ON DELETE CASCADE.
+    $pg->table('content.identity_decisions')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $userId, 'verdict' => 'same',
+        'left_coord' => 'pgir:p', 'right_coord' => 'pgir:q', 'decided_at' => now(),
+    ]);
+
+    // Any manual write drives one full resolveItems() pass over all four coords.
+    $trigger = 'manual:'.sha1('pgir-stale-'.Str::random(8));
+    app(ProjectionWriter::class)->writeManualItem($userId, $trigger, pgirLinkProjection($trigger));
+
+    // Without the guard, group {R} binds to $doomedItemId off the stale snapshot and the closing
+    // UPDATE raises 23503 against a row that no longer exists.
+    expect($pg->table('content.items')->where('id', $doomedItemId)->exists())
+        ->toBeFalse('the merge did not happen, so this test proves nothing.'."\n  ".pgirState($userId));
+
+    pgirAssertConsistent($userId);
+});
+
+// ── what a lock timeout leaves behind ─────────────────────────────────────────────────────────
+//
+// writeManualItem() commits the source item and its identity keys BEFORE resolveItems() runs, so
+// #LIFE-1 made a timeout reachable between two committed states. Uncompensated, that row is
+// bound by the NEXT resolve to a freshly minted item that writeFacets() never populated — a
+// blank card, in a pool the owner was told had failed to save.
+//
+// Slow by construction: the bound is IDENTITY_LOCK_TIMEOUT_MS and SET LOCAL overrides any
+// session value, so the wait cannot be shortened from the test side. It is here because the
+// alternative is an untested compensation on the content spine.
+it('retires a source item it created when identity resolution times out, and leaves a pre-existing one alone', function () {
+    config(['database.connections.pgsql_second' => config('database.connections.pgsql')]);
+
+    $pg = DB::connection('pgsql');
+    $userId = (string) Str::uuid();
+    $pg->table('core.users')->insert(['id' => $userId]);
+    $pg->table('site.sites')->insert(['id' => (string) Str::uuid(), 'user_id' => $userId]);
+
+    $writer = app(ProjectionWriter::class);
+
+    // An item the owner already has, landed cleanly before any contention.
+    $existingCoord = 'manual:'.sha1('pgir-existing-'.Str::random(8));
+    $writer->writeManualItem($userId, $existingCoord, pgirLinkProjection($existingCoord));
+
+    // A genuinely separate backend holds identity:{user}:link for the duration.
+    $blocker = DB::connection('pgsql_second');
+    $blocker->beginTransaction();
+    $blocker->select('select pg_advisory_xact_lock(hashtext(?))', ["identity:{$userId}:link"]);
+
+    try {
+        $newCoord = 'manual:'.sha1('pgir-new-'.Str::random(8));
+
+        $thrown = null;
+        try {
+            $writer->writeManualItem($userId, $newCoord, pgirLinkProjection($newCoord));
+        } catch (Throwable $e) {
+            $thrown = $e;
+        }
+
+        expect($thrown)->toBeInstanceOf(AdvisoryLockTimeoutException::class);
+        expect($thrown->getHttpStatusCode())->toBe(423);
+        // The body is rendered from getMessage() verbatim, so it must not carry the key.
+        expect($thrown->getMessage())->not->toContain($userId);
+        expect($thrown->getMessage())->not->toContain('identity:');
+
+        $newRow = $pg->table('content.source_items')->where('coord', $newCoord)->first();
+        expect($newRow)->not->toBeNull('the source item was never committed, so there is nothing to compensate');
+        expect($newRow->removed_at)->not->toBeNull('a source item this call created was left live with no item — the next resolve binds it to a facet-less blank');
+        expect($newRow->item_id)->toBeNull();
+
+        // The owner's existing row must survive the identical failure untouched.
+        $thrownAgain = null;
+        try {
+            $writer->writeManualItem($userId, $existingCoord, pgirLinkProjection($existingCoord));
+        } catch (Throwable $e) {
+            $thrownAgain = $e;
+        }
+
+        expect($thrownAgain)->toBeInstanceOf(AdvisoryLockTimeoutException::class);
+
+        $existingRow = $pg->table('content.source_items')->where('coord', $existingCoord)->first();
+        expect($existingRow->removed_at)->toBeNull('a re-add of an EXISTING coord retired the owner\'s real content');
+    } finally {
+        $blocker->rollBack();
+        DB::purge('pgsql_second');
+    }
+})->group('slow');

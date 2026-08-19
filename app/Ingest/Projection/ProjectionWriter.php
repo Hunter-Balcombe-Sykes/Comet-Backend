@@ -15,6 +15,7 @@ use App\Routing\SecretParams;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Services\Media\MediaMirror;
 use App\Services\Site\AdvisoryLock;
+use App\Services\Site\AdvisoryLockTimeoutException;
 use App\Site\Documents\BuildState;
 use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Support\Collection;
@@ -222,7 +223,7 @@ class ProjectionWriter
             // source item and its keys in a fixed order, so a cycle needs two
             // writers on the SAME row — accepted, not retried.
             $sourceItemId = DB::transaction(function () use ($contentSourceId, $coord, $streamId, $record, $projection, $projector) {
-                $id = $this->upsertSourceItem(
+                [$id] = $this->upsertSourceItem(
                     contentSourceId: $contentSourceId,
                     coord: $coord,
                     streamId: $streamId,
@@ -418,8 +419,8 @@ class ProjectionWriter
         // and for the same reason: a committed source item visible with zero
         // identity keys resolves as an unrelated singleton and mints a
         // spurious item. See the long note at the projectStream() call site.
-        DB::transaction(function () use ($contentSourceId, $coord, $kind, $projection) {
-            $sourceItemId = $this->upsertSourceItem(
+        [$sourceItemId, $created] = DB::transaction(function () use ($contentSourceId, $coord, $kind, $projection) {
+            [$sourceItemId, $created] = $this->upsertSourceItem(
                 contentSourceId: $contentSourceId,
                 coord: $coord,
                 streamId: null,
@@ -431,9 +432,34 @@ class ProjectionWriter
                 projectorVersion: 0,
             );
             $this->writeIdentityKeys($sourceItemId, $coord, $projection);
+
+            return [$sourceItemId, $created];
         });
 
-        $itemByCoord = $this->resolveItems($userId, $kind);
+        try {
+            $itemByCoord = $this->resolveItems($userId, $kind);
+        } catch (AdvisoryLockTimeoutException $e) {
+            // #LIFE-1 made a lock timeout reachable HERE, between two committed states: the
+            // transaction above has landed a live source item with its identity keys, and
+            // resolveItems() rolled its own back without binding it to anything. Left alone that
+            // row is picked up by the NEXT resolve for this (user, kind) and bound to a freshly
+            // minted item — but writeFacets() never ran for it, so what the owner eventually
+            // sees is a blank card they were told had failed to save.
+            //
+            // Only a row THIS call created is retired. An idempotent re-add (MenuScanApplier,
+            // ShopContentWriter, every backfiller) upserts a coord the owner already has, and
+            // retiring that on a lock timeout would delete real content. upsertSourceItem()'s
+            // update branch clears removed_at, so a retry heals this by itself.
+            //
+            // Catching here is safe: the transaction above has COMMITTED and resolveItems()'
+            // own has rolled back, so this runs outside every transaction and cannot poison one
+            // (25P02). It rethrows — the caller still learns the write failed.
+            if ($created) {
+                DB::table('content.source_items')->where('id', $sourceItemId)->update(['removed_at' => now()]);
+            }
+
+            throw $e;
+        }
 
         if (! isset($itemByCoord[$coord])) {
             // Unreachable: the row was just written live and resolveItems()
@@ -467,6 +493,13 @@ class ProjectionWriter
         return 'acct-'.substr(sha1(strtolower(trim($identifier))), 0, 16);
     }
 
+    /**
+     * @return array{0: string, 1: bool} [source item id, whether THIS call created the row]
+     *
+     * The created flag exists for writeManualItem()'s compensation: a caller that fails after
+     * this commits must be able to tell a row it just minted (safe to retire) from one that was
+     * already the owner's (never touch it).
+     */
     private function upsertSourceItem(
         string $contentSourceId,
         string $coord,
@@ -474,7 +507,7 @@ class ProjectionWriter
         ?string $recordKey,
         string $kind,
         int $projectorVersion,
-    ): string {
+    ): array {
         $existing = DB::table('content.source_items')
             ->where('source_id', $contentSourceId)
             ->where('coord', $coord)
@@ -492,7 +525,7 @@ class ProjectionWriter
                 'removed_at' => null,
             ]);
 
-            return (string) $existing->id;
+            return [(string) $existing->id, false];
         }
 
         // insertOrIgnore + re-read, not insert: the SELECT above and this write
@@ -524,7 +557,9 @@ class ProjectionWriter
             throw new \RuntimeException("Could not resolve a source item for coord {$coord}.");
         }
 
-        return (string) $landed;
+        // Not "we inserted": insertOrIgnore may have lost to a concurrent writer, in which case
+        // the row is theirs and retiring it would delete someone else's write.
+        return [(string) $landed, (string) $landed === $id];
     }
 
     /**
@@ -831,6 +866,10 @@ class ProjectionWriter
                 ->where('user_id', $userId)
                 ->whereIn('coord', $group)
                 ->orderBy('bound_at')
+                // Secondary sort, matching anchorsFromSnapshot(): bound_at is second-resolution
+                // (see that method), so without it these two paths can order a tie differently
+                // within one pass and pick different merge winners.
+                ->orderBy('coord')
                 ->get(['coord', 'item_id', 'superseded_by', 'bound_at'])
             : $this->anchorsFromSnapshot($snapshot, $group);
 
@@ -989,9 +1028,19 @@ class ProjectionWriter
      * This group's slice of the prefetch, ordered as the per-group query ordered it.
      *
      * bound_at order is load-bearing, not cosmetic: $effective's first element is the oldest
-     * binding, and that is what wins. coord breaks ties, which the SQL ORDER BY left unspecified
-     * — and a tie can only arise among coords bound by ONE insertOrIgnore batch, which by
-     * construction all carry the same item id, so their order cannot change the outcome.
+     * binding, and that is what wins a merge — whose loser mergeInto() hard-deletes.
+     *
+     * TIES ARE ROUTINE, not rare, and an earlier version of this comment claimed otherwise.
+     * Laravel's query grammar formats every timestamp binding as 'Y-m-d H:i:s', so bound_at is
+     * stored truncated to WHOLE SECONDS whatever Carbon held: two anchors written a millisecond
+     * apart, by different calls, to different items, compare equal. So coord is the tie-break —
+     * arbitrary, but DETERMINISTIC, where the bare SQL ORDER BY was arbitrary and not. The
+     * $snapshot === null path in bindGroup() carries the same ->orderBy('coord') so the two
+     * paths cannot disagree within one pass.
+     *
+     * "Oldest binding wins" is therefore only true to the second. That is a pre-existing
+     * property of the column, not something introduced here, and it is written down because the
+     * hard delete rests on it.
      *
      * @param  array<string, object>  $snapshot
      * @param  list<string>  $group
