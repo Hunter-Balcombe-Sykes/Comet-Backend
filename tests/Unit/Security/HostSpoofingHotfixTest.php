@@ -68,7 +68,9 @@ it('still classifies real brand hosts in WebsiteLinkHarvester::classify()', func
     ['https://www.just-eat.co.uk/restaurants-x', 'just_eat.order'],
     ['https://www.treatwell.co.uk/place/x', 'treatwell.book'],
     ['https://www.eventbrite.com.au/o/organiser-1234', 'eventbrite'],
-    ['https://www.ticketmaster.com.au/event/x', 'events-custom'],
+    // events-parity 2026-08-19: the events arms answer with the REAL brand
+    // key, not the retired 'events-custom' pseudo-slug.
+    ['https://www.ticketmaster.com.au/event/x', 'ticketmaster'],
 ]);
 
 it('rejects spoofed OpenTable hosts end to end', function () {

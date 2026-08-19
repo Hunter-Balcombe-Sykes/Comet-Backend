@@ -46,9 +46,23 @@ class EventsSeeder
 
     private const PLATFORMS = ['eventbrite', 'humanitix'];
 
+    /**
+     * Events-parity (2026-08-19): brands whose single-event pages seed the
+     * SAME pool-item lane through the generic schema.org reader — no bespoke
+     * scraper, no organiser/account arm (only the two bespoke platforms have
+     * an organiser scrape). 'events-custom' passes through for hosts classify
+     * recognises without a brand key (Meetup); the reader self-filters a page
+     * with no Event JSON-LD to null and the caller cards the link as before.
+     */
+    private const GENERIC_EVENT_PLATFORMS = [
+        'luma', 'partiful', 'ticketmaster', 'ticketek', 'oztix', 'trybooking',
+        'resident-advisor', 'events-custom',
+    ];
+
     public function __construct(
         private readonly EventbriteScraper $eventbrite,
         private readonly HumanitixScraper $humanitix,
+        private readonly EventPageReader $reader,
     ) {}
 
     /**
@@ -162,21 +176,29 @@ class EventsSeeder
      */
     public function seedStandalone(User $user, string $platform, string $url, ?string $origin = null): ?string
     {
-        if (! in_array($platform, self::PLATFORMS, true)) {
-            return null;
-        }
+        if (in_array($platform, self::PLATFORMS, true)) {
+            $canonical = $platform === 'eventbrite'
+                ? $this->eventbrite->normalizeEventUrl($url)
+                : $this->humanitix->normalizeEventUrl($url);
+            if ($canonical === null) {
+                return null;
+            }
 
-        $canonical = $platform === 'eventbrite'
-            ? $this->eventbrite->normalizeEventUrl($url)
-            : $this->humanitix->normalizeEventUrl($url);
-        if ($canonical === null) {
-            return null;
-        }
-
-        $event = $platform === 'eventbrite'
-            ? $this->eventbrite->fetchSingleEvent($canonical)
-            : $this->humanitix->fetchSingleEvent($canonical);
-        if ($event === null) {
+            $event = $platform === 'eventbrite'
+                ? $this->eventbrite->fetchSingleEvent($canonical)
+                : $this->humanitix->fetchSingleEvent($canonical);
+            if ($event === null) {
+                return null;
+            }
+        } elseif (in_array($platform, self::GENERIC_EVENT_PLATFORMS, true)) {
+            // Events-parity: every other events brand reads through the one
+            // generic schema.org lane — same stored shape, same pool write.
+            $read = $this->reader->read($url);
+            if ($read === null) {
+                return null;
+            }
+            [$canonical, $event] = [$read['canonical'], $read['event']];
+        } else {
             return null;
         }
 

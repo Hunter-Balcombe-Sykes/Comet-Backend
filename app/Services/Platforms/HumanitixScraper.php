@@ -179,46 +179,9 @@ class HumanitixScraper extends PlatformScraper
      */
     private function parseEventNode(array $event, string $fallbackUrl): array
     {
-        $loc = $event['location'] ?? [];
-        // First-entry collapse kept for price string + availability; lowestOffer()
-        // scans the RAW list — Humanitix's leading AggregateOffer often carries
-        // only priceCurrency, with each ticket tier's `price` on later Offer
-        // entries, so the minimum must be taken across ALL of them.
-        $offersRaw = $event['offers'] ?? [];
-        $offers = $offersRaw;
-        if (isset($offers[0])) {
-            $offers = $offers[0];
-        }
-        if (! is_array($offers)) {
-            $offers = [];
-        }
-        $image = $event['image'] ?? null;
-        if (is_array($image)) {
-            $image = $image[0] ?? null;
-        }
-
-        $availability = $this->normalizeAvailability(data_get($offers, 'availability'));
-        $lowest = $this->lowestOffer($offersRaw);
-
-        return [
-            'name' => $event['name'] ?? null,
-            'venue' => data_get($loc, 'name') !== null ? trim((string) data_get($loc, 'name')) : null,
-            'location' => data_get($loc, 'address.addressLocality') ?? data_get($loc, 'address.addressRegion'),
-            'startDate' => $event['startDate'] ?? null,
-            'endDate' => $event['endDate'] ?? null,
-            // Enrichment (2026-07-17) — mirrors EventbriteScraper::parseEvent field
-            // for field (same wire contract, same rationale comments there).
-            'description' => $this->sanitizeDescription($event['description'] ?? null),
-            'startsAt' => $event['startDate'] ?? null,
-            'endsAt' => $event['endDate'] ?? null,
-            'price' => $this->formatPrice($offers),
-            'priceMin' => $lowest['priceMin'],
-            'currency' => $lowest['currency'],
-            'availability' => $availability,
-            'soldOut' => $availability === 'sold_out',
-            'image' => is_string($image) ? $image : null,
-            'link' => is_string($event['url'] ?? null) ? $event['url'] : $fallbackUrl,
-        ];
+        // Shared schema.org mapping (PlatformScraper::schemaOrgEventNode) —
+        // this scraper's copy and Eventbrite's were field-for-field identical.
+        return $this->schemaOrgEventNode($event, $fallbackUrl);
     }
 
     // og:title on the host page reads "<Host> | Humanitix" (or similar suffix).
