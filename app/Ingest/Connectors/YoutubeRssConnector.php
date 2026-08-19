@@ -18,6 +18,7 @@ use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
 use App\Ingest\Support\YoutubeFeed;
+use App\Services\Platforms\YoutubeThumbnailResolver;
 
 /**
  * YouTube's keyless channel RSS (GET youtube.com/feeds/videos.xml?channel_id=)
@@ -38,6 +39,16 @@ use App\Ingest\Support\YoutubeFeed;
  */
 class YoutubeRssConnector implements Connector
 {
+    // The feed's own media:thumbnail is hqdefault.jpg — 480×360 4:3, with black
+    // letterbox bars BAKED IN for any 16:9 upload (visible the moment a surface
+    // renders the image at its natural ratio, as the sitepage's item cards do).
+    // YoutubeThumbnailResolver already exists for exactly this (the scraper lane
+    // has used it since it was written): one batched HEAD probe per pull picks
+    // maxresdefault.jpg (1280×720, true 16:9) where YouTube has generated it and
+    // falls back to hqdefault otherwise. Resolved through the container, which is
+    // how ConnectorRegistry builds every connector.
+    public function __construct(private readonly YoutubeThumbnailResolver $thumbnails) {}
+
     public static function manifest(): Manifest
     {
         return new Manifest(
@@ -113,7 +124,12 @@ class YoutubeRssConnector implements Connector
             $items = array_slice($items, 0, $limit);
         }
 
+        // One batched probe for the whole page of entries; a missing key means
+        // the probe found nothing better, so the feed's own value stands.
+        $better = $this->thumbnails->bestForMany(array_column($items, 'id'));
+
         foreach ($items as $item) {
+            $item['thumbnail'] = $better[$item['id']] ?? $item['thumbnail'] ?? null;
             yield new Record('watch', $item['id'], $item);
         }
 
