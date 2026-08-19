@@ -127,3 +127,23 @@ plan does not touch it.
 - Fixing the `IngestStatusWriteback` latch.
 - Teaching vimeo / apple-music / apple-podcast strategies to accept router
   payloads (no real users affected).
+
+---
+
+# EXECUTED 2026-08-19 (big run)
+
+- Phase 1: `YoutubeFetch` accepts `username` (non-empty, no slash) — 3 new
+  tests in `FeedFetchParityTest`, all green.
+- Phase 2: gsnwilliams' row was ALREADY `ok` by execution time (reset by an
+  earlier pass); nothing to backfill there.
+- Phase 3 (defect B): NOT reproducible at head — the projector resolves
+  `…@dvlpmnttv?si=…` to `dvlpmnttv` correctly, and `ConnectionPayload`
+  already refuses to write an empty/slashed identifier as `username`. The
+  kebab-acai row (created 2026-07-25, `source: instagram`) pre-dates that
+  guard. Its payload was REPAIRED in place (username derived from its own
+  stored URL via the projector), reset to `pending`, then live-refreshed:
+  now `ok`, 0 failures.
+- Phase 4 (defect C): DECIDED delete over reseed — showcase-creator's four
+  junk rows (vimeo / apple-podcast / youtube / apple-music) deleted. They
+  were demo payloads no strategy could ever fetch.
+- Dev DB now carries ZERO `missing_key` rows.
