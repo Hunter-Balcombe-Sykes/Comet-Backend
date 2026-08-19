@@ -27,6 +27,10 @@ function emptyHarvester(): WebsiteLinkHarvester
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // The suggestions inbox reads routing.source_intents alongside the folded
+    // payload findings (2026-08-19), so the schema must exist for the
+    // Swap-offer cases below.
+    setupRoutingTables();
 });
 
 // Defaults to a Business Partna because the GB auto-sync assertions below cover
@@ -456,10 +460,11 @@ it('keeps the Google Business selection business-info-only after enrichment', fu
         ->assertJsonPath('connected', true)
         ->assertJsonPath('provider', 'opentable');
 
-    // ...and the auto-synced rows surface on the synced endpoint for the modal.
-    $synced = actingAsUser($user)->getJson('/api/platforms/google-business/synced')
-        ->assertOk()->json('synced');
-    expect(collect($synced)->pluck('category'))->toContain('reservations', 'online-ordering', 'social');
+    // ...and the seeded rows exist as real connections. (Until 2026-08-19 this
+    // read them back off the synced modal; the modal is retired, and the
+    // connections were always the thing that mattered.)
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->pluck('routing_class')->unique())
+        ->toContain('reservations', 'ordering', 'social');
 });
 
 it('only-if-empty: never overwrites a reservation or social the user already set', function () {
@@ -618,7 +623,7 @@ it('keeps apify enrichment off the public endpoint', function () {
 
 // ── Per-connect findings + Change-to ─────────────────────────────────────────
 
-it('exposes only this run findings on /synced with a live status per platform', function () {
+it('connects exactly what this run found, and nothing the account cannot have', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
     Bus::fake([InstagramConnectJob::class]);
@@ -629,21 +634,21 @@ it('exposes only this run findings on /synced with a live status per platform', 
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    $synced = actingAsUser($user)->getJson('/api/platforms/google-business/synced')->assertOk()->json('synced');
+    $rows = IntegrationConnection::query()->where('user_id', $user->id)->get();
 
-    // Reservation + social link seeds land 'synced'; instagram stays 'syncing'
-    // (its scrape is still pending behind the faked bus).
-    expect(collect($synced)->firstWhere('platform', 'opentable')['status'])->toBe('synced');
-    expect(collect($synced)->firstWhere('platform', 'opentable')['category'])->toBe('reservations');
-    expect(collect($synced)->firstWhere('platform', 'facebook')['status'])->toBe('synced');
-    expect(collect($synced)->firstWhere('platform', 'instagram')['status'])->toBe('syncing');
-    expect(collect($synced)->where('category', 'online-ordering'))->toHaveCount(2);
-    // No booking finding: a food business books via Reservations (above), even
-    // though Google's data also carried a booking link.
-    expect(collect($synced)->firstWhere('platform', 'booking'))->toBeNull();
+    // Reservation + social seeds are written and ok; instagram's row is still
+    // pending (its scrape sits behind the faked bus).
+    expect($rows->firstWhere('platform', 'opentable')->routing_class)->toBe('reservations')
+        ->and($rows->firstWhere('platform', 'opentable')->last_refresh_status)->toBe('ok')
+        ->and($rows->firstWhere('platform', 'facebook')->last_refresh_status)->toBe('ok')
+        ->and($rows->firstWhere('platform', 'instagram')->last_refresh_status)->toBe('pending')
+        ->and($rows->where('routing_class', 'ordering'))->toHaveCount(2);
+    // Nothing booking-class: a food business books via Reservations (above),
+    // even though Google's data also carried a booking link.
+    expect($rows->where('routing_class', 'booking'))->toHaveCount(0);
 });
 
-it('marks an already-connected platform as a conflict and Change-to swaps it in', function () {
+it('offers an already-connected platform as a Swap in the inbox, and swaps it in on accept', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
     Bus::fake([InstagramConnectJob::class]);
@@ -659,21 +664,24 @@ it('marks an already-connected platform as a conflict and Change-to swaps it in'
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    // /synced reports Facebook as a conflict (the manual one was left alone).
-    $fb = collect(actingAsUser($user)->getJson('/api/platforms/google-business/synced')->json('synced'))->firstWhere('platform', 'facebook');
-    expect($fb['status'])->toBe('conflict');
-    expect($fb['foundUrl'])->toBe('https://facebook.com/fadelab');
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload['source'])->toBe('manual');
+    // The inbox asks about Facebook (the manual one was left alone).
+    $fb = collect(actingAsUser($user)->getJson('/api/routing/suggestions')->json('suggestions'))
+        ->firstWhere('id', 'sync:google-business:facebook');
+    expect($fb['actions'])->toBe(['replace', 'dismiss'])
+        ->and($fb['url'])->toBe('https://facebook.com/fadelab')
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload['source'])->toBe('manual');
 
-    // "Change to" swaps in Google's.
-    actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'facebook'])->assertOk();
+    // Swap puts Google's in.
+    actingAsUser($user)->postJson('/api/routing/suggestions/sync:google-business:facebook/accept')->assertOk();
     $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail();
-    expect($row->payload['source'])->toBe('google-business');
-    expect($row->payload['url'])->toBe('https://facebook.com/fadelab');
-    expect(collect(actingAsUser($user)->getJson('/api/platforms/google-business/synced')->json('synced'))->firstWhere('platform', 'facebook')['status'])->toBe('synced');
+    expect($row->payload['source'])->toBe('google-business')
+        ->and($row->payload['url'])->toBe('https://facebook.com/fadelab');
+    // Answered, so it stops being asked.
+    expect(collect(actingAsUser($user)->getJson('/api/routing/suggestions')->json('suggestions'))
+        ->firstWhere('id', 'sync:google-business:facebook'))->toBeNull();
 });
 
-it('Change-to re-runs the Instagram scrape when swapping an existing Instagram', function () {
+it('re-runs the Instagram scrape when swapping an existing Instagram', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
     Bus::fake([InstagramConnectJob::class]);
@@ -687,10 +695,11 @@ it('Change-to re-runs the Instagram scrape when swapping an existing Instagram',
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    expect(collect(actingAsUser($user)->getJson('/api/platforms/google-business/synced')->json('synced'))->firstWhere('platform', 'instagram')['status'])->toBe('conflict');
+    expect(collect(actingAsUser($user)->getJson('/api/routing/suggestions')->json('suggestions'))
+        ->firstWhere('id', 'sync:google-business:instagram'))->not->toBeNull();
     Bus::assertNotDispatched(InstagramConnectJob::class);   // slot was taken — no scrape spent
 
-    actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'instagram'])->assertOk();
+    actingAsUser($user)->postJson('/api/routing/suggestions/sync:google-business:instagram/accept')->assertOk();
     Bus::assertDispatched(InstagramConnectJob::class, fn ($job) => $job->username === 'fadelab' && $job->userId === (string) $user->id);
 });
 

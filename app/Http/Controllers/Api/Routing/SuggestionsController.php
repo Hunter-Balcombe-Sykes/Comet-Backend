@@ -3,14 +3,25 @@
 namespace App\Http\Controllers\Api\Routing;
 
 use App\Catalog\CompiledCatalog;
+use App\Catalog\LegacyPlatformMap;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\RoutingCapabilityGate;
 use App\Routing\SuggestionApplier;
+use App\Routing\SyncFindingsBridge;
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Platforms\GoogleBusinessAutoSync;
+use App\Services\Platforms\InstagramAutoSync;
+use App\Services\Platforms\OpenTableService;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -37,7 +48,17 @@ class SuggestionsController extends ApiController
     /** Store surfaces the probe runtime identifies (LinkProbeWorker's cascade). */
     private const PROBED_STORE_SURFACES = ['shopify.store', 'woocommerce.store', 'squarespace.store', 'bigcartel.store'];
 
-    public function __construct(private readonly SuggestionApplier $applier) {}
+    /** The one id the Google-listing suggestion answers to — it has no ledger row. */
+    private const LISTING_ID = 'listing:opentable';
+
+    /** Where its dismissal is remembered, since it is derived on every read. */
+    private const LISTING_REF = 'opentable.reserve:google-listing';
+
+    public function __construct(
+        private readonly SuggestionApplier $applier,
+        private readonly SyncFindingsBridge $bridge,
+        private readonly OpenTableService $openTable,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -74,13 +95,110 @@ class SuggestionsController extends ApiController
             ];
         })->all();
 
+        // The inbox is the ONE place a found link is answered (owner,
+        // 2026-08-19, retiring the per-platform synced modal). Two other
+        // surfaces used to ask the same question in their own words:
+        //
+        //  · the legacy `payload.syncFindings` ledger, which the Instagram and
+        //    Google Business modals rendered — folded here until those two
+        //    harvests move onto the router and stop writing it;
+        //  · the reservations smart-detect's standing OpenTable suggestion,
+        //    which had an endpoint of its own the dashboard called separately.
+        //
+        // Folded at READ time, never written into the intent ledger: an intent
+        // is a record of what the router decided, and neither of these came
+        // from the router.
+        // Deduped by surface: a scan that ran on the new pipeline records an
+        // intent, and the same scan's legacy payload finding says the same
+        // thing in the old vocabulary. The INTENT wins — it is the ledger with
+        // a resolution path — and the payload row is dropped rather than shown
+        // beside it as a second, identical question.
+        $claimed = array_flip(array_column($suggestions, 'surfaceKey'));
+        foreach ($this->bridge->payloadSuggestions($user) as $folded) {
+            if (! isset($claimed[$folded['surfaceKey']])) {
+                $claimed[$folded['surfaceKey']] = true;
+                $suggestions[] = $folded;
+            }
+        }
+
+        $listing = $this->googleListingSuggestion($user);
+        if ($listing !== null) {
+            $suggestions[] = $listing;
+        }
+
         return $this->success(['suggestions' => $suggestions]);
+    }
+
+    /**
+     * The OpenTable booking link Google lists for this place, as an ordinary
+     * suggestion row.
+     *
+     * Suppressed once a reservation connection exists — it is an offer to FILL
+     * an empty slot, and the reservations family is single-slot, so re-offering
+     * it after the owner has one is asking a question they already answered.
+     */
+    private function googleListingSuggestion(User $user): ?array
+    {
+        $gb = $user->integrationConnections()->where('platform', 'google-business')->first();
+        if ($gb === null) {
+            return null;
+        }
+
+        $suggestion = $this->openTable->suggestionFromGoogleBusiness(GoogleBusinessPayload::fromArray($gb->payload)->toArray());
+        $url = is_array($suggestion) ? ($suggestion['url'] ?? null) : null;
+        if (! is_string($url) || $url === '') {
+            return null;
+        }
+
+        $hasReservation = $user->integrationConnections()
+            ->where('routing_class', 'reservations')
+            ->exists();
+        if ($hasReservation) {
+            return null;
+        }
+
+        // Derived fresh on every read, so "Not now" needs somewhere durable to
+        // live or the same row returns on the next one.
+        $dismissed = DB::table('routing.item_tombstones')
+            ->where('user_id', $user->id)
+            ->where('source_ref', self::LISTING_REF)
+            ->exists();
+        if ($dismissed) {
+            return null;
+        }
+
+        $name = is_string($suggestion['name'] ?? null) ? $suggestion['name'] : null;
+
+        return [
+            'id' => self::LISTING_ID,
+            'state' => 'proposed',
+            'blockReason' => null,
+            'surfaceKey' => 'opentable.reserve',
+            'displayName' => 'OpenTable',
+            'brandKey' => 'opentable',
+            'routingClass' => 'reservations',
+            'identifier' => $name,
+            'url' => $url,
+            'origin' => 'google_business',
+            'firstSeenAt' => null,
+            'conflictingConnectionId' => null,
+            'question' => 'Google lists this booking link for your place — use it for reservations?',
+            'actions' => ['accept', 'dismiss'],
+        ];
     }
 
     /** Accept a suggestion: apply the intent and create the connection. */
     public function accept(Request $request, string $intentId): JsonResponse
     {
         $user = $this->currentUser($request);
+
+        if (str_starts_with($intentId, SyncFindingsBridge::PAYLOAD_ID_PREFIX)) {
+            return $this->acceptPayloadFinding($user, $intentId);
+        }
+        if ($intentId === self::LISTING_ID) {
+            return $this->acceptGoogleListing($user);
+        }
+
         $intent = $this->findIntent($user->id, $intentId);
 
         if ($intent === null) {
@@ -131,6 +249,27 @@ class SuggestionsController extends ApiController
     public function dismiss(Request $request, string $intentId): JsonResponse
     {
         $user = $this->currentUser($request);
+
+        // A folded row settles in the ledger it came from — the legacy finding
+        // is marked dismissed in place; the Google listing has no ledger, so
+        // its refusal is a tombstone (the only thing that stops the listing
+        // re-offering the same link on every read).
+        if (str_starts_with($intentId, SyncFindingsBridge::PAYLOAD_ID_PREFIX)) {
+            $located = $this->bridge->locatePayloadFinding($user, $intentId);
+            if ($located === null) {
+                return $this->error('That suggestion is no longer available.', 404);
+            }
+            $this->bridge->settlePayloadFinding($located['connection'], $located['index'], 'dismissed');
+
+            return $this->success(['dismissed' => true]);
+        }
+
+        if ($intentId === self::LISTING_ID) {
+            $this->tombstone($user, self::LISTING_REF, 'listing suggestion dismissed');
+
+            return $this->success(['dismissed' => true]);
+        }
+
         $intent = $this->findIntent($user->id, $intentId);
 
         if ($intent === null) {
@@ -145,16 +284,100 @@ class SuggestionsController extends ApiController
 
         // A dismissal is also an instruction not to re-import this: without
         // the tombstone the next harvest would simply propose it again.
+        $this->tombstone($user, $intent->surface_key.':'.$intent->identifier, 'suggestion dismissed');
+
+        return $this->success(['dismissed' => true]);
+    }
+
+    /**
+     * Swap in a link the legacy ledger recorded as a conflict.
+     *
+     * The write is the autosync's own applyFinding — the recipe the finding
+     * carries names rows on OTHER platforms to remove, which only the service
+     * that wrote it knows how to honour. This controller owns WHERE the
+     * question is asked, not how the swap is performed.
+     */
+    private function acceptPayloadFinding(User $user, string $suggestionId): JsonResponse
+    {
+        $located = $this->bridge->locatePayloadFinding($user, $suggestionId);
+        if ($located === null) {
+            return $this->error('That suggestion is no longer available.', 404);
+        }
+
+        $autoSync = $located['holder'] === 'instagram'
+            ? app(InstagramAutoSync::class)
+            : app(GoogleBusinessAutoSync::class);
+
+        // applyFinding stays OUTSIDE the platform lock — it writes OTHER
+        // platforms' rows and can run an inline Apify scrape (~110s), which a
+        // 10s-TTL lock would expire in the middle of, reopening the very
+        // lost-update window the lock exists to close. It also takes its own
+        // booking/reservations XOR lock internally, and this call fully
+        // releasing first is what keeps that ordering acyclic (§9.4 of the U1
+        // plan). Do not move it inside the closure below.
+        //
+        // False means a contended XOR lock: nothing was removed and nothing
+        // written, so the finding must NOT be settled — marking it done for a
+        // change that never happened is how a swap silently loses a connection.
+        if (! $autoSync->applyFinding((string) $user->id, $located['finding'])) {
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
+
+        // The settle IS the contended span: GoogleBusinessEnrichJob::persist()
+        // rewrites the same payload under the same key.
+        try {
+            Cache::lock(CacheKeyGenerator::platformConnectionLock($located['holder'], (string) $user->id), 10)
+                ->block(5, fn () => $this->bridge->settlePayloadFinding($located['connection'], $located['index'], 'seeded'));
+        } catch (LockTimeoutException) {
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
+
+        return $this->success([
+            'connectionId' => null,
+            'surfaceKey' => LegacyPlatformMap::surfaceFor((string) $located['finding']['platform']) ?? $located['finding']['platform'],
+            'displayName' => (string) ($located['finding']['label'] ?? $located['finding']['platform']),
+        ]);
+    }
+
+    /** Use the OpenTable link Google lists for this place. */
+    private function acceptGoogleListing(User $user): JsonResponse
+    {
+        $listing = $this->googleListingSuggestion($user);
+        if ($listing === null) {
+            return $this->error('That suggestion is no longer available.', 404);
+        }
+
+        $denied = RoutingCapabilityGate::denialFor($user, 'reservations');
+        if ($denied !== null) {
+            throw new AuthorizationException($denied);
+        }
+
+        $connection = app(SuggestionApplier::class)->applyDirect(
+            $user,
+            'opentable.reserve',
+            'reservations',
+            'opentable',
+            (string) $listing['url'],
+        );
+
+        return $this->success([
+            'connectionId' => $connection->id,
+            'surfaceKey' => 'opentable.reserve',
+            'displayName' => 'OpenTable',
+        ]);
+    }
+
+    /** "Do not offer this again" — the only thing that stops a standing source re-proposing. */
+    private function tombstone(User $user, string $sourceRef, string $reason): void
+    {
         DB::table('routing.item_tombstones')->insertOrIgnore([
             'id' => (string) Str::uuid(),
             'user_id' => $user->id,
-            'source_ref' => $intent->surface_key.':'.$intent->identifier,
+            'source_ref' => $sourceRef,
             'scope' => 'this_source',
-            'reason' => 'suggestion dismissed',
+            'reason' => $reason,
             'created_at' => now(),
         ]);
-
-        return $this->success(['dismissed' => true]);
     }
 
     /**

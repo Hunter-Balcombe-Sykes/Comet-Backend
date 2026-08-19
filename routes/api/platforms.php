@@ -109,10 +109,6 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::post('/connect', [InstagramController::class, 'connect'])->middleware('platform.available:instagram');
             Route::get('/connect/status', [InstagramController::class, 'connectStatus']);
             Route::get('/selection', [InstagramController::class, 'selection']);
-            // BE2: bio-link auto-sync popup contract — mirrors the Google Business
-            // /synced + /synced/apply pair below.
-            Route::get('/synced', [InstagramController::class, 'synced']);
-            Route::post('/synced/apply', [InstagramController::class, 'applySync']);
             Route::delete('/', [InstagramController::class, 'forget']);
         });
 
@@ -351,14 +347,13 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::get("{$base}/opentable/suggestion", [OpenTableController::class, 'suggestion'])
         ->middleware($middleware);
 
-    // Google Business "Automatically Synced Integrations": the reservation /
-    // ordering / social connections the last connect auto-created, for the
-    // connect modal's step 2. connect/selection/forget come from the loop above.
-    Route::get("{$base}/google-business/synced", [GoogleBusinessController::class, 'synced'])
-        ->middleware($middleware);
-    // "Change to" — swap an existing connection for the one Google found (a conflict).
-    Route::post("{$base}/google-business/synced/apply", [GoogleBusinessController::class, 'applySync'])
-        ->middleware($middleware);
+    // The per-platform "Automatically Synced Integrations" modal is RETIRED
+    // (owner, 2026-08-19). Its unresolved conflicts are ordinary rows in the
+    // suggestions inbox now — GET /routing/suggestions, which folds the legacy
+    // payload ledger through SyncFindingsBridge::payloadSuggestions() — so the
+    // question "we found this, what do you want to do?" is asked in exactly
+    // one place. The seeded half needed no home: the Platforms page already
+    // lists what is connected.
 
     // Manual per-platform refresh (dashboard refresh button) — re-pull the
     // auto-content platforms on demand. {platform} is validated against

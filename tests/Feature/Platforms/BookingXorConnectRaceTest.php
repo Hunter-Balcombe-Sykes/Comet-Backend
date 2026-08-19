@@ -303,7 +303,7 @@ it('interleaved — a Square connect landing inside applyFinding\'s remove-then-
         ])->getStatusCode();
     });
 
-    actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'fresha'])
+    actingAsUser($user)->postJson('/api/routing/suggestions/sync:google-business:fresha/accept')
         ->assertOk();
 
     // Fail-before (§2 shipped, §9 not): applyFinding holds no lock, so the
@@ -343,7 +343,7 @@ it('a held booking-XOR lock makes google-business "Change to" fail honestly, not
     expect($lock->get())->toBeTrue();
 
     try {
-        actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'fresha'])
+        actingAsUser($user)->postJson('/api/routing/suggestions/sync:google-business:fresha/accept')
             ->assertStatus(423)
             ->assertJson(['message' => 'Another change is still saving — please retry in a moment.']);
     } finally {
@@ -384,7 +384,7 @@ it('the instagram "Change to" endpoint behaves identically under a held booking-
     expect($lock->get())->toBeTrue();
 
     try {
-        actingAsUser($user)->postJson('/api/platforms/instagram/synced/apply', ['platform' => 'fresha'])
+        actingAsUser($user)->postJson('/api/routing/suggestions/sync:instagram:fresha/accept')
             ->assertStatus(423)
             ->assertJson(['message' => 'Another change is still saving — please retry in a moment.']);
     } finally {
@@ -423,7 +423,7 @@ it('a social "Change to" is unaffected by a held booking-XOR lock', function () 
     expect($lock->get())->toBeTrue();
 
     try {
-        actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'facebook'])
+        actingAsUser($user)->postJson('/api/routing/suggestions/sync:google-business:facebook/accept')
             ->assertOk();
     } finally {
         $lock->release();
@@ -596,7 +596,7 @@ it('a reservations "Change to" behaves identically to booking under a held RESER
     expect($lock->get())->toBeTrue();
 
     try {
-        actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'resdiary'])
+        actingAsUser($user)->postJson('/api/routing/suggestions/sync:google-business:resdiary/accept')
             ->assertStatus(423)
             ->assertJson(['message' => 'Another change is still saving — please retry in a moment.']);
     } finally {
@@ -637,7 +637,7 @@ it('a reservations "Change to" is unaffected by a held booking-XOR lock — inde
     expect($lock->get())->toBeTrue();
 
     try {
-        actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'resdiary'])
+        actingAsUser($user)->postJson('/api/routing/suggestions/sync:google-business:resdiary/accept')
             ->assertOk();
     } finally {
         $lock->release();

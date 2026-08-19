@@ -19,6 +19,43 @@ class SuggestionApplier
     public function __construct(private readonly ConnectionIdentity $identity) {}
 
     /**
+     * Connect a link that has no intent behind it — the standing Google-listing
+     * OpenTable suggestion (2026-08-19), which is derived from the Google
+     * Business payload on every read rather than recorded by the router.
+     *
+     * Same payload writer as every other lane (ConnectionPayload::forWrite):
+     * a handle-identity surface needs `username` on the public wire, and a
+     * hand-rolled ['url','source'] array is precisely the third writer that
+     * once served blank sitepages.
+     */
+    public function applyDirect(User $user, string $surfaceKey, string $routingClass, string $identifier, string $url): IntegrationConnection
+    {
+        $connection = IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('surface_key', $surfaceKey)
+            ->where('resource_id', $identifier)
+            ->whereNull('deleted_at')
+            ->first();
+
+        if ($connection !== null) {
+            return $connection;
+        }
+
+        $connection = new IntegrationConnection([
+            'surface_key' => $surfaceKey,
+            'routing_class' => $routingClass,
+            'resource_id' => $identifier,
+            'payload' => ConnectionPayload::forWrite($url, $identifier, 'url', 'suggestion'),
+            'is_active' => true,
+            'last_refresh_status' => 'pending',
+        ]);
+        $connection->user()->associate($user);
+        $connection->save();
+
+        return $connection;
+    }
+
+    /**
      * Demote the conflicting incumbent (if any), create or reuse the
      * connection, and settle the intent — one transaction, so a replace never
      * has a two-primaries or half-applied window.

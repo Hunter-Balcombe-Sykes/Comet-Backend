@@ -223,3 +223,79 @@ frozen `Partna-Frontend`.
 ## If you get stuck
 Write `docs/blocked-2026-08-19-<phase>.md` with the exact test / route /
 row that refused, and stop. Do not widen scope to get past it.
+
+---
+
+# EXECUTION STATE — paused 2026-08-19, resume here
+
+Branch: `feat/suggestion-swap-and-link-caps` (Comet-Backend). Dashboard work
+is on `partna-monorepo` `main`, already pushed.
+
+## Done and committed (backend branch)
+
+| Commit | What |
+|---|---|
+| `e253f9ef6` | Swap for cap-blocked links on single-account surfaces; 13 content/events surfaces lose the 1-account cap; `catalog:compile` re-run |
+| `28727547a` | A cap-blocked suggestion re-settles against the cap as it is now (catalog widened → back to a plain Add) |
+| `cde935ae9` | **Phase 1** — manual second store on a filled slot → 422 `slot_taken` (+ incumbent id/url, `replace=true` to swap); auto → `cap_reached` intent naming the incumbent → Swap in the inbox; GoogleBusinessAutoSync stops pooling on BOTH arms; golden master 139 → 150 routes |
+| `7c4e29bb4` | **Phase 2** — enrichment moved into `LinkPoolWriter::add()` (any write with no media and no body reads the page; job's write-back passes `enrich: false`); `content:enrich-pool-links` (dev dry-run: 24) and `content:prune-overflow-links` (dev dry-run: 2 of 65) |
+| _this commit_ | **Phase 3** — inbox absorbs both other suggestion surfaces; `/synced` endpoints deleted; 8 test files migrated |
+
+Dashboard (monorepo `main`, `adc8047`): links-table marks fit their cell,
+connect-sheet `/links?url=` hand-off lands on step 2, inbox rows read
+`Not now` (muted) → `Add`/`Swap` (solid, right).
+
+## Phase 3 — DONE in this commit
+- `SyncFindingsBridge` gained `payloadSuggestions()` / `locatePayloadFinding()`
+  / `settlePayloadFinding()`: legacy `payload.syncFindings` CONFLICTS fold into
+  `GET /routing/suggestions` as rows addressed `sync:{holder}:{platform}`.
+  Seeded findings deliberately do NOT fold (settled work; Platforms shows it).
+- `SuggestionsController` also folds the standing Google-listing OpenTable
+  offer as `listing:opentable` (dismissal → tombstone `opentable.reserve:google-listing`).
+  Deduped by surfaceKey — an intent wins over a payload finding for the same surface.
+- `accept`/`dismiss` branch on the id shape; the payload settle keeps the
+  platform-connection lock (423 on contention) that `applySync` had.
+- `SuggestionApplier::applyDirect()` added for the listing (no intent behind it).
+- Routes `/platforms/{instagram,google-business}/synced[/apply]` DELETED, plus
+  their controller methods (`synced`, `applySync`, `shapeFinding`,
+  `applyIntentConflict`). `whereUuid` relaxed on the suggestion routes.
+- Tests migrated, no scenario dropped: `InstagramSyncedTest` →
+  `InstagramFindingsInboxTest` (12), `SyncFindingsFoldTest` →
+  `SuggestionsInboxFoldTest` (7), plus `AutoSyncApplyCapabilityDenialTest`,
+  `BookingXorConnectRaceTest`, `SessionAControllerLockTest`,
+  `InstagramControllerLockTest`, `EventSyncFindingsTest`,
+  `GoogleBusinessApifyTest` (which also gained `setupRoutingTables()`).
+
+**Last verified state:** Platforms + Routing + Content suites were green
+(2183 passed) BEFORE the final pint pass and the last two fold-test edits;
+each changed file was run individually green after. **First action on resume:
+`php artisan test` and fix anything that fell out** — the full suite has not
+been run end-to-end since Phase 3 landed.
+
+## NOT STARTED
+
+### Phase 4 — the delete (the main event)
+Everything in "Phases → Phase 4" above, unchanged. Notes gathered since:
+- `Platform` enum pseudo-cases are used by `GoogleBusinessAutoSync::{BOOKING,RESERVATION}_PLATFORMS`
+  and `BuildsAutoSyncFindings::{BOOKING,RESERVATIONS}_SLOT_PLATFORMS` — those
+  lists must drop `Platform::Booking` / `::Reservations` when the cases go, and
+  `BookingXorConnectRaceTest` pins them by reflection (it will fail loudly, which
+  is the point).
+- **`ReservationsController::clearReservations()` is where the reservations
+  FAMILY XOR lives for the legacy lane.** Deleting the controller removes it.
+  The new lane enforces the same rule (`SourceReconciler::isExclusiveAuto`), but
+  check `LinkRouter::seedReservation` — it currently writes single-slot per BRAND
+  with no family check. Do not delete without moving that guard.
+- `GET /platforms/reservations/suggestion` is now redundant (the inbox carries
+  it) — delete with the controller; the dashboard hook goes in Phase 5.
+
+### Phase 5 — dashboard
+Unchanged from the plan. `useSyncedFindings` / `applySyncedFinding` /
+`synced-findings.tsx` / its mount in `platform-sheet.tsx` are now DEAD against
+this backend — Phase 5 is required before the backend deploys, or the platform
+sheet will 404 on open.
+
+### Phase 6 — deploy + one-off commands
+Backend branch → `development` FIRST (NOT done — needs owner sign-off), then the
+dashboard. Then run on dev: `content:enrich-pool-links --missing`,
+`content:prune-overflow-links`, and (after Phase 4) `content:convert-standalone-events`.

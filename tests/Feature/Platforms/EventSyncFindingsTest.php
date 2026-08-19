@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Queue;
 
 // F8: the event branch wrote a real eventbrite/humanitix row but returned
 // RouteResult::seeded() with NO findings, so the "we found and connected this"
-// modal (GET /platforms/instagram/synced) never mentioned it. Emitting a
+// modal (the retired GET /platforms/instagram/synced) never mentioned it. Emitting a
 // finding is only half the fix — InstagramController::shapeFinding() resolves a
 // seeded finding back to a live row by "platform|resourceId" and DROPS it when
 // there is no match, and events are the one platform whose resource_id is not
@@ -26,7 +26,7 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupNotificationsTable();
-    // /synced folds new-pipeline Hold intents (SyncFindingsBridge).
+    // The inbox reads intents and folds the legacy payload ledger.
     setupRoutingTables();
 });
 
@@ -166,11 +166,12 @@ it('seeds an event found inside a link-in-bio page as a pool ITEM only — no ev
     $items = DB::table('content.items')->where('user_id', $user->id)->where('kind', 'event')->whereNull('removed_at')->get();
     expect($items)->toHaveCount(1);
 
-    // The synced MODAL: payload findings (still-legacy direct bio scan) plus
-    // the B4 conflict fold — successful placements on the new path write
-    // neither, so it does not list the event either way.
-    $synced = actingAsUser($user)->getJson('/api/platforms/instagram/synced')->assertOk()->json('synced');
-    expect(collect($synced)->firstWhere('platform', 'eventbrite'))->toBeNull();
+    // Nor does it ask about it: a successful placement writes neither a
+    // payload finding nor a blocked intent, so the suggestions inbox has
+    // nothing to say. (Until 2026-08-19 this read the retired synced modal.)
+    $suggestions = actingAsUser($user)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions');
+    expect(collect($suggestions)->firstWhere('surfaceKey', 'eventbrite.organiser'))->toBeNull()
+        ->and(collect($suggestions)->firstWhere('id', 'sync:instagram:eventbrite'))->toBeNull();
 });
 
 it('tags a bio-found event with its origin so the sheet can say where it came from', function () {
