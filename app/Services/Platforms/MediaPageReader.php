@@ -283,7 +283,8 @@ class MediaPageReader extends PlatformScraper
         parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
         $query = array_filter($query, 'is_string');
 
-        return [$host, $path === '' ? '/' : $path, $query];
+        // $path is already `?: '/'` above, so it can never be '' here.
+        return [$host, $path, $query];
     }
 
     /** @return array{title: ?string, thumbnail: ?string}|null null when the endpoint gave nothing usable */
