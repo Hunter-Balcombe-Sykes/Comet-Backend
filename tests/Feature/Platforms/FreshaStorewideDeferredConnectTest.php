@@ -526,7 +526,7 @@ it('job: a disconnect landing MID-SCRAPE is caught inside the booking-XOR lock â
     // A projected row from the prior connect. Pre-cutover, forget() tombstoned
     // it with deleted_origin='sync' and sync() resurrected exactly that; the
     // guard under test is the same either way â€” sync() must never run.
-    $user->services()->create([
+    createServiceFor($user, [
         'title' => 'Cut', 'price_cents' => 5000, 'currency_code' => 'AUD', 'duration_minutes' => 30,
         'is_active' => true, 'sort_order' => 0, 'source' => 'fresha', 'is_manual' => false, 'external_id' => 's:1',
     ]);

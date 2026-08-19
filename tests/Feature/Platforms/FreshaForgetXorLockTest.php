@@ -67,7 +67,7 @@ it('fresha forget is blocked by a held booking-XOR lock and the existing fresha 
 
     // A fresha-sourced synced service row — would be soft-deleted by forget()
     // if the lock failed to block it.
-    $service = $user->services()->create([
+    $service = createServiceFor($user, [
         'title' => 'Haircut',
         'source' => 'fresha',
         'is_manual' => false,

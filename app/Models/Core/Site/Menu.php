@@ -32,8 +32,6 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
  * @property-read User|null $user
- * @property-read Collection<int, MenuCategory> $categories
- * @property-read Collection<int, MenuItem> $items
  * @property-read Collection<int, MenuPlatformLink> $platformLinks
  */
 // A user's fetched food-ordering menu — the single source of truth for menu
@@ -109,41 +107,6 @@ class Menu extends BaseModel
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
-    }
-
-    /**
-     * Ordered categories for this menu.
-     *
-     * UNUSABLE BY CONSTRUCTION (PGR-15, verified 2026-08-18): site.menu_categories
-     * was dropped in the slice 7 teardown. MenuCategory survives only as a
-     * table-less DTO hydrated unpersisted by ManualMenuItems — invoking this
-     * relation is a guaranteed 42P01 on real Postgres. Kept (not deleted) because
-     * the relation type-hint is still useful documentation of the pre-teardown
-     * shape and no caller reaches it (grep confirmed zero call sites in app/ —
-     * MenuFetchJob::hasOwnerContent() reads content.collections directly instead;
-     * a `$menu->categories()->exists()` reference in tests/Feature/Platforms/MenuTest.php
-     * describing a "MenuObserver" is stale — that class does not exist in this
-     * codebase). tests/Feature/Architecture/LegacyServiceQuerySurfaceTest.php
-     * guards against a future direct MenuCategory model query, but that guard
-     * does not cover this relation method — do not call it.
-     *
-     * @return HasMany<MenuCategory, $this>
-     */
-    public function categories(): HasMany
-    {
-        return $this->hasMany(MenuCategory::class, 'menu_id')->orderBy('position');
-    }
-
-    /**
-     * All dishes across every category (denormalized menu_id for direct access).
-     *
-     * UNUSABLE BY CONSTRUCTION — see categories() above; site.menu_items is
-     * dropped for the identical reason and this relation has the identical
-     * zero live callers.
-     */
-    public function items(): HasMany
-    {
-        return $this->hasMany(MenuItem::class, 'menu_id');
     }
 
     /** Per-platform sync state (one row per delivery platform). */
