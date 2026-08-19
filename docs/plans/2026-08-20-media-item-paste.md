@@ -61,7 +61,13 @@ media items.
 
 ## Ledger
 
-- [ ] Reader + grammar
-- [ ] Controller arm
-- [ ] Tests green (targeted + full suite)
+- [x] Reader + grammar (real-page verified locally: youtube, shorts, vimeo,
+      spotify track+album, soundcloud, mixcloud, apple music track+release,
+      bandcamp track+album, tidal, youtube-music — all read; apple podcasts
+      episodes read with the SHOW title, the episode name is JS-only and the
+      iTunes lookup can't resolve episode ids; dead/JS-walled pages guarded
+      by the generic-site-title check)
+- [x] Controller arm (input enrichment over the one card write)
+- [x] Tests green — MediaItemPoolAddTest 36 passed; full suite --parallel
+      8649 passed / 0 failed
 - [ ] Deployed + live-verified
