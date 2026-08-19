@@ -35,6 +35,7 @@ use Illuminate\Support\Facades\Log;
  *     profile: {
  *       handle, displayName, site_id,
  *       pools: { watch|listen|media|…: {items, latestItemId} },
+ *       feed: { mode, entries } — item-level ranked list, refs into pools above,
  *       links: ProfileLink[],
  *       services: ProfileService[],
  *       document: DocumentData | null,

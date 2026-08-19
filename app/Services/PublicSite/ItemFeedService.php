@@ -41,7 +41,7 @@ class ItemFeedService
     }
 
     /**
-     * @param  array<string, array<string, mixed>>  $pools  buildPools() wire map
+     * @param  array<string, array<string, mixed>>  $pools  publicPools() wire map
      * @param  list<array<string, mixed>>  $manual  stored manual_feed entries
      * @param  array<string, float>  $scores  flat content_key => blended score
      * @return array{mode: string, entries: list<array<string, mixed>>}
@@ -79,16 +79,31 @@ class ItemFeedService
             if (in_array($pool, self::CATEGORY_POOLS, true)) {
                 $grouped = [];
                 foreach ($items as $item) {
-                    // First collectionId present in the served collections map
-                    // wins — deterministic home for a multi-category dish, and
-                    // an id the wire can actually render (spec §4).
+                    // A scraper-sourced dish/service typically carries TWO
+                    // memberships: its real category (menu_category /
+                    // service_category, collections[cid]['provider'] === null,
+                    // no storefront sidecar) and one order-platform/storefront
+                    // collection per connected surface (provider non-null,
+                    // position hardcoded 0 — see MenuFetchJob::syncOrderPlatforms).
+                    // Homing to the first served collection regardless of kind
+                    // would put every dish under "Uber Eats" instead of its food
+                    // category. Prefer the first collection WITHOUT a provider;
+                    // fall back to the first served collection only when every
+                    // candidate is provider-bearing (spec §1, §4).
                     $home = null;
+                    $fallback = null;
                     foreach ((array) ($item['collectionIds'] ?? []) as $cid) {
-                        if (isset($collections[$cid])) {
-                            $home = (string) $cid;
+                        $cid = (string) $cid;
+                        if (! isset($collections[$cid])) {
+                            continue;
+                        }
+                        $fallback ??= $cid;
+                        if (($collections[$cid]['provider'] ?? null) === null) {
+                            $home = $cid;
                             break;
                         }
                     }
+                    $home ??= $fallback;
                     if ($home === null) {
                         $out[] = $this->itemCandidate($pool, $item);   // uncategorised floats
                     } else {
@@ -183,7 +198,17 @@ class ItemFeedService
         return strcmp((string) $ia, (string) $ib);
     }
 
-    /** Lookup by item id, then slug — shop scores key on handle (content_type shop_product). */
+    /**
+     * Lookup by item id, then by `_slug`. The slug fallback resolves for no
+     * pool today: `content_popularity_scores` rows for `shop_product` key on
+     * `f_catalog.handle` (the catalog handle), but the wire item's `slug` is a
+     * `content.item_slugs` URL slug — and `ContentItemSlugAllocator::SLUGGED_KINDS`
+     * only covers `event`/`menu_item`, so a `kind: 'product'` item's slug is
+     * null anyway. No pool item key on the wire carries the handle at all, so
+     * shop products are unscored in score mode today (spec §7). The fallback
+     * branch stays — harmless, and free if a future wire ever carries a
+     * matching key — but nothing today reaches it.
+     */
     private function scoreFor(array $candidate, array $scores): ?float
     {
         return $scores[$candidate['itemId']]

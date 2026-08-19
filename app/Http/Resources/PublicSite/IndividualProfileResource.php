@@ -4,6 +4,7 @@ namespace App\Http\Resources\PublicSite;
 
 use App\Http\Resources\ApiResource;
 use App\Models\Core\Site\Site;
+use App\Services\PublicSite\ItemFeedService;
 use Illuminate\Http\Request;
 use stdClass;
 
@@ -111,7 +112,7 @@ class IndividualProfileResource extends ApiResource
                 // Item feed (spec 2026-08-19-item-feed-design.md §3): ordered
                 // references into the pools above — {mode, entries}. Always an
                 // object with both keys present, even with no pool content.
-                'feed' => $this->sections['feed'] ?? ['mode' => 'newest', 'entries' => []],
+                'feed' => $this->sections['feed'] ?? ['mode' => ItemFeedService::DEFAULT_MODE, 'entries' => []],
                 // Brand logos (owner, 2026-08-17): {logoFull, logoSquare},
                 // each {url, urlHd, urlSvg, urlIcon} | null. Null when the
                 // owner never uploaded one — name-as-type is the fallback.

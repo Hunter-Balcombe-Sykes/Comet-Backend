@@ -191,6 +191,16 @@ Extend `GET /api/site/actions` (no new endpoint — the design page stays one fe
    SSRF/scheme concerns, no `safeHref` in the feed.
 5. **Unclaimed (pre-account) sites** serve the feed normally — public-by-design,
    like every other payload engine.
+6. **Shop products are unscored in score mode.** `content_popularity_scores`
+   rows for `shop_product` key on `f_catalog.handle`; the wire item carries no
+   handle (`slug` is a `content.item_slugs` URL slug, allocated only for
+   `event`/`menu_item` kinds — a `product` item's `slug` is always null), so
+   `ItemFeedService::scoreFor()`'s id-then-slug lookup never resolves for a
+   shop item. It sorts into the unscored-by-recency tail like any other
+   unranked item — degrade-safe, not an error. Emitting the score pool-side
+   (so a shop item's wire entry carries a key `scoreFor()` can actually match)
+   is the real fix; deferred as follow-up, out of scope here since it touches
+   the pool wire shape.
 
 ## 8. Testing
 

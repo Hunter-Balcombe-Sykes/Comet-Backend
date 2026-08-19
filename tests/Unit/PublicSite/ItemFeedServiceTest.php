@@ -30,8 +30,8 @@ it('newest orders items by publishedAt falling back to firstSeenAt, category blo
     $out = (new ItemFeedService)->resolve(feedPools(), 'newest', [], []);
 
     expect($out['mode'])->toBe('newest');
-    // v-new (08-15) > cat-starters block (newest inside: d-2, 08-12) > t-mid (08-10) > v-old (08-01) > d-loose (08-03)?
-    // No — d-loose (08-03) is OLDER than v-old (08-01)? 08-03 > 08-01, so: ... t-mid, d-loose, v-old.
+    // Newest-first by ts: v-new (08-15) > cat-starters block (newest inside: d-2, 08-12) >
+    // t-mid (08-10) > d-loose (08-03) > v-old (08-01).
     expect(array_map(fn ($e) => $e['kind'] === 'category' ? $e['collectionId'] : $e['itemId'], $out['entries']))
         ->toBe(['v-new', 'cat-starters', 't-mid', 'd-loose', 'v-old']);
 
@@ -50,6 +50,42 @@ it('uncategorised menu items float as plain item entries', function () {
     $out = (new ItemFeedService)->resolve(feedPools(), 'newest', [], []);
     $loose = collect($out['entries'])->first(fn ($e) => ($e['itemId'] ?? null) === 'd-loose');
     expect($loose)->not->toBeNull()->and($loose['kind'])->toBe('item');
+});
+
+it('homes a dish to its food category, not an order-platform collection sorting ahead of it', function () {
+    // d-3 sits in TWO collections: order-ubereats (position 0, provider set —
+    // an ordering platform, spec-illegal home) and cat-mains (position 1, no
+    // provider — its real food category). Naive "first collectionIds entry"
+    // would pick order-ubereats since it sorts first; the fix must not.
+    $pools = [
+        'menus' => ['items' => [
+            ['id' => 'd-3', 'slug' => null, 'publishedAt' => null, 'firstSeenAt' => '2026-08-06T00:00:00Z', 'collectionIds' => ['order-ubereats', 'cat-mains']],
+        ], 'collections' => [
+            'order-ubereats' => ['name' => null, 'provider' => 'ubereats', 'position' => 0],
+            'cat-mains' => ['name' => 'Mains', 'provider' => null, 'position' => 1],
+        ]],
+    ];
+    $out = (new ItemFeedService)->resolve($pools, 'newest', [], []);
+
+    $block = collect($out['entries'])->firstWhere('kind', 'category');
+    expect($block)->not->toBeNull()
+        ->and($block['collectionId'])->toBe('cat-mains')
+        ->and($block['itemIds'])->toBe(['d-3']);
+});
+
+it('falls back to the first served collection when every candidate carries a provider', function () {
+    $pools = [
+        'menus' => ['items' => [
+            ['id' => 'd-4', 'slug' => null, 'publishedAt' => null, 'firstSeenAt' => '2026-08-06T00:00:00Z', 'collectionIds' => ['order-doordash', 'order-ubereats']],
+        ], 'collections' => [
+            'order-doordash' => ['name' => null, 'provider' => 'doordash', 'position' => 0],
+            'order-ubereats' => ['name' => null, 'provider' => 'ubereats', 'position' => 0],
+        ]],
+    ];
+    $out = (new ItemFeedService)->resolve($pools, 'newest', [], []);
+
+    $block = collect($out['entries'])->firstWhere('kind', 'category');
+    expect($block['collectionId'])->toBe('order-doordash');
 });
 
 it('score mode orders by score, category takes best item, unscored sort after scored by recency', function () {
