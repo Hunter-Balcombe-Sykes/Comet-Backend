@@ -145,6 +145,56 @@ it('enriches a brand card after connect so it does not sit pending forever (F4)'
     });
 });
 
+it('refuses a SECOND store on a brand whose one slot is filled, rather than overwriting it', function () {
+    // Owner, 2026-08-19. writeBrandCard's updateOrCreate keys on the brand
+    // prefix, so a second Menulog store silently replaced the first — and the
+    // legacy ordering controller's answer, quietly filing it as a links-pool
+    // card, was worse. Neither is a decision the owner made. The connect
+    // refuses; the dashboard turns `slot_taken` into Swap / Keep mine.
+    $user = brandGuardUser('bg-slot');
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/first'])
+        ->assertSuccessful();
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/second'])
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'slot_taken')
+        ->assertJsonPath('displayName', 'Menulog')
+        ->assertJsonPath('incumbentUrl', 'https://www.menulog.com.au/restaurants/first');
+
+    // Nothing was written: the incumbent still holds the slot, alone.
+    expect($user->integrationConnections()->where('surface_key', 'menulog.order')->count())->toBe(1)
+        ->and($user->integrationConnections()->where('surface_key', 'menulog.order')->first()->payload['url'])
+        ->toBe('https://www.menulog.com.au/restaurants/first');
+});
+
+it('lets replace=true swap the incumbent, and never blocks re-connecting the SAME link', function () {
+    $user = brandGuardUser('bg-slot-replace');
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/first'])
+        ->assertSuccessful();
+
+    // Same link again — a re-connect that fixes a payload, not a second store.
+    // A trailing slash is not a different store either.
+    actingAsUser($user)
+        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/first/'])
+        ->assertSuccessful();
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/menulog/connect', [
+            'url' => 'https://www.menulog.com.au/restaurants/second',
+            'replace' => true,
+        ])
+        ->assertSuccessful();
+
+    expect($user->integrationConnections()->where('surface_key', 'menulog.order')->count())->toBe(1)
+        ->and($user->integrationConnections()->where('surface_key', 'menulog.order')->first()->payload['url'])
+        ->toBe('https://www.menulog.com.au/restaurants/second');
+});
+
 it('accepts a bare handle for brands whose surface has a canonical template (F12)', function () {
     Queue::fake();
     $user = User::create([

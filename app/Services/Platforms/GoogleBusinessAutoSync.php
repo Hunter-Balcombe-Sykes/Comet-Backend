@@ -11,7 +11,6 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\ApifyBudget;
-use App\Services\Content\LinkPoolWriter;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -64,7 +63,6 @@ class GoogleBusinessAutoSync
         private readonly ApifyBudget $apifyBudget,
         private readonly FacebookNormalizer $facebookNormalizer,
         private readonly LinkRouter $linkRouter,
-        private readonly LinkPoolWriter $linkPool,
     ) {}
 
     /**
@@ -245,18 +243,12 @@ class GoogleBusinessAutoSync
 
         // Convergence Phase 6: the shared 'reservations' pseudo-key is retired,
         // so the brand is resolved from the host. A link matching NO reservation
-        // brand becomes a links-pool item (owner ruling 2A, extended to the
-        // harvest 2026-08-16) — pooled by the CALLER, since this method only
-        // resolves the write and does not perform it. Returning null is how it
-        // says "no connection for this one".
+        // brand is DROPPED (owner, 2026-08-19 — ruling 2A retired): a background
+        // harvest does not publish a public link card nobody asked for.
+        // Returning null is how this says "no connection for this one".
         $surface = $this->brandSurfaceFor($url, 'reservations');
         if ($surface === null) {
-            $user = User::find($userId);
-            if ($user !== null) {
-                $this->linkPool->add($user, $url, $this->clean(data_get($reservation, 'provider')) ?? $businessName);
-            }
-
-            Log::info('platforms.google_business.reservation_pooled', [
+            Log::info('platforms.google_business.reservation_unroutable', [
                 'user_id' => $userId, 'host' => parse_url($url, PHP_URL_HOST),
             ]);
 
@@ -580,27 +572,29 @@ class GoogleBusinessAutoSync
                         : $this->linkRouter->routeOrdering($user, $repUrl);
 
                     if ($routed === null || $routed->outcome !== 'seeded') {
-                        // No brand home. Owner ruling 2A, extended to the harvest
-                        // by owner answer 2026-08-16: the link is preserved as a
-                        // links-pool item rather than dropped. It becomes a public
-                        // link rather than an ordering card, which is the honest
-                        // outcome — an ordering link we cannot type is nearly
-                        // always a marketplace redirector, not a merchant's own
-                        // order page, so there is no card shape to give it.
+                        // Owner ruling 2A is RETIRED here (owner, 2026-08-19).
+                        // Neither branch below publishes a links-pool card: a
+                        // background harvest putting an unasked-for public link
+                        // on someone's site was never a decision they made, and
+                        // it left them no way to say "use that one instead".
                         //
-                        // No finding: the synced modal's undo is per-CONNECTION
-                        // and there is no connection to undo. The owner manages it
-                        // from Links.
-                        if ($user !== null) {
-                            $this->linkPool->add($user, $repUrl, $name);
-                            $existingCount++;
-                            $existingStoreKeys[$storeKey] = true;
-                        }
+                        //  · handled  — the brand's one slot is filled by a
+                        //    different store. LinkRouter has already recorded a
+                        //    cap-blocked intent naming the incumbent, which the
+                        //    suggestions inbox renders as **Swap**.
+                        //  · unhandled — no brand home at all. Logged and
+                        //    dropped: an ordering link we cannot type is nearly
+                        //    always a marketplace redirector rather than the
+                        //    merchant's own order page, so there is no card
+                        //    shape to give it and nothing to suggest.
+                        $existingStoreKeys[$storeKey] = true;
 
-                        Log::info('platforms.google_business.ordering_pooled', [
-                            'user_id' => $userId,
-                            'host' => parse_url($repUrl, PHP_URL_HOST),
-                        ]);
+                        Log::info($routed?->handled
+                            ? 'platforms.google_business.ordering_slot_taken'
+                            : 'platforms.google_business.ordering_unroutable', [
+                                'user_id' => $userId,
+                                'host' => parse_url($repUrl, PHP_URL_HOST),
+                            ]);
 
                         continue;
                     }

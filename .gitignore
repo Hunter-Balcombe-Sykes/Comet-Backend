@@ -72,3 +72,4 @@ scripts/dast/.env
 audits/launch-check/
 .env.drill
 .env.testing
+.env.backup-*

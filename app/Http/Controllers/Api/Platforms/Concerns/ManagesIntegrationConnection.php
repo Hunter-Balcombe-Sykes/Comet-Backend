@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Api\Platforms\Concerns;
 use App\Catalog\LegacyPlatformMap;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\IriCanonicalizer;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Notifications\Dispatchers\IntegrationNotifier;
+use App\Services\Platforms\Payloads\CardPayload;
+use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Collection;
@@ -350,6 +353,62 @@ trait ManagesIntegrationConnection
     protected function brandResourceId(string $surfaceKey): string
     {
         return LegacyPlatformMap::legacyFor($surfaceKey);
+    }
+
+    /**
+     * The connection already holding a single-slot brand surface, when the
+     * incoming link is a DIFFERENT one — otherwise null.
+     *
+     * Owner ruling 2026-08-19. A brand card's resource_id is the brand prefix,
+     * so `writeBrandCard`'s updateOrCreate SILENTLY replaced the incumbent: a
+     * second Uber Eats store overwrote the first with no confirmation, and the
+     * legacy ordering controller's answer — quietly filing it as a links-pool
+     * item — was worse. Neither is a decision the owner made. The connect now
+     * refuses (422 `slot_taken`) and the dashboard offers Swap, which re-posts
+     * with `replace=true`.
+     *
+     * Same link = same slot: re-connecting to fix a payload, or re-pasting the
+     * URL you already have, must keep working, so the comparison is on the
+     * canonical IRI rather than the raw string (a trailing slash or an added
+     * `?utm_source` is not a second store).
+     *
+     * @param  array<string,mixed>  $incoming  the connect strategy's resolved selection
+     */
+    protected function slotIncumbent(User $user, string $surfaceKey, string $resourceId, array $incoming): ?IntegrationConnection
+    {
+        $incomingUrl = LinkPayload::fromArray($incoming)->url ?? '';
+        if (trim($incomingUrl) === '') {
+            return null;
+        }
+
+        $existing = $user->integrationConnections()
+            ->where('surface_key', $surfaceKey)
+            ->where('resource_id', $resourceId)
+            ->first();
+        if ($existing === null) {
+            return null;
+        }
+
+        $existingUrl = CardPayload::fromArray($existing->payload)->url() ?? '';
+        if (trim($existingUrl) === '') {
+            return null; // nothing identifiable to keep — let the write proceed
+        }
+
+        return $this->sameLink($existingUrl, $incomingUrl) ? null : $existing;
+    }
+
+    /** Canonical-IRI equality, falling back to a trimmed compare when either side won't canonicalise. */
+    private function sameLink(string $a, string $b): bool
+    {
+        $canonicaliser = app(IriCanonicalizer::class);
+        $left = $canonicaliser->canonicalize($a)->canonical;
+        $right = $canonicaliser->canonicalize($b)->canonical;
+
+        if ($left !== null && $right !== null) {
+            return $left === $right;
+        }
+
+        return strtolower(rtrim(trim($a), '/')) === strtolower(rtrim(trim($b), '/'));
     }
 
     /**

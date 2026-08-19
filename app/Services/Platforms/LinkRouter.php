@@ -6,6 +6,7 @@ use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\SourceReconciler;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
@@ -112,7 +113,11 @@ class LinkRouter
                 // that is the entire reason these hosts are classified at all.
                 'link' => RouteResult::custom(),
                 'reservations' => $this->seedReservation($user, $platform, $url, $classified),
-                'online-ordering' => $this->seedOnlineOrdering($user, $platform, $url, $classified),
+                // 'bio_harvest': route() is the SCAN gateway (Instagram bio,
+                // link-in-bio unroll). routeOrdering() below is the Google
+                // listing's own door and says so itself — the origin has to be
+                // one routing.source_intents' CHECK constraint accepts.
+                'online-ordering' => $this->seedOnlineOrdering($user, $platform, $url, $classified, 'bio_harvest'),
                 default => RouteResult::custom(),
             };
 
@@ -149,7 +154,7 @@ class LinkRouter
      * through gateAllows() would be a second, differently-shaped answer to a
      * question the capability set already owns (Decision 6).
      */
-    public function routeOrdering(User $user, string $url): RouteResult
+    public function routeOrdering(User $user, string $url, string $origin = 'google_business'): RouteResult
     {
         if ($user->isPendingDeletion()) {
             return RouteResult::custom();
@@ -161,7 +166,7 @@ class LinkRouter
         }
 
         try {
-            return $this->seedOnlineOrdering($user, $classified['platform'], $url, $classified);
+            return $this->seedOnlineOrdering($user, $classified['platform'], $url, $classified, $origin);
         } catch (\Throwable $e) {
             report($e);
 
@@ -360,27 +365,44 @@ class LinkRouter
     /**
      * @param  array{platform:string, category:string, label:string}  $classified
      */
-    private function seedOnlineOrdering(User $user, string $platform, string $url, array $classified): RouteResult
+    private function seedOnlineOrdering(User $user, string $platform, string $url, array $classified, string $origin): RouteResult
     {
         $surface = LegacyPlatformMap::surfaceFor($platform) ?? $platform;
 
         // ONE store per ordering brand (owner ruling 2026-08-16). A second Uber
-        // Eats store for the same user does not get a second connection — it
-        // falls through to a links-pool card. The alternative was widening the
-        // `order:{platform}` collection natural key, which slice 4 declined to
-        // touch because it rewrites every collection's key.
+        // Eats store for the same user does not get a second connection. The
+        // alternative was widening the `order:{platform}` collection natural
+        // key, which slice 4 declined to touch because it rewrites every
+        // collection's key.
         //
         // Same URL is not a second store: that is a re-sync, and write() below
         // is an updateOrCreate on it.
-        $occupied = IntegrationConnection::query()
+        $incumbent = IntegrationConnection::query()
             ->where('user_id', (string) $user->id)
             ->where('surface_key', $surface)
+            ->orderBy('created_at')
             ->get()
-            ->contains(fn (IntegrationConnection $row) => ! $this->sameUrl(
+            ->first(fn (IntegrationConnection $row) => ! $this->sameUrl(
                 (string) (CardPayload::fromArray($row->payload)->url() ?? ''), $url,
             ));
 
-        if ($occupied) {
+        if ($incumbent !== null) {
+            // It becomes a SWAP OFFER, not a links-pool card (owner,
+            // 2026-08-19). The old fall-through published a link the owner
+            // never asked for and gave them no way to say "use that one
+            // instead"; a cap-blocked intent naming the incumbent is exactly
+            // what the suggestions inbox renders as Swap. `handled: true`
+            // still, so no caller writes a card for it.
+            app(SourceReconciler::class)->recordCapBlock(
+                $user,
+                $surface,
+                'ordering',
+                'order-'.substr(sha1(strtolower($url)), 0, 16),
+                $url,
+                (string) $incumbent->id,
+                $origin,
+            );
+
             return RouteResult::custom(handled: true);
         }
 

@@ -23,7 +23,10 @@ use Illuminate\Support\Str;
  */
 class SourceReconciler
 {
-    public function __construct(private readonly ConnectionIdentity $identity) {}
+    public function __construct(
+        private readonly ConnectionIdentity $identity,
+        private readonly IriCanonicalizer $canonicaliser,
+    ) {}
 
     /**
      * @return array{intent_id: ?string, connection_id: ?string, verdict: string, block_reason: ?string}
@@ -192,6 +195,49 @@ class SourceReconciler
             ->where('resource_id', '!=', $identifier)
             ->orderBy('created_at')
             ->value('id');
+    }
+
+    /**
+     * Record a cap-blocked intent for a link the LEGACY lane refused because
+     * the brand's one slot is filled (owner, 2026-08-19).
+     *
+     * Before this, a harvest that found a second Uber Eats store quietly filed
+     * it as a links-pool card — a public link the owner never asked for, with
+     * no way to say "actually, use that one instead". It is the same situation
+     * the reconciler already answers with `cap_reached` + the sole incumbent,
+     * which the inbox renders as **Swap**; this is the door the legacy
+     * routers (LinkRouter::seedOnlineOrdering / seedBooking / seedReservation,
+     * still live for the Instagram + Google Business harvests) come through
+     * until they move onto LinkRoutingService. Delete it with them.
+     *
+     * Idempotent: upsertIntent advances the live intent for this
+     * (user, surface, identifier), so a nightly re-sync re-states the same
+     * row rather than stacking duplicates. A dismissal is never re-proposed —
+     * advanceLiveIntent only touches live states.
+     */
+    public function recordCapBlock(
+        User $user,
+        string $surfaceKey,
+        string $routingClass,
+        string $identifier,
+        string $url,
+        string $incumbentConnectionId,
+        string $origin = 'google_business',
+    ): void {
+        $iri = $this->canonicaliser->canonicalize($url);
+        $placement = new Placement(Verdict::Hold, $surfaceKey, $identifier, 'cap_reached');
+
+        $this->upsertIntent(
+            $user,
+            $placement,
+            RoutingContext::forUser($user, $origin),
+            $iri,
+            $routingClass,
+            $identifier,
+            Verdict::Hold,
+            'cap_reached',
+            $incumbentConnectionId,
+        );
     }
 
     private function upsertIntent(
