@@ -101,7 +101,7 @@ class PoolItemCreateController extends ApiController
                 $this->applyCheckedWords($user->id, $added['itemId'], $data);
                 $this->pin($site, $pool, $added['itemId']);
 
-                return $this->success($this->resolver->resolve($site, $pool), 201);
+                return $this->created($site, $pool, $added['itemId']);
             }
             // no_product / unreachable → the card path below.
         }
@@ -134,7 +134,7 @@ class PoolItemCreateController extends ApiController
                     // checked words from the two-step Add remain to apply.
                     $this->applyCheckedWords($user->id, $added['id'], $data);
 
-                    return $this->success($this->resolver->resolve($site, $pool), 201);
+                    return $this->created($site, $pool, $added['id']);
                 }
             }
             // no event markup / unreachable → the card path below.
@@ -289,7 +289,24 @@ class PoolItemCreateController extends ApiController
 
         $this->pin($site, $pool, $itemId);
 
-        return $this->success($this->resolver->resolve($site, $pool), 201);
+        return $this->created($site, $pool, $itemId);
+    }
+
+    /**
+     * The 201 body: the pool wire plus the created (or folded-into) item's
+     * id at the TOP LEVEL — beside selection/library, never inside an item,
+     * so PoolWireShapeTest's per-item key pins are untouched. The add sheet
+     * used to re-find the new item by matching the PASTED url against the
+     * wire, which broke the moment the media/events lanes started storing
+     * platform-CANONICAL urls (youtu.be/X lands as watch?v=X): every add
+     * succeeded and then toasted "we couldn't find it" (owner, 2026-08-20).
+     */
+    private function created(Site $site, string $pool, string $itemId): JsonResponse
+    {
+        return $this->success([
+            ...$this->resolver->resolve($site, $pool),
+            'addedItemId' => $itemId,
+        ], 201);
     }
 
     /**

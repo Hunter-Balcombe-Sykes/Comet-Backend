@@ -47,7 +47,10 @@ it('reads a YouTube link as a real video — canonical URL, oEmbed title, thumbn
 
     $item = collect($res->json('selection'))->firstWhere('headline', 'Studio Tour 2026');
     expect($item)->not->toBeNull()
-        ->and($item['kind'])->toBe('video');
+        ->and($item['kind'])->toBe('video')
+        // The sheet locates the new item by THIS id — never by re-matching
+        // the pasted url, which the canonical rewrite would break.
+        ->and($res->json('addedItemId'))->toBe($item['id']);
 
     // The canonical form — NOT the pasted youtu.be short link — is what the
     // identity spine folds on.
@@ -175,3 +178,33 @@ it('classifies the grammar matrix — item vs account vs neither', function (str
     // Neither
     ['https://example.com/watch?v=abc', null, null],
 ]);
+
+it('classifies pasted links for step-1 guidance — pure, no fetch', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    // A track pasted anywhere → belongs on Listen.
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://open.spotify.com/track/4hvcQOVrQ4rdaI0zubTwWa?si=3d4123c3f9854ddd',
+    ])->assertOk()->assertJson([
+        'belongsTo' => ['pool' => 'listen', 'kind' => 'track', 'pageLabel' => 'Listen'],
+        'account' => null,
+    ]);
+
+    // A channel → connect guidance.
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://www.youtube.com/@somecreator',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => 'YouTube']);
+
+    // An event page → Events; an organiser → connect.
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://www.eventbrite.com.au/e/some-gig-12345',
+    ])->assertOk()->assertJson(['belongsTo' => ['pool' => 'events', 'kind' => 'event', 'pageLabel' => 'Events']]);
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://www.eventbrite.com.au/o/some-org-123',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => 'Eventbrite']);
+
+    // A plain page → neither.
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://example.com/blog/post',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => null]);
+});
