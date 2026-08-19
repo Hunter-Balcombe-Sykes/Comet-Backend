@@ -200,7 +200,7 @@ class LinkInBioApiUnroller
      */
     private function stanStore(string $slug): ?array
     {
-        $doc = $this->jsonDoc(self::STAN_API_URL, ['username' => $slug]);
+        $doc = $this->jsonDoc(self::STAN_API_URL, ['username' => $slug], 'stan.store');
         if ($doc === null) {
             return null;
         }
@@ -236,8 +236,9 @@ class LinkInBioApiUnroller
         // whatever their key; only handle keys named in STAN_SOCIAL_PROFILES
         // are expanded (same rule as linkinBio() above: shapes are quoted
         // from live responses, never guessed — a wrong guess would MINT a
-        // URL, worse than missing one). mail_to is an email; collect()'s
-        // http(s) test already refuses it.
+        // URL, worse than missing one). mail_to is refused twice over: its
+        // key is not in STAN_SOCIAL_PROFILES and its value carries no
+        // http(s) scheme.
         foreach ((array) data_get($doc, 'user.data.socials', []) as $key => $value) {
             if (! is_string($value) || trim($value) === '') {
                 continue;
@@ -251,8 +252,12 @@ class LinkInBioApiUnroller
             }
 
             $format = self::STAN_SOCIAL_PROFILES[$key] ?? null;
-            if ($format !== null && ! str_contains($value, '/')) {
-                $this->collect($urls, sprintf($format, rawurlencode(ltrim($value, '@'))));
+            $handle = ltrim($value, '@');
+            // $handle can be '' when the value was ONLY @-signs — expanding
+            // that would mint a bare "https://…/@", the exact junk the rule
+            // above forbids.
+            if ($format !== null && $handle !== '' && ! str_contains($value, '/')) {
+                $this->collect($urls, sprintf($format, rawurlencode($handle)));
             }
         }
 
@@ -268,7 +273,7 @@ class LinkInBioApiUnroller
      */
     private function json(string $url, array $query, string $path, string $host): ?array
     {
-        $doc = $this->jsonDoc($url, $query);
+        $doc = $this->jsonDoc($url, $query, $host);
         if ($doc === null) {
             return null;
         }
@@ -299,7 +304,7 @@ class LinkInBioApiUnroller
      * @param  array<string, string>  $query
      * @return array<int|string, mixed>|null
      */
-    private function jsonDoc(string $url, array $query): ?array
+    private function jsonDoc(string $url, array $query, string $host): ?array
     {
         $response = Http::timeout(self::TIMEOUT_SECONDS)
             ->connectTimeout((int) config('partna.http_fetch.connect_timeout_seconds', 3))
@@ -311,7 +316,23 @@ class LinkInBioApiUnroller
 
         $doc = $response->json();
 
-        return is_array($doc) ? $doc : null;
+        if (! is_array($doc)) {
+            // A 200 whose body is not a JSON object at all (scalar, or an
+            // HTML challenge page served with a 200). The old json() surfaced
+            // this through its unrecognised_payload warning; splitting the
+            // fetch out must not turn it into a silent null — that is the
+            // "quietly returning nothing forever" failure this class exists
+            // to end.
+            Log::warning('platforms.link_in_bio_api.unrecognised_payload', [
+                'host' => $host,
+                'path' => '(top level)',
+                'keys' => [],
+            ]);
+
+            return null;
+        }
+
+        return $doc;
     }
 
     /**

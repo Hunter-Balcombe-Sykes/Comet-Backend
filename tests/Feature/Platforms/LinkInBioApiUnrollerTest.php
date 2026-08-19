@@ -2,6 +2,7 @@
 
 use App\Services\Platforms\LinkInBioApiUnroller;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 // N2 (2026-08-19): linkin.bio delivers an empty Ember shell — zero <a> anchors —
 // so the anchor harvest returns nothing and the whole page is lost. The links are
@@ -272,6 +273,27 @@ it('answers the socials even when the stan store has zero outward tiles (F12)', 
 
     expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))
         ->toBe(['https://www.tiktok.com/@natalieannehair']);
+});
+
+it('refuses to mint a profile URL from a handle that is only @-signs (F12)', function () {
+    // ltrim('@', '@') is '' — expanding that would emit a bare
+    // "https://www.tiktok.com/@", a URL the owner never published.
+    fakeStan(stanStore([]) + ['user' => ['data' => ['socials' => ['tiktok' => '@']]]]);
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))->toBe([]);
+});
+
+it('logs the unrecognised-payload warning when a 200 body is not JSON at all', function () {
+    // An HTML challenge page served with a 200 must not become a silent null
+    // forever — the warning is the class's whole reason for logging at all.
+    Log::spy();
+    fakeStan([], 200);
+    Http::fake(['api.stanwith.me/*' => Http::response('<html>not json</html>', 200)]);
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))->toBeNull();
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($msg) => $msg === 'platforms.link_in_bio_api.unrecognised_payload')
+        ->once();
 });
 
 it('declines every new host when its API is down, so the floor still backstops', function () {
