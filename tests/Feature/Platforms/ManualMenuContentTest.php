@@ -880,21 +880,6 @@ it('403s every manual write for a non-food (partna) account', function () {
 // UNCHANGED and still couples the two lanes). Task 7 re-couples the rest and
 // should re-drive these through the API.
 
-/** @param array<string, list<array{name:string, base_price?:float, is_manual?:bool}>> $categories */
-function mmcSeedLegacy(Menu $menu, array $categories, string $source): void
-{
-    $ci = MenuCategory::query()->where('menu_id', $menu->id)->count();
-    foreach ($categories as $name => $items) {
-        $cat = MenuCategory::query()->where('menu_id', $menu->id)->where('name', $name)->first()
-            ?? MenuCategory::create(['menu_id' => $menu->id, 'name' => $name, 'position' => $ci++, 'source_platform' => $source]);
-        $ii = 0;
-        foreach ($items as $item) {
-            $row = MenuItem::create(array_merge(['menu_id' => $menu->id, 'is_manual' => false], $item));
-            $row->categories()->attach($cat->id, ['position' => $ii++]);
-        }
-    }
-}
-
 // Slice 7 Task 7 split the two lanes: the SCRAPE writes content.*, the 10 owner
 // verbs still write site.menu_* until Task 6 moves them. So the cross-lane half
 // of this test — a manual dish shadowing a same-named scraped one — cannot be
