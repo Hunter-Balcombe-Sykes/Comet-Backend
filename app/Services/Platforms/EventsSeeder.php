@@ -31,19 +31,6 @@ class EventsSeeder
     /** Mirrors ManagesIntegrationConnection::maxAccounts() — keep in lockstep. */
     private const MAX_ACCOUNTS = 5;
 
-    /**
-     * The scan lane's OWN cap, per platform, on CONNECTION rows — deliberately
-     * still this and not ManualEventWriter::MAX_STANDALONE_EVENTS.
-     *
-     * The two govern different things and always did: this bounds what an
-     * automatic scan may seed per platform, that bounds what an owner may add
-     * by hand. Slice 7 Phase 4 left the pool half of seedStandalone() UNCAPPED
-     * for exactly that reason — every row this seeder wrote used to publish, so
-     * capping the item while still writing the connection would resurrect the
-     * invisible-event bug this phase exists to fix.
-     */
-    private const MAX_STANDALONE_EVENTS = 10;
-
     private const PLATFORMS = ['eventbrite', 'humanitix'];
 
     public function __construct(
@@ -191,6 +178,16 @@ class EventsSeeder
         // ManualEventWriter honours the same way for a hand re-add. Returns
         // the canonical event URL as the caller's "written" signal — there is
         // no resource_id.
+        // The only cap on this write is ManualEventWriter::MAX_STANDALONE_EVENTS
+        // — the owner's manual-add allowance, spent here too because a scanned
+        // event lands in the same pool a hand-add does. EventsSeeder::MAX_ACCOUNTS
+        // is a DIFFERENT cap (the scan lane's own limit on organiser ACCOUNT/
+        // connection rows, enforced in seedAccount() above) — there is no
+        // seeder-local standalone-event cap: the old one governed the
+        // `resource_kind='event'` connection row this method used to dual-write,
+        // retired by R7 above, and was deliberately not replaced — capping the
+        // pool item while a connection row still published would have
+        // resurrected the invisible-event bug Slice 7 Phase 4 exists to fix.
         $writer = app(ManualEventWriter::class);
         if ($writer->wouldExceedCap($user, $canonical)) {
             Log::info('events_seeder.event_cap', ['user_id' => (string) $user->id, 'platform' => $platform, 'lane' => 'pool']);

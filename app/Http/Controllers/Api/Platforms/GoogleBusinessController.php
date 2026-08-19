@@ -225,16 +225,4 @@ class GoogleBusinessController extends ApiController
         $user->display_name = $name;
         $user->save();
     }
-
-    /** Index of the first 'conflict' finding for $platform, or null. */
-    private function locateConflictFinding(array $findings, string $platform): ?int
-    {
-        foreach ($findings as $i => $f) {
-            if (is_array($f) && ($f['platform'] ?? null) === $platform && ($f['outcome'] ?? null) === 'conflict') {
-                return $i;
-            }
-        }
-
-        return null;
-    }
 }

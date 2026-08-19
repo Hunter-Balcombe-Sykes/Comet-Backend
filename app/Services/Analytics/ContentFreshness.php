@@ -68,7 +68,7 @@ class ContentFreshness
             ->where('user_id', $site->user_id)
             ->active()
             ->get(['platform', 'resource_kind', 'payload', 'created_at'])
-            ->each(function (IntegrationConnection $conn) use (&$pageNewest, &$linkItems): void {
+            ->each(function (IntegrationConnection $conn) use (&$pageNewest): void {
                 $page = SitepageDataResolverService::PLATFORM_TO_PAGE[$conn->platform] ?? null;
                 if ($page !== null) {
                     if (! isset($pageNewest[$page]) || $conn->created_at->gt($pageNewest[$page])) {
