@@ -42,7 +42,7 @@ function seederUser(array $attrs = []): User
 // Queue::fake() that meant no row at all. The gateway behaviour has its own
 // tests at the bottom of this file; everything above them is about the write.
 
-it('seeds a custom link card idempotently, enriches it, and enforces the same 20-link cap the manual UI uses', function () {
+it('seeds a custom link card idempotently, enriches it, and enforces the same 50-link cap the manual UI uses', function () {
     Queue::fake();
     $user = seederUser(['account_type' => 'business']);
 
@@ -64,15 +64,15 @@ it('refuses to seed a link for a pending-deletion account', function () {
     expect(IntegrationConnection::where('user_id', $user->id)->exists())->toBeFalse();
 });
 
-it('stops at the 20-link cap', function () {
+it('stops at the 50-link cap (T9/F10 raise)', function () {
     Queue::fake();
     $user = seederUser(['account_type' => 'business']);
-    for ($i = 0; $i < 20; $i++) {
+    for ($i = 0; $i < 50; $i++) {
         $result = app(CustomLinkSeeder::class)->seedCustom($user, "https://example{$i}.com");
     }
     $result = app(CustomLinkSeeder::class)->seedCustom($user, 'https://one-too-many.example');
     expect($result)->toBeNull();
-    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(20);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(50);
 });
 
 it('returns null for a URL that fails to normalize', function () {

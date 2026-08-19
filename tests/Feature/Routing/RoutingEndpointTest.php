@@ -180,7 +180,7 @@ it('answers a structured 422 when the link cap is full', function () {
     $pro = createTenant('routing-note-cap');
 
     $writer = app(LinkPoolWriter::class);
-    foreach (range(1, 20) as $i) {
+    foreach (range(1, 50) as $i) {
         $writer->add($pro, "https://example{$i}.com.au");
     }
 
@@ -188,7 +188,7 @@ it('answers a structured 422 when the link cap is full', function () {
         ->assertStatus(422)
         ->assertJsonPath('code', 'link_cap_reached');
 
-    expect(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(20);
+    expect(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(50);
 });
 
 it('sends a below-auto-threshold link to review rather than connecting or noting it', function () {

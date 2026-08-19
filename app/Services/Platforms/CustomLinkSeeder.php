@@ -27,7 +27,7 @@ use Illuminate\Support\Facades\Log;
  */
 class CustomLinkSeeder
 {
-    public const MAX_LINKS = 20;
+    public const MAX_LINKS = 50;
 
     public function __construct(
         private readonly LinkCardScraper $scraper,
