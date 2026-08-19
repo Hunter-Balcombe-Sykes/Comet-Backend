@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
+use App\Services\PublicSite\ItemFeedService;
 use App\Services\PublicSite\SiteActionsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,9 +15,10 @@ use Illuminate\Http\Request;
 // Dashboard picker data for the design page's "Pages" + "Action buttons"
 // controls: the live action pool (everything orderable), the currently-served
 // rankedActions (override-applied — what the sitepage lander shows right now),
-// and the stored ordering preferences. Read-only; writes go through
+// and the stored ordering preferences — plus the item feed preview (spec
+// 2026-08-19-item-feed-design.md §6). Read-only; writes go through
 // PATCH /api/site settings (smart_page_order / manual_page_order /
-// smart_actions / manual_actions).
+// smart_actions / manual_actions / feed_mode / manual_feed).
 class UserSiteActionsController extends ApiController
 {
     use ResolveCurrentSite;
@@ -25,6 +28,8 @@ class UserSiteActionsController extends ApiController
         Request $request,
         SiteActionsService $actions,
         ContentPopularityReader $popularity,
+        ItemFeedService $feed,
+        IndividualProfilePayloadBuilder $payload,
     ): JsonResponse {
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
@@ -53,6 +58,19 @@ class UserSiteActionsController extends ApiController
                 $ordering['manual_actions'],
             ),
             'ordering' => $actions->orderingWire($ordering),
+            // Item feed preview (spec 2026-08-19-item-feed-design.md §6):
+            // entries resolved through the SAME publicPools() the profile
+            // payload serves, so the dashboard preview cannot drift from the
+            // lander; manual = the stored raw list for the editor.
+            'feed' => [
+                ...$feed->resolve(
+                    $payload->publicPools($site),
+                    $feed->mode($site),
+                    $feed->manualFeed($site),
+                    $popularity->itemScoresForSite($site->id),
+                ),
+                'manual' => $feed->manualFeed($site),
+            ],
         ]);
     }
 }

@@ -69,3 +69,14 @@ it('requires authentication', function () {
 
     $this->getJson('/api/site/actions')->assertStatus(401);
 });
+
+it('serves the feed preview beside the actions data', function () {
+    $pro = createTenant('actions-feed-preview');
+
+    $response = actingAsUser($pro)->getJson('/api/site/actions')->assertOk()->json();
+
+    expect($response)->toHaveKey('feed');
+    expect($response['feed'])->toHaveKeys(['mode', 'entries', 'manual']);
+    expect($response['feed']['mode'])->toBe('newest');
+    expect($response['feed']['manual'])->toBe([]);
+});
