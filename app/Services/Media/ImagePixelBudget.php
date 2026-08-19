@@ -2,22 +2,46 @@
 
 namespace App\Services\Media;
 
+use finfo;
+
 /**
- * The pixel-count ceiling for image bytes we did not create (#SEC-1).
+ * The gate every decode of image bytes we did not create must pass (#SEC-1).
  *
- * A byte-length cap is not a decompression-bomb defence. A 20000×20000 PNG of
- * flat colour compresses to a few hundred KB — well under MediaMirror's 15 MB
- * limit — and `imagecreatefromstring()` then allocates 20000 × 20000 × 4 bytes,
- * about 1.6 GB, before anything else in the pipeline gets a say. On the ingest
- * queue that is a worker kill from a source the mirror's own docblock calls
- * "untrusted by definition".
+ * TWO checks. Both are load-bearing, and they do DIFFERENT work — this class
+ * first shipped with a pixel check that failed OPEN on an unreadable header, an
+ * independent review broke it in minutes, and a second review then pinned down
+ * which half fixes what. Written down rather than left to be rediscovered:
  *
- * ImageVariantService::loadImage() has enforced this for uploads since well
- * before slice 1b, but that guard is **path**-based: it hands a filename to
- * getimagesize(). MediaMirror and WebpEncoder hold BYTES, and there is no file.
- * Hence a second entry point rather than a copied constant — the number and the
- * config key stay in one place, and the two shapes differ only in where they
- * read the header from.
+ *   1. FORMAT ALLOWLIST (`decodable()`). `imagecreatefromstring()` decodes
+ *      strictly MORE formats than `getimagesizefromstring()` can parse — GD's
+ *      own native GD2 among them. A 12000x12000 GD2 image is ~854 KB on the
+ *      wire, `getimagesize` reports FALSE for it, and GD decodes it happily into
+ *      144 million pixels. finfo byte-sniffs, so a lying content-type or
+ *      extension buys nothing. Only jpeg/png/webp get through, matching
+ *      ImageVariantService::ALLOWED_IMAGE_MIMES and GalleryAutoGrabber's
+ *      ALLOWED_MIMES exactly — three lists, one set, deliberately.
+ *
+ *      What this check contributes is the ACCEPTED SURFACE: it refuses GIF, BMP,
+ *      WBMP, XBM and GD2 outright, at any size, and gives MediaMirror an honest
+ *      reason to record. It is not, on its own, what stops the bomb.
+ *
+ *   2. PIXEL CEILING, FAILING CLOSED (`exceeds()`). A byte-length cap is not a
+ *      decompression-bomb defence: a 20000x20000 PNG of flat colour is under 100
+ *      bytes on the wire and about 1.6 GB once rasterised — four orders of
+ *      magnitude under MediaMirror's 15 MB limit, on a queue fed by a
+ *      third-party scrape.
+ *
+ *      The DIRECTION is the security-relevant part. An unreadable header returns
+ *      TRUE (refuse). The original returned false — "unreadable is not hostile" —
+ *      and that single assumption was the whole GD2 bypass: verified by mutation,
+ *      removing the allowlist but keeping this direction still refuses the GD2
+ *      payload. Never soften it back.
+ *
+ * ImageVariantService::loadImage() has enforced the same pair for uploads since
+ * long before slice 1b, but PATH-based: `assertImageMime($path)` then
+ * `getimagesize($path)`, both of which take a filename. MediaMirror and
+ * WebpEncoder hold BYTES and there is no file. Hence this twin rather than a
+ * copied constant — same two questions, read from a string.
  *
  * @see ImageVariantService::loadImage() the path-based twin
  */
@@ -25,6 +49,13 @@ final class ImagePixelBudget
 {
     /** Mirrors ImageVariantService::loadImage()'s fallback — 24 MP. */
     public const FALLBACK_MAX_PIXELS = 24_000_000;
+
+    /**
+     * Byte-sniffed formats we are willing to hand to GD. Must stay identical to
+     * ImageVariantService::ALLOWED_IMAGE_MIMES — widening one without the other
+     * is how a decoder path grows a format nobody audited.
+     */
+    private const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 
     public static function maxPixels(): int
     {
@@ -34,33 +65,60 @@ final class ImagePixelBudget
     }
 
     /**
-     * Does a header-only read say these bytes decode to more pixels than we are
-     * willing to allocate?
+     * Are these bytes a format we will decode at all?
      *
-     * getimagesizefromstring() reads the header and never rasterises, so this
-     * costs nothing and — crucially — runs BEFORE any decoder sees the bytes.
-     * The same pattern is already used by GalleryAutoGrabber and LogoAutoGrabber.
+     * finfo byte-sniffs, exactly as assertImageMime() does for the path lane, so
+     * a hostile content-type header or file extension buys nothing. This is the
+     * check that closes the GD2 hole — see the class docblock.
+     */
+    public static function decodable(string $bytes): bool
+    {
+        if ($bytes === '') {
+            return false;
+        }
+
+        return in_array((new finfo(FILEINFO_MIME_TYPE))->buffer($bytes), self::ALLOWED_MIMES, true);
+    }
+
+    /**
+     * Would decoding these bytes allocate more pixels than we allow?
      *
-     * Returns false when the dimensions cannot be read at all. That is the
-     * deliberate direction to be wrong in: "unreadable" is not "hostile", and
-     * the decoder immediately downstream already refuses bytes it cannot decode.
-     * A bomb necessarily has a READABLE header — declaring enormous dimensions
-     * is how it works — so the attack this exists to stop is always caught.
+     * Header-only: getimagesizefromstring() parses dimensions and never
+     * rasterises, so this costs nothing and runs BEFORE any decoder sees the
+     * bytes. Same pattern as GalleryAutoGrabber and LogoAutoGrabber.
+     *
+     * Returns TRUE — refuse — when the dimensions cannot be read. It fails
+     * CLOSED on purpose: the earlier "unreadable is not hostile" reading was
+     * exactly the assumption the GD2 bypass exploited. Callers gate on
+     * decodable() first, so in practice an unreadable header here means bytes
+     * that finfo called a jpeg/png/webp and getimagesize could not parse —
+     * i.e. malformed or crafted, and not something to hand a decoder.
      */
     public static function exceeds(string $bytes): bool
     {
         $info = @getimagesizefromstring($bytes);
         if ($info === false) {
-            return false;
+            return true;
         }
 
-        $width = (int) ($info[0] ?? 0);
-        $height = (int) ($info[1] ?? 0);
+        // No `?? 0`: getimagesizefromstring() either returns false (handled
+        // above) or an array whose 0 and 1 offsets always exist.
+        $width = $info[0];
+        $height = $info[1];
 
         if ($width < 1 || $height < 1) {
-            return false;
+            return true;
         }
 
         return $width * $height > self::maxPixels();
+    }
+
+    /**
+     * The single call a decoder should make. Both checks, in the order that
+     * makes the second one meaningful.
+     */
+    public static function safeToDecode(string $bytes): bool
+    {
+        return self::decodable($bytes) && ! self::exceeds($bytes);
     }
 }

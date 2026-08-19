@@ -90,7 +90,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — Mirrored third-party image bytes are decoded with no pixel-count guard, only a byte-size cap
+- [x] **#SEC-1** · P1 — Mirrored third-party image bytes are decoded with no pixel-count guard, only a byte-size cap
     - **Where:** app/Services/Media/WebpEncoder.php:31; app/Services/Media/MediaMirror.php:107-111
     - **Affects:** The Instagram media-mirror pipeline (`MirrorMediaAssetJob` → `MediaMirror::mirror()` → `WebpEncoder::encode()`), which decodes bytes fetched from an Instagram CDN URL arriving inside a third-party scrape payload — a source `MediaMirror`'s own docblock calls "untrusted by definition."
     - **Effort:** S (~0.5–1h)
@@ -191,7 +191,7 @@
         }
         ```
 
-- [ ] **#SEC-5** · P2 — `MediaMirror`'s `content.media_assets` updates key only on `id`, never on `user_id`
+- [x] **#SEC-5** · P2 — `MediaMirror`'s `content.media_assets` updates key only on `id`, never on `user_id`
     - **Where:** app/Services/Media/MediaMirror.php:101-103, :131-142
     - **Affects:** `content.media_assets` rows written by the Instagram media-mirror pipeline. Currently exploitable only if a future caller ever paired a mismatched `(userId, assetId)`; today `assetId` always originates from `ProjectionWriter::dispatchMirrors()`, which resolves it from a user-scoped lookup/insert in the same run, so the pairing is correct by construction.
     - **Effort:** S (~0.5–1h)
@@ -558,7 +558,7 @@
         }
         ```
 
-- [ ] **#LIFE-12** · P2 — `MediaMirror::fail()` has no aggregate escalation path, so a systemic outage stays invisible to Nightwatch
+- [x] **#LIFE-12** · P2 — `MediaMirror::fail()` has no aggregate escalation path, so a systemic outage stays invisible to Nightwatch
     - **Where:** app/Services/Media/MediaMirror.php:175-185
     - **Affects:** Instagram media mirroring for every user, if R2 credentials break or `SafeUrlFetcher`'s upstream host resolution fails wholesale.
     - **Effort:** S (~0.5–1h)
@@ -1080,7 +1080,7 @@ None.
         ),
         ```
 
-- [ ] **#SCALE-2** · P1 — Auto-selection ("newest per source") runs a correlated COUNT subquery scanning the whole source per candidate row
+- [x] **#SCALE-2** · P1 — Auto-selection ("newest per source") runs a correlated COUNT subquery scanning the whole source per candidate row
     - **Where:** app/Site/Sections/SectionCandidates.php:330-373 (`connectionSourceLatestArm`), 393-428 (`storefrontLatestArm`)
     - **Affects:** Public pool resolution for `latest_per_auto_source` / `latest_n_per_auto_source` pools (watch/listen/media default, shop storefront auto-selection) — the default rule shape for most connected sources.
     - **Effort:** L (~1–2d)

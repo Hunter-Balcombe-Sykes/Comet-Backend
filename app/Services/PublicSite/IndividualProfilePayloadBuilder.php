@@ -19,6 +19,7 @@ use App\Site\Pools\PoolResolver;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Pure projection helper — assembles the §28.8 public profile payload from a
@@ -234,11 +235,29 @@ class IndividualProfilePayloadBuilder
         foreach (array_keys(PoolRegistry::POOLS) as $pool) {
             try {
                 $resolved = $this->pools->resolve($site, $pool);
-            } catch (QueryException) {
+            } catch (QueryException $e) {
                 // Partial test envs may not provision the content/sections
                 // tables (the getContentMedia precedent); in production they
                 // always exist. A missing lane yields no pools, never a 500.
-                return [];
+                //
+                // #LIFE-6 (also #CCH-3, #API-3 — one defect, three ids). This
+                // used to `return []`, which threw away EVERY pool because one
+                // of them threw, including the ones already built above, and
+                // then let that empty result cache for the full 60s payload TTL.
+                // Most likely to fire under database load — i.e. exactly when a
+                // page is popular. Now: drop THIS pool, keep the ones that
+                // resolved, and mark the build degraded so the controller
+                // rewrites both cache keys at the 10s degraded TTL and the page
+                // heals seconds after the database does.
+                Log::warning('sitepage.pool_query_failed', [
+                    'pool' => $pool,
+                    'site_id' => $site->id,
+                    'user_id' => $site->user_id,
+                    'error' => $e->getMessage(),
+                ]);
+                $this->resolver->markDegraded();
+
+                continue;
             }
             if ($resolved['selection'] === []) {
                 continue;

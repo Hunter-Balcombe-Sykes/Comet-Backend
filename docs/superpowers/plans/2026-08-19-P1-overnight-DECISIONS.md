@@ -263,3 +263,61 @@ deserialize (see the repo's promoted-readonly-job-property gotcha).
 signature change plus a `ProjectionWriter` edit — disproportionate risk for an
 unattended run, and `ProjectionWriter` is already the most contended file in this
 sweep. ~20 minutes of attended work with the pointer above.
+
+### 3.5 `#SCALE-1` — pinned and analysed, but NOT rewritten. The obvious rewrite is wrong on Postgres.
+
+The premise is true as stated: `SectionCandidates::ruleCandidates()`'s default
+(recency) ordering runs a correlated scalar subquery per candidate row, and in
+fact runs the SAME subquery **twice** per row —
+
+```sql
+ORDER BY ((SELECT MAX(fp.published_from) …) IS NOT NULL) DESC,
+         COALESCE((SELECT MAX(fp.published_from) …), first_seen_at) DESC,
+         content.items.id DESC
+```
+
+**But the P1 framing overstates it.** Both subqueries are `WHERE fp.item_id = ?`
+against `content.f_published`, whose PRIMARY KEY is `(item_id, source_id)` — so
+each is an index lookup, not a scan. They are evaluated only for rows surviving
+the WHERE, which is already scoped to **one site's** items. So the real cost is
+`2 × N` index probes for one site's N items, on a path cached for 60 s. That is a
+constant factor worth removing, not the scaling emergency the tier implies.
+
+**Three rewrites considered, all rejected:**
+
+1. **`joinSub` a pre-aggregated `GROUP BY item_id` derived table.** Preserves
+   cardinality (the thing that matters — see below), but Postgres cannot push the
+   site predicate through the aggregate, so it would aggregate the WHOLE
+   `f_published` table to order one site's handful of rows. Plausibly *slower*.
+2. **Hoist the subquery into a `SELECT … AS cand_sort_at` alias and order by it.**
+   Halves the evaluations, and **is invalid on Postgres**: an output-column alias
+   may be a bare `ORDER BY` item, but NOT referenced inside an expression such as
+   `COALESCE(cand_sort_at, first_seen_at)` — there it resolves against input
+   columns and errors. **SQLite accepts it.** So this rewrite passes
+   `composer test` and dies in production — precisely the SQLite≠Postgres trap
+   CLAUDE.md warns about. Making it work needs a full derived-table restructure of
+   the builder.
+3. **Drop key 2 to a bare `first_seen_at DESC`** (valid, one evaluation, and the
+   reasoning almost works: key 1 already fully orders the dated rows, and for
+   undated rows `COALESCE(pub, first_seen) = first_seen`). It changes behaviour in
+   one case — **two dated rows sharing a `published_from` but differing in
+   `first_seen_at`** now tie-break on `first_seen` before `id`, where today they
+   tie-break on `id` alone. Small, but a silent ordering change to a query that
+   already carries three separately-debugged incidents (F13, X5, F1).
+
+**Decision: box NOT ticked, no query change.** What did ship is
+`tests/Feature/Site/SectionCandidateOrderingTest.php` — six cases pinning order
+AND cardinality, including the invariant every rewrite must keep:
+
+> `content.f_published` and `content.f_occurrence` are both keyed
+> `(item_id, source_id)`, so an item carried by TWO sources has TWO facet rows,
+> and any naive join emits that item **twice**.
+
+That test is the precondition the prompt asked for ("pin the current output shape
+BEFORE changing the query"), and it is worth more than the rewrite: whoever does
+attempt option 1 or 2 now finds out immediately if they break the shape.
+
+**If someone wants the win:** restructure to a derived table —
+`SELECT id FROM (SELECT items.id, items.first_seen_at, (SELECT MAX(...)) AS cand_sort_at FROM ... WHERE ...) t ORDER BY cand_sort_at DESC NULLS LAST, COALESCE(cand_sort_at, first_seen_at) DESC, id DESC`
+— which is alias-legal because the alias is an input column of the outer query.
+Verify on the **Postgres** lane, not SQLite.
