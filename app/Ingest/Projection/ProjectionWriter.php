@@ -18,6 +18,7 @@ use App\Services\Site\AdvisoryLock;
 use App\Services\Site\AdvisoryLockTimeoutException;
 use App\Site\Documents\BuildState;
 use App\Site\Documents\SiteCacheLanes;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -419,8 +420,8 @@ class ProjectionWriter
         // and for the same reason: a committed source item visible with zero
         // identity keys resolves as an unrelated singleton and mints a
         // spurious item. See the long note at the projectStream() call site.
-        [$sourceItemId, $created] = DB::transaction(function () use ($contentSourceId, $coord, $kind, $projection) {
-            [$sourceItemId, $created] = $this->upsertSourceItem(
+        [$sourceItemId, $unbound] = DB::transaction(function () use ($contentSourceId, $coord, $kind, $projection) {
+            [$sourceItemId, $unbound] = $this->upsertSourceItem(
                 contentSourceId: $contentSourceId,
                 coord: $coord,
                 streamId: null,
@@ -433,7 +434,7 @@ class ProjectionWriter
             );
             $this->writeIdentityKeys($sourceItemId, $coord, $projection);
 
-            return [$sourceItemId, $created];
+            return [$sourceItemId, $unbound];
         });
 
         try {
@@ -446,15 +447,19 @@ class ProjectionWriter
             // minted item — but writeFacets() never ran for it, so what the owner eventually
             // sees is a blank card they were told had failed to save.
             //
-            // Only a row THIS call created is retired. An idempotent re-add (MenuScanApplier,
-            // ShopContentWriter, every backfiller) upserts a coord the owner already has, and
-            // retiring that on a lock timeout would delete real content. upsertSourceItem()'s
-            // update branch clears removed_at, so a retry heals this by itself.
+            // Only an UNBOUND row is retired — one carrying no item_id, so retiring it
+            // destroys nothing. That covers both a row this call minted and one an earlier
+            // failed resolve left behind, which matters because upsertSourceItem()'s update
+            // branch clears removed_at: keyed on "did I create it", a second consecutive
+            // timeout for one coord would un-retire the row and then walk straight past this.
+            // A row that already carries an item_id is the owner's real content — an idempotent
+            // re-add (MenuScanApplier, ShopContentWriter, every backfiller) must never have it
+            // retired out from under them.
             //
             // Catching here is safe: the transaction above has COMMITTED and resolveItems()'
             // own has rolled back, so this runs outside every transaction and cannot poison one
             // (25P02). It rethrows — the caller still learns the write failed.
-            if ($created) {
+            if ($unbound) {
                 DB::table('content.source_items')->where('id', $sourceItemId)->update(['removed_at' => now()]);
             }
 
@@ -494,11 +499,15 @@ class ProjectionWriter
     }
 
     /**
-     * @return array{0: string, 1: bool} [source item id, whether THIS call created the row]
+     * @return array{0: string, 1: bool} [source item id, whether the row is bound to NO item]
      *
-     * The created flag exists for writeManualItem()'s compensation: a caller that fails after
-     * this commits must be able to tell a row it just minted (safe to retire) from one that was
-     * already the owner's (never touch it).
+     * The flag exists for writeManualItem()'s compensation, and it is deliberately "unbound"
+     * rather than "we created it". A row this call minted is unbound, but so is one an EARLIER
+     * failed resolve left behind — including one the compensation itself retired, because the
+     * update branch below clears removed_at on the retry. Keying on "created" therefore leaks
+     * exactly the residue the compensation exists to remove, on the second consecutive failure
+     * for one coord. A row that already carries an item_id is the owner's real content and is
+     * never touched.
      */
     private function upsertSourceItem(
         string $contentSourceId,
@@ -511,7 +520,7 @@ class ProjectionWriter
         $existing = DB::table('content.source_items')
             ->where('source_id', $contentSourceId)
             ->where('coord', $coord)
-            ->first(['id']);
+            ->first(['id', 'item_id']);
 
         if ($existing !== null) {
             DB::table('content.source_items')->where('id', $existing->id)->update([
@@ -525,7 +534,7 @@ class ProjectionWriter
                 'removed_at' => null,
             ]);
 
-            return [(string) $existing->id, false];
+            return [(string) $existing->id, $existing->item_id === null];
         }
 
         // insertOrIgnore + re-read, not insert: the SELECT above and this write
@@ -551,15 +560,16 @@ class ProjectionWriter
         $landed = DB::table('content.source_items')
             ->where('source_id', $contentSourceId)
             ->where('coord', $coord)
-            ->value('id');
+            ->first(['id', 'item_id']);
 
         if ($landed === null) {
             throw new \RuntimeException("Could not resolve a source item for coord {$coord}.");
         }
 
-        // Not "we inserted": insertOrIgnore may have lost to a concurrent writer, in which case
-        // the row is theirs and retiring it would delete someone else's write.
-        return [(string) $landed, (string) $landed === $id];
+        // Reads item_id off the SAME re-read rather than a second query: insertOrIgnore may have
+        // lost to a concurrent writer, and it is the PERSISTED row's binding that decides
+        // whether retiring it would destroy anything.
+        return [(string) $landed->id, $landed->item_id === null];
     }
 
     /**
@@ -687,18 +697,34 @@ class ProjectionWriter
         // exercise this at all — a green `composer test` says nothing about it. tests/Postgres/
         // is where it is proven.
         $connection = DB::connection();
+        $key = "identity:{$userId}:{$kind}";
 
-        return $connection->transaction(function () use ($connection, $userId, $kind) {
-            if ($connection->getDriverName() === 'pgsql') {
-                AdvisoryLock::acquire(
-                    "identity:{$userId}:{$kind}",
-                    self::IDENTITY_LOCK_TIMEOUT_MS,
-                    $connection->getName(),
-                );
+        try {
+            return $connection->transaction(function () use ($connection, $key, $userId, $kind) {
+                if ($connection->getDriverName() === 'pgsql') {
+                    AdvisoryLock::acquire($key, self::IDENTITY_LOCK_TIMEOUT_MS, $connection->getName());
+                }
+
+                return $this->resolveItemsLocked($userId, $kind);
+            });
+        } catch (QueryException $e) {
+            // OUTSIDE the transaction — DB::transaction() has already rolled back, so this
+            // cannot poison anything (25P02). It converts, it does not recover.
+            //
+            // SET LOCAL lock_timeout bounds every lock the transaction takes, not just the
+            // advisory one, and a ROW lock aborting raises the same SQLSTATE 55P03 as a bare
+            // QueryException rather than as AdvisoryLockTimeoutException — the closing
+            // `UPDATE content.source_items` waiting on a concurrent writeManualItem()'s own
+            // transaction is the reachable case. Undistinguished, that path skipped
+            // writeManualItem()'s compensation and surfaced as a 500 for what is ordinary
+            // contention. ReorderService::reorder() already reclassifies its row-lock timeout
+            // through this same helper for the same reason.
+            if (AdvisoryLock::isLockTimeout($e)) {
+                throw new AdvisoryLockTimeoutException($key, $e);
             }
 
-            return $this->resolveItemsLocked($userId, $kind);
-        });
+            throw $e;
+        }
     }
 
     /**
@@ -861,17 +887,19 @@ class ProjectionWriter
      */
     private function bindGroup(string $userId, string $kind, array $group, ?array $snapshot = null): array
     {
-        $anchors = $snapshot === null
+        // Unordered on purpose — sortAnchors() below is the ONE ordering, shared with the
+        // #SCALE-4 prefetch path. An `ORDER BY coord` here would sort under the DATABASE
+        // COLLATION while the snapshot path sorts byte-wise in PHP, so on a bound_at tie the two
+        // paths can rank the same pair differently ('yt:acct:AB-1' vs 'yt:acct:ab_1' invert
+        // between en_US.utf8 and byte order). Which path serves a group depends on whether an
+        // unrelated earlier group merged — so that would make the identity of the item
+        // mergeInto() HARD-DELETES depend on something the group has nothing to do with.
+        $anchors = $this->sortAnchors($snapshot === null
             ? DB::table('content.item_anchors')
                 ->where('user_id', $userId)
                 ->whereIn('coord', $group)
-                ->orderBy('bound_at')
-                // Secondary sort, matching anchorsFromSnapshot(): bound_at is second-resolution
-                // (see that method), so without it these two paths can order a tie differently
-                // within one pass and pick different merge winners.
-                ->orderBy('coord')
                 ->get(['coord', 'item_id', 'superseded_by', 'bound_at'])
-            : $this->anchorsFromSnapshot($snapshot, $group);
+            : $this->anchorsFromSnapshot($snapshot, $group));
 
         // Set by every path that calls mergeInto() (or deletes an item): those rewrite anchors
         // this call does not own, so the caller's prefetch cannot be trusted afterwards.
@@ -1025,22 +1053,7 @@ class ProjectionWriter
     }
 
     /**
-     * This group's slice of the prefetch, ordered as the per-group query ordered it.
-     *
-     * bound_at order is load-bearing, not cosmetic: $effective's first element is the oldest
-     * binding, and that is what wins a merge — whose loser mergeInto() hard-deletes.
-     *
-     * TIES ARE ROUTINE, not rare, and an earlier version of this comment claimed otherwise.
-     * Laravel's query grammar formats every timestamp binding as 'Y-m-d H:i:s', so bound_at is
-     * stored truncated to WHOLE SECONDS whatever Carbon held: two anchors written a millisecond
-     * apart, by different calls, to different items, compare equal. So coord is the tie-break —
-     * arbitrary, but DETERMINISTIC, where the bare SQL ORDER BY was arbitrary and not. The
-     * $snapshot === null path in bindGroup() carries the same ->orderBy('coord') so the two
-     * paths cannot disagree within one pass.
-     *
-     * "Oldest binding wins" is therefore only true to the second. That is a pre-existing
-     * property of the column, not something introduced here, and it is written down because the
-     * hard delete rests on it.
+     * This group's slice of the prefetch, unordered — bindGroup() sorts.
      *
      * @param  array<string, object>  $snapshot
      * @param  list<string>  $group
@@ -1055,10 +1068,38 @@ class ProjectionWriter
             }
         }
 
-        usort($rows, fn (object $a, object $b) => [(string) $a->bound_at, (string) $a->coord]
-            <=> [(string) $b->bound_at, (string) $b->coord]);
-
         return collect($rows);
+    }
+
+    /**
+     * Oldest binding first — the order that decides which item survives a merge.
+     *
+     * This is load-bearing, not cosmetic: $effective's first element is the winner whenever
+     * preferOwnerAnchored() abstains, and mergeInto() HARD-DELETES every other item in the
+     * group. It lives in PHP, applied identically to the prefetched slice and to the fresh
+     * per-group read, because those two are served by different code paths within one pass and
+     * an ordering that differed between them would make a destructive choice depend on which
+     * path happened to run.
+     *
+     * TIES ARE ROUTINE. Laravel's query grammar formats every timestamp binding as
+     * 'Y-m-d H:i:s' (Grammar::getDateFormat(), not overridden by PostgresGrammar), so bound_at
+     * is stored truncated to WHOLE SECONDS whatever Carbon held — two anchors written a
+     * millisecond apart, by different calls, to different items, compare equal. coord breaks
+     * that tie: arbitrary, but the same arbitrary answer every time and on every path, where
+     * a bare `ORDER BY bound_at` left it to whatever the planner returned.
+     *
+     * So "oldest binding wins" is only true to the second. That is a property of the column
+     * rather than of this method, and it is written down because the hard delete rests on it.
+     *
+     * @param  Collection<int, object>  $anchors
+     * @return Collection<int, object>
+     */
+    private function sortAnchors(Collection $anchors): Collection
+    {
+        return $anchors
+            ->sort(fn (object $a, object $b) => [(string) $a->bound_at, (string) $a->coord]
+                <=> [(string) $b->bound_at, (string) $b->coord])
+            ->values();
     }
 
     /**

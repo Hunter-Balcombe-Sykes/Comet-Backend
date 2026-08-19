@@ -439,3 +439,96 @@ new `AdvisoryLock` parameter preserves all seven existing call sites; lock and t
 are provably on the same backend (`pg_locks` on `pg_backend_pid()`); no caller nests
 `resolveItems()` in an outer transaction, traced transitively; no `try/catch` inside the
 locked call graph.
+
+---
+
+## 8. Independent review, round 2 — FAIL again, and again it was right
+
+Round 2 re-ran every round-1 mutation and reproduced the matrix exactly, then confirmed the
+things round 1 could only assert: exactly ONE of the 43 statements in a `writeManualItem()`
+pass matches the listener predicate; `{P,Q}` before `{R}` is guaranteed by construction
+(`DisjointSet::groups()` iterates `array_keys($parent)`, i.e. the `ORDER BY first_seen_at, id`
+read order) rather than by luck; `context()` really is the hook Laravel's handler calls; and no
+path in `app/` runs `writeManualItem()` inside an open transaction (swept from both directions).
+
+It then found five more. Two were live defects **in the round-1 fixes themselves**.
+
+### 1. The compensation was not idempotent — DEFECT, fixed
+
+`$created` is false whenever `upsertSourceItem()` takes its update branch — **including for a row
+the compensation itself retired a moment earlier**, because that branch clears `removed_at`. So
+the second consecutive timeout on one coord un-retired the row and then walked straight past the
+guard, leaving exactly the residue the fix exists to remove. Reproduced:
+
+```
+AFTER1  removed_at=2026-08-19 08:22:05+00  item_id=NULL   <- compensated
+AFTER2  removed_at=NULL                     item_id=NULL   <- live, unbound, facet-less
+```
+
+Scenario: the owner adds a link while a shop or menu sync holds the identity lock, gets the 423,
+and clicks "Add" again while the sync is still running.
+
+**Fix:** the flag now means *unbound* — "retiring this row destroys nothing" — not "we created
+it". A row this call minted is unbound; so is one an earlier failed resolve left behind. A row
+that already carries an `item_id` is the owner's real content and is still never touched.
+`upsertSourceItem()` reads `item_id` off the pre-read and the lost-race re-read it was already
+doing, so this costs no extra query.
+
+The reviewer also noted, at lower confidence, that `SET LOCAL lock_timeout` bounds **every** lock
+in the transaction, so a row-lock abort inside `resolveItemsLocked()` raises a bare
+`QueryException` with the same SQLSTATE 55P03 — skipping both the compensation and the 423.
+`resolveItems()` now reclassifies that outside the transaction, exactly as
+`ReorderService::reorder()` already does for its own row lock.
+
+### 2. The two ordering paths still disagreed, and my fix's comment was vacuous — DEFECT, fixed
+
+Round 1's fix added `->orderBy('coord')` to the SQL fallback. But SQL orders `coord` under the
+**database collation** while `anchorsFromSnapshot()` sorted it **byte-wise in PHP**. The reviewer
+reproduced the divergence on real data:
+
+```
+SQL  order: yt:acct:ab_1, yt:acct:AB-1
+PHP  order: yt:acct:AB-1, yt:acct:ab_1
+```
+
+Both the test container and dev Supabase are `en_US.utf8`. Since `bound_at` ties are routine and
+`$effective->first()` decides which item `mergeInto()` **hard-deletes**, the item destroyed
+depended on whether an *unrelated earlier group in the same pass* had merged — that being what
+flips the snapshot to null and changes which path serves the group.
+
+Worse, my comment claimed the change stopped the paths "disagreeing within one pass", which is
+vacuous: a group is served by exactly one path per pass, so they could never disagree *within*
+one. The property that matters is the same group ordering identically **whichever** path serves
+it, and that was the one that did not hold.
+
+**Fix:** one comparator, `sortAnchors()`, applied in PHP to both paths; the SQL `ORDER BY` is
+gone. Guarded by a new test that runs the same tied pair down both paths and asserts the same
+survivor, with a premise check that skips on a C-collation database rather than passing
+vacuously. Reverting to the split ordering fails it with the reviewer's exact pair.
+
+### 3, 4, 5. Three comments stated things that are not true — fixed
+
+This repo treats comments as documentation of record, so these are findings, not tidying.
+
+- The test file header still described the **abandoned** hook design (the `item_anchors` INSERT)
+  and gave its rationale as current, contradicting `pgirRunRace()`'s own docblock two hundred
+  lines below. It now records where the hook is, and why it moved.
+- "the seven pre-existing call sites" — there are **16**, across 6 files. The number came from
+  the brief's count of raw `pg_advisory_xact_lock` sites, which is a different set. Replaced with
+  a claim that does not depend on a count.
+- `AdvisoryLock`'s class docblock still said "every caller below already wraps in
+  `DB::connection('pgsql')->transaction()`" — the sentence the new parameter exists to qualify,
+  left unqualified.
+
+### Mutation matrix, final
+
+| mutation | result |
+|---|---|
+| `AdvisoryLock::acquire()` removed, transaction kept | 3 fail — child B returns in ~55ms against a 950ms floor |
+| transaction ends before the closing re-read + UPDATE | 2 fail |
+| lock key coarsened to a constant | isolation test fails |
+| `$merged` dropped from the losers loop | staleness test fails, `23503` |
+| compensation removed | timeout test fails on the new row |
+| compensation flag → always retire | timeout test fails on the pre-existing row |
+| compensation flag → created-only (round-1 behaviour) | timeout test fails on the SECOND timeout |
+| SQL collation order restored on the fallback path | ordering test fails, `AB-1` vs `ab_1` |

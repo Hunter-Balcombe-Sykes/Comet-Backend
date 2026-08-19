@@ -18,9 +18,15 @@
 // that call would block inside the synchronous listener and self-deadlock the test. Two real
 // processes are the only honest harness. DB::listen is still used, but only inside child A and
 // only to run `pg_sleep` — it widens A's read->write window deterministically and injects no
-// semantics. The hook point (the item_anchors INSERT that binds A's own coord) survives both the
-// #SCALE-4 read hoist and the #CACHE-5 insert batching, which is why it was chosen over the
-// group loop or recordCandidates().
+// semantics.
+//
+// WHERE THE HOOK GOES, AND WHY IT MOVED. It fires on the CLOSING content.source_items re-read,
+// the last statement before the per-target UPDATE loop. The first version hooked the
+// item_anchors INSERT inside bindGroup() instead, and an independent review showed that made
+// every test in this file pass with the advisory lock deleted: both children bound the same
+// coord, so item_anchors' PK (user_id, coord) serialised them on the unique index and the
+// "wait" being measured was never the lock. See pgirScenario() for the other half of that fix —
+// a fixture in which nothing inserts an anchor at all.
 //
 // WHY THE UNITING FACT IS AN identity_decisions ROW. resolveItems() reads
 // content.identity_decisions per user and unions on verdict 'same' (Resolver::resolve() step 2)
@@ -895,6 +901,18 @@ it('retires a source item it created when identity resolution times out, and lea
         expect($newRow->removed_at)->not->toBeNull('a source item this call created was left live with no item — the next resolve binds it to a facet-less blank');
         expect($newRow->item_id)->toBeNull();
 
+        // The owner clicks "Add" again while the same sync still holds the lock. The retry's
+        // upsert clears removed_at, so a compensation keyed on "did I create it" walks straight
+        // past the second failure and leaves exactly the residue it exists to remove.
+        try {
+            $writer->writeManualItem($userId, $newCoord, pgirLinkProjection($newCoord));
+        } catch (Throwable) {
+            // expected — the lock is still held
+        }
+
+        $retryRow = $pg->table('content.source_items')->where('coord', $newCoord)->first();
+        expect($retryRow->removed_at)->not->toBeNull('a SECOND consecutive timeout on the same coord left the row live and unbound');
+
         // The owner's existing row must survive the identical failure untouched.
         $thrownAgain = null;
         try {
@@ -912,3 +930,131 @@ it('retires a source item it created when identity resolution times out, and lea
         DB::purge('pgsql_second');
     }
 })->group('slow');
+
+/**
+ * Two coords that rank differently under the database collation than under PHP's byte-wise
+ * string comparison. Real coords look like this — mixed case, '-' and '_' — because they are
+ * built from platform ids.
+ */
+const PGIR_COLLATION_A = 'yt:acct:AB-1';
+
+const PGIR_COLLATION_B = 'yt:acct:ab_1';
+
+/**
+ * One user's pool where PGIR_COLLATION_A and PGIR_COLLATION_B are united and tie on bound_at.
+ *
+ * $withEarlierMerge adds a second, EARLIER group that merges — which drops the #SCALE-4 snapshot
+ * and sends the tied group down bindGroup()'s fresh-read path instead of the prefetch path.
+ *
+ * @return string the coord whose anchor survived, i.e. the item the pass chose to keep
+ */
+function pgirCollationPass(bool $withEarlierMerge): string
+{
+    $pg = DB::connection('pgsql');
+
+    $userId = (string) Str::uuid();
+    $pg->table('core.users')->insert(['id' => $userId]);
+    $pg->table('site.sites')->insert(['id' => (string) Str::uuid(), 'user_id' => $userId]);
+
+    $connectionId = (string) Str::uuid();
+    $pg->table('site.platform_connections')->insert([
+        'id' => $connectionId, 'user_id' => $userId, 'resource_id' => 'pgir', 'deleted_at' => null,
+    ]);
+    $sourceId = (string) Str::uuid();
+    $pg->table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'connection_id' => $connectionId, 'label' => 'pgir.connector',
+    ]);
+
+    $mint = function (string $coord, string $boundAt, string $seenAt) use ($pg, $userId, $sourceId) {
+        $itemId = (string) Str::uuid();
+        $pg->table('content.items')->insert([
+            'id' => $itemId, 'user_id' => $userId, 'kind' => 'link',
+            'first_seen_at' => $seenAt, 'last_seen_at' => $seenAt,
+            'created_at' => $seenAt, 'updated_at' => $seenAt,
+        ]);
+        $pg->table('content.source_items')->insert([
+            'id' => (string) Str::uuid(), 'source_id' => $sourceId, 'coord' => $coord,
+            'item_id' => $itemId, 'kind' => 'link', 'projector_version' => 1,
+            'first_seen_at' => $seenAt, 'last_seen_at' => $seenAt,
+        ]);
+        $pg->table('content.item_anchors')->insert([
+            'coord' => $coord, 'user_id' => $userId, 'item_id' => $itemId, 'bound_at' => $boundAt,
+        ]);
+
+        return $itemId;
+    };
+
+    $decide = function (string $left, string $right) use ($pg, $userId) {
+        $pg->table('content.identity_decisions')->insert([
+            'id' => (string) Str::uuid(), 'user_id' => $userId, 'verdict' => 'same',
+            'left_coord' => $left, 'right_coord' => $right, 'decided_at' => now(),
+        ]);
+    };
+
+    if ($withEarlierMerge) {
+        // Read first (oldest first_seen_at), so DisjointSet::groups() emits it first and its
+        // merge invalidates the snapshot before the tied group is bound.
+        $shared = $mint('pgir:early-p', '2026-08-01 10:00:00+00', '2026-08-01 10:00:00+00');
+        $pg->table('content.source_items')->insert([
+            'id' => (string) Str::uuid(), 'source_id' => $sourceId, 'coord' => 'pgir:early-q',
+            'item_id' => $shared, 'kind' => 'link', 'projector_version' => 1,
+            'first_seen_at' => '2026-08-01 10:00:01+00', 'last_seen_at' => '2026-08-01 10:00:01+00',
+        ]);
+        $other = $mint('pgir:early-r', '2026-08-01 10:00:02+00', '2026-08-01 10:00:02+00');
+        $pg->table('content.item_anchors')->where('user_id', $userId)->where('coord', 'pgir:early-r')
+            ->update(['item_id' => $other]);
+        $decide('pgir:early-p', 'pgir:early-r');
+    }
+
+    // IDENTICAL bound_at — the tie the coord ordering has to break.
+    $mint(PGIR_COLLATION_A, '2026-08-02 09:00:00+00', '2026-08-02 09:00:00+00');
+    $mint(PGIR_COLLATION_B, '2026-08-02 09:00:00+00', '2026-08-02 09:00:01+00');
+    $decide(PGIR_COLLATION_A, PGIR_COLLATION_B);
+
+    $trigger = 'manual:'.sha1('pgir-collation-'.Str::random(8));
+    app(ProjectionWriter::class)->writeManualItem($userId, $trigger, pgirLinkProjection($trigger));
+
+    // mergeInto() hard-deletes the loser, and item_anchors.item_id cascades — so exactly one of
+    // the two tied coords still has an anchor, and it names the survivor.
+    $survivors = $pg->table('content.item_anchors')->where('user_id', $userId)
+        ->whereIn('coord', [PGIR_COLLATION_A, PGIR_COLLATION_B])->pluck('coord');
+
+    expect($survivors)->toHaveCount(1, 'the tied pair did not merge, so this proves nothing: '.$survivors->implode(', '));
+
+    return (string) $survivors->first();
+}
+
+// ── the ordering of a destructive choice must not depend on which read path served it ─────────
+//
+// bindGroup() gets its anchors from the #SCALE-4 prefetch, or — once any earlier group in the
+// same pass has merged — from a fresh per-group read. $effective's FIRST element is the winner
+// and mergeInto() HARD-DELETES the rest, so those two paths must rank a group identically.
+//
+// They did not. The fresh read ordered coord in SQL, under the DATABASE COLLATION; the prefetch
+// path ordered it byte-wise in PHP. bound_at ties are routine (Laravel stores it truncated to
+// whole seconds), so the item destroyed depended on whether an unrelated earlier group happened
+// to merge. Both paths now share sortAnchors().
+it('picks the same merge survivor whether the group came from the prefetch or a fresh read', function () {
+    $pg = DB::connection('pgsql');
+
+    // Premise: on a C/POSIX-collation database the two orderings agree and this guards nothing.
+    $sqlOrder = $pg->select(
+        'select coord from (values (?), (?)) as t(coord) order by coord',
+        [PGIR_COLLATION_A, PGIR_COLLATION_B],
+    );
+    $byteOrder = [PGIR_COLLATION_A, PGIR_COLLATION_B];
+    sort($byteOrder, SORT_STRING);
+
+    if ((string) $sqlOrder[0]->coord === $byteOrder[0]) {
+        $this->markTestSkipped('this database orders coord the same way PHP does, so the two paths cannot disagree here');
+    }
+
+    $viaPrefetch = pgirCollationPass(withEarlierMerge: false);
+    $viaFreshRead = pgirCollationPass(withEarlierMerge: true);
+
+    expect($viaFreshRead)->toBe(
+        $viaPrefetch,
+        "the prefetch path kept {$viaPrefetch} and the fresh-read path kept {$viaFreshRead} — which item mergeInto() hard-deleted depended on an unrelated earlier group",
+    );
+});

@@ -7,9 +7,11 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Acquires a Postgres advisory xact lock — auto-released by Postgres on
- * commit/rollback/connection loss, so it must be called from inside an
- * explicit transaction on the SAME connection (every caller below already
- * wraps in DB::connection('pgsql')->transaction()).
+ * commit/rollback/connection loss, so it must be called from inside an explicit transaction on
+ * the SAME connection. The service-lane callers wrap in DB::connection('pgsql')->transaction();
+ * ProjectionWriter::resolveItems() wraps in DB::connection()->transaction() and names that
+ * connection through $connectionName below, because a lock taken on a different connection than
+ * the transaction is a silent no-op rather than an error.
  *
  * $timeoutMs bounds the wait via SET LOCAL lock_timeout, which only holds for
  * the CURRENT transaction — that's why it's set immediately before the lock
@@ -61,8 +63,8 @@ final class AdvisoryLock
     /**
      * $connectionName names the connection to lock ON. An advisory XACT lock taken on a different
      * connection than the surrounding transaction is a silent no-op, so a caller whose writes
-     * do not go through the 'pgsql' name (ProjectionWriter uses the DEFAULT connection) must
-     * say so. Defaults to 'pgsql', which is what the seven pre-existing call sites want.
+     * do not go through the 'pgsql' name (ProjectionWriter uses the DEFAULT connection) must say
+     * so. Omitting it keeps the pre-existing behaviour for every caller that predates it.
      */
     public static function acquire(string $key, ?int $timeoutMs = null, ?string $connectionName = null): void
     {
