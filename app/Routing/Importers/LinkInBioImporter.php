@@ -307,12 +307,17 @@ class LinkInBioImporter
         // the API/inline arm answering — when the anchor arm already produced
         // $links this would be a second identical parse for zero new URLs
         // ($seen would fold every one). classify() is grammar+catalog only,
-        // no fetches. Known, accepted exposure: a shell rendering the
-        // AGGREGATOR's own social badges would sweep them in, exactly as
-        // every anchor-harvested host always has (all four API shells
-        // inspected 2026-08-20: stan renders the creator's links, the other
-        // three are empty SPA shells). Socials append AFTER tiles, so
-        // MAX_LINKS starvation is only conceivable in multi-page batches.
+        // no fetches. NB none of the four CURRENT API hosts exercises this:
+        // their raw shells ship no social anchors at all (stan's live in its
+        // __NUXT__ blob and ride the API instead — see
+        // LinkInBioApiUnroller::stanStore). This merge is insurance for a
+        // future API/inline host whose shell DOES server-render socials —
+        // the natalieannehair miss showed how silently that class of gap
+        // hides. Known, accepted exposure: a
+        // shell rendering the AGGREGATOR's own social badges would sweep
+        // them in, exactly as every anchor-harvested host always has.
+        // Socials append AFTER tiles, so MAX_LINKS starvation is only
+        // conceivable in multi-page batches.
         if ($apiLinks !== null) {
             $anchorSocials = array_values(array_filter(
                 $this->harvester->allOutboundLinks($body, $baseUrl),

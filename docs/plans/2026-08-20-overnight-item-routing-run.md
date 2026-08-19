@@ -653,6 +653,32 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
   the queued probe was about to file the suggestion (verified live: the
   intent landed 3s after the click). Copy now says what happens
   (monorepo, F5 commit).
+- [x] F4 — EventsSeeder ignored `routing.item_tombstones` entirely: a
+  deleted event card came back on every rescan. Same contract as
+  MediaSeeder now — scan origins respect tombstones, an explicit paste
+  (origin 'paste') wins them; `tombstonedThisRun` counted so suppression
+  is visible in the run tally. Fixed in T6's commit, pinned.
+- [x] F11 — two lanes carding slash variants of ONE bio link
+  ('…com.au' from the probe's miss path, '…com.au/' from the unroll)
+  wrote TWO cards: normalizeUrl() doesn't fold trailing slashes.
+  seedCustom() canonicalizes via IriCanonicalizer now (best-effort — an
+  uncanonicalisable URL keeps its normalized form). `ba7a970d5`; the
+  stray milo dup was removed by hand as hygiene before the fix landed.
+- [x] F12 — the bio unroll's API/inline arms return the platform's TILE
+  links only, and having answered non-null (or even `[]`, stan's common
+  answer) the anchor pass never ran — natalieannehair's own TikTok and
+  Facebook sat in the delivered stan.store DOM with NO observations.
+  unroll() now merges the SOCIAL-classified shell anchors back in
+  (grammar-only classify, no fetches; asset/legal links can't classify
+  social so no junk rides along; $seen dedupes overlap when the anchor
+  arm already ran). Two pins verified red→green. `3aa4ab2e9`.
+- VERIFIED-NOT-A-BUG — natalieannehair run tally said `suggested: 0`
+  while a `choose youtube.channel` observation (@agencypodcast) landed
+  in the same second. That observation is MediaParentSuggester's (T9b:
+  the seeded video's PARENT channel — a URL that never appeared on the
+  stan page), written with the scan's origin as source. The importer
+  tally counts the importer's own route verdicts; the parent suggestion
+  is the seeder's product. Accounting is honest; no change.
 - [x] F1 — localhost:3000 "We couldn't load your account": NOT a bug.
   `apps/dashboard/.env.local` deliberately points
   NEXT_PUBLIC_API_BASE_URL at http://localhost:8000 (switched 2026-08-18;
