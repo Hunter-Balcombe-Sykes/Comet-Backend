@@ -2,6 +2,15 @@
 -- (nulled partna contact pairs, copied business description/address).
 -- Identity-mirror backfill (2026-08-19 plan, decision 11).
 --
+-- BEGIN + SET LOCAL added 2026-08-19: core.users is a HOT_TABLES member
+-- (CONVENTIONS.md / guard Check 5) and both statements below rewrite a large
+-- slice of it. Without the timeouts the backfill queues behind live traffic
+-- instead of failing fast, and the guard rejects the file — which aborts
+-- `composer test` before Pest, since the guard runs first in that script.
+BEGIN;
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '30s';
+--
 -- partna: the workplace is WHERE THEY WORK — its contact pair should never
 -- have mirrored onto the person's public contact. Null the mirrored values;
 -- each person re-enters their own (accepted consequence: the sitepage's
@@ -25,3 +34,4 @@ FROM site.sites s
 JOIN site.workplaces w ON w.site_id = s.id
 WHERE s.user_id = u.id
   AND u.account_type = 'business';
+COMMIT;

@@ -1,4 +1,13 @@
--- 20260819140000_public_contact_section_default_active.sql
+-- 20260819160000_public_contact_section_default_active.sql
+--
+-- RENUMBERED from 20260819140000 (2026-08-19). Three unrelated files landed on
+-- that one timestamp — users_bio, drop_unreferenced_tables and this one — and
+-- supabase_migrations.schema_migrations keys on the version alone, so exactly
+-- ONE of them could ever be recorded. `users_bio` won (its column exists, and
+-- 20260819140100_identity_mirror_backfill depends on it), which left this file
+-- SILENTLY UNAPPLIED while `supabase migration list` showed 20260819140000 as
+-- applied. Verified on dev: all 6 rows matching the predicate below were still
+-- is_active = false. A collision does not error — it just loses a migration.
 --
 -- Public-contact section defaults ON (owner, 2026-08-19), matching the
 -- `workplace` ruling earlier the same day. New rows start live
