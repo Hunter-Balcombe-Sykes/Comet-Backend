@@ -1050,8 +1050,8 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 6 complete
-- P2 Medium: 0 of 16 complete
+- P1 High: 3 of 6 complete
+- P2 Medium: 1 of 16 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -1181,7 +1181,7 @@ None.
         );
         ```
 
-- [ ] **#SCALE-6** · P1 — New CHECK constraint on the partitioned `routing.link_observations` table added without `NOT VALID`
+- [x] **#SCALE-6** · P1 — New CHECK constraint on the partitioned `routing.link_observations` table added without `NOT VALID`
     - **Where:** supabase/migrations/20260819001000_link_observations_allow_commerce_probe.sql:16-22
     - **Affects:** Routing observation ingest (`CommerceProbeJob` and every other observation writer) during whenever this migration is applied against a database with existing partition data.
     - **Effort:** S (~0.5–1h)
@@ -1496,7 +1496,7 @@ None.
             ->onOneServer();
         ```
 
-- [ ] **#SCALE-22** · P2 — New CHECK constraint on `content.item_media` added without `NOT VALID`
+- [x] **#SCALE-22** · P2 — New CHECK constraint on `content.item_media` added without `NOT VALID`
     - **Where:** supabase/migrations/20260819001100_item_media_role_video.sql:14-19
     - **Affects:** Media-item writes during whenever this migration is applied against a database with existing `content.item_media` rows.
     - **Effort:** S (~0.5–1h)
@@ -1999,14 +1999,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#MIG-1** · P2 — `content.item_media_role_check` widened without the mandatory `NOT VALID` split
+- [x] **#MIG-1** · P2 — `content.item_media_role_check` widened without the mandatory `NOT VALID` split
     - **Where:** supabase/migrations/20260819001100_item_media_role_video.sql:14-19
     - **Affects:** `content.item_media` writes/reads during deploy of this migration (InstagramMediaProjector, `PoolResolver::frames()`, sitepage media reads). More immediately: this file cannot merge as written — see Technical.
     - **Effort:** S (~0.5–1h)
@@ -2027,7 +2027,7 @@ None.
             CHECK (role IN ('cover', 'gallery', 'poster', 'avatar', 'logo', 'video'));
         ```
 
-- [ ] **#MIG-2** · P2 — `routing.link_observations_source_check` widened without the mandatory `NOT VALID` split, across every monthly partition
+- [x] **#MIG-2** · P2 — `routing.link_observations_source_check` widened without the mandatory `NOT VALID` split, across every monthly partition
     - **Where:** supabase/migrations/20260819001000_link_observations_allow_commerce_probe.sql:16-22
     - **Affects:** `routing.link_observations` writes/reads during deploy (`CommerceProbeJob` observation inserts, routing reconciler reads). More immediately: this file cannot merge as written — see Technical.
     - **Effort:** S (~0.5–1h)

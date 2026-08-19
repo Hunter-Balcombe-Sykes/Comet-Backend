@@ -214,3 +214,86 @@ it('emits the nested review.reviewedAt as ISO-8601 too, not just the top-level d
 
     expect($row['review']['reviewedAt'])->toBe('2026-07-01T10:00:00+00:00');
 });
+
+it('does not publish a PAUSED connection as the item\'s fallback platform/url (LIFE-3)', function () {
+    // The residual half of #LIFE-3, left open when the first pass fixed
+    // statsFor()/$sourceLinks/$offerLinks. $sourceRows deliberately KEEPS a
+    // paused connection — the item sheet's Sources list badges it
+    // `active: false`, and the owner needs to see the source they paused. But
+    // $sourcePlatforms reads that same row set to supply an item's PUBLIC
+    // fallback platform/url, and filtered only on source_kind/connection_id.
+    //
+    // Reachable exactly when the item has no link of its own. The #LIFE-4 fix
+    // makes that MORE common, not less: dropping a paused source's f_link is
+    // precisely what leaves $primary null and falls through to here.
+    [$pro, $siteId] = poolTenant();
+    $site = Site::findOrFail($siteId);
+
+    // A Fresha-style venue: carries the item, but has no per-service page of
+    // its own, so no f_link. This is the real shape the fallback exists for.
+    $liveConn = poolConnection($pro->id, 'fresha.venue');
+    $liveSource = poolSource($pro->id, $liveConn);
+    $pausedConn = poolConnection($pro->id, 'google.business');
+    $pausedSource = poolSource($pro->id, $pausedConn);
+
+    // `platform` is a GENERATED column off surface_key — fresha.venue -> fresha,
+    // google.business -> google. Set the payload only; writing platform errors.
+    DB::table('site.platform_connections')->where('id', $liveConn)->update([
+        'payload' => json_encode(['url' => 'https://www.fresha.com/a/live-venue']),
+    ]);
+    DB::table('site.platform_connections')->where('id', $pausedConn)->update([
+        'payload' => json_encode(['url' => 'https://maps.google.com/paused-listing']),
+    ]);
+    // Higher priority, so ->first() picks it — what makes this observable.
+    DB::table('content.sources')->where('id', $pausedSource)->update(['priority' => 500]);
+
+    $item = poolItem($pro->id, $liveSource, 'video', 'A video', '2026-08-01T00:00:00Z');
+    alsoCarriedBy($item, $pausedSource, 'video');
+    poolPin($siteId, 'watch', $item);
+
+    // Both connected: Google legitimately supplies the fallback.
+    expect(app(PoolResolver::class)->resolve($site, 'watch')['selection'][0]['url'])
+        ->toBe('https://maps.google.com/paused-listing');
+
+    // The owner PAUSES Google — not deletes it.
+    DB::table('site.platform_connections')->where('id', $pausedConn)->update(['is_active' => 0]);
+
+    $after = app(PoolResolver::class)->resolve($site, 'watch')['selection'][0];
+
+    // Owner ruling 2026-08-19: pause = hide, the same reading LiveSourceScope
+    // takes on the six surfaces that already had it.
+    expect($after['url'])->toBe('https://www.fresha.com/a/live-venue')
+        ->and($after['platform'])->not->toBe('google');
+});
+
+it('still shows a paused connection in the item sheet Sources list, badged inactive (LIFE-3 bound)', function () {
+    // The other half of the ruling, and the reason the filter sits on
+    // $sourcePlatforms rather than on $sourceRows: hiding a paused source from
+    // the PUBLIC fallback must not hide it from the OWNER's own source list.
+    //
+    // The item needs a LIVE source to survive at all — with only the paused one
+    // it is hidden outright, which is the ruling working correctly and not what
+    // this test is about.
+    [$pro, $siteId] = poolTenant();
+    $site = Site::findOrFail($siteId);
+
+    $liveConn = poolConnection($pro->id, 'instagram.profile');
+    $liveSource = poolSource($pro->id, $liveConn);
+    $pausedConn = poolConnection($pro->id, 'google.business');
+    $pausedSource = poolSource($pro->id, $pausedConn);
+
+    $item = poolItem($pro->id, $liveSource, 'video', 'A video', '2026-08-01T00:00:00Z');
+    alsoCarriedBy($item, $pausedSource, 'video');
+    poolPin($siteId, 'watch', $item);
+
+    DB::table('site.platform_connections')->where('id', $pausedConn)->update(['is_active' => 0]);
+
+    $sources = app(PoolResolver::class)->resolve($site, 'watch')['selection'][0]['sources'] ?? [];
+    $byPlatform = collect($sources)->keyBy('platform');
+
+    // Both listed. The paused one carries active:false so the dashboard can say
+    // WHY it stopped syncing, instead of the source silently vanishing.
+    expect($sources)->toHaveCount(2)
+        ->and($byPlatform['google']['active'])->toBeFalse()
+        ->and($byPlatform['instagram']['active'])->toBeTrue();
+});
