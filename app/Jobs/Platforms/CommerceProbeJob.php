@@ -139,7 +139,29 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         $read = $generic->readProductPage($this->url);
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_PRODUCT && is_array($read['product'])) {
-            return $products->seed($user, $read['product'], self::ORIGIN);
+            $seeded = $products->seed($user, $read['product'], self::ORIGIN);
+
+            // T7 (2026-08-20): the paste lane auto-connects a product's store
+            // (ProductPageAdder → ConnectStoreFromProductJob); the scan lane
+            // seeded the product and STOPPED — a scanned Shopify product link
+            // never connected its store. Same brain now: ask the store
+            // question at the ORIGIN, through StoreBrandSeeder, whose
+            // PlacementPolicy owns the tombstone (never resurrect a
+            // disconnected store — deliberately NOT ConnectStoreFromProductJob,
+            // which carries no tombstone check and is scoped to the
+            // user-initiated paste). Best-effort: the product is already in.
+            if ($seeded) {
+                $origin = $this->origin($this->url);
+                if ($origin !== null) {
+                    try {
+                        $this->seedStore($brands, $user, $origin);
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
+                }
+            }
+
+            return $seeded;
         }
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_STORE_PAGE && is_string($read['storeUrl'])) {
