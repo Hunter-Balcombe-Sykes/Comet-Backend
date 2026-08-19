@@ -21,6 +21,9 @@ class Hosts
             'm.facebook.com' => 'facebook.com',
             'spoti.fi' => 'spotify.com',
             'on.soundcloud.com' => 'soundcloud.com',
+            // RA's legacy domain still resolves and circulates in old bios;
+            // its links are the same pages ra.co serves (events-parity).
+            'residentadvisor.net' => 'ra.co',
         ];
     }
 

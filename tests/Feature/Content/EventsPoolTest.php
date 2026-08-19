@@ -205,12 +205,24 @@ it('does not duplicate an event carried by two sources', function () {
 });
 
 it('rosters the ticketing platforms for events and refuses the rest', function () {
-    expect(ItemLinkRules::rosterFor('events'))->toBe(['eventbrite', 'humanitix']);
+    // Events-parity (2026-08-19): every events brand, not just the two
+    // bespoke ones.
+    expect(ItemLinkRules::rosterFor('events'))->toBe([
+        'eventbrite', 'humanitix', 'luma', 'partiful', 'ticketmaster',
+        'ticketek', 'oztix', 'trybooking', 'resident-advisor',
+    ]);
     expect(ItemLinkRules::allowsPlatform('events', 'spotify'))->toBeFalse();
     // Real dev URL shapes: www-prefixed eventbrite, subdomained humanitix.
     expect(ItemLinkRules::urlBelongsTo('eventbrite', 'https://www.eventbrite.com/e/x-tickets-1993572537124'))->toBeTrue();
     expect(ItemLinkRules::urlBelongsTo('humanitix', 'https://events.humanitix.com/26-rotary-disco'))->toBeTrue();
     expect(ItemLinkRules::urlBelongsTo('eventbrite', 'https://example.com/e/x'))->toBeFalse();
+    // Multi-TLD hosts come from the catalog TLDS consts now — a regional
+    // domain the old hand-copied pair refused must belong.
+    expect(ItemLinkRules::urlBelongsTo('eventbrite', 'https://www.eventbrite.co.uk/e/x-tickets-1'))->toBeTrue();
+    expect(ItemLinkRules::urlBelongsTo('ticketmaster', 'https://www.ticketmaster.co.nz/x/event/1'))->toBeTrue();
+    expect(ItemLinkRules::platformForUrl('https://lu.ma/abc123'))->toBe('luma');
+    expect(ItemLinkRules::platformForUrl('https://ra.co/events/123'))->toBe('resident-advisor');
+    expect(ItemLinkRules::platformForUrl('https://residentadvisor.net/events/123'))->toBe('resident-advisor');
 });
 
 it('serves the soonest occurrence and the cheapest offer on an event payload', function () {

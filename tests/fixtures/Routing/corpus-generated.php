@@ -1103,13 +1103,13 @@ return array (
   ),
   116 => 
   array (
-    'url' => 'https://lu.ma/aa',
+    'url' => 'https://lu.ma/user/aa',
     'expect' => 
     array (
       'surface' => 'luma.calendar',
       'identifier' => 'aa',
     ),
-    'detector' => '3d851d87a1fb17a6',
+    'detector' => '78c2099e5558ad1f',
   ),
   117 => 
   array (
