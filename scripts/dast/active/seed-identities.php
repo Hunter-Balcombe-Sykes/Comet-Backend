@@ -258,18 +258,59 @@ function seedProbeFixtures(User $user, Site $site, string $label): array
         ],
     ]);
 
-    // --- Services + categories. price_cents is NOT NULL with no default.
-    $serviceId = $id();
-    $db->table('site.services')->insert([
-        'id' => $serviceId, 'user_id' => $userId,
-        'title' => "DAST Service {$label}", 'price_cents' => 1000,
+    // --- Services + categories, on the content lane (services cutover, spec §28).
+    // site.services / site.service_categories were DROPPED 2026-08-18; seeding
+    // them threw 42P01 and took the whole lane down before ZAP started.
+    //
+    // Re-pointing the insert is NOT enough on its own. UserServiceController::show
+    // resolves through ManualServiceItems::find(), whose baseQuery INNER JOINs
+    // content.source_items -> content.sources and filters cs.kind='manual' — so a
+    // bare content.items row is invisible to it and would 404 for "unaddressable"
+    // rather than for wrong-owner. That is the vacuous-pass class this lane exists
+    // to eliminate (and its paired CONTROL would 404 too, failing the run 12
+    // minutes in). All three rows are therefore required, not decorative.
+    //
+    // Shapes are the real ones ProjectionWriter::writeManualItem() produces,
+    // checked against live dev rows: label 'manual', priority 200
+    // (ProjectionWriter::MANUAL_SOURCE_PRIORITY), coord 'manual:<item uuid>',
+    // projector_version 0 (= no projector governs this row).
+    //
+    // idx_content_sources_manual is UNIQUE on user_id WHERE kind='manual', so
+    // this is the ONE manual source for this identity — reuse $manualSourceId for
+    // any future manual-lane fixture rather than inserting a second.
+    $manualSourceId = $id();
+    $db->table('content.sources')->insert([
+        'id' => $manualSourceId, 'user_id' => $userId, 'kind' => 'manual',
+        'connection_id' => null, 'label' => 'manual', 'priority' => 200,
         'created_at' => $now, 'updated_at' => $now,
     ]);
 
+    // kind='service' is load-bearing: ManualServiceItems::baseQuery filters
+    // i.kind='service', so any other kind 404s for the wrong reason.
+    $serviceId = $id();
+    $db->table('content.items')->insert([
+        'id' => $serviceId, 'user_id' => $userId, 'kind' => 'service',
+        'headline_cache' => "DAST Service {$label}",
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $db->table('content.source_items')->insert([
+        'id' => $id(), 'source_id' => $manualSourceId, 'item_id' => $serviceId,
+        'coord' => "manual:{$serviceId}", 'kind' => 'service',
+        'projector_version' => 0, 'removed_at' => null,
+    ]);
+
+    // ServiceCollections::find filters kind='service_category' on
+    // content.collections. is_user_created=true + external_ref=null is the
+    // user-created shape (rule 3) — external_ref is the machine natural key and
+    // is UNIQUE per (user, kind, external_ref), so a human-created row leaves it
+    // null.
     $categoryId = $id();
-    $db->table('site.service_categories')->insert([
-        'id' => $categoryId, 'user_id' => $userId,
-        'title' => "DAST Category {$label}",
+    $db->table('content.collections')->insert([
+        'id' => $categoryId, 'user_id' => $userId, 'parent_id' => null,
+        'label' => "DAST Category {$label}", 'kind' => 'service_category',
+        'external_ref' => null, 'removed_at' => null, 'position' => 0,
+        'is_user_created' => true,
         'created_at' => $now, 'updated_at' => $now,
     ]);
 
