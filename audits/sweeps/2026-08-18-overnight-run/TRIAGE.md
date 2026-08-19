@@ -16,8 +16,15 @@ is a day old the moment it is committed.
 | | Count |
 |---|---|
 | Findings | 101 |
-| **Fixed** | **4 IDs = 2 defects** |
-| Open | 97 (P1 **15**, P2 52, P3 30) |
+| **Resolved** | **17 IDs** (4 before this run, 13 by `audit-fix/p1-overnight-2026-08-19`) |
+| Open | 84 (P1 **4**, P2 50, P3 30) |
+
+**Updated 2026-08-19 by the unattended P1 run.** Of the 15 open P1s it found:
+11 resolved, 4 left open with written reasons (`LIFE-1` plan-only and awaiting
+sign-off; `SCALE-1`, `SCALE-3`, `SCALE-4` each analysed and deliberately not
+attempted — see
+`docs/superpowers/plans/2026-08-19-P1-overnight-DECISIONS.md` §0).
+Nothing is merged: units 4–8 are committed on the branch and gated.
 
 **Fixed:** `SCALE-6` ≡ `MIG-2` (`routing.link_observations_source_check`) and
 `SCALE-22` ≡ `MIG-1` (`content.item_media_role_check`). Both migrations now carry the

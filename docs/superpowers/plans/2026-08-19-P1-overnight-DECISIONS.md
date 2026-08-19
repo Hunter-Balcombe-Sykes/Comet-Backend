@@ -8,16 +8,82 @@ Every entry below is a decision **nobody signed off on**, taken because the run
 was unattended and the prompt's standing instruction is to take the documented
 default and keep going rather than block. Each one is reversible.
 
-> **SUMMARY LIVES AT THE BOTTOM** — "What landed / what is unmerged / what is
-> plan-only / what I could not verify" is the last section, written last.
+> **§0 is the summary** — what landed, what is committed-but-unmerged and why,
+> what is plan-only, what I could not verify, and every premise that turned out
+> to be wrong. Everything after it is the detail behind one of those lines.
 
 ---
 
-## 0. Environment findings that are NOT audit findings
+## 0. SUMMARY — read this, then only the sections it points at
+
+**15 open P1s at the start. 11 resolved, 4 deliberately left open with reasons.**
+Nothing merged. Nothing pushed. No PR.
+
+### Landed and reviewed (five commits on `audit-fix/p1-overnight-2026-08-19`)
+
+| Commit | Findings | Gate |
+|---|---|---|
+| `fix(ingest)` | `WHK-1` | mergeable on a normal review |
+| `fix(media,sections)` | `SEC-1` `SEC-5` `LIFE-12` `SCALE-2` | mergeable on a normal review |
+| `fix(publicsite,content)` | `LIFE-6` ≡ `CCH-3` ≡ `API-3`, `SEC-2`, `LIFE-8` | **DO NOT MERGE** — public wire + PII |
+| `fix(pools)` | `LIFE-2` `LIFE-4` `API-1` `LIFE-3` | **DO NOT MERGE** — public wire |
+| `fix(ingest,projection)` | `SCALE-5` ≡ `CACHE-3`, `LIFE-5` | **DO NOT MERGE** — identity spine |
+
+Every unit went plan → implement → **independent review**. Three of the five
+reviews returned FAIL first. Every fix was mutation-tested: the change was
+reverted and the new tests confirmed red, so nothing here is vacuously green.
+
+### Open, with reasons — do NOT read these as "not done yet"
+
+| Finding | Why it is open | Section |
+|---|---|---|
+| `LIFE-1` | PLAN ONLY by instruction. Plan written and ready for sign-off. | `2026-08-19-LIFE-1-identity-race-plan.md` |
+| `SCALE-1` | All three candidate rewrites are wrong; one is valid on SQLite and invalid on Postgres. Pinned by a new six-case test instead. | §4.5 |
+| `SCALE-3` | The memory is consumed inside `SafeUrlFetcher`, not `MediaMirror`. Fixing it means changing the SSRF chokepoint. | §4.3 |
+| `SCALE-4` (+`CACHE-5`) | Prefetching across a loop that mutates what it prefetched — the same hazard `LIFE-1` was held back for. Do it WITH `LIFE-1`. | §9 |
+
+### The three things that need a human, in priority order
+
+1. **§4.1 — the `LiveSourceScope` pause ruling.** Does a PAUSED connection keep
+   publishing what it already landed? The audit framed this as a three-surface
+   question; it is a **nine-surface** one, and the ruling was already taken in
+   code by W2. Biggest decision here.
+2. **§6 — the `SEC-2` backfill.** Scoped on dev: 129 rows, **59 distinct named
+   people**, 40 of them on unclaimed sites. No data touched. Decide it with the
+   already-open `LEGAL-2` item — same vendor, same subjects, two surfaces.
+3. **§8 — `LIFE-5` option (a) vs (b).** (a) shipped because it is additive and
+   reversible; (b) is arguably better but needs a migration.
+
+### What I could NOT verify
+
+- **The frontend.** `reviewedAt` now emits `+00:00` rather than `Z` (§4.3). No
+  `Z`-suffix contract exists in `docs/api.md` or `docs/wire-changes/`, and the
+  four sibling timestamps already emit `+00:00` — but the frontend repo is not
+  reachable from here.
+- **The applied-schema and authz lanes.** Neither runs in a local checkout; CI is
+  the only place they have ever run. No unit here changes schema, so the exposure
+  is low, but it is not zero.
+- **Production behaviour.** Prod carries none of the `content` / `ingest` /
+  `routing` / `catalog` schemas, so most of this is unexercisable there by
+  construction.
+
+### Premises that turned out to be wrong
+
+Four, all recorded: the `SEC-1` precedent does not exist (§3.2); `WHK-1`'s
+"unmet intent" was half wrong AND a prior unit had deliberately deferred it
+(§3.1); `LIFE-3`'s "unsettled ruling" was already settled in code (§4.1); and
+`LIFE-5`'s suggested predicate (`last_run_at IS NULL`) misses the exact case the
+finding describes (§7). Plus two defects **in my own first cuts**, both caught by
+review, both worth reading: §5.1 (a format bypass of my own guard), §5.2 (a 200 → 500
+regression) and §5.3 (a fourth timestamp field on the same wire).
+
+---
+
+## 1. Environment findings that are NOT audit findings
 
 These cost real time and the morning session should know them.
 
-### 0.1 `development` cannot run `composer test` locally right now — pre-existing
+### 1.1 `development` cannot run `composer test` locally right now — pre-existing
 
 `composer test` runs three guard scripts BEFORE `artisan test`, so a guard
 failure aborts with **zero tests executed**. On a clean checkout of
@@ -42,7 +108,7 @@ what `composer test` runs after the guards. The other two guards
 `BEGIN; SET LOCAL lock_timeout='2s'; SET LOCAL statement_timeout='10s'; … COMMIT;`
 per `supabase/migrations/CONVENTIONS.md`, or the `development` CI gate stays red.
 
-### 0.2 A leaked poll loop had made the machine unusable
+### 1.2 A leaked poll loop had made the machine unusable
 
 At session start the box was at **load average 119** with **2,564 processes**, and
 `fork()` was failing outright (`resource temporarily unavailable`). Cause: **1,886
@@ -58,7 +124,7 @@ Nothing else was touched.
 `cloud env:logs` can hang instead of exiting — this is the other half of the
 "`--live` is not a stream" gotcha.
 
-### 0.3 Docker killed both Postgres test containers mid-run
+### 1.3 Docker killed both Postgres test containers mid-run
 
 The first PG-lane baseline burned **1,533 s and reported 207 failed / 15 passed**.
 Every failure was `SQLSTATE[08006] … timeout expired` at exactly 60.0 s — i.e.
@@ -71,23 +137,23 @@ If a future session sees a uniform-60 s PG failure wall, check
 
 ---
 
-## 1. Baselines (mine, taken on this branch's base — no carried-forward "known red")
+## 2. Baselines (mine, taken on this branch's base — no carried-forward "known red")
 
 | Lane | Result | How |
 |---|---|---|
-| SQLite (`artisan test`) | **8540 passed, 2 skipped, 1 warning, 0 failed** (606 s) | guards bypassed per §0.1 |
+| SQLite (`artisan test`) | **8540 passed, 2 skipped, 1 warning, 0 failed** (606 s) | guards bypassed per §1.1 |
 | Postgres (`phpunit.pg.xml`) | **222 passed, 0 failed** (27 s) | throwaway `postgres:16` on :55434 |
 
 Both clean. Any red after this point is mine until proven otherwise.
 
 ---
 
-## 2. Wrong premises found in the audit (Rule Zero)
+## 3. Wrong premises found in the audit (Rule Zero)
 
 `TRIAGE.md` §6 already disproved one cited precedent and flagged one product
 ruling. It was right to expect more. Confirmed so far:
 
-### 2.1 `#WHK-1` — the intent claim is half wrong, and a PRIOR unit deliberately deferred the fix
+### 3.1 `#WHK-1` — the intent claim is half wrong, and a PRIOR unit deliberately deferred the fix
 
 The audit quotes `land()`'s comment ("isolates the one bad record and lands the
 rest durably, just slower") as evidence of unmet intent. That comment is about
@@ -109,7 +175,7 @@ into the comment) and a new case puts the poison **first**, which is the orderin
 that actually fails without the fix. Both mutation-tested: reverting the catch
 turns all three poison cases red.
 
-### 2.2 `#SEC-1` — cited precedent still does not exist (TRIAGE §6 confirmed)
+### 3.2 `#SEC-1` — cited precedent still does not exist (TRIAGE §6 confirmed)
 
 `ImageVariantService::assertWithinPixelBudget()` does not exist; `grep` over
 `app/` and `tests/` returns nothing. The real guard is inline and private in
@@ -118,15 +184,15 @@ and is **path**-based. Also: the prompt cites `config/partna.php:1561` for
 `image_max_pixels`; it is actually **:1594**. Line numbers in this audit have
 drifted — treat all of them as approximate.
 
-### 2.3 `#LIFE-3` "keep it out of scope" is not implementable as written
+### 3.3 `#LIFE-3` "keep it out of scope" is not implementable as written
 
-*(see §3.1 — this is a decision, not just a wrong premise)*
+*(see §4.1 — this is a decision, not just a wrong premise)*
 
 ---
 
-## 3. Product / scope decisions taken without sign-off
+## 4. Product / scope decisions taken without sign-off
 
-### 3.1 `#LIFE-3` (paused connection) — the ruling was ALREADY TAKEN, in code
+### 4.1 `#LIFE-3` (paused connection) — the ruling was ALREADY TAKEN, in code
 
 The prompt says `#LIFE-3` embeds an unsettled product ruling (does `is_active =
 false` — a *paused* connection — hide content publicly?) and instructs: do NOT
@@ -179,7 +245,7 @@ PINNED item whose only `source_item` was retired by absence-folding should hide
 (`docs/overnight-2026-08-18/LOG.md`, W10). Adjacent surface, same question. Decide
 both together.
 
-### 3.2 `#SEC-2` — redact the whole `attribution.authors` path, not the audit's wildcard
+### 4.2 `#SEC-2` — redact the whole `attribution.authors` path, not the audit's wildcard
 
 The audit's premise is correct and I verified the wildcard mechanism executably
 rather than trusting it:
@@ -222,7 +288,7 @@ Scope of a backfill, and whether it is a redaction or a delete, is written up in
 §5 and is deliberately left undone: a redaction pass over live rows is its own
 reviewed job.
 
-### 3.3 `#SCALE-3` (whole media bodies in PHP memory) — NOT fixed, and not fixable in `MediaMirror`
+### 4.3 `#SCALE-3` (whole media bodies in PHP memory) — NOT fixed, and not fixable in `MediaMirror`
 
 Verified premise, wrong owner. `MediaMirror` cannot fix this because the memory is
 consumed before it ever sees the bytes:
@@ -243,7 +309,7 @@ a trade I am willing to make for a scaling finding on a background queue, and
 "resolved as an open question" would be dishonest here — the question is not open,
 the work is simply out of scope. It needs its own unit.
 
-### 3.4 `#SCALE-15` ≡ `#LIFE-19` (fetches to the 80 MB video cap before the 15 MB image cap) — NOT fixed, but here is the missing piece
+### 4.4 `#SCALE-15` ≡ `#LIFE-19` (fetches to the 80 MB video cap before the 15 MB image cap) — NOT fixed, but here is the missing piece
 
 Real, and cheap to fix *once you know which entries are video* — which the audit
 did not say and which cost me the time to find:
@@ -264,7 +330,7 @@ signature change plus a `ProjectionWriter` edit — disproportionate risk for an
 unattended run, and `ProjectionWriter` is already the most contended file in this
 sweep. ~20 minutes of attended work with the pointer above.
 
-### 3.5 `#SCALE-1` — pinned and analysed, but NOT rewritten. The obvious rewrite is wrong on Postgres.
+### 4.5 `#SCALE-1` — pinned and analysed, but NOT rewritten. The obvious rewrite is wrong on Postgres.
 
 The premise is true as stated: `SectionCandidates::ruleCandidates()`'s default
 (recency) ordering runs a correlated scalar subquery per candidate row, and in
@@ -324,13 +390,13 @@ Verify on the **Postgres** lane, not SQLite.
 
 ---
 
-## 4. Two things the independent reviews caught that I had wrong
+## 5. Three things the independent reviews caught that I had wrong
 
 Recorded because both are the kind of mistake that looks fine in a green suite,
 and because they are the strongest argument for keeping `fix-flow.md`'s
 independent-review step even at 3am.
 
-### 4.1 The first `#SEC-1` guard was bypassable — I mirrored half of the precedent
+### 5.1 The first `#SEC-1` guard was bypassable — I mirrored half of the precedent
 
 `ImageVariantService::loadImage()` does TWO things: `assertImageMime($path)` (a
 byte-sniffed format allowlist) and then the pixel-count check. I built the
@@ -355,7 +421,7 @@ the docblock now says that, rather than my original guess.
 **Transferable lesson:** when an audit points at a precedent, copy ALL of it. The
 half I dropped was the half that mattered.
 
-### 4.2 The first `#LIFE-6` fix turned a 200 into a 500
+### 5.2 The first `#LIFE-6` fix turned a 200 into a 500
 
 The obvious reading of "don't discard every pool because one failed" is: catch
 per pool, `continue`. That is wrong here, and the original code's one-line
@@ -389,7 +455,7 @@ coverage before and whose absence is what let the regression through.
 holding a side-effect ordering invariant. Check what the code AFTER the catch
 does before you turn a bail-out into a `continue`.
 
-### 4.3 `#API-1` was fixed on three fields and missed a fourth — on the same wire
+### 5.3 `#API-1` was fixed on three fields and missed a fourth — on the same wire
 
 The audit names three fields: `publishedAt`, `firstSeenAt`, `startsAt`. I fixed
 those three and stopped, because the audit stopped.
@@ -422,7 +488,7 @@ the owner's call to confirm.
 
 ---
 
-## 5. The `#SEC-2` backfill — scoped, NOT done, needs a human
+## 6. The `#SEC-2` backfill — scoped, NOT done, needs a human
 
 The prompt's instruction was: ship the code fix, do not touch landed data, write
 the backfill question down. Here it is, with real numbers.
@@ -494,9 +560,9 @@ UPDATE content.media_assets ma
 
 ---
 
-## 6. Open follow-ups this run surfaced but did not fix
+## 7. Open follow-ups this run surfaced but did not fix
 
-### 6.1 `WarmPublicSiteCacheJob` ignores the degraded flag (found during #LIFE-6 review, P2)
+### 7.1 `WarmPublicSiteCacheJob` ignores the degraded flag (found during #LIFE-6 review, P2)
 
 `IndividualProfileController` is the ONLY caller that checks
 `lastBuildDegraded()` and rewrites the keys via `CacheLockService::shortenDegraded()`.
@@ -514,19 +580,19 @@ when only `safeQuery()` could arm the flag. Strictly better than the old
 all-or-nothing `return []`. But it is the natural next fix, and it is small:
 hoist the shorten-if-degraded check to wherever both callers can share it.
 
-### 6.2 `#SCALE-15` ≡ `#LIFE-19` has a known cheap fix — see §3.4
+### 7.2 `#SCALE-15` ≡ `#LIFE-19` has a known cheap fix — see §4.4
 
 Not a mystery any more, just unscheduled. The `ref` ends with `:video`, which is
 knowable at `dispatchMirrors()` time.
 
-### 6.3 The `LiveSourceScope` pause ruling — see §3.1
+### 7.3 The `LiveSourceScope` pause ruling — see §4.1
 
 The single most consequential open question from this run, because the answer
 changes six surfaces rather than three.
 
 ---
 
-## 7. `#LIFE-5` — option (a) taken, and the prompt's predicate was wrong
+## 8. `#LIFE-5` — option (a) taken, and the prompt's predicate was wrong
 
 **Decision: implemented (a)**, a daily reconcile command
 (`ingest:reconcile-eager`, `app/Console/Commands/IngestReconcileEagerCommand.php`),
@@ -589,7 +655,7 @@ different file's units) — they stay open.
 
 ---
 
-## 8. Unit 7 split: `#SCALE-5` done, `#SCALE-4` deliberately NOT
+## 9. Unit 7 split: `#SCALE-5` done, `#SCALE-4` deliberately NOT
 
 The prompt calls both "mechanical batching". One of them is; the other is the
 same hazard `#LIFE-1` was held back for.
@@ -646,3 +712,112 @@ findings, one correct change, in that order.
 
 `#CACHE-5` (the per-coord anchor INSERT) is the same function and the same
 argument; it stays open too.
+
+---
+
+## 10. A fourth review catch, and a procedural mistake worth recording
+
+### 10.1 I reported "pint clean" when the CI gate was red
+
+`vendor/bin/pint <path>` **fixes** the file and then reports
+`{"result":"passed"}`. The CI gate (`ci.yml:126`) is `vendor/bin/pint --test`,
+which only checks. I ran the former, then edited the same file again afterwards,
+and reported clean on the strength of a run that had been invalidated.
+
+That is not a formatting problem, it is a verification problem: I asserted a gate
+was green having never run the gate. **`pint --test` is the check; `pint` is a
+fixer that reports success at having fixed things.** The final state now runs
+`--test` across the whole tree.
+
+### 10.2 The `deferred` hole in `ingest:reconcile-eager`
+
+`SourceScheduler::release()` returns EARLY for `outcome === 'deferred'` with a
+`retryAfterSeconds` — it reschedules `next_attempt_at` and returns **before** the
+`$qualifies` check, so it increments neither `consecutive_failures` nor `health`.
+And `'deferred'` is not a landed outcome. A source in that state therefore passed
+every guard the command had — in-flight, health, failure count, grace — **forever**,
+and would have been re-dispatched on every 04:10 run. On a Metered or
+Actor-billed connector that is unbounded vendor spend: precisely the hazard the
+command exists to prevent, reintroduced by the command itself.
+
+Dormant today — no connector emits a `Deferred` message yet — which is exactly
+why it was worth closing now rather than leaving for whoever adds async polling
+to an Actor connector.
+
+**Fix:** `->where('next_attempt_at', '<=', now())`, chosen over adding
+`'deferred'` to the landed set because it is correct for both cases instead of
+special-casing one. A deferred source genuinely has not landed and does still
+need reconciling — just not before the vendor's own retry time. The same line
+also stops the command re-claiming a source inside the exponential backoff
+`release('error')` has just set, a milder second version of the same mistake that
+was also present and that I had not spotted either.
+
+### 10.3 Tally
+
+Every independent review but one returned FAIL first, and every one of those
+found something real:
+
+| Unit | Caught |
+|---|---|
+| `SEC-1` | a GD2 format bypass of my own new guard (§5.1) |
+| `LIFE-6` | a 200 → 500 regression from an over-eager `continue` (§5.2) |
+| `API-1` | a fourth timestamp field on the same public wire (§5.3) |
+| `SCALE-5`/`LIFE-5` | a red CI gate I had reported green, stale comments, and the `deferred` hole (§10.1, §10.2) |
+| `SCALE-5`/`LIFE-5` (verify pass) | my fix for the `deferred` hole was too blunt — it would have delayed Instagram recovery by a week (§10.4) |
+
+Only `WHK-1` passed first time — and the last entry is a review catching a defect
+in a fix made for an earlier review catch. If this run is used to argue about
+process, that is the number that matters: **the independent-review step is not
+overhead at 3am, it is where most of this work was actually made correct.**
+
+### 10.4 The first version of that guard was too blunt — a fifth review catch
+
+`next_attempt_at <= now()` for EVERY candidate looked right and was not. Measured
+per connector rather than assumed:
+
+| Connector | `defaultIntervalSeconds` → `min_interval_secs` | backoff on failure **#1** |
+|---|---|---|
+| **instagram** | 604800 | **7.0 days** |
+| **spotify** | 604800 | **7.0 days** |
+| **soundcloud** | 604800 | **7.0 days** |
+| google_business | 172800 | 4.0 days |
+| bandcamp | 43200 | 1.0 day |
+
+`SourceProvisioner` writes `min_interval_secs = $manifest->defaultIntervalSeconds`
+and `max_interval_secs = max(that, 604800)`. For the three Actor-billed
+connectors those are EQUAL, so `release()`'s `min(max, min × 2^failures)` is
+**already maxed on the first failure** — not a small backoff that grows. One
+transient failure would have pushed recovery out by a full week, on **instagram**,
+the connector this command's own docblock names as the reason it exists. With
+`MAX_FAILURES = 3` that is up to ~3 weeks before the source is abandoned entirely.
+
+My §10.4 as first written quantified only Google Business's milder 4-day case and
+so made the trade-off look cheaper than it was.
+
+**Revised fix — honour `next_attempt_at` for DEFERRED sources only:**
+
+```php
+->where(fn ($q) => $q->where('next_attempt_at', '<=', now())
+    ->orWhereNotExists(fn ($sub) => $sub->select(DB::raw(1))
+        ->from('ingest.runs')
+        ->whereColumn('ingest.runs.source_id', 'ingest.sources.id')
+        ->where('ingest.runs.outcome', 'deferred')))
+```
+
+which reads: eligible if due, **or** if it has never been deferred. That closes
+the unbounded-`deferred` hole exactly, and stops dragging the ordinary `'error'`
+backoff along with it. **A vendor asking us to come back later is a reason to
+wait; our own queue dropping a job is not.**
+
+`next_attempt_at`'s backoff semantics were designed for the auto-sync scheduler
+cadence, over `auto_sync = true` sources. These are `auto_sync = false` by
+definition — nothing consulted that column for them before this command existed,
+and adopting it wholesale imported a policy that was never written for them.
+
+The test that covered this is now driven through a **real**
+`SourceScheduler::release('error', false)` on a source with genuine Instagram
+intervals, and asserts both the 7-day backoff (the premise) and prompt recovery
+(the behaviour). The version it replaced set an arbitrary 2-hour
+`next_attempt_at` and would have passed against the blunt guard — a fixture
+chosen loosely enough to hide the thing it was meant to measure.
+

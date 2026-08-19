@@ -82,8 +82,8 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
-- P2 Medium: 0 of 5 complete
+- P1 High: 2 of 2 complete
+- P2 Medium: 1 of 5 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -326,8 +326,8 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 6 complete
-- P2 Medium: 0 of 11 complete
+- P1 High: 5 of 6 complete
+- P2 Medium: 2 of 11 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -413,7 +413,7 @@
             ->groupBy('item_id');
         ```
 
-- [ ] **#LIFE-5** · P1 — A newly-provisioned eager ingest source is permanently stranded if its first-run dispatch fails, with no reconcile job
+- [x] **#LIFE-5** · P1 — A newly-provisioned eager ingest source is permanently stranded if its first-run dispatch fails, with no reconcile job
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:277-333 (`maybeRunEagerly`)
     - **Affects:** Any user connecting Instagram (or any connector with `runsEagerlyOnConnect()`) during a transient queue-dispatch outage — their media never appears, indefinitely, with no automatic recovery.
     - **Effort:** M (~2–4h)
@@ -771,7 +771,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 1 of 4 complete
 - P3 Low: 0 of 4 complete
 
 ---
@@ -828,7 +828,7 @@
          * writes and N edge purges for one request where one of each is correct.
         ```
 
-- [ ] **CACHE-3** · P2 — Category 2: singleton facet writes are one UPSERT per facet per record, unlike the batched collection-facet path beside them
+- [x] **CACHE-3** · P2 — Category 2: singleton facet writes are one UPSERT per facet per record, unlike the batched collection-facet path beside them
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:976-992, 1016-1020 (`writeFacets` → `upsertSingletonFacet`)
     - **Affects:** Any projection run with several records carrying typed facets (menu items, shop products, reviews, etc.) — write volume is O(records × facets) individual UPSERT statements per run.
     - **Effort:** M (~2–4h)
@@ -1050,7 +1050,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 6 complete
+- P1 High: 2 of 6 complete
 - P2 Medium: 0 of 16 complete
 - P3 Low: 0 of 7 complete
 
@@ -1158,7 +1158,7 @@ None.
             ->get(['coord', 'item_id', 'superseded_by', 'bound_at']);
         ```
 
-- [ ] **#SCALE-5** · P1 — Singleton facet upserts fire one query per facet per item on every projection run
+- [x] **#SCALE-5** · P1 — Singleton facet upserts fire one query per facet per item on every projection run
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:988-990 (`writeFacets`), 1016-1020 (`upsertSingletonFacet`)
     - **Affects:** Every scheduled connector projection run — write amplification scales with `items in run × populated singleton facets` (up to 13 facet tables: f_text, f_link, f_duration, f_published, f_occurrence, f_embed, f_playable, f_authored, f_catalog, f_place, f_rated, f_review, f_channel, f_file).
     - **Effort:** M (~2–4h)
@@ -1747,7 +1747,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 1 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1867,7 +1867,7 @@ None — no P0, auth, money, migration/schema, or L/XL-effort findings survived 
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 0 complete
 
@@ -2080,8 +2080,8 @@ None.
 
 ## Progress
 
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 2 complete
+- P1 High: 1 of 1 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 3 complete
 
 ---

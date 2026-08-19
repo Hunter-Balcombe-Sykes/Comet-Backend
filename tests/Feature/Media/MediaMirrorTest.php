@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Media\ImagePixelBudget;
 use App\Services\Media\MediaMirror;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -323,7 +324,6 @@ it('still warns gave_up when the counter overshoots the cap', function () {
         ->once();
 });
 
-
 /**
  * A PNG whose IHDR DECLARES enormous dimensions while weighing almost nothing.
  *
@@ -361,7 +361,7 @@ it('refuses a decompression bomb before the decoder ever allocates for it (SEC-1
     // MediaMirror had before SEC-1.
     expect(strlen($bomb))->toBeLessThan(15728640);
     expect(getimagesizefromstring($bomb)[0] * getimagesizefromstring($bomb)[1])
-        ->toBeGreaterThan(App\Services\Media\ImagePixelBudget::maxPixels());
+        ->toBeGreaterThan(ImagePixelBudget::maxPixels());
 
     Http::fake(['*' => Http::response($bomb, 200, ['Content-Type' => 'image/png'])]);
     Log::spy();
@@ -474,8 +474,8 @@ it('the pixel-budget guard fails CLOSED on an allowlisted mime whose header will
     imagedestroy($img);
     $truncated = substr($png, 0, 20);
 
-    expect(App\Services\Media\ImagePixelBudget::decodable($truncated))->toBeTrue();
+    expect(ImagePixelBudget::decodable($truncated))->toBeTrue();
     expect(@getimagesizefromstring($truncated))->toBeFalse();
-    expect(App\Services\Media\ImagePixelBudget::exceeds($truncated))->toBeTrue();
-    expect(App\Services\Media\ImagePixelBudget::safeToDecode($truncated))->toBeFalse();
+    expect(ImagePixelBudget::exceeds($truncated))->toBeTrue();
+    expect(ImagePixelBudget::safeToDecode($truncated))->toBeFalse();
 });

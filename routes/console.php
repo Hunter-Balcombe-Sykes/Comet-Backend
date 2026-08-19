@@ -272,6 +272,24 @@ Schedule::command('feature-flags:prune-expired')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('feature-flags:prune-expired'));
 
+// #LIFE-5: the eager-connect run is a ONE-SHOT with nothing behind it.
+// IntegrationConnectionObserver::maybeRunEagerly() fires once on creation, and
+// auto_sync = false keeps scoreDue() away no matter what next_attempt_at says —
+// so a dispatch lost to a queue blip means that user's media never arrives, with
+// only a Log::warning to show for it. This is the retry that did not exist.
+//
+// 04:10, deliberately outside the crowded 03:xx block: it DISPATCHES ingest runs
+// rather than doing local work, and piling that onto the same minute as a dozen
+// prunes puts a burst on the ingest queue for no reason. The 30-minute lock
+// comfortably exceeds a pass that only claims rows and queues jobs.
+Schedule::command('ingest:reconcile-eager')
+    ->dailyAt('04:10')
+    ->onOneServer()
+    ->withoutOverlapping(30)
+    ->runInBackground()
+    ->description('Re-dispatch eager-provisioned ingest sources whose connect run never landed')
+    ->onFailure($reportScheduledFailure('ingest:reconcile-eager'));
+
 // Active Sessions backstop: drop tracked session_ids Supabase no longer holds
 // (client-only logouts never call /api/sessions/logout, so dead entries pile up
 // for users who never open the sessions page). listSessionsForUser reconciles
