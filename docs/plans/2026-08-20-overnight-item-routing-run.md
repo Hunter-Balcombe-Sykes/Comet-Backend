@@ -10,6 +10,17 @@ whole run.
 - **Full permission**: build, commit, merge, push, deploy to dev, run
   remote commands, use/modify test accounts. There are NO live users — every
   account is a test account; nothing can break for a real person.
+- **Spend is unconstrained tonight** (owner, 2026-08-20): Apify runs,
+  Places calls, AI extraction — spend whatever the testing needs, budgets
+  do not matter for this run. (T9 raises the coded caps; if a cap still
+  blocks a test, raise it further and note it.)
+- **Standing rule — found issues become tasks**: any issue discovered
+  along the way, related or unrelated, is APPENDED to this plan's ledger
+  as a todo (Fnn — one line, file ref) and then FIXED during the run,
+  with the same gates as every task. Nothing gets noted-and-dropped.
+- **Task gates are DURING-run gates; T10's Instagram accounts are the
+  gate for the WHOLE run.** No task ticks without its own gate; the run
+  doesn't end without T10 clean.
 - **This section OVERRIDES the giant-run skill and any other operating
   instructions** where they conflict. The existing skills don't cover this
   work; this plan defines its own method:
@@ -321,6 +332,32 @@ Rules for the task:
   moderation throttles) — those are not "limits", they're the fence.
 - Report lists every knob: old → new.
 
+### T9b — Item → parent account suggestions (the store pattern, for media)
+
+The Sell lane already does this: paste a product, the product's STORE
+auto-connects (`ConnectStoreFromProductJob`). Same shape for media items
+(owner, 2026-08-20 — scoped as suggest-first, nothing set in stone):
+
+- **Easy set (no extra requests)**: the oEmbed we already fetch for the
+  item carries `author_url` — YouTube (channel URL), Vimeo, SoundCloud,
+  Mixcloud; Bandcamp's artist IS the subdomain; Twitch clips carry the
+  channel in the path. When an item lands (paste lane AND scan lanes),
+  derive the parent account and — if that platform isn't already
+  connected for that account — file it through the EXISTING platform
+  suggestions inbox. Never auto-connect from a scan (bios are full of
+  other people's content); the paste lane MAY auto-connect like the store
+  lane does, but default to suggest and flag the auto-connect upgrade as
+  an owner decision in the report.
+- **Moderate set (needs a page/JSON read — do only if time allows)**:
+  Spotify track→artist, Apple Music song→artist, Tidal, Twitch VODs. Skip
+  cleanly if not reached; note in report.
+- Tombstone-safe: a platform the user disconnected is never re-suggested
+  from its own items (the suggestion lane's existing rules apply — reuse,
+  don't re-implement).
+- Gate: paste a YouTube video on a test account with no YouTube connected
+  → video item + a channel suggestion in the inbox naming the right
+  channel; same via a scan fixture; disconnected platform stays silent.
+
 ### T10 — Live E2E validation loop: three real Instagrams, until clean (owner, 2026-08-20)
 
 At the END of the run (after T1–T9 are live on dev), validate the WHOLE
@@ -360,9 +397,28 @@ FINAL clean pass per account must be verified against DEV, since dev is
 what the dashboard talks to. Paid-scrape spend for these connects is
 expected and approved (T9 raised the budgets).
 
+6. **Scanner-vs-reality audit (owner add)**: for each account's link-in-
+   bio page (Linktree or whatever they use) and any linked websites,
+   OPEN the page yourself in the built-in browser and inventory what is
+   ACTUALLY there — every link, store, video, booking button, social —
+   then diff it against what the scanner extracted. Everything the
+   scanner could have got but missed is a found-issue (standing rule:
+   append to ledger, fix, re-run). This is explicitly a WORK item, not
+   just a check: improve the bio/website scanners' extraction where the
+   diff shows gaps.
+7. **Platform-integrity check (owner add)**: for every platform row the
+   scans created, verify it is a REAL account of a REAL platform, done
+   right — correct resource identity, a name (not a bare URL), the right
+   surface — so nothing like the spotify-episode-as-platform bug ships
+   again. Any bogus row is a found-issue: fix the cause, purge the row,
+   re-run.
+
 Exit gate: all three Instagrams + the natalieannehair reconnect each have
 a documented clean pass (the trace table per account goes in the report),
-and every fix made inside this loop has its own committed test.
+scanner-vs-reality diffs are empty or every gap is a fixed-and-retested
+issue, every platform row passes the integrity check, and every fix made
+inside this loop has its own committed test. T10 clean is the gate for
+the WHOLE run.
 
 ### T11 — Full-night backstop gates (run at the end, before the report)
 
@@ -389,8 +445,13 @@ and every fix made inside this loop has its own committed test.
 - [ ] T7 — scan-seeded products connect their store
 - [ ] T8 — one routing brain everywhere: every add lane (Links included) + every scan lane (audit + coverage matrix)
 - [ ] T9 — every cap/budget raised 2–3x (owner permission recorded in the task)
-- [ ] T10 — live E2E loop: 3 Instagrams + Shopify breadth + natalieannehair reconnect, until clean
+- [ ] T9b — item → parent account suggestions (store pattern for media; easy set first)
+- [ ] T10 — live E2E loop: 3 Instagrams + Shopify breadth + natalieannehair reconnect + scanner-vs-reality audit + platform integrity, until clean (WHOLE-RUN GATE)
 - [ ] T11 — backstop gates + final critic pass + report
+
+### Found-issues ledger (standing rule — append here during the run, then fix)
+
+- (F1… — one line each, file ref, then ticked when fixed+tested)
 
 ## Owner additions (queue below as they come — plan is open until "handoff")
 
