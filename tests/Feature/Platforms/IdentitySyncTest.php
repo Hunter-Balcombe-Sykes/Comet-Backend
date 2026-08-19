@@ -614,3 +614,61 @@ it('resync 422s when google has nothing for the field', function () {
     idsyncSite($user);
     actingAsUser($user)->postJson('/api/site/workplace/resync', ['fields' => ['phone']])->assertStatus(422);
 });
+
+// ── (f) The partna fill-only contract reaches core.users, not just workplaces ──
+//
+// IdentitySync's docblock promises: "partna ($overwrite = false) → Google fills
+// gaps only; never clobbers a value the user set by hand." That guard is applied
+// per-field on site.workplaces (IdentitySync::applyWorkplaceFields), then the row
+// is saved — which fires WorkplaceObserver::mirrorContactFields BEFORE
+// applyUserIdentityFields is ever reached. The observer carries no $overwrite
+// notion, so it re-published Google's number over the hand-typed one and
+// IdentitySync's own guard then no-opped, having nothing left to protect.
+//
+// The distinction matters because core.users.public_contact_number is the column
+// the PUBLIC PAGE renders (profile.publicContact) — the workplace card being
+// correct is no consolation if the number visitors call is Google's.
+
+it('a partna google connect does not clobber a hand-typed public contact number', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('partnakeepsphone', 'partna');
+    $siteId = idsyncSite($user);
+
+    // Hand-typed, exactly as PATCH /api/me would leave it. No workplace row yet,
+    // so workplaces.phone is BLANK — Google filling it is legitimate fill-if-empty
+    // and the workplace write under test is NOT itself a violation.
+    $user->update(['public_contact_number' => '+61400111222']);
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    // The workplace card legitimately takes Google's number (it was empty)...
+    expect(Workplace::query()->where('site_id', $siteId)->value('phone'))->toBe('(03) 9123 4567');
+
+    // ...but the user's own public number is theirs and must survive.
+    $user->refresh();
+    expect($user->public_contact_number)->toBe('+61400111222');
+});
+
+it('a business google connect still replaces the public contact number', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('bizkeepsgoogle', 'business');
+    idsyncSite($user);
+    $user->update(['public_contact_number' => '+61400111222']);
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    // Business grants Google authority (google_business_full_sync) — the fix must
+    // not turn the partna guard into a blanket one.
+    $user->refresh();
+    expect($user->public_contact_number)->toBe('(03) 9123 4567');
+});
