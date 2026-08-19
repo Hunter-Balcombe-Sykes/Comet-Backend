@@ -10,11 +10,13 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Applies a held/proposed source intent: the one write path shared by the
- * suggestions inbox (accept) and the legacy synced-modal's "Change to" swap
- * (B4 fold). Extracting it is what keeps intent application a single writer —
- * two controllers re-implementing the demote/create/settle transaction is the
- * drift class that produced three ConnectionPayload writers.
+ * Applies a held/proposed source intent: the one write path behind the
+ * suggestions inbox (accept). The legacy synced-modal's "Change to" swap
+ * (B4 fold) used to share it — today its injection point in
+ * InstagramController is dead and accept() is the only live caller, but the
+ * extraction still stands for the original reason: two controllers
+ * re-implementing the demote/create/settle transaction is the drift class
+ * that produced three ConnectionPayload writers.
  */
 class SuggestionApplier
 {
