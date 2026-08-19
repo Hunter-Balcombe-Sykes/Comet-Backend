@@ -163,6 +163,19 @@ jobs:
         # it in PR review and append the path there, not here.
         run: php artisan test tests/Feature/Architecture/RawCacheCallGuardTest.php
 
+      - name: No Laravel migration files (schema lives in supabase/migrations)
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
+        # Bundled in `composer test` too, for a fast local failure. It needs an
+        # independent step here because CI runs the suite through `test:ci`,
+        # which deliberately carries no guards — see "Run tests" below.
+        run: composer guard:no-laravel-migrations
+
+      - name: No Cache::forever / raw memo helpers (every key must carry a TTL)
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
+        # Same reason as above: independently reported, so it can fail without
+        # taking the test suite down with it.
+        run: composer guard:no-cache-memo
+
       - name: No unsafe migration locking patterns (Master Pattern 20)
         if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         run: |
@@ -177,7 +190,7 @@ jobs:
           #
           # Pre-convention migrations (timestamp <= 20260514100000) are grandfathered.
           # See supabase/migrations/CONVENTIONS.md for the safe alternatives.
-          php scripts/guard-no-unsafe-migrations.php
+          composer guard:no-unsafe-migrations
 
       - name: Launch-check parser regression suite
         if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
@@ -191,7 +204,15 @@ jobs:
 
       - name: Run tests
         if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
-        run: composer test
+        # `composer test:ci`, NOT `composer test`. The latter bundles the three
+        # guards ahead of `artisan test`, and composer aborts a script at the
+        # first non-zero step — so any guard failure swallowed the entire suite
+        # and the `test` check reported red without running a test. That is not
+        # hypothetical: it hid 8,565 tests on development for a day from
+        # 6a7613d81 (2026-08-19). Each guard now has its own step above, so a
+        # guard failure and a test failure are two separate, readable signals.
+        # Pinned by tests/Feature/Architecture/CiTestGateIntegrityTest.php.
+        run: composer test:ci
 
   supply-chain:
     runs-on: ubuntu-latest

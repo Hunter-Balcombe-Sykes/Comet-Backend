@@ -469,6 +469,23 @@ class SitepageDataResolverService
         return $this->degraded;
     }
 
+    /**
+     * #LIFE-6. Let a caller OUTSIDE safeQuery() report that this build answered
+     * from a fault too.
+     *
+     * The degraded machinery already existed — degradedCacheTtl(), the
+     * controller's shortenDegraded() rewrite — but only safeQuery() could ever
+     * arm it, and the pool lane does not go through safeQuery(): it runs
+     * PoolResolver, which has no degraded concept at all. So a failed pool query
+     * cached its empty result for the FULL payload TTL while the machinery built
+     * to prevent exactly that sat one class away, unreachable. The wiring is the
+     * fix, not new machinery.
+     */
+    public function markDegraded(): void
+    {
+        $this->degraded = true;
+    }
+
     // ── Gallery ──────────────────────────────────────────────────────────
 
     /**

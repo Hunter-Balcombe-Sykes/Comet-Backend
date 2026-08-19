@@ -870,7 +870,7 @@ class MenuContentController extends ApiController
     /**
      * Clear `content.f_text.body` when the resolved description is null.
      *
-     * upsertSingletonFacet() only writes the columns its input carries, and
+     * the singleton-facet write path only writes the columns its input carries, and
      * MenuProjectionMapper::facets() omits `f_text` entirely for a null
      * description — so without this a cleared description silently keeps its old
      * value. ManualServiceWriter solves the same problem with $forceFacets;

@@ -2,10 +2,12 @@
 
 namespace App\Services\Media;
 
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 
 /**
  * Slice 1b D9. Attach owned bytes to an asset row ProjectionWriter already
@@ -25,6 +27,8 @@ use Illuminate\Support\Facades\Storage;
  */
 final class MediaMirror
 {
+    use EscalatesRepeatedFaults;
+
     /**
      * Matches InstagramConnectionSeeder::MAX_IMAGE_BYTES. A pathological file
      * must not fill the temp disk or R2 before the decoder ever sees it.
@@ -81,7 +85,7 @@ final class MediaMirror
         // is guaranteed — no `?? 0` defaults, which would only hide a change to
         // SafeUrlFetcher's contract behind a plausible-looking fallback.
         if ($response === null || $response['status'] < 200 || $response['status'] >= 300) {
-            return $this->fail($assetId, 'fetch_failed', $sourceUrl);
+            return $this->fail($assetId, 'fetch_failed', $sourceUrl, userId: $userId);
         }
 
         $body = $response['body'];
@@ -90,31 +94,68 @@ final class MediaMirror
         // offset 4, never by extension (a signed CDN url has none).
         if (strlen($body) > 12 && substr($body, 4, 4) === 'ftyp') {
             if (strlen($body) > self::MAX_VIDEO_BYTES) {
-                return $this->fail($assetId, 'video_too_large', $sourceUrl);
+                return $this->fail($assetId, 'video_too_large', $sourceUrl, userId: $userId);
             }
             $path = 'content-media/'.$userId.'/'.substr(hash('sha256', $body), 0, 32).'.mp4';
             try {
                 Storage::disk(config('partna.media_disk'))->put($path, $body, ['ContentType' => 'video/mp4']);
             } catch (\Throwable $e) {
-                return $this->fail($assetId, 'store_failed', $sourceUrl, $e->getMessage());
+                return $this->fail($assetId, 'store_failed', $sourceUrl, $e->getMessage(), $userId);
             }
-            DB::connection('pgsql')->table('content.media_assets')
+            $wrote = DB::connection('pgsql')->table('content.media_assets')
                 ->where('id', $assetId)
+                // #SEC-5: keyed on id AND owner. The id alone is sufficient in
+                // practice — it came from ProjectionWriter — but this is the
+                // only write in the class, it costs nothing, and a mirror job
+                // dispatched with a mismatched pair should write nothing rather
+                // than land one user's bytes on another user's row.
+                ->where('user_id', $userId)
                 ->update([
                     'storage_path' => $path,
                     'mime_type' => 'video/mp4',
                     'variant_family' => 'native',
                 ] + $this->clearedMirrorState());
 
-            return true;
+            // The affected-row count is READ, not discarded. Scoping the UPDATE
+            // on user_id introduced a way for it to match nothing — a mismatched
+            // pair, or a row deleted between dispatch and run — and returning
+            // true there would report a mirror that never happened: no bytes, no
+            // failure reason, no attempt counted, so nothing would ever retry it
+            // and no operator would ever see it. Silence is the worse bug.
+            //
+            // fail() keeps the user_id scoping, so on a genuinely mismatched
+            // pair the attempt counter does NOT move — correctly: there is no
+            // row here we are entitled to write, and bumping the victim's
+            // counter would be the same cross-tenant write #SEC-5 exists to
+            // stop. The log line and the false return carry the signal instead.
+            return $wrote === 1 ? true : $this->fail($assetId, 'asset_unwritable', $sourceUrl, userId: $userId);
         }
         if ($body === '' || strlen($body) > self::MAX_BYTES) {
-            return $this->fail($assetId, 'body_rejected', $sourceUrl);
+            return $this->fail($assetId, 'body_rejected', $sourceUrl, userId: $userId);
+        }
+
+        // #SEC-1. The byte cap above is not a decompression-bomb defence and
+        // never was: a 20000x20000 PNG of flat colour is ~90 bytes on the wire
+        // and 1.6 GB once imagecreatefromstring() rasterises it — four orders
+        // of magnitude under the 15 MB limit, on a queue fed by a third-party
+        // scrape this file's own docblock calls "untrusted by definition".
+        // Header-only read, so nothing is decoded to find out.
+        // Format FIRST. imagecreatefromstring() decodes strictly more formats
+        // than getimagesizefromstring() can parse — GD2 among them, where 854 KB
+        // on the wire is 144 million pixels — so a pixel check on its own is
+        // bypassable by choosing a format the header reader does not know.
+        // (Found by review; the first cut of this guard had exactly that hole.)
+        if (! ImagePixelBudget::decodable($body)) {
+            return $this->fail($assetId, 'undecodable', $sourceUrl, userId: $userId);
+        }
+
+        if (ImagePixelBudget::exceeds($body)) {
+            return $this->fail($assetId, 'pixel_budget', $sourceUrl, userId: $userId);
         }
 
         $variant = $this->encoder->encode($body, $this->maxEdge());
         if ($variant === null) {
-            return $this->fail($assetId, 'undecodable', $sourceUrl);
+            return $this->fail($assetId, 'undecodable', $sourceUrl, userId: $userId);
         }
 
         // CONTENT-addressed, never connection-addressed. InstagramConnectionSeeder
@@ -128,12 +169,13 @@ final class MediaMirror
         try {
             Storage::disk(config('partna.media_disk'))->put($path, $variant['bytes']);
         } catch (\Throwable $e) {
-            return $this->fail($assetId, 'store_failed', $sourceUrl, $e->getMessage());
+            return $this->fail($assetId, 'store_failed', $sourceUrl, $e->getMessage(), $userId);
         }
 
         // fingerprint is deliberately absent from this update.
-        DB::connection('pgsql')->table('content.media_assets')
+        $wrote = DB::connection('pgsql')->table('content.media_assets')
             ->where('id', $assetId)
+            ->where('user_id', $userId)   // #SEC-5, see the video branch above
             ->update([
                 'storage_path' => $path,
                 'mime_type' => 'image/webp',
@@ -145,7 +187,8 @@ final class MediaMirror
                 'variant_family' => 'native',
             ] + $this->clearedMirrorState());
 
-        return true;
+        // See the video branch: a zero-row UPDATE is a failure, not a success.
+        return $wrote === 1 ? true : $this->fail($assetId, 'asset_unwritable', $sourceUrl, userId: $userId);
     }
 
     /**
@@ -209,7 +252,7 @@ final class MediaMirror
      * past $uniqueFor, and a lost update there would under-count towards the
      * cap — restoring the unbounded retry this exists to end.
      */
-    private function fail(string $assetId, string $reason, string $sourceUrl, ?string $error = null): bool
+    private function fail(string $assetId, string $reason, string $sourceUrl, ?string $error = null, ?string $userId = null): bool
     {
         Log::warning('media_mirror.failed', array_filter([
             'asset_id' => $assetId,
@@ -218,12 +261,29 @@ final class MediaMirror
             'error' => $error,
         ]));
 
-        DB::connection('pgsql')->table('content.media_assets')
-            ->where('id', $assetId)
-            ->increment('mirror_attempts', 1, [
-                'mirror_last_attempt_at' => now(),
-                'mirror_last_reason' => $reason,
-            ]);
+        // #LIFE-12: `store_failed` is the one reason that is unambiguously OUR
+        // problem rather than a third party's — the fetch worked and the object
+        // store did not. Sustained, that is an R2 outage silently eating every
+        // mirror, and Log::warning does not reach Nightwatch (CLAUDE.md). The
+        // other reasons stay quiet on purpose: a dead CDN link is not an
+        // operator event, and a build wave's few 404s would page nobody usefully.
+        // The trait is triple-guarded and cannot throw out of here.
+        if ($reason === 'store_failed') {
+            self::escalateIfSustained(
+                new RuntimeException('media mirror store failed: '.($error ?? 'unknown')),
+                'media_mirror_store',
+            );
+        }
+
+        $update = DB::connection('pgsql')->table('content.media_assets')
+            ->where('id', $assetId);
+        if ($userId !== null) {
+            $update->where('user_id', $userId); // #SEC-5, as the success paths do
+        }
+        $update->increment('mirror_attempts', 1, [
+            'mirror_last_attempt_at' => now(),
+            'mirror_last_reason' => $reason,
+        ]);
 
         // Read back rather than trusting a local count: the row is the shared
         // truth, and this is the ONE line an operator gets for an asset we are
@@ -245,6 +305,15 @@ final class MediaMirror
                 'reason' => $reason,
                 'host' => parse_url($sourceUrl, PHP_URL_HOST),
             ]);
+
+            // #LIFE-12: one abandoned asset is ordinary; a RUN of them is the
+            // systemic outage this class had no way to report. Counted
+            // fleet-wide by the trait, so five give-ups inside ten minutes
+            // reach Nightwatch once — not once per asset.
+            self::escalateIfSustained(
+                new RuntimeException("media mirror gave up on {$assetId} after {$attempts} attempts: {$reason}"),
+                'media_mirror_gave_up',
+            );
         }
 
         return false;

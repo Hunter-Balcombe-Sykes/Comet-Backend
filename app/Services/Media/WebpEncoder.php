@@ -20,11 +20,23 @@ final class WebpEncoder
 {
     /**
      * @return array{bytes: string, width: int, height: int}|null null when the
-     *                                                            bytes do not decode, or GD cannot emit WebP
+     *                                                            bytes do not decode, exceed the pixel budget, or GD cannot emit WebP
      */
     public function encode(string $body, int $maxEdge, int $quality = 90): ?array
     {
         if (! extension_loaded('gd') || ! function_exists('imagewebp')) {
+            return null;
+        }
+
+        // #SEC-1. The guard belongs HERE, at the decode seam, not only in the
+        // callers: imagecreatefromstring() is the line that turns a few hundred
+        // KB of flat-colour PNG into gigabytes of raster, and a guard that every
+        // future caller has to remember to call is a guard that some caller
+        // eventually forgets. MediaMirror checks the same two questions itself so
+        // it can record the accurate reason on the row; this is the backstop that
+        // makes forgetting impossible. safeToDecode() is BOTH checks — the format
+        // allowlist matters as much as the pixel ceiling, see its docblock.
+        if (! ImagePixelBudget::safeToDecode($body)) {
             return null;
         }
 

@@ -780,7 +780,7 @@ it('newsletter engine returns NewsletterData with the authored inputPlaceholder'
     expect($newsletter)->toEqual(['inputPlaceholder' => 'Your email']);
 });
 
-it('newsletter engine returns null when input_placeholder is empty', function () {
+it('newsletter engine publishes a live section with an EMPTY inputPlaceholder (2026-08-19 — the sitepage supplies the fallback copy)', function () {
     $pro = seedIndividualProfile('nl-empty');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
@@ -799,7 +799,7 @@ it('newsletter engine returns null when input_placeholder is empty', function ()
     ]);
 
     expect($this->getJson('/api/public/profiles/nl-empty')->assertOk()->json('data.profile.newsletter'))
-        ->toBeNull();
+        ->toEqual(['inputPlaceholder' => '']);
 });
 
 it('contact engine returns ContactData with merged subjectOptions + headline/description when live', function () {

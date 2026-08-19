@@ -3275,6 +3275,7 @@ function setupIngestTables(): void
         health TEXT NOT NULL DEFAULT \'ok\' CHECK (health IN (\'ok\',\'degraded\',\'unavailable\',\'shape\',\'suppressed\',\'dead\')),
         consecutive_failures INTEGER NOT NULL DEFAULT 0,
         auto_sync INTEGER NOT NULL DEFAULT 1,
+        needs_eager_run INTEGER NOT NULL DEFAULT 0,
         scope TEXT NOT NULL DEFAULT \'all\' CHECK (scope IN (\'all\',\'latest_n\')),
         scope_n INTEGER NULL,
         selection_ref TEXT NULL,

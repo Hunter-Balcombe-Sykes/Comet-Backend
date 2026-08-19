@@ -54,7 +54,7 @@ class ProjectionWriter
         'f_catalog' => ['release_type', 'track_number', 'disc_number', 'isrc', 'gtin', 'sku', 'handle', 'vendor', 'variant_ref', 'collection_title'],
         'f_place' => ['venue_name', 'address', 'locality', 'region', 'country_code', 'latitude', 'longitude'],
         'f_rated' => ['rating', 'rating_max', 'ratings_count'],
-        // author_uri: slice 6 Task 1 (migration 20260813110000). upsertSingletonFacet
+        // author_uri: slice 6 Task 1 (migration 20260813110000). singletonFacetRow
         // filters against this list, so an unlisted column is dropped silently —
         // no error, no row.
         'f_review' => ['author_name', 'author_photo_url', 'author_uri', 'rating', 'text', 'reviewed_at'],
@@ -126,10 +126,13 @@ class ProjectionWriter
         // LIMIT/OFFSET paging over a non-unique order silently skips and
         // duplicates rows. The rs.key tiebreak is mandatory, not cosmetic,
         // and must not be reordered ahead of first_seen_at: records are
-        // processed oldest-first so upsertSingletonFacet()'s upsert-on-
-        // (item_id, source_id) lets the LAST-processed record win each
-        // column (I1) — reordering the read silently changes which record's
-        // headline/facets a page shows.
+        // processed oldest-first, and writeFacets()'s per-column array_replace
+        // fold (#SCALE-5) lets the LAST-processed record win each column (I1)
+        // — reordering the read silently changes which record's
+        // headline/facets a page shows. NOTE the fold is where that invariant
+        // lives NOW: it used to be a property of one upsert per record landing
+        // in order, and batching moved it into writeFacets(). Ordering here is
+        // still load-bearing; the code that depends on it has moved.
         $records = DB::table('ingest.record_state as rs')
             ->join('ingest.record_versions as rv', function ($join) {
                 $join->on('rv.stream_id', '=', 'rs.stream_id')->on('rv.id', '=', 'rs.current_version_id');
@@ -214,8 +217,8 @@ class ProjectionWriter
         }
 
         // Slice 6 §5.2: source-level aggregates. Last record wins — they are
-        // identical across a run, mirroring upsertSingletonFacet's
-        // last-processed-record-wins column semantics.
+        // identical across a run, mirroring the last-processed-record-wins
+        // column semantics writeFacets()'s fold gives the singleton facets.
         //
         // EVERY column is written, including ones this run did not carry:
         // building the update list from the present keys alone would leave an
@@ -1046,6 +1049,21 @@ class ProjectionWriter
         // (item, record) because each one targets a different row.
         $this->replaceCollections($contentSourceId, $userId, $byItem);
 
+        // #SCALE-5: collect first, write once per (facet, column-signature).
+        // This used to fire one upsert per facet per record, every run — the
+        // file's own comment conceded "the singleton-facet upserts below stay
+        // per (item, record)". For a catalogue sync that is one round trip per
+        // facet per item, and it dominated the run.
+        //
+        // The FOLD is per COLUMN, not per row. Sequentially, a second record for
+        // the same (item, source) overwrote only the columns it named, so the
+        // stored row ended up a per-column union with later values winning.
+        // Last-row-wins would silently drop columns only the earlier record
+        // carried; array_replace reproduces the old result exactly. It also
+        // removes the batching hazard: two rows with the same conflict target in
+        // ONE upsert payload raise Postgres 21000, which is precisely what
+        // LanderBatchLandingTest already pins for ingest.record_state.
+        $pending = [];
         foreach ($byItem as $itemId => $group) {
             foreach ($group as $projection) {
                 $facets = (array) ($projection['facets'] ?? []);
@@ -1059,18 +1077,80 @@ class ProjectionWriter
                 }
 
                 foreach ($facets as $facet => $columns) {
-                    $this->upsertSingletonFacet($itemId, $contentSourceId, (string) $facet, (array) $columns);
+                    $row = $this->singletonFacetRow((string) $facet, (array) $columns);
+                    if ($row === []) {
+                        continue;
+                    }
+
+                    $pending[(string) $facet][(string) $itemId] = array_replace(
+                        $pending[(string) $facet][(string) $itemId] ?? [],
+                        $row,
+                    );
                 }
+            }
+        }
+
+        $this->flushSingletonFacets($contentSourceId, $pending);
+    }
+
+    /**
+     * One upsert per (facet, column-signature) — #SCALE-5.
+     *
+     * Bucketed by signature and NOT unioned into one wide row, deliberately.
+     * Laravel's upsert() takes its column list from the FIRST row, so a union
+     * with null-fill would put columns a given record never mentioned into the
+     * update list and NULL them on conflict — clobbering a value another source
+     * legitimately wrote. Same-shaped rows batch; differently-shaped ones get
+     * their own statement, which is still a handful instead of one per record.
+     *
+     * @param  array<string, array<string, array<string, mixed>>>  $pending  facet => itemId => row
+     */
+    private function flushSingletonFacets(string $contentSourceId, array $pending): void
+    {
+        // ONE timestamp for the whole flush, mirroring the run-wide stamping the
+        // rest of this class uses — a row's updated_at should say "this run",
+        // not which microsecond inside it.
+        $now = now();
+
+        foreach ($pending as $facet => $rowsByItem) {
+            $buckets = [];
+            foreach ($rowsByItem as $itemId => $row) {
+                // ksort so the signature is order-independent: two records that
+                // carry the same columns in a different order belong in the same
+                // batch, not in two.
+                ksort($row);
+                $buckets[implode(',', array_keys($row))][] = $row + [
+                    'item_id' => (string) $itemId,
+                    'source_id' => $contentSourceId,
+                    'updated_at' => $now,
+                ];
+            }
+
+            foreach ($buckets as $rows) {
+                DB::table("content.{$facet}")->upsert(
+                    $rows,
+                    ['item_id', 'source_id'],
+                    array_values(array_diff(array_keys($rows[0]), ['item_id', 'source_id'])),
+                );
             }
         }
     }
 
-    /** @param array<string, mixed> $columns */
-    private function upsertSingletonFacet(string $itemId, string $contentSourceId, string $facet, array $columns): void
+    /**
+     * The storable row for one facet contribution: allowlisted columns only,
+     * URLs minimised, arrays encoded. Extracted from singletonFacetRow() by
+     * #SCALE-5 so the batching path and the single-row path cannot disagree
+     * about what a facet row IS — the allowlist and the URL denylist are
+     * security-relevant and a second copy of them is a liability.
+     *
+     * @param  array<string, mixed>  $columns
+     * @return array<string, mixed>
+     */
+    private function singletonFacetRow(string $facet, array $columns): array
     {
         $allowed = self::SINGLETON_FACETS[$facet] ?? null;
         if ($allowed === null) {
-            return;
+            return [];
         }
 
         $row = [];
@@ -1082,15 +1162,8 @@ class ProjectionWriter
                 $row[$column] = is_array($value) ? json_encode($value) : $value;
             }
         }
-        if ($row === []) {
-            return;
-        }
 
-        DB::table("content.{$facet}")->upsert(
-            [$row + ['item_id' => $itemId, 'source_id' => $contentSourceId, 'updated_at' => now()]],
-            ['item_id', 'source_id'],
-            array_merge(array_keys($row), ['updated_at']),
-        );
+        return $row;
     }
 
     /**

@@ -169,19 +169,58 @@ class RunExecutor
                 continue;
             }
 
-            $landed = $this->lander->land(
-                streamId: $streamId,
-                runId: $runId,
-                spec: $spec,
-                records: $result['records'],
-                covered: $result['covered'],
-                redactions: $manifest->redactionsFor($pull->isClaimed),
-            );
+            // WHK-1: land() gets the same treatment as its drain() and
+            // projectStream() siblings. It was the ONE call in this loop with
+            // no catch, so anything escaping it — a poison record before the
+            // per-record fallback isolated them, a lost connection mid-fold —
+            // propagated out of the whole foreach and skipped every REMAINING
+            // STREAM for this source. RunSourceJob is $tries = 1, so nothing
+            // re-attempted them.
+            try {
+                $landed = $this->lander->land(
+                    streamId: $streamId,
+                    runId: $runId,
+                    spec: $spec,
+                    records: $result['records'],
+                    covered: $result['covered'],
+                    redactions: $manifest->redactionsFor($pull->isClaimed),
+                );
+            } catch (\Throwable $e) {
+                report($e);
+                $streamOutcomes[$streamName] = 'error';
+                $worstOutcome = $this->worse($worstOutcome, 'error');
+                $this->recordStreamFailure($streamId, class_basename($e));
+
+                continue;
+            }
 
             $totals['seen'] += $landed['seen'];
             $totals['changed'] += $landed['changed'];
             $totals['tombstoned'] += $landed['tombstoned'];
-            $streamOutcomes[$streamName] = $landed['guard_tripped'] ? 'guard_tripped' : 'ok';
+
+            // WHK-1: records the per-record fallback isolated. A stream where
+            // EVERY record failed is not a degraded run, it is a broken one —
+            // the usual cause is the database itself, not one bad caption — so
+            // it takes the failure path and earns the backoff. Anything less
+            // than total lands what it can and degrades the outcome, which is
+            // the same trade projectStream() makes below.
+            if ($landed['failed'] > 0 && $landed['changed'] === 0 && $landed['failed'] === $landed['seen']) {
+                $streamOutcomes[$streamName] = 'error';
+                $worstOutcome = $this->worse($worstOutcome, 'error');
+                $this->recordStreamFailure($streamId, 'landing');
+
+                continue;
+            }
+
+            if ($landed['failed'] > 0) {
+                $worstOutcome = $this->worse($worstOutcome, 'degraded');
+            }
+
+            $streamOutcomes[$streamName] = match (true) {
+                $landed['guard_tripped'] => 'guard_tripped',
+                $landed['failed'] > 0 => 'degraded',
+                default => 'ok',
+            };
 
             if ($result['bookmark'] !== null) {
                 DB::table('ingest.streams')->where('id', $streamId)->update([

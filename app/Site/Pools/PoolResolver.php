@@ -292,6 +292,41 @@ class PoolResolver
     }
 
     /**
+     * A public timestamp, as ISO-8601 in UTC (#API-1).
+     *
+     * The query builder hands back naive "Y-m-d H:i:s" strings, which a
+     * browser's Date() reads as LOCAL time — a +10h error on an AEST reader,
+     * silently, with no parse failure to notice. The nested sources[] array got
+     * this fix; the three TOP-LEVEL fields visitors actually see (publishedAt,
+     * firstSeenAt, startsAt) did not.
+     *
+     * ->utc() is not decoration. latestFor() compares publishedAt/firstSeenAt
+     * as STRINGS inside a tuple, so the ordering is only correct while every
+     * value renders in one offset; mixed offsets would sort "2026-01-01T12:00:00+11:00"
+     * after "2026-01-01T09:00:00+00:00" despite being the earlier instant.
+     *
+     * NOT applied to startsAtLocal / endsAtLocal. Those are deliberately wall
+     * clock — an event at 7pm local stays 7pm local across a DST rule change,
+     * which is the whole reason content.f_occurrence stores both.
+     *
+     * Returns null rather than a guess when the value will not parse: these
+     * fields can carry a manual override, and emitting an unparseable string to
+     * the wire is worse than admitting we have no date.
+     */
+    private static function iso(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse((string) $value)->utc()->toIso8601String();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * Slice 6 §5.4: the connected place's own aggregates, for the pool that
      * renders them. These describe the SOURCE, not any one item, which is why
      * they sit beside the items rather than on one.
@@ -312,14 +347,28 @@ class PoolResolver
             return null;
         }
 
-        $row = DB::connection('pgsql')->table('content.source_stats as ss')
+        // #LIFE-2: the aggregates are SOURCE-level, and this query had no
+        // liveness filter of any kind — no removed_at, no connection check. So
+        // disconnecting a Google listing because the reviews are bad left the
+        // 4.8 and the review count publishing on the page indefinitely: the
+        // items went (LiveSourceScope covers those) and the badge summarising
+        // them stayed. Same predicate as everywhere else, from the same helper.
+        $query = DB::connection('pgsql')->table('content.source_stats as ss')
             ->join('content.source_items as si', 'si.source_id', '=', 'ss.source_id')
+            ->join('content.sources as stats_src', 'stats_src.id', '=', 'ss.source_id')
+            ->leftJoin('site.platform_connections as stats_conn', 'stats_conn.id', '=', 'stats_src.connection_id')
             ->whereIn('si.item_id', array_column($selection, 'id'))
+            // A source_item retired by absence folding does not carry the badge
+            // either — the same reading LiveSourceScope takes for the items.
+            ->whereNull('si.removed_at')
             // Two connected places would be unusual, but the busiest listing is
             // the defensible one to show and ordering makes that a decision
             // rather than whatever row Postgres returned first.
-            ->orderByDesc('ss.rating_count')
-            ->first(['ss.rating_avg', 'ss.rating_count', 'ss.summary_text']);
+            ->orderByDesc('ss.rating_count');
+
+        LiveSourceScope::constrainToLiveSource($query, 'stats_src', 'stats_conn');
+
+        $row = $query->first(['ss.rating_avg', 'ss.rating_count', 'ss.summary_text']);
 
         if ($row === null) {
             return null;
@@ -520,11 +569,19 @@ class PoolResolver
 
         // Source links, each carrying its connection's platform key. Ordered
         // by source priority so ->first() per item IS the primary source.
-        $sourceLinks = DB::connection('pgsql')->table('content.f_link')
+        // #LIFE-4: no liveness filter at all. An item kept alive by ONE live
+        // source could still publish a "book now" link belonging to a platform
+        // the owner had disconnected — the item survives LiveSourceScope
+        // legitimately, and then this query hands it the dead platform's url.
+        $sourceLinksQuery = DB::connection('pgsql')->table('content.f_link')
             ->join('content.sources', 'content.sources.id', '=', 'content.f_link.source_id')
             ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->whereIn('content.f_link.item_id', $ids)
-            ->orderByDesc('content.sources.priority')
+            ->orderByDesc('content.sources.priority');
+
+        LiveSourceScope::constrainToLiveSource($sourceLinksQuery);
+
+        $sourceLinks = $sourceLinksQuery
             ->get([
                 'content.f_link.item_id',
                 'content.f_link.url',
@@ -540,11 +597,19 @@ class PoolResolver
         // url it came from contributes a synced link for that ordering
         // platform (host → roster platform), so a dish on Uber Eats AND
         // DoorDash shows both. Menu items had no f_link at all before this.
-        $offerLinks = DB::connection('pgsql')->table('content.offers')
+        // #LIFE-4 again. This path landed AFTER the audit was taken and carries
+        // the identical gap — it never joined platform_connections at all, so
+        // there was nothing to filter on. Same helper, so the two cannot drift.
+        $offerLinksQuery = DB::connection('pgsql')->table('content.offers')
             ->join('content.sources', 'content.sources.id', '=', 'content.offers.source_id')
+            ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->whereIn('content.offers.item_id', $ids)
             ->whereNotNull('content.offers.url')
-            ->orderByDesc('content.sources.priority')
+            ->orderByDesc('content.sources.priority');
+
+        LiveSourceScope::constrainToLiveSource($offerLinksQuery);
+
+        $offerLinks = $offerLinksQuery
             ->get(['content.offers.item_id', 'content.offers.url', 'content.sources.kind as source_kind'])
             ->map(function (object $row): ?object {
                 $platform = ItemLinkRules::platformForUrl((string) $row->url);
@@ -903,8 +968,8 @@ class PoolResolver
                 'url' => $ov('f_link.url', $outboundUrl),
                 'platform' => $primary['platform'] ?? null,
                 'creator' => $ov('f_authored.creator', $creators[$itemId]->creator ?? $channels[$itemId]->handle ?? null),
-                'publishedAt' => $ov('f_published.published_from', $published[$itemId] ?? null),
-                'firstSeenAt' => $item->first_seen_at,
+                'publishedAt' => self::iso($ov('f_published.published_from', $published[$itemId] ?? null)),
+                'firstSeenAt' => self::iso($item->first_seen_at),
                 'durationSeconds' => (function () use ($ov, $durations, $itemId): ?int {
                     $v = $ov('f_duration.seconds', isset($durations[$itemId]) ? (int) $durations[$itemId] : null);
 
@@ -929,7 +994,7 @@ class PoolResolver
                 // Dated / located / priced facets. Present on every pool item
                 // and null off events, so the wire shape does not change with
                 // kind — same contract durationSeconds already has.
-                'startsAt' => $occursAt[$itemId] ?? null,
+                'startsAt' => self::iso($occursAt[$itemId] ?? null),
                 'startsAtLocal' => $ov('f_occurrence.starts_at_local', $occurrenceDetail[$itemId]->starts_at_local ?? null),
                 'endsAtLocal' => $ov('f_occurrence.ends_at_local', $occurrenceDetail[$itemId]->ends_at_local ?? null),
                 'timezone' => $ov('f_occurrence.timezone', $occurrenceDetail[$itemId]->timezone ?? null),
@@ -1007,7 +1072,15 @@ class PoolResolver
                     'authorName' => $reviews[$itemId]->author_name,
                     'authorPhotoUrl' => $reviews[$itemId]->author_photo_url,
                     'authorUri' => $reviews[$itemId]->author_uri,
-                    'reviewedAt' => $reviews[$itemId]->reviewed_at,
+                    // #API-1 applies here too — content.f_review.reviewed_at is
+                    // timestamptz, `review` is a PUBLIC wire field (ITEM_KEYS,
+                    // and not dashboard-only), and pdo_pgsql hands it back as
+                    // "2026-07-01 10:00:00+00" whose rendering also shifts with
+                    // the session TimeZone. Missed on the first pass because the
+                    // audit named only the three top-level fields and the
+                    // existing assertion passes on SQLite, which returns the
+                    // seeded string verbatim and cannot see the difference.
+                    'reviewedAt' => self::iso($reviews[$itemId]->reviewed_at),
                 ] : null,
             ];
         }

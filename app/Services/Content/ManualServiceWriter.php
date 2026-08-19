@@ -42,7 +42,7 @@ class ManualServiceWriter extends ManualPoolWriter
      *                                     keys. A field in this list writes
      *                                     its facet even when the resolved
      *                                     value is null, so
-     *                                     upsertSingletonFacet() (which only
+     *                                     the singleton-facet write path (which only
      *                                     touches columns present in its
      *                                     input) actually clears a
      *                                     previously-set value instead of
