@@ -8,6 +8,10 @@ Every entry below is a decision **nobody signed off on**, taken because the run
 was unattended and the prompt's standing instruction is to take the documented
 default and keep going rather than block. Each one is reversible.
 
+> **ALL THREE OPEN QUESTIONS WERE ANSWERED BY THE OWNER ON 2026-08-19**, after
+> the unattended run finished. The rulings are recorded inline below, each marked
+> **OWNER RULING**. Nothing in this file is still waiting on a decision.
+>
 > **§0 is the summary** — what landed, what is committed-but-unmerged and why,
 > what is plan-only, what I could not verify, and every premise that turned out
 > to be wrong. Everything after it is the detail behind one of those lines.
@@ -45,17 +49,13 @@ reverted and the new tests confirmed red, so nothing here is vacuously green.
 | `SCALE-3` | The memory is consumed inside `SafeUrlFetcher`, not `MediaMirror`. Fixing it means changing the SSRF chokepoint. | §4.3 |
 | `SCALE-4` (+`CACHE-5`) | Prefetching across a loop that mutates what it prefetched — the same hazard `LIFE-1` was held back for. Do it WITH `LIFE-1`. | §9 |
 
-### The three things that need a human, in priority order
+### The three decisions — ALL ANSWERED (owner, 2026-08-19)
 
-1. **§4.1 — the `LiveSourceScope` pause ruling.** Does a PAUSED connection keep
-   publishing what it already landed? The audit framed this as a three-surface
-   question; it is a **nine-surface** one, and the ruling was already taken in
-   code by W2. Biggest decision here.
-2. **§6 — the `SEC-2` backfill.** Scoped on dev: 129 rows, **59 distinct named
-   people**, 40 of them on unclaimed sites. No data touched. Decide it with the
-   already-open `LEGAL-2` item — same vendor, same subjects, two surfaces.
-3. **§8 — `LIFE-5` option (a) vs (b).** (a) shipped because it is additive and
-   reversible; (b) is arguably better but needs a migration.
+| # | Question | Ruling | Consequence |
+|---|---|---|---|
+| 1 | Does a PAUSED connection keep publishing? | **Hidden.** Pause = hide. | No code change — confirms what shipped. §4.1 |
+| 2 | `SEC-2` backfill on the 129 dev rows? | **Not needed** — that data is test data, not real customers. | Closed WONTFIX. §6 |
+| 3 | `LIFE-5` option (a) or (b)? | **(b)** — the persisted flag. | (a) removed, (b) implemented. §8 |
 
 ### Final verification, both lanes
 
@@ -205,6 +205,13 @@ drifted — treat all of them as approximate.
 ## 4. Product / scope decisions taken without sign-off
 
 ### 4.1 `#LIFE-3` (paused connection) — the ruling was ALREADY TAKEN, in code
+
+> **OWNER RULING 2026-08-19: HIDDEN.** Pause means hide. Option (a) — the status
+> quo — confirmed. No code change follows; what shipped is what was wanted, and
+> `LiveSourceScope` is now the single place that expresses it across all nine
+> surfaces. The related W6 question (a pinned item whose only `source_item` was
+> retired by absence-folding) is NOT covered by this ruling and stays open.
+
 
 The prompt says `#LIFE-3` embeds an unsettled product ruling (does `is_active =
 false` — a *paused* connection — hide content publicly?) and instructs: do NOT
@@ -500,7 +507,20 @@ the owner's call to confirm.
 
 ---
 
-## 6. The `#SEC-2` backfill — scoped, NOT done, needs a human
+## 6. The `#SEC-2` backfill — CLOSED, no remediation needed
+
+> **OWNER RULING 2026-08-19: no backfill.** Those 129 rows are test data from
+> development builds, not real customers, so there is no data subject to
+> remediate. Closed WONTFIX.
+>
+> Two things still hold and are the reason this section stays in the file rather
+> than being deleted: the **code fix is what mattered** and is shipped (new
+> photos are redacted on unclaimed sites), and the **`LEGAL-2` question is
+> untouched** — whether we may hold Google reviewer/photographer identities on
+> pre-account sites at all is a pilot-blocking legal question, and "the current
+> rows are test data" answers a cleanup question, not that one.
+
+### The original scoping (kept for the record)
 
 The prompt's instruction was: ship the code fix, do not touch landed data, write
 the backfill question down. Here it is, with real numbers.
@@ -604,7 +624,33 @@ changes six surfaces rather than three.
 
 ---
 
-## 8. `#LIFE-5` — option (a) taken, and the prompt's predicate was wrong
+## 8. `#LIFE-5` — option (b) SHIPPED (owner ruling); (a) removed
+
+> **OWNER RULING 2026-08-19: do (b).** The unattended run shipped (a) because it
+> was additive and reversible and (b) needed a migration it could not take. (b)
+> is now implemented and (a) — `IngestReconcileEagerCommand`, its schedule entry
+> and its tests — is deleted.
+>
+> **What (b) is:** `ingest.sources.needs_eager_run boolean NOT NULL DEFAULT false`
+> (migration `20260819120000`). `IntegrationConnectionObserver::maybeRunEagerly()`
+> sets it BEFORE it tries to claim or dispatch, so every failure path leaves a
+> trace. `SourceScheduler::scoreDue()` selects on
+> `auto_sync = true OR needs_eager_run = true`. `release()` clears it on a
+> LANDING outcome only.
+>
+> **Why it is the better design, concretely.** Option (a) had to hand-roll four
+> guards to avoid re-dispatching a paid connector — an in-flight check, a health
+> check, a failure cap and a grace window — and reviews found it got the
+> deferral case wrong twice. (b) inherits all of them because `scoreDue()`
+> already applies `next_attempt_at <= now()`, `health != 'dead'` and the
+> in-flight claim to every candidate. The deferral hole that took two review
+> rounds to close in (a) simply cannot occur in (b): `release('deferred')` sets
+> `next_attempt_at`, and `scoreDue()` has always honoured it.
+>
+> Everything below is the ORIGINAL (a) reasoning, kept because the analysis of
+> the prompt's wrong predicate applies to any implementation.
+
+### The original (a) reasoning (kept for the record)
 
 **Decision: implemented (a)**, a daily reconcile command
 (`ingest:reconcile-eager`, `app/Console/Commands/IngestReconcileEagerCommand.php`),
@@ -853,3 +899,74 @@ None are mine. Both are one-line fixes and neither belongs in an audit-fix
 branch, but between this and the migration lint, **two of CI's gates are red on
 `development` independently of anything in this sweep** — worth knowing before
 anyone reads a red build here as caused by these commits.
+
+---
+
+## 12. `#LIFE-5` is measurably live on dev — 23 stranded sources, NOT backfilled
+
+Migration `20260819120000` applied to dev (`glncumufgaqcmqhzwrxm`) 2026-08-19,
+BEFORE the merge, because `scoreDue()` reads the new column and code-then-additive
+would have thrown `42703` across the ingest scheduler the moment `development`
+auto-deployed. Ledger row written manually — the Supabase MCP applies DDL but
+writes no `supabase_migrations.schema_migrations` entry.
+
+Verified after applying: column present, `NOT NULL DEFAULT false`, ledger at
+`20260819120000`, 139 sources, **0 flagged**.
+
+### The finding, quantified on real dev data
+
+`auto_sync = false` sources that have NEVER landed a run
+(`ok` / `not_modified` / `degraded`):
+
+| source_key | auto_sync=false | never landed | eager? |
+|---|---|---|---|
+| **instagram** | 28 | **14** | yes |
+| apple_music | 8 | 3 | yes |
+| youtube | 8 | 3 | yes |
+| google_business | 3 | 2 | yes |
+| apple_podcasts | 4 | 1 | yes |
+| uber_eats / doordash / square | 10 | 5 | **no** |
+
+**23 stranded eager sources** — 23 users whose connected content never arrived.
+That is `#LIFE-5` in production data rather than in the abstract.
+
+The five `uber_eats` / `doordash` / `square` rows are NOT stranded:
+`auto_sync = false` is their normal resting state because their manifests do not
+`runsEagerlyOnConnect()`. Any backfill must exclude them or it invents a sync
+cadence those connectors deliberately do not have.
+
+### Deliberately NOT backfilled
+
+`needs_eager_run` starts `false` for every existing row, so the fix is
+**forward-looking only**: new connects are protected, the 23 already-stranded
+sources are not rescued.
+
+Setting the flag on them would dispatch 23 ingest runs, most on Actor-billed
+connectors, in one scheduler tick. Spending vendor budget on 23 users' behalf is
+an owner decision, not a side effect of a merge — and it is the same class of
+hazard two review rounds were spent closing in the option-(a) design.
+
+**When you want it, it is one statement plus a limit:**
+
+```sql
+-- eager connectors only; excludes uber_eats / doordash / square by construction
+UPDATE ingest.sources s
+   SET needs_eager_run = true, updated_at = now()
+ WHERE s.id IN (
+   SELECT id FROM ingest.sources x
+    WHERE x.auto_sync = false
+      AND x.source_key IN ('instagram','apple_music','apple_podcasts','bandcamp','eventbrite',
+                           'fresha','google_business','humanitix','soundcloud','spotify',
+                           'vimeo','youtube','youtube_music')
+      AND x.health <> 'dead'
+      AND NOT EXISTS (SELECT 1 FROM ingest.runs r
+                       WHERE r.source_id = x.id
+                         AND r.outcome IN ('ok','not_modified','degraded'))
+    ORDER BY x.created_at
+    LIMIT 25          -- raise deliberately; each row is a billed run
+ );
+```
+
+`scoreDue()`'s own guards then pace them: `next_attempt_at`, `health != 'dead'`,
+the in-flight claim, and the per-user cost divisor in the scoring formula.
+Start with a small LIMIT and watch `ingest.runs.cost_claimed`.

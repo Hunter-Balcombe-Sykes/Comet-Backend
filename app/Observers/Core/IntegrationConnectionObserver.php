@@ -307,6 +307,19 @@ class IntegrationConnectionObserver
             return;
         }
 
+        // #LIFE-5: record the obligation BEFORE trying to act on it. Everything
+        // below can fail — the claim can be lost, the dispatch can throw, the
+        // queue can accept the job and never run it — and none of those paths
+        // used to leave a trace the scheduler could act on, because auto_sync is
+        // false on exactly the connectors this matters for. With the flag set
+        // first, SourceScheduler::scoreDue() picks the source up on its own
+        // schedule no matter which of those happens, and release() clears the
+        // flag the moment a run actually lands.
+        DB::table('ingest.sources')->where('id', $sourceId)->update([
+            'needs_eager_run' => true,
+            'updated_at' => now(),
+        ]);
+
         $scheduler = app(SourceScheduler::class);
         $runId = (string) Str::uuid();
         if (! $scheduler->claimOne((string) $sourceId, $runId)) {
@@ -323,11 +336,12 @@ class IntegrationConnectionObserver
             // releaseStranded()'s 2h backstop. Release it here so the source is
             // left in a clean, re-runnable state instead.
             //
-            // Note this does NOT re-run it: the eager trigger fires once, on
-            // creation, and nothing retries it. A lost dispatch therefore means
-            // this user's media never arrives — auto_sync=false keeps the
-            // scheduler away no matter what next_attempt_at says. Recovering one
-            // needs a manual re-run.
+            // This does not re-run it HERE — but #LIFE-5 means it no longer
+            // has to. needs_eager_run was set above and is cleared only by a
+            // LANDING outcome, so release('error') below leaves it set and
+            // SourceScheduler::scoreDue() picks the source up on its next due
+            // tick despite auto_sync being false. Before that flag existed this
+            // was the end of the line: the user's media never arrived at all.
             $scheduler->release((string) $sourceId, 'error', false);
 
             throw $e;
