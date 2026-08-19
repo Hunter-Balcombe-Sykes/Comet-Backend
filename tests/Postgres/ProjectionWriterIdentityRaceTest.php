@@ -1058,3 +1058,120 @@ it('picks the same merge survivor whether the group came from the prefetch or a 
         "the prefetch path kept {$viaPrefetch} and the fresh-read path kept {$viaFreshRead} — which item mergeInto() hard-deleted depended on an unrelated earlier group",
     );
 });
+
+// ── the compensation must not retire a row somebody else just bound ───────────────────────────
+//
+// The wait it compensates for is up to IDENTITY_LOCK_TIMEOUT_MS long, and resolveItemsLocked()
+// is the only writer that turns source_items.item_id from NULL to bound — under the very lock
+// this caller is queued behind. So "was it unbound?" answered before the wait is a different
+// question from "is it unbound?" answered after it. A second request for the same coord that
+// queues ahead of this one wins the lock, binds the coord and runs writeFacets(); retiring its
+// row leaves a live faceted item with no source item, which is the ghost
+// preferOwnerAnchored()'s docblock exists to avoid.
+it('does not retire a source item that another writer bound while it was waiting for the lock', function () {
+    if (! function_exists('pcntl_fork')) {
+        $this->markTestSkipped('pcntl_fork is not available in this runtime');
+    }
+
+    config(['database.connections.pgsql_second' => config('database.connections.pgsql')]);
+
+    $pg = DB::connection('pgsql');
+    $userId = (string) Str::uuid();
+    $pg->table('core.users')->insert(['id' => $userId]);
+    $pg->table('site.sites')->insert(['id' => (string) Str::uuid(), 'user_id' => $userId]);
+    app(ProjectionWriter::class)->ensureManualSource($userId);
+
+    // The item the winning writer would have bound the coord to.
+    $winnerItemId = (string) Str::uuid();
+    $pg->table('content.items')->insert([
+        'id' => $winnerItemId, 'user_id' => $userId, 'kind' => 'link',
+        'first_seen_at' => now(), 'last_seen_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $coord = 'manual:'.sha1('pgir-toctou-'.Str::random(8));
+
+    // Fork BEFORE the blocker connection exists. A child that inherited its PDO would close that
+    // socket on exit and the parent's rollBack() would die with "server closed the connection
+    // unexpectedly" — purging it in the child is no good either, since the socket is shared.
+    $startAt = microtime(true) + 1.0;
+
+    $pid = pcntl_fork();
+    if ($pid === -1) {
+        $this->fail('pcntl_fork failed');
+    }
+
+    if ($pid === 0) {
+        pgirChildConnection();
+        usleep((int) max(0, ($startAt - microtime(true)) * 1_000_000));
+        try {
+            app(ProjectionWriter::class)->writeManualItem($userId, $coord, pgirLinkProjection($coord));
+        } catch (Throwable) {
+            // expected: the lock is held for longer than the bound
+        }
+        exit(0);
+    }
+
+    $blocker = DB::connection('pgsql_second');
+    $blocker->beginTransaction();
+    $blocker->select('select pg_advisory_xact_lock(hashtext(?))', ["identity:{$userId}:link"]);
+
+    try {
+        // Long enough after the child's release gate for its first transaction (the source item
+        // and its identity keys) to have committed, and far short of the 5s timeout it is now
+        // sitting in.
+        usleep((int) max(0, ($startAt - microtime(true)) * 1_000_000) + 1_500_000);
+
+        $bound = $pg->table('content.source_items')->where('coord', $coord)
+            ->update(['item_id' => $winnerItemId]);
+        expect($bound)->toBe(1, 'the child had not committed its source item yet — the race never happened');
+
+        pcntl_waitpid($pid, $status);
+
+        $row = $pg->table('content.source_items')->where('coord', $coord)->first();
+        expect($row->item_id)->not->toBeNull();
+        expect($row->removed_at)->toBeNull('the compensation retired a row another writer had already bound');
+    } finally {
+        $blocker->rollBack();
+        DB::purge('pgsql_second');
+    }
+})->group('slow');
+
+// ── a ROW-lock timeout is contention too, and must land in the same place ─────────────────────
+//
+// SET LOCAL lock_timeout bounds every lock the resolve transaction takes, not just the advisory
+// one, and a row lock aborting raises a bare QueryException carrying the same SQLSTATE 55P03.
+// Undistinguished it would skip the compensation and surface as a 500 for ordinary contention.
+it('treats a row-lock timeout inside the resolve as the same contention as the advisory lock', function () {
+    config(['database.connections.pgsql_second' => config('database.connections.pgsql')]);
+
+    $pg = DB::connection('pgsql');
+    [$userId, , , $manualCoord] = pgirScenario();
+
+    // pgirScenario() leaves this coord anchored but with item_id NULL, so the closing per-target
+    // UPDATE has to move it — and that is the statement the row lock below blocks.
+    $blockedId = $pg->table('content.source_items')->where('coord', $manualCoord)->value('id');
+
+    $blocker = DB::connection('pgsql_second');
+    $blocker->beginTransaction();
+    $blocker->select('select id from content.source_items where id = ? for update', [$blockedId]);
+
+    try {
+        $newCoord = 'manual:'.sha1('pgir-rowlock-'.Str::random(8));
+
+        $thrown = null;
+        try {
+            app(ProjectionWriter::class)->writeManualItem($userId, $newCoord, pgirLinkProjection($newCoord));
+        } catch (Throwable $e) {
+            $thrown = $e;
+        }
+
+        expect($thrown)->toBeInstanceOf(AdvisoryLockTimeoutException::class);
+        expect($thrown->getHttpStatusCode())->toBe(423);
+
+        $newRow = $pg->table('content.source_items')->where('coord', $newCoord)->first();
+        expect($newRow->removed_at)->not->toBeNull('a row-lock timeout skipped the compensation');
+    } finally {
+        $blocker->rollBack();
+        DB::purge('pgsql_second');
+    }
+})->group('slow');

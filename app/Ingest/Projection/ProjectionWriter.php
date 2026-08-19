@@ -23,6 +23,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * The projection stage's ONE writer (plan §4 Landing → Projection, §5/§6
@@ -224,7 +225,7 @@ class ProjectionWriter
             // source item and its keys in a fixed order, so a cycle needs two
             // writers on the SAME row — accepted, not retried.
             $sourceItemId = DB::transaction(function () use ($contentSourceId, $coord, $streamId, $record, $projection, $projector) {
-                [$id] = $this->upsertSourceItem(
+                $id = $this->upsertSourceItem(
                     contentSourceId: $contentSourceId,
                     coord: $coord,
                     streamId: $streamId,
@@ -420,8 +421,8 @@ class ProjectionWriter
         // and for the same reason: a committed source item visible with zero
         // identity keys resolves as an unrelated singleton and mints a
         // spurious item. See the long note at the projectStream() call site.
-        [$sourceItemId, $unbound] = DB::transaction(function () use ($contentSourceId, $coord, $kind, $projection) {
-            [$sourceItemId, $unbound] = $this->upsertSourceItem(
+        $sourceItemId = DB::transaction(function () use ($contentSourceId, $coord, $kind, $projection) {
+            $sourceItemId = $this->upsertSourceItem(
                 contentSourceId: $contentSourceId,
                 coord: $coord,
                 streamId: null,
@@ -434,7 +435,7 @@ class ProjectionWriter
             );
             $this->writeIdentityKeys($sourceItemId, $coord, $projection);
 
-            return [$sourceItemId, $unbound];
+            return $sourceItemId;
         });
 
         try {
@@ -447,20 +448,34 @@ class ProjectionWriter
             // minted item — but writeFacets() never ran for it, so what the owner eventually
             // sees is a blank card they were told had failed to save.
             //
-            // Only an UNBOUND row is retired — one carrying no item_id, so retiring it
-            // destroys nothing. That covers both a row this call minted and one an earlier
-            // failed resolve left behind, which matters because upsertSourceItem()'s update
-            // branch clears removed_at: keyed on "did I create it", a second consecutive
-            // timeout for one coord would un-retire the row and then walk straight past this.
-            // A row that already carries an item_id is the owner's real content — an idempotent
-            // re-add (MenuScanApplier, ShopContentWriter, every backfiller) must never have it
-            // retired out from under them.
+            // whereNull('item_id') is the whole guard, and it has to be evaluated HERE rather
+            // than carried down from the upsert above. Three cases, one predicate:
+            //   - a row this call minted: unbound, retired;
+            //   - a row an earlier failed resolve left behind: also unbound, also retired — and
+            //     it must be, because the upsert's update branch clears removed_at, so a flag
+            //     meaning "did I create it" would let a SECOND consecutive timeout for one coord
+            //     un-retire the row and then leave it live;
+            //   - a row that carries an item_id: the owner's real content, untouched. That
+            //     includes a row bound by a DIFFERENT writer during the up-to-5s wait above —
+            //     a second request for the same coord that queued ahead of this one, won the
+            //     lock, bound the coord and ran writeFacets(). Deciding from a value read
+            //     before the wait would retire that writer's live, faceted row and leave the
+            //     source-item-less ghost preferOwnerAnchored()'s docblock warns about.
             //
-            // Catching here is safe: the transaction above has COMMITTED and resolveItems()'
-            // own has rolled back, so this runs outside every transaction and cannot poison one
+            // Catching here is safe: the transaction above has COMMITTED and resolveItems()' own
+            // has rolled back, so this runs outside every transaction and cannot poison one
             // (25P02). It rethrows — the caller still learns the write failed.
-            if ($unbound) {
-                DB::table('content.source_items')->where('id', $sourceItemId)->update(['removed_at' => now()]);
+            try {
+                DB::table('content.source_items')
+                    ->where('id', $sourceItemId)
+                    ->whereNull('item_id')
+                    ->update(['removed_at' => now()]);
+            } catch (Throwable $cleanupFailure) {
+                // Best-effort. This UPDATE can itself block on the row lock of the writer that
+                // beat us and abort on the session lock_timeout; a failed CLEANUP must not
+                // replace the 423 the caller is owed with a 500 about the cleanup. Reported so
+                // the residue is visible rather than silent.
+                report($cleanupFailure);
             }
 
             throw $e;
@@ -498,17 +513,6 @@ class ProjectionWriter
         return 'acct-'.substr(sha1(strtolower(trim($identifier))), 0, 16);
     }
 
-    /**
-     * @return array{0: string, 1: bool} [source item id, whether the row is bound to NO item]
-     *
-     * The flag exists for writeManualItem()'s compensation, and it is deliberately "unbound"
-     * rather than "we created it". A row this call minted is unbound, but so is one an EARLIER
-     * failed resolve left behind — including one the compensation itself retired, because the
-     * update branch below clears removed_at on the retry. Keying on "created" therefore leaks
-     * exactly the residue the compensation exists to remove, on the second consecutive failure
-     * for one coord. A row that already carries an item_id is the owner's real content and is
-     * never touched.
-     */
     private function upsertSourceItem(
         string $contentSourceId,
         string $coord,
@@ -516,11 +520,11 @@ class ProjectionWriter
         ?string $recordKey,
         string $kind,
         int $projectorVersion,
-    ): array {
+    ): string {
         $existing = DB::table('content.source_items')
             ->where('source_id', $contentSourceId)
             ->where('coord', $coord)
-            ->first(['id', 'item_id']);
+            ->first(['id']);
 
         if ($existing !== null) {
             DB::table('content.source_items')->where('id', $existing->id)->update([
@@ -534,7 +538,7 @@ class ProjectionWriter
                 'removed_at' => null,
             ]);
 
-            return [(string) $existing->id, $existing->item_id === null];
+            return (string) $existing->id;
         }
 
         // insertOrIgnore + re-read, not insert: the SELECT above and this write
@@ -560,16 +564,13 @@ class ProjectionWriter
         $landed = DB::table('content.source_items')
             ->where('source_id', $contentSourceId)
             ->where('coord', $coord)
-            ->first(['id', 'item_id']);
+            ->value('id');
 
         if ($landed === null) {
             throw new \RuntimeException("Could not resolve a source item for coord {$coord}.");
         }
 
-        // Reads item_id off the SAME re-read rather than a second query: insertOrIgnore may have
-        // lost to a concurrent writer, and it is the PERSISTED row's binding that decides
-        // whether retiring it would destroy anything.
-        return [(string) $landed->id, $landed->item_id === null];
+        return (string) $landed;
     }
 
     /**
@@ -719,7 +720,15 @@ class ProjectionWriter
             // writeManualItem()'s compensation and surfaced as a 500 for what is ordinary
             // contention. ReorderService::reorder() already reclassifies its row-lock timeout
             // through this same helper for the same reason.
-            if (AdvisoryLock::isLockTimeout($e)) {
+            // SQLSTATE only, NOT AdvisoryLock::isLockTimeout(), whose second branch matches
+            // the substring 'lock timeout' anywhere in the message. QueryException interpolates
+            // bindings into that message, and the bindings here include coord — built from
+            // platform-supplied record keys (see projectStream()). A coord carrying that literal
+            // would turn any error on any statement in the resolve (a 23505, a 23503, a
+            // statement_timeout) into a false 423 AND arm the destructive compensation above.
+            // The substring branch buys nothing here: Postgres reports 55P03 through getCode()
+            // for both the advisory lock and a row lock, which is the whole reachable set.
+            if ((string) $e->getCode() === AdvisoryLock::LOCK_NOT_AVAILABLE_SQLSTATE) {
                 throw new AdvisoryLockTimeoutException($key, $e);
             }
 
@@ -1024,8 +1033,9 @@ class ProjectionWriter
      * Every anchor for every coord this pass will bind, read once (#SCALE-4).
      *
      * Keyed by coord, which is exact rather than convenient: content.item_anchors' PK is
-     * (user_id, coord), so there is at most one row per coord. Ordering is applied per group in
-     * anchorsFromSnapshot() instead of here, because chunking would split a single ORDER BY.
+     * (user_id, coord), so there is at most one row per coord. Unordered — chunking would split
+     * a single ORDER BY anyway, and bindGroup() applies sortAnchors() per group to whichever
+     * source served it.
      *
      * @param  list<list<string>>  $groups
      * @return array<string, object>
@@ -1090,6 +1100,13 @@ class ProjectionWriter
      *
      * So "oldest binding wins" is only true to the second. That is a property of the column
      * rather than of this method, and it is written down because the hard delete rests on it.
+     *
+     * Comparing the timestamps AS STRINGS is chronological only while the session emits a single
+     * format with a constant offset. config/database.php sets no `timezone` for the pgsql
+     * connection, so that is the server default — UTC on Supabase and on the test container. A
+     * DST-observing session timezone would invert the local wall-clock strings for one hour a
+     * year during the fall-back overlap; if that ever changes, this comparison has to parse
+     * rather than compare.
      *
      * @param  Collection<int, object>  $anchors
      * @return Collection<int, object>
@@ -2342,7 +2359,7 @@ class ProjectionWriter
                     && in_array((string) $row->kind, ContentItemSlugAllocator::SLUGGED_KINDS, true)) {
                     try {
                         $this->slugs->ensureCurrent((string) $row->user_id, (string) $itemId, (string) $headline);
-                    } catch (\Throwable $e) {
+                    } catch (Throwable $e) {
                         report($e);
                     }
                 }

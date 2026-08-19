@@ -58,7 +58,12 @@ final class AdvisoryLock
     // three past each other into the same unique-constraint violation.
     public const SERVICES_LOCK_TIMEOUT_MS = 5000;
 
-    private const LOCK_NOT_AVAILABLE_SQLSTATE = '55P03';
+    /**
+     * Public because ProjectionWriter classifies on the SQLSTATE ALONE: isLockTimeout()'s second
+     * branch matches 'lock timeout' anywhere in the message, and QueryException interpolates
+     * bindings into that message — which on the identity path include platform-supplied coords.
+     */
+    public const LOCK_NOT_AVAILABLE_SQLSTATE = '55P03';
 
     /**
      * $connectionName names the connection to lock ON. An advisory XACT lock taken on a different

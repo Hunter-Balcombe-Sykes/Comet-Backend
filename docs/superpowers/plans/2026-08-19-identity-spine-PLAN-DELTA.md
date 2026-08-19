@@ -532,3 +532,109 @@ This repo treats comments as documentation of record, so these are findings, not
 | compensation flag → always retire | timeout test fails on the pre-existing row |
 | compensation flag → created-only (round-1 behaviour) | timeout test fails on the SECOND timeout |
 | SQL collation order restored on the fallback path | ordering test fails, `AB-1` vs `ab_1` |
+
+---
+
+## 9. Independent review, round 3 — FAIL, and the pattern repeated
+
+Round 3 re-ran every prior mutation, confirmed all six existing tests non-vacuous by naming and
+running a killing mutation for each, and cleared the round-2 fixes it could not break — the
+string comparison in `sortAnchors()` is genuinely chronological (`+` `0x2B` sorts before `.`
+`0x2E`, so whole-second and sub-second values interleave correctly), `Collection::sort()` is
+stable and a full tie is impossible under the `(user_id, coord)` PK, and no other code path still
+orders anchors in SQL.
+
+It then found three more, and **the most serious was again a defect introduced by the previous
+round's fix**. Three rounds, three times.
+
+### F1. The compensation could retire a row another writer had just bound — DEFECT, fixed
+
+Round 2 changed the flag from "this call created the row" to "the row is unbound", read inside
+`upsertSourceItem()`. But between that read and the compensation sits the entire lock wait — up
+to 5s. `resolveItemsLocked()` is the only writer that turns `item_id` NULL → bound, and it always
+holds the lock, which is exactly why a caller queued behind it cannot see the binding land:
+
+| t | |
+|---|---|
+| 0 | a sync holds `identity:{u}:link` |
+| 1 | request **W** (coord X) commits its source item, `item_id` NULL, joins the lock queue |
+| 2 | request **A** (same coord X) reads that row → unbound → flag true; joins the queue behind W |
+| 6 | the sync commits; W is granted, binds X **and runs `writeFacets()`**, returns 200 |
+| 7 | A's 5s timeout fires → compensation retires **W's now-bound, faceted row** |
+
+The next resolve then drops X, leaving a live faceted item with no source item — the exact ghost
+`preferOwnerAnchored()`'s docblock exists to prevent, which `PoolResolver` keeps returning in
+`library` forever.
+
+**Fix — delete the flag entirely.** The question is a compensation-time question, so it is asked
+there, atomically, by the UPDATE itself:
+
+```php
+DB::table('content.source_items')->where('id', $sourceItemId)
+    ->whereNull('item_id')->update(['removed_at' => now()]);
+```
+
+One predicate covers all three cases — a row this call minted, a row an earlier failed resolve
+left (so round 2's idempotency property survives), and a row anyone has bound. `upsertSourceItem()`
+goes back to returning a plain string, so the round-1 and round-2 flag machinery disappears from
+the diff altogether. The compensating UPDATE is itself wrapped: it can block on the winner's row
+lock, and a failed *cleanup* must not replace the 423 the caller is owed with a 500 about the
+cleanup — it is `report()`ed instead.
+
+### F2. Round 2 left a comment describing its own abandoned design — fixed
+
+`anchorSnapshot()` still said ordering was "applied per group in `anchorsFromSnapshot()`", which
+round 2 had moved to `sortAnchors()`; `anchorsFromSnapshot()`'s own docblock 30 lines below
+already said "unordered". Same defect class round 2 raised as its findings 3–5, reintroduced by
+the round-2 edit.
+
+### F3. The `QueryException` reclassification had zero coverage — fixed
+
+Deleting the whole reclassification left all six tests **and the full 231-test lane** green. On a
+branch where one test exists precisely because "the guard had no detector", a change that turns a
+500 into a 423 *and arms a destructive compensation* cannot ship undetected. New test: a second
+backend takes `SELECT … FOR UPDATE` on the row the closing per-target UPDATE must move, so the
+resolve aborts on a **row** lock rather than the advisory one; asserts the 423 and the
+compensation. Deleting the reclassification now fails it.
+
+### N4. The lock-timeout classifier was over-broad at this call site — fixed
+
+`AdvisoryLock::isLockTimeout()` also matches the substring `lock timeout` anywhere in the message,
+and `QueryException` interpolates bindings into that message. Before this change the only
+statement it ever saw here was `select pg_advisory_xact_lock(hashtext(?))`; it now sees every
+statement in the resolve, whose bindings include `coord` — built from platform-supplied record
+keys. A coord containing that literal would turn any error on that statement into a false 423
+**and** arm the compensation. The reviewer showed the substring branch buys nothing here
+(Postgres reports 55P03 through `getCode()` for both lock kinds, and the whole lane stays green
+on the SQLSTATE alone), so this call site now classifies on the SQLSTATE only, with the constant
+made public and the reason recorded on both ends.
+
+### N5. Recorded, not fixed
+
+On the connector path a lock timeout is caught by `RunExecutor` and written as a `severity:
+critical` anomaly — it pages. `IDENTITY_LOCK_TIMEOUT_MS`'s docblock described the timeout as a
+retryable non-event without mentioning that. `projectStream()` also has no compensation, so a
+timeout there leaves live unbound source items until the next run re-projects them. Both are
+noted on the constant rather than changed: a connector run repeats on a schedule, and suppressing
+the page would hide genuine contention.
+
+Round 3 also re-measured the docblock's figures independently (cold 1,936ms vs 2,267ms;
+steady-state ~21ms vs 120ms, its probe carrying no `identity_keys` rows) and judged them
+conservative rather than wrong. Left as measured through the real `writeManualItem()` path.
+
+### Mutation matrix, after round 3
+
+| mutation | result |
+|---|---|
+| `AdvisoryLock::acquire()` removed, transaction kept | 3 fail |
+| transaction ends before the closing re-read + UPDATE | 2 fail |
+| lock key coarsened to a constant | isolation test fails |
+| `$merged` dropped from the losers loop | staleness test fails, `23503` |
+| `sortAnchors()` reversed (newest binding wins) | staleness test fails |
+| `sortAnchors()` made identity (no sort) | ordering test fails |
+| SQL collation order restored on the fallback | ordering test fails, `AB-1` vs `ab_1` |
+| compensation removed | timeout test fails on the new row |
+| compensation always retires | timeout test fails on the pre-existing row |
+| compensation keyed on created-only | timeout test fails on the SECOND timeout |
+| `whereNull('item_id')` dropped from the compensation | 2 fail, incl. the TOCTOU test |
+| `QueryException` reclassification removed | row-lock test fails |
