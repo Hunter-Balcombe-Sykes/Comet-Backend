@@ -11,6 +11,11 @@
 -- Rollback: none that is honest — after this runs a deliberate "off" and the
 -- old default are indistinguishable. Nothing to revert schema-wise.
 BEGIN;
+-- site.blocks is a HOT_TABLES member (CONVENTIONS.md / guard Check 5): without
+-- these the backfill queues behind live traffic instead of failing fast, and
+-- `composer test` aborts before Pest because the guard runs first in the script.
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
 UPDATE site.blocks
    SET is_active = TRUE,
        updated_at = now()
