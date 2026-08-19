@@ -3,7 +3,8 @@
 Branch `audit-fix/identity-spine-2026-08-19`, worktree under the session
 scratchpad, based on `origin/development` @ `35ab6b7d8`.
 
-**Status: awaiting sign-off. No code written yet.**
+**Status: IMPLEMENTED and signed off (2026-08-19). Kept as the record of what was
+decided and why — the sign-off answers and the measurements are in §5.**
 
 Verified against the worktree checkout on 2026-08-19, not against the plan file.
 
@@ -242,20 +243,105 @@ rounds. No migration is needed — this adds no column.
 
 ---
 
-## 4. What I need from you before writing code
+## 4. Sign-off (answered 2026-08-19)
 
-1. **Docker is paused.** `docker desktop status` → `paused`, and the CLI cannot
-   unpause it (`docker desktop start` reports "already running"). The Postgres lane is
-   the *only* place any of this can be tested. Please unpause from the whale menu — or
-   tell me to `docker desktop restart`, which should clear it.
-2. **The 423.** Do you want `AdvisoryLockTimeoutException` mapped to a 423 on the
-   dashboard write paths (my recommendation, matching existing precedent), or left to
-   propagate as a 500? It is a public-wire change either way, which is why I am asking
-   rather than picking.
-3. **#CACHE-5's merge half** — accept my "batch the inserts, leave `mergeInto()`
-   alone, tick with the reason recorded", or do the full thing?
-4. **Route 1's config dependency.** Do you want a guard test pinning
-   `supervisor-ingest`'s `maxProcesses => 1`, given the lock now makes raising it safe
-   anyway? My inclination is no — the lock is the fix, and a test pinning a memory
-   budget to an identity invariant is the wrong coupling. Recorded here so the next
-   session doesn't rediscover it.
+1. **Docker** — unpaused by the owner. The lane ran on a fresh `partna_test` in a
+   dedicated container (`partna-pgtest-idspine`, port 55436) so no peer session's
+   database was touched.
+2. **The 423** — approved. Implemented as `AdvisoryLockTimeoutException implements
+   HttpStatusCodeInterface` rather than a catch in each of the ~10 `writeManualItem()`
+   callers: `bootstrap/app.php`'s render callback already routes that interface, and the
+   hand-written catches still win where they exist (they run first and carry
+   compensations the interface cannot).
+3. **#CACHE-5** — insert half only. The `mergeInto()`-takes-a-list half is deliberately
+   NOT done; the box is ticked with that reason recorded, per CLAUDE.md's "a ticked box
+   means resolved as an open question".
+4. **Route 1 config guard** — not added, as recommended. The lock is the fix; a test
+   pinning a memory budget to an identity invariant is the wrong coupling.
+
+---
+
+## 5. What actually happened
+
+### The premise, settled
+
+`#LIFE-1` is reachable, and both damage modes reproduce as forked-process Postgres
+tests that fail on the unfixed code:
+
+- **uncurated loser** → `SQLSTATE 23503` on `source_items_item_id_fkey`. The losing
+  caller writes an `item_id` for an item the winner's `mergeInto()` hard-deleted.
+- **curated loser** (spared from the delete) → **no exception at all**, and the dangling
+  `item_id` lands on the *connector* coord. Silent until something re-resolves.
+
+Child B returned in 46ms unfixed — no serialisation of any kind.
+
+### What shipped
+
+`resolveItems()` is now a thin wrapper: one `DB::transaction()` on the connection the
+writer actually uses, `AdvisoryLock::acquire("identity:{user}:{kind}", 5000, <that
+connection>)` as its first statement, then the untouched body in
+`resolveItemsLocked()`. The transaction encloses the reads, the union-find,
+`bindGroup()`, `recordCandidates()` **and** the final per-target `source_items` UPDATE.
+
+`#SCALE-4`'s prefetch and `#CACHE-5`'s batched insert went in on top, and all three
+race tests were re-run **unchanged** afterwards.
+
+### Tests
+
+`tests/Postgres/ProjectionWriterIdentityRaceTest.php`, three cases:
+
+1. the merge survives a second caller committing inside the window — failed unfixed
+   (23503), passes now;
+2. the second caller is **made to wait**, asserted on measured elapsed time rather than
+   on the outcome — 46ms unfixed, >950ms now. An outcome-only assertion here would pass
+   with no lock whenever the scheduler happened to order the children favourably;
+3. a **different owner is not serialised** behind the lock. This one passes unfixed by
+   construction — it guards the opposite regression, and it was mutation-checked: with
+   the key coarsened to a constant `"identity:global"` it fails, as it must.
+
+The silent/curated variant of case 1 was **dropped rather than faked**. Its setup needs
+child B to read the item child A is mid-way through minting, and the fix is precisely
+what hides that intermediate state — post-fix the scenario degrades to two sequential
+calls and the test would assert nothing. `pgirAssertConsistent()` carries the invariant
+it was checking (no source item may point at an item that no longer exists, and every
+coord must agree with its anchor).
+
+The file adds three tables the sibling `pmcr_` clone does not create —
+`content.item_links`, `content.item_slugs`, `site.section_items`. `pmcr` never merges,
+so it never reaches `mergeInto()`'s `moveLinks()` / `moveSlugs()` / curation check.
+
+### Measurement (the plan required it before accepting 5000ms)
+
+Real Postgres, 2,000 live source items of one kind for one user:
+
+| pass | wall time |
+|---|---|
+| steady state — every coord already anchored (every run after the first) | **120 ms** |
+| cold — mints an item and an anchor for all 2,000 in one pass | **2,267 ms** |
+
+The cold figure is roughly linear in unbound coords, so a first-ever projection of a
+~4,500-item catalogue would sit on the 5s bound and a concurrent caller would take the
+423 rather than wait. That is the intended failure: once per catalogue, retryable, and
+the alternative is an unbounded wait on a pooled Supavisor connection. If it ever
+becomes a real complaint the fix is to batch `createItem()` and the anchor insert across
+groups — not to widen the timeout. Recorded on the constant itself.
+
+### Verification
+
+| gate | result |
+|---|---|
+| `composer test` (SQLite) | 8628 passed, 30854 assertions |
+| `composer test:pg` on a fresh `partna_test` | 228 passed, 1075 assertions (was 225 before this unit) |
+| `vendor/bin/pint --test` | passed |
+| `vendor/bin/phpstan analyse` | `[OK] No errors`, and the same on untouched `development` — identical (empty) error sets |
+
+No migration: this adds no column, so nothing to apply to dev Supabase before merge.
+
+---
+
+## 6. Loose end for the owner, found in passing
+
+`#SCALE-1` and `#SCALE-3` are still `[ ]` in `CONSOLIDATED.md`, though the execute
+prompt describes them as "closed with written reasons". An unticked box blocks
+auto-archive and keeps the sweep reading red. Not touched here — closing someone else's
+finding is their call, not this unit's.
