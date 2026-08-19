@@ -14,6 +14,7 @@ use App\Jobs\Media\MirrorMediaAssetJob;
 use App\Routing\SecretParams;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Services\Media\MediaMirror;
+use App\Services\Site\AdvisoryLock;
 use App\Site\Documents\BuildState;
 use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Support\Collection;
@@ -87,6 +88,27 @@ class ProjectionWriter
      * content.sources' own DDL comment claims. Connections sit at 100.
      */
     public const MANUAL_SOURCE_PRIORITY = 200;
+
+    /**
+     * Bound for the "identity:{user_id}:{kind}" advisory lock (#LIFE-1). Matches
+     * AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS: both bound an interactive dashboard write, and a
+     * caller that waits longer than this is better off failing loudly (423 / a failed run the
+     * scheduler retries) than holding a PHP-FPM worker open.
+     *
+     * MEASURED against a real Postgres on 2026-08-19, 2,000 live source items of one kind for
+     * one user: 120ms for a steady-state pass (every coord already anchored — the normal case,
+     * every scheduled run after the first), and 2,267ms for the cold pass that mints an item and
+     * an anchor for all 2,000 at once. The cold figure is the one to watch: it is roughly linear
+     * in unbound coords, so a first-ever projection of a ~4,500-item catalogue would sit on this
+     * bound, and a concurrent caller would take the 423 rather than wait. That is the intended
+     * failure — it happens once per catalogue, it retries, and the alternative is an unbounded
+     * wait on a pooled Supavisor connection. If it becomes a real complaint, the fix is to batch
+     * createItem()/the anchor insert across groups, not to widen this.
+     *
+     * NOTE the bound also applies to every subsequent row lock in the transaction: SET LOCAL
+     * lock_timeout persists for the rest of it (see AdvisoryLockTimeoutException's docblock).
+     */
+    private const IDENTITY_LOCK_TIMEOUT_MS = 5000;
 
     public function __construct(
         private readonly Resolver $resolver,
@@ -595,6 +617,62 @@ class ProjectionWriter
      */
     private function resolveItems(string $userId, string $kind): array
     {
+        // #LIFE-1: everything below is read -> compute -> write, and until this lock existed a
+        // second caller could commit between the two ends of it. The damage is not theoretical:
+        // mergeInto() hard-DELETEs the discarded item, so the loser's own final
+        // `source_items.item_id` UPDATE either takes a 23503 on a row that no longer exists, or
+        // — when curation spared the loser from the delete — silently reverts the merge and
+        // leaves a coord pointing at an item nothing else agrees with. Both are reproduced in
+        // tests/Postgres/ProjectionWriterIdentityRaceTest.php.
+        //
+        // Advisory rather than lockForUpdate(): the protected set is "every live source item of
+        // this (user, kind)", which the racing writer may GROW mid-computation, and you cannot
+        // lock rows that do not exist yet. It is also three tables (item_anchors, items,
+        // source_items), so one key beats an ordering discipline across all three.
+        //
+        // _xact_ rather than the session variant: it releases on COMMIT/ROLLBACK, so a killed
+        // worker cannot wedge a user's identity resolution until Supavisor reaps the connection.
+        //
+        // The transaction spans the WHOLE body — the reads, the resolve, bindGroup(),
+        // recordCandidates() AND the final per-target UPDATE loop. A lock that covers the read
+        // but not the write looks right, tests green, and fixes nothing.
+        //
+        // Callers must NOT wrap this: DB::transaction() would degrade to a SAVEPOINT and the
+        // lock would silently take the OUTER transaction's lifetime. Neither call site does
+        // (projectStream()'s transactions are per-record and closed; writeManualItem()'s closes
+        // before this), and every caller of writeManualItem() is already forbidden from nesting
+        // one by that method's own docblock.
+        //
+        // No try/catch inside: a catch that RECOVERS in here poisons the transaction with 25P02
+        // (this repo has shipped that three times — ItemSlugAllocatorSavepointTest). The
+        // lock-timeout path throws out through the transaction, as Lander::land() does, and
+        // surfaces as 423 via AdvisoryLockTimeoutException's HttpStatusCodeInterface contract.
+        //
+        // SQLite has neither pg_advisory_xact_lock nor hashtext, so the Feature lane cannot
+        // exercise this at all — a green `composer test` says nothing about it. tests/Postgres/
+        // is where it is proven.
+        $connection = DB::connection();
+
+        return $connection->transaction(function () use ($connection, $userId, $kind) {
+            if ($connection->getDriverName() === 'pgsql') {
+                AdvisoryLock::acquire(
+                    "identity:{$userId}:{$kind}",
+                    self::IDENTITY_LOCK_TIMEOUT_MS,
+                    $connection->getName(),
+                );
+            }
+
+            return $this->resolveItemsLocked($userId, $kind);
+        });
+    }
+
+    /**
+     * The body of resolveItems(), which must only ever run under its lock and transaction.
+     *
+     * @return array<string, string> coord => item id
+     */
+    private function resolveItemsLocked(string $userId, string $kind): array
+    {
         // Deterministic group order (recommended, plan §b.3): no user-visible
         // change on its own (bindGroup() picks the winner by bound_at), but
         // makes fresh-item UUID mint order reproducible instead of
@@ -668,9 +746,32 @@ class ProjectionWriter
 
         $resolution = $this->resolver->resolve($sourceItems, $decisions);
 
+        // #SCALE-4: bindGroup() used to read content.item_anchors once PER GROUP, and in steady
+        // state every group is a singleton — one round trip per item, on every run. The read is
+        // hoisted here instead.
+        //
+        // It is only safe because of the lock above, and only THEN with the guard below. Under
+        // the lock no other writer can cross the loop, but the loop stales its own snapshot:
+        // mergeInto() runs
+        //   UPDATE item_anchors SET superseded_by = kept WHERE item_id = ? OR superseded_by = ?
+        // which is keyed on the ITEM, not on the current group's coords, so it can rewrite
+        // anchors that a LATER group is about to read. Groups are disjoint by coord, but the
+        // items they point at are not. So: any merge invalidates the snapshot outright and every
+        // remaining group re-reads exactly as it used to. Steady state is all-singleton groups
+        // with no merges at all, which is where the N+1 actually hurt.
+        //
+        // Mirroring that UPDATE's semantics onto the in-memory snapshot instead would keep the
+        // saving through a merge — and would mean reimplementing a WHERE clause in PHP against
+        // the identity spine, where mergeInto()'s hard delete makes a wrong answer only
+        // partially reversible. Not worth it for a case that barely happens.
+        $snapshot = $this->anchorSnapshot($userId, $resolution->groups);
+
         $itemByCoord = [];
         foreach ($resolution->groups as $group) {
-            $itemId = $this->bindGroup($userId, $kind, $group);
+            [$itemId, $merged] = $this->bindGroup($userId, $kind, $group, $snapshot);
+            if ($merged) {
+                $snapshot = null;
+            }
             foreach ($group as $coord) {
                 $itemByCoord[$coord] = $itemId;
             }
@@ -718,14 +819,24 @@ class ProjectionWriter
      * no curation is deleted (a bare duplicate row would keep rendering).
      *
      * @param  list<string>  $group
+     * @param  array<string, object>|null  $snapshot  the run-wide anchor
+     *                                                prefetch (#SCALE-4),
+     *                                                or null to read fresh
+     * @return array{0: string, 1: bool} [item id, whether this call merged and so staled $snapshot]
      */
-    private function bindGroup(string $userId, string $kind, array $group): string
+    private function bindGroup(string $userId, string $kind, array $group, ?array $snapshot = null): array
     {
-        $anchors = DB::table('content.item_anchors')
-            ->where('user_id', $userId)
-            ->whereIn('coord', $group)
-            ->orderBy('bound_at')
-            ->get(['coord', 'item_id', 'superseded_by', 'bound_at']);
+        $anchors = $snapshot === null
+            ? DB::table('content.item_anchors')
+                ->where('user_id', $userId)
+                ->whereIn('coord', $group)
+                ->orderBy('bound_at')
+                ->get(['coord', 'item_id', 'superseded_by', 'bound_at'])
+            : $this->anchorsFromSnapshot($snapshot, $group);
+
+        // Set by every path that calls mergeInto() (or deletes an item): those rewrite anchors
+        // this call does not own, so the caller's prefetch cannot be trusted afterwards.
+        $merged = false;
 
         $effective = $anchors
             ->map(fn (object $a) => (string) ($a->superseded_by ?? $a->item_id))
@@ -748,38 +859,55 @@ class ProjectionWriter
         // (user_id, coord), so at most one insert survives and the loser used to surface an
         // uncaught 23505 plus an orphaned content.items row. insertOrIgnore turns the loser's
         // insert into a no-op; $boundHere tracks which of THIS call's own coords actually landed
-        // under $winner so far, so a later conflict in the same multi-coord group can redirect
-        // them too, not just discard an item other rows already point at.
+        // under $winner, so a conflict elsewhere in the same multi-coord group can redirect them
+        // too, not just discard an item other rows already point at.
+        // #CACHE-5: one multi-row insertOrIgnore for the group, not one statement per coord.
+        // The reconciliation below is unchanged in outcome — it just learns WHICH coords lost
+        // from a single re-read instead of from the return value of each individual insert.
+        $missing = array_values(array_filter(
+            $group,
+            fn (string $coord) => $anchors->firstWhere('coord', $coord) === null,
+        ));
+
         $boundHere = [];
         $lostTo = null;
-        foreach ($group as $coord) {
-            $existing = $anchors->firstWhere('coord', $coord);
-            if ($existing !== null) {
-                continue;
-            }
-
-            $inserted = DB::table('content.item_anchors')->insertOrIgnore([
+        if ($missing !== []) {
+            // One timestamp for the whole group rather than one per row: they all bind the same
+            // winner, so bound_at cannot order them against each other in any way that matters.
+            $boundAt = now();
+            $inserted = DB::table('content.item_anchors')->insertOrIgnore(array_map(fn (string $coord) => [
                 'coord' => $coord,
                 'user_id' => $userId,
                 'item_id' => $winner,
-                'bound_at' => now(),
-            ]);
+                'bound_at' => $boundAt,
+            ], $missing));
 
-            if ($inserted > 0) {
-                $boundHere[] = $coord;
+            if ($inserted === count($missing)) {
+                $boundHere = $missing;
+            } else {
+                // At least one coord lost. Re-read what actually persisted and adopt ITS item id
+                // — never the locally-computed $winner, which by definition lost. Getting this
+                // backwards would leave this caller returning an item id nothing else agrees
+                // with, which is worse than the 500 it replaces. Iterating $missing in order
+                // keeps last-loss-wins, exactly as the per-coord loop did. (A second coord in
+                // the same group losing to a THIRD, different item is still not reconciled —
+                // one conflicting winner per call is the shape #PGR-7 fixes; that deeper case is
+                // not known to be reachable.)
+                $persisted = DB::table('content.item_anchors')
+                    ->where('user_id', $userId)
+                    ->whereIn('coord', $missing)
+                    ->pluck('item_id', 'coord');
 
-                continue;
+                foreach ($missing as $coord) {
+                    $persistedId = (string) ($persisted[$coord] ?? '');
+                    if ($persistedId === $winner) {
+                        $boundHere[] = $coord;
+
+                        continue;
+                    }
+                    $lostTo = $persistedId;
+                }
             }
-
-            // Lost the race for this coord. Re-read the anchor that actually persisted and
-            // adopt ITS item id — never the locally-computed $winner, which by definition lost.
-            // Getting this backwards would leave this caller returning an item id nothing else
-            // agrees with, which is worse than the 500 it replaces. (A second coord in the same
-            // group losing to a THIRD, different item is not reconciled here — one conflicting
-            // winner per call is the shape #PGR-7 reproduced and fixes; that deeper case is not
-            // known to be reachable and is left for a future finding if it ever is.)
-            $lostTo = (string) DB::table('content.item_anchors')
-                ->where('user_id', $userId)->where('coord', $coord)->value('item_id');
         }
 
         if ($lostTo !== null && $lostTo !== $winner) {
@@ -803,6 +931,9 @@ class ProjectionWriter
                 $this->mergeInto($userId, keptItemId: $lostTo, discardedItemId: $winner);
             }
 
+            // Both branches touch anchors outside this group's coords (the delete cascades),
+            // so the caller's #SCALE-4 prefetch is stale from here on.
+            $merged = true;
             $winner = $lostTo;
         }
 
@@ -816,9 +947,69 @@ class ProjectionWriter
         // first, which is every connection-only group.
         foreach ($effective->reject(fn (string $itemId) => $itemId === $winner) as $loser) {
             $this->mergeInto($userId, keptItemId: $winner, discardedItemId: (string) $loser);
+            $merged = true;
         }
 
-        return $winner;
+        return [$winner, $merged];
+    }
+
+    /**
+     * Every anchor for every coord this pass will bind, read once (#SCALE-4).
+     *
+     * Keyed by coord, which is exact rather than convenient: content.item_anchors' PK is
+     * (user_id, coord), so there is at most one row per coord. Ordering is applied per group in
+     * anchorsFromSnapshot() instead of here, because chunking would split a single ORDER BY.
+     *
+     * @param  list<list<string>>  $groups
+     * @return array<string, object>
+     */
+    private function anchorSnapshot(string $userId, array $groups): array
+    {
+        $coords = $groups === [] ? [] : array_values(array_unique(array_merge(...$groups)));
+
+        $snapshot = [];
+
+        // Chunked for the same reason every other bind list in this file is: BATCH_SIZE keeps the
+        // parameter count far under Postgres' 65,535 ceiling on a large catalogue.
+        foreach (array_chunk($coords, self::BATCH_SIZE) as $chunk) {
+            $rows = DB::table('content.item_anchors')
+                ->where('user_id', $userId)
+                ->whereIn('coord', $chunk)
+                ->get(['coord', 'item_id', 'superseded_by', 'bound_at']);
+
+            foreach ($rows as $row) {
+                $snapshot[(string) $row->coord] = $row;
+            }
+        }
+
+        return $snapshot;
+    }
+
+    /**
+     * This group's slice of the prefetch, ordered as the per-group query ordered it.
+     *
+     * bound_at order is load-bearing, not cosmetic: $effective's first element is the oldest
+     * binding, and that is what wins. coord breaks ties, which the SQL ORDER BY left unspecified
+     * — and a tie can only arise among coords bound by ONE insertOrIgnore batch, which by
+     * construction all carry the same item id, so their order cannot change the outcome.
+     *
+     * @param  array<string, object>  $snapshot
+     * @param  list<string>  $group
+     * @return Collection<int, object>
+     */
+    private function anchorsFromSnapshot(array $snapshot, array $group): Collection
+    {
+        $rows = [];
+        foreach ($group as $coord) {
+            if (isset($snapshot[$coord])) {
+                $rows[] = $snapshot[$coord];
+            }
+        }
+
+        usort($rows, fn (object $a, object $b) => [(string) $a->bound_at, (string) $a->coord]
+            <=> [(string) $b->bound_at, (string) $b->coord]);
+
+        return collect($rows);
     }
 
     /**

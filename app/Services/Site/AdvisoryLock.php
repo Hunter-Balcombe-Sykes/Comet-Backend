@@ -58,9 +58,15 @@ final class AdvisoryLock
 
     private const LOCK_NOT_AVAILABLE_SQLSTATE = '55P03';
 
-    public static function acquire(string $key, ?int $timeoutMs = null): void
+    /**
+     * $connectionName names the connection to lock ON. An advisory XACT lock taken on a different
+     * connection than the surrounding transaction is a silent no-op, so a caller whose writes
+     * do not go through the 'pgsql' name (ProjectionWriter uses the DEFAULT connection) must
+     * say so. Defaults to 'pgsql', which is what the seven pre-existing call sites want.
+     */
+    public static function acquire(string $key, ?int $timeoutMs = null, ?string $connectionName = null): void
     {
-        $connection = DB::connection('pgsql');
+        $connection = DB::connection($connectionName ?? 'pgsql');
 
         if ($timeoutMs !== null && $connection->getDriverName() === 'pgsql') {
             $connection->statement("SET LOCAL lock_timeout = '{$timeoutMs}ms'");
