@@ -49,6 +49,11 @@ class Bandcamp
                 )
                 ->build(),
             SurfaceBuilder::for('bandcamp.store')
+                // F7 (2026-08-20): in lockstep with the shop family's
+                // MAX_BRANDS (10, T9) — the catalog's default of 1 was
+                // blocking Engine-1 store placements at ONE store while every
+                // other door allowed ten (caught live: the046.com).
+                ->multiAccount(10)
                 ->displayName('Bandcamp')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Commerce)

@@ -6,6 +6,8 @@ use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\LinkRoutingService;
+use App\Routing\RoutingContext;
 use App\Routing\SourceReconciler;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -111,12 +113,17 @@ class LinkRouter
                 'event', 'event-organiser' => $this->seedEvent($user, $platform, $url, $classified),
                 'content-item' => $this->seedMediaItem($user, $url),
                 'shop' => $this->seedShop($user, $url, $ctx),
-                // Recognised, deliberately not connected — a marketplace or
-                // board (Amazon, LTK, Pinterest). custom() with handled:false so
-                // the platform slot stays open and a creator's second LTK link
-                // gets its own card instead of being skipped. Spends no probe:
-                // that is the entire reason these hosts are classified at all.
-                'link' => RouteResult::custom(),
+                // Recognised host with no legacy arm of its own. Two flavours
+                // share this category: marketplaces/boards that must NEVER
+                // connect (Amazon, LTK — LINK_ONLY_HOSTS), and CONNECTABLE
+                // catalog brands the legacy tables simply never learned
+                // (Apple Music artist, Tidal, Booksy…). F6 (2026-08-20, the
+                // the_046_official trace): the second flavour was CARDED here
+                // while the same URL through the P8 importer or the paste
+                // lane became a connection/suggestion. Ask Engine 1 first —
+                // the narrow slice of the gap-9 P8 promotion, done at the one
+                // call site every Engine-2 lane shares.
+                'link' => $this->seedCatalogLink($user, $url),
                 'reservations' => $this->seedReservation($user, $platform, $url, $classified),
                 // 'bio_harvest': route() is the SCAN gateway (Instagram bio,
                 // link-in-bio unroll). routeOrdering() below is the Google
@@ -349,6 +356,35 @@ class LinkRouter
         $written = $this->media->seedItem($user, $url);
 
         return $written !== null ? RouteResult::custom(handled: true) : RouteResult::custom();
+    }
+
+    /**
+     * F6: run a catalog-recognised URL through the P8 pipeline. A placement
+     * or suggestion rides the reconciler (tombstones, caps, aliases all
+     * apply exactly as for a paste); anything Engine 1 can't place falls
+     * back to the card this arm always wrote. A 'choose'/'hold' answers
+     * handled — the suggestions inbox owns the link now, and a card beside
+     * an open question would double it (the same reason F3 exists).
+     */
+    private function seedCatalogLink(User $user, string $url): RouteResult
+    {
+        try {
+            $result = app(LinkRoutingService::class)
+                ->route($url, RoutingContext::forUser($user, 'bio_harvest'));
+        } catch (\Throwable $e) {
+            report($e);
+
+            return RouteResult::custom();
+        }
+
+        return match ($result['verdict']) {
+            'place' => RouteResult::seeded('catalog', (string) ($result['connectionId'] ?? ''), 'link', []),
+            'choose', 'hold' => RouteResult::custom(handled: true),
+            // note/reject: the card path — LINK_ONLY_HOSTS land here by
+            // construction (their catalog class refuses placement), so the
+            // Amazon/LTK behaviour is byte-identical.
+            default => RouteResult::custom(),
+        };
     }
 
     private function seedShop(User $user, string $url, RouteContext $ctx): RouteResult
