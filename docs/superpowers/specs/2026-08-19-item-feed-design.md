@@ -11,10 +11,11 @@ A new public-wire surface: one mixed, ordered list of **individual content items
 content pools, rendered by the existing lander alongside — not replacing — the
 button-level `rankedActions` system.
 
-Three ordering modes, one site-level setting:
+Three ordering modes, one site-level setting (**default: `newest`**):
 
 - **manual** — the owner curates the exact list and order.
 - **newest** — recency order (a new video outranks the song released before it).
+  The default mode (owner decision 2026-08-19; rationale in §5).
 - **score** — most-interacted-first, from existing item popularity scores.
 
 Menu and service items never appear out of their category: a category is a single
@@ -214,7 +215,45 @@ Pest, `tests/Feature/`:
 
 No analytics tests are added: the feed consumes existing scores and never writes.
 
-## 9. Out of scope
+## 9. Context: known gaps in the button vocabulary (documented, not fixed here)
+
+Surveyed 2026-08-19 while designing this spec. The button-level `rankedActions`
+vocabulary (`ActionVocabulary`: 23 static ids + `ordering:`/`custom:` families)
+is a deliberately closed list, and it does not cover everything the platform
+knows about. Recorded here as context and backlog; **changing the vocabulary is
+out of scope for this spec** (and is LOCKSTEP with the frontend's `ACTION_IDS`
+export — both sides must change together).
+
+**Platforms with no dedicated button:**
+
+- Content/creator: `vimeo`, `substack`, `patreon`, `gumroad`, `medium`, `kick`,
+  `strava`
+- Music: `youtube-music`, `tidal`, `mixcloud` (they grant the Listen page; only
+  spotify/soundcloud/apple-music/apple-podcasts got buttons)
+- Education: `stan`, `skool`, `kajabi`, `circle`
+- Booking: `booksy`, `timely`, `calendly` (only Fresha/Square/generic `booking`
+  feed `booking-services`)
+- Ticketing: `eventbrite`, `humanitix`, `luma`, `partiful`, `ticketmaster` —
+  covered *indirectly*: their events reach the pool, the pool grants the Events
+  page, the `events` button appears. The platform itself never gets a button.
+
+**The connection-only gap:** a non-vocabulary platform surfaces as a `custom:`
+button when it exists as a *link block*, but a *connection-only* platform (e.g.
+an active `vimeo` connection with no link block) produces **no button at all** —
+`SiteActionsService`'s custom path reads link blocks and `custom`-platform
+connections only.
+
+**Pages with no page-kind button:** `watch`, `listen`, `gallery`, `reviews`,
+`documents`, `links`. Page buttons exist only for shop, events, services, menu,
+contact, reservations (+ `shop-tracks`). A visitor cannot be sent *to the Watch
+page* by a button, only out to the platform itself.
+
+**Why this spec still helps:** the item feed keys on **pools, not the button
+vocabulary** — a Vimeo video or Substack post that reaches the `watch`/`media`
+pools appears in the feed as an item even though its platform has no button. The
+feed partially routes around these gaps without widening the closed list.
+
+## 10. Out of scope
 
 - Any change to `rankedActions`, `SiteActionsService`, or `RankedActionsComputer`.
 - New analytics beacons, tables, or scoring jobs.
