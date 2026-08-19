@@ -413,3 +413,84 @@ it('falls back to the anchor harvest when the linkin.bio API cannot be read', fu
     expect($result['observations'])->toBe(0)
         ->and($result['bio_url_seeded'])->toBeTrue();
 });
+
+// ── Cloudflare-blocked hosts (2026-08-19) ────────────────────────────────────
+// Five detector hosts — bio.link, heylink.me, direct.me, lnk.bio, beacons.ai —
+// answer 403 to BOTH of SafeUrlFetcher's User-Agent attempts: three behind a
+// managed JS challenge, two behind a hard WAF rule. Nothing we can send passes
+// them, so the only question is what the user is left with.
+
+it('cards the bio URL when the host refuses us outright, instead of dropping it', function () {
+    // The regression this pins: the floor used to require $fetched > 0, so a
+    // wholly unreachable page skipped it. Combined with InstagramAutoSync
+    // dispatching this job and continuing ("Nothing about the bio-link URL
+    // itself is persisted"), the user's bio link vanished entirely — no links
+    // AND no card, strictly worse than the inert card linkin.bio produced.
+    $pro = createTenant('bio-cf-blocked');
+    Http::fake(['*' => Http::response('<html><head><title>Just a moment...</title></head></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    expect($result['outcome'])->toBe('unavailable')
+        ->and($result['pages'])->toBe(0)
+        ->and($result['pages_unavailable'])->toBe(1)
+        ->and($result['observations'])->toBe(0)
+        ->and($result['bio_url_seeded'])->toBeTrue();
+
+    expect(array_column(app(LinkPoolReader::class)->cards($pro->refresh()), 'url'))
+        ->toContain('https://example.com/blocked');
+});
+
+it('cards the first page when an entire batch is refused', function () {
+    $pro = createTenant('bio-cf-batch');
+    Http::fake(['*' => Http::response('', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/a',
+        'https://example.com/b',
+    ]);
+
+    // One card for the acquisition, not one per dead page — the batch is the unit.
+    expect($result['bio_url_seeded'])->toBeTrue()
+        ->and(array_column(app(LinkPoolReader::class)->cards($pro->refresh()), 'url'))
+        ->toBe(['https://example.com/a']);
+});
+
+// ── The other three client-rendered hosts (2026-08-19) ───────────────────────
+// taplink.cc and stan.store join linkin.bio on the API seam; liinks.co needs no
+// request at all — its links are inlined in the body we already fetched.
+
+it('unrolls a client-rendered taplink.cc page through its API', function () {
+    $pro = createTenant('bio-taplink');
+    Http::fake([
+        'taplink.cc/*/api/page/get.json' => Http::response(['result' => 'success', 'response' => [
+            'fields' => [['items' => [
+                ['block_type_name' => 'link', 'options' => ['title' => 'IG', 'value' => 'https://www.instagram.com/theartist']],
+            ]]],
+        ]], 200),
+        'taplink.cc/*' => Http::response('<html><body><div id="app"></div></body></html>', 200),
+    ]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://taplink.cc/theartist');
+
+    expect($result['observations'])->toBe(1)
+        ->and($result['bio_url_seeded'])->toBeFalse();
+});
+
+it('unrolls a client-rendered liinks.co page from the body it already has', function () {
+    $pro = createTenant('bio-liinks');
+    $context = json_encode(['USER_DATA' => ['links' => [
+        ['linkType' => 'LINK', 'target' => 'https://www.instagram.com/theartist', 'isHidden' => false, 'isDeleted' => false],
+    ]]]);
+    // Zero anchors, links inlined — exactly the shape that read as an empty page.
+    Http::fake(['*' => Http::response(
+        '<html><body><div id="root"></div><script>window.CONTEXT = '.$context.';</script></body></html>',
+        200,
+        ['Content-Type' => 'text/html']
+    )]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://liinks.co/theartist');
+
+    expect($result['observations'])->toBe(1)
+        ->and($result['bio_url_seeded'])->toBeFalse();
+});
