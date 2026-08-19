@@ -1842,7 +1842,7 @@ it('no code queries the Service or ServiceCategory models', function () {
 // NEVER query it: LegacyServiceQuerySurfaceTest pins that no code does.
 ```
 
-Delete the `categories()` belongsToMany relation (its pivot is dropped; every consumer reads the pre-set relation from `hydrate()`), any query scopes, and the `SoftDeletes` trait if nothing reads `trashed()` on a DTO instance (grep first: `grep -rn "->trashed()" app/ | grep -i service`). Same treatment for `ServiceCategory.php` (its `services()` relation, scopes). Keep `$fillable`/`$casts` — `fill()` is still used on DTO construction paths.
+Delete the `categories()` belongsToMany relation (its pivot is dropped; every consumer reads the pre-set relation from `hydrate()`), any query scopes, and — **NOT** the `SoftDeletes` trait: see reality correction 2 below, which supersedes the original "delete it if nothing reads `trashed()`" instruction. Nothing reads `trashed()`, but the trait supplies the `datetime` cast for the `deleted_at` the two Resources put on the wire. Same treatment for `ServiceCategory.php` (its `services()` relation, scopes). Keep `$fillable`/`$casts` — `fill()` is still used on DTO construction paths.
 
 - [x] **Step 4: Retire the observers.** Delete the two `::observe` lines and imports from `EventServiceProvider`, then the two observer files. Their duties are already carried caller-side (both controllers' `invalidate()`/`reevaluateVisibility()` — the mirrors the observers' own docblocks name); no model-layer write path remains after Tasks 3–9. Grep `tests/` for `ServiceObserver|ServiceCategoryObserver` and delete/adjust direct-reference cases.
 
@@ -1877,6 +1877,20 @@ git add -A && git commit -m "feat(services-cutover): Service/ServiceCategory bec
    (`ServiceRestoreSortOrderTest`, `ServiceCategoryAssignmentTest` and others),
    so removing the trait now would break tests whose whole subject is that the
    legacy rows are left untouched. Both go with the table.
+
+   **SUPERSEDED — they stay for good (`d8beab929`, after Task 12 dropped the
+   tables).** "Both go with the table" was never carried out, and that is now
+   the decision, not an omission: `PurgeSoftDeleted::PURGE_EXEMPT` records that
+   both models **keep `SoftDeletes` because `deleted_at` is still part of the
+   wire shape** — `ServiceResource.php:60` and `ServiceCategoryResource.php:55`
+   each emit `deleted_at?->toIso8601String()`, and `SoftDeletes` is what casts
+   that attribute to a `Carbon`. Re-verified 2026-08-19 while auditing this very
+   line: removing the trait buys two `PURGE_EXEMPT` entries and costs ~26 test
+   query sites plus that cast on a public field, and removing `$table` buys
+   nothing at all — an accidental query is `42P01` whether it resolves to
+   `site.services` or to `services`. **Do not reopen this as leftover debt.**
+   The genuinely dead half — the relation methods hanging off the dropped
+   tables — was collected separately in `8b41f36fa`.
 3. **PHPStan's real gate is `composer analyse`, not `analyse app tests`.**
    `phpstan.neon` sets `paths: app` with a baseline; pointing it at `tests` as
    well reports 1000+ pre-existing Pest-idiom findings and says nothing about
