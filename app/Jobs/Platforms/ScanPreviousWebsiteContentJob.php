@@ -5,6 +5,7 @@ namespace App\Jobs\Platforms;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
+use App\Routing\Importers\WebsiteImporter;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Design\DesignKitAutopilot;
 use App\Services\Design\LogoAutoGrabber;
@@ -298,6 +299,20 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                     }
                 }
             }
+        }
+
+        // T8 (owner, 2026-08-20): route EVERY outbound link on the page
+        // through the P8 pipeline — WebsiteImporter was built for exactly
+        // this and sat dormant, which is why a shop link, an event page or a
+        // video on a scanned previous website left ZERO trace (no card, no
+        // probe, no observation). It records its own import run, respects
+        // its own cooldown, and its note arms seed real pool items; the
+        // harvestHtml seed below keeps its social/booking/ordering
+        // categories exactly as before (the importer never wrote those).
+        try {
+            app(WebsiteImporter::class)->import($user, $baseUrl);
+        } catch (Throwable $e) {
+            report($e);
         }
 
         // General link-harvesting — reuse the already-public, already-gated

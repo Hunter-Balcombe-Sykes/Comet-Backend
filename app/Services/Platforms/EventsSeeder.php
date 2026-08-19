@@ -220,8 +220,10 @@ class EventsSeeder
         // next bio re-scan was quietly resurrecting events the owner removed.
         // Returned as HANDLED (the canonical), not null: null sends the
         // caller to its card write, and a link card for a removed event
-        // resurrects it in another pool.
-        if ($this->itemTombstoned($user, $canonical)) {
+        // resurrects it in another pool. Origin 'paste' (the routing paste,
+        // T8) IS a person's direct request and wins the tombstone — same
+        // doctrine as RoutingContext::isDirectRequest.
+        if ($origin !== 'paste' && $this->itemTombstoned($user, $canonical)) {
             Log::info('events_seeder.tombstoned', ['user_id' => (string) $user->id, 'platform' => $platform]);
             $this->tombstonedThisRun++;
 

@@ -129,6 +129,12 @@ class LinkPreviewController extends ApiController
                 'label' => StorefrontMarkers::LABELS[$storefront] ?? $storefront,
                 'url' => strtolower($scheme).'://'.strtolower($host).'/',
             ],
+            // T8: a DEEP page carrying product markup reads as a product —
+            // the sheet offers "add it on your Sell page" (whose STORE-FIRST
+            // read is the authority). A root page with markup is a
+            // storefront; the store answer above already covers it.
+            'productPage' => (bool) ($card['productMarkup'] ?? false)
+                && trim((string) (parse_url($card['url'], PHP_URL_PATH) ?? ''), '/') !== '',
         ]);
     }
 }

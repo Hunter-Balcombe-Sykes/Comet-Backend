@@ -12,7 +12,11 @@ use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\CustomLinkSeeder;
+use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\LinkInBioDetector;
+use App\Services\Platforms\MediaSeeder;
+use App\Services\Platforms\WebsiteLinkHarvester;
+use App\Site\Pools\PoolRegistry;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -33,6 +37,9 @@ class RoutingController extends ApiController
     public function __construct(
         private readonly LinkRoutingService $routing,
         private readonly CustomLinkSeeder $links,
+        private readonly WebsiteLinkHarvester $harvester,
+        private readonly MediaSeeder $media,
+        private readonly EventsSeeder $events,
     ) {}
 
     public function preview(RouteLinkRequest $request): JsonResponse
@@ -94,12 +101,54 @@ class RoutingController extends ApiController
             ], 202);
         }
 
+        // T8 (owner, 2026-08-20): ONE routing brain on every surface — the
+        // item grammars run BEFORE the catalog route here too, exactly as
+        // the pool lanes and the scan lanes already do. A pasted video/
+        // track/episode becomes a REAL watch/listen item (pinned — a person
+        // pasted it asking for it on their site), an event page a real
+        // event item. A failed read falls through to the ordinary route and
+        // its card write — nothing vanishes.
+        $classified = $this->harvester->classify(trim($url));
+        $category = $classified['category'] ?? null;
+        if ($category === 'content-item' || $category === 'event') {
+            try {
+                $written = $category === 'content-item'
+                    ? $this->media->seedItem($user, trim($url), origin: 'paste', pin: true)
+                    : $this->events->seedStandalone($user, (string) $classified['platform'], trim($url), origin: 'paste');
+            } catch (\Throwable $e) {
+                report($e);
+                $written = null;
+            }
+
+            if ($written !== null) {
+                $pool = $category === 'content-item'
+                    ? (PoolRegistry::poolForKind((string) ($classified['kind'] ?? '')) ?? 'watch')
+                    : 'events';
+                $label = PoolRegistry::PAGE_LABELS[$pool] ?? $pool;
+
+                return $this->success([
+                    'status' => 'ok',
+                    'outcome' => 'item',
+                    'verdict' => 'note',
+                    'canonicalUrl' => $written,
+                    'routedTo' => null,
+                    'confidence' => null,
+                    'blockReason' => null,
+                    'explanation' => "Added to your {$label} page.",
+                    'conflictingConnectionId' => null,
+                    'connectionId' => null,
+                    'pool' => $pool,
+                ], 202);
+            }
+        }
+
         $result = $this->routing->route($url, RoutingContext::forUser($user, 'paste'));
 
         // What actually happened, in one word the dashboard can switch on:
         //   connected — a connection exists now
         //   review    — an intent was written; the suggestions inbox owns it
         //   link      — kept as a plain link card (Verdict::Note's promise)
+        //   item      — became a real pool item (the early return above)
         //   null      — refused (reject), or nothing could be written
         $outcome = match (true) {
             $result['connectionId'] !== null => 'connected',

@@ -540,29 +540,76 @@ Dashboard (partna-monorepo, main): `components/blocks/pool-add-sheet.tsx`,
   inert, zero toasts
 - [x] T2 — Links sheet step-1 guidance — same commit; verified LIVE:
   step-1 band + Add-to-Listen action, Continue stays enabled (advisory)
-- [ ] T3 — non-Links pools refuse unknown platforms (server + sheets)
-- [ ] T4 — store-suggestion diagnosis + fix (natalieanne.com repro)
+- [x] T3 — non-Links pools refuse unknown platforms — backend `fd6d8fa18`
+  (claims() in PastedLinkClassifier, controller gate, events host-agnostic
+  add closed, social-profile answers with strict shape check) + monorepo
+  `53e91bd` (refusal band + Add-to-Links action); critic blockers (media
+  pool dead end, reel-as-profile) fixed same commit
+- [x] T4 — store suggestion everywhere — same commits. Root cause
+  CONFIRMED: the bio's education link 404s for every UA (dead link, no
+  fetch-posture bug); CommerceProbeJob asks the ORIGIN on unreachable;
+  preview carries storefront markers (StorefrontMarkers); classifier
+  answers store for store-platform hosts; both sheets show Connect-store
+  bands wired to routeLink
 - [x] T5 — suggestion band UI matches the suggestions inbox's row grammar
   (the Platforms page's "Found on your platforms" list — the established
   presentation) — monorepo `3eabb76`, SuggestionBanner shared by both
   sheets, verified LIVE on app.partna.au (screenshot: Item row, kind
   glyph, solid commit button, Continue disabled below)
-- [ ] T6 — scan lanes: media items
-- [ ] T6b — media catalog surfaces stop placing item urls as accounts (spotify episode repro)
-- [ ] T7 — scan-seeded products connect their store
+- [x] T6 — scan lanes: media items — backend `89df37f64` + critic fixes in
+  `08ab05389` (F2 both halves + order-independence test). Gate test green:
+  channel + 3 videos → 1 connection + 3 REAL video items, canonical
+  folding, library-only, origin-tagged, idempotent, tombstone-safe
+- [x] T6b — item URLs never place connections — same commits. Spotify
+  detector → artist|playlist|show|user (playlist KEPT, owner-flagged);
+  SoundCloud detector → single-segment profile; SpotifyConnect +
+  SoundcloudConnect (the manual door) narrowed the same way (critic);
+  `platforms:convert-media-item-connections` ready for the dev sweep
+- [x] T7 — scan-seeded products connect their store — `14e381bf8`, via
+  StoreBrandSeeder (policy-owned tombstone, pinned); NOT
+  ConnectStoreFromProductJob (no tombstone check — paste-only)
 - [ ] T8 — one routing brain everywhere: every add lane (Links included) + every scan lane (audit + coverage matrix)
-- [ ] T9 — every cap/budget raised 2–3x (owner permission recorded in the task)
+- [x] T9 — every cap/budget raised 2–3x — `08ab05389`, full knob table
+  (old → new, every one) in the commit message; 12 pinned-test collisions
+  re-pinned with the caps still binding; pairs raised together
+  (connect_budget 45 WITH job timeouts 75; refresh 100 WITH 150; apify
+  125 under the callers' bounds); probe daily caps raised as the T4
+  fallback mitigation; SSRF/abuse throttles untouched; full suite green
 - [ ] T9b — item → parent account suggestions (store pattern for media; easy set first)
 - [ ] T10 — live E2E loop: 3 Instagrams + Shopify breadth + natalieannehair reconnect + scanner-vs-reality audit + platform integrity, until clean (WHOLE-RUN GATE)
 - [ ] T11 — backstop gates + final critic pass + report
 
+### T8 audit — remaining gaps DOCUMENTED as open items (architecture debt,
+### not tonight's scope; full trace table in the run report)
+
+- CommerceProbeJob's `event`/`event-organiser` match arms are dead code —
+  no dispatcher ever passes those categories (every call site passes none
+  or 'shop'). Harmless; remove in P8.
+- Organiser pages have two writers with two id schemes: catalog paste →
+  SourceReconciler generic row; scans → EventsSeeder `acct-*` rows. Same
+  brand, two shapes — P8 consolidation.
+- A pasted `x.myshopify.com` root places via the catalog's generic
+  connection write, not StoreBrandSeeder/ShopContentWriter — whether the
+  generic ingest-source path syncs the catalogue equivalently is
+  unverified; T10's Shopify breadth step exercises it live.
+- ProductPageAdder::writeIndividual and ShopProductSeeder::seed are two
+  implementations of the same individual-bucket merge (caps read one
+  const, so they can't drift on the number) — P8 consolidation.
+- The note-arm (classify → item/event seeding) now exists in THREE places
+  (LinkRouter, LinkInBioImporter, WebsiteImporter) — flagged for one
+  shared service in P8; tonight the three are line-for-line parallel.
+- GoogleBusinessAutoSync's harvestHtml socials bucket never sees the media
+  arm (dormant for media keys — seedSocials only acts on fb/tiktok/x/
+  linkedin/instagram); the NEW WebsiteImporter wiring covers the same
+  page's media/event links properly.
+
 ### Found-issues ledger (standing rule — append here during the run, then fix)
 
-- [ ] F2 — LinkRouter consumed the per-platform slot for ITEM categories
+- [x] F2 — LinkRouter consumed the per-platform slot for ITEM categories
   (`routeClassified`, handled:true → seenPlatforms): the 2nd event/video
   from one platform in a run degraded to a bare card. Items aren't
   connections. Fixed in T6's commit (slot skip for event/content-item).
-- [ ] F3 — InstagramAutoSync surfaced `custom(handled:true)` routes as
+- [x] F3 — InstagramAutoSync surfaced `custom(handled:true)` routes as
   unmatched custom-link suggestions (`InstagramAutoSync.php` ~163),
   duplicating seeded events (and ordering Swap offers) as link cards —
   contradicts RouteResult's documented handled contract. Fixed in T6's

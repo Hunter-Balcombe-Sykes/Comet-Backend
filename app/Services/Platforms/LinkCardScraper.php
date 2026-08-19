@@ -79,6 +79,12 @@ class LinkCardScraper
             'favicon' => $favicon,
             'logo' => $logo,
             'storefront' => StorefrontMarkers::detect($res['body']),
+            // T8: the page CARRIES product markup — a hint only (the Sell
+            // lane's own read is the authority and refuses dishonest pages);
+            // enough for the sheet to offer "add it on your Sell page".
+            'productMarkup' => (bool) (preg_match('~"@type"\s*:\s*"Product"~', $res['body'])
+                || preg_match('~og:type["\'][^>]*content=["\'][^"\']*product~i', $res['body'])
+                || str_contains($res['body'], 'product:price:amount')),
         ];
     }
 
@@ -119,6 +125,7 @@ class LinkCardScraper
             'favicon' => $domain !== '' ? 'https://www.google.com/s2/favicons?domain='.urlencode($domain).'&sz=64' : null,
             'logo' => null,
             'storefront' => null,
+            'productMarkup' => false,
         ];
     }
 

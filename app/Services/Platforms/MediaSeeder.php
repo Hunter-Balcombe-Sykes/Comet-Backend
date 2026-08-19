@@ -3,8 +3,13 @@
 namespace App\Services\Platforms;
 
 use App\Ingest\Projection\ProjectionWriter;
+use App\Models\Core\Site\SectionItem;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Content\ManualEventWriter;
+use App\Site\Documents\SiteCacheLanes;
+use App\Site\Pools\PoolRegistry;
+use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -48,12 +53,19 @@ class MediaSeeder
     ) {}
 
     /**
-     * Seed one media pool item from a scanned link. Returns the canonical
-     * item URL as the "written" signal (there is no resource_id — an item is
-     * not a connection), null when nothing was written and the caller should
-     * card the link instead.
+     * Seed one media pool item from a scanned or pasted link. Returns the
+     * canonical item URL as the "written" signal (there is no resource_id —
+     * an item is not a connection), null when nothing was written and the
+     * caller should card the link instead.
+     *
+     * Origin 'paste' is a DIRECT request (same doctrine as
+     * RoutingContext::isDirectRequest): it wins the item tombstone — a
+     * person pasting the link again means "bring it back" — and un-deletes,
+     * exactly as the pool hand-add lane does. Every other origin respects
+     * the tombstone. $pin is the paste lane's "the owner asked for this on
+     * their site"; scans never pin.
      */
-    public function seedItem(User $user, string $url, ?string $origin = null): ?string
+    public function seedItem(User $user, string $url, ?string $origin = null, bool $pin = false): ?string
     {
         if ($this->seededThisRun >= self::MAX_ITEMS_PER_RUN) {
             Log::info('media_seeder.run_cap', ['user_id' => (string) $user->id]);
@@ -72,10 +84,9 @@ class MediaSeeder
         $canonical = $read['canonical'];
         $coord = ManualEventWriter::coordFor($canonical);
 
-        // Never resurrect: the owner removed this exact item before. The
-        // hand-add lane's un-delete is a person saying "bring it back" — a
-        // re-scan is not.
-        $removed = DB::connection('pgsql')->table('content.items as i')
+        // Never resurrect FROM A SCAN: the owner removed this exact item
+        // before, and only a person's direct paste means "bring it back".
+        $removed = $origin === 'paste' ? false : DB::connection('pgsql')->table('content.items as i')
             ->join('content.source_items as csi', 'csi.item_id', '=', 'i.id')
             ->join('content.sources as cs', function ($join) {
                 $join->on('cs.id', '=', 'csi.source_id')->where('cs.kind', '=', 'manual');
@@ -111,7 +122,7 @@ class MediaSeeder
         }
 
         try {
-            $this->writer->writeManualItem((string) $user->id, $coord, $projection);
+            $itemId = $this->writer->writeManualItem((string) $user->id, $coord, $projection);
         } catch (\Throwable $e) {
             report($e);
             Log::warning('media_seeder.pool_write_failed', [
@@ -121,9 +132,61 @@ class MediaSeeder
             return null;
         }
 
-        // Deliberately NO pin and NO removed_at reset — see the class note.
+        if ($origin === 'paste') {
+            // A direct paste un-deletes, exactly as the pool hand-add lane
+            // does (its docblock owns the reasoning; scans never reach here).
+            DB::connection('pgsql')->table('content.items')
+                ->where('id', $itemId)
+                ->where('user_id', (string) $user->id)
+                ->whereNotNull('removed_at')
+                ->update(['removed_at' => null, 'updated_at' => now()]);
+        }
+
+        if ($pin) {
+            $this->pin($user, $itemId);
+        }
+        // Scan lanes: deliberately NO pin and NO removed_at reset — the
+        // class note owns the reasoning.
         $this->seededThisRun++;
 
         return $canonical;
+    }
+
+    /**
+     * The paste lane's pin — same find-or-new FORCED-state write every other
+     * pin site uses (ManualEventWriter::pin owns the reasoning), aimed at
+     * the item's OWN pool section (video → watch, track → listen…).
+     */
+    private function pin(User $user, string $itemId): void
+    {
+        $site = $user->site;
+        if (! $site instanceof Site) {
+            return;
+        }
+        $kind = DB::connection('pgsql')->table('content.items')->where('id', $itemId)->value('kind');
+        $pool = PoolRegistry::poolForKind((string) $kind);
+        if ($pool === null) {
+            return;
+        }
+
+        $section = app(PoolSectionProvisioner::class)->ensure($site, $pool);
+        $pin = SectionItem::query()
+            ->where('section_id', (string) $section->id)
+            ->where('item_id', $itemId)
+            ->first() ?? new SectionItem;
+
+        $pin->section_id = (string) $section->id;
+        $pin->item_id = $itemId;
+        $pin->state = SectionItem::STATE_PINNED;
+        $pin->sort_key ??= 1.0 + (float) (SectionItem::query()
+            ->where('section_id', (string) $section->id)
+            ->where('state', SectionItem::STATE_PINNED)
+            ->max('sort_key') ?? 0.0);
+        if (! $pin->exists) {
+            $pin->created_at = now();
+        }
+        $pin->save();
+
+        SiteCacheLanes::bust([(string) $site->id]);
     }
 }

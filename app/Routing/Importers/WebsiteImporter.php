@@ -6,6 +6,8 @@ use App\Models\Core\User\User;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Platforms\EventsSeeder;
+use App\Services\Platforms\MediaSeeder;
 use App\Services\Platforms\WebsiteLinkHarvester;
 
 /**
@@ -31,17 +33,20 @@ class WebsiteImporter
         private readonly SafeUrlFetcher $fetcher,
         private readonly WebsiteLinkHarvester $harvester,
         private readonly LinkRoutingService $routing,
+        private readonly EventsSeeder $events,
+        private readonly MediaSeeder $media,
     ) {}
 
     /**
-     * @return array{outcome: string, observations: int, connected: int, suggested: int, noted: int}
+     * @return array{outcome: string, observations: int, connected: int, suggested: int, noted: int, items: int}
      */
     public function import(User $user, string $websiteUrl): array
     {
+        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0];
         $runId = ImportRun::start((string) $user->id, 'website', $websiteUrl);
 
         if ($runId === null) {
-            return ['outcome' => 'cooldown', 'observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0];
+            return ['outcome' => 'cooldown'] + $empty;
         }
 
         $response = $this->fetcher->tryFetch($websiteUrl);
@@ -49,7 +54,7 @@ class WebsiteImporter
         if ($response === null || $response['status'] !== 200 || $response['body'] === '') {
             ImportRun::finish($runId, 'unavailable', errorClass: 'fetch_failed');
 
-            return ['outcome' => 'unavailable', 'observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0];
+            return ['outcome' => 'unavailable'] + $empty;
         }
 
         $links = array_slice(
@@ -61,7 +66,7 @@ class WebsiteImporter
         );
 
         $context = RoutingContext::forUser($user, 'website_import', $runId);
-        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0];
+        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0];
         $seen = [];
 
         foreach ($links as $link) {
@@ -74,6 +79,39 @@ class WebsiteImporter
             $seen[$fingerprint] = true;
 
             $result = $this->routing->route($link, $context);
+
+            // T8 (owner, 2026-08-20): the item arms run on the website scan
+            // too — a video/track/episode or event page linked from the
+            // owner's own site lands as a REAL pool item, exactly as the bio
+            // scan does. Deliberately NO card write and NO commerce probe on
+            // this lane: a website's outbound links are mostly navigation,
+            // and carding them was the flooding this importer's notes-only
+            // tally always avoided. (Third copy of the note-arm shape —
+            // consolidating the three onto one service is flagged P8 work.)
+            if ($result['verdict'] === 'note') {
+                $classified = $this->harvester->classify($link);
+                $category = $classified['category'] ?? null;
+                try {
+                    if ($category === 'content-item'
+                        && $this->media->seedItem($user, $link, origin: 'website_import') !== null) {
+                        $tally['items']++;
+
+                        continue;
+                    }
+                    if (in_array($category, ['event', 'event-organiser'], true)) {
+                        $seeded = $category === 'event'
+                            ? $this->events->seedStandalone($user, (string) $classified['platform'], $link, origin: 'website_import')
+                            : $this->events->seedAccount($user, (string) $classified['platform'], $link);
+                        if ($seeded !== null) {
+                            $tally['connected']++;
+
+                            continue;
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
 
             match ($result['verdict']) {
                 'place' => $tally['connected']++,
