@@ -70,7 +70,8 @@ class ItemLinkRules
         // Humanitix serves events off a subdomain, which the suffix arm in
         // urlBelongsTo() covers.
         'humanitix' => ['humanitix.com'],
-        'luma' => ['lu.ma'],
+        // luma.com is the rebrand target lu.ma 301s onto (2026-08-19).
+        'luma' => ['lu.ma', 'luma.com'],
         'partiful' => ['partiful.com'],
         'oztix' => ['oztix.com.au'],
         'trybooking' => ['trybooking.com'],

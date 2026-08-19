@@ -160,11 +160,15 @@ abstract class PlatformScraper
     }
 
     // Flatten every <script type="application/ld+json"> block (expanding
-    // @graph and top-level arrays) into one list of nodes.
+    // @graph and top-level arrays) into one list of nodes. The type attribute
+    // is matched ANYWHERE in the tag: Luma emits
+    // `<script data-cfasync="false" type="application/ld+json" …>` and the
+    // old first-attribute-only pattern silently missed the whole block
+    // (found live, events-parity 2026-08-19).
     protected function jsonLdNodes(string $html): array
     {
         $nodes = [];
-        if (preg_match_all('~<script type="application/ld\+json"[^>]*>(.+?)</script>~s', $html, $m)) {
+        if (preg_match_all('~<script[^>]*\stype="application/ld\+json"[^>]*>(.+?)</script>~s', $html, $m)) {
             foreach ($m[1] as $block) {
                 $data = json_decode(trim($block), true);
                 if (! is_array($data)) {

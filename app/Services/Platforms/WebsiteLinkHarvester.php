@@ -511,9 +511,10 @@ class WebsiteLinkHarvester
                 return ['platform' => 'humanitix', 'category' => 'event', 'label' => 'Humanitix'];
             }
         }
-        // Expanded 2026-07-25 — link classification consolidation
-        if (preg_match('~(^|\.)lu\.ma$~', $host)) {
-            if (preg_match('~^https?://lu\.ma/user/[a-z0-9-]+~i', $url)) {
+        // Expanded 2026-07-25 — link classification consolidation.
+        // luma.com added 2026-08-19: Luma rebranded and lu.ma now 301s there.
+        if (preg_match('~(^|\.)(lu\.ma|luma\.com)$~', $host)) {
+            if (preg_match('~^https?://(?:www\.)?(?:lu\.ma|luma\.com)/user/[a-z0-9-]+~i', $url)) {
                 return ['platform' => 'luma', 'category' => 'event-organiser', 'label' => 'Luma'];
             }
 
