@@ -1169,12 +1169,13 @@ return array (
   ),
   123 => 
   array (
-    'url' => 'https://music.apple.com/artist/',
+    'url' => 'https://music.apple.com/artist/1',
     'expect' => 
     array (
       'surface' => 'apple_music.artist',
+      'identifier' => '1',
     ),
-    'detector' => '5bd13f6b6b58f78b',
+    'detector' => 'a013bd51e02c8976',
   ),
   124 => 
   array (
@@ -1601,12 +1602,13 @@ return array (
   ),
   167 => 
   array (
-    'url' => 'https://podcasts.apple.com/podcast/',
+    'url' => 'https://podcasts.apple.com/podcast/id1',
     'expect' => 
     array (
       'surface' => 'apple_podcasts.show',
+      'identifier' => '1',
     ),
-    'detector' => '27447bc42ec80512',
+    'detector' => '649cd477e1185e84',
   ),
   168 => 
   array (
