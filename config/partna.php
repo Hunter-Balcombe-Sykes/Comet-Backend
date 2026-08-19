@@ -1018,6 +1018,12 @@ return [
         ],
     ],
 
+    // Item feed (spec 2026-08-19-item-feed-design.md). manual_max bounds the
+    // stored manual_feed list; feeds run longer than the 12-entry button list.
+    'feed' => [
+        'manual_max' => (int) env('PARTNA_FEED_MANUAL_MAX', 100),
+    ],
+
     // `contact` = visitor-submitted contact form (notification_email lives here).
     // `public_contact` = the professional's own opt-in contact details surfaced
     //                    publicly on the sitepage — distinct domain, distinct toggle.

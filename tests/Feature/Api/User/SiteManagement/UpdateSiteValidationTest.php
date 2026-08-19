@@ -152,3 +152,70 @@ it('rejects retired legacy architecture ids now the alias window is closed', fun
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
         ->toBe('staple');
 });
+
+// ── Item feed settings (spec 2026-08-19-item-feed-design.md §5) ────────────
+
+it('accepts a valid feed_mode and rejects an unknown one', function () {
+    $pro = createTenant('feed-mode-pro');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['feed_mode' => 'score']])
+        ->assertOk();
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['feed_mode' => 'popular']])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['settings.feed_mode']);
+});
+
+it('accepts a strict manual_feed and persists it atomically', function () {
+    $pro = createTenant('feed-atomic-pro');
+
+    $list = [
+        ['kind' => 'item', 'pool' => 'watch', 'ref' => 'item-1'],
+        ['kind' => 'category', 'pool' => 'menus', 'ref' => 'col-1', 'items' => ['a', 'b']],
+    ];
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_feed' => $list]])
+        ->assertOk();
+
+    // Atomic replace: a second write with one entry leaves exactly one.
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_feed' => [
+            ['kind' => 'item', 'pool' => 'listen', 'ref' => 'item-9'],
+        ]]])
+        ->assertOk();
+
+    $raw = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('settings');
+    $settings = is_string($raw) ? (array) json_decode($raw, true) : [];
+    expect($settings['manual_feed'])->toHaveCount(1);
+});
+
+it('rejects malformed manual_feed entries', function (array $entry) {
+    $pro = createTenant('feed-malformed-pro');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_feed' => [$entry]]])
+        ->assertStatus(422);
+})->with([
+    'item with items list' => [['kind' => 'item', 'pool' => 'watch', 'ref' => 'x', 'items' => ['y']]],
+    'category without items' => [['kind' => 'category', 'pool' => 'menus', 'ref' => 'x']],
+    'category on a non-category pool' => [['kind' => 'category', 'pool' => 'watch', 'ref' => 'x', 'items' => ['y']]],
+    'unknown pool' => [['kind' => 'item', 'pool' => 'reviews', 'ref' => 'x']],
+    'unknown kind' => [['kind' => 'button', 'pool' => 'watch', 'ref' => 'x']],
+    'missing ref' => [['kind' => 'item', 'pool' => 'watch']],
+]);
+
+it('rejects duplicate (kind,pool,ref) pairs and an over-cap list', function () {
+    $pro = createTenant('feed-dup-pro');
+
+    $dup = ['kind' => 'item', 'pool' => 'watch', 'ref' => 'same'];
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_feed' => [$dup, $dup]]])
+        ->assertStatus(422);
+
+    $over = array_map(fn (int $i) => ['kind' => 'item', 'pool' => 'watch', 'ref' => "item-{$i}"], range(1, 101));
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_feed' => $over]])
+        ->assertStatus(422);
+});

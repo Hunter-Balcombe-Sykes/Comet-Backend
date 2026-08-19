@@ -4,6 +4,7 @@ namespace App\Http\Requests\Concerns;
 
 use App\Enums\SitepageId;
 use App\Services\PublicSite\Actions\ActionVocabulary;
+use App\Services\PublicSite\ItemFeedService;
 use Illuminate\Validation\Rule;
 
 // Shared ordering-preferences validation (unified actions system) used by both
@@ -78,6 +79,17 @@ trait SiteOrderingValidationRules
             'settings.manual_actions.*.ref' => ['sometimes', 'string', 'max:180'],
             'settings.manual_actions.*.label' => ['sometimes', 'string', 'min:1', 'max:80'],
             'settings.manual_actions.*.url' => ['sometimes', 'string', 'url:http,https', 'max:2048'],
+            // Item feed (spec 2026-08-19-item-feed-design.md §5). Same strict
+            // discriminated-union posture as manual_actions; refs deliberately
+            // NOT existence-checked — the resolver drops stale ones on read.
+            'settings.feed_mode' => ['sometimes', 'string', Rule::in(ItemFeedService::MODES)],
+            'settings.manual_feed' => ['sometimes', 'array', 'max:'.(int) config('partna.feed.manual_max', 100), $this->distinctFeedRefsRule()],
+            'settings.manual_feed.*' => ['array', $this->manualFeedEntryRule()],
+            'settings.manual_feed.*.kind' => ['required', 'string', Rule::in(['item', 'category'])],
+            'settings.manual_feed.*.pool' => ['required', 'string', Rule::in(ItemFeedService::FEED_POOLS)],
+            'settings.manual_feed.*.ref' => ['required', 'string', 'max:180'],
+            'settings.manual_feed.*.items' => ['sometimes', 'array', 'max:200'],
+            'settings.manual_feed.*.items.*' => ['string', 'max:180'],
         ];
     }
 
@@ -229,6 +241,51 @@ trait SiteOrderingValidationRules
                     return;
                 }
                 $seen[$ref] = true;
+            }
+        };
+    }
+
+    /** Duplicate (kind,pool,ref) pairs in manual_feed → 422. */
+    private function distinctFeedRefsRule(): \Closure
+    {
+        return static function (string $attribute, mixed $value, \Closure $fail): void {
+            if (! is_array($value)) {
+                return;
+            }
+            $seen = [];
+            foreach ($value as $entry) {
+                if (! is_array($entry)) {
+                    continue;
+                }
+                $key = ($entry['kind'] ?? '').'|'.($entry['pool'] ?? '').'|'.($entry['ref'] ?? '');
+                if (isset($seen[$key])) {
+                    $fail('The manual feed contains duplicate entries.');
+
+                    return;
+                }
+                $seen[$key] = true;
+            }
+        };
+    }
+
+    /** item ⇒ no items list; category ⇒ items required AND pool must be a category pool. */
+    private function manualFeedEntryRule(): \Closure
+    {
+        return static function (string $attribute, mixed $value, \Closure $fail): void {
+            if (! is_array($value)) {
+                return;
+            }
+            $kind = $value['kind'] ?? null;
+            if ($kind === 'item' && array_key_exists('items', $value)) {
+                $fail('An item feed entry must not carry an items list.');
+            }
+            if ($kind === 'category') {
+                if (! is_array($value['items'] ?? null) || $value['items'] === []) {
+                    $fail('A category feed entry requires a non-empty items list.');
+                }
+                if (! in_array($value['pool'] ?? null, ItemFeedService::CATEGORY_POOLS, true)) {
+                    $fail('Category entries are only valid for the menus and services pools.');
+                }
             }
         };
     }
