@@ -17,6 +17,8 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\Customer;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolWriter;
+use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -519,11 +521,61 @@ function seedProbeFixtures(User $user, Site $site, string $label): array
         'title' => 'DAST Event',
     ]);
 
-    // CustomLinksController::removeLink. linkRows() filters resource_kind === 'link'.
+    // CustomLinksController::removeLink, on the content lane. It no longer reads
+    // site.platform_connections at all: it goes through LinkPoolReader::remove ->
+    // owns() -> cards(), which reads site.section_items JOIN content.items with
+    // i.kind='link' and si.state='pinned'. A partna.custom_link connection row is
+    // therefore unaddressable by it — the control 404'd, which is how this was
+    // caught. (Unlike the services fixture above this one never THREW: the
+    // connections table still exists, so the fixture just went quietly vacuous.
+    // Only the paired control's 200 assertion could see it.)
+    //
+    // The section is provisioned through the REAL PoolSectionProvisioner rather
+    // than hand-rolled: its row carries rule/mode/order_by from
+    // PoolRegistry::sectionShape(), and a second copy of that shape here is
+    // exactly the drift this lane exists to catch. It is pure DB::table inserts,
+    // no Eloquent and no jobs, so it is safe under QUEUE_CONNECTION=sync.
+    //
+    // LinkPoolWriter::add() would build all of this for us, and is deliberately
+    // NOT used: it ends in SiteCacheLanes::bust(), which dispatches
+    // CloudflareCachePurgeJob — inline under sync, and CloudflareCachePurgeJob
+    // has no config guard before it resolves the purge service. That is an
+    // outbound call from a seeder whose containment guards exist because one
+    // reached a remote host on 2026-08-07. Raw rows, same discipline as above.
+    $linkSection = app(PoolSectionProvisioner::class)->ensure($site, LinkPoolWriter::POOL);
+
+    $linkUrl = "https://dast.example.invalid/link-{$label}";
     $platformLinkId = $id();
-    $platformConnection('partna.custom_link', 'link', 'link', $platformLinkId, [
-        'url' => "https://dast.example.invalid/link-{$label}",
-        'title' => 'DAST Link',
+    $db->table('content.items')->insert([
+        'id' => $platformLinkId, 'user_id' => $userId, 'kind' => 'link',
+        'headline_cache' => 'DAST Link',
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    // Same manual source as the service fixture — idx_content_sources_manual is
+    // UNIQUE on user_id WHERE kind='manual', so there is exactly one per identity.
+    // coord matches LinkPoolWriter::coordFor() so a later real add() through the
+    // app is idempotent against this row rather than minting a duplicate.
+    $db->table('content.source_items')->insert([
+        'id' => $id(), 'source_id' => $manualSourceId, 'item_id' => $platformLinkId,
+        'coord' => 'manual:'.sha1(strtolower(trim($linkUrl))), 'kind' => 'link',
+        'projector_version' => 0, 'removed_at' => null,
+    ]);
+
+    // cards() LEFT JOINs f_link for the url — optional for resolution, but a link
+    // card with no url is not a link, and the CONTROL's 200 response body carries
+    // the remaining links.
+    $db->table('content.f_link')->insert([
+        'item_id' => $platformLinkId, 'source_id' => $manualSourceId,
+        'url' => $linkUrl, 'updated_at' => $now,
+    ]);
+
+    // state='pinned' is the load-bearing half: cardsInSection filters on it, and
+    // section_items is UNIQUE (section_id, item_id) across BOTH states.
+    $db->table('site.section_items')->insert([
+        'id' => $id(), 'section_id' => (string) $linkSection->id,
+        'item_id' => $platformLinkId, 'state' => 'pinned',
+        'sort_key' => 1, 'created_at' => $now,
     ]);
 
     // EventsCatalog::removeCustom (via EventsController). Its own owner-scoped
