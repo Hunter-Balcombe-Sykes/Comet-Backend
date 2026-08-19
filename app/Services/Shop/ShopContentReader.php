@@ -53,17 +53,13 @@ use Illuminate\Support\Facades\DB;
  *    ShopContentWriter::cataloguesFor()'s docblock) until its next sync — a
  *    backfill-lag caveat, not a structural loss.
  *
- * 3. `selectionMode`/`linkMode` are NOT stored per brand — fix round 1,
- *    Finding 4: `selection_mode` was dead (every real row's value was
- *    already the default), and `link_mode` was already effectively one
- *    global setting in practice (see ShopController's own "DORMANT as of
- *    2026-07-08" comment on updateBrand() — the PUBLIC payload has stamped
- *    it from site.sites.shop_link_mode for a while; this class now does the
- *    same for the DASHBOARD shape). `selectionMode` is always the constant
- *    'manual'; `linkMode` is read from site.sites.shop_link_mode (one query
- *    per brandMap() call, not per brand — it is the same value for every
- *    brand a user has), falling back to Site::DEFAULT_SHOP_LINK_MODE when
- *    the site has no row or the column is null. This is a DELIBERATE
+ * 3. `selectionMode` is NOT stored per brand — fix round 1, Finding 4:
+ *    `selection_mode` was dead (every real row's value was already the
+ *    default); it is always the constant 'manual' here. The per-brand
+ *    `linkMode` key was REMOVED from this map 2026-08-19 (dormant since
+ *    2026-07-08): link mode is one site-wide value on
+ *    site.sites.shop_link_mode, served by /platforms/shop/settings and its
+ *    Sell-page card. This is a DELIBERATE
  *    behaviour change from the old per-brand toBrandArray()
  *    shape (which showed whatever was last written to that brand's own,
  *    now-vestigial link_mode/selection_mode columns) — see the Task 7
@@ -137,10 +133,10 @@ class ShopContentReader
                 return ($decoded['auto_sync_latest'] ?? true) !== false;
             })
             ->all();
-        // Fix round 1, Finding 4 — one value for the whole map (see class
-        // docblock, gap 3), not a per-brand lookup.
-        $linkMode = DB::table('site.sites')->where('user_id', (string) $user->id)
-            ->value('shop_link_mode') ?? Site::DEFAULT_SHOP_LINK_MODE;
+        // The per-brand linkMode key LEFT the wire 2026-08-19 (inert since
+        // 2026-07-08): link mode is one site-wide value, served by
+        // /platforms/shop/settings — this map no longer echoes it per brand,
+        // and the site.sites lookup that existed only to feed it went too.
 
         $map = [];
         foreach ($rows as $row) {
@@ -185,7 +181,6 @@ class ShopContentReader
                 // (2026-08-17, Sell opt-in) — sparse: absent means ON, and
                 // new anchors mint with an explicit false.
                 'autoLatest' => ($autoLatestByRef[$externalRef] ?? true) !== false,
-                'linkMode' => $linkMode,
                 'referralQuery' => $row->referral_query ?? '',
                 'products' => self::withPopularityRank($catalogues[$row->collection_id] ?? [], $productRanks),
             ];

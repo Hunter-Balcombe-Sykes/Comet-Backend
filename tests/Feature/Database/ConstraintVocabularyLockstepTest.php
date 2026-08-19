@@ -208,18 +208,10 @@ it('shop_brands_selection_mode_check matches UpdateShopBrandRequest and the hard
     lockstepAssertSameSet($appList, $expected, 'UpdateShopBrandRequest selectionMode (app vs hardcoded)');
 });
 
-it('shop_brands_link_mode_check matches UpdateShopBrandRequest and the hardcoded expected set', function () {
-    $expected = ['product', 'checkout'];
-
-    $sql = lockstepMigrationSql('20260720100200_shop_brands_mode_checks.sql');
-    $migrationList = lockstepExtractInList($sql, 'link_mode');
-
-    $rules = (new UpdateShopBrandRequest)->rules();
-    $appList = lockstepExtractInRule($rules['linkMode']);
-
-    lockstepAssertSameSet($migrationList, $expected, 'shop_brands_link_mode_check (migration vs hardcoded)');
-    lockstepAssertSameSet($appList, $expected, 'UpdateShopBrandRequest linkMode (app vs hardcoded)');
-});
+// The per-brand linkMode lockstep assertion is GONE (2026-08-19): the key
+// left UpdateShopBrandRequest with the dormant per-brand linkMode. The LIVE
+// vocabulary is site.sites.shop_link_mode ('checkout'|'product'), pinned by
+// ShopGlobalSettingsTest against /platforms/shop/settings.
 
 // ─── content.storefronts.connect_status (W9) ─────────────────────────────────
 //
