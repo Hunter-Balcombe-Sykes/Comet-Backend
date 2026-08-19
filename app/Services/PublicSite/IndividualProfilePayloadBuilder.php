@@ -363,10 +363,9 @@ class IndividualProfilePayloadBuilder
             ? trim((string) $settings['input_placeholder'])
             : '';
 
-        if ($placeholder === '') {
-            return null;
-        }
-
+        // A LIVE newsletter section publishes even with no authored
+        // placeholder (owner, 2026-08-19): the sitepage falls back to its own
+        // copy. Empty → '' on the wire, never null — null means "not live".
         return ['inputPlaceholder' => $placeholder];
     }
 
