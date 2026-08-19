@@ -121,3 +121,110 @@ it('ignores non-http destinations and Later\'s own asset URLs', function () {
     expect(app(LinkInBioApiUnroller::class)->unroll('https://linkin.bio/supernormal_180'))
         ->toBe(['https://supernormal.net.au/menu']);
 });
+
+// ── taplink.cc ───────────────────────────────────────────────────────────────
+// A Vue shell whose window.account blob carries the theme and nickname but not
+// the links. Shape below is the real 2026-08-19 response for taplink.cc/demo.
+
+function fakeTaplink(array $payload, int $status = 200): void
+{
+    Http::fake(['taplink.cc/*' => Http::response($payload, $status)]);
+}
+
+function taplinkPage(array $items): array
+{
+    return ['result' => 'success', 'response' => [
+        'page_id' => 10408374,
+        'fields' => [['section' => null, 'items' => $items]],
+    ]];
+}
+
+it('returns the destination links behind a client-rendered taplink.cc page', function () {
+    fakeTaplink(taplinkPage([
+        ['block_type_name' => 'avatar', 'options' => []],
+        ['block_type_name' => 'link', 'options' => ['title' => 'Whatsapp', 'value' => 'http://wa.me/6285654008642']],
+        ['block_type_name' => 'link', 'options' => ['title' => 'Shop', 'value' => 'https://shop.example.com']],
+    ]));
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://taplink.cc/demo'))
+        ->toBe(['http://wa.me/6285654008642', 'https://shop.example.com']);
+});
+
+it('skips a taplink block that points at an internal sub-page, not outward', function () {
+    // Measured live: `options.type === 'page'` blocks carry `value: null` and
+    // navigate within Taplink. Treating one as a link would write a null URL.
+    fakeTaplink(taplinkPage([
+        ['block_type_name' => 'link', 'options' => ['title' => 'TESTIMONI', 'type' => 'page', 'value' => null]],
+        ['block_type_name' => 'link', 'options' => ['title' => 'Shop', 'value' => 'https://shop.example.com']],
+    ]));
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://taplink.cc/demo'))
+        ->toBe(['https://shop.example.com']);
+});
+
+it('asks taplink for the page BARE — a page_id param makes it answer redirect', function () {
+    // The live endpoint answers {"result":"redirect"} to ?page_id= / ?id=, so a
+    // "helpful" extra param silently costs every link on the page.
+    fakeTaplink(taplinkPage([]));
+
+    app(LinkInBioApiUnroller::class)->unroll('https://taplink.cc/demo');
+
+    Http::assertSent(fn ($request) => $request->url() === 'https://taplink.cc/demo/api/page/get.json');
+});
+
+// ── stan.store ───────────────────────────────────────────────────────────────
+// A Nuxt shell. A Stan store is a STOREFRONT: most pages are products hosted on
+// stan.store itself. Only type=link points outward. Shape confirmed against
+// api.stanwith.me 2026-08-19.
+
+function fakeStan(array $payload, int $status = 200): void
+{
+    Http::fake(['api.stanwith.me/*' => Http::response($payload, $status)]);
+}
+
+function stanStore(array $pages): array
+{
+    return ['store' => ['store_id' => 1114, 'type' => 'linksite', 'slug' => 'a_store', 'pages' => $pages]];
+}
+
+it('returns only the outward-pointing pages of a stan.store storefront', function () {
+    fakeStan(stanStore([
+        ['type' => 'meeting', 'status' => 2, 'slug' => 'book-me', 'data' => ['product' => ['title' => 'Call']]],
+        ['type' => 'link', 'status' => 2, 'slug' => 'my-shop', 'data' => ['product' => ['link' => ['url' => 'https://shop.example.com']]]],
+    ]));
+
+    // The meeting page is hosted on stan.store itself — same host as the bio
+    // page, so the importer's chrome rule would drop it anyway.
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))
+        ->toBe(['https://shop.example.com']);
+});
+
+it('answers empty — not null — for a stan store that sells only hosted products', function () {
+    // The COMMON case for this host. Empty means "read it, nothing points out",
+    // which lets the zero-yield floor card the store URL; null would instead
+    // re-run the anchor harvest against a shell that has no anchors.
+    fakeStan(stanStore([
+        ['type' => 'digital-download', 'status' => 2, 'slug' => 'ebook', 'data' => []],
+    ]));
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))->toBe([]);
+});
+
+it('skips a stan page the owner has not published', function () {
+    // Fail-closed: every live page observed carries status 2 and the enum is not
+    // published anywhere readable, so anything else is treated as not-live.
+    fakeStan(stanStore([
+        ['type' => 'link', 'status' => 1, 'slug' => 'draft', 'data' => ['product' => ['link' => ['url' => 'https://draft.example.com']]]],
+        ['type' => 'link', 'status' => 2, 'slug' => 'live', 'data' => ['product' => ['link' => ['url' => 'https://live.example.com']]]],
+    ]));
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))
+        ->toBe(['https://live.example.com']);
+});
+
+it('declines every new host when its API is down, so the floor still backstops', function () {
+    Http::fake(['*' => Http::response('', 503)]);
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://taplink.cc/demo'))->toBeNull()
+        ->and(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))->toBeNull();
+});
