@@ -1045,15 +1045,15 @@ class ProjectionWriter
 
         // SCALE-17/#CACHE-2: the batching boundary is HERE, not inside
         // replaceCollections() — $byItem is the batch. Called once for the
-        // whole run's items; the singleton-facet upserts below stay per
-        // (item, record) because each one targets a different row.
+        // whole run's items. The singleton facets below are batched too, on
+        // their own boundary (#SCALE-5, next block).
         $this->replaceCollections($contentSourceId, $userId, $byItem);
 
         // #SCALE-5: collect first, write once per (facet, column-signature).
         // This used to fire one upsert per facet per record, every run — the
-        // file's own comment conceded "the singleton-facet upserts below stay
-        // per (item, record)". For a catalogue sync that is one round trip per
-        // facet per item, and it dominated the run.
+        // comment above conceded it, in those words: "the singleton-facet
+        // upserts below stay per (item, record)". For a catalogue sync that is
+        // one round trip per facet per item, and it dominated the run.
         //
         // The FOLD is per COLUMN, not per row. Sequentially, a second record for
         // the same (item, source) overwrote only the columns it named, so the

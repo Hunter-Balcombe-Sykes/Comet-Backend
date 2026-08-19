@@ -16,15 +16,24 @@ is a day old the moment it is committed.
 | | Count |
 |---|---|
 | Findings | 101 |
-| **Resolved** | **17 IDs** (4 before this run, 13 by `audit-fix/p1-overnight-2026-08-19`) |
-| Open | 84 (P1 **4**, P2 50, P3 30) |
+| **Resolved** | **21 IDs** (17 by `audit-fix/p1-overnight-2026-08-19`, 4 earlier) |
+| Open | 80 (P1 **4**, P2 48, P3 28) |
 
-**Updated 2026-08-19 by the unattended P1 run.** Of the 15 open P1s it found:
-11 resolved, 4 left open with written reasons (`LIFE-1` plan-only and awaiting
-sign-off; `SCALE-1`, `SCALE-3`, `SCALE-4` each analysed and deliberately not
-attempted — see
-`docs/superpowers/plans/2026-08-19-P1-overnight-DECISIONS.md` §0).
-Nothing is merged: units 4–8 are committed on the branch and gated.
+**Updated 2026-08-19, second pass.** Of the 16 P1s in this sweep, **12 are
+resolved and 4 are open** — `LIFE-1` (plan written, awaiting sign-off) and
+`SCALE-1` / `SCALE-3` / `SCALE-4`, each analysed and deliberately not attempted
+(`docs/superpowers/plans/2026-08-19-P1-overnight-DECISIONS.md` §0). `LIFE-1` and
+`SCALE-4` have an execute prompt ready:
+`docs/superpowers/plans/2026-08-19-LIFE-1-SCALE-4-EXECUTE-PROMPT.md`.
+
+The overnight branch is merged to `development`. Two corrections made in this
+pass, both of which had left the file understating its own progress:
+
+- The four already-fixed migration findings (`MIG-1` `MIG-2` `SCALE-6`
+  `SCALE-22`) were still showing `[ ]`. Now ticked; the db-and-queue and
+  migration-safety lens Progress blocks were recomputed from the boxes to match
+  (every other lens block was already accurate).
+- `LIFE-3` was ticked on its ruling but its code gap was still open — see below.
 
 **Fixed:** `SCALE-6` ≡ `MIG-2` (`routing.link_observations_source_check`) and
 `SCALE-22` ≡ `MIG-1` (`content.item_media_role_check`). Both migrations now carry the
@@ -221,10 +230,23 @@ Carry these forward; they cost a session each if rediscovered.
   bytes. Use `getimagesizefromstring()` — the pattern already in
   `GalleryAutoGrabber.php:130` and `LogoAutoGrabber.php:419`.
   `config('partna.image_max_pixels')` is real (`config/partna.php:1561`).
-- **`LIFE-3` embeds a product ruling, not a bug.** It asserts `is_active = false` (a
-  *paused* connection) should hide content publicly. A paused connection arguably
-  should keep publishing what it already landed and merely stop syncing. Get the
-  ruling. `LIFE-2` and `LIFE-4` (disconnected/deleted) are not in doubt.
+- **`LIFE-3` embeds a product ruling, not a bug** — and settling the ruling is not
+  the same as closing the finding. It asserts `is_active = false` (a *paused*
+  connection) should hide content publicly. **OWNER RULING 2026-08-19: pause =
+  hide**, confirming what `LiveSourceScope` already encoded.
+  **A ticked box hid a live gap for a day.** The overnight run ticked `LIFE-3` on
+  the strength of the ruling and applied `LiveSourceScope` to `statsFor()` /
+  `$sourceLinks` / `$offerLinks` — but not to the surface `LIFE-3` actually named.
+  `$sourcePlatforms` (`PoolResolver.php:723`) reads `$sourceRows` and filtered
+  only on `source_kind`/`connection_id`, so a paused connection could still supply
+  an item's fallback public `platform`/`url`. Closed 2026-08-19 second pass.
+  The filter belongs on `$sourcePlatforms`, **not** on `$sourceRows`: that query
+  also feeds the item sheet's Sources list, which deliberately keeps a paused
+  connection so it can badge it `active: false`. Both halves are now pinned in
+  `tests/Feature/Content/PoolSourceLivenessTest.php`.
+  Note the interaction — the `LIFE-4` fix made this path *hotter*: dropping a
+  paused source's `f_link` is exactly what leaves `$primary` null and falls
+  through to the fallback. Fixing one finding can widen its neighbour.
 - **The P1 execute prompt says "NINE findings" and lists ten** (`LIFE-2, 3, 4, 8`,
   `SEC-2`, `SEC-1`, `SEC-5`, `LIFE-19`, `LIFE-6`, `WHK-1`).
 - **`WHK-1` cannot be reproduced on SQLite.** The scenario is a NUL byte rejected by
