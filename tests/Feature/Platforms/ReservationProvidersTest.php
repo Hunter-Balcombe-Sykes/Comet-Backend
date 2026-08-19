@@ -100,15 +100,8 @@ it('parses nowbookit ids and builds the widget embed', function () {
 
 // ── HTTP: detect → connect → status → forget ──────────────────────────
 
-it('routes resdiary + nowbookit urls to their connect step', function () {
-    $user = resUser('rp1');
-
-    actingAsUser($user)->postJson('/api/platforms/reservations/detect', ['url' => 'https://booking.resdiary.com/widget/Standard/Ollies'])
-        ->assertOk()->assertJsonPath('provider', 'resdiary')->assertJsonPath('next', 'resdiary-connect');
-
-    actingAsUser($user)->postJson('/api/platforms/reservations/detect', ['url' => 'https://booking.nowbookit.com/steps/sitting-details?accountid=1&venueid=2'])
-        ->assertOk()->assertJsonPath('provider', 'nowbookit')->assertJsonPath('next', 'nowbookit-connect');
-});
+// (The category /detect endpoint left 2026-08-19 — provider detection is the
+// router's job now; the per-provider connects below are the live contract.)
 
 it('connects resdiary and reports it as the reservation', function () {
     $user = resUser('rp2');
@@ -116,11 +109,9 @@ it('connects resdiary and reports it as the reservation', function () {
     actingAsUser($user)->postJson('/api/platforms/resdiary/connect', ['url' => 'https://booking.resdiary.com/widget/Standard/Ollies'])
         ->assertOk()->assertJsonPath('embedUrl', 'https://booking.resdiary.com/widget/Standard/Ollies');
 
-    actingAsUser($user)->getJson('/api/platforms/reservations/status')
-        ->assertOk()
-        ->assertJsonPath('connected', true)
-        ->assertJsonPath('provider', 'resdiary')
-        ->assertJsonPath('embedUrl', fn ($u) => str_contains((string) $u, 'widget/Standard/Ollies'));
+    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->firstOrFail();
+    expect($row->is_active)->toBeTrue();
+    expect((string) $row->payload['embedUrl'])->toContain('widget/Standard/Ollies');
 });
 
 it('connects nowbookit and rejects a link missing venue ids', function () {
@@ -129,17 +120,17 @@ it('connects nowbookit and rejects a link missing venue ids', function () {
     actingAsUser($user)->postJson('/api/platforms/nowbookit/connect', ['url' => 'https://booking.nowbookit.com/steps/sitting-details?accountid=12&venueid=34'])
         ->assertOk()->assertJsonPath('accountId', '12')->assertJsonPath('venueId', '34');
 
-    actingAsUser($user)->getJson('/api/platforms/reservations/status')->assertJsonPath('provider', 'nowbookit');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'nowbookit')->exists())->toBeTrue();
 
     actingAsUser(resUser('rp3b'))->postJson('/api/platforms/nowbookit/connect', ['url' => 'https://www.nowbookit.com/'])
         ->assertStatus(422);
 });
 
-it('clears a resdiary reservation via reservations forget (single-slot)', function () {
+it('clears a resdiary reservation via the provider forget', function () {
     $user = resUser('rp4');
 
     actingAsUser($user)->postJson('/api/platforms/resdiary/connect', ['url' => 'https://booking.resdiary.com/widget/Standard/Ollies'])->assertOk();
-    actingAsUser($user)->deleteJson('/api/platforms/reservations')->assertOk()->assertJsonPath('connected', false);
+    actingAsUser($user)->deleteJson('/api/platforms/resdiary')->assertOk();
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeFalse();
 });

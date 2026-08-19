@@ -5,7 +5,6 @@ namespace App\Http\Requests\Api\User;
 use App\Enums\AccountType;
 use App\Http\Requests\BaseFormRequest;
 use App\Models\Core\User\User;
-use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Validation\Rule;
 
 // V2: Validates professional profile updates — display name, contact info, location, and email/phone sanitization.
@@ -15,10 +14,14 @@ class UpdateUserRequest extends BaseFormRequest
     {
         return [
             // keep handle out of this endpoint (handle changes should be a dedicated flow).
-            // Business accounts' display name IS the business name (Google adoption
-            // mirrors it — capability google_business_sets_display_name), so it gets
-            // the same 15-char cap as workplace names; personal partna names keep 255.
-            'display_name' => ['sometimes', 'required', 'string', $this->displayNameMax()],
+            // One cap for both account types (2026-08-19 identity plan,
+            // decision 9): display_name is user-owned after Google's initial
+            // seed, so the business 15-char workplace-name cap no longer
+            // applies to it.
+            'display_name' => ['sometimes', 'required', 'string', 'max:255'],
+
+            // Owner-authored About Me paragraph (users.bio), both types.
+            'bio' => ['sometimes', 'nullable', 'string', 'max:1000'],
 
             'first_name' => ['sometimes', 'required', 'string', 'max:255'],
             'last_name' => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -48,16 +51,6 @@ class UpdateUserRequest extends BaseFormRequest
             'location_postcode' => ['sometimes', 'nullable', 'string', 'max:255'],
             'location_country' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
-    }
-
-    /** max:15 when display_name is a business name (see rules() comment), else max:255. */
-    private function displayNameMax(): string
-    {
-        $user = $this->attributes->get('professional');
-
-        return $user instanceof User && AccountCapabilities::for($user)->google_business_sets_display_name
-            ? 'max:15'
-            : 'max:255';
     }
 
     protected function prepareForValidation(): void

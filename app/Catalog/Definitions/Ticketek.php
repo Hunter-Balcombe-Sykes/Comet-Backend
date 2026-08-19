@@ -31,6 +31,10 @@ class Ticketek
         return [
             SurfaceBuilder::for('ticketek.tickets')
                 ->displayName('Ticketek')
+                // Not a limited kind of link (owner, 2026-08-19): a content or events
+                // page is one of several a person may run — the 1-account default is for
+                // bookings/reservations/ordering (one provider) and socials (one profile).
+                ->multiAccount(5)
                 ->routing(RoutingClass::Events)
                 ->shelf(Shelf::Events)
                 ->identifier(IdentifierKind::Url)

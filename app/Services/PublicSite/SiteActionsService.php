@@ -259,7 +259,15 @@ class SiteActionsService
         //
         // createdAt is null: a pool item's ordering is its PIN order, which the
         // owner set, and inventing a timestamp here would let recency outrank it.
-        foreach ($this->links->cardsForSite($site) as $card) {
+        // Fail-open like the presence probes: the actions layer must never
+        // 500 a sitepage because the content lane is absent/hiccuping (and
+        // several SQLite suites run this without content.* provisioned).
+        try {
+            $poolCards = $this->links->cardsForSite($site);
+        } catch (\Illuminate\Database\QueryException) {
+            $poolCards = [];
+        }
+        foreach ($poolCards as $card) {
             $url = $this->safeHref($card['url'] ?? null);
             if ($url === null) {
                 continue;

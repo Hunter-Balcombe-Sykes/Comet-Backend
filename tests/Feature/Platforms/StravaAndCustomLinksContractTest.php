@@ -37,9 +37,11 @@ function stravaCustomUser(string $h): User
 
 // ── Strava /selection ─────────────────────────────────────────────────────────
 
-// ── Custom links GET /api/platforms/custom/links ──────────────────────────────
+// ── Custom link CARD shape (LinkPoolReader::cards) ───────────────────────────
+// The /platforms/custom/links endpoint left 2026-08-19; cards() is the shape
+// every live reader consumes, so the snapshot pins the service now.
 
-it('custom/links freezes the exact per-link shape and strips payload-only fields', function () {
+it('the link card freezes the exact per-link shape and strips payload-only fields', function () {
     $user = stravaCustomUser('clsel1');
     $siteId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.sites')->insert([
@@ -70,22 +72,21 @@ it('custom/links freezes the exact per-link shape and strips payload-only fields
         'computed_at' => now()->toDateTimeString(),
     ]);
 
-    actingAsUser($user)->getJson('/api/platforms/custom/links')
-        ->assertOk()
-        ->assertExactJson(['links' => [[
+    expect(app(\App\Services\Content\LinkPoolReader::class)->cards($user->refresh()))
+        ->toEqual([[
             'id' => $id,
             'url' => 'https://acme.example',
             'name' => 'Acme Corp',
             'description' => 'The best company.',
             'favicon' => null,
             'logo' => null,
-            // Rides every dashboard link since 2026-08-04 (content_popularity
-            // ranks keyed by the link URL) — the Smart order switch sorts on it.
-            'popularityRank' => 2,
-        ]]]);
+            // popularityRank left this shape with the retired controller —
+            // the links POOL wire carries per-item ranks now (PoolResolver),
+            // pinned by the content-pool contract tests.
+        ]]);
 });
 
-it('custom/links emits nulls for absent optional fields and unseeded ranks', function () {
+it('the link card emits nulls for absent optional fields and unseeded ranks', function () {
     $user = stravaCustomUser('clsel2');
     $siteId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.sites')->insert([
@@ -103,17 +104,15 @@ it('custom/links emits nulls for absent optional fields and unseeded ranks', fun
     // site exists and the reader runs its real query, it just finds nothing to
     // key against. The legitimate "no rank yet" contract, not the RANK-1
     // mismatch (which produced null for every link, seeded or not).
-    actingAsUser($user)->getJson('/api/platforms/custom/links')
-        ->assertOk()
-        ->assertExactJson(['links' => [[
+    expect(app(\App\Services\Content\LinkPoolReader::class)->cards($user->refresh()))
+        ->toEqual([[
             'id' => $id,
             'url' => 'https://minimal.example',
             'name' => 'minimal.example',
             'description' => null,
             'favicon' => null,
             'logo' => null,
-            'popularityRank' => null,
-        ]]]);
+        ]]);
 });
 
 // The two strava cases were removed 2026-08-16: they froze the 6-key card

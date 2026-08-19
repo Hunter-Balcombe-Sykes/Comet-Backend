@@ -10,11 +10,12 @@ use Illuminate\Validation\Rule;
  * Visit/click volume over a lookback window, as a correlated subquery against
  * the raw analytics event tables.
  *
- * Source note: analytics.site_metrics_daily would be the natural home for this
- * but is vestigial — it has no writer and zero rows. The raw event tables are
- * where the data actually lands, and both carry a (user_id, occurred_at DESC)
- * index that serves this lookup. Raw events are purged at 90 days, which is
- * why window_days is capped there rather than at a year.
+ * Source note: the pre-standalone design put this on a daily rollup table.
+ * That rollup never had a writer and was dropped on 2026-08-19 — the raw
+ * event tables are where the data actually lands, and both carry a
+ * (user_id, occurred_at DESC) index that serves this lookup. Raw events are
+ * purged at 90 days, which is why window_days is capped there rather than at
+ * a year.
  */
 final class AnalyticsCriterion implements SegmentCriterion
 {

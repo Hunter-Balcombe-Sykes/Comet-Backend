@@ -24,7 +24,55 @@ final readonly class Rulepack
         /** @var array<string, string> detector id => surface key */
         public array $detectorSurface,
         public string $catalogDigest,
+        /**
+         * Detector ids the staff kill-switch has suspended
+         * (catalog.detector_suspensions).
+         *
+         * Runtime state, deliberately carried on the compiled pack: the
+         * projector's contract is f(Iri, Rulepack) → Projection with no I/O,
+         * so a suspension has to arrive as DATA rather than as a query inside
+         * project(). Resolved once when the container builds the singleton —
+         * see AppServiceProvider — which also keeps it off the per-URL path.
+         *
+         * Empty by default so the compile/reproject/corpus call sites keep the
+         * PURE pack: baking a runtime suspension into the artefact would make
+         * `catalog:compile` output depend on the day it ran.
+         *
+         * @var list<string>
+         */
+        public array $suspended = [],
     ) {}
+
+    /**
+     * Layer the runtime kill-switch onto a compiled pack, returning a copy.
+     *
+     * A copy, not a mutation: Rulepack is a readonly singleton shared with
+     * `catalog:compile` and `routing:reproject`, both of which want the pure
+     * pack.
+     *
+     * @param  list<string>  $detectorIds
+     */
+    public function withSuspensions(array $detectorIds): self
+    {
+        return new self(
+            $this->byRegistrableKey,
+            $this->detectors,
+            $this->detectorSurface,
+            $this->catalogDigest,
+            $detectorIds,
+        );
+    }
+
+    /**
+     * A linear scan on purpose: the set holds a handful of entries at most and
+     * is empty in the normal case, so an index would cost a constructor body
+     * and a second property on a value object that is otherwise pure promoted
+     * params.
+     */
+    public function isSuspended(string $detectorId): bool
+    {
+        return in_array($detectorId, $this->suspended, true);
+    }
 
     public static function fromCompiledCatalog(): self
     {

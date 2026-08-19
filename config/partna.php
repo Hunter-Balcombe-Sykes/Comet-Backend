@@ -2038,6 +2038,20 @@ return [
         'prune_batch_size' => (int) env('PARTNA_SITE_DOCUMENT_PRUNE_BATCH_SIZE', 500),
     ],
 
+    'catalog' => [
+        // How long the detector kill-switch set is memoised. Short on purpose:
+        // this is also the worst-case delay before a suspension that missed
+        // its invalidation stops applying, and the read it saves is one
+        // primary-key scan of a table that holds a handful of rows.
+        'suspension_cache_ttl_seconds' => (int) env('PARTNA_CATALOG_SUSPENSION_CACHE_TTL_SECONDS', 60),
+
+        // Ceiling on the masked path shape recorded in catalog.unmatched_domains.
+        // The shape is for triage ("is this a profile URL or a product URL?"),
+        // so a handful of segments is all it needs to be useful — and a bound
+        // is what stops a pathological URL becoming the row.
+        'unmatched_path_shape_segments' => (int) env('PARTNA_CATALOG_UNMATCHED_PATH_SHAPE_SEGMENTS', 4),
+    ],
+
     'routing' => [
         'probe' => [
             // Probes one worker run may spend. Deliberately small: a page with

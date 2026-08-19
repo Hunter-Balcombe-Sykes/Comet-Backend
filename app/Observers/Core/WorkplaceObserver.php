@@ -67,99 +67,71 @@ class WorkplaceObserver
             );
         }
 
-        // Keep User.public_contact_number/email (what the public sitepage
-        // actually renders) in step with Workplace.phone/contact_email for
-        // EVERY writer, not just the dashboard's own save path (which used
-        // to be the only caller of this mirror — UserWorkplaceController's
-        // own mirrorContactFields() was removed in favour of this, so a
-        // scan/sync-written contact_email now reaches the public page
-        // automatically too, same as a manual edit always did).
-        if ($workplace->wasRecentlyCreated || $workplace->wasChanged(['phone', 'contact_email'])) {
-            $this->mirrorContactFields($workplace);
+        // One rule for every workplace-vs-person field (2026-08-19 identity
+        // plan): for a BUSINESS the workplace IS the account, so each field
+        // mirrors onto the matching user column; for a partna the two are
+        // independent and nothing mirrors. Gated on the capability, never on
+        // account_type.
+        if ($workplace->wasRecentlyCreated || $workplace->wasChanged(array_keys(self::IDENTITY_MIRROR))) {
+            $this->mirrorIdentityFields($workplace);
         }
     }
 
-    /**
-     * Workplace contact column -> the core.users column the PUBLIC PAGE renders.
-     *
-     * Per-field, and precedence-aware since 2026-08-19. It used to assign both
-     * columns unconditionally, which silently defeated IdentitySync's documented
-     * partna contract ("Google fills gaps only; never clobbers a value the user
-     * set by hand"). That guard is enforced on site.workplaces, and the save that
-     * enforces it fires THIS observer — before IdentitySync reaches its own user
-     * mirror. So an automated write that legitimately filled a blank workplace
-     * phone went on to overwrite a hand-typed public_contact_number, and
-     * IdentitySync's guard then no-opped with nothing left to protect. Pinned by
-     * "a partna google connect does not clobber a hand-typed public contact
-     * number" in tests/Feature/Platforms/IdentitySyncTest.php.
-     */
-    private function mirrorContactFields(Workplace $workplace): void
+    // workplace column => user column. `country` mirrors to location_country
+    // only — country_code stays alone, it also drives phone formatting.
+    private const IDENTITY_MIRROR = [
+        'phone' => 'public_contact_number',
+        'contact_email' => 'public_contact_email',
+        'description' => 'bio',
+        'address_line1' => 'location_street_address',
+        'city' => 'location_city',
+        'state' => 'location_state',
+        'postcode' => 'location_postcode',
+        'country' => 'location_country',
+    ];
+
+    private function mirrorIdentityFields(Workplace $workplace): void
     {
         try {
             $user = $workplace->site?->user;
             if ($user === null) {
                 return;
             }
-
-            // data_get, not is_array + offsets: field_sources is a jsonb column
-            // whose @property annotation is a claim about its writers, not a
-            // constraint the DB enforces, and data_get degrades to null on a
-            // null/scalar value instead of throwing on an illegal offset.
-            // The one sanctioned account_type read (CLAUDE.md): true for Business
-            // Partna, which grants external listings authority over identity.
-            // Named for Google because that is the precedence it was introduced
-            // for, but the question here is the general one — "may an automated
-            // source outrank the user?" — and the answer is the same per type for
-            // every writer that stamps field_sources.
-            $externalWins = AccountCapabilities::for($user)->google_business_full_sync;
-
-            $dirty = false;
-
-            foreach (['phone' => 'public_contact_number', 'contact_email' => 'public_contact_email'] as $field => $column) {
-                if ($user->{$column} === $workplace->{$field}) {
-                    continue;
-                }
-                if (! $this->mayMirror($user->{$column}, data_get($workplace->field_sources, "{$field}.source"), $externalWins)) {
-                    continue;
-                }
-                $user->{$column} = $workplace->{$field};
-                $dirty = true;
+            if (! AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
+                return;
             }
 
+            // On CREATE, mirror only NON-NULL fields; on UPDATE, mirror
+            // exactly what wasChanged() reports (nulls included, so clearing
+            // still clears). The old mirror assigned unconditionally on
+            // create, so a workplace row minted for an unrelated reason
+            // (setPreviousWebsite's updateOrCreate, the content scan's
+            // firstOrNew) WIPED the user's fields with nulls — widening the
+            // mirror from 2 columns to 8 makes that rule load-bearing.
+            $dirty = false;
+            foreach (self::IDENTITY_MIRROR as $from => $to) {
+                if ($workplace->wasRecentlyCreated) {
+                    if ($workplace->{$from} === null) {
+                        continue;
+                    }
+                } elseif (! $workplace->wasChanged($from)) {
+                    continue;
+                }
+                if ($user->{$to} !== $workplace->{$from}) {
+                    $user->{$to} = $workplace->{$from};
+                    $dirty = true;
+                }
+            }
             if ($dirty) {
                 $user->save();
             }
         } catch (\Throwable $e) {
             report($e);
-            Log::warning('WorkplaceObserver contact-mirror failed', [
+            Log::warning('WorkplaceObserver identity-mirror failed', [
                 'site_id' => $workplace->site_id,
                 'message' => $e->getMessage(),
             ]);
         }
-    }
-
-    /**
-     * May a workplace write replace what is already on the user's public column?
-     *
-     * @param  string|null  $source  field_sources provenance for the workplace field
-     *                               ('manual' | 'google-business' | 'website-scan' | 'instagram' | null)
-     */
-    private function mayMirror(?string $current, ?string $source, bool $externalWins): bool
-    {
-        // Nothing of the user's to protect.
-        if ($current === null || $current === '') {
-            return true;
-        }
-
-        // They just typed it on the workplace card — that IS the intent, and it
-        // is the case the original unconditional mirror existed to serve.
-        if ($source === 'manual') {
-            return true;
-        }
-
-        // Otherwise an automated source is proposing the change; only a business
-        // account has granted external listings that authority.
-        return $externalWins;
     }
 
     public function deleted(Workplace $workplace): void

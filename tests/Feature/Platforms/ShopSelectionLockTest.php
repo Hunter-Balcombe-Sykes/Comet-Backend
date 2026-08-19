@@ -194,7 +194,6 @@ it('T16c: the full ShopBrandResource shape, including the productsCuratedAt stam
         // to Site::DEFAULT_SHOP_LINK_MODE ('checkout'), not ShopBrand's own
         // per-brand column default ('product'). Same documented divergence
         // as ShopEndpointParityTest's GET /brands test.
-        'linkMode' => 'checkout',
         'referralQuery' => '',
         'individual' => false,
         // Task 8: the ShopContentReader reconstruction shape — a bare

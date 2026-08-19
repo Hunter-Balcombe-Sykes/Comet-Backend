@@ -440,7 +440,6 @@ it('shopify addBrand returns the canonical brand object shape', function () {
             // than the 'product' default the retired per-brand link_mode
             // column carried. Same documented divergence as
             // ShopEndpointParityTest's GET /brands.
-            'linkMode' => 'checkout',
             'referralQuery' => '',
             'individual' => false,
             'products' => [],
@@ -469,7 +468,7 @@ it('shopify brands list strips unknown per-brand keys', function () {
             'id' => 'brand-1', 'provider' => 'shopify', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
             'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE',
             // Task 8: see the addBrand test above for why 'checkout'.
-            'selectionMode' => 'manual', 'autoLatest' => true, 'linkMode' => 'checkout', 'referralQuery' => '',
+            'selectionMode' => 'manual', 'autoLatest' => true, 'referralQuery' => '',
             'individual' => false, 'products' => [],
         ]]]);
 });

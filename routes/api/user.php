@@ -88,10 +88,16 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // writes if the suggestions land somewhere a person can resolve them.
         Route::get('/routing/suggestions', [SuggestionsController::class, 'index'])
             ->name('user.routing.suggestions');
+        // Not whereUuid since 2026-08-19: the inbox also carries rows folded
+        // from ledgers that have no uuid of their own — a legacy payload
+        // finding is addressed `sync:{holder}:{platform}`, and the standing
+        // Google-listing offer is `listing:opentable`. The controller resolves
+        // the shape and 404s an id that matches nothing, which is the same
+        // answer a bogus uuid got.
         Route::post('/routing/suggestions/{intent}/accept', [SuggestionsController::class, 'accept'])
-            ->whereUuid('intent')->name('user.routing.suggestions.accept');
+            ->where('intent', '[A-Za-z0-9:_.-]{1,120}')->name('user.routing.suggestions.accept');
         Route::post('/routing/suggestions/{intent}/dismiss', [SuggestionsController::class, 'dismiss'])
-            ->whereUuid('intent')->name('user.routing.suggestions.dismiss');
+            ->where('intent', '[A-Za-z0-9:_.-]{1,120}')->name('user.routing.suggestions.dismiss');
 
         // Connections with per-class is_primary, and the SetPrimarySheet's
         // write: one primary CTA per (user, routing_class), swapped in a

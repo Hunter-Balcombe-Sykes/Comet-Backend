@@ -399,8 +399,7 @@ it('GET /brands — matches the pre-Task-7 dump, with every remaining divergence
                 // constant 'manual' (see ShopContentReader's docblock).
                 // Deliberate, coordinator-directed spec change: selection_
                 // mode's only real-world value was already the default.
-                'discountCode' => 'SAVE10', 'selectionMode' => 'manual', 'linkMode' => 'checkout',
-                'referralQuery' => 'ref=abc123', 'individual' => false,
+                'discountCode' => 'SAVE10', 'selectionMode' => 'manual', 'referralQuery' => 'ref=abc123', 'individual' => false,
                 'products' => brandAProductsDashboardShape(),
                 'logoMark' => 'https://cdn.example.com/a-mark.png',
                 'logoMarkSvg' => 'https://cdn.example.com/a-mark.svg',
@@ -416,8 +415,7 @@ it('GET /brands — matches the pre-Task-7 dump, with every remaining divergence
                 // (one value for the whole map, this fixture's site
                 // defaults to 'checkout'), since it is really ONE site-wide
                 // setting, never a per-brand one.
-                'discountCode' => '', 'selectionMode' => 'manual', 'linkMode' => 'checkout',
-                'referralQuery' => '', 'individual' => false,
+                'discountCode' => '', 'selectionMode' => 'manual', 'referralQuery' => '', 'individual' => false,
                 'products' => brandBProductsDashboardShape(),
             ],
             [
@@ -435,8 +433,7 @@ it('GET /brands — matches the pre-Task-7 dump, with every remaining divergence
                 // (ShopBrand.name was set to null), so there is no
                 // divergence to accept here, only a fix to prove.
                 'name' => null, 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
-                'discountCode' => '', 'selectionMode' => 'manual', 'linkMode' => 'checkout',
-                'referralQuery' => '', 'individual' => false,
+                'discountCode' => '', 'selectionMode' => 'manual', 'referralQuery' => '', 'individual' => false,
                 'products' => brandCProductsDashboardShape(),
             ],
         ],
@@ -485,6 +482,8 @@ it('GET /settings — matches the pre-Task-7 dump', function () {
     // pins + latest-per-source shape — otherwise every store would publish
     // its newest product the moment it connects.
     $res->assertExactJson([
+        // The SITE-WIDE linkMode lives here and stays — only the per-brand
+        // echo left the wire (2026-08-19).
         'linkMode' => 'checkout',
         'autoLatest' => false,
     ]);
@@ -512,8 +511,7 @@ it('GET /brands/{id}/connect/status — matches the pre-Task-7 dump', function (
             'autoLatest' => false,
             // DOCUMENTED DIVERGENCE — see the identical note in the
             // GET /brands test above.
-            'discountCode' => 'SAVE10', 'selectionMode' => 'manual', 'linkMode' => 'checkout',
-            'referralQuery' => 'ref=abc123', 'individual' => false,
+            'discountCode' => 'SAVE10', 'selectionMode' => 'manual', 'referralQuery' => 'ref=abc123', 'individual' => false,
             'products' => $productsNoRank,
             'logoMark' => 'https://cdn.example.com/a-mark.png',
             'logoMarkSvg' => 'https://cdn.example.com/a-mark.svg',

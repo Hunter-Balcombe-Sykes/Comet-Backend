@@ -62,10 +62,12 @@ it('emits exactly the documented top-level and profile-nested key set', function
     // 2026-08-19: pools carry the content, per-item popularityRank the rank.
     // `feed` joined 2026-08-19 (spec `docs/superpowers/specs/2026-08-19-item-feed-design.md`
     // §3): ordered references into `pools`, always present.
+    // `bio` joined 2026-08-19 (identity plan): the owner's About Me
+    // paragraph, string|null, plumbed not mounted.
     expect(array_keys($array['profile']))->toBe([
         'handle', 'displayName', 'accountType', 'site_id',
         'pools', 'feed', 'brand',
-        'document', 'newsletter', 'contact', 'publicContact', 'workplace',
+        'document', 'newsletter', 'contact', 'publicContact', 'bio', 'workplace',
     ]);
 
     // (The skeletonId transition alias was dropped 2026-08-05 — apps/pages

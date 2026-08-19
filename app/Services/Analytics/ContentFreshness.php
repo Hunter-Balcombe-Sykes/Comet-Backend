@@ -75,14 +75,36 @@ class ContentFreshness
                     }
                 }
 
-                // Custom link rows: content_key = payload.url (byte-stable).
-                if ($conn->platform === 'custom') {
-                    $url = is_array($conn->payload) ? ($conn->payload['url'] ?? null) : null;
-                    if (is_string($url) && $url !== '') {
-                        $linkItems[$url] = $conn->created_at;
-                    }
-                }
             });
+
+        // Custom links live in the `custom_links` POOL (content.items kind
+        // 'link' + f_link.url) — the legacy `platform='custom'` connection
+        // rows this arm used to read were retired 2026-08-19 and can no
+        // longer exist. content_key stays the URL (byte-stable). Best-effort
+        // like the rest of this heuristic: a lane without the content tables
+        // (several SQLite suites) simply contributes no link boosts.
+        try {
+            DB::connection('pgsql')->table('content.items as i')
+                ->join('content.f_link as fl', 'fl.item_id', '=', 'i.id')
+                ->where('i.user_id', $site->user_id)
+                ->where('i.kind', 'link')
+                ->whereNull('i.removed_at')
+                ->get(['fl.url', 'i.created_at'])
+                ->each(function ($row) use (&$pageNewest, &$linkItems): void {
+                    if (! is_string($row->url) || $row->url === '') {
+                        return;
+                    }
+                    $createdAt = Carbon::parse($row->created_at);
+                    $linkItems[$row->url] = $createdAt;
+                    // A fresh link also freshens the Links PAGE — the role the
+                    // retired custom connection's PLATFORM_TO_PAGE entry played.
+                    if (! isset($pageNewest['links']) || $createdAt->gt($pageNewest['links'])) {
+                        $pageNewest['links'] = $createdAt;
+                    }
+                });
+        } catch (\Illuminate\Database\QueryException) {
+            // content.* not provisioned — no pool, no boost.
+        }
 
         // Services are content items with a stable created_at; a newly added
         // one freshens the Book page. Services cutover (carried open since

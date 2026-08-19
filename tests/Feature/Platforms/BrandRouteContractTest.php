@@ -34,13 +34,13 @@ it('emits the platform route contract for every derived brand', function () {
     }
 });
 
-it('keeps the family-wide disconnect endpoints', function () {
-    // Owner ruling 4: the per-brand DELETE is an ADDITION. The family-wide
-    // endpoint keeps meaning "remove every connection of this class" and is what
-    // a connect sheet's clear-all calls.
-    expect(brandRouteExists('DELETE', 'api/platforms/online-ordering'))->toBeTrue();
-    expect(brandRouteExists('DELETE', 'api/platforms/booking'))->toBeTrue();
-    expect(brandRouteExists('DELETE', 'api/platforms/reservations'))->toBeTrue();
+it('the retired family-wide disconnect endpoints stay gone', function () {
+    // The category controllers left 2026-08-19 (pseudo-platform retirement);
+    // the per-brand DELETE is the whole contract now. Inverted so a
+    // reintroduction is a loud, deliberate change.
+    expect(brandRouteExists('DELETE', 'api/platforms/online-ordering'))->toBeFalse();
+    expect(brandRouteExists('DELETE', 'api/platforms/booking'))->toBeFalse();
+    expect(brandRouteExists('DELETE', 'api/platforms/reservations'))->toBeFalse();
 });
 
 it('routes derived connects to connectBrand, never to connect', function () {

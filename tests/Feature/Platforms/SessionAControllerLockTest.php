@@ -184,7 +184,7 @@ it('POST /platforms/google-business/synced/apply runs applyFinding OUTSIDE the l
     Log::spy();
 
     try {
-        actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'instagram'])
+        actingAsUser($user)->postJson('/api/routing/suggestions/sync:google-business:instagram/accept')
             ->assertStatus(423)
             ->assertJson(['message' => 'Another change is still saving — please retry in a moment.']);
     } finally {

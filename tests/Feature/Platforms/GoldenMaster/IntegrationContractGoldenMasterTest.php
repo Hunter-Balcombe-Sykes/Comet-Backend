@@ -438,7 +438,7 @@ it('freezes the shop brands list contract', function () {
             // Site::DEFAULT_SHOP_LINK_MODE ('checkout'), not the 'product'
             // default the retired per-brand link_mode column carried. Same
             // documented divergence as ShopEndpointParityTest's GET /brands.
-            'selectionMode' => 'manual', 'autoLatest' => true, 'linkMode' => 'checkout', 'referralQuery' => '',
+            'selectionMode' => 'manual', 'autoLatest' => true, 'referralQuery' => '',
             'individual' => false, 'products' => [],
         ]]]);
 });
@@ -447,36 +447,8 @@ it('freezes the shop brands list contract', function () {
 // These pins freeze the empty-state contract so a structural change to the
 // status aggregators is immediately visible as a test failure.
 
-// booking/status: aggregates fresha > square > custom booking connections.
-// Empty state: no connection of any booking-family type.
-it('freezes booking status contract when nothing is connected', function () {
-    $user = gmUser('gmbook');
-    actingAsUser($user)->getJson('/api/platforms/booking/status')
-        ->assertOk()
-        ->assertExactJson([
-            'connected' => false,
-            'provider' => null,
-            'name' => null,
-            'url' => null,
-            'setup' => null,
-        ]);
-});
-
-// reservations/status: aggregates opentable > resdiary > nowbookit > custom.
-// Empty state includes embedUrl (null) — that key is absent from booking/status.
-it('freezes reservations status contract when nothing is connected', function () {
-    $user = gmUser('gmres');
-    actingAsUser($user)->getJson('/api/platforms/reservations/status')
-        ->assertOk()
-        ->assertExactJson([
-            'connected' => false,
-            'provider' => null,
-            'name' => null,
-            'url' => null,
-            'embedUrl' => null,
-        ]);
-});
-
+// The booking/reservations category status pins left 2026-08-19 with their
+// endpoints (pseudo-platform retirement).
 // menu/status: driven by online-ordering entries (Uber Eats / DoorDash).
 // No ordering entries → not connected. itemCount, source, fetchStatus are all
 // surfaced even in the disconnected state (drives the dashboard card loading).
@@ -575,7 +547,15 @@ it('covers every integration GET read-route in the golden master', function () {
     // 2026-08-18 (task #17): gumroad (a shop-class surface we do not sync as a
     // store), mixcloud and tidal (profile / artist link cards; the widget
     // embeds stay dormant) join the Brand shape. 136 -> 139.
-    expect($readRoutes->count())->toBe(139);
+    // 2026-08-19: 13 content/events surfaces lost the default 1-account cap
+    // (owner: only bookings/reservations/ordering and socials are limited kinds
+    // of link — a Mixcloud or a Luma page is one of several a person may run).
+    // multiAccount() emits the /accounts pair, so the 11 of them that are not
+    // LinkOnly (skool and strava expose /selection alone) each contribute one
+    // GET. 139 -> 150.
+    // 150 → 141 on 2026-08-19: the nine pseudo-platform category reads and the
+    // reservations suggestion left with the retirement.
+    expect($readRoutes->count())->toBe(141);
     expect($readRoutes->all())->toEqual([
         'api/platforms/acuity/selection',
         'api/platforms/apple/music/accounts',
@@ -589,8 +569,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/bandcamp/selection',
         'api/platforms/behance/selection',
         'api/platforms/bella-booking/selection',
-        'api/platforms/booking/detect/status',
-        'api/platforms/booking/status',
         'api/platforms/booksy/selection',
         'api/platforms/bopple/selection',
         'api/platforms/boulevard/selection',
@@ -598,10 +576,9 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/calendly/selection',
         'api/platforms/chope/selection',
         'api/platforms/chownow/selection',
+        'api/platforms/circle/accounts',
         'api/platforms/circle/selection',
         'api/platforms/codepen/selection',
-        'api/platforms/custom/links',
-        'api/platforms/custom/links/{id}/status',
         'api/platforms/deliveroo/selection',
         'api/platforms/discord/selection',
         'api/platforms/doordash/selection',
@@ -611,7 +588,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/eventbrite/accounts',
         'api/platforms/eventbrite/connect/status',
         'api/platforms/eventbrite/selection',
-        'api/platforms/events/selection',
         'api/platforms/facebook/selection',
         'api/platforms/fresha/connect/status',
         'api/platforms/fresha/selection',
@@ -629,11 +605,13 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/instagram/connect/status',
         'api/platforms/instagram/selection',
         'api/platforms/just_eat/selection',
+        'api/platforms/kajabi/accounts',
         'api/platforms/kajabi/selection',
         'api/platforms/kick/selection',
         'api/platforms/kitomba/selection',
         'api/platforms/ko-fi/selection',
         'api/platforms/linkedin/selection',
+        'api/platforms/luma/accounts',
         'api/platforms/luma/selection',
         'api/platforms/mangomint/selection',
         'api/platforms/medium/selection',
@@ -642,24 +620,24 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/menulog/selection',
         'api/platforms/meta',
         'api/platforms/mindbody/selection',
+        'api/platforms/mixcloud/accounts',
         'api/platforms/mixcloud/selection',
         'api/platforms/noterro/selection',
         'api/platforms/nowbookit/selection',
-        'api/platforms/online-ordering/entries',
-        'api/platforms/online-ordering/entries/{id}/status',
         'api/platforms/opentable/selection',
         'api/platforms/order_online/selection',
         'api/platforms/ordermate/selection',
         'api/platforms/ovatu/selection',
+        'api/platforms/oztix/accounts',
         'api/platforms/oztix/selection',
+        'api/platforms/partiful/accounts',
         'api/platforms/partiful/selection',
         'api/platforms/patreon/selection',
         'api/platforms/phorest/selection',
         'api/platforms/quandoo/selection',
         'api/platforms/reddit/selection',
         'api/platforms/resdiary/selection',
-        'api/platforms/reservations/detect/status',
-        'api/platforms/reservations/status',
+        'api/platforms/resident-advisor/accounts',
         'api/platforms/resident-advisor/selection',
         'api/platforms/resy/selection',
         'api/platforms/schedulicity/selection',
@@ -688,14 +666,18 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/telegram/selection',
         'api/platforms/thefork/selection',
         'api/platforms/threads/selection',
+        'api/platforms/ticketek/accounts',
         'api/platforms/ticketek/selection',
+        'api/platforms/ticketmaster/accounts',
         'api/platforms/ticketmaster/selection',
+        'api/platforms/tidal/accounts',
         'api/platforms/tidal/selection',
         'api/platforms/tiktok/selection',
         'api/platforms/timely/selection',
         'api/platforms/toast/selection',
         'api/platforms/tock/selection',
         'api/platforms/treatwell/selection',
+        'api/platforms/trybooking/accounts',
         'api/platforms/trybooking/selection',
         'api/platforms/twitch/selection',
         'api/platforms/uber_eats/selection',

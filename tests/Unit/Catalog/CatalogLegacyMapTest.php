@@ -79,7 +79,13 @@ it('matches the generated alias CASE pair-for-pair', function () {
         $sqlSpecials[$surface] = $legacy;
     }
 
-    expect($sqlSpecials)->toBe(LegacyPlatformMap::specialToLegacyMap());
+    // Historical: the applied generated-column CASE still carries the retired
+    // pseudo-surface aliases (zero rows to alias; an applied migration records
+    // what ran). ksort both — pair SET equality, not authoring order.
+    $expected = LegacyPlatformMap::historicalSpecialToLegacyMap();
+    ksort($sqlSpecials);
+    ksort($expected);
+    expect($sqlSpecials)->toBe($expected);
 });
 
 it('matches the SQLite test-schema generated CASE pair-for-pair', function () {
@@ -92,7 +98,10 @@ it('matches the SQLite test-schema generated CASE pair-for-pair', function () {
         $pairs[$surface] = $legacy;
     }
 
-    expect($pairs)->toBe(LegacyPlatformMap::specialToLegacyMap());
+    $expected = LegacyPlatformMap::historicalSpecialToLegacyMap();
+    ksort($pairs);
+    ksort($expected);
+    expect($pairs)->toBe($expected);
 });
 
 it('maps only onto surfaces that exist in the compiled artefact, with agreeing routing classes', function () {

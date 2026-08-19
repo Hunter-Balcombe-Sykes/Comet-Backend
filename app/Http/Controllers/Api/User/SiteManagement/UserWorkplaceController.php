@@ -153,14 +153,10 @@ class UserWorkplaceController extends ApiController
         // testing repairs: a scan/sync-written contact_email never used to
         // reach the public page until a manual save happened to touch it).
 
-        // Business accounts treat the workplace name as their public display
-        // name (same rule as GoogleBusinessController::maybeAdoptGoogleName),
-        // gated on the capability so the account_type read stays centralized.
-        if (AccountCapabilities::for($professional)->google_business_sets_display_name
-            && $professional->display_name !== $attributes['name']) {
-            $professional->display_name = $attributes['name'];
-            $professional->save();
-        }
+        // The manual display_name mirror is GONE (2026-08-19 identity plan,
+        // decision 8): display_name is user-owned after Google's initial seed
+        // (GoogleBusinessController::maybeAdoptGoogleName, which stays). A
+        // workplace-name edit no longer overwrites the public display name.
 
         // The 'workplace' section block reads its visibility from site.workplaces.
         // Re-evaluate is_enabled so the dashboard's Live toggle frees up the

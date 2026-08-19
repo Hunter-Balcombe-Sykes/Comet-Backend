@@ -1,16 +1,15 @@
 <?php
 
 // PWL-15 (Fresha forget() half, deferred from PWL-5/PWL-14): FreshaController::
-// forget() deletes the fresha connection row — the SAME delete BookingController::
-// clearBooking() performs under the booking-XOR lock as part of the single-slot
-// booking-family clear. "The Fresha delete has exactly one owner": both call
-// sites must serialize on the SAME cross-platform key (CacheKeyGenerator::
-// bookingXorLock()), not the per-platform 'fresha' lock forget() used pre-fix
-// (or, pre-fix, no lock at all). Mirrors BookingXorControllerLockTest.php /
-// FreshaConnectLockTest.php's proof shape: pre-acquire the exact key a
-// concurrent booking-family writer would hold, then prove forget() genuinely
-// contends on it (423) instead of sailing through and deleting the connection
-// underneath the "in-use" lock.
+// forget() deletes the fresha connection row under the booking-XOR lock —
+// the single cross-platform key every booking-family writer (Fresha + Square
+// connects, auto-sync applies) serializes on. "The Fresha delete has exactly
+// one owner": forget() must contend on CacheKeyGenerator::bookingXorLock(),
+// not the per-platform 'fresha' lock it used pre-fix. (The booking category
+// controller whose clearBooking() shared this key was retired 2026-08-19;
+// the lock discipline it proved lives on here.) Proof shape: pre-acquire the
+// exact key a concurrent booking-family writer would hold, then prove
+// forget() genuinely contends on it (423) instead of sailing through.
 //
 // CACHE_STORE=array in phpunit.xml, so Cache::lock() here is a real
 // in-process ArrayLock — the block(5, ...) wait in withCrossPlatformLock() is

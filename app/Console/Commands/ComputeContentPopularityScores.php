@@ -18,9 +18,10 @@ use Illuminate\Support\Str;
 /**
  * Recompute analytics.content_popularity_scores from the raw event tables.
  *
- * Reads ONLY raw events (analytics.section_views, .link_clicks, .item_views) —
- * never the vestigial site_metrics_daily/_hourly (no model/reader/writer). Per
- * site it produces two score families:
+ * Reads ONLY raw events (analytics.section_views, .link_clicks, .item_views).
+ * The site_metrics_daily/_hourly rollups this used to warn against were never
+ * populated and were dropped on 2026-08-19. Per site it produces two score
+ * families:
  *   - page scores      : section_views impressions + link_clicks, bucketed to
  *                        page-ids via SitepageId::SECTION_KEY_TO_PAGE, then
  *                        presence + Business gated (shared resolver gate).

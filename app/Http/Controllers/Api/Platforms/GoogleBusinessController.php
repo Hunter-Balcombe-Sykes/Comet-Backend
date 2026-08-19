@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
-use App\Catalog\LegacyPlatformMap;
 use App\Exceptions\Platforms\PlacesBudgetExhaustedException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
@@ -10,21 +9,16 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ConnectGoogleBusinessRequest;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
-use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
-use App\Rules\PlatformInRegistry;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\PlacesClaim;
 use App\Services\Platforms\DisplaySettingsFilter;
-use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Support\BusinessName;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Log;
 
 // Google Business — connect via the Places picker (canonical) or a pasted
 // Maps share link (legacy). Picker connects are enriched server-side with the
@@ -232,121 +226,6 @@ class GoogleBusinessController extends ApiController
         $user->save();
     }
 
-    // GET /api/platforms/google-business/synced
-    // The platforms THIS Google Business connect found — read from the connection's
-    // recorded syncFindings (scoped to the latest scrape), each re-shaped with a
-    // live status (synced / syncing / conflict). Only this run's findings appear,
-    // never platforms a previous connect already synced.
-    public function synced(Request $request): JsonResponse
-    {
-        $user = $this->currentUser($request);
-        $gb = $user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->first();
-        $findings = GoogleBusinessPayload::fromArray($gb?->payload)->syncFindings();
-
-        // Pre-load all connections keyed by "surface_key|resource_id" so
-        // shapeFinding can look up each seeded row in O(1) instead of issuing a
-        // DB query per finding.
-        //
-        // Convergence Phase 6: keyed on surface_key, not the legacy `platform`
-        // column. A finding's `platform` is now whatever the writer passed —
-        // a legacy slug for older findings, a brand surface for ordering ones —
-        // and surface_key is the one spelling both resolve to
-        // (LegacyPlatformMap::surfaceFor, exactly as BuildsAutoSyncFindings::write
-        // does on the way in). Left on `platform`, every ordering finding failed
-        // its lookup and was silently dropped from the modal.
-        $connections = $user->integrationConnections()
-            ->get()
-            ->keyBy(fn ($r) => $r->surface_key.'|'.$r->resource_id);
-
-        $synced = collect($findings)
-            ->map(fn ($f) => is_array($f) ? $this->shapeFinding($user, $f, $connections) : null)
-            ->filter()
-            ->values()
-            ->all();
-
-        return $this->success(['synced' => $synced]);
-    }
-
-    // POST /api/platforms/google-business/synced/apply
-    // "Change to" — swap the user's existing connection for the one Google found
-    // (a conflict finding): remove the existing, install Google's (or re-run the
-    // Instagram scrape), and flip the finding to seeded so it shows as synced/syncing.
-    // PWL-1 correction: autoSync->applyFinding() writes to OTHER platforms' rows
-    // (reservation/ordering/social) and — under a sync queue connection — can run
-    // an Instagram Apify scrape inline (up to ~110s). It never touches THIS row,
-    // so it now runs OUTSIDE the lock entirely (mirrors
-    // the platform lane's fetch-outside/write-inside
-    // shape): holding a 10s-TTL lock across a ~110s foreign call would let it
-    // expire mid-call and reopen the exact lost-update window this lock exists
-    // to close. Only the final authoritative re-read → flip → write sits inside
-    // withConnectionLock, guarded against GoogleBusinessEnrichJob::persist()
-    // (same platform+user lock key) racing the mutation.
-    //
-    // U1: applyFinding() now takes its OWN lock internally (bookingXorLock /
-    // reservationsXorLock) for a booking/reservations-slot finding, returning
-    // false on contention. Staying outside withConnectionLock here is what
-    // ALSO keeps that lock-ordering acyclic (§9.4 of the U1 plan): this call
-    // fully releases before withConnectionLock is even requested below —
-    // sequential, never nested — so a future "tidy-up" that moved it inside
-    // withConnectionLock would create a genuine ABBA cycle against
-    // FreshaController::connect() (which nests bookingXorLock outer,
-    // platform lock inner). Do not move it.
-    public function applySync(Request $request, GoogleBusinessAutoSync $autoSync): JsonResponse
-    {
-        $user = $this->currentUser($request);
-        $platform = $request->validate(['platform' => ['required', 'string', 'max:40', new PlatformInRegistry]])['platform'];
-
-        $gb = $user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->first();
-        $findings = GoogleBusinessPayload::fromArray($gb?->payload)->syncFindings();
-        $idx = $this->locateConflictFinding($findings, $platform);
-        if ($idx === null || $gb === null) {
-            return $this->error('Nothing to change for that platform.', 404);
-        }
-
-        if (! $autoSync->applyFinding((string) $user->id, $findings[$idx])) {
-            // Contended booking/reservations-slot lock — nothing was removed
-            // or written. Must NOT fall through to the flip below: that would
-            // mark the finding 'seeded' for a change that never happened.
-            //
-            // U1 review fix (test provenance): this 423 and the one below
-            // (withConnectionLock's own block(5) timeout) are otherwise
-            // identical in status, body, and unflipped-finding outcome —
-            // SessionAControllerLockTest distinguishes them via Log::spy() on
-            // this line instead of a wall-clock assertion, so log it even
-            // though nothing downstream currently consumes the line.
-            Log::warning('platforms.google_business.apply_finding_lock_contended', [
-                'user_id' => (string) $user->id,
-                'platform' => $platform,
-            ]);
-
-            return $this->error('Another change is still saving — please retry in a moment.', 423);
-        }
-
-        return $this->withConnectionLock($user, function () use ($user, $platform, $request): JsonResponse {
-            // Authoritative re-read UNDER the lock — a concurrent enrich run (or
-            // another applySync) may have rewritten this row in the gap between
-            // the outside-lock read above and the lock being acquired. Re-derive
-            // everything from the fresh row rather than closing over the stale
-            // $gb/$findings captured before applyFinding() ran.
-            $gb = $user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->first();
-            $gbp = GoogleBusinessPayload::fromArray($gb?->payload);
-            $payload = $gbp->toArray();
-            $findings = $gbp->syncFindings();
-
-            $idx = $this->locateConflictFinding($findings, $platform);
-            if ($idx !== null && $gb !== null) {
-                $findings[$idx]['outcome'] = 'seeded';
-                $findings[$idx]['apply'] = null;
-                $gb->forceFill(['payload' => [...$payload, 'syncFindings' => $findings]])->saveQuietly();
-            }
-            // else: the conflict finding is gone by the time we got the lock (a
-            // concurrent write already resolved/removed it) — skip the flip
-            // rather than error; the caller still gets a consistent /synced view.
-
-            return $this->synced($request);
-        });
-    }
-
     /** Index of the first 'conflict' finding for $platform, or null. */
     private function locateConflictFinding(array $findings, string $platform): ?int
     {
@@ -357,58 +236,5 @@ class GoogleBusinessController extends ApiController
         }
 
         return null;
-    }
-
-    /**
-     * Shape one recorded finding for the modal, re-deriving live status. Returns
-     * null when a seeded row was since removed (so it drops off the list).
-     *
-     * @param  Collection<string, IntegrationConnection>  $connections  pre-loaded keyed by "platform|resource_id"
-     * @param  array<string,mixed>  $finding
-     * @return array<string,mixed>|null
-     */
-    private function shapeFinding(User $user, array $finding, Collection $connections): ?array
-    {
-        $platform = (string) ($finding['platform'] ?? '');
-        $category = (string) ($finding['category'] ?? 'other');
-        $label = (string) ($finding['label'] ?? $platform);
-        $foundUrl = is_string($finding['foundUrl'] ?? null) ? $finding['foundUrl'] : null;
-
-        if (($finding['outcome'] ?? 'seeded') === 'conflict') {
-            return [
-                'platform' => $platform,
-                'category' => $category,
-                'label' => $label,
-                'status' => 'conflict',
-                'foundUrl' => $foundUrl,
-                'removePath' => null,
-            ];
-        }
-
-        // Seeded — drop if the user already removed it; else derive synced/syncing.
-        // Use the pre-loaded collection keyed by "platform|resource_id" to avoid a
-        // DB query per finding.
-        $resourceId = (string) ($finding['resourceId'] ?? '');
-        $row = $connections->get((LegacyPlatformMap::surfaceFor($platform) ?? $platform).'|'.$resourceId);
-        if ($row === null) {
-            return null;
-        }
-
-        return [
-            'platform' => $platform,
-            'category' => $category,
-            'label' => $label,
-            'status' => $row->last_refresh_status === 'pending' ? 'syncing' : 'synced',
-            'foundUrl' => $foundUrl,
-            // Convergence Phase 6: keyed on the finding's CATEGORY, not its
-            // platform. Ordering findings now carry a brand surface
-            // ('uber_eats.order'), so the old identity test against the retired
-            // pseudo-slug never matched and every ordering finding's undo pointed
-            // at '/platforms/uber_eats.order' — a route that does not exist. The
-            // category is what survived the surface split unchanged.
-            'removePath' => $category === 'online-ordering'
-                ? '/platforms/online-ordering/entries/'.$row->resource_id
-                : '/platforms/'.$platform,
-        ];
     }
 }
