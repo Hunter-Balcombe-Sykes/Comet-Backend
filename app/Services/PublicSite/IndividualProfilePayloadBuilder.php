@@ -72,6 +72,7 @@ class IndividualProfilePayloadBuilder
         private readonly SiteActionsService $actions,
         private readonly SitePolicyResolver $policies,
         private readonly PoolResolver $pools,
+        private readonly ItemFeedService $feed,
     ) {}
 
     /**
@@ -121,6 +122,8 @@ class IndividualProfilePayloadBuilder
         $publicContact = $this->buildPublicContact($pro, $sections);
         $workplace = $this->buildWorkplace($site, $sections);
 
+        $pools = $this->publicPools($site);
+
         return (new IndividualProfileResource($pro, [
             'site_id' => $site?->id,
             'design_kit' => $this->loadDesignKit($site, $pro),
@@ -136,7 +139,16 @@ class IndividualProfilePayloadBuilder
             'ranked_actions' => $rankedActions,
             'ordering' => $this->actions->orderingWire($ordering),
             // Engine outputs — flat, camelCase, no envelope wrapper.
-            'pools' => $this->buildPools($site),
+            'pools' => $pools,
+            // Item feed (spec 2026-08-19-item-feed-design.md): ordered
+            // references into the pools above — resolver is pure, so a ref can
+            // only point at something this payload serves. Always present.
+            'feed' => $this->feed->resolve(
+                $pools,
+                $this->feed->mode($site),
+                $this->feed->manualFeed($site),
+                $this->popularity->itemScoresForSite($site?->id),
+            ),
             // Brand logos (owner ruling 2026-08-17): the design singletons
             // regain a public projection — slice 7 unit E deleted `siteImages`
             // wholesale, which took the logos down with the noise. Just the
@@ -216,7 +228,7 @@ class IndividualProfilePayloadBuilder
 
     /**
      * Is this failure "the content lane does not exist here" rather than "a
-     * query failed"? The two need opposite handling — see buildPools().
+     * query failed"? The two need opposite handling — see publicPools().
      *
      * 42P01 is Postgres's undefined_table. SQLite reports everything as HY000,
      * so the message is the only signal on the test lane; that arm is test-only
@@ -237,9 +249,12 @@ class IndividualProfilePayloadBuilder
      * absent. Wire: {watch|listen|media: {items, latestItemId}}; shop adds a
      * sibling `collections` map of the store cards its items belong to.
      *
+     * PUBLIC: UserSiteActionsController reuses it so the dashboard feed
+     * preview and this wire cannot drift.
+     *
      * @return array<string, array{items: list<array<string, mixed>>, latestItemId: string|null, collections?: array<string, array<string, mixed>>}>
      */
-    private function buildPools(?Site $site): array
+    public function publicPools(?Site $site): array
     {
         if (! $site) {
             return [];

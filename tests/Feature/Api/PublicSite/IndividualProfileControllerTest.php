@@ -1085,3 +1085,57 @@ it('POSITIVE CONTROL: a booking_url with an https scheme is still synthesised', 
     expect($bookingLinks)->toHaveCount(1);
     expect($bookingLinks[0]['url'])->toBe('https://calendly.com/me');
 });
+
+// Item feed (spec 2026-08-19-item-feed-design.md §3): profile.feed is an
+// ordered list of REFERENCES into the pools already on the wire. Arrangement
+// mirrors PoolWireShapeTest.php's shop fixture — poolTenant() + shopStore() +
+// shopProduct() + poolPin() is the established way to land one real, pinned
+// content.* item that the public payload's `pools.shop` will actually serve.
+
+it('always serves the feed key, defaulting to newest with entries referencing served pool items', function () {
+    [$pro, $siteId] = poolTenant();
+    $store = shopStore($pro->id);
+    poolPin($siteId, 'shop', shopProduct($pro->id, $store, 'Hat'));
+
+    $profile = $this->getJson("/api/public/profiles/{$pro->handle}")
+        ->assertOk()
+        ->json('data.profile');
+
+    expect($profile)->toHaveKey('feed');
+    expect($profile['feed']['mode'])->toBe('newest');
+
+    // Forward-compat pin (spec §3): every ref resolves against the served pools.
+    $served = collect($profile['pools'] ?? [])->map(fn ($p) => collect($p['items'])->pluck('id')->flip());
+    foreach ($profile['feed']['entries'] as $entry) {
+        if ($entry['kind'] === 'item') {
+            expect(isset($served[$entry['pool']][$entry['itemId']]))->toBeTrue();
+        } else {
+            expect($entry)->toHaveKeys(['collectionId', 'itemIds']);
+            foreach ($entry['itemIds'] as $id) {
+                expect(isset($served[$entry['pool']][$id]))->toBeTrue();
+            }
+        }
+        expect($entry)->toHaveKeys(['kind', 'pool', 'score']);
+    }
+});
+
+it('serves an empty feed for a site with no pool content, never absent', function () {
+    $pro = seedIndividualProfile('feed-empty');
+
+    $feed = $this->getJson("/api/public/profiles/{$pro->handle}")->assertOk()->json('data.profile.feed');
+
+    expect($feed)->toBe(['mode' => 'newest', 'entries' => []]);
+});
+
+it('honours the stored feed_mode', function () {
+    [$pro, $siteId] = poolTenant();
+    $store = shopStore($pro->id);
+    poolPin($siteId, 'shop', shopProduct($pro->id, $store, 'Hat'));
+    $site = Site::query()->findOrFail($siteId);
+    $site->update(['settings' => [...$site->settings, 'feed_mode' => 'manual']]);
+
+    $feed = $this->getJson("/api/public/profiles/{$pro->handle}")->assertOk()->json('data.profile.feed');
+
+    // Manual with no stored list = strict empty (spec §4).
+    expect($feed['mode'])->toBe('manual')->and($feed['entries'])->toBe([]);
+});
