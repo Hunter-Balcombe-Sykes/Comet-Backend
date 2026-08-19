@@ -2,6 +2,8 @@
 
 namespace App\Services\Site;
 
+use App\Contracts\HttpStatusCodeInterface;
+
 // Thrown by AdvisoryLock::acquire() when SET LOCAL lock_timeout aborts a
 // pg_advisory_xact_lock wait (Postgres SQLSTATE 55P03) instead of letting the
 // caller block forever. Resolution is the caller's call — an interactive
@@ -17,10 +19,47 @@ namespace App\Services\Site;
 // AdvisoryLock::isLockTimeout() rather than a second detection path, so it
 // folds into the identical 423 the advisory-lock case already gets — the
 // caller can't tell which lock contended either way.
-class AdvisoryLockTimeoutException extends \RuntimeException
+class AdvisoryLockTimeoutException extends \RuntimeException implements HttpStatusCodeInterface
 {
+    /**
+     * The message is USER-FACING copy, not diagnostics — bootstrap/app.php renders
+     * getMessage() verbatim into the 423 body for every HttpStatusCodeInterface exception,
+     * regardless of APP_DEBUG. It used to read `advisory lock timed out waiting on
+     * "identity:{user-uuid}:{kind}"`, which put an internal key and a user id on the wire the
+     * moment this class started declaring a status code. The key is still on $lockKey and in
+     * context() below, so logs lose nothing.
+     */
     public function __construct(public readonly string $lockKey, ?\Throwable $previous = null)
     {
-        parent::__construct("advisory lock timed out waiting on \"{$lockKey}\"", previous: $previous);
+        parent::__construct('Another change is still saving — please retry in a moment.', previous: $previous);
+    }
+
+    /** Laravel folds this into the log record, which is where the key belongs. */
+    public function context(): array
+    {
+        return ['lock_key' => $this->lockKey];
+    }
+
+    /**
+     * 423, matching what the controllers above already return by hand — the same status AND now
+     * the same copy.
+     *
+     * Declared here rather than added as another per-controller catch because #LIFE-1 made this
+     * exception reachable from resolveItems(), i.e. from EVERY writeManualItem() caller —
+     * PoolItemCreateController, the menu and shop writers, both service controllers. A contended
+     * identity resolve is a retry-in-a-moment, not a server fault, and a 500 would tell the
+     * dashboard the opposite. The hand-written catches still win where they exist: they run
+     * first and carry compensations this cannot (UserServiceController::store() marks the
+     * already-committed item removed before returning its own 423).
+     */
+    public function getHttpStatusCode(): int
+    {
+        return 423;
+    }
+
+    /** @return array<string, string|int> */
+    public function getHttpHeaders(): array
+    {
+        return [];
     }
 }

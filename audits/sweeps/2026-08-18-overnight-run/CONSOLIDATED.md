@@ -326,7 +326,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 5 of 6 complete
+- P1 High: 6 of 6 complete
 - P2 Medium: 2 of 11 complete
 - P3 Low: 0 of 2 complete
 
@@ -334,7 +334,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#LIFE-1** · P1 — `ProjectionWriter::resolveItems`/`bindGroup` run identity resolution with no lock, no transaction
+- [x] **#LIFE-1** · P1 — `ProjectionWriter::resolveItems`/`bindGroup` run identity resolution with no lock, no transaction
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:592-746
     - **Affects:** Any user with two sources of the same content `kind` (e.g. Spotify tracks + SoundCloud tracks, both `track`) whose `RunSourceJob`s are claimed and executed concurrently by different queue workers.
     - **Effort:** L (~1–2d)
@@ -772,7 +772,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 4 complete
-- P3 Low: 0 of 4 complete
+- P3 Low: 1 of 4 complete
 
 ---
 
@@ -879,7 +879,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **CACHE-5** · P3 — Category 2: `bindGroup` issues one anchor INSERT per coord and one merge call per loser
+- [x] **CACHE-5** · P3 — Category 2: `bindGroup` issues one anchor INSERT per coord and one merge call per loser
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:721-731, 741-743 (`bindGroup`)
     - **Affects:** Identity groups spanning several connections/platforms for one item — write volume scales with group size, which in practice is small (a handful of platforms per item).
     - **Effort:** S (~0.5–1h)
@@ -1050,7 +1050,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 3 of 6 complete
+- P1 High: 4 of 6 complete
 - P2 Medium: 1 of 16 complete
 - P3 Low: 0 of 7 complete
 
@@ -1132,7 +1132,7 @@ None.
                 Storage::disk(config('partna.media_disk'))->put($path, $body, ['ContentType' => 'video/mp4']);
         ```
 
-- [ ] **#SCALE-4** · P1 — One `item_anchors` query per resolved identity group on every projection run
+- [x] **#SCALE-4** · P1 — One `item_anchors` query per resolved identity group on every projection run
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:655-660 (`resolveItems`), 704-710 (`bindGroup`)
     - **Affects:** Every scheduled connector projection run (Instagram, Fresha, menus, Apple Music, etc.), for every user with more than a handful of live source items.
     - **Effort:** M (~2–4h)
