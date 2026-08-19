@@ -1,16 +1,19 @@
 <?php
 
 use App\Ingest\Projection\ProjectionWriter;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\MediaPageReader;
+use App\Services\Platforms\MediaParentSuggester;
 use App\Services\Platforms\MediaSeeder;
 use App\Services\Platforms\RouteContext;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 // T6 (2026-08-20): scan lanes seed MEDIA ITEMS — a bio's video/track/episode
 // links become real watch/listen pool items (library-only, never auto-pinned),
@@ -150,6 +153,61 @@ it('classifies media ITEM urls as content-item — kind and canonical riding alo
         ->not->toBe('content-item');
 });
 
+it('suggests the item\'s PARENT account in the routing inbox — never auto-connects it (T9b)', function () {
+    Queue::fake();
+    $pro = createTenant('t9b-scan');
+    // A bio with ONE video link; its oEmbed names the channel.
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="https://youtu.be/dQw4w9WgXcQ">watch</a>', 200),
+        'youtube.com/oembed*' => Http::response(json_encode([
+            'title' => 'The Video', 'thumbnail_url' => null,
+            'author_url' => 'https://www.youtube.com/channel/UCparentparentparentpar1',
+        ]), 200, ['Content-Type' => 'application/json']),
+        '*' => Http::response('', 404),
+    ]);
+
+    app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/t9b', 'bio_harvest');
+
+    // The item landed AND the channel is a QUESTION in the inbox — proposed,
+    // never applied.
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'video')->count())->toBe(1);
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)->where('surface_key', 'youtube.channel')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->identifier)->toBe('UCparentparentparentpar1');
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+});
+
+it('never re-suggests a parent the owner DISCONNECTED (T9b tombstone, policy-owned)', function () {
+    Queue::fake();
+    $pro = createTenant('t9b-tomb');
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="https://youtu.be/dQw4w9WgXcQ">watch</a>', 200),
+        'youtube.com/oembed*' => Http::response(json_encode([
+            'title' => 'The Video', 'thumbnail_url' => null,
+            'author_url' => 'https://www.youtube.com/channel/UCparentparentparentpar1',
+        ]), 200, ['Content-Type' => 'application/json']),
+        '*' => Http::response('', 404),
+    ]);
+    DB::table('routing.item_tombstones')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'source_ref' => 'youtube.channel:UCparentparentparentpar1',
+        'scope' => 'this_source',
+        'reason' => 'owner disconnected the channel',
+        'created_at' => now(),
+    ]);
+
+    app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/t9btomb', 'bio_harvest');
+
+    // Item still lands; the disconnected parent stays silent.
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'video')->count())->toBe(1)
+        ->and(DB::table('routing.source_intents')
+            ->where('user_id', $pro->id)->where('surface_key', 'youtube.channel')
+            ->whereIn('state', ['proposed', 'blocked'])->count())->toBe(0);
+});
+
 it('routes a platform ITEM even after that platform\'s ACCOUNT consumed the slot — order-independent (F2)', function () {
     // The critic reproduced the asymmetry: [artist, track] lost the track to
     // a card while [track, artist] landed both. The slot rule is about
@@ -182,7 +240,7 @@ it('caps one run at MAX_ITEMS_PER_RUN seeds', function () {
         'canonical' => $url, 'title' => 'T '.$url, 'thumbnail' => null,
     ]);
 
-    $seeder = new MediaSeeder($reader, app(ProjectionWriter::class));
+    $seeder = new MediaSeeder($reader, app(ProjectionWriter::class), app(MediaParentSuggester::class));
     $written = 0;
     for ($i = 0; $i < MediaSeeder::MAX_ITEMS_PER_RUN + 5; $i++) {
         if ($seeder->seedItem($pro, "https://www.youtube.com/watch?v=cap{$i}") !== null) {

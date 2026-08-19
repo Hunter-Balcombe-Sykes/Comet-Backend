@@ -14,6 +14,7 @@ use App\Services\Content\ManualEventWriter;
 use App\Services\Content\PastedLinkClassifier;
 use App\Services\Platforms\EventPageReader;
 use App\Services\Platforms\MediaPageReader;
+use App\Services\Platforms\MediaParentSuggester;
 use App\Services\Shop\ProductPageAdder;
 use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolRegistry;
@@ -164,6 +165,7 @@ class PoolItemCreateController extends ApiController
         $readKind = null;
         $readTitle = null;
         $readThumb = null;
+        $readAuthorUrl = null;
         if (in_array($pool, ['watch', 'listen'], true)) {
             $account = $this->media->accountPlatformLabel($url);
             if ($account !== null) {
@@ -183,6 +185,7 @@ class PoolItemCreateController extends ApiController
                 $readKind = $read['kind'];
                 $readTitle = $read['title'];
                 $readThumb = $read['thumbnail'];
+                $readAuthorUrl = $read['authorUrl'] ?? null;
             }
         }
 
@@ -299,6 +302,16 @@ class PoolItemCreateController extends ApiController
         }
 
         $itemId = $this->writer->writeManualItem($user->id, $coord, $projection);
+
+        // T9b (owner, 2026-08-20): the item's parent account — the channel
+        // behind the video, the artist behind the release — becomes a
+        // SUGGESTION in the routing inbox, mirroring how a product paste
+        // handles its store. Suggest-only (owner default; auto-connect on
+        // paste is flagged as an owner decision in the run report);
+        // best-effort by construction.
+        if ($readKind !== null) {
+            app(MediaParentSuggester::class)->suggest($user, $readAuthorUrl, 'paste');
+        }
 
         // A link added without a checked card (an older client, or a paste
         // that skipped the preview) still gets the page read off-thread —

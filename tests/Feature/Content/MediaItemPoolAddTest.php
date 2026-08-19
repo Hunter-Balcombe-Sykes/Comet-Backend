@@ -184,6 +184,27 @@ it('refuses every URL add into the gallery — nothing claims kind media (T3 cri
         ->assertJsonFragment(['message' => "We don't recognise this link as a gallery item — add it to your Links page instead."]);
 });
 
+it('suggests the video\'s CHANNEL beside a pool paste — suggest-only (T9b)', function () {
+    setupRoutingTables();
+    [$user] = makeShopUser(withSite: true);
+    mipMockFetch([
+        'youtube.com/oembed' => json_encode([
+            'title' => 'Studio Tour 2026', 'thumbnail_url' => null,
+            'author_url' => 'https://www.youtube.com/channel/UCparentparentparentpar1',
+        ]),
+    ]);
+
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://youtu.be/dQw4w9WgXcQ',
+    ])->assertCreated();
+
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $user->id)->where('surface_key', 'youtube.channel')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->identifier)->toBe('UCparentparentparentpar1');
+});
+
 it('keeps the card path for a claimed item whose read fails', function () {
     [$user] = makeShopUser(withSite: true);
     mipMockFetch([]);

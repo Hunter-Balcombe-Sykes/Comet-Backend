@@ -50,6 +50,7 @@ class MediaSeeder
     public function __construct(
         private readonly MediaPageReader $reader,
         private readonly ProjectionWriter $writer,
+        private readonly MediaParentSuggester $parents,
     ) {}
 
     /**
@@ -148,6 +149,11 @@ class MediaSeeder
         // Scan lanes: deliberately NO pin and NO removed_at reset — the
         // class note owns the reasoning.
         $this->seededThisRun++;
+
+        // T9b: the item's parent account (the channel behind the video, the
+        // artist behind the release) becomes a SUGGESTION in the routing
+        // inbox — suggest-only on every lane, best-effort by construction.
+        $this->parents->suggest($user, $read['authorUrl'] ?? null, $origin);
 
         return $canonical;
     }
