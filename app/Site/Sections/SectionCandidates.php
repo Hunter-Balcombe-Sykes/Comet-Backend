@@ -78,7 +78,6 @@ class SectionCandidates
         'offers' => 'content.offers',
         'item_tags' => 'content.item_tags',
         'item_variants' => 'content.item_variants',
-        'item_refs' => 'content.item_refs',
     ];
 
     /**
