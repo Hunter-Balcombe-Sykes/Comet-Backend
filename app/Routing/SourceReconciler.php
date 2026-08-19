@@ -5,6 +5,7 @@ namespace App\Routing;
 use App\Catalog\CompiledCatalog;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\AutoBookingConnectDispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -26,6 +27,7 @@ class SourceReconciler
     public function __construct(
         private readonly ConnectionIdentity $identity,
         private readonly IriCanonicalizer $canonicaliser,
+        private readonly AutoBookingConnectDispatcher $autoBookingConnect,
     ) {}
 
     /**
@@ -143,6 +145,32 @@ class SourceReconciler
         $result['connection_id'] = $connectionId;
         $result['verdict'] = $verdict->value;
         $result['block_reason'] = $blockReason;
+
+        // An unclaimed pre-account site has nobody to answer "whose menu is
+        // this?", so a Fresha connection placed here would otherwise sit
+        // selection-less and publish nothing — FreshaConnector::pull() refuses a
+        // null selection_ref before any HTTP call (F7 2026-08-10, re-found as
+        // R14 2026-08-19). FreshaAutoSelector answers it: the account holder's
+        // own menu when the staff matcher identifies them, storewide when it
+        // cannot.
+        //
+        // Gated on the USER's claim state, not a caller flag. This lane's
+        // $autoConnectBooking is vestigial (LinkInBioScanJob:52-56) — a flag has
+        // to survive every hop and that one did not. A claimed owner is present
+        // and keeps their picker.
+        //
+        // AFTER the transaction, deliberately: dispatchFor() re-queries the row
+        // just written and enqueues a job that must not run against a rolled-back
+        // write. (ConnectFetchJob is dispatched afterCommit() as well, so this is
+        // belt and braces, not redundancy — the re-query itself must see the row.)
+        if ($verdict === Verdict::Place
+            && $connectionId !== null
+            && $placement->surfaceKey === 'fresha.book'
+            && $user->isUnclaimed()
+            && (bool) config('partna.connect.auto_booking.enabled', true)
+        ) {
+            $this->autoBookingConnect->dispatchFor((string) $user->id);
+        }
 
         return $result;
     }

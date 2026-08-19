@@ -17,6 +17,47 @@ use Illuminate\Database\Query\Builder;
  */
 final class LiveSourceScope
 {
+    /**
+     * "This SOURCE is live" — the predicate, on its own, for queries that have
+     * already joined content.sources and left-joined site.platform_connections.
+     *
+     * apply() answers an ITEM-level question (does this item have at least one
+     * live source?) via whereExists. Several queries need the SOURCE-level half
+     * instead, because they are already joined through a source and simply must
+     * not read a dead one: statsFor()'s aggregates, the pool's f_link rows, the
+     * per-dish offer links. Those three each shipped WITHOUT any liveness filter
+     * (#LIFE-2, #LIFE-4) — which is what happens when the only definition lives
+     * inside a helper that answers a different question.
+     *
+     * So the definition lives here once, and apply() consumes it too. A helper
+     * that four call sites forget to call is exactly how this family of bugs was
+     * born; the fix is not a fourth hand-written where-clause.
+     *
+     * NOTE `is_active`: a PAUSED connection is treated the same as a removed one,
+     * which is the ruling this class shipped with in W2 and is now applied
+     * consistently rather than on three surfaces out of six. Whether pause SHOULD
+     * hide already-landed content is a live product question — see
+     * docs/superpowers/plans/2026-08-19-P1-overnight-DECISIONS.md §3.1. If it is
+     * ever answered "no", this is the ONE place to change it.
+     *
+     * @param  string  $sources  alias/table for content.sources in the caller's query
+     * @param  string  $connections  alias/table for the LEFT-joined site.platform_connections
+     */
+    public static function constrainToLiveSource(Builder $query, string $sources = 'content.sources', string $connections = 'site.platform_connections'): Builder
+    {
+        return $query->where(function (Builder $s) use ($sources, $connections) {
+            // A manual source has no connection to be disconnected, so it is
+            // always live. Everything else must point at a connection that is
+            // present, not soft-deleted, and not paused.
+            $s->where($sources.'.kind', 'manual')
+                ->orWhere(function (Builder $c) use ($connections) {
+                    $c->whereNotNull($connections.'.id')
+                        ->whereNull($connections.'.deleted_at')
+                        ->where($connections.'.is_active', true);
+                });
+        });
+    }
+
     /** @param string $itemsTable the alias/table the outer query selects items from (has `id`) */
     public static function apply(Builder $query, string $itemsTable = 'content.items'): Builder
     {
@@ -37,15 +78,8 @@ final class LiveSourceScope
                     // removed_at and the departed rows stayed in the library
                     // and the pool; ProjectionWriter clears removed_at on
                     // reappearance, so this is hide, never delete.
-                    ->whereNull('lss.removed_at')
-                    ->where(function (Builder $s) {
-                        $s->where('lsrc.kind', 'manual')
-                            ->orWhere(function (Builder $c) {
-                                $c->whereNotNull('lpc.id')
-                                    ->whereNull('lpc.deleted_at')
-                                    ->where('lpc.is_active', true);
-                            });
-                    });
+                    ->whereNull('lss.removed_at');
+                self::constrainToLiveSource($live, 'lsrc', 'lpc');
             });
         });
     }

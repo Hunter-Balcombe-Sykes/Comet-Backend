@@ -29,9 +29,21 @@ class UserObserver
      * of these advances `sites.updated_at` (via `touchParentSiteIfPublicFieldChanged`)
      * so the Redis cache key rolls forward AND CloudflareCachePurgeJob fires.
      *
-     * Source: IndividualProfileResource (handle, display_name). first_name +
-     * last_name are included because display_name accessors typically derive
-     * from them and editing one without the composite is a realistic flow.
+     * Source: IndividualProfileResource (handle, display_name, publicContact).
+     * first_name + last_name are included because display_name accessors
+     * typically derive from them and editing one without the composite is a
+     * realistic flow.
+     *
+     * public_contact_* were MISSING here until 2026-08-19 even though they
+     * render as `profile.publicContact`. The omission was silent: updated()
+     * still busts the Redis key (it passes bustSite: true precisely when this
+     * list does NOT match), so the gap only showed at the layers keyed on
+     * `sites.updated_at` -- the §28.8 subrequest cache and the edge, neither of
+     * which learns anything from a Redis DEL. Proven on dev: repairing
+     * `ollies`' phone left users.updated_at at 04:08 and sites.updated_at at
+     * 00:39, and the public payload kept serving the superseded number.
+     * A contact detail is exactly the field a visitor acts on, so a stale one
+     * is worse than a stale display name.
      *
      * @var list<string>
      */
@@ -40,6 +52,8 @@ class UserObserver
         'display_name',
         'first_name',
         'last_name',
+        'public_contact_number',
+        'public_contact_email',
     ];
 
     public function __construct(

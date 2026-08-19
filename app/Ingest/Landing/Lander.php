@@ -6,6 +6,7 @@ use App\Ingest\Manifest\StreamSpec;
 use App\Ingest\Message\Covered;
 use App\Ingest\Message\Record;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
@@ -33,7 +34,7 @@ class Lander
 
     /**
      * @param  list<Record>  $records
-     * @return array{seen: int, changed: int, tombstoned: int, guard_tripped: bool}
+     * @return array{seen: int, changed: int, tombstoned: int, guard_tripped: bool, failed: int}
      */
     public function land(
         string $streamId,
@@ -53,6 +54,7 @@ class Lander
         }
 
         $changed = 0;
+        $failed = 0;
         $chunkSize = max(1, (int) config('partna.ingest.land_chunk', 500));
 
         foreach (array_chunk($records, $chunkSize) as $chunk) {
@@ -76,7 +78,9 @@ class Lander
                 // Falling back to the per-record path isolates the one bad
                 // record and lands the rest durably, just slower.
                 report($e);
-                $changed += $this->landRecordsIndividually($streamId, $runId, $spec, $chunk, $redactions);
+                $fallback = $this->landRecordsIndividually($streamId, $runId, $spec, $chunk, $redactions);
+                $changed += $fallback['changed'];
+                $failed += $fallback['failed'];
             }
         }
 
@@ -87,6 +91,11 @@ class Lander
             'changed' => $changed,
             'tombstoned' => $absence['tombstoned'],
             'guard_tripped' => $absence['guard_tripped'],
+            // WHK-1: records the fallback isolated rather than landed. Never a
+            // silent zero — RunExecutor turns a non-zero count into a degraded
+            // run outcome, and an all-records-failed chunk into a stream failure
+            // so the backoff still engages.
+            'failed' => $failed,
         ];
     }
 
@@ -282,109 +291,142 @@ class Lander
 
     /**
      * Per-record landing — today's original loop, retained VERBATIM except
-     * the LIFE-4 pointer guard below, which must be identical in both paths
-     * or the chunk=1/chunk=500 parity test and this method's role as
-     * landChunk()'s fallback both diverge. Serves two roles: the
-     * poison-record fallback for landChunk() (isolates one bad record
+     * two additions: the LIFE-4 pointer guard below, which must be identical
+     * in both paths or the chunk=1/chunk=500 parity test and this method's
+     * role as landChunk()'s fallback both diverge, and the WHK-1 per-record
+     * try/catch WRAPPING the transaction (never inside it). Serves two roles:
+     * the poison-record fallback for landChunk() (isolates one bad record
      * without costing the rest of the chunk its durable log entry), and the
      * golden reference the chunked path is diffed against in tests. Do not
      * otherwise "simplify" this to match landChunk() — its value is in
      * staying exactly what it always was.
      *
      * @param  list<Record>  $records
-     * @return int the number of keys whose CURRENT version moved
+     * @return array{changed: int, failed: int} keys whose CURRENT version moved,
+     *                                          and records this loop isolated
      */
-    private function landRecordsIndividually(string $streamId, string $runId, StreamSpec $spec, array $records, array $redactions): int
+    private function landRecordsIndividually(string $streamId, string $runId, StreamSpec $spec, array $records, array $redactions): array
     {
         $changed = 0;
+        $failed = 0;
 
         foreach ($records as $record) {
-            $doc = Redactor::apply($record->doc, $redactions);
-            $hash = DocHasher::hash($doc, $spec->volatile);
+            try {
+                $doc = Redactor::apply($record->doc, $redactions);
+                $hash = DocHasher::hash($doc, $spec->volatile);
 
-            DB::transaction(function () use ($streamId, $runId, $record, $doc, $hash, &$changed) {
-                // 1. Land the version. is_current is deliberately FALSE here:
-                //    whether this doc is current is decided below, not by
-                //    whether the row was new. DO NOTHING on conflict: an
-                //    identical doc is not an event.
-                DB::table('ingest.record_versions')->insertOrIgnore([
+                DB::transaction(function () use ($streamId, $runId, $record, $doc, $hash, &$changed) {
+                    // 1. Land the version. is_current is deliberately FALSE here:
+                    //    whether this doc is current is decided below, not by
+                    //    whether the row was new. DO NOTHING on conflict: an
+                    //    identical doc is not an event.
+                    DB::table('ingest.record_versions')->insertOrIgnore([
+                        'stream_id' => $streamId,
+                        'key' => $record->key,
+                        'doc_hash' => $hash,
+                        'doc' => json_encode($doc),
+                        'first_seen_run' => $runId,
+                        'first_seen_at' => now(),
+                        'is_current' => false,
+                    ]);
+
+                    // 2. ONE round trip resolves both facts: this hash's version
+                    //    id, and whether it was ALREADY the current one. `OR
+                    //    is_current` pulls the incumbent too, so a landing that
+                    //    finds no is_current row at all (first landing, or a key
+                    //    desynced by the pre-fix bug) still converges.
+                    //    Currency is decided in SQL, not PHP: a plain `->get(['is_current'])`
+                    //    round-trips the raw driver value, and pdo_pgsql returns boolean
+                    //    columns as the STRINGS 't'/'f' — `(bool) 'f'` is `true` in PHP, so
+                    //    casting the column in PHP silently makes every row look current.
+                    //    `CASE WHEN ... THEN 1 ELSE 0 END` forces the driver to hand back an
+                    //    integer on both Postgres and the SQLite test mirror.
+                    $rows = DB::table('ingest.record_versions')
+                        ->where('stream_id', $streamId)
+                        ->where('key', $record->key)
+                        ->where(fn ($q) => $q->where('doc_hash', $hash)->orWhere('is_current', true))
+                        ->selectRaw('id, doc_hash, CASE WHEN is_current THEN 1 ELSE 0 END AS is_current_flag')
+                        ->get();
+
+                    $landedRow = $rows->firstWhere('doc_hash', $hash);
+                    $versionId = (int) $landedRow->id;
+                    $wasCurrent = ((int) $landedRow->is_current_flag) === 1;
+
+                    // 3. Only when the CURRENT version actually moved.
+                    //    Demote-then-promote, in that order — a single UPDATE
+                    //    covering both rows can transiently violate the
+                    //    one-current partial unique index mid-statement.
+                    if (! $wasCurrent) {
+                        $changed++;
+
+                        DB::table('ingest.record_versions')
+                            ->where('stream_id', $streamId)->where('key', $record->key)
+                            ->where('doc_hash', '!=', $hash)->where('is_current', true)
+                            ->update(['is_current' => false]);
+
+                        DB::table('ingest.record_versions')
+                            ->where('stream_id', $streamId)->where('key', $record->key)
+                            ->where('doc_hash', $hash)
+                            ->update(['is_current' => true]);
+                    }
+
+                    // 4. record_state upsert. LIFE-4: current_version_id is only
+                    //    in the update column list when THIS transaction moved
+                    //    currency (! $wasCurrent) — same guard as landChunk(),
+                    //    for the same reason: when $wasCurrent, $versionId came
+                    //    from a SELECT this transaction never fenced, and there
+                    //    is no promote here to arbitrate a concurrent lander's
+                    //    pointer write.
+                    $updateColumns = ['last_seen_run', 'last_seen_at', 'absent_since', 'absent_runs', 'tombstoned_at'];
+                    if (! $wasCurrent) {
+                        $updateColumns[] = 'current_version_id';
+                    }
+
+                    DB::table('ingest.record_state')->upsert([[
+                        'stream_id' => $streamId,
+                        'key' => $record->key,
+                        'current_version_id' => $versionId,
+                        'last_seen_run' => $runId,
+                        'last_seen_at' => now(),
+                        // Reappearance clears absence completely — a key that
+                        // came back was never really gone.
+                        'absent_since' => null,
+                        'absent_runs' => 0,
+                        'tombstoned_at' => null,
+                    ]], ['stream_id', 'key'], $updateColumns);
+                });
+            } catch (Throwable $e) {
+                // WHK-1. The ONE record that could not land must not cost the
+                // records AFTER it their durable log entry. Before this the
+                // first poison record threw straight out of land(), so every
+                // later record in the chunk was silently dropped — and because
+                // RunExecutor did not catch land() either, every later STREAM
+                // for the source was skipped too, on a $tries = 1 job.
+                //
+                // The catch sits OUTSIDE DB::transaction() for exactly the
+                // reason land()'s does: by the time we are here this record's
+                // own transaction has fully rolled back, so nothing is caught
+                // and recovered inside an OPEN Postgres transaction (25P02 —
+                // the savepoint bug this repo has shipped three times; see
+                // ItemSlugAllocatorSavepointTest).
+                //
+                // Counted, never swallowed: land() returns `failed` and
+                // RunExecutor turns it into a degraded run outcome, so an
+                // isolated record cannot pass for a quiet stream. report()
+                // carries the exception to Nightwatch; the warning carries the
+                // key, which the exception does not.
+                $failed++;
+                report($e);
+                Log::warning('ingest.land.record_isolated', [
                     'stream_id' => $streamId,
+                    'run_id' => $runId,
                     'key' => $record->key,
-                    'doc_hash' => $hash,
-                    'doc' => json_encode($doc),
-                    'first_seen_run' => $runId,
-                    'first_seen_at' => now(),
-                    'is_current' => false,
+                    'error_class' => $e::class,
                 ]);
-
-                // 2. ONE round trip resolves both facts: this hash's version
-                //    id, and whether it was ALREADY the current one. `OR
-                //    is_current` pulls the incumbent too, so a landing that
-                //    finds no is_current row at all (first landing, or a key
-                //    desynced by the pre-fix bug) still converges.
-                //    Currency is decided in SQL, not PHP: a plain `->get(['is_current'])`
-                //    round-trips the raw driver value, and pdo_pgsql returns boolean
-                //    columns as the STRINGS 't'/'f' — `(bool) 'f'` is `true` in PHP, so
-                //    casting the column in PHP silently makes every row look current.
-                //    `CASE WHEN ... THEN 1 ELSE 0 END` forces the driver to hand back an
-                //    integer on both Postgres and the SQLite test mirror.
-                $rows = DB::table('ingest.record_versions')
-                    ->where('stream_id', $streamId)
-                    ->where('key', $record->key)
-                    ->where(fn ($q) => $q->where('doc_hash', $hash)->orWhere('is_current', true))
-                    ->selectRaw('id, doc_hash, CASE WHEN is_current THEN 1 ELSE 0 END AS is_current_flag')
-                    ->get();
-
-                $landedRow = $rows->firstWhere('doc_hash', $hash);
-                $versionId = (int) $landedRow->id;
-                $wasCurrent = ((int) $landedRow->is_current_flag) === 1;
-
-                // 3. Only when the CURRENT version actually moved.
-                //    Demote-then-promote, in that order — a single UPDATE
-                //    covering both rows can transiently violate the
-                //    one-current partial unique index mid-statement.
-                if (! $wasCurrent) {
-                    $changed++;
-
-                    DB::table('ingest.record_versions')
-                        ->where('stream_id', $streamId)->where('key', $record->key)
-                        ->where('doc_hash', '!=', $hash)->where('is_current', true)
-                        ->update(['is_current' => false]);
-
-                    DB::table('ingest.record_versions')
-                        ->where('stream_id', $streamId)->where('key', $record->key)
-                        ->where('doc_hash', $hash)
-                        ->update(['is_current' => true]);
-                }
-
-                // 4. record_state upsert. LIFE-4: current_version_id is only
-                //    in the update column list when THIS transaction moved
-                //    currency (! $wasCurrent) — same guard as landChunk(),
-                //    for the same reason: when $wasCurrent, $versionId came
-                //    from a SELECT this transaction never fenced, and there
-                //    is no promote here to arbitrate a concurrent lander's
-                //    pointer write.
-                $updateColumns = ['last_seen_run', 'last_seen_at', 'absent_since', 'absent_runs', 'tombstoned_at'];
-                if (! $wasCurrent) {
-                    $updateColumns[] = 'current_version_id';
-                }
-
-                DB::table('ingest.record_state')->upsert([[
-                    'stream_id' => $streamId,
-                    'key' => $record->key,
-                    'current_version_id' => $versionId,
-                    'last_seen_run' => $runId,
-                    'last_seen_at' => now(),
-                    // Reappearance clears absence completely — a key that
-                    // came back was never really gone.
-                    'absent_since' => null,
-                    'absent_runs' => 0,
-                    'tombstoned_at' => null,
-                ]], ['stream_id', 'key'], $updateColumns);
-            });
+            }
         }
 
-        return $changed;
+        return ['changed' => $changed, 'failed' => $failed];
     }
 
     /**

@@ -11,7 +11,6 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    setupItemSlugsTable();
     setupIngestTables();
     setupContentTables();
     setupSectionsTables();

@@ -141,7 +141,7 @@ it('minimises content.offers.url the same way as f_link.url', function () {
     expect(DB::table('content.offers')->where('item_id', $item->id)->value('url'))->toBe(PUM_MINIMISED);
 });
 
-it('minimises content.f_review.author_photo_url via the URL_COLUMNS denylist in upsertSingletonFacet', function () {
+it('minimises content.f_review.author_photo_url via the URL_COLUMNS denylist in singletonFacetRow', function () {
     $userId = createTenant('pum-'.Str::lower(Str::random(6)))->id;
 
     $sourceId = (string) Str::uuid();
@@ -157,14 +157,22 @@ it('minimises content.f_review.author_photo_url via the URL_COLUMNS denylist in 
         'first_seen_at' => $now, 'last_seen_at' => $now, 'created_at' => $now, 'updated_at' => $now,
     ]);
 
+    // #SCALE-5 split upsertSingletonFacet() into singletonFacetRow() (build the
+    // allowlisted, URL-minimised row) and flushSingletonFacets() (write a batch).
+    // The denylist under test lives in the first; driving both keeps this a test
+    // of what actually reaches the column rather than of a pure function.
     $writer = app(ProjectionWriter::class);
-    $method = new ReflectionMethod($writer, 'upsertSingletonFacet');
-    $method->setAccessible(true);
-    $method->invoke($writer, $itemId, $sourceId, 'f_review', [
+    $build = new ReflectionMethod($writer, 'singletonFacetRow');
+    $build->setAccessible(true);
+    $row = $build->invoke($writer, 'f_review', [
         'author_name' => 'Jane',
         'author_photo_url' => 'https://lh3.googleusercontent.com/a/photo.jpg?sz=128&sig=deadbeef',
         'rating' => 5.0,
     ]);
+
+    $flush = new ReflectionMethod($writer, 'flushSingletonFacets');
+    $flush->setAccessible(true);
+    $flush->invoke($writer, $sourceId, ['f_review' => [$itemId => $row]]);
 
     expect(DB::table('content.f_review')->where('item_id', $itemId)->value('author_photo_url'))
         ->toBe('https://lh3.googleusercontent.com/a/photo.jpg?sz=128&sig=[redacted]');

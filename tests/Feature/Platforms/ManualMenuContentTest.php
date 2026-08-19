@@ -23,9 +23,6 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    // MenuFetchJob mints site.item_slugs best-effort — with no table it
-    // swallows "no such table" and masks real slug regressions.
-    setupItemSlugsTable();
     // Slice 7 Task 6: the ten owner verbs write content.* now. Dishes are
     // content.items + facets, categories are content.collections kind
     // 'menu_category', the owner-edit marker is content.manual_overrides and
@@ -715,7 +712,7 @@ it('clears a description when the request sends an explicit null', function () {
 
     actingAsUser($user)->patchJson("/api/platforms/menu/items/{$itemId}", ['description' => null])->assertOk();
 
-    // upsertSingletonFacet only writes the columns its input carries, and the
+    // the singleton-facet write path only writes the columns its input carries, and the
     // mapper omits f_text entirely for a null description — so the clear has to
     // be issued explicitly or the old body silently survives.
     expect(mmcDishes($user)['Wordy']->description)->toBeNull();

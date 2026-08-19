@@ -208,7 +208,7 @@ class CloudflarePurgeService
             return;
         }
 
-        foreach (array_chunk(array_values($prefixes), 30) as $chunk) {
+        foreach (array_chunk($prefixes, 30) as $chunk) {
             Http::withToken($this->apiToken)
                 ->asJson()
                 ->acceptJson()

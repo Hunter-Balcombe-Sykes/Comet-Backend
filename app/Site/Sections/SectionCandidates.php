@@ -378,8 +378,23 @@ class SectionCandidates
 
             // Correlated count of strictly-newer same-source items; N=1 is
             // exactly the old NOT EXISTS.
+            //
+            // #SCALE-2: the count is BOUNDED by a LIMIT rather than run to
+            // completion. Counting every strictly-newer item of the source and
+            // then asking whether the total is < N made this O(n^2) across the
+            // candidate set — a source with 1000 items counted ~1000 rows for
+            // each of ~1000 candidates. The predicate only ever needs to know
+            // whether the count reaches N, and `count(*) < N` is exactly
+            // equivalent to `count(first N rows) < N`: with k < N matches the
+            // limited count is still k, and with k >= N it is exactly N, which
+            // is not < N either way. So the answer is identical and the work
+            // stops at N rows.
+            //
+            // No ORDER BY inside the LIMIT, deliberately: which N rows come back
+            // is irrelevant when only their COUNT is read, and min(N, total) is
+            // deterministic even though the row set is not.
             $e->whereRaw(
-                '(select count(*) from content.source_items as si2'
+                '(select count(*) from (select 1 from content.source_items as si2'
                 .' join content.items as i2 on i2.id = si2.item_id'
                 .' left join content.f_published as p2 on p2.item_id = i2.id and p2.source_id = si2.source_id'
                 .' left join content.f_published as p1 on p1.item_id = content.items.id and p1.source_id = content.source_items.source_id'
@@ -392,8 +407,9 @@ class SectionCandidates
                 .' and (COALESCE(p2.published_from, i2.first_seen_at) > COALESCE(p1.published_from, content.items.first_seen_at)'
                 .' or (COALESCE(p2.published_from, i2.first_seen_at) = COALESCE(p1.published_from, content.items.first_seen_at)'
                 .' and i2.id > content.items.id))))'
+                .' limit ?) as bounded'
                 .') < ?',
-                [...($kinds ?? []), $n]
+                [...($kinds ?? []), $n, $n]
             );
         });
     }

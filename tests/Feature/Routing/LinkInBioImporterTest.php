@@ -370,3 +370,46 @@ it('records why each link was dropped in the import run detail', function () {
     $detail = json_decode(DB::table('routing.import_runs')->where('user_id', $pro->id)->value('detail'), true);
     expect($detail['dropped_reasons'])->toBe(['own-infra' => 1, 'shortener' => 1]);
 });
+
+// ── N2: pages that ship no anchors ──────────────────────────────────────────
+// linkin.bio delivers an empty Ember shell, so the anchor harvest returned zero
+// for every one of these accounts and the floor was all that stood between the
+// user and an empty site. LinkInBioApiUnroller reads the same public API the
+// page's own JavaScript calls. Shell below is the real 2026-08-19 response body,
+// trimmed — what matters is that it has no <a> at all.
+
+it('unrolls a client-rendered linkin.bio page through its API, not its empty shell', function () {
+    $pro = createTenant('bio-linkinbio');
+    Http::fake([
+        'api-prod.linkin.bio/*' => Http::response(['linkinbio_page' => ['linkinbio_blocks' => [
+            ['block_type' => 'button_list', 'block_data' => ['enabled' => true, 'buttons' => [
+                ['url' => 'https://www.sevenrooms.com/explore/supernormalaustralia/reservations/create/search', 'title' => 'RESERVATIONS', 'enabled' => true],
+                ['url' => 'https://supernormal.net.au/menu', 'title' => 'MENU', 'enabled' => true],
+            ]]],
+        ]]], 200),
+        'linkin.bio/*' => Http::response('<html><head><title>Linkin.bio</title></head><body><script src="/assets/linkinbio.js"></script></body></html>', 200),
+    ]);
+    Queue::fake();
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://linkin.bio/supernormal_180');
+
+    expect($result['observations'])->toBe(2)
+        // The floor is the tell. It fires only when the unroll yielded nothing,
+        // so a false here IS the regression pin: the page unrolled for real.
+        ->and($result['bio_url_seeded'])->toBeFalse();
+});
+
+it('falls back to the anchor harvest when the linkin.bio API cannot be read', function () {
+    // Later going down, or revving its API, must cost the user nothing they had
+    // before: the anchor pass still runs and the zero-yield floor still fires.
+    $pro = createTenant('bio-linkinbio-down');
+    Http::fake([
+        'api-prod.linkin.bio/*' => Http::response('', 503),
+        'linkin.bio/*' => Http::response('<html><body><script src="/assets/linkinbio.js"></script></body></html>', 200),
+    ]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://linkin.bio/supernormal_180');
+
+    expect($result['observations'])->toBe(0)
+        ->and($result['bio_url_seeded'])->toBeTrue();
+});

@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 // Slice 6 §2.3 part two. GoogleBusinessReviewProjector used to set `headline`
 // to the reviewer's display name; ProjectionWriter folds a non-empty headline
 // into content.f_text and resolves it into content.items.headline_cache. Task
-// 2 stopped NEW copies, but upsertSingletonFacet is upsert-only and never
+// 2 stopped NEW copies, but the singleton-facet write path is upsert-only and never
 // deletes — so without this command the existing rows keep being served.
 
 beforeEach(function () {

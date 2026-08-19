@@ -77,14 +77,29 @@ class ItemLinkRules
      * The platforms already contributing SYNCED links to this item — the set
      * the manual control must refuse.
      *
+     * #LIFE-8: scoped to LIVE connections. Without that, a connection the owner
+     * removed still counted as "already synced", so the manual control refused
+     * to let them hand-add a replacement link for a platform that had stopped
+     * publishing anything — the owner was locked out of the surface by the very
+     * disconnection meant to hand it back to them.
+     *
+     * The inner join on platform_connections already means "connection-backed",
+     * so constrainToLiveSource()'s manual arm is unreachable here; it is used
+     * anyway rather than hand-copying the deleted_at/is_active pair, because a
+     * fourth private copy of that predicate is how #LIFE-2 and #LIFE-4 happened.
+     *
      * @return list<string>
      */
     public static function syncedPlatformsFor(string $itemId): array
     {
-        return DB::connection('pgsql')->table('content.f_link')
+        $query = DB::connection('pgsql')->table('content.f_link')
             ->join('content.sources', 'content.sources.id', '=', 'content.f_link.source_id')
             ->join('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
-            ->where('content.f_link.item_id', $itemId)
+            ->where('content.f_link.item_id', $itemId);
+
+        LiveSourceScope::constrainToLiveSource($query);
+
+        return $query
             ->distinct()
             ->pluck('site.platform_connections.platform')
             ->map(fn ($p) => (string) $p)

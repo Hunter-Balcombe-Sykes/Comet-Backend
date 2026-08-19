@@ -1,0 +1,17 @@
+-- =====================================================================
+-- A public contact number is shareable — drop its UNIQUE index
+-- =====================================================================
+-- Twin of 20260819003100; see that file's header for the full reasoning and
+-- the dev evidence. A shared shopfront line is the COMMON case for this
+-- column, not the edge case: every write path that fills it automatically
+-- (WorkplaceObserver's mirror, IdentitySync's Google Business fold) sources it
+-- from a business listing that several individuals can legitimately share.
+--
+-- Split from its twin because CONVENTIONS.md §1 allows exactly one
+-- CONCURRENTLY statement per file — the Supabase CLI pipelines a multi-statement
+-- file into an implicit transaction, where CONCURRENTLY fails with 25001.
+-- =====================================================================
+-- ROLLBACK: CREATE UNIQUE INDEX CONCURRENTLY users_public_contact_number_unique ON core.users (public_contact_number) WHERE public_contact_number IS NOT NULL;
+--   Same caveat as its twin (20260819003100): reversible only until the first
+--   shared number lands, and a shared shopfront line is the expected case here.
+DROP INDEX CONCURRENTLY IF EXISTS core.users_public_contact_number_unique;
