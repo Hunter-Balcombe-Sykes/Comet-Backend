@@ -6,7 +6,9 @@
 // ARTIST profile), but with no expansion the short link fell to
 // no-rule-matched and became a custom link card.
 
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Routing\Importers\LinkInBioImporter;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
@@ -104,4 +106,25 @@ it('keeps the canonicalizer rejecting platform short hosts when expansion is byp
     $iri = app(IriCanonicalizer::class)->canonicalize('https://on.soundcloud.com/abc123xy');
 
     expect($iri->rejected)->toBe('shortener');
+});
+
+it('hands downstream consumers the EXPANDED url — probes never chase the short one (FI-9)', function () {
+    // T4 live: route() expanded internally, but the importer's probe
+    // dispatch and card fallback still carried the SHORT url — a tinyurl'd
+    // page was probed as tinyurl.com (instant shortener reject, probe
+    // wasted) and carded as "tinyurl.com" while its expansion routed
+    // separately.
+    $pro = createTenant('fi9-expanded-probe');
+
+    Http::fake([
+        'example.com/*' => Http::response('<a href="https://bit.ly/fi9code">My store</a>', 200, ['Content-Type' => 'text/html']),
+        'bit.ly/*' => Http::response('', 302, ['Location' => 'https://example.org/shop']),
+        'example.org/*' => Http::response('<html><body>shop</body></html>', 200, ['Content-Type' => 'text/html']),
+        '*' => Http::response('', 404),
+    ]);
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/bio');
+
+    Queue::assertPushed(CommerceProbeJob::class, fn ($job) => $job->url === 'https://example.org/shop');
+    Queue::assertNotPushed(CommerceProbeJob::class, fn ($job) => str_contains($job->url, 'bit.ly'));
 });

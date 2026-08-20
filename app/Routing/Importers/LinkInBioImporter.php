@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
+use App\Routing\ShortLinkExpander;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
@@ -79,6 +80,7 @@ class LinkInBioImporter
         private readonly CustomLinkSeeder $seeder,
         private readonly EventsSeeder $events,
         private readonly MediaSeeder $media,
+        private readonly ShortLinkExpander $expander,
     ) {}
 
     /**
@@ -344,6 +346,16 @@ class LinkInBioImporter
                 continue;
             }
             $seen[$fingerprint] = true;
+
+            // FI-9 (T4 live, 2026-08-20): expand HERE, not only inside
+            // route(), so every downstream consumer sees the destination —
+            // before this, route() expanded internally but handleUnrouted's
+            // probe dispatch and card fallback still carried the SHORT url:
+            // a tinyurl'd course page was probed as tinyurl.com (reject:
+            // shortener → probe wasted) and carded as "tinyurl.com" while
+            // its expansion routed separately. Cached, so route()'s own
+            // expansion of the same URL is a cache hit, not a second fetch.
+            $url = $this->expander->expandIfShort($url);
 
             $result = $this->routing->route($url, $context);
 

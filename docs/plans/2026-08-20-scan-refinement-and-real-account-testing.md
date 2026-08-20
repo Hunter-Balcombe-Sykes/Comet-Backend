@@ -511,8 +511,15 @@ gsnwilliams via the real dev API flow — reproduction BEFORE fixes):**
       FULLY CLEAN — 4 connections (Spotify/Apple Music/SoundCloud artists
       named correctly + @sammy.pdf), 2 track items, ssml.wav as a Swap
       suggestion, zero cards. Dashboard verified in browser.
-- [ ] T2 — Instagram block: samtobin__
-- [ ] T3 — Instagram block: barber_in_law
+- [x] T2 — samtobin__: clean. IG + timely.book auto-connected (the bio's
+      one link, a Timely deep booking URL — legacy booking lane). Deliberate
+      non-captures, recorded: @districtbarbershop_ is a bio-text MENTION of
+      someone else's account (suggesting it risks mis-attribution — same
+      principle as T9b suggest-only); highlights are not scannable content.
+- [x] T3 — barber_in_law: clean. IG + fresha.book connected from the
+      bio's Fresha deep link (venue studio-san; claimed user keeps the
+      service picker — FreshaAutoSelector is unclaimed-only, by design).
+      @studio___san mention: deliberate non-capture (T2 rule).
 - [ ] T4 — Instagram block: suzi_thestudiox
 - [ ] T5 — Instagram block: hayleyj_thestudiox
 - [ ] T6 — Instagram block: livplumbarber
@@ -552,3 +559,11 @@ when the whole list is done, same style as last night's final report.
   item ANOTHER lane had just seeded fell through to the card write —
   duplicate "Spotify – Web Player" card. Fixed: existing-item dedupe now
   runs before the page read in MediaSeeder.
+
+- **FI-9** (T4 live, suzi_thestudiox): route() expanded short links
+  internally, but the importer's probe dispatch + card fallback still
+  carried the SHORT url — a tinyurl'd course page was probed as
+  tinyurl.com (instant shortener reject, probe wasted) and carded as
+  "tinyurl.com" while its expansion routed separately. Fixed: the
+  importer expands once at the top of the links loop (cached), so every
+  downstream consumer sees the destination.
