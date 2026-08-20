@@ -732,8 +732,11 @@ it('folds a second URL that canonicalizes identically instead of carding it (FI-
 
     $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/theartist');
 
+    // 'folded', its own bucket (critic pass 2): 'noted' claims a card
+    // exists, and a same-canonical fold deliberately writes none.
     expect($result['connected'])->toBe(1)
-        ->and($result['noted'])->toBe(1);
+        ->and($result['folded'])->toBe(1)
+        ->and($result['noted'])->toBe(0);
     expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0)
         ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
 });

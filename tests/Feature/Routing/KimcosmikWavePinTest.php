@@ -123,7 +123,7 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
     // link was counted 'noted' and the equation balanced while a link was
     // gone. A non-zero drop here should be read, not absorbed. 'items' joined
     // the equation with T6.
-    expect($result['connected'] + $result['suggested'] + $result['noted'] + $result['items'] + $result['probed'] + $result['dropped'])
+    expect($result['connected'] + $result['suggested'] + $result['noted'] + $result['items'] + $result['probed'] + $result['dropped'] + $result['folded'])
         ->toBe(15)
         ->and($result['dropped'])->toBe(0);
 });

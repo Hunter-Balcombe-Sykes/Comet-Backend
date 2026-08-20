@@ -103,10 +103,13 @@ class MediaPageReader extends PlatformScraper
         // FI-4 (2026-08-20): Spotify's oEmbed carries NO author_url — which is
         // why the sammy.pdf baseline seeded the track but never suggested the
         // artist. The public EMBED page does carry it (10KB, no auth): the
-        // first artist/ href for a track/release, the show/ href for an
-        // episode. One extra capped fetch, only for spotify items.
+        // first-billed artist/ href for a track, the show/ href for an
+        // episode. One extra capped fetch, only for spotify items. NOT albums
+        // (critic pass 2, verified live on two real releases): the album
+        // embed renders no artist link at all, so that arm would only ever
+        // spend a fetch to return null.
         if ($item['platform'] === 'spotify'
-            && preg_match('~^https://open\.spotify\.com/(track|album|episode)/([A-Za-z0-9]{10,30})$~', $item['canonical'], $m)) {
+            && preg_match('~^https://open\.spotify\.com/(track|episode)/([A-Za-z0-9]{10,30})$~', $item['canonical'], $m)) {
             $res = $this->fetcher->tryFetch("https://open.spotify.com/embed/{$m[1]}/{$m[2]}", ['User-Agent' => self::USER_AGENT]);
             if ($res !== null && $res['status'] === 200) {
                 if (preg_match('~artist/([A-Za-z0-9]{10,30})~', (string) $res['body'], $a)) {

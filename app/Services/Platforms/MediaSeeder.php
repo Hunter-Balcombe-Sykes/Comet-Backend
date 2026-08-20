@@ -84,15 +84,18 @@ class MediaSeeder
         $coord = ManualEventWriter::coordFor($canonical);
 
         // The item this URL names, as the pool already holds it (live or
-        // removed) — one query answers both gates below.
+        // removed) — one query answers both gates below. ANY source kind
+        // (critic pass 2, 2026-08-20): the old manual-only join meant a
+        // CONNECTION-sourced live item at this coord slipped past the dedupe,
+        // and a transient read failure then carded it — the exact class FI-7
+        // fixed, one source kind over. The tombstone gate keys on the item's
+        // own removed_at either way.
         $existingRemovedAt = DB::connection('pgsql')->table('content.items as i')
             ->join('content.source_items as csi', 'csi.item_id', '=', 'i.id')
-            ->join('content.sources as cs', function ($join) {
-                $join->on('cs.id', '=', 'csi.source_id')->where('cs.kind', '=', 'manual');
-            })
             ->where('i.user_id', (string) $user->id)
             ->where('csi.coord', $coord)
             ->select('i.removed_at')
+            ->orderByRaw('i.removed_at is null desc')
             ->first();
 
         if ($existingRemovedAt !== null && $origin !== 'paste') {
