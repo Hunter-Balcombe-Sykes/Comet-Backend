@@ -250,3 +250,46 @@ it('caps one run at MAX_ITEMS_PER_RUN seeds', function () {
 
     expect($written)->toBe(MediaSeeder::MAX_ITEMS_PER_RUN);
 });
+
+it('derives a Spotify track\'s artist from the embed page and suggests it (FI-4)', function () {
+    // Spotify's oEmbed carries NO author_url — the sammy.pdf baseline seeded
+    // the track but never suggested the artist. The public embed page names
+    // the artist; MediaPageReader now reads it when oEmbed came back blank.
+    Queue::fake();
+    $pro = createTenant('fi4-spotify');
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="https://open.spotify.com/track/5WOkoJzd6nDzKJXlVgVU5q">listen</a>', 200),
+        'open.spotify.com/oembed*' => Http::response(json_encode([
+            'title' => 'Open Your Eyes (And Dance)', 'thumbnail_url' => 'https://i.scdn.co/t.jpg',
+        ]), 200, ['Content-Type' => 'application/json']),
+        'open.spotify.com/embed/track/*' => Http::response('{"artists":[{"uri":"artist/4WoNQlu21ftnkouDsSUtmS","name":"Sam Akhurst"}]}', 200),
+        '*' => Http::response('', 404),
+    ]);
+
+    app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/fi4spotify', 'bio_harvest');
+
+    expect(DB::connection('pgsql')->table('content.items')
+        ->where('user_id', $pro->id)->where('kind', 'track')->count())->toBe(1);
+
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)->where('surface_key', 'spotify.player')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->canonical_url)->toContain('artist/4WoNQlu21ftnkouDsSUtmS');
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+});
+
+it('claims locale-less Apple Music album/song/artist URLs on the right arm (L-2)', function () {
+    $reader = app(MediaPageReader::class);
+
+    // Item grammar — locale present AND absent.
+    expect($reader->classifyItem('https://music.apple.com/au/album/x/111?i=222'))->toMatchArray(['platform' => 'apple-music', 'kind' => 'track'])
+        ->and($reader->classifyItem('https://music.apple.com/album/x/111?i=222'))->toMatchArray(['platform' => 'apple-music', 'kind' => 'track'])
+        ->and($reader->classifyItem('https://music.apple.com/album/x/111'))->toMatchArray(['platform' => 'apple-music', 'kind' => 'release'])
+        ->and($reader->classifyItem('https://music.apple.com/song/y/333'))->toMatchArray(['platform' => 'apple-music', 'kind' => 'track']);
+
+    // Account arm — locale optional there too, and items always win over it.
+    expect($reader->accountPlatformLabel('https://music.apple.com/artist/sam-akhurst/1810969283'))->toBe('Apple Music')
+        ->and($reader->accountPlatformLabel('https://music.apple.com/au/artist/sam-akhurst/1810969283'))->toBe('Apple Music')
+        ->and($reader->accountPlatformLabel('https://music.apple.com/album/x/111?i=222'))->toBeNull();
+});
