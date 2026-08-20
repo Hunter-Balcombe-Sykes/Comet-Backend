@@ -24,6 +24,7 @@ class Tablecheck
     {
         return [
             SurfaceBuilder::for('tablecheck.reserve')
+                ->legacyPlatform('tablecheck')
                 ->displayName('TableCheck')
                 ->routing(RoutingClass::Reservations)
                 ->shelf(Shelf::Food)

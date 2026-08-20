@@ -31,6 +31,7 @@ class Linkedin
     {
         return [
             SurfaceBuilder::for('linkedin.profile')
+                ->legacyPlatform('linkedin')
                 ->displayName('LinkedIn')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

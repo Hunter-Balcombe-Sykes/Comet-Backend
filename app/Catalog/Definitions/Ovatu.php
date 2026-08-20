@@ -24,6 +24,7 @@ class Ovatu
     {
         return [
             SurfaceBuilder::for('ovatu.book')
+                ->legacyPlatform('ovatu')
                 ->displayName('Ovatu')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

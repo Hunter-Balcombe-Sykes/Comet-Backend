@@ -24,6 +24,7 @@ class Resy
     {
         return [
             SurfaceBuilder::for('resy.reserve')
+                ->legacyPlatform('resy')
                 ->displayName('Resy')
                 ->routing(RoutingClass::Reservations)
                 ->shelf(Shelf::Food)

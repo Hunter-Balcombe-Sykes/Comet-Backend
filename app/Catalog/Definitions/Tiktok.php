@@ -29,6 +29,7 @@ class Tiktok
     {
         return [
             SurfaceBuilder::for('tiktok.profile')
+                ->legacyPlatform('tiktok')
                 ->displayName('TikTok')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

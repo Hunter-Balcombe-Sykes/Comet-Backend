@@ -31,6 +31,7 @@ class Telegram
     {
         return [
             SurfaceBuilder::for('telegram.channel')
+                ->legacyPlatform('telegram')
                 ->displayName('Telegram')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

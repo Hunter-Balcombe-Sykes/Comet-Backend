@@ -55,6 +55,7 @@ class Eventbrite
 
         return [
             SurfaceBuilder::for('eventbrite.organiser')
+                ->legacyPlatform('eventbrite')
                 ->displayName('Eventbrite')
                 ->routing(RoutingClass::Events)
                 ->shelf(Shelf::Events)

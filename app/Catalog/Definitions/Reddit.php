@@ -30,6 +30,7 @@ class Reddit
     {
         return [
             SurfaceBuilder::for('reddit.profile')
+                ->legacyPlatform('reddit')
                 ->displayName('Reddit')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

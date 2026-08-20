@@ -29,6 +29,7 @@ class Timely
     {
         return [
             SurfaceBuilder::for('timely.book')
+                ->legacyPlatform('timely')
                 ->displayName('Timely')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

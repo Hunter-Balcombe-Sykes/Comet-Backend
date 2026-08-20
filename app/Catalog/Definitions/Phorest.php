@@ -24,6 +24,7 @@ class Phorest
     {
         return [
             SurfaceBuilder::for('phorest.book')
+                ->legacyPlatform('phorest')
                 ->displayName('Phorest')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

@@ -31,6 +31,7 @@ class Substack
     {
         return [
             SurfaceBuilder::for('substack.publication')
+                ->legacyPlatform('substack')
                 ->displayName('Substack')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Media)

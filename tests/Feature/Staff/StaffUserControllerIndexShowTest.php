@@ -6,7 +6,7 @@
  * Confirms that:
  *   - index() no longer crashes on the removed site.theme eager-load
  *   - show()  no longer crashes on the removed site.theme / unused services/blocks loads
- *   - Both responses include architecture_id (not theme) in the site payload
+ *   - Neither response ships architecture_id or theme in the site payload
  *
  * Route-level companion: StaffUserShowPiiTest section (c) exercises this same
  * show()/index() PII gate over real HTTP; this file's direct-controller calls
@@ -90,7 +90,7 @@ it('index returns 200 and does not crash without a theme relationship', function
     expect($response->getStatusCode())->toBe(200);
 });
 
-it('index includes architecture_id in the site payload and omits theme', function () {
+it('index omits architecture_id and theme from the site payload', function () {
     seedProfessionalWithSite('staple');
 
     $controller = app(StaffUserController::class);
@@ -102,9 +102,10 @@ it('index includes architecture_id in the site payload and omits theme', functio
     // At least one professional with a site should be in the results.
     $withSite = collect($body['professionals'])->firstWhere(fn ($p) => $p['site'] !== null);
 
+    // architecture_id left the staff wire 2026-08-20; theme has been gone since
+    // site.themes was dropped.
     expect($withSite)->not->toBeNull()
-        ->and($withSite['site'])->toHaveKey('architecture_id')
-        ->and($withSite['site']['architecture_id'])->toBe('staple')
+        ->and($withSite['site'])->not->toHaveKey('architecture_id')
         ->and($withSite['site'])->not->toHaveKey('theme');
 });
 
@@ -149,7 +150,7 @@ it('show returns 200 and does not crash without a theme relationship', function 
     expect($response->getStatusCode())->toBe(200);
 });
 
-it('show includes architecture_id in the site payload and omits theme', function () {
+it('show omits architecture_id and theme from the site payload', function () {
     $pro = seedProfessionalWithSite('staple');
 
     $controller = app(StaffUserController::class);
@@ -157,8 +158,7 @@ it('show includes architecture_id in the site payload and omits theme', function
     $body = json_decode($response->getContent(), true);
 
     expect($body['site'])->not->toBeNull()
-        ->and($body['site'])->toHaveKey('architecture_id')
-        ->and($body['site']['architecture_id'])->toBe('staple')
+        ->and($body['site'])->not->toHaveKey('architecture_id')
         ->and($body['site'])->not->toHaveKey('theme');
 });
 

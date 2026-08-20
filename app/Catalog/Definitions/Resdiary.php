@@ -30,6 +30,7 @@ class Resdiary
     {
         return [
             SurfaceBuilder::for('resdiary.reserve')
+                ->legacyPlatform('resdiary')
                 ->displayName('ResDiary')
                 ->routing(RoutingClass::Reservations)
                 ->shelf(Shelf::Food)

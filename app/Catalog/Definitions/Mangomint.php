@@ -24,6 +24,7 @@ class Mangomint
     {
         return [
             SurfaceBuilder::for('mangomint.book')
+                ->legacyPlatform('mangomint')
                 ->displayName('Mangomint')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

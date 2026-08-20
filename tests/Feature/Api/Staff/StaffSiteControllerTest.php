@@ -90,7 +90,7 @@ it('returns site data for a given subdomain', function () {
         ->and($body['site']['is_published'])->toBeTrue()
         ->and($body['site']['site']['id'])->toBe($siteId)
         ->and($body['site']['site']['subdomain'])->toBe('alpha')
-        ->and($body['site']['site']['architecture_id'])->toBe('staple')
+        ->and($body['site']['site'])->not->toHaveKey('architecture_id')
         ->and($body['site']['site']['settings'])->toBe(['booking_mode' => 'manual'])
         ->and($body['site']['professional']['handle'])->toBe('alpha')
         ->and($body['site']['professional']['display_name'])->toBe('Alpha Pro')

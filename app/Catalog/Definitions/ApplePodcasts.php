@@ -34,6 +34,7 @@ class ApplePodcasts
     {
         return [
             SurfaceBuilder::for('apple_podcasts.show')
+                ->legacyPlatform('apple-podcast')
                 ->displayName('Apple Podcasts')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Podcast)

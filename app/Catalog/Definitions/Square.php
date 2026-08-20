@@ -33,6 +33,7 @@ class Square
     {
         return [
             SurfaceBuilder::for('square.book')
+                ->legacyPlatform('square')
                 ->displayName('Square')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)
@@ -45,6 +46,7 @@ class Square
                 )
                 ->build(),
             SurfaceBuilder::for('square.order')
+                ->legacyPlatform('square-ordering')
                 ->displayName('Square Online')
                 ->routing(RoutingClass::Ordering)
                 ->shelf(Shelf::Food)

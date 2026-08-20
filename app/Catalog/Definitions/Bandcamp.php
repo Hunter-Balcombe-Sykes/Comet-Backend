@@ -31,6 +31,7 @@ class Bandcamp
     {
         return [
             SurfaceBuilder::for('bandcamp.artist')
+                ->legacyPlatform('bandcamp')
                 ->displayName('Bandcamp')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Music)

@@ -31,6 +31,7 @@ class Buymeacoffee
     {
         return [
             SurfaceBuilder::for('buymeacoffee.page')
+                ->legacyPlatform('buymeacoffee')
                 ->displayName('Buy Me a Coffee')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

@@ -45,8 +45,6 @@ class StaffUserListResource extends ApiResource
                 'id' => (string) $site->id,
                 'subdomain' => $site->subdomain,
                 'is_published' => (bool) $site->is_published,
-                // architecture_id replaces theme — architectures are code constants, not DB rows.
-                'architecture_id' => $site->architecture_id,
             ] : null,
         ];
     }

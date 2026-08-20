@@ -530,7 +530,7 @@ it('a pending account row is publicly active and renders {url} only — never a 
 
     actingAsUser($user)->postJson('/api/platforms/eventbrite/connect', ['url' => $url])->assertStatus(202);
 
-    $res = $this->getJson("/api/public/profiles/{$user->handle}/platforms")->assertOk();
+    $res = $this->getJson("/api/public/profiles/{$user->handle}/integrations")->assertOk();
 
     // The legacy events lane was retired in slice 2 Task 9: eventbrite's
     // public allowlist is now empty, so a pending row publishes NOTHING rather

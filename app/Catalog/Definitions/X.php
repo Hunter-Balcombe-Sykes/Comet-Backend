@@ -32,6 +32,7 @@ class X
     {
         return [
             SurfaceBuilder::for('x.profile')
+                ->legacyPlatform('x')
                 ->displayName('X')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

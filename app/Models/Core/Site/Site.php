@@ -27,7 +27,7 @@ use Illuminate\Support\Facades\DB;
  * @property Carbon $updated_at
  * @property Carbon|null $subdomain_changed_at
  * @property Carbon|null $unpublished_at
- * @property string $architecture_id Vestigial single-value column, CHECK-constrained to 'staple' (sites_architecture_id_check) — plain string, NOT an enum (see class comment below).
+ * @property string $architecture_id Vestigial single-value column, CHECK-constrained to 'staple' (sites_architecture_id_check) — plain string, NOT an enum (see class comment below). NOT fillable and NOT on the dashboard wire since 2026-08-20: it is written only by the DB default. The public payload still derives architectureId/skeletonId from it (IndividualProfileResource) until that wire change lands.
  * @property string $moderation_state One of 'active'|'warned'|'hidden' (sites_moderation_state_check).
  * @property string|null $custom_domain Lowercase-unique connected FQDN (Cloudflare for SaaS).
  * @property string|null $custom_domain_status One of 'pending'|'active'|'error', or NULL (sites_custom_domain_status_check).
@@ -103,7 +103,6 @@ class Site extends BaseModel
 
     protected $fillable = [
         'subdomain',
-        'architecture_id',
         'is_published',
         'unpublished_at',
         'settings',

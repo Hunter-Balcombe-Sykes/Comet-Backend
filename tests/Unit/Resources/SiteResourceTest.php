@@ -32,7 +32,7 @@ it('ships only the allowlisted columns and passes non-design settings through', 
     // updateBookingSettings endpoint share one response shape.
     // design_rationale is opt-in (withRationale) — NOT present by default.
     expect(array_keys($array))->toEqual([
-        'id', 'user_id', 'subdomain', 'architecture_id', 'is_published',
+        'id', 'user_id', 'subdomain', 'is_published',
         'subdomain_changed_at', 'unpublished_at', 'settings', 'design_kit',
         'created_at', 'updated_at', 'booking_mode',
     ]);
@@ -40,7 +40,9 @@ it('ships only the allowlisted columns and passes non-design settings through', 
     expect($array)->not->toHaveKey('internal_flag');
     expect($array)->not->toHaveKey('theme_id');
     expect($array['id'])->toBeString();
-    expect($array['architecture_id'])->toBe('staple');
+    // architecture_id left the wire 2026-08-20 — the column survives (CHECK'd
+    // to 'staple') but no resource ships it.
+    expect($array)->not->toHaveKey('architecture_id');
     expect($array['booking_mode'])->toBe('manual');
     expect($array['settings'])->toBeInstanceOf(stdClass::class);
     // PHP (object) cast only wraps the top level — nested arrays stay arrays.

@@ -39,6 +39,7 @@ class Ticketmaster
     {
         return [
             SurfaceBuilder::for('ticketmaster.tickets')
+                ->legacyPlatform('ticketmaster')
                 ->displayName('Ticketmaster')
                 // Not a limited kind of link (owner, 2026-08-19): a content or events
                 // page is one of several a person may run — the 1-account default is for

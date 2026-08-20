@@ -38,6 +38,7 @@ class Opentable
     {
         return [
             SurfaceBuilder::for('opentable.reserve')
+                ->legacyPlatform('opentable')
                 ->displayName('OpenTable')
                 ->routing(RoutingClass::Reservations)
                 ->shelf(Shelf::Food)

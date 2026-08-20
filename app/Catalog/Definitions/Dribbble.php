@@ -30,6 +30,7 @@ class Dribbble
     {
         return [
             SurfaceBuilder::for('dribbble.profile')
+                ->legacyPlatform('dribbble')
                 ->displayName('Dribbble')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

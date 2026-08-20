@@ -31,6 +31,7 @@ class Kick
     {
         return [
             SurfaceBuilder::for('kick.channel')
+                ->legacyPlatform('kick')
                 ->displayName('Kick')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

@@ -58,6 +58,8 @@ final class SurfaceBuilder
     /** @var list<string> */
     private array $reservedPaths = [];
 
+    private ?string $legacyPlatform = null;
+
     private ?string $note = null;
 
     private function __construct(private readonly string $key)
@@ -243,6 +245,18 @@ final class SurfaceBuilder
         return $this;
     }
 
+    /**
+     * The legacy `platform` slug, for the handful of surfaces where it is not
+     * the brand prefix. Changing one is a migration (the SQL alias column is
+     * GENERATED ... STORED) — see CatalogLegacyMapTest.
+     */
+    public function legacyPlatform(string $slug): self
+    {
+        $this->legacyPlatform = $slug;
+
+        return $this;
+    }
+
     public function note(string $note): self
     {
         $this->note = $note;
@@ -272,6 +286,7 @@ final class SurfaceBuilder
             contracts: $this->contracts,
             embed: $this->embed,
             reservedPaths: $this->reservedPaths,
+            legacyPlatform: $this->legacyPlatform,
             note: $this->note,
         );
     }

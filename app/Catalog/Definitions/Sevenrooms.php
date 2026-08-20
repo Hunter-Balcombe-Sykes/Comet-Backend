@@ -24,6 +24,7 @@ class Sevenrooms
     {
         return [
             SurfaceBuilder::for('sevenrooms.reserve')
+                ->legacyPlatform('sevenrooms')
                 ->displayName('SevenRooms')
                 ->routing(RoutingClass::Reservations)
                 ->shelf(Shelf::Food)

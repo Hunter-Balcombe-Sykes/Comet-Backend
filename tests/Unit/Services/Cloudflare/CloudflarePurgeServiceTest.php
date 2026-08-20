@@ -95,7 +95,6 @@ it('purgeHandle purges the site host by PREFIX and the API subrequests by file (
     expect(cfRecordedFiles())->toBe([
         'https://dev-api.partna.au/api/public/profiles/mixed-case',
         'https://dev-api.partna.au/api/public/profiles/mixed-case/integrations',
-        'https://dev-api.partna.au/api/public/profiles/mixed-case/platforms',
     ]);
     // Exactly two requests: the enumeration of ~2,481 files across ~83 calls is gone.
     // API wire first, HTML prefix second — the fresh render reads the API.
@@ -118,7 +117,7 @@ it('purgeHandle also purges the custom domain host by prefix when one is given',
     // Both hosts, one request; the API subrequests are keyed on the backend
     // host, so they are emitted ONCE no matter how many site hosts are purged.
     expect(cfRecordedPrefixes())->toBe(['jane.partna.au/', 'tuesdae.co/']);
-    expect(cfRecordedFiles())->toHaveCount(3);
+    expect(cfRecordedFiles())->toHaveCount(2);
     expect(Http::recorded())->toHaveCount(2);
 });
 

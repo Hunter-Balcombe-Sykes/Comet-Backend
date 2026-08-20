@@ -27,6 +27,7 @@ class BellaBooking
     {
         return [
             SurfaceBuilder::for('bella_booking.book')
+                ->legacyPlatform('bella-booking')
                 ->displayName('Bella Booking')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

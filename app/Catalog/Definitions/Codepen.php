@@ -29,6 +29,7 @@ class Codepen
     {
         return [
             SurfaceBuilder::for('codepen.profile')
+                ->legacyPlatform('codepen')
                 ->displayName('CodePen')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

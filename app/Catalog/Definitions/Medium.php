@@ -31,6 +31,7 @@ class Medium
     {
         return [
             SurfaceBuilder::for('medium.profile')
+                ->legacyPlatform('medium')
                 ->displayName('Medium')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Media)

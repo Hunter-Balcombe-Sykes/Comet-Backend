@@ -33,6 +33,7 @@ class Youtube
     {
         return [
             SurfaceBuilder::for('youtube.channel')
+                ->legacyPlatform('youtube')
                 ->displayName('YouTube')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Video)

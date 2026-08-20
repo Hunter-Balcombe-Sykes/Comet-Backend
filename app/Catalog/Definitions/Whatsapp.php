@@ -31,6 +31,7 @@ class Whatsapp
     {
         return [
             SurfaceBuilder::for('whatsapp.chat')
+                ->legacyPlatform('whatsapp')
                 ->displayName('WhatsApp')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

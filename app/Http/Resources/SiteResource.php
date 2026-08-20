@@ -13,7 +13,8 @@ use Illuminate\Http\Request;
 // API resource for site.sites rows (dashboard + staff side).
 // `settings` is passed through unchanged — the dashboard reads non-design
 // settings (booking, GBP, etc). Per-user design vars live in site.design_kits
-// (separate table), exposed via the skeleton-system payload.
+// (separate table), exposed via the design-kit payload. architecture_id is
+// deliberately absent — it left this resource 2026-08-20.
 /**
  * @mixin Site
  */
@@ -119,7 +120,6 @@ class SiteResource extends ApiResource
             'id' => (string) $this->id,
             'user_id' => $this->user_id,
             'subdomain' => $this->subdomain,
-            'architecture_id' => $this->architecture_id,
             'is_published' => $this->is_published,
             'subdomain_changed_at' => $this->subdomain_changed_at?->toIso8601String(),
             'unpublished_at' => $this->unpublished_at?->toIso8601String(),

@@ -30,6 +30,7 @@ class YoutubeMusic
     {
         return [
             SurfaceBuilder::for('youtube_music.channel')
+                ->legacyPlatform('youtube-music')
                 ->displayName('YouTube Music')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Music)

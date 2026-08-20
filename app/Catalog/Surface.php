@@ -46,6 +46,15 @@ final readonly class Surface
         public ?array $embed = null,
         /** @var list<string> */
         public array $reservedPaths = [],
+        /**
+         * The pre-catalog `platform` slug for this surface, set ONLY where it
+         * is not the brand prefix. The legacy vocabulary is still on the wire
+         * and is mirrored into SQL as a GENERATED column, so it lives here —
+         * in the compiled artefact — rather than in a parallel PHP table.
+         * Null means "derive it from the brand prefix", matching
+         * split_part(surface_key, '.', 1) in Postgres.
+         */
+        public ?string $legacyPlatform = null,
         public ?string $note = null,
     ) {
         if (substr_count($key, '.') !== 1) {
@@ -87,6 +96,7 @@ final readonly class Surface
             'contracts' => $this->contracts,
             'embed' => $this->embed,
             'reserved_paths' => $this->reservedPaths,
+            'legacy_platform' => $this->legacyPlatform,
             'note' => $this->note,
         ];
     }

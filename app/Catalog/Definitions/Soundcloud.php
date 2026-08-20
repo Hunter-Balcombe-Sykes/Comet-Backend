@@ -36,6 +36,7 @@ class Soundcloud
     {
         return [
             SurfaceBuilder::for('soundcloud.player')
+                ->legacyPlatform('soundcloud')
                 ->displayName('SoundCloud')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Music)

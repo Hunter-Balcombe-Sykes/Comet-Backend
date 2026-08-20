@@ -25,6 +25,7 @@ class Snapchat
     {
         return [
             SurfaceBuilder::for('snapchat.profile')
+                ->legacyPlatform('snapchat')
                 ->displayName('Snapchat')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

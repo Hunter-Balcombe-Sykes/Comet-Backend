@@ -37,6 +37,7 @@ class Mixcloud
     {
         return [
             SurfaceBuilder::for('mixcloud.player')
+                ->legacyPlatform('mixcloud')
                 ->displayName('Mixcloud')
                 // Not a limited kind of link (owner, 2026-08-19): a content or events
                 // page is one of several a person may run — the 1-account default is for
