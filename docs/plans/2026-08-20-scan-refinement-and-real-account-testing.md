@@ -462,6 +462,30 @@ issues the scans surfaced — fix during the run, same standing rule:
   connects write false — suggestion-accepted stores silently auto-publish
   their newest product; dedicated ones don't. Align (Task 1 folds this in).
 
+**T1.5a baseline trace (2026-08-20 08:33-08:35 UTC, sammy.pdf connected to
+gsnwilliams via the real dev API flow — reproduction BEFORE fixes):**
+- Note: the account was NOT clean — an 08:18 UTC natalieannehair connect
+  (owner's own pre-handoff test) was present; sammy.pdf rows are cleanly
+  timestamped ≥08:34 so the baseline still reads.
+- Spotify track (bio link 2) → Listen item "Open Your Eyes (And Dance)" ✓
+  (T6/T9 from last night working) — but NO spotify.artist parent
+  suggestion was proposed → FI-4's suggest-the-artist half confirmed
+  missing.
+- `instagram.com/ssml.wav` (from linktree) → verdict PLACE, conf 75 →
+  full second Instagram connection → **FI-1 reproduced live.**
+- `on.soundcloud.com/fh433tMk6lU9xgP3TM` → note/no-rule-matched → "Sam
+  Akhurst" custom link card → **FI-3 reproduced live** (mixed-case short
+  code, so no fake-profile mint — matches L-1's analysis).
+- Only 3 links observed from the linktree at all (apple music artist ✓
+  placed, ssml.wav, on.soundcloud) — the 3 embed-type links (Spotify
+  artist, Spotify track, SoundCloud track) never reached routing →
+  **FI-5 reproduced live.**
+- Apple Music artist placed correctly from the linktree — the owner's
+  "Apple Music but the link was a track" report was almost certainly the
+  SPOTIFY track tile pre-T6/T9 (the bio track), since the AM link is and
+  was an artist URL; the bug class is covered by FI-4's grammar holes
+  regardless.
+
 ## Task list (tick as you go)
 
 - [ ] T1 — auto-select up to 5 most-recent products on store connect

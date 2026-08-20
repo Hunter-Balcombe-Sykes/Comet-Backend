@@ -76,56 +76,77 @@ class ShopAutoSelector
 
         $section = $this->provisioner->ensure($site, 'shop');
 
-        // ANY curation row touching this store's items — pinned or excluded —
-        // means the owner already engaged with this store's Sell selection.
-        $storeItemIds = DB::connection('pgsql')->table('content.collection_items')
-            ->where('collection_id', $collectionId)
-            ->pluck('item_id');
-        $engaged = DB::connection('pgsql')->table('site.section_items')
-            ->where('section_id', $section->id)
-            ->whereIn('item_id', $storeItemIds)
-            ->exists();
+        // ONE transaction for the claim, the engagement re-check, and the pin
+        // writes (critic pass, 2026-08-20): the claim used to commit on its
+        // own, so any failure in the pin loop stranded the store stamped with
+        // a partial (or zero) seed and no retry path — the stamp is the sole
+        // retry gate. A rollback now takes the stamp with it. The engagement
+        // check also moved INSIDE the claim: read before it, a manual
+        // pin/exclude landing in the gap would have been seeded over.
+        $pinned = (int) DB::connection('pgsql')->transaction(function () use ($collectionId, $section, $candidates) {
+            // Compare-and-set claim: whichever concurrent caller moves this
+            // row owns the seeding; everyone else no-ops.
+            $claimed = DB::connection('pgsql')->table('content.storefronts')
+                ->where('collection_id', $collectionId)
+                ->whereNull('products_autoselected_at')
+                ->whereNull('products_curated_at')
+                ->update(['products_autoselected_at' => now(), 'updated_at' => now()]) > 0;
 
-        // Compare-and-set claim BEFORE the pin writes: whichever concurrent
-        // caller moves this row owns the seeding; everyone else no-ops.
-        $claimed = DB::connection('pgsql')->table('content.storefronts')
-            ->where('collection_id', $collectionId)
-            ->whereNull('products_autoselected_at')
-            ->whereNull('products_curated_at')
-            ->update(['products_autoselected_at' => now(), 'updated_at' => now()]) > 0;
-
-        if (! $claimed || $engaged) {
-            return 0;
-        }
-
-        // Items already on the section (an overlap-listed item pinned via
-        // another store) are left alone — same rule as ProvisionShopPinsCommand.
-        $existing = DB::connection('pgsql')->table('site.section_items')
-            ->where('section_id', $section->id)
-            ->pluck('item_id')->flip();
-
-        // Append after whatever is already there so another store's earlier
-        // pins (or the owner's own ordering) are never interleaved.
-        $maxSortKey = (float) (DB::connection('pgsql')->table('site.section_items')
-            ->where('section_id', $section->id)
-            ->max('sort_key') ?? 0.0);
-
-        $pinned = 0;
-        foreach ($candidates as $itemId) {
-            if ($existing->has($itemId)) {
-                continue;
+            if (! $claimed) {
+                return 0;
             }
-            DB::connection('pgsql')->table('site.section_items')->insert([
-                'id' => (string) Str::uuid(),
-                'section_id' => $section->id,
-                'item_id' => $itemId,
-                'state' => 'pinned',
-                'sort_key' => $maxSortKey + $pinned + 1.0,
-                'created_at' => now(),
-            ]);
-            $pinned++;
-        }
 
+            // ANY curation row touching this store's items — pinned or
+            // excluded — means the owner already engaged with this store's
+            // Sell selection: keep the stamp, seed nothing.
+            $storeItemIds = DB::connection('pgsql')->table('content.collection_items')
+                ->where('collection_id', $collectionId)
+                ->pluck('item_id');
+            $engaged = DB::connection('pgsql')->table('site.section_items')
+                ->where('section_id', $section->id)
+                ->whereIn('item_id', $storeItemIds)
+                ->exists();
+
+            if ($engaged) {
+                return 0;
+            }
+
+            // Items already on the section (an overlap-listed item pinned via
+            // another store) are left alone — same rule as
+            // ProvisionShopPinsCommand.
+            $existing = DB::connection('pgsql')->table('site.section_items')
+                ->where('section_id', $section->id)
+                ->pluck('item_id')->flip();
+
+            // Append after whatever is already there so another store's
+            // earlier pins (or the owner's own ordering) are never
+            // interleaved.
+            $maxSortKey = (float) (DB::connection('pgsql')->table('site.section_items')
+                ->where('section_id', $section->id)
+                ->max('sort_key') ?? 0.0);
+
+            $pinned = 0;
+            foreach ($candidates as $itemId) {
+                if ($existing->has($itemId)) {
+                    continue;
+                }
+                // insertOrIgnore: a concurrent PoolController::select() racing
+                // us onto the same (section_id, item_id) unique key must not
+                // abort the whole seed — their row wins, ours skips.
+                $pinned += DB::connection('pgsql')->table('site.section_items')->insertOrIgnore([
+                    'id' => (string) Str::uuid(),
+                    'section_id' => $section->id,
+                    'item_id' => $itemId,
+                    'state' => 'pinned',
+                    'sort_key' => $maxSortKey + $pinned + 1.0,
+                    'created_at' => now(),
+                ]);
+            }
+
+            return $pinned;
+        });
+
+        // Outside the transaction — SiteCacheLanes dispatches a CDN purge job.
         if ($pinned > 0) {
             SiteCacheLanes::bust([(string) $site->id]);
         }

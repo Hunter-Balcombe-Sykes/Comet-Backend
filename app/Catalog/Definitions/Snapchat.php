@@ -33,7 +33,6 @@ class Snapchat
                 ->refreshEvery(0)
                 ->canonicalUrl('https://snapchat.com/add/{handle}')
                 ->connect('connect.snapchat.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('snapchat.com')
                         ->path('#^/add/(?<handle>[A-Za-z0-9._-]{3,15})/?$#')

@@ -39,7 +39,6 @@ class Telegram
                 ->refreshEvery(0)
                 ->canonicalUrl('https://t.me/{handle}')
                 ->connect('connect.telegram.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('telegram.org')
                         ->path('#^/@?(?<handle>[A-Za-z0-9_]{5,32})/?$#')

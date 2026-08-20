@@ -94,8 +94,13 @@ class SourceReconciler
             }
         }
 
-        // Per-surface account cap.
-        if ($verdict === Verdict::Place && $this->capReached($user, $placement->surfaceKey, (int) $surface['max_accounts'], $identifier, $aliasConnectionId)) {
+        // Per-surface account cap. Skipped entirely when the identity resolver
+        // matched an EXISTING row (alias or exact): folding a link into an
+        // account we already hold adds no account, so it can never be what the
+        // cap is guarding against — and with socials at max_accounts=1 (FI-1,
+        // 2026-08-20) a mere exclude-the-alias-from-the-count would still let
+        // OTHER over-cap legacy rows block the fold (#R4 test 4's shape).
+        if ($verdict === Verdict::Place && $aliasConnectionId === null && $this->capReached($user, $placement->surfaceKey, (int) $surface['max_accounts'], $identifier, $aliasConnectionId)) {
             $verdict = Verdict::Hold;
             $blockReason = 'cap_reached';
             // On a SINGLE-account surface the cap names exactly one incumbent,

@@ -249,16 +249,23 @@ it('offers a swap for a cap-blocked link on a single-account surface, and swappi
 });
 
 it('keeps a cap-blocked link on a multi-account surface dismiss-only', function () {
-    // Five Instagrams already: no one row a swap could mean.
+    // Ten YouTube channels already: no ONE row a swap could mean. (This case
+    // used Instagram until FI-1, 2026-08-20, made every social single-account
+    // — a cap-blocked social now correctly OFFERS the swap, so the
+    // dismiss-only shape needs a genuinely multi-account surface.)
     $pro = createTenant('inbox-cap-multi');
-    foreach (range(1, 5) as $n) {
+    foreach (range(1, 10) as $n) {
         (new IntegrationConnection([
-            'user_id' => $pro->id, 'surface_key' => 'instagram.profile',
-            'routing_class' => 'social', 'resource_id' => "acct-{$n}",
+            'user_id' => $pro->id, 'surface_key' => 'youtube.channel',
+            'routing_class' => 'content', 'resource_id' => "acct-{$n}",
             'payload' => [], 'is_active' => true,
         ]))->save();
     }
-    seedIntent($pro->id, ['state' => 'blocked', 'block_reason' => 'cap_reached']);
+    seedIntent($pro->id, [
+        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'identifier' => 'acct-11', 'canonical_url' => 'https://www.youtube.com/@acct-11',
+        'state' => 'blocked', 'block_reason' => 'cap_reached',
+    ]);
 
     expect(actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions.0.actions'))
         ->toBe(['dismiss']);

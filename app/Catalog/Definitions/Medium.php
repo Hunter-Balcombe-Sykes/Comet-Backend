@@ -39,7 +39,6 @@ class Medium
                 ->refreshEvery(0)
                 ->canonicalUrl('https://medium.com/@{handle}')
                 ->connect('connect.medium.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('medium.com')
                         ->path('#^/@(?<handle>[A-Za-z0-9_.-]{2,40})/?$#')
