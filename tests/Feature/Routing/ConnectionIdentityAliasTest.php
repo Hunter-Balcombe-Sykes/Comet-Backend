@@ -289,3 +289,33 @@ it('M-8: a Choose-band alias of an already-connected channel folds instead of pr
         ->count();
     expect($proposed)->toBe(0);
 });
+
+it('M-8 reverse order: a Place supersedes an earlier mis-cased proposal for the same account', function () {
+    // Live verify round: the website's @TheJungleGiants arrived (and
+    // proposed) BEFORE the linktree's @thejunglegiants connected — the stale
+    // proposal survived the connect. A newly applied Place now supersedes
+    // live proposals with a case-insensitively equal identifier.
+    $pro = createTenant('m8-reverse');
+    $ctx = RoutingContext::forUser($pro, 'link_in_bio');
+    $reconciler = app(\App\Routing\SourceReconciler::class);
+    $canon = app(\App\Routing\IriCanonicalizer::class);
+
+    // 1. Mis-cased link first, Choose band, no existing row → proposed.
+    $reconciler->reconcile(
+        new \App\Routing\Placement(\App\Routing\Verdict::Choose, 'youtube.channel', 'TheJungleGiants'),
+        $ctx,
+        $canon->canonicalize('https://www.youtube.com/@TheJungleGiants'),
+    );
+    expect(DB::table('routing.source_intents')->where('user_id', $pro->id)->where('state', 'proposed')->count())->toBe(1);
+
+    // 2. The canonical-cased link connects.
+    $reconciler->reconcile(
+        new \App\Routing\Placement(\App\Routing\Verdict::Place, 'youtube.channel', 'thejunglegiants'),
+        $ctx,
+        $canon->canonicalize('https://www.youtube.com/@thejunglegiants'),
+    );
+
+    expect(liveConnections($pro, 'youtube.channel'))->toHaveCount(1)
+        ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->where('state', 'proposed')->count())->toBe(0)
+        ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->where('state', 'superseded')->count())->toBe(1);
+});

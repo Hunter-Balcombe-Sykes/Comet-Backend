@@ -156,6 +156,22 @@ class SourceReconciler
                 ->where('id', $intentId)
                 ->update(['connection_id' => $connectionId, 'resolved_at' => now(), 'updated_at' => now()]);
 
+            // M-8, other direction (thejunglegiants live, verify round): when
+            // the mis-cased alias arrives BEFORE the connect, its Choose
+            // proposal is already filed by the time this Place applies — and
+            // nothing cleaned it up, so the inbox still offered the user
+            // their own now-connected channel. A newly applied Place
+            // supersedes any live proposal whose identifier is the same
+            // account (case-insensitive: the fold rule that matters here is
+            // exactly the M-7 one, and lower() is safe cross-driver).
+            DB::table('routing.source_intents')
+                ->where('user_id', $user->id)
+                ->where('surface_key', $placement->surfaceKey)
+                ->where('state', 'proposed')
+                ->where('id', '!=', $intentId)
+                ->whereRaw('lower(identifier) = ?', [mb_strtolower($identifier)])
+                ->update(['state' => 'superseded', 'resolved_at' => now(), 'updated_at' => now()]);
+
             return [$intentId, $connectionId];
         });
 
