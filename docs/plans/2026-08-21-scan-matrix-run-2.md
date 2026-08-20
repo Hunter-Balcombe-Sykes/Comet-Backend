@@ -137,6 +137,66 @@ exists.
 
 ### Item status
 
+- **M-7** (I9 thejunglegiants live): youtube.com/@TheJungleGiants vs
+  @thejunglegiants — one channel, but matchExisting's case-sensitive
+  resource_id compare missed it. Handle-kind surfaces (catalog
+  identifier_kind) now fold both sides; opaque id kinds keep exact
+  compare. Pinned in ConnectionIdentityAliasTest.
+- **M-8** (same trace): the Choose band skipped the alias lookup entirely
+  (deliberately Place-only), so the differently-cased own-channel link
+  filed the user's OWN connected channel as an inbox suggestion. Choose
+  now consults matchExisting and an aliased Choose upgrades to Place —
+  the fold machinery reuses the existing row, adds no account. Pinned in
+  ConnectionIdentityAliasTest (M-8 case). @triplej (a genuinely different
+  channel in their linktree) still proposes — correct.
+- I5 vicmarkettattoo: handle does not exist (Apify profile_not_found,
+  clean 'unavailable' handling, no junk) — substituted; the substitute
+  stali_coffee ALSO returned actor not_found despite being listing-
+  verified earlier the same night: Apify IG actor flakiness, ledgered.
+- I6 ruelofficial (both accounts): actor returned an EMPTY profile
+  (0 followers/0 posts/no bio) for this account consistently — pipeline
+  faithfully mirrors it; parity across account types. Actor limitation,
+  not a routing bug. Possible future improvement: treat an all-empty
+  "successful" scrape as retryable.
+- I7 gflip (both accounts): CLEAN and rich — IG + link-only fb/tiktok/x +
+  Spotify player + YouTube channel + Apple Music artist all
+  auto-connected; 39 releases + 10 tracks + 18 videos + 12 media; 7
+  legit cards (ffm.to smart links, tour/site/shop); Spotify+Apple pairs
+  of one release MERGE into one item (identity layer verified — the one
+  same-name duplicate is a real single/EP pair).
+- I8 tashsultana (business): actor returned a 77-follower ghost profile
+  for the handle (real account is ~1.5M) — pipeline mirrored it
+  faithfully; ledgered as actor-data limitation; partna mirror skipped
+  (the broken data source tests nothing new about account types).
+- I9 thejunglegiants (both accounts): CLEAN and rich, full parity — two
+  spotify.player connections (artist + their promoted playlist; content
+  surfaces are multi-account by design), youtube connected, Apple Music,
+  52 releases/10 tracks/18 videos, shopify merch store proposed, 13
+  legitimate cards. Produced M-7/M-8.
+- I10 peachprc (both accounts): CLEAN parity — IG + 12 media + 3 legit
+  cards (site, single page, tour); bio carries no music-platform links to
+  fan out. 
+- B5 Vic Market Tattoo (business): partial — the Google Places DETAILS
+  quota died mid-run (429 → 403, key-level daily), so the listing
+  connected bare (name/address only) and enrichment seeded nothing. NOT
+  a code bug: connect degrades gracefully, warning logged. B5–B10 (and
+  the B-side partna mirrors beyond B1–B4) are BLOCKED on Google's daily
+  quota reset — local PlacesBudget caps were raised in .env
+  (PARTNA_PLACES_* overrides, owner-authorized) so only Google's own
+  reset is needed. Retry recipe: reconnect each placeId from the roster
+  table with the same wire.
+
+### Environment notes (run 2)
+
+- Google Places daily quota exhausted ~03:00 AEST (429 then 403) after
+  ~6 full business connects tonight on top of run 1's spend. Local
+  PlacesBudget caps raised (global 5000 / user 1000 / details 2000 /
+  photos 4000) for future runs.
+- Apify Instagram actor degraded intermittently from ~03:00: not_found
+  for existing handles, empty profiles, ghost data. gflip/thejunglegiants/
+  peachprc scraped perfectly in the same window, so it is per-account
+  flakiness, not global.
+
 - I4 flowersvasette (partna): CLEAN — IG + link-only facebook/tiktok
   auto-applied from the bio (their "pending" badge is the PARKED
   connect-only-platform-status decision, untouched), WooCommerce store
