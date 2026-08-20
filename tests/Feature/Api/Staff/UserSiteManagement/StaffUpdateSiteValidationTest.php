@@ -35,13 +35,18 @@ it('rejects a non-hex design-kit colour', function () {
         ->assertJsonValidationErrors(['design_kit.color_accent']);
 });
 
-it('rejects an unknown architecture id', function () {
+it('ignores architecture_id entirely and never lets it reach the column', function () {
+    // architecture_id left the wire 2026-08-20. It is now an unknown key: the
+    // request succeeds and the value is dropped. The property that matters is
+    // the second one — an ignored field must not be able to write a value the
+    // DB CHECK would reject.
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-skel');
 
-    patchStaffSite($staff, $pro, ['architecture_id' => 'skeleton-9'])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors(['architecture_id']);
+    patchStaffSite($staff, $pro, ['architecture_id' => 'skeleton-9'])->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+        ->toBe('staple');
 });
 
 it('rejects a reserved subdomain', function () {
@@ -73,12 +78,11 @@ it('rejects any settings.design.* path (skeleton-cleanup guard)', function () {
         ->assertJsonValidationErrors(['settings.design']);
 });
 
-it('accepts a valid architecture and settings (negative tests are not over-rejecting)', function () {
+it('accepts settings (negative tests are not over-rejecting)', function () {
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-valid');
 
     patchStaffSite($staff, $pro, [
-        'architecture_id' => 'staple',
         'settings' => ['booking_mode' => 'manual'],
     ])->assertOk();
 
@@ -86,16 +90,14 @@ it('accepts a valid architecture and settings (negative tests are not over-rejec
         ->toBe('staple');
 });
 
-it('rejects retired legacy ids and ignores the dropped skeleton_id field', function () {
+it('ignores retired legacy ids and the dropped skeleton_id field', function () {
     // The skeleton_id alias + LEGACY_ARCHITECTURE_IDS collapse were removed
-    // 2026-08-05 (platform audit — no client sends either any more).
+    // 2026-08-05; architecture_id itself left the wire 2026-08-20. Both are now
+    // unknown keys — accepted and dropped, never persisted.
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-legacy-field');
 
-    patchStaffSite($staff, $pro, ['architecture_id' => 'dock'])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors(['architecture_id']);
-
+    patchStaffSite($staff, $pro, ['architecture_id' => 'dock'])->assertOk();
     patchStaffSite($staff, $pro, ['skeleton_id' => 'dock'])->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))

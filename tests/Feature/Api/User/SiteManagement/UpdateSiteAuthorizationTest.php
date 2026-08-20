@@ -29,12 +29,18 @@ beforeEach(function () {
 it('lets an active owner update their site through the policy gate', function () {
     $pro = createTenant('active-owner');
 
+    // Must patch an OBSERVABLE column. This used to send architecture_id, which
+    // stopped being a valid probe twice over: it is CHECK-pinned to 'staple'
+    // (so the assertion held either way) and since 2026-08-20 it is not on the
+    // wire at all (so the PATCH would carry no writable field). is_published is
+    // seeded true by createTenant and is not pinned, so flipping it is what
+    // actually proves the gate let the write through.
     actingAsUser($pro)
-        ->patchJson('/api/site', ['architecture_id' => 'staple'])
+        ->patchJson('/api/site', ['is_published' => false])
         ->assertOk();
 
-    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('staple');
+    expect((int) DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('is_published'))
+        ->toBe(0);
 });
 
 it('blocks a pending-deletion professional at the controller policy even when the read-only middleware is bypassed', function () {

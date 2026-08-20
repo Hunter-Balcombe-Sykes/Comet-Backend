@@ -247,10 +247,10 @@ Partna is an individual-user-only platform. The model is `App\Models\Core\User\U
 (DB table `core.users`; FK columns on other tables use `user_id`).
 `account_type` is one of `'partna'` (standard) or `'business'` ("Business Partna"), chosen at signup (migration `20260612120000`). The `AccountType` enum has exactly two cases (`Partna`, `Business`), mirroring the `users_account_type_check` constraint. The two types behave identically EXCEPT where a capability says otherwise; never branch on `account_type` directly outside `AccountCapabilities`.
 
-- `site.sites.architecture_id` TEXT NOT NULL, CHECK (`'staple'`), default `'staple'`. Write paths collapse all historical ids via `LEGACY_ARCHITECTURE_IDS` — effectively vestigial.
+- `site.sites.architecture_id` TEXT NOT NULL, CHECK (`'staple'`), default `'staple'` — vestigial. `LEGACY_ARCHITECTURE_IDS` was **removed 2026-08-05**; the column left the **dashboard wire 2026-08-20** (no resource ships it, no request validates it, not fillable) and is now written only by the DB default. It still reaches the PUBLIC payload as `architectureId`/`skeletonId` via `IndividualProfileResource` — that half, and the column drop itself, are pending: `docs/superpowers/specs/2026-08-20-legacy-lane-retirement-design.md`.
 - `site.themes` → DROPPED. `set_default_theme_for_site()` → DROPPED with CASCADE. `settings.design.*` → STRIPPED.
 - `site.design_kits` 1:1 with `site.sites` (PK = site_id, FK CASCADE, all columns NULLABLE). Auto-insert trigger on site create. New var = new NULLABLE column, no DB default — code-side defaults fill nulls.
-- `GET /api/public/profiles/{handle}` → `designKit` (partial) + `architectureId` (always `staple`, `skeletonId` transitional alias). `PATCH /api/professional/site` → writes `design_kits` columns; legacy `skeleton_id` accepted/collapsed. `settings.design.*` rejected.
+- `GET /api/public/profiles/{handle}` → `designKit` (partial) + `architectureId` (always `staple`, `skeletonId` transitional alias). `PATCH /api/professional/site` → writes `design_kits` columns; `architecture_id` and legacy `skeleton_id` are both IGNORED (unknown keys — accepted, dropped, never persisted; deliberately not `prohibited` so an old client is not 422'd). `settings.design.*` rejected.
 
 **Hard rules:**
 - New design kit var = new migration (NULLABLE, no DB default).

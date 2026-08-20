@@ -343,7 +343,7 @@ class DataExportPayloadBuilder
             ->select([
                 'id', 'user_id', 'subdomain', 'is_published', 'settings',
                 'created_at', 'updated_at', 'subdomain_changed_at', 'unpublished_at',
-                'architecture_id', 'moderation_state',
+                'moderation_state',
                 'custom_domain', 'custom_domain_status', 'custom_domain_verified_at',
                 'custom_domain_cf_id', 'custom_domain_primary',
                 'show_branding', 'charlie_enabled', 'services_auto_sync_enabled',
