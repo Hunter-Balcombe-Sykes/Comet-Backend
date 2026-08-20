@@ -137,6 +137,22 @@ exists.
 
 ### Item status
 
+- I3 lunecroissant (both accounts): CLEAN — IG + 12 media + 7 properly
+  titled real Lune pages (menus/loyalty/careers/order/pre-order/root/
+  passport), parity across account types.
+- B3 Uncle Joe's Barber (both accounts): CLEAN — listing + facebook
+  @unclejoesbarber + IG @uncle_joes + workplace + site card + 12 media,
+  parity across account types. No booking provider on the listing/site —
+  nothing to connect, deliberate.
+
+- I2 chinchinrestaurant (business): CLEAN — IG + site card, parity with
+  the partna pass.
+- B2 Chin Chin (partna): CLEAN BY DOCTRINE — listing + facebook +
+  @chinchin IG + workplace; reservations capability is off for partna, so
+  the two restref links fall to zero-loss cards (gate-denied categories
+  card deliberately; their bare-domain labels are OpenTable's unscrapable
+  widget page, noted). No reservations connection, correctly.
+
 - I2 chinchinrestaurant (partna): CLEAN — IG ok + site card; 0 media is
   the account's own data.
 - B2 Chin Chin listing (business): CLEAN round 4 — listing + facebook +
