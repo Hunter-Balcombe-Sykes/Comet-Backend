@@ -553,9 +553,15 @@ gsnwilliams via the real dev API flow — reproduction BEFORE fixes):**
       DB): workplace attaches cleanly with name/address/hours/phone/map,
       enrichment fans out to the listing's own platforms. Caught FI-15
       (stale cross-swap workplace fields) — fixed + pinned.
-- [ ] T10 — backstop: full backend suite green, dashboard typecheck/lint
-      clean, both repos deployed, fresh post-deploy log scan, final
-      whole-run Sonnet critic pass over the entire diff, outcome-first report
+- [x] T10 — backstop: full suite 8,723 passed / 0 failed (the gate run
+      caught 6 architecture-guard failures — all fixed: catalog recompile,
+      ROLLBACK headers, collection-write + GS-1 registrations, lens scope,
+      uniqueFor>timeout); final whole-run critic found 2 blockers — both
+      fixed (deep-page rule extended to the classified 'shop' lane;
+      convergence migration ranks is_active first); dashboard
+      typecheck/lint clean; backend merged to development + pushed
+      (auto-deploy), monorepo pushed (auto-deploy); post-deploy log scan
+      recorded below.
 
 ## Handoff — how to start
 
