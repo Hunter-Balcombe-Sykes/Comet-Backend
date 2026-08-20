@@ -508,11 +508,20 @@ class LinkRouter
             // instead"; a cap-blocked intent naming the incumbent is exactly
             // what the suggestions inbox renders as Swap. `handled: true`
             // still, so no caller writes a card for it.
+            // M-6 (critic on M-5, 2026-08-21): key the intent on the STORE
+            // (host|path), not the full URL. With M-5 letting every ordering
+            // link reach this arm, a page carrying N query-string variants of
+            // one store's link (?pickup, ?diningMode…) minted N distinct
+            // identifiers → N duplicate Swap rows in the inbox (the live
+            // dedup index is (user, surface, identifier)). Distinct stores
+            // still get distinct offers; variants of one store coalesce.
+            $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+            $storePath = rtrim((string) parse_url($url, PHP_URL_PATH), '/');
             app(SourceReconciler::class)->recordCapBlock(
                 $user,
                 $surface,
                 'ordering',
-                'order-'.substr(sha1(strtolower($url)), 0, 16),
+                'order-'.substr(sha1($host.'|'.$storePath), 0, 16),
                 $url,
                 (string) $incumbent->id,
                 $origin,

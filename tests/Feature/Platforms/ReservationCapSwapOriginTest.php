@@ -91,3 +91,40 @@ it('caps the SECOND reservation link in one run instead of carding it (slot self
     expect(DB::table('routing.source_intents')->where('user_id', $pro->id)->where('state', 'blocked')->count())
         ->toBeGreaterThanOrEqual(1);
 });
+
+it('coalesces query-variant ordering links of one store into ONE Swap, keeps distinct stores distinct', function () {
+    // M-6 (critic on M-5): the ordering cap identifier was hashed from the
+    // full URL, so ?pickup/?delivery variants of one store minted duplicate
+    // Swap rows once M-5 let every ordering link reach the seeder.
+    $pro = User::create([
+        'handle' => 'm6-order', 'handle_lc' => 'm6-order', 'display_name' => 'M6',
+        'first_name' => 'M6', 'account_type' => 'business', 'sector' => 'restaurant',
+        'status' => 'active',
+    ]);
+
+    $incumbent = new IntegrationConnection([
+        'surface_key' => 'uber_eats.order', 'routing_class' => 'ordering',
+        'resource_id' => 'uber_eats',
+        'payload' => ['url' => 'https://www.ubereats.com/au/store/incumbent-cafe/abc123', 'source' => 'google-business'],
+        'is_active' => true,
+    ]);
+    $incumbent->user_id = $pro->id;
+    // No ->platform assignment: 'uber_eats' is not a legacy platform key, and
+    // the legacy mutator would overwrite the surface_key with the raw value.
+    $incumbent->save();
+
+    $ctx = new RouteContext;
+    $router = app(LinkRouter::class);
+    $router->route($pro, 'https://www.ubereats.com/au/store/other-cafe/xyz789?diningMode=PICKUP', $ctx);
+    $router->route($pro, 'https://www.ubereats.com/au/store/other-cafe/xyz789?diningMode=DELIVERY', $ctx);
+    $router->route($pro, 'https://www.ubereats.com/au/store/third-cafe/qqq111', $ctx);
+
+    $identifiers = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)->where('state', 'blocked')
+        ->pluck('identifier');
+
+    // 2 distinct stores → exactly 2 Swap rows; the two variants of
+    // other-cafe share one identifier.
+    expect($identifiers->count())->toBe(2)
+        ->and($identifiers->unique()->count())->toBe(2);
+});

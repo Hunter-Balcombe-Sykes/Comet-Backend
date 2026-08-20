@@ -137,6 +137,29 @@ exists.
 
 ### Item status
 
+- I4 flowersvasette (partna): CLEAN — IG + link-only facebook/tiktok
+  auto-applied from the bio (their "pending" badge is the PARKED
+  connect-only-platform-status decision, untouched), WooCommerce store
+  correctly PROPOSED (deep shop links → suggestion), the bio's own
+  featured product became a Sell item via the manual-product lane (T8
+  doctrine, mirrors run-1's track→Listen rule), 5 titled cards, 12 media.
+- B4 Rakis on Collins (business): CLEAN BY DOCTRINE — listing + real
+  fb/ig + workplace + 12 media + site card; the apps.kitomba.com booking
+  link CARDS because Kitomba is one of the 27 detect-only stopgap
+  providers (documented in its catalog definition — card is the designed
+  outcome, no connect recipe exists). Workplace name "Rakis on" is the
+  documented 15-char BusinessName::wordTrim cap ("Rakis on Collins" won't
+  fit) — deliberate, though the owner may want to revisit the cap for
+  names like this.
+- **M-6** (critic catch on M-5): the ordering cap-block identifier was
+  hashed from the FULL URL, so query-string variants of one store
+  (?pickup/?delivery) would mint duplicate Swap rows once M-5 let every
+  ordering link reach the seeder. Now keyed on host|path (storeKey rule):
+  variants coalesce, distinct stores stay distinct. Pinned by a third
+  ReservationCapSwapOriginTest case. Critic REFUTED every other angle on
+  M-1..M-5 (M-2 loop-bounds, M-3 collisions, M-4 origin correctness,
+  duplicate-connection risk under M-5).
+
 - I3 lunecroissant (both accounts): CLEAN — IG + 12 media + 7 properly
   titled real Lune pages (menus/loyalty/careers/order/pre-order/root/
   passport), parity across account types.
