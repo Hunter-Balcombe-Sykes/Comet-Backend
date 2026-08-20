@@ -253,3 +253,26 @@ exists.
 - [ ] B1–B10 × {business, partna}
 - [ ] I1–I10 × {partna, business}
 - [ ] Final: full suite, deploys verified, close-out + report
+
+## Close-out (2026-08-21 ~05:15 AEST)
+
+Run complete. 8 fixes shipped (M-1..M-8, M-8 in both directions), every
+one reproduced live, fixed at the right layer, pinned by tests, and
+re-verified live where the environment allowed. Three Sonnet critic
+passes ran (RT batch, M-1..M-5, M-6..M-8); every REAL finding they
+raised was fixed in-run (M-6 came from a critic; the M-7 allowlist and
+the real M-8 Choose-arm test came from the final critic). Final suite:
+8,743 passed / 0 failed. All commits pushed to development
+(auto-deploy); post-deploy log scan recorded in the session.
+
+Coverage: I1–I4 clean in all four cells; I5 handle nonexistent
+(substitute also actor-blocked); I6/I8 actor-data-limited with account-
+type parity; I7/I9/I10 clean and rich in both cells; B1–B4 clean in all
+cells; B5–B10 blocked on Google's key-level daily Places quota (local
+caps already raised; retry recipe in the roster section).
+
+Final account states: user-kvjm7i = thejunglegiants full music showcase
+(IG + Spotify artist & playlist players + YouTube + Apple Music, 52
+releases/10 tracks/18 videos, merch store proposed, @triplej correctly
+proposed, mis-cased duplicate superseded); gsnwilliams = peachprc (IG +
+12 media + 3 cards). Both reset-ready via partna:reset-test-user.
