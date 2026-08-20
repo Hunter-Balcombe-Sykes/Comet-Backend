@@ -15,11 +15,20 @@ use Illuminate\Support\Facades\Log;
  *
  * Host        Payload                                             Verified
  * liinks.co   `window.CONTEXT = {…}` → USER_DATA.links[]           2026-08-19
+ * linktr.ee   `<script id="__NEXT_DATA__">` → props.pageProps.     2026-08-20
+ *             links[].url (+ socialLinks[].url)
  *
  * liinks.co ships a ~360 KB page with ZERO <a> anchors — every link is drawn by
  * React — but the same page inlines the entire link list as JSON. So the
  * anchor harvest reads nothing off a page whose links are sitting in the bytes
  * it was just given.
+ *
+ * linktr.ee DOES server-render anchors — which is exactly why its gap hid for
+ * so long (FI-5, reproduced live on linktr.ee/samakhurst): the anchor harvest
+ * reads the CLASSIC buttons fine, but the music-embed link types
+ * (SPOTIFY_SONG, SOUNDCLOUD_SONG, SPOTIFY_ARTIST…) render as players with no
+ * <a> at all, so 3 of that page's 6 published links were structurally
+ * invisible. All 6 sit in the page's own __NEXT_DATA__ JSON.
  *
  * Same null-vs-[] contract as LinkInBioApiUnroller: null means "not my host /
  * could not read it" and the caller falls back to the anchor harvest; an empty
@@ -28,6 +37,8 @@ use Illuminate\Support\Facades\Log;
 class LinkInBioInlinePayloadReader
 {
     private const SUPPORTED_HOSTS = ['liinks.co', 'www.liinks.co'];
+
+    private const LINKTREE_HOSTS = ['linktr.ee', 'www.linktr.ee'];
 
     private const ASSIGNMENT = 'window.CONTEXT';
 
@@ -42,6 +53,11 @@ class LinkInBioInlinePayloadReader
     public function read(string $pageUrl, string $body): ?array
     {
         $host = strtolower((string) parse_url($pageUrl, PHP_URL_HOST));
+
+        if (in_array($host, self::LINKTREE_HOSTS, true)) {
+            return $this->linktree($host, $body);
+        }
+
         if (! in_array($host, self::SUPPORTED_HOSTS, true)) {
             return null;
         }
@@ -66,6 +82,58 @@ class LinkInBioInlinePayloadReader
         }
 
         return $this->targets($links);
+    }
+
+    /**
+     * linktr.ee — Next.js, so the whole page state ships as pure JSON inside
+     * `<script id="__NEXT_DATA__" type="application/json">…</script>`. Next
+     * escapes `<` as \u003c inside the JSON, so scanning to the first
+     * `</script>` cannot truncate the payload.
+     *
+     * Shapes quoted from a live page (linktr.ee/samakhurst, 2026-08-20), not
+     * guessed: `props.pageProps.links[]` is the published tile list — every
+     * entry carries `url` regardless of `type` (CLASSIC button, SPOTIFY_SONG /
+     * SOUNDCLOUD_SONG embed player, INSTAGRAM_PROFILE…) — and
+     * `props.pageProps.socialLinks[]` is the icon row, same `url` field.
+     * Locked/hidden tiles don't ship in the SSR payload, so no re-posting
+     * risk. An entry without an http(s) url is skipped, never invented.
+     *
+     * @return list<string>|null
+     */
+    private function linktree(string $host, string $body): ?array
+    {
+        if (! preg_match('~<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>~s', $body, $m)) {
+            return null;
+        }
+
+        $doc = json_decode($m[1], true);
+        if (! is_array($doc)) {
+            return null;
+        }
+
+        $links = data_get($doc, 'props.pageProps.links');
+        if (! is_array($links)) {
+            // Linktree revved their shell. Say so — a silent null falls back
+            // to the anchor harvest, which is exactly the 3-of-6 gap this
+            // arm exists to close.
+            Log::warning('platforms.link_in_bio_inline.unrecognised_payload', [
+                'host' => $host,
+                'keys' => array_keys((array) data_get($doc, 'props.pageProps', [])),
+            ]);
+
+            return null;
+        }
+
+        $urls = [];
+        $rows = [...$links, ...(array) data_get($doc, 'props.pageProps.socialLinks', [])];
+        foreach ($rows as $row) {
+            $url = is_array($row) ? trim((string) ($row['url'] ?? '')) : '';
+            if (preg_match('~^https?://~i', $url) === 1 && ! in_array($url, $urls, true)) {
+                $urls[] = $url;
+            }
+        }
+
+        return $urls;
     }
 
     /**
