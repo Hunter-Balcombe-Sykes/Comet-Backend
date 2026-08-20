@@ -532,7 +532,11 @@ gsnwilliams via the real dev API flow — reproduction BEFORE fixes):**
       tinyurls), Eventbrite event → event item, publuu flipbook carded
       with real title, 4barbers → store SUGGESTION (no catalogue
       pollution), own-IG tile+social folded, 0 dropped.
-- [ ] T6 — Instagram block: livplumbarber
+- [x] T6 — livplumbarber: clean after FI-12 (2 rounds; r1 caught the
+      scheme-variant double-route — http externalUrl + https bio-text →
+      connection AND a junk card). Final: IG + square.book connected from
+      tough-luck-barbershop.square.site, no card. @toughluckbarbershop
+      mention: deliberate non-capture (T2 rule).
 - [ ] T7 — Instagram block: onefour_official
 - [x] T8 — Instagram block: sammy.pdf (the T1.5g loop — clean-run verified 4x on fresh resets)
 - [ ] T9 — Google Business block: all 7 workplaces on user-kvjm7i
