@@ -544,3 +544,8 @@ when the whole list is done, same style as last night's final report.
   looksLikeResourceId misses it. Fix during the Instagram block loop:
   enrichment (or the connect write) should stamp payload.name with the
   artist name.
+
+- **FI-7** (T1.5g round 2): a transient oEmbed failure on a link whose
+  item ANOTHER lane had just seeded fell through to the card write —
+  duplicate "Spotify – Web Player" card. Fixed: existing-item dedupe now
+  runs before the page read in MediaSeeder.
