@@ -259,18 +259,28 @@ it('M-8: a Choose-band alias of an already-connected channel folds instead of pr
     // thejunglegiants live: linktree carried @thejunglegiants (connected),
     // the website carried @TheJungleGiants — same channel, and the Choose
     // band skipped the alias lookup, filing the user's OWN channel as a
-    // suggestion in the inbox.
+    // suggestion in the inbox. Driven through reconcile() with an explicit
+    // Choose placement (critic catch on the first version: the URL scores 75
+    // ≥ the content auto threshold, so routing it end-to-end lands on Place
+    // and never exercises the Choose arm at all).
     $pro = createTenant('m8-choose-fold');
     $existing = seedMarkerConnection($pro, 'youtube.channel', 'content', 'thejunglegiants', [
         'url' => 'https://www.youtube.com/@thejunglegiants',
     ]);
 
-    app(LinkRoutingService::class)->route(
-        'https://www.youtube.com/@TheJungleGiants',
+    $iri = app(\App\Routing\IriCanonicalizer::class)->canonicalize('https://www.youtube.com/@TheJungleGiants');
+    $placement = new \App\Routing\Placement(\App\Routing\Verdict::Choose, 'youtube.channel', 'TheJungleGiants');
+    $out = app(\App\Routing\SourceReconciler::class)->reconcile(
+        $placement,
         RoutingContext::forUser($pro, 'link_in_bio'),
+        $iri,
     );
 
-    expect(liveConnections($pro, 'youtube.channel'))->toHaveCount(1);
+    // The aliased Choose upgraded to Place and folded into the existing row —
+    // one connection, no proposal.
+    expect($out['verdict'])->toBe('place')
+        ->and($out['connection_id'])->toBe((string) $existing->id)
+        ->and(liveConnections($pro, 'youtube.channel'))->toHaveCount(1);
 
     $proposed = DB::table('routing.source_intents')
         ->where('user_id', $pro->id)

@@ -39,6 +39,29 @@ use App\Models\Core\User\User;
  */
 final class ConnectionIdentity
 {
+    /**
+     * Surfaces whose PLATFORM treats the handle as case-insensitive — the
+     * only ones matchExisting() may fold (M-7). Deliberately an allowlist:
+     * IdentifierKind::Handle is a parse-strategy label and covers
+     * case-SENSITIVE opaque codes too (discord.server invite codes — critic
+     * catch, 2026-08-21). Verify the platform semantic before adding one.
+     *
+     * @var list<string>
+     */
+    private const CASE_INSENSITIVE_HANDLE_SURFACES = [
+        'youtube.channel',
+        'instagram.profile',
+        'tiktok.profile',
+        'x.profile',
+        'facebook.profile',
+        'threads.profile',
+        'twitch.channel',
+        'reddit.profile',
+        'snapchat.profile',
+        'telegram.channel',
+        'kick.channel',
+    ];
+
     public function __construct(
         private readonly IriCanonicalizer $canonicalizer,
         private readonly LinkProjector $projector,
@@ -78,12 +101,15 @@ final class ConnectionIdentity
         //    case-insensitively — youtube.com/@TheJungleGiants and
         //    /@thejunglegiants are the same channel, and the case-sensitive
         //    compare re-proposed the user's own already-connected channel as a
-        //    suggestion. Gated on the surface's declared IdentifierKind so
-        //    opaque case-SENSITIVE ids (numeric ids, place ids) keep the exact
-        //    compare. (YouTube's UC… branch shares the handle surface; two of
-        //    one user's own channels colliding case-insensitively is not a
-        //    real shape.)
-        $foldable = (CompiledCatalog::surface($surfaceKey)['identifier_kind'] ?? null) === 'handle';
+        //    suggestion. Explicit allowlist, NOT IdentifierKind::Handle
+        //    (critic catch: the kind is a PARSE-strategy label, and e.g.
+        //    discord.server tags its case-SENSITIVE invite codes as Handle) —
+        //    only surfaces whose platform treats the handle itself as
+        //    case-insensitive fold. Add a surface here only with that platform
+        //    semantic verified. (YouTube's UC… branch shares the handle
+        //    surface; two of one user's own channels colliding
+        //    case-insensitively is not a real shape.)
+        $foldable = in_array($surfaceKey, self::CASE_INSENSITIVE_HANDLE_SURFACES, true);
         $needle1 = $foldable ? self::fold($identifier) : $identifier;
         foreach ($rows as $row) {
             $candidate = $foldable ? self::fold((string) $row->resource_id) : (string) $row->resource_id;
