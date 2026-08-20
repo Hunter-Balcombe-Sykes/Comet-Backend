@@ -5,7 +5,6 @@ use App\Http\Controllers\Api\Platforms\DisplaySettingsController;
 use App\Http\Controllers\Api\Platforms\EventbriteController;
 use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Http\Controllers\Api\Platforms\GenericPlatformController;
-use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\IntegrationsMetaController;

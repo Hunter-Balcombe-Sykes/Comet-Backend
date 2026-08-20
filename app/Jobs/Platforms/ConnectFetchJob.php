@@ -67,7 +67,7 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
     // config value around the vendor fetch (E-1 fix), so THIS is the job's own
     // wall-clock backstop on top of a real, enforced bound — not, as an earlier
     // draft of this comment claimed, on top of nothing.
-    public int $timeout = 45;
+    public int $timeout = 75;
 
     // Short on purpose: a user who mistypes, sees the failure, and retries
     // within two minutes must actually get a fresh job — NOT RefreshConnectionJob's

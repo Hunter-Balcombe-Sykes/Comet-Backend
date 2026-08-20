@@ -1,4 +1,18 @@
--- 20260819140000_public_contact_section_default_active.sql
+-- 20260819140200_public_contact_section_default_active.sql
+--
+-- RENAMED 2026-08-20 from 20260819140000, which it shared with
+-- 20260819140000_users_bio.sql. The Supabase CLI keys
+-- supabase_migrations.schema_migrations on the VERSION PREFIX ALONE, so two
+-- files at one version can only ever record ONE row. users_bio won that row,
+-- and this file was therefore invisible to `db push` — never applied, and
+-- never going to be, with nothing anywhere reporting it as pending.
+--
+-- Measured on dev 2026-08-20, before this rename: 6 public_contact section rows
+-- were is_active=false with updated_at=created_at, i.e. exactly the set this
+-- backfill targets, still unflipped 1 day after it "landed". (2 further rows
+-- were off but hand-edited, which the updated_at=created_at guard below
+-- correctly leaves alone; 3 were already on.) Applied to dev immediately after
+-- this rename.
 --
 -- Public-contact section defaults ON (owner, 2026-08-19), matching the
 -- `workplace` ruling earlier the same day. New rows start live

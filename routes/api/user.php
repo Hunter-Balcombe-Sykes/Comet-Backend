@@ -78,7 +78,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // preview() writes nothing and is called on every keystroke pause, so it
         // gets its own tighter throttle than the shared authenticated bucket.
         Route::post('/routing/preview', [RoutingController::class, 'preview'])
-            ->middleware('throttle:60,1')
+            ->middleware('throttle:180,1')
             ->name('user.routing.preview');
         Route::post('/routing/links', [RoutingController::class, 'store'])
             ->name('user.routing.links');
@@ -196,8 +196,13 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // What a pasted link would become — read-only, per paste, so its own
         // throttle like /routing/preview.
         Route::post('/content/links/preview', [LinkPreviewController::class, 'show'])
-            ->middleware('throttle:60,1')
+            ->middleware('throttle:180,1')
             ->name('content.links.preview');
+        // The pure-grammar half of the preview alone (no page fetch) — the
+        // pool add sheets ask it as the URL settles, for step-1 guidance.
+        Route::post('/content/links/classify', [LinkPreviewController::class, 'classify'])
+            ->middleware('throttle:300,1')
+            ->name('content.links.classify');
         Route::delete('/content/items/{item}', [ItemController::class, 'destroy'])
             ->whereUuid('item')->name('content.items.destroy');
 

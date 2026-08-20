@@ -2,6 +2,9 @@
 
 namespace App\Site\Pools;
 
+use App\Catalog\Definitions\Eventbrite;
+use App\Catalog\Definitions\Ticketek;
+use App\Catalog\Definitions\Ticketmaster;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -26,7 +29,13 @@ class ItemLinkRules
             'apple-music', 'apple-podcast', 'youtube-music', 'bandcamp',
         ],
         'media' => ['instagram'],
-        'events' => ['eventbrite', 'humanitix'],
+        // Events-parity (2026-08-19): every events brand the platform knows,
+        // not just the two with bespoke scrapers — an event item may carry a
+        // hand-added ticket link on any of them.
+        'events' => [
+            'eventbrite', 'humanitix', 'luma', 'partiful', 'ticketmaster',
+            'ticketek', 'oztix', 'trybooking', 'resident-advisor',
+        ],
         // Menus (overnight 2026-08-18, W5): a dish carries one link per
         // ordering platform — the store page on each. Synced links come from
         // the dish's offers (each offer knows the store url it was scraped
@@ -34,7 +43,14 @@ class ItemLinkRules
         'menus' => ['uber-eats', 'doordash', 'menulog', 'square-online', 'bopple', 'mr-yum'],
     ];
 
-    /** @var array<string, list<string>> platform → accepted host suffixes */
+    /**
+     * platform → accepted host suffixes. Multi-TLD brands are NOT listed here
+     * — hostsFor() builds theirs from the catalog definitions' TLDS consts,
+     * the single source of truth (events-parity 2026-08-19; the hand-copied
+     * eventbrite pair here had drifted to 2 of the brand's 25 TLDs).
+     *
+     * @var array<string, list<string>>
+     */
     private const HOSTS = [
         'youtube' => ['youtube.com', 'youtu.be'],
         'vimeo' => ['vimeo.com'],
@@ -48,19 +64,38 @@ class ItemLinkRules
         'youtube-music' => ['music.youtube.com'],
         'bandcamp' => ['bandcamp.com'],
         'instagram' => ['instagram.com'],
-        // Eventbrite runs ~15 country domains (.co.uk, .ca, .ie, .nz, .com.br…);
-        // only the two the AU/US pilot needs are listed, so a link on another
-        // one is refused. Add the TLD when a user turns up on it. Humanitix
-        // serves events off a subdomain, which the suffix arm below covers.
-        'eventbrite' => ['eventbrite.com', 'eventbrite.com.au'],
         'uber-eats' => ['ubereats.com'],
         'doordash' => ['doordash.com'],
         'menulog' => ['menulog.com.au'],
         'square-online' => ['square.site', 'squareup.com'],
         'bopple' => ['bopple.app', 'bopple.me', 'bopple.com'],
         'mr-yum' => ['mryum.com'],
+        // Humanitix serves events off a subdomain, which the suffix arm in
+        // urlBelongsTo() covers.
         'humanitix' => ['humanitix.com'],
+        // luma.com is the rebrand target lu.ma 301s onto (2026-08-19).
+        'luma' => ['lu.ma', 'luma.com'],
+        'partiful' => ['partiful.com'],
+        'oztix' => ['oztix.com.au'],
+        'trybooking' => ['trybooking.com'],
+        'resident-advisor' => ['ra.co', 'residentadvisor.net'],
     ];
+
+    /**
+     * The accepted host suffixes for a platform — static pairs from HOSTS,
+     * multi-TLD brands expanded from their catalog definition's TLDS const.
+     *
+     * @return list<string>
+     */
+    private static function hostsFor(string $platform): array
+    {
+        return match ($platform) {
+            'eventbrite' => array_map(static fn (string $t): string => "eventbrite.{$t}", Eventbrite::TLDS),
+            'ticketmaster' => array_map(static fn (string $t): string => "ticketmaster.{$t}", Ticketmaster::TLDS),
+            'ticketek' => array_map(static fn (string $t): string => "ticketek.{$t}", Ticketek::TLDS),
+            default => self::HOSTS[$platform] ?? [],
+        };
+    }
 
     /** @return list<string> */
     public static function rosterFor(string $pool): array
@@ -110,7 +145,8 @@ class ItemLinkRules
     /** The roster platform a URL belongs to (by host suffix), or null. */
     public static function platformForUrl(string $url): ?string
     {
-        foreach (array_keys(self::HOSTS) as $platform) {
+        $platforms = [...array_keys(self::HOSTS), 'eventbrite', 'ticketmaster', 'ticketek'];
+        foreach ($platforms as $platform) {
             if (self::urlBelongsTo($platform, $url)) {
                 return $platform;
             }
@@ -127,7 +163,7 @@ class ItemLinkRules
         }
         $host = preg_replace('/^www\./', '', $host) ?? $host;
 
-        foreach (self::HOSTS[$platform] ?? [] as $allowed) {
+        foreach (self::hostsFor($platform) as $allowed) {
             if ($host === $allowed || str_ends_with($host, '.'.$allowed)) {
                 return true;
             }

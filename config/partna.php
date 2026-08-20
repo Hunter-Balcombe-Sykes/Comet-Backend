@@ -263,7 +263,7 @@ return [
     | the Add button greys out at the limit; backend enforces it on
     | StoreLinkBlockRequest as defence-in-depth.
     */
-    'platform_links_max' => 7,
+    'platform_links_max' => 15,
     'platform_links_categories' => ['social', 'content', 'events', 'streaming'],
 
     // Platforms that support automatic live status detection via the polling job.
@@ -274,7 +274,7 @@ return [
     'streaming' => [
         // Hard cap on blocks with live_check_enabled=true per site — prevents a single
         // user from monopolizing the polling budget. Enforced in UpdateLinkBlockRequest.
-        'max_live_check_per_site' => (int) env('PARTNA_STREAMING_MAX_LIVE_CHECK_PER_SITE', env('SIDEST_STREAMING_MAX_LIVE_CHECK_PER_SITE', 5)),
+        'max_live_check_per_site' => (int) env('PARTNA_STREAMING_MAX_LIVE_CHECK_PER_SITE', env('SIDEST_STREAMING_MAX_LIVE_CHECK_PER_SITE', 10)),
 
         // Cold-handle demotion TTLs (seconds). Handles offline for N consecutive reads
         // get a longer TTL, skipping most API budget on rarely-live handles.
@@ -313,19 +313,19 @@ return [
         // can't exhaust the account and starve the others. Also carries the shared
         // run-sync HTTP timeout (CFG-9).
         'apify' => [
-            'global_daily_cap' => (int) env('PARTNA_APIFY_GLOBAL_DAILY_CAP', 1000),
+            'global_daily_cap' => (int) env('PARTNA_APIFY_GLOBAL_DAILY_CAP', 3000),
             'actors' => [
                 // Instagram reuses its existing tuned env var (behaviour preserved).
-                'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 200),
-                'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 300),
-                'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 300),
+                'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 600),
+                'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 900),
+                'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 900),
                 // Convergence Phase 4. These MUST exist: tryClaim() defaults an
                 // unregistered actor's cap to 0, which denies every claim, so a
                 // missing entry here reads as "the connector lands nothing"
                 // rather than as a configuration error.
-                'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 50),
-                'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 50),
-                'music-spotify_releases' => (int) env('PARTNA_SPOTIFY_RELEASES_APIFY_DAILY_CAP', 50),
+                'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 150),
+                'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 150),
+                'music-spotify_releases' => (int) env('PARTNA_SPOTIFY_RELEASES_APIFY_DAILY_CAP', 150),
             ],
 
             // CFG-9: HTTP client timeout for Apify run-sync-get-dataset-items calls, which block
@@ -340,7 +340,7 @@ return [
             // — InstagramConnectJob 300 (raised from 150 on 2026-08-11 for exactly this) and
             // GeneratePreAccountSiteJob 300. Both bounds pinned by HorizonQueueCoverageTest,
             // which fails if a raise here outruns either job.
-            'run_sync_timeout_seconds' => (int) env('PARTNA_APIFY_RUN_SYNC_TIMEOUT_SECONDS', 110),
+            'run_sync_timeout_seconds' => (int) env('PARTNA_APIFY_RUN_SYNC_TIMEOUT_SECONDS', 125),
         ],
 
         // AI menu-structuring spend (Mistral OCR + DeepSeek structuring, via
@@ -350,10 +350,10 @@ return [
         // spend previously had NO budget ceiling at all across its three callers
         // (WebsiteMenuPdfScanJob, GoogleMenuPhotoScanJob, WebsiteMenuHtmlScanJob).
         'ai_spend' => [
-            'global_daily_cap' => (int) env('PARTNA_AI_SPEND_GLOBAL_DAILY_CAP', 500),
+            'global_daily_cap' => (int) env('PARTNA_AI_SPEND_GLOBAL_DAILY_CAP', 1500),
             'actors' => [
-                'mistral_ocr' => (int) env('PARTNA_MISTRAL_OCR_DAILY_CAP', 300),
-                'deepseek_structure' => (int) env('PARTNA_DEEPSEEK_STRUCTURE_DAILY_CAP', 300),
+                'mistral_ocr' => (int) env('PARTNA_MISTRAL_OCR_DAILY_CAP', 900),
+                'deepseek_structure' => (int) env('PARTNA_DEEPSEEK_STRUCTURE_DAILY_CAP', 900),
             ],
         ],
 
@@ -365,11 +365,11 @@ return [
         //   - global daily cap    (binds first on a mixed storm)
         //   - per-USER daily cap  (improves on apify/ai_spend: one account cannot drain the platform)
         'places' => [
-            'global_daily_cap' => (int) env('PARTNA_PLACES_GLOBAL_DAILY_CAP', 500),
-            'per_user_daily_cap' => (int) env('PARTNA_PLACES_USER_DAILY_CAP', 60),
+            'global_daily_cap' => (int) env('PARTNA_PLACES_GLOBAL_DAILY_CAP', 1500),
+            'per_user_daily_cap' => (int) env('PARTNA_PLACES_USER_DAILY_CAP', 180),
             'skus' => [
-                'details' => (int) env('PARTNA_PLACES_DETAILS_DAILY_CAP', 200),
-                'photos' => (int) env('PARTNA_PLACES_PHOTOS_DAILY_CAP', 400),
+                'details' => (int) env('PARTNA_PLACES_DETAILS_DAILY_CAP', 600),
+                'photos' => (int) env('PARTNA_PLACES_PHOTOS_DAILY_CAP', 1200),
             ],
 
             // CFG-8: Place Details retry policy. NOTE — attempts MULTIPLY billed spend: every
@@ -1643,24 +1643,24 @@ return [
         // Per-request HTTP client timeout (seconds). NOTE: this is a per-hop
         // ceiling only — FetchBudget::open() (connect_budget_seconds below) is
         // what bounds the whole multi-hop/multi-retry operation.
-        'timeout_seconds' => (int) env('PARTNA_HTTP_FETCH_TIMEOUT_SECONDS', 8),
+        'timeout_seconds' => (int) env('PARTNA_HTTP_FETCH_TIMEOUT_SECONDS', 15),
         // Max redirect hops followed; each hop is re-validated for SSRF before
         // being followed (SafeUrlFetcher::fetch() / fetchMany()).
-        'max_redirects' => (int) env('PARTNA_HTTP_FETCH_MAX_REDIRECTS', 5),
+        'max_redirects' => (int) env('PARTNA_HTTP_FETCH_MAX_REDIRECTS', 8),
         // Hard cap on a fetched terminal response body (bytes). A response whose
         // declared Content-Length OR actual body exceeds this is rejected —
         // fetch() throws SafeUrlException, fetchMany() drops it to null — so a
         // hostile/oversized URL can't feed a multi-hundred-MB body into the
         // link-preview and menu/shop scrapers. 10 MB is generous for the HTML /
         // JSON those parse.
-        'max_bytes' => (int) env('PARTNA_HTTP_FETCH_MAX_BYTES', 10 * 1024 * 1024),
+        'max_bytes' => (int) env('PARTNA_HTTP_FETCH_MAX_BYTES', 25 * 1024 * 1024),
         // TCP connect-phase timeout (seconds) — separate from the read timeout
         // above. A SYN-blackholed host would otherwise ride Guzzle's default
         // connect budget on top of timeout_seconds; this caps that leg
         // explicitly. Applied globally to every SafeUrlFetcher call site
         // (menu/shop/events/link-card scrapers included) AND to
         // YoutubeThumbnailResolver's raw pool, not just connect.
-        'connect_timeout_seconds' => (int) env('PARTNA_HTTP_CONNECT_TIMEOUT_SECONDS', 3),
+        'connect_timeout_seconds' => (int) env('PARTNA_HTTP_CONNECT_TIMEOUT_SECONDS', 6),
         // Own-infrastructure host suffixes SafeUrlFetcher::assertSafe() refuses
         // outright (exact host or any subdomain). Everything here resolves to
         // PUBLIC IPs, so the private/reserved address check never catches them —
@@ -1682,7 +1682,7 @@ return [
         // including ones that bypass SafeUrlFetcher for good reason (see
         // FetchBudget's docblock). Opt-in per call site: callers that never open
         // a budget — the overwhelming majority — are unaffected.
-        'connect_budget_seconds' => (int) env('PARTNA_CONNECT_BUDGET_SECONDS', 20),
+        'connect_budget_seconds' => (int) env('PARTNA_CONNECT_BUDGET_SECONDS', 45),
 
         // Wall-clock budget (seconds) for one PlatformRefresher::refresh() call —
         // the cron/manual-refresh mirror of connect_budget_seconds above. Must stay
@@ -1692,7 +1692,7 @@ return [
         // projector sync() upserts, the model write + observer purge, the health
         // notifier. If the budget ever meets/exceeds 120s the job's SIGKILL wins
         // and the budget is moot — see RefreshBudgetInvariantTest.
-        'refresh_budget_seconds' => (int) env('PARTNA_REFRESH_BUDGET_SECONDS', 90),
+        'refresh_budget_seconds' => (int) env('PARTNA_REFRESH_BUDGET_SECONDS', 100),
 
         // CFG-2: browser-ish UA — some providers 403 obvious bots / empty UAs.
         // Was a SafeUrlFetcher class constant; kept as a plain literal default
@@ -1979,19 +1979,19 @@ return [
             // i.ytimg.com maxresdefault HEAD probes (YoutubeThumbnailResolver). Cheap
             // HEADs, so a generous cap; bounds the batch when many videos miss cache.
             'youtube_thumbnails' => [
-                'pool_concurrency' => (int) env('PARTNA_REFRESH_YTIMG_POOL', 10),
+                'pool_concurrency' => (int) env('PARTNA_REFRESH_YTIMG_POOL', 20),
                 // 'hq' verdicts re-probe on this cadence (maxres may appear post-upload);
                 // 'maxres' verdicts keep the long CACHE_DAYS TTL (never regresses). 6h default.
                 'hq_recheck_ttl_seconds' => (int) env('PARTNA_REFRESH_YTIMG_HQ_RECHECK_TTL', 21600),
             ],
             // Google Places media — BILLED per call. Keep the concurrent burst tight.
             'google_places' => [
-                'pool_concurrency' => (int) env('PARTNA_REFRESH_PLACES_POOL', 5),
+                'pool_concurrency' => (int) env('PARTNA_REFRESH_PLACES_POOL', 8),
             ],
             // Shared SafeUrlFetcher::fetchMany pool (Eventbrite/Humanitix HTML scrapes;
             // WAF-ban risk in aggregate). Caps every fetchMany caller globally.
             'fetch_many' => [
-                'pool_concurrency' => (int) env('PARTNA_REFRESH_FETCH_MANY_POOL', 6),
+                'pool_concurrency' => (int) env('PARTNA_REFRESH_FETCH_MANY_POOL', 12),
             ],
         ],
 
@@ -2056,11 +2056,11 @@ return [
         'probe' => [
             // Probes one worker run may spend. Deliberately small: a page with
             // 200 links should not be 200 outbound requests.
-            'per_run_cap' => (int) env('PARTNA_ROUTING_PROBE_PER_RUN_CAP', 6),
-            'user_daily_cap' => (int) env('PARTNA_ROUTING_PROBE_USER_DAILY_CAP', 40),
-            'global_daily_cap' => (int) env('PARTNA_ROUTING_PROBE_GLOBAL_DAILY_CAP', 2000),
+            'per_run_cap' => (int) env('PARTNA_ROUTING_PROBE_PER_RUN_CAP', 12),
+            'user_daily_cap' => (int) env('PARTNA_ROUTING_PROBE_USER_DAILY_CAP', 120),
+            'global_daily_cap' => (int) env('PARTNA_ROUTING_PROBE_GLOBAL_DAILY_CAP', 6000),
             // Wall-clock ceiling for the WHOLE probe cascade, not per probe.
-            'budget_seconds' => (int) env('PARTNA_ROUTING_PROBE_BUDGET_SECONDS', 15),
+            'budget_seconds' => (int) env('PARTNA_ROUTING_PROBE_BUDGET_SECONDS', 30),
             // How long a URL keeps its answer, hit or miss. A miss that isn't
             // cached is a URL re-probed on every scan of the same page.
             'cooldown_minutes' => (int) env('PARTNA_ROUTING_PROBE_COOLDOWN_MINUTES', 720),

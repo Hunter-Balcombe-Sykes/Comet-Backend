@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Content\LinkPoolWriter;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -39,7 +40,7 @@ it('lists a stored custom link with its full card shape', function () {
     $user = customLinksUser('clink');
     $id = app(LinkPoolWriter::class)->add($user, 'https://acme.test', 'Acme', 'Best');
 
-    $cards = app(\App\Services\Content\LinkPoolReader::class)->cards($user->refresh());
+    $cards = app(LinkPoolReader::class)->cards($user->refresh());
     expect($cards)->toHaveCount(1);
     expect($cards[0]['id'])->toBe($id);
     expect($cards[0]['url'])->toBe('https://acme.test');

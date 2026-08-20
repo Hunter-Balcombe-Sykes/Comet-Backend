@@ -6,6 +6,18 @@
 -- have mirrored onto the person's public contact. Null the mirrored values;
 -- each person re-enters their own (accepted consequence: the sitepage's
 -- contact line goes empty until they do).
+BEGIN;
+-- core.users is a HOT_TABLES member (CONVENTIONS.md / guard Check 5). Both
+-- statements below are full-table UPDATEs, so they take row locks across the
+-- table: fail fast on contention instead of queueing behind live writes.
+-- 10s is the house default and is ample at current scale (prod core.users is
+-- empty; dev is small). If this ever has to run against a populated prod
+-- table, raise statement_timeout deliberately rather than letting it abort
+-- half-way — both UPDATEs are inside this one transaction, so an abort rolls
+-- the whole backfill back cleanly.
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
+
 UPDATE core.users
 SET public_contact_number = NULL,
     public_contact_email = NULL
@@ -25,3 +37,4 @@ FROM site.sites s
 JOIN site.workplaces w ON w.site_id = s.id
 WHERE s.user_id = u.id
   AND u.account_type = 'business';
+COMMIT;

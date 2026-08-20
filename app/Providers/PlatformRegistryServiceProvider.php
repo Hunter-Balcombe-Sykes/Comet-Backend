@@ -58,7 +58,6 @@ use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Payloads\ShopPayload;
-use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use App\Services\Platforms\Registry\DerivedDescriptorFactory;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;

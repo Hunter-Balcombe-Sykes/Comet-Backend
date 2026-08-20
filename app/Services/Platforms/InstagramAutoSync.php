@@ -159,7 +159,13 @@ class InstagramAutoSync
                 // A gate denial returns 'custom' with no unmatched entry of its
                 // own — surface it here so the link is still offered as a
                 // custom-link suggestion rather than silently dropped.
-                if ($result->outcome === 'custom' && $result->unmatched === []) {
+                // UNLESS the route says handled (F3, 2026-08-20): a seeded
+                // event/media POOL ITEM and a filed ordering/reservation Swap
+                // offer all return custom(handled: true), which per
+                // RouteResult's own contract means "carried elsewhere — no
+                // caller writes a card for it". Surfacing those built a
+                // duplicate link card beside the real item/offer.
+                if ($result->outcome === 'custom' && $result->unmatched === [] && ! $result->handled) {
                     $unmatched[] = ['url' => $url, 'label' => $classified['label']];
                 }
 

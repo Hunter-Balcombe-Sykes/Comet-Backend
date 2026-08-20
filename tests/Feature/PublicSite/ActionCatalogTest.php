@@ -1,6 +1,7 @@
 <?php
 
 use App\Catalog\LegacyPlatformMap;
+use App\Services\Content\LinkPoolWriter;
 use App\Services\PublicSite\SiteActionsService;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\DB;
@@ -278,7 +279,7 @@ it('D2: a custom link block and a same-URL POOL link dedupe to ONE action, block
     // is the other custom-link lane now, same ??= dedupe, block still wins.
     $tenant = createTenant('cat-d2-dedupe');
     $blockId = insertLinkBlockRow($tenant, ['category' => 'custom', 'platform' => null, 'title' => 'My Site', 'url' => 'https://mysite.example']);
-    app(\App\Services\Content\LinkPoolWriter::class)->add($tenant->refresh(), 'https://mysite.example', 'My Site (dup)', enrich: false);
+    app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://mysite.example', 'My Site (dup)', enrich: false);
 
     $pool = collect(actionsPool($tenant));
     $customs = $pool->filter(fn ($a) => str_starts_with($a['id'], 'custom:'));
@@ -291,7 +292,7 @@ it('D2: a custom link block and a same-URL POOL link dedupe to ONE action, block
 it('D2: a POOL link with a distinct URL yields its own separate action', function () {
     $tenant = createTenant('cat-d2-distinct');
     insertLinkBlockRow($tenant, ['category' => 'custom', 'platform' => null, 'title' => 'Site A', 'url' => 'https://a.example']);
-    app(\App\Services\Content\LinkPoolWriter::class)->add($tenant->refresh(), 'https://b.example', 'Site B', enrich: false);
+    app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://b.example', 'Site B', enrich: false);
 
     $pool = collect(actionsPool($tenant));
     $customs = $pool->filter(fn ($a) => str_starts_with($a['id'], 'custom:'));

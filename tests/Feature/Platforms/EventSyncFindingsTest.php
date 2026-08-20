@@ -70,7 +70,7 @@ it('routes a standalone event to the POOL — no connection row, no finding (R7,
     setupContentTables();
     setupSectionsTables();
     $user = User::factory()->create(['account_type' => 'partna']);
-    $site = new \App\Models\Core\Site\Site(['subdomain' => 'esf-standalone', 'is_published' => true, 'settings' => []]);
+    $site = new Site(['subdomain' => 'esf-standalone', 'is_published' => true, 'settings' => []]);
     $site->user()->associate($user);
     $site->save();
     fakeEventbrite();

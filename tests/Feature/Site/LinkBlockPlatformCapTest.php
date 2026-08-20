@@ -3,7 +3,7 @@
 /**
  * Platform-link cap enforcement on the StoreLinkBlockRequest pipeline.
  *
- * The cap (config('partna.platform_links_max'), default 7) is the API-side
+ * The cap (config('partna.platform_links_max'), default 15) is the API-side
  * defence-in-depth on top of the dashboard's disabled-Add-button. It must
  * fire on BOTH the professional self-management endpoint and the staff
  * management endpoint:

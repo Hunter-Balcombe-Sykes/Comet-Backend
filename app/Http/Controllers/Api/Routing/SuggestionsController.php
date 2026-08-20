@@ -145,7 +145,7 @@ class SuggestionsController extends ApiController
         }
 
         $suggestion = $this->openTable->suggestionFromGoogleBusiness(GoogleBusinessPayload::fromArray($gb->payload)->toArray());
-        $url = is_array($suggestion) ? ($suggestion['url'] ?? null) : null;
+        $url = is_array($suggestion) ? $suggestion['url'] : null;
         if (! is_string($url) || $url === '') {
             return null;
         }

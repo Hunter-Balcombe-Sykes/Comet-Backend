@@ -37,12 +37,15 @@ class SoundcloudConnect implements ConnectStrategy
         ]);
     }
 
-    /** soundcloud.com path (≤3 segments) → canonical https link, else null. */
+    /** soundcloud.com PROFILE path (one segment) → canonical https link, else
+     * null. T6b (2026-08-20): a /user/track path is an ITEM — it belongs on
+     * Listen, and connecting the profile off a track link through the manual
+     * door is the same bug class the detector narrowing closed. */
     private function canonicalUrl(string $url): ?string
     {
         $url = PlatformInput::urlish($url);
 
-        if (preg_match('~^https?://(?:www\.|m\.)?soundcloud\.com(/[a-z0-9_-]+(?:/[a-z0-9_-]+){0,2})~i', $url, $m)) {
+        if (preg_match('~^https?://(?:www\.|m\.)?soundcloud\.com(/[a-z0-9_-]+)/?(?:[?#]|$)~i', $url, $m)) {
             return 'https://soundcloud.com'.strtolower(rtrim($m[1], '/'));
         }
 

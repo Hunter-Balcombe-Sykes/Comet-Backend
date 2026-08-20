@@ -111,7 +111,7 @@ it('accepts a real url for its own host on every brand platform', function () {
                 }
                 $actual = LegacyPlatformMap::legacyFor($classified['platform']);
                 if ($actual === $slug
-                    || in_array($actual, DerivedDescriptorFactory::CLASSIFIER_ALIASES[$slug] ?? [], true)) {
+                    || in_array($actual, DerivedDescriptorFactory::classifierAliases()[$slug] ?? [], true)) {
                     $accepted = true;
                     break 2;
                 }

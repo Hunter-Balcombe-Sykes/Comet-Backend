@@ -240,11 +240,11 @@ it('re-adding a brand after forget creates a fresh row with no orphaned products
     expect(DB::table('content.collection_items')->where('collection_id', $collectionId)->count())->toBe(0);
 });
 
-it('addProduct dedupes by productId, keeps newest first, and caps at 20', function () {
+it('addProduct dedupes by productId, keeps newest first, and caps at 50', function () {
     $user = shopStorageUser('ind1');
 
     $this->mock(GenericShopScraper::class, function ($m) {
-        foreach (range(1, 21) as $n) {
+        foreach (range(1, 51) as $n) {
             $m->shouldReceive('readProductPage')
                 ->with("https://example.com/p{$n}")
                 ->andReturn([
@@ -255,7 +255,7 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
         }
     });
 
-    foreach (range(1, 21) as $n) {
+    foreach (range(1, 51) as $n) {
         actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => "https://example.com/p{$n}"])
             ->assertOk();
     }
@@ -273,9 +273,9 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
     // table was written" assertions retired with those tables; the content.*
     // ordering assertions below are the guarantee now.
     $ids = orderedProductIdsFor('individual');
-    expect($ids)->toHaveCount(20);
-    expect($ids[0])->toBe('p21'); // newest first
-    expect($ids)->not->toContain('p1'); // oldest evicted by the 20-cap
+    expect($ids)->toHaveCount(50);
+    expect($ids[0])->toBe('p51'); // newest first
+    expect($ids)->not->toContain('p1'); // oldest evicted by the 50-cap (T9)
 
     // Re-adding an already-present product moves it to the front without duplicating.
     actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => 'https://example.com/p10'])
@@ -283,7 +283,7 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
     $idsAfter = orderedProductIdsFor('individual');
     expect($idsAfter[0])->toBe('p10');
     expect(array_count_values($idsAfter)['p10'])->toBe(1);
-    expect(count($idsAfter))->toBe(20);
+    expect(count($idsAfter))->toBe(50);
 });
 
 it('removeProduct drops the individual bucket once it has no products left', function () {

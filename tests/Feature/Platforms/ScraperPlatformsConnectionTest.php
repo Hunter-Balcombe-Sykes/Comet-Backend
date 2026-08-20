@@ -222,7 +222,7 @@ it('requires auth on the shopify dashboard routes', function () {
     $this->getJson('/api/platforms/shop/selection')->assertUnauthorized();
 });
 
-it('adds Shopify brands per-user (one row, brand map) and caps at 5', function () {
+it('adds Shopify brands per-user (one row, brand map) and caps at 10', function () {
     $user = scraperUser('shop');
 
     $this->mock(ShopifyScraper::class, function ($m) {
@@ -242,11 +242,11 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
         ]);
     });
 
-    foreach (['a', 'b', 'c', 'd', 'e'] as $s) {
+    foreach (['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'] as $s) {
         actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => "https://{$s}.example.com"])->assertOk();
     }
-    // A 6th distinct brand exceeds the cap.
-    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://f.example.com'])
+    // An 11th distinct brand exceeds the cap (10, T9 2026-08-20).
+    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://k.example.com'])
         ->assertStatus(422);
 
     // FOUND-25: brands never lived in the connection payload. Convergence
@@ -256,7 +256,7 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
     // through their content.collections parent), not site.shop_brands.
     $connectionIds = IntegrationConnection::where('user_id', $user->id)
         ->whereIn('surface_key', ShopConnections::surfaces())->pluck('id');
-    expect($connectionIds)->toHaveCount(5);
+    expect($connectionIds)->toHaveCount(10);
     expect(DB::table('content.storefronts')->where('user_id', (string) $user->id)
-        ->where('is_individual', false)->count())->toBe(5);
+        ->where('is_individual', false)->count())->toBe(10);
 });

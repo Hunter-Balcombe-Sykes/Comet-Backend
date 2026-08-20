@@ -31,6 +31,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\EventbriteScraper;
+use App\Services\Platforms\EventsSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -122,7 +123,7 @@ it('does NOT contend on the eventbrite platform lock, because the standalone-eve
 
     try {
         // The router's event arm — the live standalone lane since 2026-08-19.
-        expect(app(\App\Services\Platforms\EventsSeeder::class)->seedStandalone($user, 'eventbrite', $eventUrl))
+        expect(app(EventsSeeder::class)->seedStandalone($user, 'eventbrite', $eventUrl))
             ->toBe($eventUrl);
     } finally {
         $lock->release();

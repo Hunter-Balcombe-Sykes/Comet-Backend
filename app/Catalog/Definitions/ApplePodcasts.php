@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -39,14 +40,17 @@ class ApplePodcasts
                 ->identifier(IdentifierKind::Handle)
                 ->refreshEvery(43200)
                 ->fetch('fetch.apple_podcasts.itunes.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     // Keyed on the REGISTRABLE domain + product subdomain —
                     // see the note in AppleMusic: a full-host key is never
                     // looked up by the router.
+                    // Captures the show id (F9 — see AppleMusic's note).
                     Detector::url('apple.com')
                         ->subdomain('#^podcasts$#')
-                        ->path('#^/(?:[a-z]{2}/)?podcast(/|$)#')
+                        ->path('#^/(?:[a-z]{2}/)?podcast(?:/[^/]+)?/id(?<id>\\d+)#')
+                        ->captures('id')
+                        ->from(IdentifierSource::Path)
                         ->strength(EvidenceStrength::DeepLinkWithSlug),
                 )
                 ->note('bespoke connect flow (P1)')

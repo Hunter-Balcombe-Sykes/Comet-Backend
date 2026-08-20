@@ -124,7 +124,26 @@ beforeEach(function () {
         payload jsonb NOT NULL DEFAULT \'{}\'::jsonb,
         is_active boolean NOT NULL DEFAULT true,
         is_primary boolean NOT NULL DEFAULT false,
+        -- Same trap as canonical_key above, and it bit twice (last_refresh_error,
+        -- then consecutive_failures) one CI round at a time. So this block now
+        -- mirrors EVERY column site.platform_connections really has
+        -- (20260726000000_baseline_pilot.sql:1845 + the surface_key/routing_class
+        -- identity additions above), not just the ones the reconcile writes today:
+        -- a reject-all table costs nothing to over-declare, and the next column
+        -- the writer picks up should not cost another red CI cycle.
+        platform text,
+        sort_order integer DEFAULT 0,
+        last_visited_at timestamptz,
+        last_refreshed_at timestamptz,
         last_refresh_status text,
+        last_refresh_error text,
+        consecutive_failures integer DEFAULT 0,
+        apify_status text,
+        place_id text,
+        refresh_etag text,
+        refresh_last_modified text,
+        resource_kind text,
+        display_settings jsonb,
         created_by_catalog_digest text,
         created_at timestamptz,
         updated_at timestamptz,

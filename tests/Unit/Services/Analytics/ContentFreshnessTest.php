@@ -2,6 +2,7 @@
 
 use App\Catalog\LegacyPlatformMap;
 use App\Services\Analytics\ContentFreshness;
+use App\Services\Content\LinkPoolWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -89,10 +90,10 @@ it('boosts each pool link per URL (f_link.url = the item content_key) at W_ITEM'
     // The legacy custom-connection lane was retired 2026-08-19 — links live
     // in the custom_links POOL, and freshness reads content.items directly.
     $tenant = createTenant('fresh-links');
-    $writer = app(\App\Services\Content\LinkPoolWriter::class);
+    $writer = app(LinkPoolWriter::class);
     $newId = $writer->add($tenant->refresh(), 'https://example.com/new', enrich: false);
     $oldId = $writer->add($tenant->refresh(), 'https://example.com/older', enrich: false);
-    \Illuminate\Support\Facades\DB::connection('pgsql')->table('content.items')
+    DB::connection('pgsql')->table('content.items')
         ->where('id', $oldId)->update(['created_at' => now()->subDays(14)->toISOString()]);
 
     $boosts = app(ContentFreshness::class)->boostsForSite($tenant->site);

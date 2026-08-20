@@ -1,4 +1,16 @@
--- 20260819140000_drop_unreferenced_tables.sql
+-- 20260819150000_drop_unreferenced_tables.sql
+--
+-- RENAMED from 20260819140000 (applied to dev 2026-08-19, then renamed the same
+-- day). Two sibling sessions independently chose the same 20260819140000 prefix
+-- while this branch was in flight — users_bio and
+-- public_contact_section_default_active. The CLI keys supabase_migrations on the
+-- VERSION prefix alone, so three files sharing one version means the ledger can
+-- only ever record one of them and `db push` treats the other two as already
+-- applied. Moved to a free version to take this file out of that collision.
+-- The remaining users_bio / public_contact_section_default_active collision is
+-- NOT fixed here and is flagged for the owner: the ledger row 20260819140000 is
+-- users_bio, so public_contact_section_default_active (a data backfill, not DDL)
+-- has no row of its own and `db push` will never run it.
 --
 -- Four tables with no reader and no writer anywhere in the tree. Each was
 -- verified individually rather than as a batch, because "empty + no grep hit"

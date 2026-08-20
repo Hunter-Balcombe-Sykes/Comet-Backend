@@ -35,7 +35,13 @@ final class ConnectionPayload
         string $identifierKind,
         string $origin,
     ): array {
-        $payload = ['url' => $canonicalUrl, 'source' => $origin];
+        $payload = ['url' => $canonicalUrl, 'source' => $origin,
+            // F9 (2026-08-20): the connect-time fetch strategies read
+            // payload['input'] — the identity the CONNECT flow stored. For a
+            // router placement the canonical URL is that input; without it,
+            // AppleMusicFetch threw missing_key:input, the first fetch
+            // failed, and F26's row-removal silently UNDID the placement.
+            'input' => $canonicalUrl];
 
         // A handle IS the display identity, and several platforms' public
         // contracts expose it rather than the URL. Composite/opaque ids are not
