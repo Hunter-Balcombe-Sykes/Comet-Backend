@@ -529,3 +529,11 @@ account-by-account, then the Google Business block. Tick tasks as they
 close. Append every found issue to the ledger the moment you find it, fix it
 before moving on — don't batch discoveries for later. Report outcome-first
 when the whole list is done, same style as last night's final report.
+
+- **FI-6** (found during FI-2 verification, 2026-08-20): the Apple Music
+  connection row prints its raw numeric resource id ("1810969283") as the
+  Account label — ConnectionDisplayName resolves no artist name for
+  apple_music.artist connections and the id is only 10 digits so
+  looksLikeResourceId misses it. Fix during the Instagram block loop:
+  enrichment (or the connect write) should stamp payload.name with the
+  artist name.
