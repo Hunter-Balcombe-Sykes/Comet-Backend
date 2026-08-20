@@ -355,7 +355,7 @@ it('publishes an empty shop payload even after a real connect + selection throug
     actingAsUser($user)->putJson('/api/platforms/shop/brands/pub-brand/selection', ['productIds' => ['p1']])
         ->assertOk();
 
-    $res = $this->getJson('/api/public/profiles/pubshop/platforms');
+    $res = $this->getJson('/api/public/profiles/pubshop/integrations');
     $res->assertOk();
 
     // The envelope survives; the contents are gone. Convergence Phase 6: the
@@ -428,8 +428,8 @@ it('makes ZERO popularity reads on the public platforms endpoint and publishes n
     ]);
 
     DB::connection('pgsql')->enableQueryLog();
-    $first = $this->getJson('/api/public/profiles/pubshopcache/platforms')->assertOk();
-    $second = $this->getJson('/api/public/profiles/pubshopcache/platforms')->assertOk();
+    $first = $this->getJson('/api/public/profiles/pubshopcache/integrations')->assertOk();
+    $second = $this->getJson('/api/public/profiles/pubshopcache/integrations')->assertOk();
     $log = DB::connection('pgsql')->getQueryLog();
     DB::connection('pgsql')->disableQueryLog();
 

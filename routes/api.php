@@ -188,11 +188,9 @@ Route::get('/public/profiles/{handle}', [IndividualProfileController::class, 'sh
 
 // Public per-user integration connections (sitepage reads this to render
 // integration sections). Separate from the profile payload — additive,
-// self-contained. /platforms is a legacy alias kept until the sitepage flips.
+// self-contained. The `/platforms` alias was RETIRED 2026-08-20 — guard:
+// tests/Feature/PublicSite/PublicPlatformsAliasRetiredTest.php.
 Route::get('/public/profiles/{handle}/integrations', [PublicIntegrationController::class, 'show'])
-    ->where('handle', '[A-Za-z0-9-]+')
-    ->middleware('throttle:public-profile');
-Route::get('/public/profiles/{handle}/platforms', [PublicIntegrationController::class, 'show'])
     ->where('handle', '[A-Za-z0-9-]+')
     ->middleware('throttle:public-profile');
 

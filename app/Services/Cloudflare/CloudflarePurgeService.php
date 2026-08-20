@@ -127,10 +127,11 @@ class CloudflarePurgeService
      * ~1 s wide too, and a rapid second edit is no longer swallowed.
      *
      * The backend API subrequests the Astro Worker renders from
-     * (`<app.url>/api/public/profiles/<handle>` + `/integrations` + its
-     * `/platforms` alias) live on the API host, which the pages fetch
-     * edge-caches for 30 s — they go by single-file purge in the same call,
-     * one chunk. Both aliases must die together or neither is purged.
+     * (`<app.url>/api/public/profiles/<handle>` + `/integrations`) live on the
+     * API host, which the pages fetch edge-caches for 30 s — they go by
+     * single-file purge in the same call, one chunk. Both must die together or
+     * the render is rebuilt from a stale half. (A third URL, the `/platforms`
+     * alias, was purged here until it retired 2026-08-20.)
      */
     public function purgeHandle(string $handle, ?string $customDomain = null): void
     {
@@ -167,12 +168,10 @@ class CloudflarePurgeService
         if ($apiBase !== '') {
             // The Astro Worker subrequest target — `IndividualProfileController@show`.
             $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}";
-            // The platform-integrations subrequest (`PublicIntegrationController`)
-            // that the sitepage reads for cards, and its legacy `/platforms` alias
-            // onto the SAME controller (routes/api.php) — purging one alone left
-            // the other serving the pre-mutation payload.
+            // The platform-integrations subrequest (`PublicIntegrationController`).
+            // Purging the profile payload alone left this one serving the
+            // pre-mutation cards. (Its `/platforms` alias retired 2026-08-20.)
             $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}/integrations";
-            $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}/platforms";
         }
 
         Log::info('cloudflare.purge.handle', ['handle' => $h, 'mode' => 'prefix', 'prefixes' => count($prefixes), 'api_urls' => count($urls)]);

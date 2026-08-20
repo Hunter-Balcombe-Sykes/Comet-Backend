@@ -51,7 +51,7 @@ it('runs the full per-user platform loop: authenticated connect → public read 
     Bus::assertDispatched(CloudflareCachePurgeJob::class);
 
     // 2. The public, unauthenticated endpoint returns it, grouped by platform.
-    $this->getJson('/api/public/profiles/pilot/platforms')
+    $this->getJson('/api/public/profiles/pilot/integrations')
         ->assertOk()
         ->assertJsonPath('data.platforms.tiktok.0.payload.username', 'pilot');
 
@@ -61,7 +61,7 @@ it('runs the full per-user platform loop: authenticated connect → public read 
     // to the single dispatch asserted above — that coalescing is the point.)
     actingAsUser($user)->deleteJson('/api/platforms/tiktok')->assertOk();
 
-    $this->getJson('/api/public/profiles/pilot/platforms')
+    $this->getJson('/api/public/profiles/pilot/integrations')
         ->assertOk()
         ->assertJsonPath('data.platforms', []);
 });
@@ -72,8 +72,8 @@ it('keeps one user\'s public platforms invisible to another handle', function ()
     actingAsUser($jane)->postJson('/api/platforms/tiktok/connect', ['username' => 'janetok'])->assertOk();
 
     // An unknown handle 404s (no existence leak); the known handle shows only its own.
-    $this->getJson('/api/public/profiles/ghost/platforms')->assertNotFound();
-    $this->getJson('/api/public/profiles/pilot/platforms')
+    $this->getJson('/api/public/profiles/ghost/integrations')->assertNotFound();
+    $this->getJson('/api/public/profiles/pilot/integrations')
         ->assertOk()
         ->assertJsonPath('data.platforms.tiktok.0.payload.username', 'janetok');
 });

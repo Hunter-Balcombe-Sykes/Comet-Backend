@@ -29,7 +29,7 @@ it("returns a handle's platform connections grouped by platform", function () {
     IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'uber_eats.order', 'resource_id' => 'b2', 'payload' => ['name' => 'Store B'], 'sort_order' => 1]);
     IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'org1', 'payload' => ['organiser' => 'Acme']]);
 
-    $res = $this->getJson('/api/public/profiles/jane/platforms');
+    $res = $this->getJson('/api/public/profiles/jane/integrations');
 
     $res->assertOk();
     expect($res->json('data.platforms.uber_eats'))->toHaveCount(2);
@@ -42,7 +42,7 @@ it("returns a handle's platform connections grouped by platform", function () {
 });
 
 it('404s an unknown handle (no existence leak)', function () {
-    $this->getJson('/api/public/profiles/nobody/platforms')->assertNotFound();
+    $this->getJson('/api/public/profiles/nobody/integrations')->assertNotFound();
 });
 
 it('excludes inactive and soft-deleted connections', function () {
@@ -52,7 +52,7 @@ it('excludes inactive and soft-deleted connections', function () {
     $deleted = IntegrationConnection::create(['user_id' => $user->id, 'platform' => 'tiktok', 'resource_id' => 'c', 'payload' => []]);
     $deleted->delete();
 
-    $res = $this->getJson('/api/public/profiles/sam/platforms');
+    $res = $this->getJson('/api/public/profiles/sam/integrations');
 
     $res->assertOk();
     expect($res->json('data.platforms.youtube'))->toHaveCount(1);

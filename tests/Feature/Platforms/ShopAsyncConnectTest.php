@@ -755,7 +755,7 @@ it('T13: the public payload carries no brand at all and never exposes connectSta
         'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
     ]], null);
 
-    $response = $this->getJson('/api/public/profiles/t13pub/platforms')->assertOk();
+    $response = $this->getJson('/api/public/profiles/t13pub/integrations')->assertOk();
 
     expect($response->json('data.platforms.shopify.0.payload'))->toBe([]);
 
