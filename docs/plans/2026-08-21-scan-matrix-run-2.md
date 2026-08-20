@@ -92,6 +92,18 @@ exists.
   AUTO-connected, 8 products imported, T1 pinned exactly 5, sprout card
   gone. Pinned by 2 new LinkInBioApiUnrollerTest cases.
 
+- **M-2** (B1-on-partna live): a GoogleBusinessEnrichJob retry (attempt 1
+  killed mid-flight by a job timeout after a 125s Apify Places hang) saw
+  its OWN half-finished Instagram placeholder via has() and filed a
+  conflict finding — the placeholder stayed "pending" with no username
+  forever, since nothing re-dispatches a lost InstagramConnectJob (#LIFE-5
+  class). Fixed: a pending placeholder whose payload source is
+  google-business is an unfinished obligation → re-dispatch the scrape
+  (updateOrCreate + uniqueId connectionId:username make it idempotent); an
+  enriched or user-connected Instagram still conflicts. Pinned by 2 new
+  GoogleBusinessInstagramReservedSegmentTest cases. Live: stranded row
+  healed by re-running the enrich through the new path.
+
 ### Item status
 
 - I1 industrybeans (partna): CLEAN round 2 — IG + auto-connected store

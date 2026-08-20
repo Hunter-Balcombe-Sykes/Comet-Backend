@@ -780,7 +780,32 @@ class GoogleBusinessAutoSync
         }
         $username = $projection->identifier;
 
-        if ($this->has($userId, Platform::Instagram->value)) {
+        $existing = IntegrationConnection::query()
+            ->where('user_id', $userId)
+            ->where('platform', Platform::Instagram->value)
+            ->first();
+
+        if ($existing !== null) {
+            // M-2 (matrix run 2, live): a retried enrich (attempt 1 killed
+            // mid-flight between the placeholder write and the scrape
+            // dispatch / its run) used to see its OWN half-finished
+            // placeholder here and file a conflict — stranding a "pending"
+            // connection with no username forever, because nothing ever
+            // re-dispatches a lost InstagramConnectJob. A pending placeholder
+            // that THIS seeder created (payload source google-business) is an
+            // unfinished obligation, not a conflict: re-dispatch the scrape
+            // (idempotent — uniqueId is connectionId:username, so a live
+            // duplicate coalesces). A real user connection, or an enriched
+            // seed, still conflicts exactly as before.
+            $payload = CardPayload::fromArray((array) $existing->payload);
+            if ($existing->last_refresh_status === 'pending' && $payload->source() === 'google-business') {
+                if (! $this->dispatchInstagram($userId, $username, $autoConnectBooking)) {
+                    return null;
+                }
+
+                return $this->seededFinding(Platform::Instagram->value, Platform::Instagram->value, 'social', 'Instagram', $url);
+            }
+
             return $this->conflictFinding(Platform::Instagram->value, Platform::Instagram->value, 'social', 'Instagram', $url, [
                 'remove' => [Platform::Instagram->value], 'instagram' => ['username' => $username],
             ]);

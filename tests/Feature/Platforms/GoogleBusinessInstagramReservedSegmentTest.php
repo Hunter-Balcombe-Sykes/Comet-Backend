@@ -87,3 +87,56 @@ it('still seeds from a profile sub-tab share link — the projection retry cuts 
     'reels tab' => 'https://www.instagram.com/fadelab/reels/',
     'tagged tab' => 'https://www.instagram.com/fadelab/tagged/',
 ]);
+
+// ── M-2: stranded pending placeholder (retry after a mid-flight kill) ────
+
+it('re-dispatches the scrape when the existing row is its own pending placeholder', function () {
+    config(['services.apify.token' => 'apify-token']);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbigrUser('gbigr-m2a');
+
+    // Attempt 1 died between the placeholder write and the scrape running.
+    $placeholder = new IntegrationConnection([
+        'surface_key' => 'instagram.profile', 'routing_class' => 'social',
+        'resource_id' => 'instagram', 'payload' => ['source' => 'google-business'],
+        'is_active' => false,
+    ]);
+    $placeholder->user_id = $user->id;
+    $placeholder->platform = 'instagram';
+    $placeholder->last_refresh_status = 'pending';
+    $placeholder->save();
+
+    $findings = app(GoogleBusinessAutoSync::class)->seed(
+        (string) $user->id,
+        ['socials' => ['instagram' => 'https://instagram.com/fadelab']],
+        'Fade Lab',
+    );
+
+    Bus::assertDispatched(InstagramConnectJob::class, fn ($job) => $job->username === 'fadelab');
+    expect(collect($findings)->firstWhere('platform', 'instagram')['outcome'] ?? null)->toBe('seeded');
+});
+
+it('still files a conflict when the existing Instagram is enriched or user-connected', function () {
+    config(['services.apify.token' => 'apify-token']);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbigrUser('gbigr-m2b');
+
+    $own = new IntegrationConnection([
+        'surface_key' => 'instagram.profile', 'routing_class' => 'social',
+        'resource_id' => 'instagram', 'payload' => ['username' => 'myself'],
+        'is_active' => true,
+    ]);
+    $own->user_id = $user->id;
+    $own->platform = 'instagram';
+    $own->last_refresh_status = 'ok';
+    $own->save();
+
+    $findings = app(GoogleBusinessAutoSync::class)->seed(
+        (string) $user->id,
+        ['socials' => ['instagram' => 'https://instagram.com/fadelab']],
+        'Fade Lab',
+    );
+
+    Bus::assertNotDispatched(InstagramConnectJob::class);
+    expect(collect($findings)->firstWhere('platform', 'instagram')['outcome'] ?? null)->toBe('conflict');
+});
