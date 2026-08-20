@@ -144,46 +144,6 @@ class LegacyPlatformMap
         'partna.storefront' => 'shop',
     ];
 
-    /** Surface key => routing class (P1 truth; must agree with the artefact). */
-    private const ROUTING_CLASS = [
-        // social
-        'x.profile' => 'social', 'tiktok.profile' => 'social', 'facebook.profile' => 'social',
-        'snapchat.profile' => 'social', 'linkedin.profile' => 'social', 'threads.profile' => 'social',
-        'reddit.profile' => 'social', 'discord.server' => 'social', 'telegram.channel' => 'social',
-        'kick.channel' => 'social', 'medium.profile' => 'social', 'instagram.profile' => 'social',
-        'whatsapp.chat' => 'social', 'substack.publication' => 'social', 'patreon.page' => 'social',
-        'ko_fi.page' => 'social', 'buymeacoffee.page' => 'social', 'github.profile' => 'social',
-        'gitlab.profile' => 'social', 'codepen.profile' => 'social', 'dribbble.profile' => 'social',
-        'behance.profile' => 'social',
-        // content (no gates, no XOR, no CTA class)
-        'strava.club' => 'content', 'skool.community' => 'content',
-        'youtube.channel' => 'content', 'vimeo.account' => 'content', 'twitch.channel' => 'content',
-        'spotify.player' => 'content', 'soundcloud.player' => 'content', 'mixcloud.player' => 'content',
-        'tidal.player' => 'content', 'apple_music.artist' => 'content', 'apple_podcasts.show' => 'content',
-        'bandcamp.artist' => 'content', 'youtube_music.channel' => 'content',
-        'google_business.listing' => 'content',
-        // events
-        'eventbrite.organiser' => 'events', 'humanitix.organiser' => 'events',
-        'ticketek.tickets' => 'events', 'ticketmaster.tickets' => 'events', 'oztix.tickets' => 'events',
-        'trybooking.tickets' => 'events', 'resident_advisor.tickets' => 'events',
-        // booking
-        'fresha.book' => 'booking', 'square.book' => 'booking', 'booksy.book' => 'booking',
-        'vagaro.book' => 'booking', 'timely.book' => 'booking', 'kitomba.book' => 'booking',
-        'phorest.book' => 'booking', 'shortcuts.book' => 'booking', 'bella_booking.book' => 'booking',
-        'boulevard.book' => 'booking', 'glossgenius.book' => 'booking', 'mangomint.book' => 'booking',
-        'zenoti.book' => 'booking', 'mindbody.book' => 'booking', 'ovatu.book' => 'booking',
-        // reservations
-        'opentable.reserve' => 'reservations', 'resdiary.reserve' => 'reservations',
-        'nowbookit.reserve' => 'reservations', 'resy.reserve' => 'reservations',
-        'quandoo.reserve' => 'reservations', 'sevenrooms.reserve' => 'reservations',
-        'tock.reserve' => 'reservations', 'tablecheck.reserve' => 'reservations',
-        // ordering
-        'square.order' => 'ordering', 'bopple.order' => 'ordering', 'hungrypanda.order' => 'ordering',
-        'easi.order' => 'ordering',
-        // shop
-        'partna.storefront' => 'shop', 'gumroad.store' => 'shop',
-    ];
-
     public static function surfaceFor(string $legacyPlatform): ?string
     {
         return self::TO_SURFACE[$legacyPlatform] ?? null;
@@ -192,23 +152,14 @@ class LegacyPlatformMap
     /**
      * Whether this surface may be written to a connection.
      *
-     * The COMPILED CATALOG is the authority — this map only covers the 78
-     * legacy platforms it exists to bridge, so validating against it alone
-     * would make every brand added since P1 (Shopify, Uber Eats, Menulog…)
-     * unconnectable. The map is consulted as a fallback for the one case the
-     * catalog cannot answer: an environment where the artefact is missing.
+     * The compiled catalog is the sole authority. It is a git-tracked artefact
+     * (bootstrap/catalog/compiled.php), so a missing one is a broken deploy,
+     * not a supported state — this deliberately throws rather than silently
+     * half-opening the write gate.
      */
     public static function isKnownSurface(string $surfaceKey): bool
     {
-        if (isset(self::ROUTING_CLASS[$surfaceKey])) {
-            return true;
-        }
-
-        try {
-            return CompiledCatalog::surface($surfaceKey) !== null;
-        } catch (CatalogNotCompiled) {
-            return false;
-        }
+        return CompiledCatalog::surface($surfaceKey) !== null;
     }
 
     public static function legacyFor(string $surfaceKey): string
@@ -217,23 +168,10 @@ class LegacyPlatformMap
             ?? explode('.', $surfaceKey, 2)[0];
     }
 
-    /**
-     * The routing class for a surface. Same authority order as
-     * isKnownSurface(): the map answers for legacy surfaces (where it is the
-     * lockstep-tested truth the migration's SQL mirrors), the catalog answers
-     * for everything added since.
-     */
+    /** The routing class for a surface, per the compiled catalog. */
     public static function routingClassFor(string $surfaceKey): ?string
     {
-        if (isset(self::ROUTING_CLASS[$surfaceKey])) {
-            return self::ROUTING_CLASS[$surfaceKey];
-        }
-
-        try {
-            return CompiledCatalog::surface($surfaceKey)['routing_class'] ?? null;
-        } catch (CatalogNotCompiled) {
-            return null;
-        }
+        return CompiledCatalog::surface($surfaceKey)['routing_class'] ?? null;
     }
 
     /** @return array<string, string> */
@@ -287,11 +225,5 @@ class LegacyPlatformMap
         }
 
         return $all;
-    }
-
-    /** @return array<string, string> */
-    public static function routingClassMap(): array
-    {
-        return self::ROUTING_CLASS;
     }
 }

@@ -110,9 +110,10 @@ it('maps only onto surfaces that exist in the compiled artefact, with agreeing r
     foreach (LegacyPlatformMap::toSurfaceMap() as $legacy => $surfaceKey) {
         expect(array_key_exists($surfaceKey, $surfaces))
             ->toBeTrue("legacy '{$legacy}' maps to '{$surfaceKey}' which is not in the compiled catalog");
-        expect($surfaces[$surfaceKey]['routing_class'])->toBe(
-            LegacyPlatformMap::routingClassFor($surfaceKey),
-            "routing class disagreement for {$surfaceKey}",
-        );
+        // NOT compared against routingClassFor() — that now reads the same
+        // artefact, so the assertion would be tautological. What still has
+        // teeth is that the artefact gives the surface a usable class at all.
+        expect($surfaces[$surfaceKey]['routing_class'] ?? null)
+            ->not->toBeNull("surface {$surfaceKey} has no routing class in the compiled catalog");
     }
 });
