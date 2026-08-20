@@ -657,3 +657,14 @@ whose name doesn't contain the phrase.
   the playlist name once enrichment stamps it). Reviews + menu items
   seeded. All 7 Places lookups matched their share-link business exactly
   — no ambiguity findings.
+
+**Post-deploy log scan (2026-08-20 12:11–12:20 UTC):** deploys 2428/2429
+rolled cleanly on Laravel Cloud dev — Horizon started, /up health checks
+200 throughout the switchover drains, zero error- or warning-level
+application lines in the window. Monorepo pushed (Vercel auto-deploy).
+
+**Run closed 2026-08-20 ~22:20 AEST.** Final state left for the owner:
+gsnwilliams holds the T7 result (onefour_official: IG + auto-connected
+onefour.store with 5 auto-selected products — the T1 showcase);
+user-kvjm7i holds ST. ALi as its workplace with full enrichment. Both
+reset-ready via partna:reset-test-user.
