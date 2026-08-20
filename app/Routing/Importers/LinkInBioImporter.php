@@ -279,7 +279,7 @@ class LinkInBioImporter
      * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $seen
      * @param  array<string, true>  $probedHosts
-     * @param  array<string, true>  $placedKeys
+     * @param  array<string, string>  $placedKeys  surface:identifier => first canonical URL
      * @param  array<string, int>  $droppedReasons
      */
     private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen, array &$probedHosts, array &$placedKeys, array &$droppedReasons): void
@@ -366,7 +366,7 @@ class LinkInBioImporter
      *
      * @param  array<string, mixed>  $result
      * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, skipped_chrome:int}  $tally
-     * @param  array<string, true>  $placedKeys
+     * @param  array<string, string>  $placedKeys  surface:identifier => first canonical URL
      */
     private function handlePlaced(string $url, array $result, RoutingContext $context, array &$tally, array &$placedKeys): void
     {
@@ -375,14 +375,28 @@ class LinkInBioImporter
             ? ($routed['surfaceKey'] ?? '').':'.($routed['identifier'] ?? '')
             : ':';
 
+        // "Distinct" means a distinct CANONICAL, not a distinct raw string
+        // (T1.5g round 3, 2026-08-20): the same Spotify artist arrived twice
+        // in one run — the __NEXT_DATA__ tile and the shell's own anchor,
+        // differing only in tracking params — and the raw-string dedupe let
+        // the second one through to a "Spotify – Web Player" card duplicating
+        // the connection just made. Same URL is a silent fold; only a
+        // genuinely different page for the same account still cards.
+        $canonical = strtolower(trim((string) ($result['canonicalUrl'] ?? $url)));
+
         if (isset($placedKeys[$key]) && $context->user !== null) {
+            if ($placedKeys[$key] === $canonical) {
+                $tally['noted']++;
+
+                return;
+            }
             $tally['noted']++;
             $this->seeder->seedCustom($context->user, $url);
 
             return;
         }
 
-        $placedKeys[$key] = true;
+        $placedKeys[$key] = $canonical;
         $tally['connected']++;
     }
 
