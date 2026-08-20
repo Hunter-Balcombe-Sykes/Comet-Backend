@@ -73,8 +73,21 @@ final class ConnectionIdentity
 
         // 1. Exact — scheme 3 against itself, and the overwhelmingly common
         //    case. Kept first so the fix costs a string compare on the hot path.
+        //
+        //    M-7 (matrix run 2, thejunglegiants live): HANDLE surfaces compare
+        //    case-insensitively — youtube.com/@TheJungleGiants and
+        //    /@thejunglegiants are the same channel, and the case-sensitive
+        //    compare re-proposed the user's own already-connected channel as a
+        //    suggestion. Gated on the surface's declared IdentifierKind so
+        //    opaque case-SENSITIVE ids (numeric ids, place ids) keep the exact
+        //    compare. (YouTube's UC… branch shares the handle surface; two of
+        //    one user's own channels colliding case-insensitively is not a
+        //    real shape.)
+        $foldable = (CompiledCatalog::surface($surfaceKey)['identifier_kind'] ?? null) === 'handle';
+        $needle1 = $foldable ? self::fold($identifier) : $identifier;
         foreach ($rows as $row) {
-            if ((string) $row->resource_id === $identifier) {
+            $candidate = $foldable ? self::fold((string) $row->resource_id) : (string) $row->resource_id;
+            if ($candidate === $needle1) {
                 return (string) $row->id;
             }
         }

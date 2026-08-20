@@ -225,3 +225,32 @@ it('matches a Fresha link carrying the ROTATED slug to the row healed by /team (
     expect($old['verdict'])->toBe('place')->and($old['connectionId'])->toBe((string) $healed->id);
     expect(liveConnections($pro, 'fresha.book'))->toHaveCount(1);
 });
+
+it('M-7: matches a handle-surface identifier case-insensitively, keeps opaque ids exact', function () {
+    // thejunglegiants live: youtube.com/@TheJungleGiants vs /@thejunglegiants
+    // are one channel — the case-sensitive compare re-proposed the user's own
+    // connected channel as a suggestion.
+    $pro = createTenant('m7-handles');
+
+    $yt = new \App\Models\Core\Site\IntegrationConnection([
+        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'resource_id' => 'thejunglegiants', 'payload' => ['url' => 'https://www.youtube.com/@thejunglegiants'],
+        'is_active' => true,
+    ]);
+    $yt->user_id = $pro->id;
+    $yt->save();
+
+    $identity = app(\App\Routing\ConnectionIdentity::class);
+    expect($identity->matchExisting($pro, 'youtube.channel', 'TheJungleGiants'))->toBe((string) $yt->id)
+        ->and($identity->matchExisting($pro, 'youtube.channel', 'someoneelse'))->toBeNull();
+
+    // Opaque numeric-id surface keeps the exact compare.
+    $ot = new \App\Models\Core\Site\IntegrationConnection([
+        'surface_key' => 'opentable.reserve', 'routing_class' => 'reservations',
+        'resource_id' => '49820', 'payload' => ['url' => 'https://www.opentable.com/restaurant/profile/49820'],
+        'is_active' => true,
+    ]);
+    $ot->user_id = $pro->id;
+    $ot->save();
+    expect($identity->matchExisting($pro, 'opentable.reserve', '49820'))->toBe((string) $ot->id);
+});
