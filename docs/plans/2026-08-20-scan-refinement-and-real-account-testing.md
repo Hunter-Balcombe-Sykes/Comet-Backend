@@ -526,7 +526,12 @@ gsnwilliams via the real dev API flow — reproduction BEFORE fixes):**
       publuu flipbook and the tinyurl'd course page all carded with real
       titles at their DESTINATION urls; own-IG tile+social folded; GROUP
       tiles carry no urls (children arrive flat — captured); 0 dropped.
-- [ ] T5 — Instagram block: hayleyj_thestudiox
+- [x] T5 — hayleyj_thestudiox: clean after FI-10/FI-11 (2 rounds; r1
+      caught the 4barbers affiliate mis-attribution + the www-variant
+      card). Final: IG + fresha.book Maroubra connected (both via expanded
+      tinyurls), Eventbrite event → event item, publuu flipbook carded
+      with real title, 4barbers → store SUGGESTION (no catalogue
+      pollution), own-IG tile+social folded, 0 dropped.
 - [ ] T6 — Instagram block: livplumbarber
 - [ ] T7 — Instagram block: onefour_official
 - [x] T8 — Instagram block: sammy.pdf (the T1.5g loop — clean-run verified 4x on fresh resets)
