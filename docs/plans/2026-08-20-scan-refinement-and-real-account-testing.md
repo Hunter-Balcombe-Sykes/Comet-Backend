@@ -604,3 +604,9 @@ whose name doesn't contain the phrase.
   selectInitial (env artifact — the ShopFetch late hook covers it in
   prod), and a manual selectInitial on the real 7-product catalogue pinned
   exactly 5 — the full T1 contract verified on real store data.
+
+- **FI-12** (T6 live, livplumbarber): one bio page harvested in two shapes
+  (externalUrl http://…square.site + bio-text regex → https://…) — the
+  second pass hit Engine 2's seenPlatforms slot and carded the page whose
+  square.book connection had just been made. Fixed: InstagramAutoSync
+  dedupes bio links by scheme/www/slash-insensitive form before routing.
