@@ -508,6 +508,19 @@ class LinkInBioImporter
             return;
         }
 
+        // L-3 + FI-3 (2026-08-20): a shortener reject here is a real link the
+        // user published — a NESTED aggregator (their "other" Linktree; depth
+        // stays 1, no recursive unroll) or a short link whose expansion
+        // failed (dead bit.ly, unreachable on.soundcloud.com). Both used to
+        // silently drop; zero-loss means they become cards, exactly like a
+        // Note. Tombstoned/malformed/own-infra rejects still drop below.
+        if (($result['blockReason'] ?? null) === 'shortener') {
+            $tally['noted']++;
+            $this->seeder->seedCustom($context->user, $url);
+
+            return;
+        }
+
         // 'reject' is carded nowhere, deliberately: unroutable by the
         // canonicaliser (own-infra, malformed, confusable host) or refused by
         // policy (tombstoned — resurrecting it would break C8). But a dropped

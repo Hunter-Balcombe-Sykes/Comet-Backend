@@ -17,10 +17,16 @@ class Hosts
             'music.youtube.com' => 'youtube.com',
             'wa.me' => 'whatsapp.com',
             't.me' => 'telegram.org',
-            'fb.me' => 'facebook.com',
             'm.facebook.com' => 'facebook.com',
-            'spoti.fi' => 'spotify.com',
-            'on.soundcloud.com' => 'soundcloud.com',
+            // fb.me / spoti.fi / on.soundcloud.com were aliases here until
+            // FI-3 (2026-08-20). An alias rewrites only the registrable key
+            // and keeps the PATH — but these hosts carry opaque short CODES,
+            // not platform paths, so a lowercase code could match a profile
+            // detector and mint a fake account (reproduced with
+            // on.soundcloud.com in the sammy.pdf baseline). They are redirect
+            // shorteners, handled by ShortLinkExpander now; wa.me and t.me
+            // stay aliases because their paths ARE the identity (phone
+            // number / channel name), not codes to dereference.
             // RA's legacy domain still resolves and circulates in old bios;
             // its links are the same pages ra.co serves (events-parity).
             'residentadvisor.net' => 'ra.co',

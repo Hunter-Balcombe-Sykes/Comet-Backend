@@ -365,10 +365,16 @@ it('records why each link was dropped in the import run detail', function () {
         <a href="https://bit.ly/xyz">Short</a>
     </body></html>');
 
-    app(LinkInBioImporter::class)->import($pro, 'https://example.com/dropper');
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/dropper');
 
+    // FI-3 (2026-08-20): the shortener is no longer a drop. Expansion is
+    // attempted (here the fake answers 200 with no redirect, so it fails)
+    // and the unexpandable short link becomes a CARD — zero-loss — leaving
+    // own-infra as the one genuine drop.
     $detail = json_decode(DB::table('routing.import_runs')->where('user_id', $pro->id)->value('detail'), true);
-    expect($detail['dropped_reasons'])->toBe(['own-infra' => 1, 'shortener' => 1]);
+    expect($detail['dropped_reasons'])->toBe(['own-infra' => 1])
+        ->and($result['noted'])->toBe(1)
+        ->and($result['dropped'])->toBe(1);
 });
 
 // ── N2: pages that ship no anchors ──────────────────────────────────────────
