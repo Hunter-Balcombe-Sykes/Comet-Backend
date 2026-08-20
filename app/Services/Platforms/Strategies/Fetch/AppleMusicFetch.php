@@ -37,6 +37,16 @@ final readonly class AppleMusicFetch implements FetchStrategy
             'link' => $latest['link'],
         ];
 
+        // FI-6 (2026-08-20): the row's Account label. ConnectionDisplayName
+        // deliberately ignores payload.name here (it's the latest RELEASE'S
+        // title) and resolves 'artistName' — without this stamp a harvested
+        // artist connection printed its raw numeric resource id in the
+        // Platforms table. Only set when the lookup carried one, same
+        // only-set-non-empty rule as genre below.
+        if (is_string($latest['artistName'] ?? null) && trim($latest['artistName']) !== '') {
+            $next['artistName'] = trim($latest['artistName']);
+        }
+
         // #76: (re)capture the artist genre on refresh so connections made before
         // genre capture existed pick it up on their next daily refresh, and a
         // changed classification stays current. Best-effort: retain the prior

@@ -75,9 +75,15 @@ class ShortLinkExpander
 
         try {
             // The body is irrelevant — only the redirect chain matters — but
-            // HEAD support is unreliable on these hosts, so a tightly capped
-            // GET is the portable shape.
-            $result = $this->fetcher->withMaxBytes(4096)->tryFetch($url);
+            // HEAD support is unreliable on these hosts, so a GET it is. NO
+            // withMaxBytes() tightening (T1.5g live lesson, 2026-08-20): the
+            // fetcher THROWS when a body exceeds the cap rather than
+            // truncating, and the DESTINATION page (a real SoundCloud profile,
+            // ~300KB) tripped a 4KB cap after the redirect chain had already
+            // resolved — the finalUrl was known and thrown away. The default
+            // 10MB cap bounds abuse; wall-clock is bounded by the caller's
+            // FetchBudget.
+            $result = $this->fetcher->tryFetch($url);
             $candidate = $result['finalUrl'] ?? null;
 
             if (is_string($candidate)

@@ -35,6 +35,11 @@ class AppleSearch extends PlatformScraper
             ->map(fn ($a) => [
                 'collectionId' => (string) data_get($a, 'collectionId'),
                 'name' => data_get($a, 'collectionName'),
+                // FI-6 (2026-08-20): the ARTIST, not the release — the
+                // connection row's display name resolver skips payload.name
+                // for apple_music.artist (it's a content title) and reads
+                // artistName; without it the row printed the raw numeric id.
+                'artistName' => data_get($a, 'artistName'),
                 'thumbnail' => $this->hdArtwork(data_get($a, 'artworkUrl100')),
                 'releaseDate' => data_get($a, 'releaseDate'),
                 'link' => data_get($a, 'collectionViewUrl'),
