@@ -74,37 +74,59 @@ class MediaSeeder
             return null;
         }
 
-        // Grammar first (pure), then the page read for the words and cover. A
-        // failed read cards the link — an item titled by its host is worse
-        // than an honest card (same rule the paste lane applies).
-        $read = $this->reader->read($url);
-        if ($read === null) {
+        // Grammar first — PURE, no fetch — so the existing-item checks below
+        // run before any page read can fail.
+        $item = $this->reader->classifyItem($url);
+        if ($item === null) {
             return null;
         }
-
-        $canonical = $read['canonical'];
+        $canonical = $item['canonical'];
         $coord = ManualEventWriter::coordFor($canonical);
 
-        // Never resurrect FROM A SCAN: the owner removed this exact item
-        // before, and only a person's direct paste means "bring it back".
-        $removed = $origin === 'paste' ? false : DB::connection('pgsql')->table('content.items as i')
+        // The item this URL names, as the pool already holds it (live or
+        // removed) — one query answers both gates below.
+        $existingRemovedAt = DB::connection('pgsql')->table('content.items as i')
             ->join('content.source_items as csi', 'csi.item_id', '=', 'i.id')
             ->join('content.sources as cs', function ($join) {
                 $join->on('cs.id', '=', 'csi.source_id')->where('cs.kind', '=', 'manual');
             })
             ->where('i.user_id', (string) $user->id)
             ->where('csi.coord', $coord)
-            ->whereNotNull('i.removed_at')
-            ->exists();
-        if ($removed) {
-            // Returned as HANDLED (the canonical), not null: null sends the
-            // caller to its card write, and a link card for a removed item
-            // resurrects it in another pool. The URL's home is the (removed)
-            // item; removed stays removed, and nothing else may carry it.
-            Log::info('media_seeder.tombstoned', ['user_id' => (string) $user->id, 'coord' => $coord]);
-            $this->tombstonedThisRun++;
+            ->select('i.removed_at')
+            ->first();
 
+        if ($existingRemovedAt !== null && $origin !== 'paste') {
+            // Never resurrect FROM A SCAN: the owner removed this exact item
+            // before, and only a person's direct paste means "bring it back".
+            if ($existingRemovedAt->removed_at !== null) {
+                // Returned as HANDLED (the canonical), not null: null sends
+                // the caller to its card write, and a link card for a removed
+                // item resurrects it in another pool. The URL's home is the
+                // (removed) item; removed stays removed, and nothing else may
+                // carry it.
+                Log::info('media_seeder.tombstoned', ['user_id' => (string) $user->id, 'coord' => $coord]);
+                $this->tombstonedThisRun++;
+
+                return $canonical;
+            }
+
+            // A LIVE item already carries this URL — handled, BEFORE the page
+            // read (T1.5g round 2, 2026-08-20): the bio lane had seeded the
+            // Spotify track seconds earlier, the linktree lane's oEmbed
+            // re-read then failed transiently, and the null sent the caller
+            // to its card write — a "Spotify – Web Player" card duplicating
+            // an item the pool already held. An existing live item needs no
+            // re-read (its words/cover are already there) and never a card.
+            // Paste still falls through: it re-reads, un-deletes and pins.
             return $canonical;
+        }
+
+        // The page read for the words and cover. A failed read cards the
+        // link — an item titled by its host is worse than an honest card
+        // (same rule the paste lane applies).
+        $read = $this->reader->read($url);
+        if ($read === null) {
+            return null;
         }
 
         $projection = [

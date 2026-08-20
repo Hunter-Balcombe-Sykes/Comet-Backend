@@ -488,19 +488,26 @@ gsnwilliams via the real dev API flow — reproduction BEFORE fixes):**
 
 ## Task list (tick as you go)
 
-- [ ] T1 — auto-select up to 5 most-recent products on store connect
-      (Task 1 above), when none are already selected, once (+ L-4/L-5)
-- [ ] T1.5a — reproduce sammy.pdf baseline on gsnwilliams, capture trace,
-      confirm FI-4's exact URL/lane, reset
-- [ ] T1.5b — FI-1 single-account socials (backend catalog + tests)
-- [ ] T1.5c — FI-3 short-link expansion layer (+ L-1 alias removal, L-3
-      nested-aggregator card)
-- [ ] T1.5d — FI-4 track→item + artist suggestion (+ L-2 locale-less
-      Apple Music)
-- [ ] T1.5e — FI-5 Linktree __NEXT_DATA__ unroller
-- [ ] T1.5f — FI-2 dashboard one-row-per-account (monorepo)
-- [ ] T1.5g — deploy both, reconnect sammy.pdf, diff against the
-      expected-outcome checklist, loop until clean, reset
+- [x] T1 — auto-select up to 5 most-recent products on store connect
+      (Task 1 above), when none are already selected, once (+ L-4/L-5) —
+      committed + critic-hardened (transactional seed, engaged re-check,
+      3rd sync lane, ShopFetch late hook); live store-connect verify rides
+      the run's later store work
+- [x] T1.5a — reproduced: trace in the ledger above (ssml.wav placed as a
+      2nd IG, on.soundcloud carded, embeds invisible, no artist suggestion)
+- [x] T1.5b — FI-1 single-account socials + alias-fold cap skip + legacy
+      convergence migration (critic-passed)
+- [x] T1.5c — FI-3 ShortLinkExpander both engines + budgeted preview +
+      L-1 alias removals + L-3 shortener rejects card (critic-passed)
+- [x] T1.5d — FI-4 track→item + artist derivation via Spotify embed page /
+      Apple Music page + L-2 locale-less grammar
+- [x] T1.5e — FI-5 Linktree __NEXT_DATA__ arm; full sammy.pdf replay test
+- [x] T1.5f — FI-2 dashboard one-row-per-account, verified in browser
+      (typecheck/lint clean, no '+N', per-account rows)
+- [ ] T1.5g — LOCAL full-stack loop (local API+worker against dev DB, no
+      deploy needed until merge). Round 1: FI-1/FI-4/FI-5 verified live;
+      caught the expander 4KB body-cap throw (fixed) + FI-6 apple
+      artistName (fixed). Round 2 in flight — diff must be fully clean.
 - [ ] T2 — Instagram block: samtobin__
 - [ ] T3 — Instagram block: barber_in_law
 - [ ] T4 — Instagram block: suzi_thestudiox

@@ -235,6 +235,11 @@ it('caps one run at MAX_ITEMS_PER_RUN seeds', function () {
     $pro = createTenant('media-cap');
 
     $reader = Mockery::mock(MediaPageReader::class);
+    // The seeder runs the pure grammar first (existing-item dedupe rides it)
+    // and only then the page read.
+    $reader->shouldReceive('classifyItem')->andReturnUsing(fn (string $url) => [
+        'platform' => 'youtube', 'kind' => 'video', 'canonical' => $url,
+    ]);
     $reader->shouldReceive('read')->andReturnUsing(fn (string $url) => [
         'platform' => 'youtube', 'kind' => 'video',
         'canonical' => $url, 'title' => 'T '.$url, 'thumbnail' => null,
@@ -292,4 +297,29 @@ it('claims locale-less Apple Music album/song/artist URLs on the right arm (L-2)
     expect($reader->accountPlatformLabel('https://music.apple.com/artist/sam-akhurst/1810969283'))->toBe('Apple Music')
         ->and($reader->accountPlatformLabel('https://music.apple.com/au/artist/sam-akhurst/1810969283'))->toBe('Apple Music')
         ->and($reader->accountPlatformLabel('https://music.apple.com/album/x/111?i=222'))->toBeNull();
+});
+
+it('never cards a link whose item the pool already holds, even when the page read fails (T1.5g round 2)', function () {
+    // Live shape: the bio lane seeded the Spotify track; seconds later the
+    // linktree lane routed the SAME track and its oEmbed re-read failed
+    // transiently — the null sent the caller to its card write, duplicating
+    // an item the pool already held as a "Spotify – Web Player" card. The
+    // existing-item check must run BEFORE the page read.
+    Queue::fake();
+    $pro = createTenant('dedupe-before-read');
+
+    // First seed: reads fine, item lands.
+    Http::fake([
+        'youtube.com/oembed*' => Http::response(json_encode(['title' => 'The Video', 'thumbnail_url' => null]), 200, ['Content-Type' => 'application/json']),
+        '*' => Http::response('', 404),
+    ]);
+    $seeder = app(MediaSeeder::class);
+    expect($seeder->seedItem($pro, 'https://www.youtube.com/watch?v=dedupe001', 'bio_harvest'))->not->toBeNull();
+
+    // Second lane, same URL, oEmbed now DOWN: still handled, never null.
+    Http::fake(['*' => Http::response('', 500)]);
+    expect(app(MediaSeeder::class)->seedItem($pro, 'https://www.youtube.com/watch?v=dedupe001', 'link_in_bio'))
+        ->toBe('https://www.youtube.com/watch?v=dedupe001');
+
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->count())->toBe(1);
 });
