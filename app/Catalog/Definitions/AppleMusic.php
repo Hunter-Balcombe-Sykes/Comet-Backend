@@ -32,6 +32,7 @@ class AppleMusic
     {
         return [
             SurfaceBuilder::for('apple_music.artist')
+                ->legacyPlatform('apple-music')
                 ->displayName('Apple Music')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Music)

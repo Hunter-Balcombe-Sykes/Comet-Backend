@@ -34,6 +34,7 @@ class Humanitix
     {
         return [
             SurfaceBuilder::for('humanitix.organiser')
+                ->legacyPlatform('humanitix')
                 ->displayName('Humanitix')
                 ->routing(RoutingClass::Events)
                 ->shelf(Shelf::Events)

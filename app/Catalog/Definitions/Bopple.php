@@ -28,6 +28,7 @@ class Bopple
     {
         return [
             SurfaceBuilder::for('bopple.order')
+                ->legacyPlatform('bopple')
                 ->displayName('Bopple')
                 ->routing(RoutingClass::Ordering)
                 ->shelf(Shelf::Food)

@@ -32,6 +32,7 @@ class Vimeo
     {
         return [
             SurfaceBuilder::for('vimeo.account')
+                ->legacyPlatform('vimeo')
                 ->displayName('Vimeo')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Video)

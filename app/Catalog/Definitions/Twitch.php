@@ -31,6 +31,7 @@ class Twitch
     {
         return [
             SurfaceBuilder::for('twitch.channel')
+                ->legacyPlatform('twitch')
                 ->displayName('Twitch')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Video)

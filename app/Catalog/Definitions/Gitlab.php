@@ -29,6 +29,7 @@ class Gitlab
     {
         return [
             SurfaceBuilder::for('gitlab.profile')
+                ->legacyPlatform('gitlab')
                 ->displayName('GitLab')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

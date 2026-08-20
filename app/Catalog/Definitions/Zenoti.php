@@ -24,6 +24,7 @@ class Zenoti
     {
         return [
             SurfaceBuilder::for('zenoti.book')
+                ->legacyPlatform('zenoti')
                 ->displayName('Zenoti')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

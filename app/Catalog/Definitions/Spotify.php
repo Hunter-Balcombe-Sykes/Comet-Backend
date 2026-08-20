@@ -38,6 +38,7 @@ class Spotify
     {
         return [
             SurfaceBuilder::for('spotify.player')
+                ->legacyPlatform('spotify')
                 ->displayName('Spotify')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Music)

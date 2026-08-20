@@ -29,6 +29,7 @@ class Glossgenius
     {
         return [
             SurfaceBuilder::for('glossgenius.book')
+                ->legacyPlatform('glossgenius')
                 ->displayName('GlossGenius')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

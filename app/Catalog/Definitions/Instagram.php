@@ -31,6 +31,7 @@ class Instagram
     {
         return [
             SurfaceBuilder::for('instagram.profile')
+                ->legacyPlatform('instagram')
                 ->displayName('Instagram')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

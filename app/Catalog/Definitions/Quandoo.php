@@ -31,6 +31,7 @@ class Quandoo
     {
         return [
             SurfaceBuilder::for('quandoo.reserve')
+                ->legacyPlatform('quandoo')
                 ->displayName('Quandoo')
                 ->routing(RoutingClass::Reservations)
                 ->shelf(Shelf::Food)

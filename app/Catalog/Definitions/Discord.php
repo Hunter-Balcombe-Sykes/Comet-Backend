@@ -34,6 +34,7 @@ class Discord
     {
         return [
             SurfaceBuilder::for('discord.server')
+                ->legacyPlatform('discord')
                 ->displayName('Discord')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

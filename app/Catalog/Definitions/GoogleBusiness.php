@@ -30,6 +30,7 @@ class GoogleBusiness
     {
         return [
             SurfaceBuilder::for('google_business.listing')
+                ->legacyPlatform('google-business')
                 ->displayName('Google Business')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Business)

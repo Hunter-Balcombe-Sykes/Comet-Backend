@@ -30,6 +30,7 @@ class Booksy
     {
         return [
             SurfaceBuilder::for('booksy.book')
+                ->legacyPlatform('booksy')
                 ->displayName('Booksy')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

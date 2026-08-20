@@ -28,6 +28,7 @@ class Threads
     {
         return [
             SurfaceBuilder::for('threads.profile')
+                ->legacyPlatform('threads')
                 ->displayName('Threads')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

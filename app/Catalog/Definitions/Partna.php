@@ -43,7 +43,11 @@ class Partna
             $hidden('partna.manual_product', 'Manual product', RoutingClass::Shop, Shelf::Commerce)
                 ->multiAccount(20)
                 ->build(),
+            // Legacy slug 'shop', not the 'partna' brand prefix — the one
+            // surviving pseudo-bucket alias (the link-lane ones retired
+            // 2026-08-19 and live on only in LegacyPlatformMap::RETIRED).
             $hidden('partna.storefront', 'Online store', RoutingClass::Shop, Shelf::Commerce)
+                ->legacyPlatform('shop')
                 ->build(),
         ];
     }

@@ -41,6 +41,7 @@ class Facebook
     {
         return [
             SurfaceBuilder::for('facebook.profile')
+                ->legacyPlatform('facebook')
                 ->displayName('Facebook')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)
