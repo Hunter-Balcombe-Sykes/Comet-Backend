@@ -5,6 +5,7 @@ namespace App\Services\Analytics;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Services\PublicSite\SitepageDataResolverService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -67,7 +68,7 @@ class ContentFreshness
             ->where('user_id', $site->user_id)
             ->active()
             ->get(['platform', 'resource_kind', 'payload', 'created_at'])
-            ->each(function (IntegrationConnection $conn) use (&$pageNewest, &$linkItems): void {
+            ->each(function (IntegrationConnection $conn) use (&$pageNewest): void {
                 $page = SitepageDataResolverService::PLATFORM_TO_PAGE[$conn->platform] ?? null;
                 if ($page !== null) {
                     if (! isset($pageNewest[$page]) || $conn->created_at->gt($pageNewest[$page])) {
@@ -102,7 +103,7 @@ class ContentFreshness
                         $pageNewest['links'] = $createdAt;
                     }
                 });
-        } catch (\Illuminate\Database\QueryException) {
+        } catch (QueryException) {
             // content.* not provisioned — no pool, no boost.
         }
 

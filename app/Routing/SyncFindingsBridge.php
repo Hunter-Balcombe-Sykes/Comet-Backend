@@ -141,7 +141,7 @@ class SyncFindingsBridge
      */
     public function settlePayloadFinding(IntegrationConnection $connection, int $index, string $outcome): void
     {
-        $payload = is_array($connection->payload) ? $connection->payload : [];
+        $payload = $connection->payload;
         $findings = $this->findingsOf($connection);
         if (! isset($findings[$index])) {
             return;
@@ -166,7 +166,7 @@ class SyncFindingsBridge
     /** @return array<int, array<string, mixed>> */
     private function findingsOf(IntegrationConnection $connection): array
     {
-        $findings = is_array($connection->payload) ? ($connection->payload['syncFindings'] ?? []) : [];
+        $findings = $connection->payload['syncFindings'] ?? [];
 
         return is_array($findings)
             ? array_values(array_filter($findings, 'is_array'))

@@ -59,6 +59,7 @@ class IndividualProfileResource extends ApiResource
      *     newsletter?: array<string, mixed>|null,
      *     contact?: array<string, mixed>|null,
      *     publicContact?: array{email: string|null, phone: string|null}|null,
+     *     bio?: string|null,
      *     workplace?: array<string, mixed>|null,
      * }  $sections
      */

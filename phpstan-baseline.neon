@@ -1477,12 +1477,6 @@ parameters:
 			path: app/Services/Analytics/AnalyticsQueryService.php
 
 		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Analytics/ContentFreshness.php
-
-		-
 			message: '#^Offset ''dwell_n'' on array\{title\: string, dwell_sum_ms\: int, dwell_n\: int\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 2

@@ -58,7 +58,7 @@ class ConvertStandaloneEvents extends Command
 
             $item = $writer->addStandalone($user, $url, $event);
             if ($item === null) {
-                $this->warn("  pool write refused (no site / cap) — row kept");
+                $this->warn('  pool write refused (no site / cap) — row kept');
                 $skipped++;
 
                 continue;

@@ -10,11 +10,8 @@ use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
-use App\Routing\SuggestionApplier;
-use App\Routing\SyncFindingsBridge;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Cache\CacheKeyGenerator;
-use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\PlatformInput;
 use App\Services\Platforms\Registry\Platform;
@@ -29,20 +26,15 @@ use Illuminate\Support\Facades\Cache;
 // immediately; connectStatus() polls until it's ready. Scraping lives in
 // InstagramScraper; all mirroring in the job.
 //
-// BE2: synced()/applySync() are the bio-link auto-sync popup contract — mirror
-// GoogleBusinessController::synced()/applySync() semantics exactly (live status
-// re-derivation, conflict apply = remove existing + write found link), reading
-// the findings InstagramConnectJob persisted via InstagramAutoSync.
+// synced()/applySync() (the bio-link auto-sync popup) were retired in
+// 37cc7c48f — one inbox (SuggestionsController, via SyncFindingsBridge +
+// SuggestionApplier) now handles every found-link conflict, this controller's
+// and GoogleBusinessController's included.
 class InstagramController extends ApiController
 {
     use DefersBespokeConnect;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
-
-    public function __construct(
-        private readonly SyncFindingsBridge $findingsBridge,
-        private readonly SuggestionApplier $applier,
-    ) {}
 
     protected function platform(): string
     {

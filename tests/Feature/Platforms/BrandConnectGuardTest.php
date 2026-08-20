@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Platforms\EnrichLinkCardJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Support\Facades\Queue;
@@ -226,7 +227,7 @@ it('422s slot_taken against a ROUTER-seeded incumbent, and Swap retires it', fun
     $user = brandGuardUser('bg-router-incumbent');
 
     // The router's write shape: url-derived rid on the same brand surface.
-    \App\Models\Core\Site\IntegrationConnection::create([
+    IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'uber_eats',
         'surface_key' => 'uber_eats.order',
@@ -246,7 +247,7 @@ it('422s slot_taken against a ROUTER-seeded incumbent, and Swap retires it', fun
         ->postJson('/api/platforms/uber_eats/connect', ['url' => 'https://www.ubereats.com/au/store/second/bbb', 'replace' => true])
         ->assertOk();
 
-    $rows = \App\Models\Core\Site\IntegrationConnection::query()
+    $rows = IntegrationConnection::query()
         ->where('user_id', $user->id)->where('surface_key', 'uber_eats.order')->get();
     expect($rows)->toHaveCount(1);
     expect($rows->first()->payload['url'])->toBe('https://www.ubereats.com/au/store/second/bbb');

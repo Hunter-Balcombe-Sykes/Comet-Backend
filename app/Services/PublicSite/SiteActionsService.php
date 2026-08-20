@@ -12,6 +12,7 @@ use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\PublicSite\Actions\ActionVocabulary;
 use App\Support\UrlSafety;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 
 /**
@@ -264,7 +265,7 @@ class SiteActionsService
         // several SQLite suites run this without content.* provisioned).
         try {
             $poolCards = $this->links->cardsForSite($site);
-        } catch (\Illuminate\Database\QueryException) {
+        } catch (QueryException) {
             $poolCards = [];
         }
         foreach ($poolCards as $card) {
