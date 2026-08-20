@@ -567,3 +567,12 @@ when the whole list is done, same style as last night's final report.
   "tinyurl.com" while its expansion routed separately. Fixed: the
   importer expands once at the top of the links loop (cached), so every
   downstream consumer sees the destination.
+
+**Run-environment notes (local loop rig):** local `php artisan serve` +
+supervised `queue:work` against the dev Supabase DB. WarmPublicSiteCacheJob
+consistently exceeds its 10s `$timeout` locally (payload build = hundreds
+of queries × remote-DB RTT) and Laravel kills the worker by design — an
+environmental artifact, absorbed by the supervisor loop; on Laravel Cloud
+the DB is co-located and 10s is fine. Also: `pkill -f queue:work` matches a
+naive supervisor's own cmdline — the run's supervisor lives in a script
+whose name doesn't contain the phrase.
