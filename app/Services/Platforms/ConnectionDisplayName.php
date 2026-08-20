@@ -62,6 +62,13 @@ final class ConnectionDisplayName
         $isSubreddit = $surfaceKey === 'reddit.profile' && preg_match('~reddit\.com/r/~i', (string) ($payload['url'] ?? '')) === 1;
         foreach (['username', 'handle', 'artist', 'artistName', 'artist_name', 'login', 'organiser', 'slug', 'store'] as $key) {
             $value = self::text($payload[$key] ?? null);
+            // All-digits is an ID wearing a name key, never a name (FI-6,
+            // 2026-08-20: apple_music.artist rows carry username = the
+            // numeric artist id, which outranked the real artistName one key
+            // later and printed "1810969283" as the Account label).
+            if ($value !== null && preg_match('/^\d+$/', $value) === 1) {
+                continue;
+            }
             if ($value !== null && ! str_contains($value, '://')) {
                 return $isSubreddit ? 'r/'.ltrim($value, '@') : self::prefixed($surfaceKey, $value);
             }

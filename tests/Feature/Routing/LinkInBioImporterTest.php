@@ -4,6 +4,7 @@ use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Content\LinkPoolReader;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -365,10 +366,16 @@ it('records why each link was dropped in the import run detail', function () {
         <a href="https://bit.ly/xyz">Short</a>
     </body></html>');
 
-    app(LinkInBioImporter::class)->import($pro, 'https://example.com/dropper');
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/dropper');
 
+    // FI-3 (2026-08-20): the shortener is no longer a drop. Expansion is
+    // attempted (here the fake answers 200 with no redirect, so it fails)
+    // and the unexpandable short link becomes a CARD — zero-loss — leaving
+    // own-infra as the one genuine drop.
     $detail = json_decode(DB::table('routing.import_runs')->where('user_id', $pro->id)->value('detail'), true);
-    expect($detail['dropped_reasons'])->toBe(['own-infra' => 1, 'shortener' => 1]);
+    expect($detail['dropped_reasons'])->toBe(['own-infra' => 1])
+        ->and($result['noted'])->toBe(1)
+        ->and($result['dropped'])->toBe(1);
 });
 
 // ── N2: pages that ship no anchors ──────────────────────────────────────────
@@ -658,4 +665,78 @@ it('records the reasons on the run itself, so they can be counted in SQL', funct
         ->where('user_id', $pro->id)->value('detail'), true);
 
     expect($detail['unavailable_reasons'])->toBe(['bot_challenge' => 1, 'not_found' => 1]);
+});
+
+it('reads Linktree music-embed links from __NEXT_DATA__ — the full sammy.pdf replay (FI-5)', function () {
+    // The real linktr.ee/samakhurst shape: 6 published links, 3 of them
+    // embed types that render as players with NO anchors. Pre-FI-5 the
+    // anchor harvest saw only 3; the __NEXT_DATA__ arm reads all 6.
+    Queue::fake();
+    Cache::flush();
+    $pro = createTenant('fi5-linktree');
+
+    $nextData = json_encode(['props' => ['pageProps' => ['links' => [
+        ['title' => 'Open Your Eyes (And Dance)', 'url' => 'https://open.spotify.com/track/5WOkoJzd6nDzKJXlVgVU5q', 'type' => 'SPOTIFY_SONG'],
+        ['title' => 'Are You The One (Sam Akhurst Remix)', 'url' => 'https://soundcloud.com/sam-akhurst/are-you-the-one-remix', 'type' => 'SOUNDCLOUD_SONG'],
+        ['title' => 'Spotify', 'url' => 'https://open.spotify.com/artist/4WoNQlu21ftnkouDsSUtmS', 'type' => 'SPOTIFY_ARTIST'],
+        ['title' => 'Apple Music', 'url' => 'https://music.apple.com/au/artist/sam-akhurst/1810969283', 'type' => 'CLASSIC'],
+        ['title' => 'SoundCloud', 'url' => 'https://on.soundcloud.com/fh433tMk6lU9xgP3TM', 'type' => 'CLASSIC'],
+        ['title' => 'Instagram', 'url' => 'https://www.instagram.com/ssml.wav', 'type' => 'INSTAGRAM_PROFILE'],
+    ]]]]);
+
+    Http::fake([
+        'linktr.ee/*' => Http::response('<html><body><script id="__NEXT_DATA__" type="application/json">'.$nextData.'</script></body></html>', 200, ['Content-Type' => 'text/html']),
+        'open.spotify.com/oembed*' => Http::response(json_encode(['title' => 'Open Your Eyes (And Dance)', 'thumbnail_url' => null]), 200, ['Content-Type' => 'application/json']),
+        'open.spotify.com/embed/track/*' => Http::response('{"artists":[{"uri":"artist/4WoNQlu21ftnkouDsSUtmS"}]}', 200),
+        'soundcloud.com/oembed*' => Http::response(json_encode(['title' => 'Are You The One (Sam Akhurst Remix)', 'thumbnail_url' => null, 'author_url' => 'https://soundcloud.com/sam-akhurst']), 200, ['Content-Type' => 'application/json']),
+        'on.soundcloud.com/*' => Http::response('', 302, ['Location' => 'https://soundcloud.com/sam-akhurst?ref=clipboard']),
+        '*' => Http::response('', 404),
+    ]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/samakhurst', 'bio_harvest');
+
+    // The expected best-case outcome from the run plan, verbatim: four
+    // connections (Spotify artist, Apple Music artist, SoundCloud artist via
+    // short-link expansion, Instagram), two Listen items, nothing carded.
+    expect($result['items'])->toBe(2)
+        ->and($result['connected'])->toBe(4)
+        ->and($result['noted'])->toBe(0)
+        ->and($result['dropped'])->toBe(0);
+
+    $connections = IntegrationConnection::where('user_id', $pro->id)->get()
+        ->map(fn ($c) => $c->surface_key.':'.$c->resource_id)->sort()->values()->all();
+    expect($connections)->toBe([
+        'apple_music.artist:1810969283',
+        'instagram.profile:ssml.wav',
+        'soundcloud.player:sam-akhurst',
+        'spotify.player:4WoNQlu21ftnkouDsSUtmS',
+    ]);
+
+    $items = DB::connection('pgsql')->table('content.items')
+        ->where('user_id', $pro->id)->whereIn('kind', ['track'])->get();
+    expect($items)->toHaveCount(2)
+        ->and($items->pluck('headline_cache')->sort()->values()->all())
+        ->toBe(['Are You The One (Sam Akhurst Remix)', 'Open Your Eyes (And Dance)']);
+});
+
+it('folds a second URL that canonicalizes identically instead of carding it (FI-8)', function () {
+    // Round 3 live shape: the same Spotify artist arrived as a __NEXT_DATA__
+    // tile AND as the shell's own anchor, differing only in tracking params.
+    // Same canonical → silent fold; a card here duplicated the connection.
+    Queue::fake();
+    $pro = createTenant('fi8-canonical-fold');
+    bioPage('<html><body>
+        <a href="https://www.instagram.com/theartist?utm_source=a">One</a>
+        <a href="https://instagram.com/theartist?utm_source=b">Two</a>
+    </body></html>');
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/theartist');
+
+    // 'folded', its own bucket (critic pass 2): 'noted' claims a card
+    // exists, and a same-canonical fold deliberately writes none.
+    expect($result['connected'])->toBe(1)
+        ->and($result['folded'])->toBe(1)
+        ->and($result['noted'])->toBe(0);
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0)
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
 });

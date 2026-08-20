@@ -14,7 +14,7 @@ it('cascades storefront rows when the collection goes', function () {
     SQL);
 
     expect(collect($cols)->pluck('column_name'))
-        ->toContain('referral_query', 'products_curated_at', 'connect_status');
+        ->toContain('referral_query', 'products_curated_at', 'products_autoselected_at', 'connect_status');
 
     $fk = DB::connection('pgsql')->select(<<<'SQL'
         SELECT confdeltype FROM pg_constraint

@@ -99,6 +99,10 @@ const COLLECTION_WRITE_REGISTRY = [
     'ItemMerger::foldInto' => 'MERGE',
 
     'ShopContentWriter::upsertStore' => 'SHOP',
+    // READ-only on collection_items (candidate/engagement lookups); its
+    // writes go to site.section_items, and it discharges invalidation via
+    // SiteCacheLanes::bust() — same seam as ProvisionShopPinsCommand.
+    'ShopAutoSelector::selectInitial' => 'SHOP',
     'ShopContentWriter::syncStore' => 'SHOP',
     'ShopContentWriter::retireStore' => 'SHOP',
     'ShopContentWriter::retireAbsent' => 'SHOP',

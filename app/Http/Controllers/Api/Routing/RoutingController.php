@@ -66,7 +66,18 @@ class RoutingController extends ApiController
                 'conflictingConnectionId' => null,
             ]);
         }
-        $result = $this->routing->preview($url, RoutingContext::forUser($user, 'paste'));
+        // Budgeted (FI-3 critic blocker, 2026-08-20): preview() now runs the
+        // short-link expander, whose fetch is the only I/O on this path — and
+        // this endpoint fires on every keystroke pause, so an
+        // attacker-controlled slow short-host must not hold a worker for the
+        // fetcher's unbudgeted worst case (~8s × redirect hops). Deliberately
+        // TIGHTER than connect_budget_seconds: a preview that misses the
+        // window degrades to the unexpanded answer, nothing is lost — the
+        // route() that follows the paste gets its own, larger budget.
+        $result = $this->budget->open(
+            (float) config('partna.http_fetch.preview_budget_seconds', 8),
+            fn (): array => $this->routing->preview($url, RoutingContext::forUser($user, 'paste')),
+        );
 
         return $this->success($result);
     }
@@ -179,7 +190,15 @@ class RoutingController extends ApiController
             }
         }
 
-        $result = $this->routing->route($url, RoutingContext::forUser($user, 'paste'));
+        // Budgeted like the item branch above (FI-3 critic): route() runs the
+        // short-link expander — the one fetch on this path (expansion is
+        // cached, so the preview that preceded this paste usually paid it).
+        // The earlier budget->open() in the item branch has already closed by
+        // here (its finally clears the deadline), so this never nests.
+        $result = $this->budget->open(
+            (float) config('partna.http_fetch.connect_budget_seconds', 45),
+            fn (): array => $this->routing->route($url, RoutingContext::forUser($user, 'paste')),
+        );
 
         // What actually happened, in one word the dashboard can switch on:
         //   connected — a connection exists now

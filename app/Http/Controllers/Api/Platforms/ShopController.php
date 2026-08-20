@@ -16,6 +16,7 @@ use App\Http\Requests\Platforms\UpdateShopSettingsRequest;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
+use App\Jobs\Platforms\ShopInitialFillJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -493,6 +494,16 @@ class ShopController extends ApiController
         if ($deferred) {
             // AFTER the lock has released — see the sentinel comment above.
             ShopBrandConnectJob::dispatch($collectionId)->afterCommit();
+        } else {
+            // The synchronous lane (generic/client-detected) never passes
+            // through ShopBrandConnectJob, so without this it was the ONE
+            // connect lane with no initial catalogue fill and no first-connect
+            // auto-select (T1 critic pass, 2026-08-20). The job's fill +
+            // ShopAutoSelector are both idempotent, and its settle() CAS
+            // no-ops here (connect_status is already null) — only the
+            // post-settle tail... which is exactly why ShopInitialFillJob
+            // exists rather than reusing ShopBrandConnectJob.
+            ShopInitialFillJob::dispatch($collectionId)->afterCommit();
         }
 
         return $lockResponse;

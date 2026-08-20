@@ -38,7 +38,6 @@ class Instagram
                 ->identifier(IdentifierKind::Handle)
                 ->refreshEvery(0)
                 ->canonicalUrl('https://instagram.com/{handle}')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('instagram.com')
                         ->path('#^/(?!(?:p|reel|reels|stories|explore|accounts|developer|about|legal|directory)(?:/|$))(?<handle>[A-Za-z0-9._]{1,30})/?$#')

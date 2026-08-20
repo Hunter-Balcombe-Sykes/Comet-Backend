@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
+use App\Routing\ShortLinkExpander;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
@@ -79,6 +80,7 @@ class LinkInBioImporter
         private readonly CustomLinkSeeder $seeder,
         private readonly EventsSeeder $events,
         private readonly MediaSeeder $media,
+        private readonly ShortLinkExpander $expander,
     ) {}
 
     /**
@@ -93,7 +95,7 @@ class LinkInBioImporter
         }
 
         $pages = $this->normalisePages($bioPageUrls);
-        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'unavailable_reasons' => [], 'bio_url_seeded' => false];
+        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'dropped' => 0, 'folded' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'unavailable_reasons' => [], 'bio_url_seeded' => false];
 
         if ($pages === []) {
             return ['outcome' => 'unavailable'] + $empty;
@@ -108,7 +110,7 @@ class LinkInBioImporter
         }
 
         $context = RoutingContext::forUser($user, $kind, $runId);
-        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0];
+        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'dropped' => 0, 'folded' => 0, 'skipped_chrome' => 0];
         $seen = [];
         $probedHosts = [];
         $placedKeys = [];
@@ -279,7 +281,7 @@ class LinkInBioImporter
      * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $seen
      * @param  array<string, true>  $probedHosts
-     * @param  array<string, true>  $placedKeys
+     * @param  array<string, string>  $placedKeys  surface:identifier => first canonical URL
      * @param  array<string, int>  $droppedReasons
      */
     private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen, array &$probedHosts, array &$placedKeys, array &$droppedReasons): void
@@ -345,6 +347,16 @@ class LinkInBioImporter
             }
             $seen[$fingerprint] = true;
 
+            // FI-9 (T4 live, 2026-08-20): expand HERE, not only inside
+            // route(), so every downstream consumer sees the destination —
+            // before this, route() expanded internally but handleUnrouted's
+            // probe dispatch and card fallback still carried the SHORT url:
+            // a tinyurl'd course page was probed as tinyurl.com (reject:
+            // shortener → probe wasted) and carded as "tinyurl.com" while
+            // its expansion routed separately. Cached, so route()'s own
+            // expansion of the same URL is a cache hit, not a second fetch.
+            $url = $this->expander->expandIfShort($url);
+
             $result = $this->routing->route($url, $context);
 
             match ($result['verdict']) {
@@ -366,7 +378,7 @@ class LinkInBioImporter
      *
      * @param  array<string, mixed>  $result
      * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, skipped_chrome:int}  $tally
-     * @param  array<string, true>  $placedKeys
+     * @param  array<string, string>  $placedKeys  surface:identifier => first canonical URL
      */
     private function handlePlaced(string $url, array $result, RoutingContext $context, array &$tally, array &$placedKeys): void
     {
@@ -375,14 +387,35 @@ class LinkInBioImporter
             ? ($routed['surfaceKey'] ?? '').':'.($routed['identifier'] ?? '')
             : ':';
 
+        // "Distinct" means a distinct CANONICAL, not a distinct raw string
+        // (T1.5g round 3, 2026-08-20): the same Spotify artist arrived twice
+        // in one run — the __NEXT_DATA__ tile and the shell's own anchor,
+        // differing only in tracking params — and the raw-string dedupe let
+        // the second one through to a "Spotify – Web Player" card duplicating
+        // the connection just made. Same URL is a silent fold; only a
+        // genuinely different page for the same account still cards.
+        // '://www.' folds too (FI-11, T5 live): a Linktree tile said
+        // www.instagram.com/<handle> while its socialLinks row said
+        // instagram.com/<handle> — one page, two canonicals, and the second
+        // became an "Instagram" card beside the fold.
+        $canonical = str_replace('://www.', '://', strtolower(trim((string) ($result['canonicalUrl'] ?? $url))));
+
         if (isset($placedKeys[$key]) && $context->user !== null) {
+            if ($placedKeys[$key] === $canonical) {
+                // Its OWN bucket, not 'noted' (critic pass 2): 'noted' claims
+                // a card exists — the exact lie #R2 fixed — and a
+                // same-canonical fold writes nothing, deliberately.
+                $tally['folded']++;
+
+                return;
+            }
             $tally['noted']++;
             $this->seeder->seedCustom($context->user, $url);
 
             return;
         }
 
-        $placedKeys[$key] = true;
+        $placedKeys[$key] = $canonical;
         $tally['connected']++;
     }
 
@@ -502,6 +535,19 @@ class LinkInBioImporter
         }
 
         if ($result['verdict'] === 'note') {
+            $tally['noted']++;
+            $this->seeder->seedCustom($context->user, $url);
+
+            return;
+        }
+
+        // L-3 + FI-3 (2026-08-20): a shortener reject here is a real link the
+        // user published — a NESTED aggregator (their "other" Linktree; depth
+        // stays 1, no recursive unroll) or a short link whose expansion
+        // failed (dead bit.ly, unreachable on.soundcloud.com). Both used to
+        // silently drop; zero-loss means they become cards, exactly like a
+        // Note. Tombstoned/malformed/own-infra rejects still drop below.
+        if (($result['blockReason'] ?? null) === 'shortener') {
             $tally['noted']++;
             $this->seeder->seedCustom($context->user, $url);
 

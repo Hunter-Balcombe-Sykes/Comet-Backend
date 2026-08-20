@@ -11,6 +11,7 @@ use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopBrandProfiler;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
+use App\Services\Shop\ShopAutoSelector;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\StoreRecord;
 use App\Site\Documents\BuildState;
@@ -219,6 +220,20 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
             );
         } catch (Throwable $e) {
             Log::warning('shop.brand_connect_job.initial_fill_failed', [
+                'collection_id' => $this->collectionId,
+                'user_id' => $store->userId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // First-connect Sell seeding (owner spec, 2026-08-20): the fill above
+        // put products in the library; if the owner has never chosen any for
+        // this store, pin up to 5 of the newest — once, ever. Best-effort for
+        // the same reason as the fill: the connect itself is already settled.
+        try {
+            app(ShopAutoSelector::class)->selectInitial($this->collectionId);
+        } catch (Throwable $e) {
+            Log::warning('shop.brand_connect_job.auto_select_failed', [
                 'collection_id' => $this->collectionId,
                 'user_id' => $store->userId,
                 'error' => $e->getMessage(),

@@ -100,6 +100,41 @@ class MediaPageReader extends PlatformScraper
             return 'https://www.twitch.tv/'.$m[1];
         }
 
+        // FI-4 (2026-08-20): Spotify's oEmbed carries NO author_url — which is
+        // why the sammy.pdf baseline seeded the track but never suggested the
+        // artist. The public EMBED page does carry it (10KB, no auth): the
+        // first-billed artist/ href for a track, the show/ href for an
+        // episode. One extra capped fetch, only for spotify items. NOT albums
+        // (critic pass 2, verified live on two real releases): the album
+        // embed renders no artist link at all, so that arm would only ever
+        // spend a fetch to return null.
+        if ($item['platform'] === 'spotify'
+            && preg_match('~^https://open\.spotify\.com/(track|episode)/([A-Za-z0-9]{10,30})$~', $item['canonical'], $m)) {
+            $res = $this->fetcher->tryFetch("https://open.spotify.com/embed/{$m[1]}/{$m[2]}", ['User-Agent' => self::USER_AGENT]);
+            if ($res !== null && $res['status'] === 200) {
+                if (preg_match('~artist/([A-Za-z0-9]{10,30})~', (string) $res['body'], $a)) {
+                    return 'https://open.spotify.com/artist/'.$a[1];
+                }
+                if (preg_match('~show/([A-Za-z0-9]{10,30})~', (string) $res['body'], $a)) {
+                    return 'https://open.spotify.com/show/'.$a[1];
+                }
+            }
+
+            return null;
+        }
+
+        // FI-4: Apple Music album/song pages are SSR'd and link their artist
+        // page in the markup — no oEmbed exists for them at all.
+        if ($item['platform'] === 'apple-music') {
+            $res = $this->fetcher->tryFetch($item['canonical'], ['User-Agent' => self::USER_AGENT]);
+            if ($res !== null && $res['status'] === 200
+                && preg_match('~https://music\.apple\.com/[a-z]{2}/artist/[a-z0-9%.-]+/(\d+)~i', (string) $res['body'], $a)) {
+                return $a[0];
+            }
+
+            return null;
+        }
+
         return null;
     }
 
@@ -187,14 +222,18 @@ class MediaPageReader extends PlatformScraper
         // ── Apple Music: ?i= names a song on an album page; /song/ directly;
         //    an album URL without ?i= is a release ─────────────────────────
         if ($host === 'music.apple.com') {
-            if (preg_match('~^/[a-z]{2}/album/[^/]+/(\d+)$~', $path, $m)) {
+            // Locale segment OPTIONAL (L-2, 2026-08-20): locale-less
+            // music.apple.com/album|song URLs are real share shapes, and
+            // requiring /xx/ here while the artist detector accepts both left
+            // them claimed by NEITHER arm — mis-filed as custom links.
+            if (preg_match('~^(?:/[a-z]{2})?/album/[^/]+/(\d+)$~', $path, $m)) {
                 if (preg_match('~^\d+$~', $query['i'] ?? '')) {
                     return ['platform' => 'apple-music', 'kind' => 'track', 'canonical' => "https://music.apple.com{$path}?i={$query['i']}"];
                 }
 
                 return ['platform' => 'apple-music', 'kind' => 'release', 'canonical' => 'https://music.apple.com'.$path];
             }
-            if (preg_match('~^/[a-z]{2}/song/[^/]+/\d+$~', $path)) {
+            if (preg_match('~^(?:/[a-z]{2})?/song/[^/]+/\d+$~', $path)) {
                 return ['platform' => 'apple-music', 'kind' => 'track', 'canonical' => 'https://music.apple.com'.$path];
             }
 
@@ -276,7 +315,8 @@ class MediaPageReader extends PlatformScraper
             && ! preg_match('~^/(discover|upload|live|pro|premium|select|about|jobs|competitions|categories|search)\b~i', $path)) {
             return 'Mixcloud';
         }
-        if ($host === 'music.apple.com' && preg_match('~^/[a-z]{2}/artist/~', $path)) {
+        // Locale optional (L-2) — the catalog detector already accepts both.
+        if ($host === 'music.apple.com' && preg_match('~^(?:/[a-z]{2})?/artist/~', $path)) {
             return 'Apple Music';
         }
         if ($host === 'podcasts.apple.com' && preg_match('~^/[a-z]{2}/podcast/[^/]+/id\d+$~', $path)) {

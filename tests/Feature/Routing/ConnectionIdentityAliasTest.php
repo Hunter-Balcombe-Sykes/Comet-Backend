@@ -96,9 +96,9 @@ it('keeps two genuinely different channels apart when one wears the legacy marke
     expect(liveConnections($pro, 'youtube.channel'))->toHaveCount(2);
 });
 
-it('creates a new connection when a marker row carries no derivable identity', function () {
+it('holds a distinct handle behind an unresolvable marker as a swap, never a merge', function () {
     $pro = createTenant('r4-fail-open');
-    seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
+    $marker = seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
         // No url, no username — a pending placeholder exactly as
         // InstagramSourceGenerator writes it before the scrape lands.
     ]);
@@ -108,17 +108,26 @@ it('creates a new connection when a marker row carries no derivable identity', f
         RoutingContext::forUser($pro, 'bio_harvest'),
     );
 
-    // Fail OPEN, never fail-merged: an unresolvable incumbent must not
-    // swallow a link whose identity we can read perfectly well.
-    expect($out['verdict'])->toBe('place');
-    expect(liveConnections($pro, 'instagram.profile'))->toHaveCount(2);
+    // Never fail-MERGED: an unresolvable incumbent must not swallow a link
+    // whose identity we can read perfectly well. Under FI-1 (2026-08-20,
+    // socials are single-account) the open door is no longer a second
+    // connection — it is the cap Hold, surfaced as a Swap against the
+    // incumbent, with the marker row untouched. (This expected 'place' + a
+    // second row when instagram.profile was multiAccount(5).)
+    expect($out['verdict'])->toBe('hold');
+    $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->first();
+    expect(liveConnections($pro, 'instagram.profile'))->toHaveCount(1)
+        ->and($intent->block_reason)->toBe('cap_reached')
+        ->and($intent->conflicting_connection_id)->toBe((string) $marker->id);
 });
 
 it('does not let a marker row that IS this identity consume a cap slot', function () {
     $pro = createTenant('r4-cap');
-    // instagram.profile is multiAccount(5). Four unrelated accounts plus the
-    // marker row for OUR identity fills the cap only if the marker is counted
-    // as a fifth, distinct account — which is the bug, one surface over.
+    // Four unrelated accounts (over-cap legacy data now that FI-1 made
+    // instagram.profile single-account) plus the marker row for OUR identity.
+    // Re-routing our own link must fold into the marker — recognising an
+    // account we already hold adds no account, so the cap (whatever its size,
+    // and however far over it the legacy rows sit) must not block the fold.
     $marker = seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
         'url' => 'https://instagram.com/crucibletattooco',
         'username' => 'crucibletattooco',

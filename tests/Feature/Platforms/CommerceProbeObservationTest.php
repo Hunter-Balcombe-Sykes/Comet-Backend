@@ -150,3 +150,29 @@ it('asks the ORIGIN the store question when the deep page is unreachable (T4 —
         ->and($connection->surface_key)->toBe('shopify.store')
         ->and($connection->resource_id)->toBe('987654');
 });
+
+it('files a REACHABLE deep store page as a suggestion, never an auto-connect (FI-10)', function () {
+    // T5 live (hayleyj_thestudiox): 4barbers.com.au/pages/matsui-… — an
+    // affiliate/discount page on someone ELSE'S supply shop — auto-connected
+    // as her store and imported its catalogue. From a deep page the store is
+    // a QUESTION; only a link to the store's ROOT names it as your own.
+    $user = probeObservationUser();
+    Http::fake([
+        // The deep page itself: a plain content page, no product markup.
+        'example.com/pages/*' => Http::response('<html><body>Partner discount!</body></html>', 200, ['Content-Type' => 'text/html']),
+        // The WooCommerce Store API probe answers at the ORIGIN — the same
+        // shape ShopProbeCascadeTest pins as a reliable store match.
+        '*/wp-json/wc/store/v1/products*' => Http::response([['id' => 11, 'name' => 'A Mug']], 200),
+        '*/wp-json' => Http::response(['name' => 'Affiliate Emporium'], 200),
+        '*' => Http::response('', 404),
+    ]);
+
+    app()->call([new CommerceProbeJob((string) $user->id, 'https://example.com/pages/discount-partner'), 'handle']);
+
+    // No store connection was minted…
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'shop')->count())->toBe(0);
+    // …the question sits in the inbox instead.
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed');
+});

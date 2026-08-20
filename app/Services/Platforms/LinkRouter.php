@@ -8,6 +8,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
+use App\Routing\ShortLinkExpander;
 use App\Routing\SourceReconciler;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -37,6 +38,7 @@ class LinkRouter
         private readonly WebsiteLinkHarvester $harvester,
         private readonly EventsSeeder $events,
         private readonly MediaSeeder $media,
+        private readonly ShortLinkExpander $expander,
     ) {}
 
     /**
@@ -46,6 +48,12 @@ class LinkRouter
      */
     public function route(User $user, string $url, RouteContext $ctx): RouteResult
     {
+        // FI-3 (2026-08-20): the legacy lane gets the same short-link
+        // expansion as LinkRoutingService — a bio's on.soundcloud.com /
+        // spotify.link short URL classifies as its real destination, not as
+        // an opaque code that falls to a card.
+        $url = $this->expander->expandIfShort($url);
+
         $key = $this->reentrancyKey($user, $url);
         if (isset(self::$routing[$key])) {
             return RouteResult::skipped();

@@ -36,7 +36,6 @@ class Threads
                 ->refreshEvery(0)
                 ->canonicalUrl('https://www.threads.net/@{handle}')
                 ->connect('connect.threads.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('threads.net')
                         ->path('#^/@?(?<handle>[A-Za-z0-9._]{1,30})/?$#')

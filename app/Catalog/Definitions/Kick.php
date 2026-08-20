@@ -39,7 +39,6 @@ class Kick
                 ->refreshEvery(0)
                 ->canonicalUrl('https://kick.com/{handle}')
                 ->connect('connect.kick.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('kick.com')
                         ->path('#^/(?<handle>[A-Za-z0-9_-]{3,50})/?$#i')

@@ -38,7 +38,6 @@ class Reddit
                 ->refreshEvery(0)
                 ->canonicalUrl('https://www.reddit.com/user/{handle}/')
                 ->connect('connect.reddit.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('reddit.com')
                         ->path('#^/(?:u|user|r)/(?<handle>[A-Za-z0-9_-]{2,21})/?$#')

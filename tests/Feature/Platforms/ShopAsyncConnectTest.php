@@ -2,6 +2,7 @@
 
 use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
+use App\Jobs\Platforms\ShopInitialFillJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
@@ -206,6 +207,12 @@ it('T25: generic still returns 200 with a complete brand when shop is deferred, 
 
     expect($res->json())->not->toHaveKey('status');
     Bus::assertNotDispatched(ShopBrandConnectJob::class);
+
+    // T1 critic pass (2026-08-20): "dispatches nothing" above means no
+    // DEFERRED-connect job — the synchronous lane still owes the one-shot
+    // catalogue fill + first-connect auto-select, or it is the only connect
+    // lane a store can enter with neither.
+    Bus::assertDispatched(ShopInitialFillJob::class);
 });
 
 it('T25: client-assisted woocommerce still returns 200 with a complete brand when shop is deferred, and dispatches nothing', function () {

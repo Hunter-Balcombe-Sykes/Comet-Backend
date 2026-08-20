@@ -18,6 +18,7 @@ class LinkRoutingService
         private readonly PlacementPolicy $policy,
         private readonly SourceReconciler $reconciler,
         private readonly LinkObserver $observer,
+        private readonly ShortLinkExpander $expander,
     ) {}
 
     /**
@@ -27,6 +28,12 @@ class LinkRoutingService
      */
     public function preview(string $url, RoutingContext $context): array
     {
+        // FI-3: a short link's identity lives behind its redirect, so expand
+        // BEFORE canonicalize — the preview then describes the real
+        // destination, and the expansion is cached for the route() that
+        // follows the paste.
+        $url = $this->expander->expandIfShort($url);
+
         $iri = $this->canonicalizer->canonicalize($url);
         $projection = $this->projector->project($iri);
         $placement = $this->policy->decide($projection, $context);
@@ -42,6 +49,9 @@ class LinkRoutingService
      */
     public function route(string $url, RoutingContext $context): array
     {
+        // FI-3 — see preview(). Cached, so the preview→route pair fetches once.
+        $url = $this->expander->expandIfShort($url);
+
         $iri = $this->canonicalizer->canonicalize($url);
         $projection = $this->projector->project($iri);
         $placement = $this->policy->decide($projection, $context);
