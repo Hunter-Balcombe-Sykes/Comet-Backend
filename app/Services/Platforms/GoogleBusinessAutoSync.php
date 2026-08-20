@@ -798,7 +798,17 @@ class GoogleBusinessAutoSync
             // duplicate coalesces). A real user connection, or an enriched
             // seed, still conflicts exactly as before.
             $payload = CardPayload::fromArray((array) $existing->payload);
-            if ($existing->last_refresh_status === 'pending' && $payload->source() === 'google-business') {
+            // STALE only (suite catch on the first cut): a fresh pending
+            // placeholder means the scrape is IN FLIGHT — re-dispatching there
+            // re-claims an Apify budget slot per repeat scan (the #JOB-1 money
+            // hole ScanPreviousWebsiteContentJobTest pins). 16 minutes clears
+            // InstagramConnectJob's 15-minute retryUntil window, so a pending
+            // row older than that has no live job left and IS stranded.
+            $stranded = $existing->last_refresh_status === 'pending'
+                && $payload->source() === 'google-business'
+                && $existing->updated_at !== null
+                && $existing->updated_at->lt(now()->subMinutes(16));
+            if ($stranded) {
                 if (! $this->dispatchInstagram($userId, $username, $autoConnectBooking)) {
                     return null;
                 }

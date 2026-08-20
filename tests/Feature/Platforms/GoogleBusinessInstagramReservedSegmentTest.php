@@ -105,6 +105,11 @@ it('re-dispatches the scrape when the existing row is its own pending placeholde
     $placeholder->platform = 'instagram';
     $placeholder->last_refresh_status = 'pending';
     $placeholder->save();
+    // STALE: older than InstagramConnectJob's 15-min retryUntil window — a
+    // FRESH pending placeholder means the scrape is in flight and must NOT
+    // re-dispatch (the #JOB-1 budget guard).
+    $placeholder->timestamps = false;
+    $placeholder->forceFill(['updated_at' => now()->subMinutes(20)])->save();
 
     $findings = app(GoogleBusinessAutoSync::class)->seed(
         (string) $user->id,
@@ -130,6 +135,31 @@ it('still files a conflict when the existing Instagram is enriched or user-conne
     $own->platform = 'instagram';
     $own->last_refresh_status = 'ok';
     $own->save();
+
+    $findings = app(GoogleBusinessAutoSync::class)->seed(
+        (string) $user->id,
+        ['socials' => ['instagram' => 'https://instagram.com/fadelab']],
+        'Fade Lab',
+    );
+
+    Bus::assertNotDispatched(InstagramConnectJob::class);
+    expect(collect($findings)->firstWhere('platform', 'instagram')['outcome'] ?? null)->toBe('conflict');
+});
+
+it('leaves a FRESH pending placeholder alone — the scrape is in flight, no budget re-spend', function () {
+    config(['services.apify.token' => 'apify-token']);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbigrUser('gbigr-m2c');
+
+    $placeholder = new IntegrationConnection([
+        'surface_key' => 'instagram.profile', 'routing_class' => 'social',
+        'resource_id' => 'instagram', 'payload' => ['source' => 'google-business'],
+        'is_active' => false,
+    ]);
+    $placeholder->user_id = $user->id;
+    $placeholder->platform = 'instagram';
+    $placeholder->last_refresh_status = 'pending';
+    $placeholder->save();
 
     $findings = app(GoogleBusinessAutoSync::class)->seed(
         (string) $user->id,
