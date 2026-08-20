@@ -13,12 +13,14 @@
 // PlacementPolicy exactly as a pasted link does.
 
 use App\Jobs\Brand\IngestBrandAssetJob;
+use App\Jobs\Platforms\ShopInitialFillJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Brand\StoreBrandSeeder;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
+use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -324,4 +326,31 @@ it('never counts a re-scan of an already-connected store against the cap', funct
 
     expect($result['outcome'])->toBe('placed')
         ->and(seededStoreCount($pro))->toBe(5);
+});
+
+it('dispatches the initial fill and disarms auto-latest on a first connect only (L-4/L-5)', function () {
+    $pro = createTenant('store-fill');
+    storeResponds();
+
+    $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
+    expect($result['outcome'])->toBe('placed');
+
+    // L-5: this lane mints through SourceReconciler, which leaves the sparse
+    // auto_sync_latest key absent — and absent means ON. The seeder must
+    // disarm it exactly as ShopConnections::anchor() does for a dedicated
+    // connect, or a suggestion-accepted store silently auto-publishes.
+    $connection = IntegrationConnection::query()->where('user_id', $pro->id)->firstOrFail();
+    expect((array) ($connection->display_settings ?? []))
+        ->toHaveKey(AutoSyncSetting::KEY)
+        ->and($connection->display_settings[AutoSyncSetting::KEY])->toBeFalse();
+
+    // L-4: the one-shot catalogue fill + first-connect auto-select, keyed on
+    // the store's own collection id.
+    $collectionId = DB::table('content.storefronts')->where('external_ref', '4242')->value('collection_id');
+    Bus::assertDispatched(ShopInitialFillJob::class,
+        fn ($job) => $job->collectionId === (string) $collectionId);
+
+    // A re-scan of the SAME store is not a new connect — no second fill.
+    app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
+    Bus::assertDispatchedTimes(ShopInitialFillJob::class, 1);
 });

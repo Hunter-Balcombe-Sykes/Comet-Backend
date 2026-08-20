@@ -3192,6 +3192,7 @@ function setupContentTables(): void
         connect_status TEXT NULL,
         connect_error TEXT NULL,
         products_curated_at TEXT NULL,
+        products_autoselected_at TEXT NULL,
         logo_url TEXT NULL,
         favicon_url TEXT NULL,
         logo_mark_url TEXT NULL,
