@@ -71,6 +71,22 @@ class Opentable
                                 ->strength(EvidenceStrength::DeepLinkWithSlug),
                             self::TLDS,
                         ),
+                        // M-3 (matrix run 2, chinchinrestaurant.com.au live):
+                        // "Reserve" buttons on restaurant websites link
+                        // /booking/restref/availability?...&restRef=<rid> —
+                        // same numeric id space as rid, different key. Without
+                        // this the links fell through the reservations lane
+                        // and CARDED as two identical "www.opentable.com.au"
+                        // custom links next to the already-connected
+                        // opentable.reserve.
+                        array_map(
+                            fn (string $tld) => Detector::url("opentable.{$tld}")
+                                ->query('restRef')
+                                ->captures('restRef')
+                                ->from(IdentifierSource::Query)
+                                ->strength(EvidenceStrength::DeepLinkWithSlug),
+                            self::TLDS,
+                        ),
                     ),
                 )
                 ->build(),

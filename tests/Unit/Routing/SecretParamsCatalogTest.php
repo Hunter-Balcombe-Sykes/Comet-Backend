@@ -29,6 +29,10 @@ it('keeps every catalog query_requires param on the identity allowlist', functio
     expect($catalogParams)->not->toBeEmpty();
 
     foreach ($catalogParams as $param) {
-        expect($identityParams)->toContain($param);
+        // Lowercased, because that is how SecretParams consults the list
+        // (strtolower($key) at the call site) — 'restRef' (M-3) is the first
+        // mixed-case catalog param, and requiring the verbatim casing here
+        // would force a functionally dead duplicate into the constant.
+        expect($identityParams)->toContain(strtolower($param));
     }
 });

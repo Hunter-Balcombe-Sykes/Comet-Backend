@@ -104,8 +104,44 @@ exists.
   GoogleBusinessInstagramReservedSegmentTest cases. Live: stranded row
   healed by re-running the enrich through the new path.
 
+- **M-3** (B2 chinchin live): OpenTable "Reserve" buttons on restaurant
+  websites use /booking/restref/availability?restRef=<rid> — a shape no
+  detector knew, so the links fell out of the reservations lane. Fixed:
+  restRef query detectors on every OpenTable TLD (same id space as rid);
+  'restref' added to SecretParams::IDENTITY_PARAMS (the mechanical-link
+  test now compares lowercased, matching how the redactor consults the
+  list); corpus regenerated (297 detectors round-tripped).
+
+- **M-4** (B2 chinchin live, pre-existing): LinkRouter::seedReservation
+  passed origin 'auto' to recordCapBlock — a value the
+  routing.source_intents origin CHECK has never accepted. On real PG the
+  insert threw 23514, route()'s catch-all answered custom(), and capped
+  reservation links CARDED instead of filing the promised Swap. Invisible
+  to the whole suite because SQLite doesn't enforce PG CHECKs. Fixed to
+  'bio_harvest' (route()'s own origin, same literal the ordering arm
+  passes); pinned by ReservationCapSwapOriginTest which locks the origin
+  to the constraint's allowed set from the test side.
+
+- **M-5** (B2 chinchin live): the first-link-per-platform slot
+  short-circuit carded the SECOND OpenTable link before seedReservation
+  could cap it. Reservations + online-ordering manage their own family
+  slot (incumbent → Swap, idempotent), so those two categories now bypass
+  the seenPlatforms short-circuit. Live round 4: zero OpenTable cards,
+  one coalesced Swap intent, 3 legitimate own-site cards.
+
+- **B2 deliberate notes**: Google Place Details returns NO review texts
+  for Chin Chin (mapped correctly — B1 got 5; upstream data varies per
+  place). gsnwilliams' I2 media=0 is the account's own data (Apify scrape
+  returned 0 posts for chinchinrestaurant; the real Melbourne handle is
+  @chinchin, which the LISTING correctly connected on the business pass).
+
 ### Item status
 
+- I2 chinchinrestaurant (partna): CLEAN — IG ok + site card; 0 media is
+  the account's own data.
+- B2 Chin Chin listing (business): CLEAN round 4 — listing + facebook +
+  opentable + @chinchin IG, menus n/a, 12 media; opentable extras file
+  ONE Swap; 3 own-site cards only.
 - I1 industrybeans (partna): CLEAN round 2 — IG + auto-connected store
   (8 products, 5 pins), 3 titled deep-page cards, 12 media, zero junk.
 - B1 Industry Beans listing (business): CLEAN round 1 except the M-1

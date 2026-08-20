@@ -1208,6 +1208,16 @@ return array (
   ),
   127 => 
   array (
+    'url' => 'https://opentable.ae/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '8ba3a392e622986b',
+  ),
+  128 => 
+  array (
     'url' => 'https://opentable.ae/?rid=100000',
     'expect' => 
     array (
@@ -1216,7 +1226,7 @@ return array (
     ),
     'detector' => 'bc4dbc0aaa7e0936',
   ),
-  128 => 
+  129 => 
   array (
     'url' => 'https://opentable.ae/restaurant/profile/1',
     'expect' => 
@@ -1226,7 +1236,17 @@ return array (
     ),
     'detector' => 'f41ad20a2e9b9d84',
   ),
-  129 => 
+  130 => 
+  array (
+    'url' => 'https://opentable.at/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => 'cd5977093c8d3768',
+  ),
+  131 => 
   array (
     'url' => 'https://opentable.at/?rid=100000',
     'expect' => 
@@ -1236,7 +1256,7 @@ return array (
     ),
     'detector' => '99c3fa11e0ae49b8',
   ),
-  130 => 
+  132 => 
   array (
     'url' => 'https://opentable.at/restaurant/profile/1',
     'expect' => 
@@ -1246,7 +1266,17 @@ return array (
     ),
     'detector' => '17a35e751d44af73',
   ),
-  131 => 
+  133 => 
+  array (
+    'url' => 'https://opentable.ca/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => 'af430b15f77238a2',
+  ),
+  134 => 
   array (
     'url' => 'https://opentable.ca/?rid=100000',
     'expect' => 
@@ -1256,7 +1286,7 @@ return array (
     ),
     'detector' => '1546dc07ab719f25',
   ),
-  132 => 
+  135 => 
   array (
     'url' => 'https://opentable.ca/restaurant/profile/1',
     'expect' => 
@@ -1266,7 +1296,17 @@ return array (
     ),
     'detector' => '5983a48e72449cd3',
   ),
-  133 => 
+  136 => 
+  array (
+    'url' => 'https://opentable.co.th/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '8d1109289710ea27',
+  ),
+  137 => 
   array (
     'url' => 'https://opentable.co.th/?rid=100000',
     'expect' => 
@@ -1276,7 +1316,7 @@ return array (
     ),
     'detector' => 'e1991bead500c8ec',
   ),
-  134 => 
+  138 => 
   array (
     'url' => 'https://opentable.co.th/restaurant/profile/1',
     'expect' => 
@@ -1286,7 +1326,17 @@ return array (
     ),
     'detector' => '3d3e73d705ae78f3',
   ),
-  135 => 
+  139 => 
+  array (
+    'url' => 'https://opentable.co.uk/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '50a20d159e784aec',
+  ),
+  140 => 
   array (
     'url' => 'https://opentable.co.uk/?rid=100000',
     'expect' => 
@@ -1296,7 +1346,7 @@ return array (
     ),
     'detector' => 'c7fabf59c5a481ee',
   ),
-  136 => 
+  141 => 
   array (
     'url' => 'https://opentable.co.uk/restaurant/profile/1',
     'expect' => 
@@ -1306,7 +1356,17 @@ return array (
     ),
     'detector' => 'bebbbbe2c2f6bc99',
   ),
-  137 => 
+  142 => 
+  array (
+    'url' => 'https://opentable.com.au/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '0db07f6e1bc44f87',
+  ),
+  143 => 
   array (
     'url' => 'https://opentable.com.au/?rid=100000',
     'expect' => 
@@ -1316,7 +1376,7 @@ return array (
     ),
     'detector' => '9e785905e6ad67d6',
   ),
-  138 => 
+  144 => 
   array (
     'url' => 'https://opentable.com.au/restaurant/profile/1',
     'expect' => 
@@ -1326,7 +1386,17 @@ return array (
     ),
     'detector' => '3f2a5d74611b25d1',
   ),
-  139 => 
+  145 => 
+  array (
+    'url' => 'https://opentable.com.mx/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '89d5bc6da67eb3c6',
+  ),
+  146 => 
   array (
     'url' => 'https://opentable.com.mx/?rid=100000',
     'expect' => 
@@ -1336,7 +1406,7 @@ return array (
     ),
     'detector' => '0ea9147e0bb3426a',
   ),
-  140 => 
+  147 => 
   array (
     'url' => 'https://opentable.com.mx/restaurant/profile/1',
     'expect' => 
@@ -1346,7 +1416,17 @@ return array (
     ),
     'detector' => '5d74763657eb65c4',
   ),
-  141 => 
+  148 => 
+  array (
+    'url' => 'https://opentable.com/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '9eda6310b42ff63a',
+  ),
+  149 => 
   array (
     'url' => 'https://opentable.com/?rid=100000',
     'expect' => 
@@ -1356,7 +1436,7 @@ return array (
     ),
     'detector' => '4649197e747236e0',
   ),
-  142 => 
+  150 => 
   array (
     'url' => 'https://opentable.com/restaurant/profile/1',
     'expect' => 
@@ -1366,7 +1446,17 @@ return array (
     ),
     'detector' => 'e2b6f3d2721b2f10',
   ),
-  143 => 
+  151 => 
+  array (
+    'url' => 'https://opentable.de/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => 'af02e226ad4ae6df',
+  ),
+  152 => 
   array (
     'url' => 'https://opentable.de/?rid=100000',
     'expect' => 
@@ -1376,7 +1466,7 @@ return array (
     ),
     'detector' => '788fff533be07e90',
   ),
-  144 => 
+  153 => 
   array (
     'url' => 'https://opentable.de/restaurant/profile/1',
     'expect' => 
@@ -1386,7 +1476,17 @@ return array (
     ),
     'detector' => '98525c21146dec16',
   ),
-  145 => 
+  154 => 
+  array (
+    'url' => 'https://opentable.es/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => 'c2d69a6dff5f6425',
+  ),
+  155 => 
   array (
     'url' => 'https://opentable.es/?rid=100000',
     'expect' => 
@@ -1396,7 +1496,7 @@ return array (
     ),
     'detector' => '1f691d33d6f225d3',
   ),
-  146 => 
+  156 => 
   array (
     'url' => 'https://opentable.es/restaurant/profile/1',
     'expect' => 
@@ -1406,7 +1506,17 @@ return array (
     ),
     'detector' => '20e93bbba530d7cd',
   ),
-  147 => 
+  157 => 
+  array (
+    'url' => 'https://opentable.hk/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '7b522cf1dd385dcf',
+  ),
+  158 => 
   array (
     'url' => 'https://opentable.hk/?rid=100000',
     'expect' => 
@@ -1416,7 +1526,7 @@ return array (
     ),
     'detector' => '64aba0369a8ada33',
   ),
-  148 => 
+  159 => 
   array (
     'url' => 'https://opentable.hk/restaurant/profile/1',
     'expect' => 
@@ -1426,7 +1536,17 @@ return array (
     ),
     'detector' => '3a1e7a568d1049bb',
   ),
-  149 => 
+  160 => 
+  array (
+    'url' => 'https://opentable.ie/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => 'eeee30225a3ffe82',
+  ),
+  161 => 
   array (
     'url' => 'https://opentable.ie/?rid=100000',
     'expect' => 
@@ -1436,7 +1556,7 @@ return array (
     ),
     'detector' => '36a8f03ebae019f8',
   ),
-  150 => 
+  162 => 
   array (
     'url' => 'https://opentable.ie/restaurant/profile/1',
     'expect' => 
@@ -1446,7 +1566,17 @@ return array (
     ),
     'detector' => '8b7dd98a090b9c4b',
   ),
-  151 => 
+  163 => 
+  array (
+    'url' => 'https://opentable.it/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '43b45d158368b673',
+  ),
+  164 => 
   array (
     'url' => 'https://opentable.it/?rid=100000',
     'expect' => 
@@ -1456,7 +1586,7 @@ return array (
     ),
     'detector' => '522df576e2748819',
   ),
-  152 => 
+  165 => 
   array (
     'url' => 'https://opentable.it/restaurant/profile/1',
     'expect' => 
@@ -1466,7 +1596,17 @@ return array (
     ),
     'detector' => '7d735502a86617ca',
   ),
-  153 => 
+  166 => 
+  array (
+    'url' => 'https://opentable.jp/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '2fc431ee6b4aed5f',
+  ),
+  167 => 
   array (
     'url' => 'https://opentable.jp/?rid=100000',
     'expect' => 
@@ -1476,7 +1616,7 @@ return array (
     ),
     'detector' => 'c46e110a9bb757e3',
   ),
-  154 => 
+  168 => 
   array (
     'url' => 'https://opentable.jp/restaurant/profile/1',
     'expect' => 
@@ -1486,7 +1626,17 @@ return array (
     ),
     'detector' => 'd29516a29ac31d94',
   ),
-  155 => 
+  169 => 
+  array (
+    'url' => 'https://opentable.nl/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '1d35d37e3a42e0fc',
+  ),
+  170 => 
   array (
     'url' => 'https://opentable.nl/?rid=100000',
     'expect' => 
@@ -1496,7 +1646,7 @@ return array (
     ),
     'detector' => 'cb7c545a50553588',
   ),
-  156 => 
+  171 => 
   array (
     'url' => 'https://opentable.nl/restaurant/profile/1',
     'expect' => 
@@ -1506,7 +1656,17 @@ return array (
     ),
     'detector' => '1f520e3af1ef3b6d',
   ),
-  157 => 
+  172 => 
+  array (
+    'url' => 'https://opentable.sg/?restRef=100000',
+    'expect' => 
+    array (
+      'surface' => 'opentable.reserve',
+      'identifier' => '100000',
+    ),
+    'detector' => '026b2ec99da6dc0f',
+  ),
+  173 => 
   array (
     'url' => 'https://opentable.sg/?rid=100000',
     'expect' => 
@@ -1516,7 +1676,7 @@ return array (
     ),
     'detector' => '856f2c7a9f02e9e9',
   ),
-  158 => 
+  174 => 
   array (
     'url' => 'https://opentable.sg/restaurant/profile/1',
     'expect' => 
@@ -1526,7 +1686,7 @@ return array (
     ),
     'detector' => '61dc018682c89305',
   ),
-  159 => 
+  175 => 
   array (
     'url' => 'https://order.online/',
     'expect' => 
@@ -1535,7 +1695,7 @@ return array (
     ),
     'detector' => '8f1d87a21601969d',
   ),
-  160 => 
+  176 => 
   array (
     'url' => 'https://ordermate.online/',
     'expect' => 
@@ -1544,7 +1704,7 @@ return array (
     ),
     'detector' => '0b4d0eb6272930ac',
   ),
-  161 => 
+  177 => 
   array (
     'url' => 'https://ovatu.com/',
     'expect' => 
@@ -1553,7 +1713,7 @@ return array (
     ),
     'detector' => '55f20100ac6643e3',
   ),
-  162 => 
+  178 => 
   array (
     'url' => 'https://oztix.com.au/',
     'expect' => 
@@ -1562,7 +1722,7 @@ return array (
     ),
     'detector' => '716b33f6e22319d8',
   ),
-  163 => 
+  179 => 
   array (
     'url' => 'https://partiful.com/u/aaa',
     'expect' => 
@@ -1572,7 +1732,7 @@ return array (
     ),
     'detector' => 'addba2bc7a4fd21c',
   ),
-  164 => 
+  180 => 
   array (
     'url' => 'https://patreon.com/',
     'expect' => 
@@ -1581,7 +1741,7 @@ return array (
     ),
     'detector' => 'ac9bc8854053d831',
   ),
-  165 => 
+  181 => 
   array (
     'url' => 'https://patreon.com/aa',
     'expect' => 
@@ -1591,7 +1751,7 @@ return array (
     ),
     'detector' => '7260c9bcc514597b',
   ),
-  166 => 
+  182 => 
   array (
     'url' => 'https://phorest.com/',
     'expect' => 
@@ -1600,7 +1760,7 @@ return array (
     ),
     'detector' => '9368ab289001f37b',
   ),
-  167 => 
+  183 => 
   array (
     'url' => 'https://podcasts.apple.com/podcast/id1',
     'expect' => 
@@ -1610,7 +1770,7 @@ return array (
     ),
     'detector' => '649cd477e1185e84',
   ),
-  168 => 
+  184 => 
   array (
     'url' => 'https://quandoo.at/',
     'expect' => 
@@ -1619,7 +1779,7 @@ return array (
     ),
     'detector' => 'ba97caaff5f8e45c',
   ),
-  169 => 
+  185 => 
   array (
     'url' => 'https://quandoo.ch/',
     'expect' => 
@@ -1628,7 +1788,7 @@ return array (
     ),
     'detector' => '3b1be6a8182b8039',
   ),
-  170 => 
+  186 => 
   array (
     'url' => 'https://quandoo.co.uk/',
     'expect' => 
@@ -1637,7 +1797,7 @@ return array (
     ),
     'detector' => 'dab1fbfb8661067d',
   ),
-  171 => 
+  187 => 
   array (
     'url' => 'https://quandoo.com.au/',
     'expect' => 
@@ -1646,7 +1806,7 @@ return array (
     ),
     'detector' => '693412fc531e6da3',
   ),
-  172 => 
+  188 => 
   array (
     'url' => 'https://quandoo.com/',
     'expect' => 
@@ -1655,7 +1815,7 @@ return array (
     ),
     'detector' => 'ee929d5600771559',
   ),
-  173 => 
+  189 => 
   array (
     'url' => 'https://quandoo.de/',
     'expect' => 
@@ -1664,7 +1824,7 @@ return array (
     ),
     'detector' => '4cf12025413842a5',
   ),
-  174 => 
+  190 => 
   array (
     'url' => 'https://quandoo.fi/',
     'expect' => 
@@ -1673,7 +1833,7 @@ return array (
     ),
     'detector' => '001fd6d5b07a7d87',
   ),
-  175 => 
+  191 => 
   array (
     'url' => 'https://quandoo.hk/',
     'expect' => 
@@ -1682,7 +1842,7 @@ return array (
     ),
     'detector' => 'b5c3ec57575b3b7f',
   ),
-  176 => 
+  192 => 
   array (
     'url' => 'https://quandoo.it/',
     'expect' => 
@@ -1691,7 +1851,7 @@ return array (
     ),
     'detector' => 'ebd07ebefcfb971a',
   ),
-  177 => 
+  193 => 
   array (
     'url' => 'https://quandoo.nl/',
     'expect' => 
@@ -1700,7 +1860,7 @@ return array (
     ),
     'detector' => '105bc0d306d1a903',
   ),
-  178 => 
+  194 => 
   array (
     'url' => 'https://quandoo.sg/',
     'expect' => 
@@ -1709,7 +1869,7 @@ return array (
     ),
     'detector' => '619e127fd887977a',
   ),
-  179 => 
+  195 => 
   array (
     'url' => 'https://ra.co/',
     'expect' => 
@@ -1718,7 +1878,7 @@ return array (
     ),
     'detector' => '444ffe8a0fa8709f',
   ),
-  180 => 
+  196 => 
   array (
     'url' => 'https://reddit.com/u/aa',
     'expect' => 
@@ -1728,7 +1888,7 @@ return array (
     ),
     'detector' => '054ffe1abb69e6bb',
   ),
-  181 => 
+  197 => 
   array (
     'url' => 'https://resdiary.com/restaurant/aaa',
     'expect' => 
@@ -1738,7 +1898,7 @@ return array (
     ),
     'detector' => '2bd2087df3ff123a',
   ),
-  182 => 
+  198 => 
   array (
     'url' => 'https://resdiary.com/widget/aaa/aaa',
     'expect' => 
@@ -1748,7 +1908,7 @@ return array (
     ),
     'detector' => '2e4b33528297c23b',
   ),
-  183 => 
+  199 => 
   array (
     'url' => 'https://resy.com/',
     'expect' => 
@@ -1757,7 +1917,7 @@ return array (
     ),
     'detector' => 'e13599cb38227ab7',
   ),
-  184 => 
+  200 => 
   array (
     'url' => 'https://schedulicity.com/',
     'expect' => 
@@ -1766,7 +1926,7 @@ return array (
     ),
     'detector' => '3db2848fdbc3f084',
   ),
-  185 => 
+  201 => 
   array (
     'url' => 'https://sevenrooms.com/',
     'expect' => 
@@ -1775,7 +1935,7 @@ return array (
     ),
     'detector' => 'c245e4096dc619cf',
   ),
-  186 => 
+  202 => 
   array (
     'url' => 'https://shortcuts.com.au/',
     'expect' => 
@@ -1784,7 +1944,7 @@ return array (
     ),
     'detector' => '6928abc0782f6312',
   ),
-  187 => 
+  203 => 
   array (
     'url' => 'https://shortcuts.net/',
     'expect' => 
@@ -1793,7 +1953,7 @@ return array (
     ),
     'detector' => 'f2a80713a0c31316',
   ),
-  188 => 
+  204 => 
   array (
     'url' => 'https://skipthedishes.com/',
     'expect' => 
@@ -1802,7 +1962,7 @@ return array (
     ),
     'detector' => 'fcd0cb4f31067acd',
   ),
-  189 => 
+  205 => 
   array (
     'url' => 'https://slicelife.com/',
     'expect' => 
@@ -1811,7 +1971,7 @@ return array (
     ),
     'detector' => '513fb3089dbc9112',
   ),
-  190 => 
+  206 => 
   array (
     'url' => 'https://snapchat.com/add/aaa',
     'expect' => 
@@ -1821,7 +1981,7 @@ return array (
     ),
     'detector' => '9cf65cb83dba2bf1',
   ),
-  191 => 
+  207 => 
   array (
     'url' => 'https://soundcloud.com/aaa',
     'expect' => 
@@ -1831,7 +1991,7 @@ return array (
     ),
     'detector' => '5d1faaba140ed77a',
   ),
-  192 => 
+  208 => 
   array (
     'url' => 'https://squarespace.com/',
     'expect' => 
@@ -1840,7 +2000,7 @@ return array (
     ),
     'detector' => 'c0e240afa37ec5e0',
   ),
-  193 => 
+  209 => 
   array (
     'url' => 'https://squareup.com/',
     'expect' => 
@@ -1849,7 +2009,7 @@ return array (
     ),
     'detector' => '8991ee8ff4aeb1d5',
   ),
-  194 => 
+  210 => 
   array (
     'url' => 'https://stan.store/aa',
     'expect' => 
@@ -1859,7 +2019,7 @@ return array (
     ),
     'detector' => '5d0175832e04f6d8',
   ),
-  195 => 
+  211 => 
   array (
     'url' => 'https://strava.com/clubs/aaa',
     'expect' => 
@@ -1869,7 +2029,7 @@ return array (
     ),
     'detector' => '448fb3d7693c9029',
   ),
-  196 => 
+  212 => 
   array (
     'url' => 'https://substack.com/',
     'expect' => 
@@ -1878,7 +2038,7 @@ return array (
     ),
     'detector' => 'fc489321f37fbb1a',
   ),
-  197 => 
+  213 => 
   array (
     'url' => 'https://tablecheck.com/',
     'expect' => 
@@ -1887,7 +2047,7 @@ return array (
     ),
     'detector' => 'f13c8e2e611a42da',
   ),
-  198 => 
+  214 => 
   array (
     'url' => 'https://tablein.com/',
     'expect' => 
@@ -1896,7 +2056,7 @@ return array (
     ),
     'detector' => '4380291f0d1de922',
   ),
-  199 => 
+  215 => 
   array (
     'url' => 'https://telegram.me/aaaaa',
     'expect' => 
@@ -1906,7 +2066,7 @@ return array (
     ),
     'detector' => 'ff54ee98bd6fda4a',
   ),
-  200 => 
+  216 => 
   array (
     'url' => 'https://telegram.org/aaaaa',
     'expect' => 
@@ -1916,7 +2076,7 @@ return array (
     ),
     'detector' => 'e2bab5851bb13bf4',
   ),
-  201 => 
+  217 => 
   array (
     'url' => 'https://thefork.at/',
     'expect' => 
@@ -1925,7 +2085,7 @@ return array (
     ),
     'detector' => 'e24ebf8d39eee599',
   ),
-  202 => 
+  218 => 
   array (
     'url' => 'https://thefork.be/',
     'expect' => 
@@ -1934,7 +2094,7 @@ return array (
     ),
     'detector' => 'dcf2e811ea0b7666',
   ),
-  203 => 
+  219 => 
   array (
     'url' => 'https://thefork.ch/',
     'expect' => 
@@ -1943,7 +2103,7 @@ return array (
     ),
     'detector' => 'a287757eb0d497f9',
   ),
-  204 => 
+  220 => 
   array (
     'url' => 'https://thefork.cl/',
     'expect' => 
@@ -1952,7 +2112,7 @@ return array (
     ),
     'detector' => 'b18d73ebf7b7ef3f',
   ),
-  205 => 
+  221 => 
   array (
     'url' => 'https://thefork.co.uk/',
     'expect' => 
@@ -1961,7 +2121,7 @@ return array (
     ),
     'detector' => 'b4998c27bfc88e1a',
   ),
-  206 => 
+  222 => 
   array (
     'url' => 'https://thefork.com.ar/',
     'expect' => 
@@ -1970,7 +2130,7 @@ return array (
     ),
     'detector' => '0cf61c1e9973c404',
   ),
-  207 => 
+  223 => 
   array (
     'url' => 'https://thefork.com.au/',
     'expect' => 
@@ -1979,7 +2139,7 @@ return array (
     ),
     'detector' => '327caa46025b76fe',
   ),
-  208 => 
+  224 => 
   array (
     'url' => 'https://thefork.com.br/',
     'expect' => 
@@ -1988,7 +2148,7 @@ return array (
     ),
     'detector' => '58da97b5234b4906',
   ),
-  209 => 
+  225 => 
   array (
     'url' => 'https://thefork.com/',
     'expect' => 
@@ -1997,7 +2157,7 @@ return array (
     ),
     'detector' => 'b4d6fceb9afc8ced',
   ),
-  210 => 
+  226 => 
   array (
     'url' => 'https://thefork.de/',
     'expect' => 
@@ -2006,7 +2166,7 @@ return array (
     ),
     'detector' => '3b7376435d930976',
   ),
-  211 => 
+  227 => 
   array (
     'url' => 'https://thefork.dk/',
     'expect' => 
@@ -2015,7 +2175,7 @@ return array (
     ),
     'detector' => '6f0a93fa69e23359',
   ),
-  212 => 
+  228 => 
   array (
     'url' => 'https://thefork.es/',
     'expect' => 
@@ -2024,7 +2184,7 @@ return array (
     ),
     'detector' => '96c44cd3954ecf5e',
   ),
-  213 => 
+  229 => 
   array (
     'url' => 'https://thefork.fr/',
     'expect' => 
@@ -2033,7 +2193,7 @@ return array (
     ),
     'detector' => '3f94296aa7196a6d',
   ),
-  214 => 
+  230 => 
   array (
     'url' => 'https://thefork.it/',
     'expect' => 
@@ -2042,7 +2202,7 @@ return array (
     ),
     'detector' => 'e7c42ef121fc3634',
   ),
-  215 => 
+  231 => 
   array (
     'url' => 'https://thefork.nl/',
     'expect' => 
@@ -2051,7 +2211,7 @@ return array (
     ),
     'detector' => 'a9e60004fa6971fc',
   ),
-  216 => 
+  232 => 
   array (
     'url' => 'https://thefork.pt/',
     'expect' => 
@@ -2060,7 +2220,7 @@ return array (
     ),
     'detector' => '84c07ad427eef038',
   ),
-  217 => 
+  233 => 
   array (
     'url' => 'https://thefork.se/',
     'expect' => 
@@ -2069,7 +2229,7 @@ return array (
     ),
     'detector' => '08bfdf186659a603',
   ),
-  218 => 
+  234 => 
   array (
     'url' => 'https://threads.com/a',
     'expect' => 
@@ -2079,7 +2239,7 @@ return array (
     ),
     'detector' => '830dc3cb0c059fdb',
   ),
-  219 => 
+  235 => 
   array (
     'url' => 'https://threads.net/a',
     'expect' => 
@@ -2089,7 +2249,7 @@ return array (
     ),
     'detector' => 'a77924a4fbb8be6c',
   ),
-  220 => 
+  236 => 
   array (
     'url' => 'https://ticketek.co.nz/',
     'expect' => 
@@ -2098,7 +2258,7 @@ return array (
     ),
     'detector' => '626cc44bd4c8910e',
   ),
-  221 => 
+  237 => 
   array (
     'url' => 'https://ticketek.com.ar/',
     'expect' => 
@@ -2107,7 +2267,7 @@ return array (
     ),
     'detector' => '9951594e05c2f2e2',
   ),
-  222 => 
+  238 => 
   array (
     'url' => 'https://ticketek.com.au/',
     'expect' => 
@@ -2116,7 +2276,7 @@ return array (
     ),
     'detector' => '92cd60a128909592',
   ),
-  223 => 
+  239 => 
   array (
     'url' => 'https://ticketek.com/',
     'expect' => 
@@ -2125,7 +2285,7 @@ return array (
     ),
     'detector' => 'a3c230b1da461743',
   ),
-  224 => 
+  240 => 
   array (
     'url' => 'https://ticketmaster.ae/',
     'expect' => 
@@ -2134,7 +2294,7 @@ return array (
     ),
     'detector' => '03e13970e9d4a4fd',
   ),
-  225 => 
+  241 => 
   array (
     'url' => 'https://ticketmaster.at/',
     'expect' => 
@@ -2143,7 +2303,7 @@ return array (
     ),
     'detector' => 'fcc6469808eb7e0b',
   ),
-  226 => 
+  242 => 
   array (
     'url' => 'https://ticketmaster.be/',
     'expect' => 
@@ -2152,7 +2312,7 @@ return array (
     ),
     'detector' => 'bd90664c1684fd37',
   ),
-  227 => 
+  243 => 
   array (
     'url' => 'https://ticketmaster.ca/',
     'expect' => 
@@ -2161,7 +2321,7 @@ return array (
     ),
     'detector' => '412647742deef43c',
   ),
-  228 => 
+  244 => 
   array (
     'url' => 'https://ticketmaster.ch/',
     'expect' => 
@@ -2170,7 +2330,7 @@ return array (
     ),
     'detector' => '62f87001cd0db810',
   ),
-  229 => 
+  245 => 
   array (
     'url' => 'https://ticketmaster.co.nz/',
     'expect' => 
@@ -2179,7 +2339,7 @@ return array (
     ),
     'detector' => 'bd1326b884503e84',
   ),
-  230 => 
+  246 => 
   array (
     'url' => 'https://ticketmaster.co.uk/',
     'expect' => 
@@ -2188,7 +2348,7 @@ return array (
     ),
     'detector' => '5628190b2b39ae20',
   ),
-  231 => 
+  247 => 
   array (
     'url' => 'https://ticketmaster.com.au/',
     'expect' => 
@@ -2197,7 +2357,7 @@ return array (
     ),
     'detector' => '96c8399173bf8591',
   ),
-  232 => 
+  248 => 
   array (
     'url' => 'https://ticketmaster.com.mx/',
     'expect' => 
@@ -2206,7 +2366,7 @@ return array (
     ),
     'detector' => 'a5a39eebf99a97cc',
   ),
-  233 => 
+  249 => 
   array (
     'url' => 'https://ticketmaster.com/',
     'expect' => 
@@ -2215,7 +2375,7 @@ return array (
     ),
     'detector' => '3b513fc413e7a1eb',
   ),
-  234 => 
+  250 => 
   array (
     'url' => 'https://ticketmaster.de/',
     'expect' => 
@@ -2224,7 +2384,7 @@ return array (
     ),
     'detector' => '3b0a5d7663d86645',
   ),
-  235 => 
+  251 => 
   array (
     'url' => 'https://ticketmaster.dk/',
     'expect' => 
@@ -2233,7 +2393,7 @@ return array (
     ),
     'detector' => '81083c506d58907c',
   ),
-  236 => 
+  252 => 
   array (
     'url' => 'https://ticketmaster.es/',
     'expect' => 
@@ -2242,7 +2402,7 @@ return array (
     ),
     'detector' => 'c15db8b10abf7808',
   ),
-  237 => 
+  253 => 
   array (
     'url' => 'https://ticketmaster.fi/',
     'expect' => 
@@ -2251,7 +2411,7 @@ return array (
     ),
     'detector' => '3191e76b32cb8199',
   ),
-  238 => 
+  254 => 
   array (
     'url' => 'https://ticketmaster.fr/',
     'expect' => 
@@ -2260,7 +2420,7 @@ return array (
     ),
     'detector' => 'e2d530e723471d22',
   ),
-  239 => 
+  255 => 
   array (
     'url' => 'https://ticketmaster.ie/',
     'expect' => 
@@ -2269,7 +2429,7 @@ return array (
     ),
     'detector' => '2ca19a6fcf7ee0bd',
   ),
-  240 => 
+  256 => 
   array (
     'url' => 'https://ticketmaster.it/',
     'expect' => 
@@ -2278,7 +2438,7 @@ return array (
     ),
     'detector' => '9ef542107027b1d6',
   ),
-  241 => 
+  257 => 
   array (
     'url' => 'https://ticketmaster.nl/',
     'expect' => 
@@ -2287,7 +2447,7 @@ return array (
     ),
     'detector' => '53a1781e408e16a8',
   ),
-  242 => 
+  258 => 
   array (
     'url' => 'https://ticketmaster.no/',
     'expect' => 
@@ -2296,7 +2456,7 @@ return array (
     ),
     'detector' => 'ca514879bf136562',
   ),
-  243 => 
+  259 => 
   array (
     'url' => 'https://ticketmaster.se/',
     'expect' => 
@@ -2305,7 +2465,7 @@ return array (
     ),
     'detector' => '83a0ad68f5949589',
   ),
-  244 => 
+  260 => 
   array (
     'url' => 'https://ticketmaster.sg/',
     'expect' => 
@@ -2314,7 +2474,7 @@ return array (
     ),
     'detector' => 'b2ee6b797f5e7dee',
   ),
-  245 => 
+  261 => 
   array (
     'url' => 'https://tidal.com/',
     'expect' => 
@@ -2323,7 +2483,7 @@ return array (
     ),
     'detector' => '8e776b101d9c4d50',
   ),
-  246 => 
+  262 => 
   array (
     'url' => 'https://tidal.com/artist/1',
     'expect' => 
@@ -2333,7 +2493,7 @@ return array (
     ),
     'detector' => 'fb9f96042bd085e2',
   ),
-  247 => 
+  263 => 
   array (
     'url' => 'https://tiktok.com/@aaa',
     'expect' => 
@@ -2343,7 +2503,7 @@ return array (
     ),
     'detector' => 'c5c2cd31010b8491',
   ),
-  248 => 
+  264 => 
   array (
     'url' => 'https://toasttab.com/',
     'expect' => 
@@ -2352,7 +2512,7 @@ return array (
     ),
     'detector' => '3464b536382abf14',
   ),
-  249 => 
+  265 => 
   array (
     'url' => 'https://tock.com/',
     'expect' => 
@@ -2361,7 +2521,7 @@ return array (
     ),
     'detector' => '167a703875b8fb8e',
   ),
-  250 => 
+  266 => 
   array (
     'url' => 'https://treatwell.at/',
     'expect' => 
@@ -2370,7 +2530,7 @@ return array (
     ),
     'detector' => 'abf318864eb6e6b5',
   ),
-  251 => 
+  267 => 
   array (
     'url' => 'https://treatwell.be/',
     'expect' => 
@@ -2379,7 +2539,7 @@ return array (
     ),
     'detector' => '3c33da75f4370ff5',
   ),
-  252 => 
+  268 => 
   array (
     'url' => 'https://treatwell.ch/',
     'expect' => 
@@ -2388,7 +2548,7 @@ return array (
     ),
     'detector' => '6db3db35bb01858e',
   ),
-  253 => 
+  269 => 
   array (
     'url' => 'https://treatwell.co.uk/',
     'expect' => 
@@ -2397,7 +2557,7 @@ return array (
     ),
     'detector' => 'bbaf7149016c541b',
   ),
-  254 => 
+  270 => 
   array (
     'url' => 'https://treatwell.com/',
     'expect' => 
@@ -2406,7 +2566,7 @@ return array (
     ),
     'detector' => 'de05b67e56298062',
   ),
-  255 => 
+  271 => 
   array (
     'url' => 'https://treatwell.de/',
     'expect' => 
@@ -2415,7 +2575,7 @@ return array (
     ),
     'detector' => '6453336f16818f92',
   ),
-  256 => 
+  272 => 
   array (
     'url' => 'https://treatwell.es/',
     'expect' => 
@@ -2424,7 +2584,7 @@ return array (
     ),
     'detector' => 'fb008a3f0168750c',
   ),
-  257 => 
+  273 => 
   array (
     'url' => 'https://treatwell.fr/',
     'expect' => 
@@ -2433,7 +2593,7 @@ return array (
     ),
     'detector' => '11490093c19dc659',
   ),
-  258 => 
+  274 => 
   array (
     'url' => 'https://treatwell.gr/',
     'expect' => 
@@ -2442,7 +2602,7 @@ return array (
     ),
     'detector' => 'e71d2c42fb86275b',
   ),
-  259 => 
+  275 => 
   array (
     'url' => 'https://treatwell.ie/',
     'expect' => 
@@ -2451,7 +2611,7 @@ return array (
     ),
     'detector' => 'bae964a08c1b5495',
   ),
-  260 => 
+  276 => 
   array (
     'url' => 'https://treatwell.it/',
     'expect' => 
@@ -2460,7 +2620,7 @@ return array (
     ),
     'detector' => 'a0dfa44eefda36a0',
   ),
-  261 => 
+  277 => 
   array (
     'url' => 'https://treatwell.lt/',
     'expect' => 
@@ -2469,7 +2629,7 @@ return array (
     ),
     'detector' => 'dfa5c11f2f4debd8',
   ),
-  262 => 
+  278 => 
   array (
     'url' => 'https://treatwell.lv/',
     'expect' => 
@@ -2478,7 +2638,7 @@ return array (
     ),
     'detector' => '931267e6e391e7b2',
   ),
-  263 => 
+  279 => 
   array (
     'url' => 'https://treatwell.nl/',
     'expect' => 
@@ -2487,7 +2647,7 @@ return array (
     ),
     'detector' => 'd9e4b09d897e157f',
   ),
-  264 => 
+  280 => 
   array (
     'url' => 'https://treatwell.pt/',
     'expect' => 
@@ -2496,7 +2656,7 @@ return array (
     ),
     'detector' => '60db16cba91b91ed',
   ),
-  265 => 
+  281 => 
   array (
     'url' => 'https://trybooking.com/',
     'expect' => 
@@ -2505,7 +2665,7 @@ return array (
     ),
     'detector' => '5532909197f3730e',
   ),
-  266 => 
+  282 => 
   array (
     'url' => 'https://twitch.tv/aaa',
     'expect' => 
@@ -2515,7 +2675,7 @@ return array (
     ),
     'detector' => '08e97f225b18c135',
   ),
-  267 => 
+  283 => 
   array (
     'url' => 'https://twitter.com/a',
     'expect' => 
@@ -2525,7 +2685,7 @@ return array (
     ),
     'detector' => '43031574af12a099',
   ),
-  268 => 
+  284 => 
   array (
     'url' => 'https://ubereats.com/store/aaa/aaa',
     'expect' => 
@@ -2535,7 +2695,7 @@ return array (
     ),
     'detector' => '354622fd7070cb07',
   ),
-  269 => 
+  285 => 
   array (
     'url' => 'https://vagaro.com/',
     'expect' => 
@@ -2544,7 +2704,7 @@ return array (
     ),
     'detector' => '51ca906a893af263',
   ),
-  270 => 
+  286 => 
   array (
     'url' => 'https://vimeo.com/aaa',
     'expect' => 
@@ -2554,7 +2714,7 @@ return array (
     ),
     'detector' => 'e7a3b337a1e70739',
   ),
-  271 => 
+  287 => 
   array (
     'url' => 'https://vimeo.com/channels/aaa',
     'expect' => 
@@ -2564,7 +2724,7 @@ return array (
     ),
     'detector' => '9fe8a0d71f1d37a9',
   ),
-  272 => 
+  288 => 
   array (
     'url' => 'https://whatsapp.com/send',
     'expect' => 
@@ -2573,7 +2733,7 @@ return array (
     ),
     'detector' => 'aa4800576662c4e0',
   ),
-  273 => 
+  289 => 
   array (
     'url' => 'https://wolt.com/',
     'expect' => 
@@ -2582,7 +2742,7 @@ return array (
     ),
     'detector' => 'f1da696a34a98b37',
   ),
-  274 => 
+  290 => 
   array (
     'url' => 'https://woocommerce.com/',
     'expect' => 
@@ -2591,7 +2751,7 @@ return array (
     ),
     'detector' => '0bd78d1535c79d4e',
   ),
-  275 => 
+  291 => 
   array (
     'url' => 'https://x.com/a',
     'expect' => 
@@ -2601,7 +2761,7 @@ return array (
     ),
     'detector' => 'ba4979282ceaf778',
   ),
-  276 => 
+  292 => 
   array (
     'url' => 'https://youtube.com/@aaa',
     'expect' => 
@@ -2611,7 +2771,7 @@ return array (
     ),
     'detector' => '131c12f7a0f5d323',
   ),
-  277 => 
+  293 => 
   array (
     'url' => 'https://youtube.com/c/aaa',
     'expect' => 
@@ -2621,7 +2781,7 @@ return array (
     ),
     'detector' => 'ed7d45efd0854383',
   ),
-  278 => 
+  294 => 
   array (
     'url' => 'https://youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa',
     'expect' => 
@@ -2631,7 +2791,7 @@ return array (
     ),
     'detector' => '67c7aec08a3650d4',
   ),
-  279 => 
+  295 => 
   array (
     'url' => 'https://zenoti.com/',
     'expect' => 
@@ -2640,7 +2800,7 @@ return array (
     ),
     'detector' => 'ea00b095d01f2467',
   ),
-  280 => 
+  296 => 
   array (
     'url' => 'https://zomato.com/',
     'expect' => 

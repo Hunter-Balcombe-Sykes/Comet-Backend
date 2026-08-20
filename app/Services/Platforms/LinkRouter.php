@@ -105,7 +105,15 @@ class LinkRouter
         // the critic reproduced the asymmetry: an artist link consuming the
         // slot degraded the SAME bio's track link to a card, order-dependent).
         $itemCategory = $category === 'event' || $category === 'content-item';
-        if (! $itemCategory && isset($ctx->seenPlatforms[$platform])) {
+        // M-5 (matrix run 2, chinchin live): reservations and ordering manage
+        // their own family slot INSIDE their seeders (incumbent check →
+        // recordCapBlock Swap, idempotent per identifier) — short-circuiting
+        // them here turned the SECOND OpenTable link on a restaurant's own
+        // website (two venues, or just footer + button) into a junk card the
+        // seeder never got to cap. Socials/booking/shop keep the short-circuit:
+        // their seeders assume the slot check happened.
+        $slotSelfManaged = $category === 'reservations' || $category === 'online-ordering';
+        if (! $itemCategory && ! $slotSelfManaged && isset($ctx->seenPlatforms[$platform])) {
             return RouteResult::custom();
         }
 
@@ -433,6 +441,14 @@ class LinkRouter
             ));
 
         if ($incumbent !== null) {
+            // M-4 (matrix run 2, chinchin live): this passed origin 'auto',
+            // which routing.source_intents' origin CHECK constraint has never
+            // accepted — the insert threw 23514, route()'s catch-all turned
+            // the answer into custom(), and the two extra OpenTable links on
+            // the business's own website CARDED instead of filing the Swap
+            // this arm promises. Invisible to the suite because SQLite doesn't
+            // enforce the PG CHECK. 'bio_harvest' is route()'s own origin —
+            // the same literal the ordering arm below already passes.
             app(SourceReconciler::class)->recordCapBlock(
                 $user,
                 LegacyPlatformMap::surfaceFor($platform) ?? $platform,
@@ -440,7 +456,7 @@ class LinkRouter
                 $this->brandResourceId($platform),
                 $url,
                 (string) $incumbent->id,
-                'auto',
+                'bio_harvest',
             );
 
             return RouteResult::custom(handled: true);
