@@ -537,7 +537,16 @@ gsnwilliams via the real dev API flow — reproduction BEFORE fixes):**
       connection AND a junk card). Final: IG + square.book connected from
       tough-luck-barbershop.square.site, no card. @toughluckbarbershop
       mention: deliberate non-capture (T2 rule).
-- [ ] T7 — Instagram block: onefour_official
+- [x] T7 — onefour_official: clean. IG connected; onefour.world (band
+      site) → titled link card + store probe (no store there — correct);
+      onefour.store (ROOT link) → shopify.store AUTO-connected (FI-10's
+      root rule), full catalogue imported, and ShopInitialFillJob
+      (timeout 75→240 after two live timeout kills between fill and
+      select) auto-selected EXACTLY 5 newest products — T1 verified
+      end-to-end in the real scan lane. Deliberate boundary, recorded:
+      a bio link to your own WEBSITE cards the site + asks the store
+      question; harvesting that site's inner social links is the
+      previous-website onboarding lane, not the bio scan.
 - [x] T8 — Instagram block: sammy.pdf (the T1.5g loop — clean-run verified 4x on fresh resets)
 - [ ] T9 — Google Business block: all 7 workplaces on user-kvjm7i
 - [ ] T10 — backstop: full backend suite green, dashboard typecheck/lint
@@ -614,3 +623,9 @@ whose name doesn't contain the phrase.
   second pass hit Engine 2's seenPlatforms slot and carded the page whose
   square.book connection had just been made. Fixed: InstagramAutoSync
   dedupes bio links by scheme/www/slash-insensitive form before routing.
+
+- **L-6** (T5/T7 live): a worker kill between a product's facet write and
+  its headline_cache write leaves a briefly title-less item (non-atomic
+  pair in the projection writer); the next sync's upsert self-heals it —
+  verified live on onefour.store. Low priority; noted for a future
+  transactional tidy.

@@ -37,9 +37,13 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
     /** @var list<int> Seconds. */
     public array $backoff = [10];
 
-    // Same ceiling reasoning as ShopBrandConnectJob: must exceed the connect
-    // fetch budget with headroom.
-    public int $timeout = 75;
+    // NOT ShopBrandConnectJob's 75s: that ceiling covers ONE profile fetch,
+    // while this job does the whole catalogue fill (N product upserts) plus
+    // the auto-select. Measured live (T5/T7, 2026-08-20): a 7-product fill
+    // against a remote DB ran ~70-80s and the 75s ceiling killed the worker
+    // between fill and select — the once-only select then waited for the 6h
+    // ShopFetch late hook instead of firing at connect time.
+    public int $timeout = 240;
 
     public int $uniqueFor = 120;
 
