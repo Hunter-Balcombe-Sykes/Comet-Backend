@@ -1678,6 +1678,14 @@ return [
         // a budget — the overwhelming majority — are unaffected.
         'connect_budget_seconds' => (int) env('PARTNA_CONNECT_BUDGET_SECONDS', 45),
 
+        // Wall-clock budget for ONE /routing/preview call (FI-3, 2026-08-20).
+        // Tighter than connect_budget_seconds on purpose: the preview fires on
+        // every keystroke pause and its only I/O is the short-link expander's
+        // capped fetch — a miss degrades to the unexpanded answer, and the
+        // paste's route() re-tries under the full connect budget (cached, so
+        // usually free).
+        'preview_budget_seconds' => (int) env('PARTNA_PREVIEW_BUDGET_SECONDS', 8),
+
         // Wall-clock budget (seconds) for one PlatformRefresher::refresh() call —
         // the cron/manual-refresh mirror of connect_budget_seconds above. Must stay
         // meaningfully below RefreshConnectionJob's 120s $timeout, leaving headroom

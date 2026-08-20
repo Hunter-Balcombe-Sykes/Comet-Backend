@@ -38,6 +38,7 @@ class LinkRouter
         private readonly WebsiteLinkHarvester $harvester,
         private readonly EventsSeeder $events,
         private readonly MediaSeeder $media,
+        private readonly ShortLinkExpander $expander,
     ) {}
 
     /**
@@ -51,7 +52,7 @@ class LinkRouter
         // expansion as LinkRoutingService — a bio's on.soundcloud.com /
         // spotify.link short URL classifies as its real destination, not as
         // an opaque code that falls to a card.
-        $url = app(ShortLinkExpander::class)->expandIfShort($url);
+        $url = $this->expander->expandIfShort($url);
 
         $key = $this->reentrancyKey($user, $url);
         if (isset(self::$routing[$key])) {
