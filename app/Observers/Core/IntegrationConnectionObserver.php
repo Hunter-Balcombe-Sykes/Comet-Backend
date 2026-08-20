@@ -10,6 +10,7 @@ use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Models\Core\Site\Workplace;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -234,6 +235,52 @@ class IntegrationConnectionObserver
 
         $this->cleanupMirroredMedia($connection);
         $this->syncIngestSource($connection);
+        $this->clearListingSourcedWorkplaceFields($connection);
+    }
+
+    /**
+     * FI-15 (T9 live, 2026-08-20): disconnecting the Google Business listing
+     * takes its MACHINE-sourced workplace card fields with it. Verified live:
+     * after seven listing swaps on the business test account, the ST. ALi
+     * workplace still carried Kings Domain's description ("Superior Cuts,
+     * Fit for a King.", source website-scan) — seedWorkplace() fills
+     * only-when-blank and nothing ever cleared the OLD listing's values, so
+     * every later listing inherited them. Scoped to fields whose recorded
+     * field_sources entry names a machine source; a user-typed value carries
+     * no such stamp and is never touched. Best-effort, same rule as every
+     * other cleanup in this hook.
+     */
+    private function clearListingSourcedWorkplaceFields(IntegrationConnection $connection): void
+    {
+        if ($connection->surface_key !== 'google_business.listing') {
+            return;
+        }
+
+        try {
+            $site = Site::query()->where('user_id', $connection->user_id)->first();
+            $workplace = $site === null ? null : Workplace::query()->where('site_id', (string) $site->id)->first();
+            if ($workplace === null) {
+                return;
+            }
+
+            $sources = is_array($workplace->field_sources) ? $workplace->field_sources : [];
+            $changed = false;
+            foreach (['previous_website', 'category', 'description'] as $key) {
+                $source = $sources[$key]['source'] ?? null;
+                if (in_array($source, ['google-business', 'website-scan'], true)) {
+                    $workplace->{$key} = null;
+                    unset($sources[$key]);
+                    $changed = true;
+                }
+            }
+
+            if ($changed) {
+                $workplace->field_sources = $sources;
+                $workplace->save();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**

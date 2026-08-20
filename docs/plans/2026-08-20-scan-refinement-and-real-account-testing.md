@@ -548,7 +548,11 @@ gsnwilliams via the real dev API flow — reproduction BEFORE fixes):**
       question; harvesting that site's inner social links is the
       previous-website onboarding lane, not the bio scan.
 - [x] T8 — Instagram block: sammy.pdf (the T1.5g loop — clean-run verified 4x on fresh resets)
-- [ ] T9 — Google Business block: all 7 workplaces on user-kvjm7i
+- [x] T9 — all 7 businesses connected on user-kvjm7i (2 via the full
+      dashboard UI, 5 via the same wire the sheet calls, each verified in
+      DB): workplace attaches cleanly with name/address/hours/phone/map,
+      enrichment fans out to the listing's own platforms. Caught FI-15
+      (stale cross-swap workplace fields) — fixed + pinned.
 - [ ] T10 — backstop: full backend suite green, dashboard typecheck/lint
       clean, both repos deployed, fresh post-deploy log scan, final
       whole-run Sonnet critic pass over the entire diff, outcome-first report
@@ -629,3 +633,21 @@ whose name doesn't contain the phrase.
   pair in the projection writer); the next sync's upsert self-heals it —
   verified live on onefour.store. Low priority; noted for a future
   transactional tidy.
+
+- **FI-15** (T9 live): machine-sourced workplace fields survived a Google
+  Business listing swap — after seven swaps the ST. ALi workplace still
+  carried Kings Domain's description. Fixed: disconnecting the listing
+  clears fields whose field_sources stamp names a machine source
+  (google-business / website-scan); user-typed values stay. Live stale
+  row also cleaned.
+- **T9 deliberate notes**: google-business is single-account by catalog —
+  the roster correctly disables it when connected (the exhausted UX,
+  verified in browser with FI-2's bare-platform connectedKeys), so
+  "7 workplaces" is 7 sequential swaps, by design. The GB enrichment lane
+  auto-connected each listing's own links (Fresha venue, Facebook,
+  Instagram placeholder + Apify scrape, DoorDash/UberEats ordering, even
+  the shop's Spotify PLAYLIST as a spotify.player embed — deliberate:
+  that surface exists for playlists, and its Account label resolves to
+  the playlist name once enrichment stamps it). Reviews + menu items
+  seeded. All 7 Places lookups matched their share-link business exactly
+  — no ambiguity findings.
