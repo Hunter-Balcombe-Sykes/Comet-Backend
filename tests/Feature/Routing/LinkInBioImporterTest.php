@@ -718,3 +718,22 @@ it('reads Linktree music-embed links from __NEXT_DATA__ — the full sammy.pdf r
         ->and($items->pluck('headline_cache')->sort()->values()->all())
         ->toBe(['Are You The One (Sam Akhurst Remix)', 'Open Your Eyes (And Dance)']);
 });
+
+it('folds a second URL that canonicalizes identically instead of carding it (FI-8)', function () {
+    // Round 3 live shape: the same Spotify artist arrived as a __NEXT_DATA__
+    // tile AND as the shell's own anchor, differing only in tracking params.
+    // Same canonical → silent fold; a card here duplicated the connection.
+    Queue::fake();
+    $pro = createTenant('fi8-canonical-fold');
+    bioPage('<html><body>
+        <a href="https://www.instagram.com/theartist?utm_source=a">One</a>
+        <a href="https://www.instagram.com/theartist?utm_source=b">Two</a>
+    </body></html>');
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/theartist');
+
+    expect($result['connected'])->toBe(1)
+        ->and($result['noted'])->toBe(1);
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0)
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
+});
