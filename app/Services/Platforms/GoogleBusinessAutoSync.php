@@ -9,6 +9,8 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
+use App\Routing\IriCanonicalizer;
+use App\Routing\LinkProjector;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
@@ -65,6 +67,8 @@ class GoogleBusinessAutoSync
         private readonly ApifyBudget $apifyBudget,
         private readonly FacebookNormalizer $facebookNormalizer,
         private readonly LinkRouter $linkRouter,
+        private readonly IriCanonicalizer $canonicalizer,
+        private readonly LinkProjector $projector,
     ) {}
 
     /**
@@ -760,13 +764,21 @@ class GoogleBusinessAutoSync
     /** @return array<string,mixed>|null */
     private function seedInstagram(string $userId, ?string $url, bool $autoConnectBooking = false): ?array
     {
-        if ($url === null || ! preg_match('~instagram\.com/([A-Za-z0-9._]+)~i', $url, $m)) {
+        if ($url === null) {
             return null;
         }
-        $username = $m[1];
-        if (! preg_match('/^[A-Za-z0-9._]{1,80}$/', $username)) {
+
+        // Same lesson as socialUsername()'s facebook arm (G4-4), learned again
+        // live 2026-08-20: the standalone regex here matched the reserved
+        // segment of an instagram.com/reel/<shortcode> link on a business's
+        // listing and Apify-scraped literal username "reel" — a 9M-follower
+        // stranger — into an auto-connected account. Delegate to the catalog
+        // projection, which only yields an identifier for a real profile path.
+        $projection = $this->projectInstagramProfile($url);
+        if ($projection->surfaceKey !== 'instagram.profile' || ! is_string($projection->identifier) || $projection->identifier === '') {
             return null;
         }
+        $username = $projection->identifier;
 
         if ($this->has($userId, Platform::Instagram->value)) {
             return $this->conflictFinding(Platform::Instagram->value, Platform::Instagram->value, 'social', 'Instagram', $url, [
@@ -786,6 +798,35 @@ class GoogleBusinessAutoSync
      * Returns false when there's no token, the daily budget is spent, or the
      * platform seed lock timed out (skip: no card, no dispatch).
      */
+    /**
+     * Catalog projection with one retry for profile SUB-TAB share links
+     * (/<handle>/reels/, /<handle>/tagged/ — Instagram's own "share this
+     * tab" URLs): the profile detector matches the bare profile path only,
+     * so those project to nothing on the first pass (critic catch,
+     * 2026-08-20 retest). The retry cuts the path to its first segment —
+     * the catalog still rejects reserved segments (reel/p/stories/explore),
+     * so this cannot resurrect the junk the projection was brought in to
+     * stop. Strictly better than the old regex, which extracted "stories"
+     * from /stories/<handle>/<id> as a username.
+     */
+    private function projectInstagramProfile(string $url): \App\Routing\Projection
+    {
+        $projection = $this->projector->project($this->canonicalizer->canonicalize($url));
+        if ($projection->surfaceKey === 'instagram.profile') {
+            return $projection;
+        }
+
+        $parts = parse_url($url);
+        $first = explode('/', trim((string) ($parts['path'] ?? ''), '/'))[0] ?? '';
+        if ($first === '' || ! isset($parts['host'])) {
+            return $projection;
+        }
+
+        return $this->projector->project($this->canonicalizer->canonicalize(
+            ($parts['scheme'] ?? 'https').'://'.$parts['host'].'/'.$first
+        ));
+    }
+
     private function dispatchInstagram(string $userId, string $username, bool $autoConnectBooking = false): bool
     {
         if (! config('services.apify.token') || ! $this->apifyBudget->tryClaim('instagram')) {

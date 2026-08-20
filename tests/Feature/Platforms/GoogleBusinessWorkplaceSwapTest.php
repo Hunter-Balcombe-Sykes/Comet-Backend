@@ -49,3 +49,68 @@ it('clears machine-sourced workplace fields when the Google Business listing dis
         ->and($workplace->category)->toBe('Barber shop')
         ->and($workplace->field_sources)->not->toHaveKey('description');
 });
+
+/** The retest follow-up's connection fixture: one row per provenance class. */
+function fi15cConnection(string $userId, string $platform, string $surfaceKey, array $payload): IntegrationConnection
+{
+    $connection = new IntegrationConnection([
+        'surface_key' => $surfaceKey, 'routing_class' => 'social',
+        'resource_id' => $platform, 'payload' => $payload, 'is_active' => true,
+    ]);
+    $connection->user_id = $userId;
+    $connection->platform = $platform;
+    $connection->save();
+
+    return $connection;
+}
+
+it('takes listing-sourced connections with the listing — machine website_import included, user rows kept', function () {
+    // Retest 2026-08-20: after the seven T9 swaps the ST. ALi account still
+    // held Kings Domain's fresha/facebook plus another business's ordering
+    // rows. Machine-created connections leave with the listing that seeded
+    // them; the website_import rows leave too because previous_website itself
+    // was machine-stamped here.
+    //
+    // Queue::fake(): saving a workplace with a previous_website dispatches
+    // ScanPreviousWebsiteContentJob, whose run (sync driver in tests) really
+    // fetched kingsdomain.com.au and seeded a real fresha row mid-test.
+    // Faking the queue keeps every dispatched job un-run.
+    \Illuminate\Support\Facades\Queue::fake();
+    $pro = createTenant('fi15c-machine', ['account_type' => 'business']);
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+
+    $workplace = new Workplace(['site_id' => (string) $site->id, 'previous_website' => 'https://kingsdomain.com.au/']);
+    $workplace->field_sources = ['previous_website' => ['source' => 'google-business', 'at' => now()->toIso8601String()]];
+    $workplace->save();
+
+    $listing = fi15cConnection($pro->id, 'google-business', 'google_business.listing', ['name' => 'Kings Domain']);
+    $fresha = fi15cConnection($pro->id, 'fresha', 'fresha.book', ['source' => 'google-business', 'url' => 'https://fresha.com/kings-domain']);
+    $spotify = fi15cConnection($pro->id, 'spotify', 'spotify.player', ['source' => 'website_import', 'url' => 'https://open.spotify.com/playlist/x']);
+    $manual = fi15cConnection($pro->id, 'instagram', 'instagram.profile', ['username' => 'myown']);
+
+    $listing->delete();
+
+    expect(IntegrationConnection::query()->whereKey($fresha->getKey())->exists())->toBeFalse()
+        ->and(IntegrationConnection::query()->whereKey($spotify->getKey())->exists())->toBeFalse()
+        ->and(IntegrationConnection::query()->whereKey($manual->getKey())->exists())->toBeTrue();
+});
+
+it('keeps website_import connections when the previous website was typed by the owner', function () {
+    \Illuminate\Support\Facades\Queue::fake();
+    $pro = createTenant('fi15c-user', ['account_type' => 'business']);
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+
+    // No machine stamp on previous_website — the owner typed it in, so the
+    // content scan it fed belongs to THEM, not to the listing.
+    $workplace = new Workplace(['site_id' => (string) $site->id, 'previous_website' => 'https://my-own-site.example/']);
+    $workplace->save();
+
+    $listing = fi15cConnection($pro->id, 'google-business', 'google_business.listing', ['name' => 'Kings Domain']);
+    $youtube = fi15cConnection($pro->id, 'youtube', 'youtube.channel', ['source' => 'website_import', 'url' => 'https://youtube.com/@me']);
+    $tiktok = fi15cConnection($pro->id, 'tiktok', 'tiktok.profile', ['source' => 'google-business', 'url' => 'https://tiktok.com/@biz']);
+
+    $listing->delete();
+
+    expect(IntegrationConnection::query()->whereKey($youtube->getKey())->exists())->toBeTrue()
+        ->and(IntegrationConnection::query()->whereKey($tiktok->getKey())->exists())->toBeFalse();
+});

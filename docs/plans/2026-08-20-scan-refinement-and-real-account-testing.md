@@ -668,3 +668,49 @@ gsnwilliams holds the T7 result (onefour_official: IG + auto-connected
 onefour.store with 5 auto-selected products — the T1 showcase);
 user-kvjm7i holds ST. ALi as its workplace with full enrichment. Both
 reset-ready via partna:reset-test-user.
+
+## Retest pass (2026-08-20 late evening, owner-requested)
+
+Owner asked for a full look-back: re-run every gate and re-dig the two
+accounts against ground truth. Everything shipped this morning held up —
+suite 8,723 green again, sammy.pdf reproduced its exact best-case from a
+fresh reset (4 connections incl. the expanded SoundCloud short link, 2
+track items, ssml.wav Swap suggestion, zero cards), T1's five pins +
+stamp intact on gsnwilliams, ST. ALi's workplace fields clean. The dig
+into user-kvjm7i's CONNECTIONS (not just fields) surfaced two more,
+both fixed and live-verified this pass:
+
+- **RT-1** (retest live): the T9 leftovers included an auto-connected
+  Instagram account "@reel" — a listing carried an
+  instagram.com/reel/<shortcode> link and seedInstagram()'s standalone
+  regex extracted the reserved segment as the username, then Apify
+  scraped that literal handle (a 9M-follower stranger) into a full
+  connection. Same failure shape as G4-4's facebook "pages" bug, same
+  fix: GoogleBusinessAutoSync::seedInstagram now delegates identity to
+  the Engine-1 catalog projection (canonicalize → project), which only
+  yields an identifier for a real profile path. Critic pass on the fix
+  caught an over-correction — profile SUB-TAB share links
+  (/<handle>/reels/, /<handle>/tagged/) project to nothing and silently
+  dropped — fixed with a first-segment retry (the catalog still rejects
+  reserved segments, so the junk case cannot come back). Pinned by
+  GoogleBusinessInstagramReservedSegmentTest (reel/p/stories/explore
+  rejected; real profile with tracking params still seeds; both sub-tab
+  shapes seed the handle). Live: fresh Kings Domain connect now lands
+  @kingsdomainbarbers, no junk row.
+
+- **RT-2** (retest live): FI-15 cleaned a swapped listing's workplace
+  FIELDS but not its CONNECTIONS — after the seven T9 swaps user-kvjm7i
+  still held Kings Domain's fresha/facebook/instagram/spotify plus an
+  earlier roster business's doordash/uber_eats alongside ST. ALi's own
+  rows. Fixed: IntegrationConnectionObserver::deleted() on
+  google_business.listing now also deletes machine-created connections —
+  payload source 'google-business' always, 'website_import' only when
+  previous_website itself was machine-stamped (an owner-typed website's
+  scan survives). User-connected rows are never touched. Runs BEFORE the
+  field clearing (it reads the same field_sources stamp). Pinned by two
+  new GoogleBusinessWorkplaceSwapTest cases. Live: Kings Domain forget →
+  0 connections remained; ST. ALi reconnect left a single-business state.
+
+Final state after this pass: user-kvjm7i = ST. ALi only (listing +
+its own enrichment set, no cross-business leftovers, no junk rows);
+gsnwilliams = fresh sammy.pdf best-case. Both reset-ready.

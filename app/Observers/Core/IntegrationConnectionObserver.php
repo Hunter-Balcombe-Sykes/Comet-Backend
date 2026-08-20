@@ -235,7 +235,58 @@ class IntegrationConnectionObserver
 
         $this->cleanupMirroredMedia($connection);
         $this->syncIngestSource($connection);
+        // Connections BEFORE fields: the website_import arm below reads the
+        // same field_sources stamp that clearListingSourcedWorkplaceFields()
+        // erases.
+        $this->disconnectListingSourcedConnections($connection);
         $this->clearListingSourcedWorkplaceFields($connection);
+    }
+
+    /**
+     * The connection half of FI-15 (retest 2026-08-20): disconnecting the
+     * Google Business listing also takes the MACHINE-created connections it
+     * seeded. Verified live: after the seven T9 listing swaps, the ST. ALi
+     * business account still carried Kings Domain's fresha/facebook/instagram
+     * plus another roster business's doordash/uber_eats — every listing's
+     * socials, booking and ordering rows (payload source 'google-business')
+     * simply accumulated. website_import rows (the previous_website content
+     * scan) leave too, but ONLY when that website itself came from the
+     * listing (same machine-source stamp check as the field clearing below) —
+     * a website the owner typed in produces the same source tag and its
+     * connections must survive. User-connected rows carry neither tag and are
+     * never touched. Deleting through the models on purpose: each child's own
+     * deleted() hooks (media reclaim, ingest sync, cache purge) must run, and
+     * none of them is a listing so this cannot recurse.
+     */
+    private function disconnectListingSourcedConnections(IntegrationConnection $connection): void
+    {
+        if ($connection->surface_key !== 'google_business.listing') {
+            return;
+        }
+
+        try {
+            $site = Site::query()->where('user_id', $connection->user_id)->first();
+            $workplace = $site === null ? null : Workplace::query()->where('site_id', (string) $site->id)->first();
+            $sources = ($workplace !== null && is_array($workplace->field_sources)) ? $workplace->field_sources : [];
+            $websiteWasMachine = in_array($sources['previous_website']['source'] ?? null, ['google-business', 'website-scan'], true);
+
+            $listingSourced = IntegrationConnection::query()
+                ->where('user_id', $connection->user_id)
+                ->whereKeyNot($connection->getKey())
+                ->get()
+                ->filter(function (IntegrationConnection $candidate) use ($websiteWasMachine): bool {
+                    $source = CardPayload::fromArray((array) $candidate->payload)->source();
+
+                    return $source === 'google-business'
+                        || ($websiteWasMachine && $source === 'website_import');
+                });
+
+            foreach ($listingSourced as $candidate) {
+                $candidate->delete();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**
