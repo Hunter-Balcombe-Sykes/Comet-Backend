@@ -394,7 +394,11 @@ class LinkInBioImporter
         // the second one through to a "Spotify – Web Player" card duplicating
         // the connection just made. Same URL is a silent fold; only a
         // genuinely different page for the same account still cards.
-        $canonical = strtolower(trim((string) ($result['canonicalUrl'] ?? $url)));
+        // '://www.' folds too (FI-11, T5 live): a Linktree tile said
+        // www.instagram.com/<handle> while its socialLinks row said
+        // instagram.com/<handle> — one page, two canonicals, and the second
+        // became an "Instagram" card beside the fold.
+        $canonical = str_replace('://www.', '://', strtolower(trim((string) ($result['canonicalUrl'] ?? $url))));
 
         if (isset($placedKeys[$key]) && $context->user !== null) {
             if ($placedKeys[$key] === $canonical) {

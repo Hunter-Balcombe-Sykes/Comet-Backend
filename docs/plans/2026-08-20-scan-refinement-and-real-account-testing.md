@@ -581,3 +581,21 @@ environmental artifact, absorbed by the supervisor loop; on Laravel Cloud
 the DB is co-located and 10s is fine. Also: `pkill -f queue:work` matches a
 naive supervisor's own cmdline — the run's supervisor lives in a script
 whose name doesn't contain the phrase.
+
+- **FI-10** (T5 live, hayleyj_thestudiox): a REACHABLE deep page on a
+  store domain (4barbers.com.au/pages/… — an affiliate discount page)
+  auto-connected someone ELSE'S supply shop as her store and imported its
+  catalogue. Fixed: from a deep page the store is a QUESTION (suggestion);
+  only a link to the store's ROOT auto-connects (natalieanne.com,
+  onefour.store shapes keep their auto-connect, and the dead-deep-page →
+  origin-probe arm stays auto per the owner-blessed T4 ruling).
+- **FI-11** (T5 live): the fold comparison in handlePlaced treats
+  '://www.' variants as one page — a Linktree tile (www.instagram.com/…)
+  plus its socialLinks row (instagram.com/…) made an "Instagram" card
+  beside the fold.
+- **T1 live proof** (T5's 4barbers import, before the FI-10 reclass):
+  ShopInitialFillJob ran on the scan-connected store and imported the real
+  catalogue; the job's 75s budget was eaten by remote-DB latency before
+  selectInitial (env artifact — the ShopFetch late hook covers it in
+  prod), and a manual selectInitial on the real 7-product catalogue pinned
+  exactly 5 — the full T1 contract verified on real store data.

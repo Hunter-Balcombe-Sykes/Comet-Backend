@@ -172,12 +172,26 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             return $seeded;
         }
 
+        // FI-10 (T5 live, 2026-08-20): a REACHABLE DEEP page on a store
+        // domain is shout-out shaped — an affiliate/discount page
+        // (4barbers.com.au/pages/matsui-… with "Discount Code Hayley10")
+        // auto-connected someone ELSE'S supply shop as the scanned account's
+        // store and imported its whole catalogue. Same principle as the
+        // product-page rule above: from a deep page, the store is a
+        // QUESTION. A link to the store's ROOT stays an auto-connect — a
+        // homepage in your own bio (natalieanne.com, onefour.store) is you
+        // naming your store. The UNREACHABLE arm below keeps its
+        // origin-probe auto-connect deliberately: its live case
+        // (natalieanne.com/pages/… 404ing) was the owner's own stale link,
+        // and a dead page offers no markers to judge affiliation by.
+        $deepPage = trim((string) parse_url($this->url, PHP_URL_PATH), '/') !== '';
+
         if ($read['outcome'] === GenericShopScraper::OUTCOME_STORE_PAGE && is_string($read['storeUrl'])) {
-            return $this->seedStore($brands, $user, $read['storeUrl']);
+            return $this->seedStore($brands, $user, $read['storeUrl'], $deepPage);
         }
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_NO_PRODUCT) {
-            return $this->seedStore($brands, $user, $this->url);
+            return $this->seedStore($brands, $user, $this->url, $deepPage);
         }
 
         // T4 (2026-08-20): an UNREACHABLE deep page still gets the store
@@ -226,9 +240,14 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         return false;
     }
 
-    private function seedStore(StoreBrandSeeder $brands, User $user, string $url): bool
+    private function seedStore(StoreBrandSeeder $brands, User $user, string $url, bool $deepPage = false): bool
     {
-        return $brands->seed($user, $url, self::ORIGIN, suggestOnly: $this->suggestOnly)['outcome'] === 'placed';
+        $result = $brands->seed($user, $url, self::ORIGIN, suggestOnly: $this->suggestOnly || $deepPage);
+
+        // A suggest-only seed that filed its question is a RESOLUTION —
+        // handle() must not also card the link (the suggestion carries it).
+        return $result['outcome'] === 'placed'
+            || (($this->suggestOnly || $deepPage) && $result['outcome'] === 'not_placed' && $result['verdict'] !== null);
     }
 
     /** scheme://host of the probed URL, or null when it has neither. */

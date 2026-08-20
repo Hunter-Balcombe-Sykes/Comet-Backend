@@ -727,7 +727,7 @@ it('folds a second URL that canonicalizes identically instead of carding it (FI-
     $pro = createTenant('fi8-canonical-fold');
     bioPage('<html><body>
         <a href="https://www.instagram.com/theartist?utm_source=a">One</a>
-        <a href="https://www.instagram.com/theartist?utm_source=b">Two</a>
+        <a href="https://instagram.com/theartist?utm_source=b">Two</a>
     </body></html>');
 
     $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/theartist');
