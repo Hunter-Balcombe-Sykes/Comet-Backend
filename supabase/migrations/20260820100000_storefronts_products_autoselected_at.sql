@@ -3,5 +3,7 @@
 -- products_curated_at — that one means "the user hand-picked" and suppresses
 -- scheduled ShopFetch syncs (#SEM-1); this one only records that the one-shot
 -- auto-select has run, and must never affect sync scheduling.
+--
+-- ROLLBACK: ALTER TABLE content.storefronts DROP COLUMN IF EXISTS products_autoselected_at;
 alter table content.storefronts
     add column if not exists products_autoselected_at timestamptz null;

@@ -307,7 +307,7 @@ models|app/Models app/Database
 EOF
         ;;
         caching-gold-standard) cat <<'EOF'
-read-services|app/Services/Cache app/Services/Site app/Services/PublicSite app/Services/Accounts app/Services/FeatureFlags app/Services/FeatureAvailability
+read-services|app/Services/Cache app/Services/Site app/Services/PublicSite app/Services/Accounts app/Services/FeatureFlags app/Services/FeatureAvailability app/Routing
 read-user-mw|app/Services/User app/Http/Middleware
 read-controllers-user|app/Http/Controllers/Api/User app/Http/Resources
 read-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks

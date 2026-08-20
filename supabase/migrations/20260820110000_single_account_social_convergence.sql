@@ -15,12 +15,19 @@
 -- FI-3's fake short-code profiles (on.soundcloud.com etc. minted via the
 -- removed Hosts aliases): dev has zero — checked — so no clause for them;
 -- resolveSocialLink's conflict finding self-heals any stragglers on rescan.
+--
+-- ROLLBACK: NONE. The soft-deletes are indistinguishable from user
+--   disconnects after the fact; restoring them would resurrect rows the
+--   invariant forbids. Roll forward.
 
 with ranked as (
     select id,
            row_number() over (
                partition by user_id, surface_key
-               order by is_primary desc, created_at asc, id asc
+               -- is_active FIRST (final critic, 2026-08-20): an inactive
+               -- takedown/placeholder row must never outrank the user's
+               -- live connection, whatever its age or primary flag.
+               order by is_active desc, is_primary desc, created_at asc, id asc
            ) as rn
     from site.platform_connections
     where routing_class = 'social'

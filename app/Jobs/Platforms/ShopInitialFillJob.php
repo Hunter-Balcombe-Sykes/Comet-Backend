@@ -45,7 +45,9 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
     // ShopFetch late hook instead of firing at connect time.
     public int $timeout = 240;
 
-    public int $uniqueFor = 120;
+    // Must exceed $timeout (HorizonQueueCoverageTest): a unique job can
+    // otherwise outrun its own dedupe lock mid-run.
+    public int $uniqueFor = 300;
 
     public function __construct(
         public readonly string $collectionId,

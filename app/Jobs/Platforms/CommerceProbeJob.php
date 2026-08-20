@@ -109,7 +109,12 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             $resolved = match ($this->category) {
                 'event' => $events->seedStandalone($user, (string) $this->platform, $this->url) !== null,
                 'event-organiser' => $events->seedAccount($user, (string) $this->platform, $this->url) !== null,
-                'shop' => $this->seedStore($brands, $user, $this->url),
+                // Same deep-page rule as the probe arm below (final critic,
+                // 2026-08-20): the classifier names 'shop' by HOST alone, so a
+                // deep path on a recognised shop host is exactly the 4barbers
+                // affiliate shape and must be a question, not an auto-connect.
+                'shop' => $this->seedStore($brands, $user, $this->url,
+                    trim((string) parse_url($this->url, PHP_URL_PATH), '/') !== ''),
                 default => $this->probe($generic, $brands, $products, $user, $canonicalizer, $observer),
             };
         } catch (Throwable $e) {
