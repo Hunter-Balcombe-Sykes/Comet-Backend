@@ -1,7 +1,11 @@
 # Legacy lane retirement — design
 
 **Date:** 2026-08-20
-**Status:** Spec — approved for writing, NOT yet approved for implementation
+**Status:** §4, §5, §6, §7.1–7.3 (dashboard half) **SHIPPED** 2026-08-20 — `30f0e86e8`, `f91800d6f`, `c0a026145`, `573f31b82` on `development`.
+
+**Still open:** §7.1's public half (`IndividualProfileResource` / `IndividualProfilePayloadBuilder` — `architectureId` + the `skeletonId` alias), §7.4 (the `all_site_data` view + `20260817000000` payload function), §7.5 (column drop), and §8 (the two compat maps — `SiteOrderingValidationRules` and `SiteActionsService` were owned by `feature/item-feed-2026-08-19`).
+
+**What changed vs. this plan:** the §9 phasing was built around a `bootstrap/catalog/compiled.php` conflict with `fix/dev-red-queryplan-and-pint-2026-08-19`. That branch merged (PR #300) mid-execution, so the catalog fold (§5) was no longer blocked and shipped in the same pass. `LegacyPlatformMap` now carries `legacy_platform` on **all 72** legacy surfaces, not the 9 in §5.1 — see the commit message on `f91800d6f` for why (an inverse built from only the 9 would have widened `surfaceFor()` from 72 to 111 and been ambiguous for `bandcamp`).
 **Branch:** `docs/legacy-lane-retirement-spec-2026-08-20`
 **Base:** `development` @ `3deef23be`
 
