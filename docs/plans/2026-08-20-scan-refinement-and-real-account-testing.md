@@ -504,17 +504,20 @@ gsnwilliams via the real dev API flow — reproduction BEFORE fixes):**
 - [x] T1.5e — FI-5 Linktree __NEXT_DATA__ arm; full sammy.pdf replay test
 - [x] T1.5f — FI-2 dashboard one-row-per-account, verified in browser
       (typecheck/lint clean, no '+N', per-account rows)
-- [ ] T1.5g — LOCAL full-stack loop (local API+worker against dev DB, no
-      deploy needed until merge). Round 1: FI-1/FI-4/FI-5 verified live;
-      caught the expander 4KB body-cap throw (fixed) + FI-6 apple
-      artistName (fixed). Round 2 in flight — diff must be fully clean.
+- [x] T1.5g — DONE, 4 rounds. R1: FI-1/FI-4/FI-5 verified live; caught
+      expander body-cap throw + FI-6. R2: caught FI-7 (dedupe-before-read).
+      R3: caught FI-8 (Issue-M canonical fold) + FI-6 display resolution
+      (numeric username outranking artistName) + 'a Instagram' copy. R4:
+      FULLY CLEAN — 4 connections (Spotify/Apple Music/SoundCloud artists
+      named correctly + @sammy.pdf), 2 track items, ssml.wav as a Swap
+      suggestion, zero cards. Dashboard verified in browser.
 - [ ] T2 — Instagram block: samtobin__
 - [ ] T3 — Instagram block: barber_in_law
 - [ ] T4 — Instagram block: suzi_thestudiox
 - [ ] T5 — Instagram block: hayleyj_thestudiox
 - [ ] T6 — Instagram block: livplumbarber
 - [ ] T7 — Instagram block: onefour_official
-- [ ] T8 — Instagram block: sammy.pdf
+- [x] T8 — Instagram block: sammy.pdf (the T1.5g loop — clean-run verified 4x on fresh resets)
 - [ ] T9 — Google Business block: all 7 workplaces on user-kvjm7i
 - [ ] T10 — backstop: full backend suite green, dashboard typecheck/lint
       clean, both repos deployed, fresh post-deploy log scan, final
