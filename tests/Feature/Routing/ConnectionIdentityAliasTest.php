@@ -254,3 +254,28 @@ it('M-7: matches a handle-surface identifier case-insensitively, keeps opaque id
     $ot->save();
     expect($identity->matchExisting($pro, 'opentable.reserve', '49820'))->toBe((string) $ot->id);
 });
+
+it('M-8: a Choose-band alias of an already-connected channel folds instead of proposing the user their own account', function () {
+    // thejunglegiants live: linktree carried @thejunglegiants (connected),
+    // the website carried @TheJungleGiants — same channel, and the Choose
+    // band skipped the alias lookup, filing the user's OWN channel as a
+    // suggestion in the inbox.
+    $pro = createTenant('m8-choose-fold');
+    $existing = seedMarkerConnection($pro, 'youtube.channel', 'content', 'thejunglegiants', [
+        'url' => 'https://www.youtube.com/@thejunglegiants',
+    ]);
+
+    app(LinkRoutingService::class)->route(
+        'https://www.youtube.com/@TheJungleGiants',
+        RoutingContext::forUser($pro, 'link_in_bio'),
+    );
+
+    expect(liveConnections($pro, 'youtube.channel'))->toHaveCount(1);
+
+    $proposed = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)
+        ->where('surface_key', 'youtube.channel')
+        ->where('state', 'proposed')
+        ->count();
+    expect($proposed)->toBe(0);
+});

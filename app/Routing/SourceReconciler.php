@@ -77,9 +77,20 @@ class SourceReconciler
         // provisions no connections table at all) — an unconditional lookup
         // here both breaks it and spends a query per Choose/Hold/Note that
         // nothing reads.
-        $aliasConnectionId = $verdict === Verdict::Place
+        // Choose consults it too (M-8, matrix run 2: thejunglegiants live —
+        // youtube.com/@TheJungleGiants arrived in the Choose band while
+        // @thejunglegiants was already connected, and the un-consulted alias
+        // filed the user's OWN channel as a suggestion). An aliased Choose
+        // upgrades to Place below: folding into a row we already hold adds no
+        // account and needs no question. Hold/Note/Reject still skip the
+        // lookup — nothing downstream of them reads it.
+        $aliasConnectionId = in_array($verdict, [Verdict::Place, Verdict::Choose], true)
             ? $this->identity->matchExisting($user, $placement->surfaceKey, $identifier)
             : null;
+
+        if ($verdict === Verdict::Choose && $aliasConnectionId !== null) {
+            $verdict = Verdict::Place;
+        }
 
         // Booking-class AUTO writes keep today's XOR: one auto-connection per
         // routing class. A second one is not an error and is not silently
