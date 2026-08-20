@@ -9,17 +9,18 @@ use Illuminate\Support\Facades\Log;
  * Recovers the destination links from link-in-bio pages that ship no anchors.
  *
  * Most aggregators server-render their links, so WebsiteLinkHarvester's <a href>
- * pass sees them. Four of the hosts in LinkInBioDetector do not: the delivered
+ * pass sees them. Five of the hosts in LinkInBioDetector do not: the delivered
  * page is an empty SPA shell and every link is drawn client-side, so the anchor
- * harvest returns zero for a page carrying eight buttons. Three of those four
+ * harvest returns zero for a page carrying eight buttons. Four of those five
  * are answered here, by the same public read API the page's own JavaScript
- * calls — no headless browser anywhere. The fourth (liinks.co) needs no request
+ * calls — no headless browser anywhere. The fifth (liinks.co) needs no request
  * at all and lives in LinkInBioInlinePayloadReader.
  *
  * Host                Seam                                                Verified
  * linkin.bio (Later)  api-prod.linkin.bio/api/v2/pages?nickname=<slug>    2026-08-19
  * taplink.cc          taplink.cc/<nickname>/api/page/get.json             2026-08-19
  * stan.store          api.stanwith.me/api/v1/stores?username=<slug>       2026-08-19
+ * sprout.link         sprout.link/<slug>/page.json                        2026-08-21
  *
  * Each endpoint is public and unauthenticated, and each was read off the host's
  * own bundle rather than guessed — the field paths below are quoted from the
@@ -49,6 +50,9 @@ class LinkInBioApiUnroller
 
     /** Stan's Nuxt bundle: `$get('v1/stores', {baseURL: 'https://api.stanwith.me/api/'})`. */
     private const STAN_API_URL = 'https://api.stanwith.me/api/v1/stores';
+
+    /** Sprout Social's shell fetches `"/".concat(slug,"/page.json")` — same origin. */
+    private const SPROUT_HOST = 'https://sprout.link';
 
     /**
      * Slugs on all three hosts mirror the Instagram handle they were created
@@ -94,6 +98,7 @@ class LinkInBioApiUnroller
             'linkin.bio', 'www.linkin.bio' => $this->linkinBio($slug),
             'taplink.cc', 'www.taplink.cc' => $this->taplink($slug),
             'stan.store', 'www.stan.store' => $this->stanStore($slug),
+            'sprout.link', 'www.sprout.link' => $this->sprout($slug),
             default => null,
         };
     }
@@ -258,6 +263,42 @@ class LinkInBioApiUnroller
             // above forbids.
             if ($format !== null && $handle !== '' && ! str_contains($value, '/')) {
                 $this->collect($urls, sprintf($format, rawurlencode($handle)));
+            }
+        }
+
+        return $urls;
+    }
+
+    /**
+     * sprout.link (Sprout Social) — a fully client-rendered shell whose only
+     * data call is `/{slug}/page.json` on the SAME origin (read off its own
+     * main.js: `fetch("/".concat(e,"/page.json"))`). Found live 2026-08-21
+     * (M-1, industrybeans): the shell has zero anchors and no inline payload,
+     * so the page carded as an inert "sprout.link" link while its one button
+     * — the owner's ROOT store URL — was never routed.
+     *
+     * Shapes quoted from live pages (industrybeans + sproutsocial,
+     * 2026-08-21): `buttons[]` carries `destination_url` with an `is_active`
+     * switch. `social_links` was `[]` on every page probed and its element
+     * shape is therefore unknown — skipped until a real page exercises it
+     * (this class's standing rule: a guessed shape MINTS urls). A missing
+     * profile answers the HTML shell with a 200, which jsonDoc() already
+     * refuses as non-JSON.
+     *
+     * @return list<string>|null
+     */
+    private function sprout(string $slug): ?array
+    {
+        $buttons = $this->json(self::SPROUT_HOST.'/'.$slug.'/page.json', [], 'buttons', 'sprout.link');
+        if ($buttons === null) {
+            return null;
+        }
+
+        $urls = [];
+
+        foreach ($buttons as $button) {
+            if (is_array($button) && ($button['is_active'] ?? false) === true) {
+                $this->collect($urls, $button['destination_url'] ?? '');
             }
         }
 

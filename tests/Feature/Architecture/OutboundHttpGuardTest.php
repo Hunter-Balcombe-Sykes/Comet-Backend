@@ -83,7 +83,7 @@ const OUTBOUND_HTTP_ALLOWLIST = [
     // ── Pattern D — FixedHostVariablePath (Rule 3 applies) ──────────────────
     'app/Services/Platforms/YoutubeThumbnailResolver.php' => ['D', 'i.ytimg.com; $videoId validated by VIDEO_ID_PATTERN'],
     'app/Services/Platforms/GoogleBusinessService.php' => ['D', 'places.googleapis.com; $ref validated by PHOTO_REF_PATTERN'],
-    'app/Services/Platforms/LinkInBioApiUnroller.php' => ['D', 'api-prod.linkin.bio + taplink.cc + api.stanwith.me, all class consts; $slug validated by NICKNAME_PATTERN'],
+    'app/Services/Platforms/LinkInBioApiUnroller.php' => ['D', 'api-prod.linkin.bio + taplink.cc + api.stanwith.me + sprout.link, all class consts; $slug validated by NICKNAME_PATTERN'],
 ];
 
 /** Pattern D files must constrain their interpolated segment before building a URL. */

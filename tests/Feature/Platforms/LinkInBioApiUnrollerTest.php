@@ -302,3 +302,35 @@ it('declines every new host when its API is down, so the floor still backstops',
     expect(app(LinkInBioApiUnroller::class)->unroll('https://taplink.cc/demo'))->toBeNull()
         ->and(app(LinkInBioApiUnroller::class)->unroll('https://stan.store/creator'))->toBeNull();
 });
+
+// ── sprout.link (M-1, 2026-08-21) ────────────────────────────────────────
+// Shape is the real industrybeans page.json, trimmed to the keys we read.
+
+function fakeSproutApi(mixed $payload, int $status = 200): void
+{
+    Http::fake(['sprout.link/*' => Http::response($payload, $status)]);
+}
+
+it('returns the destination links behind a client-rendered sprout.link page', function () {
+    fakeSproutApi([
+        'page_id' => 26920, 'profile_name' => 'industrybeans', 'social_links' => [],
+        'buttons' => [
+            ['button_display_text' => 'industrybeans.com', 'destination_url' => 'https://industrybeans.com/', 'button_order' => 1, 'is_active' => true],
+            ['button_display_text' => 'Old promo', 'destination_url' => 'https://industrybeans.com/pages/promo', 'button_order' => 2, 'is_active' => false],
+        ],
+    ]);
+
+    $links = app(LinkInBioApiUnroller::class)->unroll('https://sprout.link/industrybeans');
+
+    expect($links)->toBe(['https://industrybeans.com/']);
+});
+
+it('declines a sprout.link profile that answers the HTML shell instead of JSON', function () {
+    // A missing profile 200s the SPA shell — jsonDoc() refuses non-JSON and
+    // the caller falls back to the anchor harvest (which reads nothing, so
+    // the page cards — today's behaviour, never worse).
+    Log::spy();
+    fakeSproutApi('<!doctype html><html></html>');
+
+    expect(app(LinkInBioApiUnroller::class)->unroll('https://sprout.link/ghost-profile'))->toBeNull();
+});

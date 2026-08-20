@@ -19,6 +19,9 @@ class LinkInBioDetector
         'linkin.bio', 'lnk.bio', 'bio.link', 'campsite.bio', 'snipfeed.co',
         'komi.io', 'hoo.be', 'taplink.cc', 'solo.to', 'liinks.co',
         'heylink.me', 'allmylinks.com', 'direct.me',
+        // M-1 (2026-08-21, industrybeans live): Sprout Social's link-in-bio.
+        // Client-rendered shell, unrolled via LinkInBioApiUnroller::sprout().
+        'sprout.link',
     ];
 
     public function matches(string $url): bool

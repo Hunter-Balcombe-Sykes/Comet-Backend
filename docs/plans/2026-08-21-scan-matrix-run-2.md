@@ -80,7 +80,26 @@ exists.
 
 ## Ledger (append as found)
 
-(running)
+- **M-1** (I1 industrybeans live, both lanes): sprout.link (Sprout Social's
+  link-in-bio) was not a known LIB host — the page carded as an inert
+  "sprout.link" link and its buttons were never routed. On industrybeans
+  the ONE button is the ROOT store URL, so the whole store was lost (round
+  1: deep-page suggestion only). Fixed: LinkInBioDetector host +
+  LinkInBioApiUnroller::sprout() reading /{slug}/page.json (seam read off
+  sprout's own bundle; buttons[].destination_url + is_active verified on
+  two live pages; social_links [] everywhere → skipped per never-guess
+  rule). Round 2 live: sprout unrolled → root URL routed → Shopify store
+  AUTO-connected, 8 products imported, T1 pinned exactly 5, sprout card
+  gone. Pinned by 2 new LinkInBioApiUnrollerTest cases.
+
+### Item status
+
+- I1 industrybeans (partna): CLEAN round 2 — IG + auto-connected store
+  (8 products, 5 pins), 3 titled deep-page cards, 12 media, zero junk.
+- B1 Industry Beans listing (business): CLEAN round 1 except the M-1
+  sprout card (website-scan lane hit the same gap) — workplace full,
+  listing socials all real (fb/tiktok/linkedin/ig), 5 reviews, 3 menu
+  items, 10 media.
 
 ## Progress
 
