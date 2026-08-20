@@ -520,7 +520,12 @@ gsnwilliams via the real dev API flow — reproduction BEFORE fixes):**
       bio's Fresha deep link (venue studio-san; claimed user keeps the
       service picker — FreshaAutoSelector is unclaimed-only, by design).
       @studio___san mention: deliberate non-capture (T2 rule).
-- [ ] T4 — Instagram block: suzi_thestudiox
+- [x] T4 — suzi_thestudiox: clean after FI-9 (3 rounds; r1 caught FI-9 —
+      probe/card carried the SHORT url). Final: IG + fresha.book
+      (the-studio-x) connected; 2nd Fresha location, both Google Forms,
+      publuu flipbook and the tinyurl'd course page all carded with real
+      titles at their DESTINATION urls; own-IG tile+social folded; GROUP
+      tiles carry no urls (children arrive flat — captured); 0 dropped.
 - [ ] T5 — Instagram block: hayleyj_thestudiox
 - [ ] T6 — Instagram block: livplumbarber
 - [ ] T7 — Instagram block: onefour_official
