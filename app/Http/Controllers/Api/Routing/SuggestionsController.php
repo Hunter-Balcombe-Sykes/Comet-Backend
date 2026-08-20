@@ -461,8 +461,10 @@ class SuggestionsController extends ApiController
             // A single-account surface at its cap names its one incumbent
             // (SourceReconciler::soleIncumbentFor), so the ask is a swap;
             // a multi-account surface at its cap has no one row to swap.
+            // "{$name} connected", not "a {$name}" — the article broke on
+            // vowel-initial brands ("a Instagram", "a Eventbrite").
             'cap_reached' => $intent->conflicting_connection_id !== null
-                ? "You already have a {$name} — swap it for this one?"
+                ? "You already have {$name} connected — swap it for this one?"
                 : "You've reached the limit for {$name} accounts.",
             'gate' => "{$name} isn't available on your account type.",
             'below_threshold' => "Is this your {$name}?",
