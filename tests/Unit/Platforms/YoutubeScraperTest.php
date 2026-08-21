@@ -178,9 +178,9 @@ it('logs a discriminating reason when the uploads-feed fetch fails at transport 
 it('logs a discriminating reason when the uploads feed responds non-200 on every attempt', function () {
     Log::spy();
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    // M-13: an explicit non-200 gets TWO re-requests before giving up
-    // (measured live: consecutive identical requests answered 500, 404, 200).
-    $fetcher->shouldReceive('tryFetch')->times(3)->andReturn([
+    // M-13: an explicit non-200 gets FOUR re-requests before giving up
+    // (measured live: ~every second identical request failed 404/500).
+    $fetcher->shouldReceive('tryFetch')->times(5)->andReturn([
         'status' => 500, 'body' => '', 'finalUrl' => 'https://www.youtube.com/feeds/videos.xml', 'contentType' => 'application/xml',
         'etag' => null, 'lastModified' => null,
     ]);

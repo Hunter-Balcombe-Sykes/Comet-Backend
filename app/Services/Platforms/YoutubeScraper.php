@@ -132,16 +132,18 @@ class YoutubeScraper extends PlatformScraper
         // auto-route path a terminal miss permanently drops the channel
         // (ConnectFetchJob catches the exception, so job tries never engage,
         // and F26 removes the never-fetched row with nobody watching a modal
-        // to retry). Up to two re-requests before giving up — the second
-        // spaced wider because back-to-back attempts land in the same flake
-        // window. Bounded costs: the interactive connect path (youtube isn't
-        // in PARTNA_CONNECT_DEFERRED, so this can run in-request) only pays
-        // the delay on FAILING attempts, and a permanently dead channel stops
-        // being refreshed at the consecutive-failures circuit breaker.
-        // Transport-level null deliberately does NOT retry: SafeUrlFetcher's
-        // null covers SSRF/DNS/timeout, where an immediate second attempt is
-        // noise. 304 is a healthy answer, not an error.
-        foreach ([500_000, 1_500_000] as $delay) {
+        // to retry). Up to four spaced re-requests before giving up — during
+        // the measured incident roughly every second request failed, so five
+        // attempts put recovery near-certain while three still lost the
+        // channel twice in one afternoon. Bounded costs: total added sleep is
+        // ~5s only when attempts keep FAILING (the interactive connect path —
+        // youtube isn't in PARTNA_CONNECT_DEFERRED, so this can run
+        // in-request — pays nothing on a first-try 200), and a permanently
+        // dead channel stops being refreshed at the consecutive-failures
+        // circuit breaker. Transport-level null deliberately does NOT retry:
+        // SafeUrlFetcher's null covers SSRF/DNS/timeout, where an immediate
+        // second attempt is noise. 304 is a healthy answer, not an error.
+        foreach ([500_000, 1_000_000, 1_500_000, 2_000_000] as $delay) {
             if (! is_array($rss) || in_array($rss['status'], [200, 304], true)) {
                 break;
             }
