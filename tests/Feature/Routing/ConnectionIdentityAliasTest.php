@@ -14,10 +14,12 @@
 // (acct-77bc9a9984e6786c = casey, resource_id 'youtube' = @dvlpmnttv), which is
 // how we know the over-merge is a real shape and not a hypothetical.
 
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
@@ -25,6 +27,14 @@ beforeEach(function () {
     setupSitesTable();
     setupRoutingTables();
     setupContentTables();
+    // These tests pin IDENTITY-FOLD semantics, not enrichment. Without this
+    // fake, F9's reconciler-dispatched ConnectFetchJob ran INLINE (sync
+    // driver, afterCommit) with no Http::fake — a real network fetch to
+    // youtube.com whose outcome decided the assertions: the suite passed
+    // while YouTube's feed served 200 and started failing the day its RSS
+    // endpoint flaked (2026-08-21 — a vendor incident, F26 removed the
+    // never-fetched row, and the connection counts changed under the test).
+    Bus::fake([ConnectFetchJob::class]);
 });
 
 /**

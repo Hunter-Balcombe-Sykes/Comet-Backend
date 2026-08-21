@@ -502,3 +502,38 @@ Two environment artifacts, both with designed recoveries:
 - The same kill took gsn's InstagramConnectJob, stranding the pending
   placeholder — exactly M-2's case; live re-trigger at the 16-minute
   stale threshold used as M-2's live verification (result below).
+- M-2 LIVE-VERIFIED on B10-gsn: the worker-kill-stranded pending
+  placeholder re-dispatched at the 16-minute stale threshold on the
+  next enrich and completed — IG grilldburgers|ok, sector restaurant
+  (Instagram path), exactly the recovery M-2 was built for.
+- Bonus find during close-out: ConnectionIdentityAliasTest and
+  HarvestAutoApplyTest were LATENTLY NETWORK-DEPENDENT — F9's
+  reconciler-dispatched ConnectFetchJob ran inline (sync driver) with
+  no Http::fake, enriching against the real youtube/bandcamp. They
+  passed while YouTube's feed served 200 and started failing during
+  today's RSS incident (this was also this morning's one-off suite
+  flake). Both files now Bus::fake the enrichment job — they pin
+  identity/verdict semantics, not enrichment — and dropped from
+  20s/9s to <1s.
+
+## Close-out (continuation 2)
+
+B-roster COMPLETE: B5–B10 verified on BOTH account types. New fixes
+this leg: M-10 (generic primaryType fallback + taxonomy body art/
+piercing + general_contractor from critic), M-11 (donut/doughnut),
+M-12a/b/c (origin CHECK violation killing applied connects +
+RoutingContext ORIGINS validation; projection-gated link-only socials;
+platform-website chrome-socials skip), M-13 (youtube feed retries ×4
+spaced), reset-test-user identity-residue wipe, !empty apify.keys log,
+two test files made hermetic. Three Sonnet critic passes (M-10;
+M-11/M-12; M-13), every REAL finding fixed in-run or explicitly
+accepted with reasons. M-14 recorded against the parked
+connect-only-platform-status plan, deliberately not decided.
+
+Final suite: 8,762 passed / 0 failed. Deploys verified (2436 clean).
+Final states: user-kvjm7i = Grill'd Southern Cross full business
+showcase (listing + IG/FB/TikTok + DoorDash + UberEats + 211 menu
+items + 22 media + 5 reviews + sector restaurant); gsnwilliams = same
+listing's partna cell (socials + media + reviews, no
+ordering/menu by capability, sector restaurant via Instagram). Both
+reset-ready via partna:reset-test-user.
