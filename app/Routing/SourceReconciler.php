@@ -51,6 +51,30 @@ class SourceReconciler
         $user = $context->user;
         $surface = CompiledCatalog::surface($placement->surfaceKey);
         $routingClass = (string) $surface['routing_class'];
+
+        // M-9 (matrix run 2, tashsultanamerch live): storefronts have a
+        // SINGLE WRITER — StoreBrandSeeder via the commerce lane — because a
+        // store is a storefront row + catalogue + fill + auto-select, not
+        // just a connection. A scan-lane Place on a shop surface (the
+        // myshopify tenant host projects straight here) used to bare-apply a
+        // 'pending' connection with none of that: no storefront, no
+        // products, nothing that ever syncs. Hand the URL to the commerce
+        // probe instead (root URLs auto-connect through the full lane, deep
+        // pages suggest per FI-10) and write no intent — the lane keeps its
+        // own books. Direct requests (paste) keep today's path:
+        // RoutingController already runs its own suggest-only probe. The
+        // commerce lane's OWN writes (origin commerce_probe) must pass
+        // through, or this arm intercepts the very writer it delegates to
+        // (SuggestionsInboxTest's accept flow caught exactly that).
+        if ($routingClass === 'shop' && $placement->verdict === Verdict::Place
+            && ! $context->isDirectRequest() && $context->origin !== 'commerce_probe') {
+            \App\Jobs\Platforms\CommerceProbeJob::dispatch(
+                (string) $user->id,
+                $iri->canonical ?? SecretParams::redactUrl($iri->raw) ?? '',
+            );
+
+            return $result;
+        }
         // redactUrl() itself now fails closed (returns '' on a PCRE engine
         // error), so this fallback is unreachable for a non-null $iri->raw —
         // but "unreachable today" is precisely the assumption that already

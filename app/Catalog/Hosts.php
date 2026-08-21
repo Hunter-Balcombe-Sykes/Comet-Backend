@@ -44,12 +44,25 @@ class Hosts
      *
      * @return list<string>
      */
+    /**
+     * The SHOP subset of the tenant suffixes below. LinkProbeWorker still
+     * probes these (M-9, 2026-08-21): the projector knows WHAT a tenant shop
+     * host is, but StoreBrandSeeder needs the storefront's own evidence
+     * (shop name, currency, origin) that only the probe fetches. Booking
+     * tenants keep the probe refusal — their seeders need no evidence.
+     *
+     * @var list<string>
+     */
+    public const SHOP_TENANT_SUFFIXES = [
+        'myshopify.com',
+        'square.site',
+        'bigcartel.com',
+    ];
+
     public static function suffixOverrides(): array
     {
         return [
-            'myshopify.com',
-            'square.site',
-            'bigcartel.com',
+            ...self::SHOP_TENANT_SUFFIXES,
             'nowbookit.com',
             'gettimely.com',
             'setmore.com',

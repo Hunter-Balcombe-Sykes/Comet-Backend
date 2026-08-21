@@ -205,6 +205,18 @@ class LinkProbeWorker
      */
     private function alreadyServable(Iri $iri): bool
     {
-        return $iri->tenantScoped;
+        if (! $iri->tenantScoped) {
+            return false;
+        }
+
+        // M-9 (matrix run 2, tashsultanamerch live): a SHOP tenant host
+        // (acme.myshopify.com) still probes. The projector already knows
+        // WHAT it is, but StoreBrandSeeder builds the brand row off the
+        // probe's evidence (shop name, currency, origin) — refusing here
+        // left every scan-discovered tenant store with no path to a
+        // storefront at all. Booking tenants keep the refusal: their
+        // seeders need no probe evidence, so re-confirming the detector
+        // really is pure waste there.
+        return ! in_array($iri->suffixParent, \App\Catalog\Hosts::SHOP_TENANT_SUFFIXES, true);
     }
 }
