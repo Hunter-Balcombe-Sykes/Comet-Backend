@@ -455,3 +455,19 @@ Rich, near-clean run; the deepest coverage of the roster so far:
   is bounded; local long-lived workers can pin — recycle on suspicion.
   Deploy 2436 verified clean post-push (Horizon up, /up 200, zero app
   error lines).
+
+### B8 Lune Croissanterie Fitzroy — both cells
+
+CLEAN both cells, first pass: IG lunecroissant connected via the GB
+website-scan harvest (12 IG media, 22 total), 5 review cards, workplace
+"Lune | Bakery", 2 honest link cards (their own thelune.co careers page
++ site link). The planted traps both passed: the LinkedIn ads pixel
+(px.ads.linkedin.com/collect/) and Meta pixel on the page minted
+nothing. biz sector bakery/google-business; gsn sector null and
+CORRECTLY so — Instagram labels Lune "Grocery & Convenience Stores",
+which maps to nothing, and null beats a wrong guess (contrast B7's
+designed 'artist' fallback). One forensic-only artifact: a blocked
+instagram intent (cap_reached, origin website_import) filed while the
+GB divert's connect placeholder still had no username — matchExisting
+couldn't fold, the placeholder counted toward the cap. Blocked rows are
+not user-visible; no fix warranted.
