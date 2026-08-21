@@ -126,19 +126,26 @@ class YoutubeScraper extends PlatformScraper
         $feedUrl = 'https://www.youtube.com/feeds/videos.xml?channel_id='.$channelId;
         $rss = $this->fetcher->tryFetch($feedUrl, $headers);
 
-        // M-13 (B7 live): the feed intermittently 404s for channels that
-        // verifiably exist — the id was resolved from the live channel page
-        // moments earlier, and the identical request served 200 on the other
-        // test account a minute later. On the auto-route path a terminal miss
-        // permanently drops the channel (ConnectFetchJob catches the
-        // exception, so job tries never engage, and F26 removes the
-        // never-fetched row with nobody watching a modal to retry). One
-        // re-request before giving up. Transport-level null deliberately does
-        // NOT retry: SafeUrlFetcher's null covers SSRF/DNS/timeout, where an
-        // immediate second attempt is noise. 304 is a healthy answer, not an
-        // error.
-        if (is_array($rss) && ! in_array($rss['status'], [200, 304], true)) {
-            usleep(500_000);
+        // M-13 (B7 live): the feed endpoint intermittently serves 404/500 for
+        // channels that verifiably exist — measured live 2026-08-21: three
+        // consecutive identical requests answered 500, 404, 200. On the
+        // auto-route path a terminal miss permanently drops the channel
+        // (ConnectFetchJob catches the exception, so job tries never engage,
+        // and F26 removes the never-fetched row with nobody watching a modal
+        // to retry). Up to two re-requests before giving up — the second
+        // spaced wider because back-to-back attempts land in the same flake
+        // window. Bounded costs: the interactive connect path (youtube isn't
+        // in PARTNA_CONNECT_DEFERRED, so this can run in-request) only pays
+        // the delay on FAILING attempts, and a permanently dead channel stops
+        // being refreshed at the consecutive-failures circuit breaker.
+        // Transport-level null deliberately does NOT retry: SafeUrlFetcher's
+        // null covers SSRF/DNS/timeout, where an immediate second attempt is
+        // noise. 304 is a healthy answer, not an error.
+        foreach ([500_000, 1_500_000] as $delay) {
+            if (! is_array($rss) || in_array($rss['status'], [200, 304], true)) {
+                break;
+            }
+            usleep($delay);
             $rss = $this->fetcher->tryFetch($feedUrl, $headers) ?? $rss;
         }
 
