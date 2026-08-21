@@ -201,6 +201,10 @@ final class SectorTaxonomy
         'cafe' => 'cafe',
         'coffee' => 'cafe',
         'bakery' => 'bakery',
+        // M-11 (B6 DOH live): "Donut Shop" classified to nothing, so a donut
+        // shop synced no sector and its food capabilities stayed dark.
+        'donut' => 'bakery',
+        'doughnut' => 'bakery',
         'food truck' => 'food-truck',
         'caterer' => 'caterer',
         'bar' => 'bar',

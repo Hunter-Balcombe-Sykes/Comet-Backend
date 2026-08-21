@@ -280,6 +280,72 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeFalse();
 });
 
+// ── M-12: socials from the contacts crawl must survive projection ────────────
+
+it('rejects a platform-chrome link scraped as a social instead of minting a fake profile', function () {
+    config(['services.apify.token' => 'apify-token']);
+    $item = gbApifyItem();
+    // The live B6 shape: Apify's contacts crawl of an Instagram-as-website
+    // page returned Meta's own docs link as the business's "facebook".
+    $item['facebooks'] = ['https://developers.facebook.com/docs/instagram'];
+    Http::fake(['api.apify.com/*' => Http::response([$item], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbApifyUser('gba20', sector: 'restaurant');
+    gbApifyConnection($user);
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
+
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
+    // The other socials still seed — one bad URL never blocks the rest.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'tiktok')->exists())->toBeTrue();
+});
+
+it('still seeds a legacy facebook pages URL via the normalizer fallback', function () {
+    config(['services.apify.token' => 'apify-token']);
+    $item = gbApifyItem();
+    $item['facebooks'] = ['https://www.facebook.com/pages/Fade-Lab/123456789'];
+    Http::fake(['api.apify.com/*' => Http::response([$item], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbApifyUser('gba21', sector: 'restaurant');
+    gbApifyConnection($user);
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
+
+    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
+    expect($fb['username'])->toBe('Fade-Lab');
+});
+
+it('skips every contacts-crawl social when the listing website is itself a platform page', function () {
+    config(['services.apify.token' => 'apify-token']);
+    $item = gbApifyItem();  // carries real-looking facebook/tiktok/instagram
+    Http::fake(['api.apify.com/*' => Http::response([$item], 201)]);
+    Bus::fake([InstagramConnectJob::class]);
+    $user = gbApifyUser('gba22', sector: 'restaurant');
+    $conn = gbApifyConnection($user);
+    // B6 DOH live: Google's "website" is the business's Instagram profile —
+    // Apify's contacts crawl therefore crawled instagram.com, and everything
+    // it "found" is platform chrome, not the business's accounts.
+    $conn->payload = [...$conn->payload, 'website' => 'https://www.instagram.com/doh.melbourne'];
+    $conn->save();
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
+
+    foreach (['facebook', 'tiktok'] as $platform) {
+        expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $platform)->exists())
+            ->toBeFalse("expected no {$platform} connection from platform-chrome socials");
+    }
+
+    // The Instagram connection is the one legitimate outcome — it comes from
+    // the WEBSITE divert (the business naming its own profile as their site,
+    // routed through the engine with the ledger-accepted origin), never from
+    // the chrome socials that were skipped above.
+    $ig = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->first();
+    expect($ig)->not->toBeNull();
+});
+
 it('consolidates same-store pickup and delivery ordering providers into one row', function () {
     Bus::fake();
     // Online-ordering is food-business-only (2026-07-15 sector gating).

@@ -47,6 +47,9 @@ it('classifies a representative input for every KEYWORD_SECTORS entry to its int
     // the primary type is a generic bucket (Vic Market Tattoo live shape).
     'body art' => ['Body art service', 'tattoo-artist'],
     'piercing' => ['Piercing shop', 'tattoo-artist'],
+    // M-11: DOH (B6 live) — "Donut Shop" synced no sector at all.
+    'donut' => ['Donut Shop', 'bakery'],
+    'doughnut' => ['Doughnut Shop', 'bakery'],
     'gym' => ['Gym', 'gym'],
     'fitness' => ['Fitness center', 'gym'],
     'yoga' => ['Yoga studio', 'yoga-instructor'],
@@ -113,7 +116,7 @@ it('has one representative input for every KEYWORD_SECTORS entry', function () {
         'consultant', 'clothing', 'florist', 'flower', 'jewel', 'gift shop', 'plumber',
         'electrician', 'clean', 'landscap', 'hotel', 'event venue', 'event planner', 'wedding',
         'car repair', 'auto repair', 'mechanic', 'car wash', 'car dealer', 'tutor',
-        'dance school', 'dance', 'driving school', 'restaurant', 'cafe', 'coffee', 'bakery',
+        'dance school', 'dance', 'driving school', 'restaurant', 'cafe', 'coffee', 'bakery', 'donut', 'doughnut',
         'food truck', 'caterer', 'bar',
     ];
 

@@ -120,7 +120,23 @@ class GoogleBusinessAutoSync
         // stay capability-gated (food business only — see can_use_* above),
         // which is what google_business_full_sync now means.
         $this->seedWorkplace($userId, $gbPayload ?? []);
-        $findings = [...$findings, ...$this->seedSocials($userId, $enrichment, $autoConnectBooking)];
+
+        // M-12 (B6 DOH live): when the listing's "website" IS a platform page
+        // (DOH lists their Instagram profile as the website), the Apify
+        // contacts add-on crawled THAT page — so its socials are the
+        // platform's own chrome links (developers.facebook.com/docs/… seeded
+        // facebook username "docs"), not the business's accounts. The divert
+        // in seedWorkplace() already routes the website itself through the
+        // engine; chrome socials are dropped wholesale.
+        $website = $this->safeUrl(data_get($gbPayload ?? [], 'website'));
+        if ($website !== null && app(PreviousWebsiteGate::class)->isPlatformUrl($website)) {
+            Log::info('google_business.socials_skipped_platform_website', [
+                'user_id' => $userId,
+                'host' => parse_url($website, PHP_URL_HOST),
+            ]);
+        } else {
+            $findings = [...$findings, ...$this->seedSocials($userId, $enrichment, $autoConnectBooking)];
+        }
 
         if (! $capabilities->google_business_full_sync) {
             return $findings;
@@ -423,7 +439,12 @@ class GoogleBusinessAutoSync
                 if ($gate->isPlatformUrl($website)) {
                     $owner = User::query()->find($userId);
                     if ($owner !== null) {
-                        $gate->divert($owner, $website, 'google_business_website');
+                        // Origin 'google_business', NOT a bespoke string: the
+                        // routing.* CHECK constraints only accept the
+                        // RoutingContext::ORIGINS set, and the bespoke
+                        // 'google_business_website' rolled back the applied
+                        // Instagram connect it was diverting (M-12, B6 live).
+                        $gate->divert($owner, $website, 'google_business');
                     }
                     $website = null;
                 }
@@ -724,6 +745,7 @@ class GoogleBusinessAutoSync
         $findings = [];
         $linkOnly = ['facebook' => 'Facebook', 'tiktok' => 'TikTok', 'twitter' => 'X', 'linkedin' => 'LinkedIn'];
         $platformOf = ['facebook' => 'facebook', 'tiktok' => 'tiktok', 'twitter' => 'x', 'linkedin' => 'linkedin'];
+        $surfaceOf = ['facebook' => 'facebook.profile', 'tiktok' => 'tiktok.profile', 'twitter' => 'x.profile', 'linkedin' => 'linkedin.profile'];
         foreach ($linkOnly as $socialKey => $label) {
             try {
                 $url = $this->safeUrl(data_get($socials, $socialKey));
@@ -731,7 +753,35 @@ class GoogleBusinessAutoSync
                     continue;
                 }
                 $platform = $platformOf[$socialKey];
-                $payload = ['username' => $this->socialUsername($platform, $url), 'url' => $url, 'source' => 'google-business'];
+
+                // G4-4, extended to every link-only social (M-12, B6 live):
+                // only a URL the catalog projects as this platform's PROFILE
+                // surface seeds a connection — the projector rejects foreign
+                // subdomains (developers.facebook.com/docs/… scraped off an
+                // Instagram-as-website page seeded facebook username "docs")
+                // and reserved segments. Facebook keeps a normalizer fallback
+                // for the legacy shapes the catalog doesn't model
+                // (/pages/<Name>/<id>, profile.php?id=), but only on
+                // facebook.com / fb.com hosts proper.
+                $projection = $this->projector->project($this->canonicalizer->canonicalize($url));
+                $username = null;
+                if ($projection->surfaceKey === $surfaceOf[$socialKey]
+                    && is_string($projection->identifier) && $projection->identifier !== '') {
+                    $username = $projection->identifier;
+                } elseif ($socialKey === 'facebook' && $this->isCanonicalFacebookHost($url)) {
+                    $username = $this->socialUsername('facebook', $url);
+                }
+                if ($username === null || $username === '') {
+                    Log::info('google_business.social_rejected', [
+                        'user_id' => $userId,
+                        'platform' => $platform,
+                        'host' => parse_url($url, PHP_URL_HOST),
+                    ]);
+
+                    continue;
+                }
+
+                $payload = ['username' => $username, 'url' => $url, 'source' => 'google-business'];
                 $write = ['platform' => $platform, 'resourceId' => $platform, 'payload' => $payload];
 
                 if ($this->has($userId, $platform)) {
@@ -920,6 +970,20 @@ class GoogleBusinessAutoSync
         }
 
         return $q->exists();
+    }
+
+    /**
+     * The hosts FacebookNormalizer's legacy-shape fallback may run against.
+     * The normalizer's regex matches ANY *.facebook.com substring, which is
+     * how developers.facebook.com/docs/instagram parsed to username "docs"
+     * (M-12) — so the fallback is host-gated here instead of trusting it.
+     */
+    private function isCanonicalFacebookHost(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $host = (string) preg_replace('/^(www\.|m\.)/', '', $host);
+
+        return in_array($host, ['facebook.com', 'fb.com', 'l.facebook.com', 'lm.facebook.com'], true);
     }
 
     /** Best-effort handle from a canonical social profile URL ('' when none). */

@@ -362,3 +362,51 @@ resumed, both cells per item.
   sector fold is business-only by design, decision 12). Zero link/social
   cards is ground-truth-correct: the listing's website is dead (402) and
   Google exposes no booking/social for it.
+
+### B6 DOH - Daily Oven Heaven — both cells
+
+First pass surfaced THREE real bugs (the listing's "website" is the
+business's own Instagram profile URL — a shape no roster item had hit):
+
+- **M-12a** (fixed): seedWorkplace's platform-URL divert passed origin
+  'google_business_website' to the router. The routing.* CHECK
+  constraints reject it, so the intent INSERT blew up INSIDE the
+  LIFE-16 single-transaction apply — the router had already decided to
+  connect instagram.profile doh.melbourne, and the ledger write rolled
+  it back. Both cells lost their Instagram. Fix: origin
+  'google_business'; and RoutingContext now carries the canonical
+  ORIGINS const and THROWS on an unlisted origin at construction, so
+  this class dies loudly at the call site (SQLite tests can't see the
+  Postgres CHECKs — now they don't need to).
+- **M-12b** (fixed): the Apify contacts crawl (which crawls the
+  "website" — i.e. instagram.com) returned Meta's own chrome link
+  developers.facebook.com/docs/instagram as the business's facebook,
+  and seedSocials' link-only arm minted facebook.profile username
+  "docs" on both cells. FacebookNormalizer's regex matches ANY
+  *.facebook.com substring. Fix: every link-only social must project to
+  its platform's profile surface (the projector rejects foreign
+  subdomains + reserved segments); facebook keeps a normalizer fallback
+  for legacy /pages//profile.php shapes, host-gated to facebook.com
+  proper.
+- **M-12c** (fixed): even a plausible-looking social scraped off a
+  platform-page website is the platform's chrome, not the business's.
+  When the website isPlatformUrl, seedSocials is skipped wholesale —
+  the divert already routes the website itself through the engine.
+- **M-11** (fixed): "Donut Shop" classified to no sector → food
+  capabilities dark. Taxonomy gains donut/doughnut → bakery.
+
+Full suite after the batch: 8,761 passed / 0 failed. Live retry of both
+cells in flight.
+- M-11/M-12 critic pass (Sonnet, adversarial): all four fixes cleared.
+  One REAL-minor accepted narrowing: deep-linked socials
+  (tiktok.com/@x/video/123) now reject instead of guessing the parent
+  handle — safer for auto-seeding (the old regex also minted username
+  "intent" from x.com/intent/follow); Google contact fields are
+  near-always root URLs. Critic verified M-12c's Linktree worry is
+  moot: link-in-bio websites take the pre-existing
+  GoogleBusinessEnrichJob→LinkInBioScanJob unroll BEFORE seed() runs.
+  Critic reverted each fix to prove every new test bites.
+- B6 retry verdict: CLEAN both cells. IG doh.melbourne connected + 12
+  IG media (22 total), zero ghost socials; biz sector
+  bakery/google-business and the food chain lit end-to-end (9
+  menu_items scanned); gsn correctly sectorless/menuless (partna).
