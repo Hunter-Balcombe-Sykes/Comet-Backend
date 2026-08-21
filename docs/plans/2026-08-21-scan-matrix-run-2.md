@@ -443,3 +443,15 @@ Rich, near-clean run; the deepest coverage of the roster so far:
   what docs/plans/2026-08-20-connect-only-platform-status.md exists to
   decide (owner parked it); recording the live reproduction here and
   leaving the decision there.
+- B7 close-out: biz cell finally CLEAN after four reruns — the youtube
+  RSS endpoint was serving ~50% 404/500 all afternoon (measured:
+  consecutive identical requests answered 500,404,200), and the
+  decisive variable was WORKER PROCESS AGE: a long-lived queue worker
+  failed 12/12 fetches across four runs (per-process connection/TLS
+  affinity to a bad YouTube edge) while freshly-spawned workers and
+  ad-hoc processes succeeded ~50%. Fresh workers + the M-13 retries
+  connected it first try (15 videos after the ingest tick). Ops note:
+  prod Horizon recycles workers routinely, so the affinity window there
+  is bounded; local long-lived workers can pin — recycle on suspicion.
+  Deploy 2436 verified clean post-push (Horizon up, /up 200, zero app
+  error lines).
