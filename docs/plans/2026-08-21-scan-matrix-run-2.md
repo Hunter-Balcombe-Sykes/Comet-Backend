@@ -471,3 +471,12 @@ instagram intent (cap_reached, origin website_import) filed while the
 GB divert's connect placeholder still had no username — matchExisting
 couldn't fold, the placeholder counted toward the cap. Blocked rows are
 not user-visible; no fix warranted.
+
+### B9 Aurora Spa Retreat — both cells
+
+CLOSED_PERMANENTLY edge case, CLEAN both cells: connect succeeds,
+businessStatus stored honestly, workplace "Aurora Spa | Spa" seeded,
+biz sector spa/google-business, and zero cards — which is
+ground-truth-faithful, since Google suppresses photos/reviews/rating on
+permanently-closed listings (payload confirms 0/0/null). Nothing
+fabricated, nothing crashed.
