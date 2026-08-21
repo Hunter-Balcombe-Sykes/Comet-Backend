@@ -480,3 +480,25 @@ biz sector spa/google-business, and zero cards — which is
 ground-truth-faithful, since Google suppresses photos/reviews/rating on
 permanently-closed listings (payload confirms 0/0/null). Nothing
 fabricated, nothing crashed.
+
+### B10 Grill'd Burgers Southern Cross — both cells
+
+Richest cell of the roster on the business side: listing + IG
+grilldburgers + facebook GrilldBurgers + tiktok grilldburgers (chain
+socials from the franchise page — legitimately the business's own) +
+DoorDash AND UberEats ordering connections + sector
+restaurant/google-business + 211 menu items (UberEats 137-item catalog
++ DoorDash 129 consolidated) + 22 media + 5 reviews. Partna cell
+correctly gets NO ordering/menu (capability-gated) with media+reviews+
+socials. The !empty apify.keys fix is visible working (B10 logged
+present: menu,instagrams,facebooks — real keys only).
+
+Two environment artifacts, both with designed recoveries:
+- A WarmPublicSiteCacheJob timeout killed a worker mid-ingest, leaving
+  ingest sources "in flight" — locally permanent because the local rig
+  runs no scheduler, so releaseStranded()'s 2h backstop never fires
+  (prod cron runs it). Released manually; media/review/menu items built
+  on the very next tick.
+- The same kill took gsn's InstagramConnectJob, stranding the pending
+  placeholder — exactly M-2's case; live re-trigger at the 16-minute
+  stale threshold used as M-2's live verification (result below).
