@@ -175,10 +175,11 @@ it('logs a discriminating reason when the uploads-feed fetch fails at transport 
             && $ctx['reason'] === 'fetch_null');
 });
 
-it('logs a discriminating reason when the uploads feed responds non-200', function () {
+it('logs a discriminating reason when the uploads feed responds non-200 on both attempts', function () {
     Log::spy();
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('tryFetch')->once()->andReturn([
+    // M-13: an explicit non-200 gets ONE re-request before giving up.
+    $fetcher->shouldReceive('tryFetch')->twice()->andReturn([
         'status' => 500, 'body' => '', 'finalUrl' => 'https://www.youtube.com/feeds/videos.xml', 'contentType' => 'application/xml',
         'etag' => null, 'lastModified' => null,
     ]);
@@ -191,6 +192,34 @@ it('logs a discriminating reason when the uploads feed responds non-200', functi
         ->withArgs(fn (string $message, array $ctx) => $message === 'youtube.uploads_feed_failed'
             && $ctx['channelId'] === 'UCabcdefghijklmnopqrstuv'
             && $ctx['reason'] === 'non_200:500');
+});
+
+// M-13 (B7 live): the feed 404'd for a channel whose id had JUST been
+// resolved from its live channel page — and the identical request served 200
+// on the other test account a minute later. On the auto-route path a
+// terminal miss here permanently drops the channel (F26 removes the row and
+// nobody is watching a modal to retry), so a transient non-200 gets exactly
+// one re-request. Transport-level null does NOT retry — SafeUrlFetcher's
+// null covers SSRF/DNS/timeout, where an immediate second attempt is noise.
+it('recovers the uploads feed when a transient 404 clears on the single retry', function () {
+    Log::spy();
+    $rss = '<feed><author><name>Flowers Vasette</name></author><title>Flowers Vasette</title>'
+        .'<entry><yt:videoId>abc123def45</yt:videoId><title>Bouquet</title>'
+        .'<media:description>d</media:description><published>2026-08-01T00:00:00+00:00</published></entry></feed>';
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')->twice()->andReturn(
+        ['status' => 404, 'body' => '', 'finalUrl' => 'https://www.youtube.com/feeds/videos.xml', 'contentType' => 'application/xml', 'etag' => null, 'lastModified' => null],
+        ['status' => 200, 'body' => $rss, 'finalUrl' => 'https://www.youtube.com/feeds/videos.xml', 'contentType' => 'application/xml', 'etag' => null, 'lastModified' => null],
+    );
+    $thumbnails = Mockery::mock(YoutubeThumbnailResolver::class);
+    $thumbnails->shouldReceive('bestForMany')->andReturn(['abc123def45' => 'https://i.ytimg.com/vi/abc123def45/hqdefault.jpg']);
+
+    $result = (new YoutubeScraper($fetcher, $thumbnails))->fetchUploadsFeed('UCabcdefghijklmnopqrstuv');
+
+    expect($result)->not->toBeNull();
+    expect($result['title'])->toBe('Flowers Vasette');
+    expect($result['videos'][0]['videoId'])->toBe('abc123def45');
+    Log::shouldNotHaveReceived('warning');
 });
 
 it('stays silent on a 304 Not Modified — a normal outcome on every healthy poll, not a failure', function () {

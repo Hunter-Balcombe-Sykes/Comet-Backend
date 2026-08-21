@@ -410,3 +410,36 @@ cells in flight.
   IG media (22 total), zero ghost socials; biz sector
   bakery/google-business and the food chain lit end-to-end (9
   menu_items scanned); gsn correctly sectorless/menuless (partna).
+
+### B7 Flowers Vasette — both cells
+
+Rich, near-clean run; the deepest coverage of the roster so far:
+
+- Both cells: listing + IG flowersvasette (12 media) + facebook
+  flowersvasette1989 + linkedin flowers-vasette from the WEBSITE harvest
+  lane — and the Meta tracking-pixel URL facebook.com/tr on the page
+  correctly did NOT mint a ghost. Woo storefront correctly filed as a
+  QUESTION (woocommerce.store flowersvasette-com-au proposed) with the
+  probed product "Daffodils En Masse" carded via the relational product
+  lane — the T9b product-lands/store-asks doctrine end-to-end on a real
+  WooCommerce florist.
+- biz sector florist/google-business ✓. gsn sector artist/instagram:
+  the IG account self-labels businessCategory "Artist"; handle/display
+  ('flowersvasette') contains 'flower' but the vetted run-together map
+  deliberately excludes it (surname Flowers / mayflower, clause 2), so
+  the last-resort ambiguous-artist guess fired as designed. Accepted
+  miss, correctable by the ladder.
+- **M-13** (fixed): biz cell lost its youtube.channel to a TRANSIENT
+  uploads-feed 404 (gsn fetched the same channel fine a minute later,
+  15 videos). ConnectFetchJob catches Fetch* exceptions (so job tries
+  never engage) and F26 removes the never-fetched row — correct for a
+  watched modal, permanent loss on the auto path. Fix: YoutubeScraper
+  re-requests the feed exactly once on an explicit non-200 (null
+  transport and 304 deliberately don't retry).
+- **M-14** (ledgered, NOT fixed — parked-plan territory): tiktok.profile
+  is connect-only (no fetch capability in the catalog), but
+  SourceReconciler:492 stamps every applied content connection
+  'pending' — a fetchless row reads "Syncing" forever. This is exactly
+  what docs/plans/2026-08-20-connect-only-platform-status.md exists to
+  decide (owner parked it); recording the live reproduction here and
+  leaving the decision there.
