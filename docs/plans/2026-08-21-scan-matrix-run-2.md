@@ -310,3 +310,55 @@ Final account states: user-kvjm7i = thejunglegiants full music showcase
 releases/10 tracks/18 videos, merch store proposed, @triplej correctly
 proposed, mis-cased duplicate superseded); gsnwilliams = peachprc (IG +
 12 media + 3 cards). Both reset-ready via partna:reset-test-user.
+
+## Continuation 2 (2026-08-21 midday — Places recovered)
+
+Places came back (HTTP 200 on the B5 probe ~12:40 AEST; the outage was
+Google-side, quotas confirmed ~0% in the owner's console). B-roster
+resumed, both cells per item.
+
+### B5 Vic Market Tattoo — both cells
+
+- Listing connects FULLY now (rating 4.8, website, 10 media + 5 reviews,
+  5 review cards, workplace seeded) on business AND partna cells,
+  identically.
+- Website `vicmarkettattoo.com` returns **HTTP 402 from the site
+  itself** (frozen Shopify store — subscription lapsed). The website
+  scan's empty bail with status 402 logged is CORRECT behaviour; ditto
+  the Apify contacts add-on returning `instagrams: []` (it crawls the
+  business website, which is dead). No socials/booking on the listing →
+  nothing to route. Not a code bug.
+- **M-10** (real bug, fixed): Google marks this tattoo shop
+  `primaryType: "store"` / display "Store" while `types[]` leads with
+  `body_art_service`. We copied "Store" verbatim → workplace card said
+  "Store" and `SectorTaxonomy::fromGoogleCategory('Store')` = null → no
+  sector sync → capability set stayed default. Fix:
+  `GoogleBusinessService` now also requests `primaryType,types` (free —
+  the mask already carries Enterprise+Atmosphere fields) and
+  `categoryFrom()` falls past a GENERIC_PLACE_TYPES primary to the first
+  specific `types[]` entry, humanized ("Body art service"); taxonomy
+  gains `body art`/`piercing` → tattoo-artist. Live re-verified: both
+  cells now store category "Body art service".
+- Log fix alongside: `google_business.apify.keys` 'present' list now
+  uses `!empty()` — the actor returns scraped-nothing keys as `[]`, and
+  isset() logging them as present sent this diagnosis chasing a mapping
+  bug that wasn't there.
+- M-10 critic pass (Sonnet): 3 real findings, all fixed in-run —
+  `general_contractor` added to GENERIC_PLACE_TYPES (same bug class for
+  trades: an electrician primary-typed general_contractor would never
+  sector-sync), types[]-order heuristic documented at the fallback, and
+  the three stale "category = primaryTypeDisplayName verbatim" docblocks
+  updated. Cleared: SKU/billing (mask already Enterprise+Atmosphere),
+  keyword collisions, !empty log change.
+- Second real find while verifying: `partna:reset-test-user` never
+  cleared synced identity on core.users — gsn carried sector
+  "barber"/google-business through four resets (read as a gate leak
+  before tracing). Reset now nulls public_contact_number always and
+  sector/sector_source when not 'manual'. Verified: gsn sector null
+  after reset.
+- B5 verdict: CLEAN both cells. biz = listing + 10 media + 5 review
+  cards + workplace "Vic Market | Body art service" + sector
+  tattoo-artist (google-business). partna = same minus sector (Google
+  sector fold is business-only by design, decision 12). Zero link/social
+  cards is ground-truth-correct: the listing's website is dead (402) and
+  Google exposes no booking/social for it.

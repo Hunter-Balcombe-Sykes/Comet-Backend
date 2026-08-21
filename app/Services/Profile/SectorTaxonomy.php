@@ -154,6 +154,10 @@ final class SectorTaxonomy
         'make-up' => 'makeup-artist',
         'spa' => 'spa',
         'tattoo' => 'tattoo-artist',
+        // M-10: "Body art service" is what body_art_service humanizes to when
+        // Google marks a tattoo shop's primary type as the generic "store".
+        'body art' => 'tattoo-artist',
+        'piercing' => 'tattoo-artist',
         'gym' => 'gym',
         'fitness' => 'gym',
         'yoga' => 'yoga-instructor',
@@ -546,8 +550,10 @@ final class SectorTaxonomy
     }
 
     /**
-     * Map a raw Google Business category (Places `primaryTypeDisplayName`, e.g.
-     * "Italian restaurant", "Barber shop") to the closest curated sector slug
+     * Map a raw Google Business category (the payload's `category` — Places
+     * `primaryTypeDisplayName`, or a humanized types[] entry when the primary
+     * is generic (M-10), e.g. "Italian restaurant", "Barber shop", "Body art
+     * service") to the closest curated sector slug
      * via the shared ordered-keyword classifier. Null when nothing matches or
      * the input is empty — callers leave the stored sector untouched on null.
      */
@@ -700,7 +706,8 @@ final class SectorTaxonomy
      *
      * Boundary matching is safe here and NOT in classifyText because the two
      * scan different kinds of string. This map is scanned against spaced,
-     * human-readable category names — Google's primaryTypeDisplayName,
+     * human-readable category names — Google's primaryTypeDisplayName (or a
+     * humanized types[] entry when the primary is generic, M-10),
      * Instagram's businessCategoryName — where every keyword that is really
      * present starts a word. classifyText scans run-together handles, where
      * anchoring would lose the matches it exists to catch ('\btattoo' misses

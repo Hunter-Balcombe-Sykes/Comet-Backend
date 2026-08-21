@@ -153,6 +153,69 @@ it('enriches a picker connect with the place details snapshot', function () {
     expect($res->json('streetView.panoId'))->toBe('pano123');
 });
 
+// ── M-10: generic primaryType must not mask a specific types[] entry ─────────
+
+it('falls back to the most specific place type when the primary type is a generic bucket', function () {
+    config(['services.google_maps.server_api_key' => 'server-key']);
+    $response = gbPlaceDetailsResponse();
+    // Vic Market Tattoo live shape (2026-08-21): Google marks the tattoo shop
+    // primaryType "store" while types[] leads with body_art_service.
+    $response['primaryType'] = 'store';
+    $response['primaryTypeDisplayName'] = ['text' => 'Store'];
+    $response['types'] = ['body_art_service', 'service', 'store', 'point_of_interest', 'establishment'];
+    Http::fake([
+        'places.googleapis.com/v1/places/*/photos/*' => Http::response(['photoUri' => 'https://lh3.example/resolved.jpg']),
+        'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response(['status' => 'ZERO_RESULTS']),
+        'places.googleapis.com/*' => Http::response($response),
+    ]);
+    $user = gbDetailsUser('gbd10');
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJtest', 'name' => 'Vic Market Tattoo', 'lat' => -37.8, 'lng' => 144.95,
+    ])
+        ->assertOk()
+        ->assertJsonPath('category', 'Body art service');
+});
+
+it('keeps the generic display name when every type is generic', function () {
+    config(['services.google_maps.server_api_key' => 'server-key']);
+    $response = gbPlaceDetailsResponse();
+    $response['primaryType'] = 'store';
+    $response['primaryTypeDisplayName'] = ['text' => 'Store'];
+    $response['types'] = ['store', 'point_of_interest', 'establishment'];
+    Http::fake([
+        'places.googleapis.com/v1/places/*/photos/*' => Http::response(['photoUri' => 'https://lh3.example/resolved.jpg']),
+        'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response(['status' => 'ZERO_RESULTS']),
+        'places.googleapis.com/*' => Http::response($response),
+    ]);
+    $user = gbDetailsUser('gbd11');
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJtest', 'name' => 'Some Shop', 'lat' => -37.8, 'lng' => 144.95,
+    ])
+        ->assertOk()
+        ->assertJsonPath('category', 'Store');
+});
+
+it('keeps a specific primary type display name untouched', function () {
+    config(['services.google_maps.server_api_key' => 'server-key']);
+    $response = gbPlaceDetailsResponse();
+    $response['primaryType'] = 'barber_shop';
+    $response['types'] = ['barber_shop', 'hair_care', 'store', 'establishment'];
+    Http::fake([
+        'places.googleapis.com/v1/places/*/photos/*' => Http::response(['photoUri' => 'https://lh3.example/resolved.jpg']),
+        'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response(['status' => 'ZERO_RESULTS']),
+        'places.googleapis.com/*' => Http::response($response),
+    ]);
+    $user = gbDetailsUser('gbd12');
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJtest', 'name' => 'Fade Lab', 'lat' => -37.8, 'lng' => 144.95,
+    ])
+        ->assertOk()
+        ->assertJsonPath('category', 'Barber shop');
+});
+
 it('keeps the plain picker selection when no server key is configured', function () {
     config(['services.google_maps.server_api_key' => null]);
     Http::fake();

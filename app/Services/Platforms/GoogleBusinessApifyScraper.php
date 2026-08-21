@@ -93,16 +93,20 @@ class GoogleBusinessApifyScraper extends PlatformScraper
         Log::info('google_business.apify.keys', [
             'place_id' => $placeId,
             'user_id' => $userId,
+            // !empty, not isset — the actor returns keys it scraped nothing
+            // for as [] (a dead business website makes instagrams: []), and
+            // logging those as "present" sent a live diagnosis chasing a
+            // mapping bug that wasn't there (B5, 2026-08-21).
             'present' => array_values(array_filter([
-                isset($place['menu']) ? 'menu' : null,
-                isset($place['reserveTableUrl']) ? 'reserveTableUrl' : null,
-                isset($place['tableReservationLinks']) ? 'tableReservationLinks' : null,
+                ! empty($place['menu']) ? 'menu' : null,
+                ! empty($place['reserveTableUrl']) ? 'reserveTableUrl' : null,
+                ! empty($place['tableReservationLinks']) ? 'tableReservationLinks' : null,
                 data_get($place, 'restaurantData.tableReservationProvider') ? 'tableReservationProvider' : null,
-                isset($place['googleFoodUrl']) ? 'googleFoodUrl' : null,
-                isset($place['orderBy']) ? 'orderBy' : null,
-                isset($place['bookingLinks']) ? 'bookingLinks' : null,
-                isset($place['instagrams']) ? 'instagrams' : null,
-                isset($place['facebooks']) ? 'facebooks' : null,
+                ! empty($place['googleFoodUrl']) ? 'googleFoodUrl' : null,
+                ! empty($place['orderBy']) ? 'orderBy' : null,
+                ! empty($place['bookingLinks']) ? 'bookingLinks' : null,
+                ! empty($place['instagrams']) ? 'instagrams' : null,
+                ! empty($place['facebooks']) ? 'facebooks' : null,
             ])),
         ]);
 

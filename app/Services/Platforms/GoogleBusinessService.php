@@ -171,7 +171,7 @@ class GoogleBusinessService extends PlatformScraper
     // place per refresh. Field additions here must also be mapped in
     // mapDetails() and allowlisted in PublicIntegrationConnectionResource if
     // they should reach the sitepage.
-    private const DETAILS_FIELD_MASK = 'id,displayName,formattedAddress,location,businessStatus,primaryTypeDisplayName,googleMapsUri,googleMapsLinks,utcOffsetMinutes,rating,userRatingCount,nationalPhoneNumber,internationalPhoneNumber,websiteUri,regularOpeningHours,currentOpeningHours,postalAddress,priceLevel,priceRange,photos,reviews,reviewSummary,editorialSummary,accessibilityOptions,parkingOptions,paymentOptions,outdoorSeating,reservable,delivery,takeout,dineIn,curbsidePickup,goodForChildren,goodForGroups,allowsDogs,restroom,liveMusic,servesCoffee,servesBreakfast,servesBrunch,servesLunch,servesDinner,servesDessert,servesVegetarianFood,servesBeer,servesWine,servesCocktails';
+    private const DETAILS_FIELD_MASK = 'id,displayName,formattedAddress,location,businessStatus,primaryTypeDisplayName,primaryType,types,googleMapsUri,googleMapsLinks,utcOffsetMinutes,rating,userRatingCount,nationalPhoneNumber,internationalPhoneNumber,websiteUri,regularOpeningHours,currentOpeningHours,postalAddress,priceLevel,priceRange,photos,reviews,reviewSummary,editorialSummary,accessibilityOptions,parkingOptions,paymentOptions,outdoorSeating,reservable,delivery,takeout,dineIn,curbsidePickup,goodForChildren,goodForGroups,allowsDogs,restroom,liveMusic,servesCoffee,servesBreakfast,servesBrunch,servesLunch,servesDinner,servesDessert,servesVegetarianFood,servesBeer,servesWine,servesCocktails';
 
     // Shape of a Places photo resource name, which resolvePhotoUrls() splices
     // into the media URL. Anything else is refused before it can carry path or
@@ -483,7 +483,7 @@ class GoogleBusinessService extends PlatformScraper
             // The canonical Maps URI beats the search deep link stored at connect.
             'url' => data_get($place, 'googleMapsUri'),
             'businessStatus' => data_get($place, 'businessStatus'),
-            'category' => data_get($place, 'primaryTypeDisplayName.text'),
+            'category' => $this->categoryFrom($place),
             'phone' => data_get($place, 'nationalPhoneNumber'),
             'phoneIntl' => data_get($place, 'internationalPhoneNumber'),
             'website' => data_get($place, 'websiteUri'),
@@ -519,6 +519,53 @@ class GoogleBusinessService extends PlatformScraper
         $mapped['detailsFetchedAt'] = now()->toIso8601String();
 
         return $mapped;
+    }
+
+    /**
+     * Types so broad they say nothing about what the business IS. Google
+     * happily marks a tattoo shop primaryType "store" (Vic Market Tattoo,
+     * M-10 live shape) while types[] carries body_art_service — so a generic
+     * primary yields to the most specific types[] entry, humanized from
+     * snake_case. The display name still wins whenever the primary type is
+     * specific, because Google's own label ("Barber shop") reads better than
+     * anything derived.
+     *
+     * @var list<string>
+     */
+    private const GENERIC_PLACE_TYPES = [
+        'store', 'service', 'establishment', 'point_of_interest',
+        'food', 'health', 'place_of_worship', 'finance',
+        // Same bug class for trades (critic, 2026-08-21): an electrician
+        // marked primaryType general_contractor would keep the useless
+        // "General contractor" label and never sector-sync while types[]
+        // carries `electrician`. Google files it under the broad Table B
+        // set; store/service above are formally Table A but behave generic
+        // in the wild (Vic Market Tattoo).
+        'general_contractor',
+    ];
+
+    /** @param array<string,mixed> $place */
+    private function categoryFrom(array $place): ?string
+    {
+        $display = data_get($place, 'primaryTypeDisplayName.text');
+        $primary = data_get($place, 'primaryType');
+
+        if (is_string($display) && $display !== ''
+            && ! in_array($primary, self::GENERIC_PLACE_TYPES, true)) {
+            return $display;
+        }
+
+        // Google documents no ordering for types[]; empirically the specific
+        // trade leads. First-non-generic is a heuristic with no tiebreak — a
+        // listing carrying two specific types takes whichever Google put
+        // first, which is still strictly better than the generic label.
+        foreach ((array) data_get($place, 'types') as $type) {
+            if (is_string($type) && $type !== '' && ! in_array($type, self::GENERIC_PLACE_TYPES, true)) {
+                return ucfirst(str_replace('_', ' ', $type));
+            }
+        }
+
+        return is_string($display) && $display !== '' ? $display : null;
     }
 
     /**

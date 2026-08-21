@@ -43,6 +43,10 @@ it('classifies a representative input for every KEYWORD_SECTORS entry to its int
     'make-up' => ['Make-up studio', 'makeup-artist'],
     'spa' => ['Day spa', 'spa'],
     'tattoo' => ['Tattoo studio', 'tattoo-artist'],
+    // M-10: Google's snake_case type body_art_service humanizes to this when
+    // the primary type is a generic bucket (Vic Market Tattoo live shape).
+    'body art' => ['Body art service', 'tattoo-artist'],
+    'piercing' => ['Piercing shop', 'tattoo-artist'],
     'gym' => ['Gym', 'gym'],
     'fitness' => ['Fitness center', 'gym'],
     'yoga' => ['Yoga studio', 'yoga-instructor'],
@@ -103,7 +107,7 @@ it('has one representative input for every KEYWORD_SECTORS entry', function () {
 
     // The dataset keys of the representative table are the keyword names.
     $covered = [
-        'barber', 'hair', 'nail', 'makeup', 'make-up', 'spa', 'tattoo', 'gym', 'fitness', 'yoga',
+        'barber', 'hair', 'nail', 'makeup', 'make-up', 'spa', 'tattoo', 'body art', 'piercing', 'gym', 'fitness', 'yoga',
         'trainer', 'chiropractor', 'dentist', 'physio', 'sport', 'photographer', 'photo',
         'art gallery', 'gallery', 'music', 'real estate', 'accountant', 'lawyer', 'attorney',
         'consultant', 'clothing', 'florist', 'flower', 'jewel', 'gift shop', 'plumber',
