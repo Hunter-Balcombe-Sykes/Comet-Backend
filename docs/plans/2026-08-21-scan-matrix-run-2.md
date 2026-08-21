@@ -254,6 +254,40 @@ exists.
 - [ ] I1–I10 × {partna, business}
 - [ ] Final: full suite, deploys verified, close-out + report
 
+## Continuation (2026-08-21 morning, owner: "keep going")
+
+- Places quota: still dead (429 → 403 PERMISSION_DENIED, key-level).
+  Recovery probe armed (15-min interval); B5–B10 remain queued on it.
+- I5 vicmarkettattoo: handle EXISTS (search-indexed reels) but the Apify
+  actor deterministically answers profile_not_found — CLOSED as
+  actor-unscrapeable, handled cleanly by the pipeline both rounds.
+- I8: my roster handle was WRONG — @tashsultana is a real 77-follower
+  account the pipeline mirrored faithfully; the artist is
+  @tashsultanaofficial. Corrected run (1.27M followers) produced the
+  richest single fixture of the whole matrix and found:
+
+- **M-9** (tashsultanamerch live): the linktree's myshopify ROOT URL
+  projected straight to shopify.store and Engine 1 bare-applied a
+  'pending' connection — no storefront, no catalogue, no fill, no
+  auto-select, nothing that would ever sync. Two-part fix: (a) scan-lane
+  shop Places delegate to CommerceProbeJob (storefronts keep their
+  single writer — StoreBrandSeeder via the commerce lane; paste and the
+  lane's own origin exempt); (b) LinkProbeWorker now PROBES shop tenant
+  hosts (myshopify/bigcartel) instead of refusing 'already_matched' —
+  the refusal left tenant stores with no path to a storefront at all.
+  Critic pass produced three more fixes: square.site stays
+  booking-class (no Square Online probe exists — probing it was a
+  guaranteed miss), CommerceProbeJob::failed() cards the link so a
+  job-level death can't vanish a counted link, and dismissed
+  tenant-store suggestions tombstone BOTH identifier schemes (numeric
+  id + tenant label) so re-scans stop re-probing refused stores.
+  Live-verified end-to-end: Tash Sultana store connected with real
+  Shopify id, 8-item catalogue, autoselected stamp, exactly 5 pins.
+- Also from the corrected I8: her 20 tour/ticket links all card cleanly
+  (zero junk), the soundwavesartfoundation charity shop collection page
+  correctly files as a suggestion (FI-10), and the follow-up media
+  scrape 502'd at Apify (environment; profile itself scraped fully).
+
 ## Close-out (2026-08-21 ~05:15 AEST)
 
 Run complete. 8 fixes shipped (M-1..M-8, M-8 in both directions), every
