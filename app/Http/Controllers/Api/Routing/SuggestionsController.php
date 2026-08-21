@@ -286,6 +286,24 @@ class SuggestionsController extends ApiController
         // the tombstone the next harvest would simply propose it again.
         $this->tombstone($user, $intent->surface_key.':'.$intent->identifier, 'suggestion dismissed');
 
+        // M-9 follow-up (critic, 2026-08-21): a probe-placed tenant store's
+        // identifier is the storefront's NUMERIC id, but the pure projector
+        // keys the same host by its TENANT LABEL — so a tombstone written
+        // under only the numeric id never matches the projector-side check
+        // and every re-scan re-probes the refused store. Record the label
+        // alias too, derived from the intent's own canonical host.
+        $host = strtolower((string) parse_url((string) $intent->canonical_url, PHP_URL_HOST));
+        foreach (\App\Catalog\Hosts::SHOP_TENANT_SUFFIXES as $suffix) {
+            if (str_ends_with($host, '.'.$suffix)) {
+                $label = substr($host, 0, -1 * (strlen($suffix) + 1));
+                $label = str_starts_with($label, 'www.') ? substr($label, 4) : $label;
+                if ($label !== '' && $label !== (string) $intent->identifier) {
+                    $this->tombstone($user, $intent->surface_key.':'.$label, 'suggestion dismissed');
+                }
+                break;
+            }
+        }
+
         return $this->success(['dismissed' => true]);
     }
 

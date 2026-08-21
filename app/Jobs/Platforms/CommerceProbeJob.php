@@ -277,5 +277,23 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             'platform' => $this->platform,
             'error' => $e->getMessage(),
         ]);
+
+        // Zero-loss (M-9 critic, 2026-08-21): handle()'s own miss path cards
+        // the link, but a JOB-level death (timeout, worker kill after tries)
+        // used to drop it entirely — counted 'connected' by the importer that
+        // delegated it, present nowhere. Card it here, best-effort, unless
+        // the caller was suggest-only (a paste already wrote its own card).
+        if ($this->suggestOnly) {
+            return;
+        }
+
+        try {
+            $user = User::find($this->userId);
+            if ($user !== null && ! $user->isPendingDeletion()) {
+                app(CustomLinkSeeder::class)->seedCustom($user, $this->url);
+            }
+        } catch (Throwable $cardError) {
+            report($cardError);
+        }
     }
 }

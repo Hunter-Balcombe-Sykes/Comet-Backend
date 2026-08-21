@@ -80,3 +80,32 @@ it('a tenant shop host probes end-to-end: connection + storefront + fill, not a 
 
     \Illuminate\Support\Facades\Queue::assertPushed(\App\Jobs\Platforms\ShopInitialFillJob::class);
 });
+
+it('a dismissed tenant-store suggestion tombstones BOTH identifier schemes', function () {
+    // M-9 critic: probe-placed tenant stores carry the NUMERIC storefront id
+    // as identifier while the pure projector keys the same host by tenant
+    // label — a numeric-only tombstone never matched the projector-side
+    // check, so every re-scan re-probed the refused store.
+    $pro = createTenant('m9-ts-both');
+    $intentId = (string) \Illuminate\Support\Str::uuid();
+    DB::table('routing.source_intents')->insert([
+        'id' => $intentId,
+        'user_id' => $pro->id,
+        'surface_key' => 'shopify.store',
+        'routing_class' => 'shop',
+        'identifier' => '79173517335',
+        'canonical_url' => 'https://tashsultanamerch.myshopify.com/',
+        'state' => 'proposed',
+        'block_reason' => 'below_threshold',
+        'origin' => 'commerce_probe',
+        'first_seen_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/dismiss")->assertOk();
+
+    $refs = DB::table('routing.item_tombstones')->where('user_id', $pro->id)->pluck('source_ref');
+    expect($refs)->toContain('shopify.store:79173517335')
+        ->and($refs)->toContain('shopify.store:tashsultanamerch');
+});

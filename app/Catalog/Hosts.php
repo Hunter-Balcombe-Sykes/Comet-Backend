@@ -55,14 +55,18 @@ class Hosts
      */
     public const SHOP_TENANT_SUFFIXES = [
         'myshopify.com',
-        'square.site',
         'bigcartel.com',
+        // NOT square.site (critic, 2026-08-21): both classifiers route it to
+        // square.book (Booking) — Square Online sites book, they don't shop
+        // here — and the probe cascade has no Square Online probe, so listing
+        // it would only spend budget on a guaranteed miss.
     ];
 
     public static function suffixOverrides(): array
     {
         return [
             ...self::SHOP_TENANT_SUFFIXES,
+            'square.site', // tenant suffix for canonicalization; BOOKING class, so not in the shop subset
             'nowbookit.com',
             'gettimely.com',
             'setmore.com',
