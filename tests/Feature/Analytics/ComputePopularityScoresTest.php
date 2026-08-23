@@ -1,7 +1,7 @@
 <?php
 
 use App\Console\Commands\ComputeContentPopularityScores;
-use App\Services\Analytics\RankedActionsComputer;
+use App\Services\Analytics\ActionScorer;
 use App\Services\Content\LinkPoolWriter;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
@@ -40,29 +40,28 @@ function popularityScoreRow(string $siteId, string $type, string $key): ?object
         ->first();
 }
 
-it('seeds brand-new content with a freshness-only score (page + link item, zero events)', function () {
+it('seeds a brand-new link with a freshness-only item score and an action row for it (zero events)', function () {
     $tenant = createTenant('cmd-fresh');
     $poolItemId = app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/fresh', enrich: false);
 
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
 
-    // Links page: no events at all — score IS the freshness boost (blend of a
-    // first-seen key is a no-op: new == computed).
-    $page = popularityScoreRow($tenant->site->id, 'page', 'links');
-    expect($page)->not->toBeNull()
-        ->and((float) $page->score)->toBeGreaterThan(14.5)
-        ->and((float) $page->score)->toBeLessThanOrEqual(15.0);
+    // No page family any more (2026-08-23): pages are actions.
+    expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')
+        ->where('site_id', $tenant->site->id)->where('content_type', 'page')->count())->toBe(0);
 
-    // The link item itself: freshness-only score at the item weight.
     $item = popularityScoreRow($tenant->site->id, 'link_item', 'https://example.com/fresh');
     expect($item)->not->toBeNull()
         ->and((float) $item->score)->toBeGreaterThan(2.9)
         ->and((float) $item->score)->toBeLessThanOrEqual(3.0)
         ->and((int) $item->rank)->toBe(1);
+
+    $action = popularityScoreRow($tenant->site->id, 'action', 'item:'.$poolItemId);
+    expect($action)->not->toBeNull()->and((float) $action->score)->toBeGreaterThan(0.0);
 });
 
-it('seeds nothing for ancient connections (boost below the floor) — the action layer still cold-starts, no freshness gate', function () {
+it('seeds nothing for an ancient link (boost below the floor) — the action layer still cold-starts, no freshness gate', function () {
     $tenant = createTenant('cmd-ancient');
     $poolItemId = app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/old', 'Old link', enrich: false);
     DB::connection('pgsql')->table('content.items')->where('id', $poolItemId)->update(['created_at' => now()->subDays(200)->toISOString()]);
@@ -70,32 +69,28 @@ it('seeds nothing for ancient connections (boost below the floor) — the action
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
 
-    // Page/item families seed nothing (boost below the floor)...
     expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')
         ->where('site_id', $tenant->site->id)
         ->where('content_type', '!=', 'action')
         ->count())->toBe(0);
 
-    // ...but the action layer (2026-07-23 rebuild) has no freshness/floor gate
-    // at all — it cold-starts every pool entry at its prior CTR regardless of
-    // age. The 200-day-old POOL link still yields its custom:<itemId> action
-    // (the pool card's key since the connection lane retired, 2026-08-19),
-    // scored at the 'custom' family's prior (0.05).
-    $row = popularityScoreRow($tenant->site->id, 'action', 'custom:'.$poolItemId);
+    // Action cold start: demand = prior, reach 0, freshness from the item's
+    // first_seen (today — the pool write stamps it) → prior + 0.45·prior + 0.25·fresh.
+    $row = popularityScoreRow($tenant->site->id, 'action', 'item:'.$poolItemId);
     expect($row)->not->toBeNull()
-        ->and((float) $row->score)->toEqualWithDelta(0.05, 0.0001);
+        ->and((float) $row->score)->toBeGreaterThan(1.45 * 0.03 - 0.001);
 });
 
 it('decays each day\'s events with a 90-day true half-life', function () {
     $tenant = createTenant('cmd-decay');
-    // Two page-clicks on bio (→ home) exactly 90 days ago: 2·3 = 6.0 raw,
-    // halved by one full half-life → ≈3.0 (blend of a first-seen key is a no-op).
+    // Two item clicks exactly 90 days old on a watch item: 2 × W_CLICK(3.0) × 0.5 = 3.0.
     foreach (range(1, 2) as $i) {
         DB::connection('pgsql')->table('analytics.link_clicks')->insert([
             'id' => (string) Str::uuid(),
             'user_id' => $tenant->id,
             'site_id' => $tenant->site->id,
-            'section_key' => 'bio',
+            'section_key' => 'watch',
+            'product_id' => 'vid-1',
             'url' => 'https://example.com/'.$i,
             'occurred_at' => now()->subDays(90)->toISOString(),
             'created_at' => now()->subDays(90)->toISOString(),
@@ -105,32 +100,33 @@ it('decays each day\'s events with a 90-day true half-life', function () {
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
 
-    $home = popularityScoreRow($tenant->site->id, 'page', 'home');
-    expect($home)->not->toBeNull()
-        ->and((float) $home->score)->toBeGreaterThan(2.85)
-        ->and((float) $home->score)->toBeLessThan(3.15);
+    $row = popularityScoreRow($tenant->site->id, 'watch_item', 'vid-1');
+    expect($row)->not->toBeNull()
+        ->and((float) $row->score)->toBeGreaterThan(2.85)
+        ->and((float) $row->score)->toBeLessThan(3.15);
 });
 
 it('does not let one fresh event resurrect stale history to full weight', function () {
     $tenant = createTenant('cmd-resurrect');
-    // 10 clicks 180 days ago (2 half-lives → count as 2.5 clicks = 7.5) + 1
-    // impression today (≈1.0). Old formula: (30 + 1) × recency(now)=1 → 31.
+    // 10 clicks 180 days ago (weight 0.25 each → 7.5) + one fresh impression (1.0).
     foreach (range(1, 10) as $i) {
         DB::connection('pgsql')->table('analytics.link_clicks')->insert([
             'id' => (string) Str::uuid(),
             'user_id' => $tenant->id,
             'site_id' => $tenant->site->id,
-            'section_key' => 'bio',
+            'section_key' => 'watch',
+            'product_id' => 'vid-1',
             'url' => 'https://example.com/'.$i,
             'occurred_at' => now()->subDays(180)->toISOString(),
             'created_at' => now()->subDays(180)->toISOString(),
         ]);
     }
-    DB::connection('pgsql')->table('analytics.section_views')->insert([
+    DB::connection('pgsql')->table('analytics.item_views')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $tenant->id,
         'site_id' => $tenant->site->id,
-        'section_key' => 'bio',
+        'item_type' => 'watch_item',
+        'item_id' => 'vid-1',
         'visitor_id' => (string) Str::uuid(),
         'occurred_at' => now()->toISOString(),
         'created_at' => now()->toISOString(),
@@ -139,11 +135,11 @@ it('does not let one fresh event resurrect stale history to full weight', functi
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
 
-    // Expect ≈ 7.5 + 1 = 8.5 — decisively below the old resurrected 31.
-    $home = popularityScoreRow($tenant->site->id, 'page', 'home');
-    expect($home)->not->toBeNull()
-        ->and((float) $home->score)->toBeGreaterThan(7.5)
-        ->and((float) $home->score)->toBeLessThan(10.0);
+    // Old model: 31 × 1.0 (decay-since-latest) = 31. New: 7.5 + 1.0 = 8.5.
+    $row = popularityScoreRow($tenant->site->id, 'watch_item', 'vid-1');
+    expect($row)->not->toBeNull()
+        ->and((float) $row->score)->toBeGreaterThan(7.5)
+        ->and((float) $row->score)->toBeLessThan(10.0);
 });
 
 it('fades stored keys with no remaining signal and deletes them below the floor', function () {
@@ -177,57 +173,23 @@ it('fades stored keys with no remaining signal and deletes them below the floor'
     expect(popularityScoreRow($tenant->site->id, 'shop_product', 'ghost-product'))->toBeNull();
 });
 
-it('adds the dwell term to the page score (0.05 per second)', function () {
-    $tenant = createTenant('cmd-dwell');
-    // One bio impression (bio → home, always present) with 60s of dwell:
-    // score = (1 impression + 0.05·60s) · recency(≈1) = 4.0.
-    DB::connection('pgsql')->table('analytics.section_views')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $tenant->id,
-        'site_id' => $tenant->site->id,
-        'section_key' => 'bio',
-        'visitor_id' => (string) Str::uuid(),
-        'duration_ms' => 60_000,
-        'occurred_at' => now()->toISOString(),
-        'created_at' => now()->toISOString(),
-    ]);
-
-    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
-        ->assertExitCode(0);
-
-    $home = popularityScoreRow($tenant->site->id, 'page', 'home');
-    expect($home)->not->toBeNull()
-        ->and((float) $home->score)->toBeGreaterThan(3.9)
-        ->and((float) $home->score)->toBeLessThanOrEqual(4.0);
-});
-
 // ── OBS-3: the ranked-actions catch block reports() before logging ──
 
-it('reports (but does not throw) when the ranked-actions layer fails, and still writes page/item scores', function () {
+it('reports (but does not throw) when the action layer fails, and still writes item scores', function () {
     Exceptions::fake();
-
     $tenant = createTenant('cmd-obs3');
     $poolItemId = app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/obs3', 'Obs3 link', enrich: false);
 
-    // Force the action layer (RankedActionsComputer::computeForSite) to blow up
-    // AFTER page/item scores have already been computed for this run.
-    $brokenRankedActions = Mockery::mock(RankedActionsComputer::class);
-    $brokenRankedActions->shouldReceive('computeForSite')
-        ->andThrow(new RuntimeException('ranked actions exploded'));
-    app()->instance(RankedActionsComputer::class, $brokenRankedActions);
+    $broken = Mockery::mock(ActionScorer::class);
+    $broken->shouldReceive('computeForSite')->andThrow(new RuntimeException('action scoring exploded'));
+    app()->instance(ActionScorer::class, $broken);
 
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
 
-    Exceptions::assertReported(fn (RuntimeException $e) => $e->getMessage() === 'ranked actions exploded');
-
-    // Fail-open survives: page + link-item scores computed BEFORE the action
-    // layer still land, even though computeActions() blew up.
-    expect(popularityScoreRow($tenant->site->id, 'page', 'links'))->not->toBeNull();
+    Exceptions::assertReported(fn (RuntimeException $e) => $e->getMessage() === 'action scoring exploded');
     expect(popularityScoreRow($tenant->site->id, 'link_item', 'https://example.com/obs3'))->not->toBeNull();
-
-    // The action layer itself produced nothing — it exploded before writing.
-    expect(popularityScoreRow($tenant->site->id, 'action', 'custom:'.$poolItemId))->toBeNull();
+    expect(popularityScoreRow($tenant->site->id, 'action', 'item:'.$poolItemId))->toBeNull();
 });
 
 // ── SCALE-3: the full sweep (no --site) scopes to sites with recent events ──
@@ -241,7 +203,8 @@ it('processes a site with a recent event but skips a published site with none, i
         'id' => (string) Str::uuid(),
         'user_id' => $active->id,
         'site_id' => $active->site->id,
-        'section_key' => 'bio',
+        'section_key' => 'watch',
+        'product_id' => 'vid-active',
         'url' => 'https://example.com/active',
         'occurred_at' => now()->toISOString(),
         'created_at' => now()->toISOString(),
@@ -255,7 +218,7 @@ it('processes a site with a recent event but skips a published site with none, i
     // No --site — the periodic scheduled full sweep.
     $this->artisan('analytics:compute-popularity')->assertExitCode(0);
 
-    expect(popularityScoreRow($active->site->id, 'page', 'home'))->not->toBeNull();
+    expect(popularityScoreRow($active->site->id, 'watch_item', 'vid-active'))->not->toBeNull();
 
     // Idle site was skipped entirely — no page/item/action rows of any kind.
     expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')

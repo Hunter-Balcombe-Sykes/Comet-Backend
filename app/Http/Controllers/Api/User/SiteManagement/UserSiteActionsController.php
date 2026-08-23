@@ -31,19 +31,14 @@ class UserSiteActionsController extends ApiController
         $this->authorizeForUser($professional, 'view', $site);
 
         $pool = $actions->pool($professional, $site);
-        $stored = $popularity->rankedActionsForSite($site->id);
+        // Legacy list is unscored through the one-deploy overlap; this
+        // controller is rewritten for the unified list in the next task.
+        $stored = [];
         $ordering = $actions->orderingSettings($site);
-
-        // Pool entries carry their stored score when the job has ranked them
-        // (score null = not yet scored — fresh connection before the next tick).
-        $scores = [];
-        foreach ($stored as $row) {
-            $scores[$row['key']] = $row['score'];
-        }
 
         return $this->success([
             'pool' => array_map(
-                fn (array $entry): array => $actions->toWire($entry, $scores[$entry['id']] ?? null),
+                fn (array $entry): array => $actions->toWire($entry, null),
                 $pool,
             ),
             'rankedActions' => $actions->resolveRankedActions(

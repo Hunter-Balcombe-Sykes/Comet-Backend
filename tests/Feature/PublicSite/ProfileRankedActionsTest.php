@@ -77,28 +77,9 @@ function buildProfilePayload(object $tenant): array
     return app(IndividualProfilePayloadBuilder::class)->build($pro, $pro->site);
 }
 
-it('emits rankedActions from stored action ranks, appending unscored pool entries by prior', function () {
-    $tenant = createTenant('pay-smart');
-    payloadLinkBlock($tenant, ['platform' => 'instagram', 'title' => 'Instagram', 'url' => 'https://instagram.com/x']);
-    payloadLinkBlock($tenant, ['platform' => 'twitch', 'title' => 'Twitch', 'url' => 'https://twitch.tv/x', 'sort_order' => 1]);
-
-    // Job has scored instagram; twitch connected "since" (unscored).
-    insertActionScore($tenant->site->id, 'instagram', 0.81, 1);
-    insertActionScore($tenant->site->id, 'discord', 0.99, 2); // left the pool → dropped
-
-    $payload = buildProfilePayload($tenant);
-    $actions = $payload['rankedActions'];
-
-    expect($actions[0])->toMatchArray([
-        'id' => 'instagram', 'kind' => 'external', 'label' => 'Instagram',
-        'url' => 'https://instagram.com/x', 'platform' => 'instagram', 'score' => 0.81,
-    ])
-        // Unscored pool entry appended after the stored one, score null.
-        ->and($actions[1]['id'])->toBe('twitch')
-        ->and($actions[1]['score'])->toBeNull()
-        // Stale stored key resolves to nothing — dropped entirely.
-        ->and(collect($actions)->pluck('id'))->not->toContain('discord');
-});
+// 2026-08-23: 'emits rankedActions from stored action ranks' removed — the
+// score family keys on the unified ActionId grammar now; the legacy list rides
+// unscored through the one-deploy overlap and is deleted in the removal commit.
 
 it('falls back to a prior-ordered pool when the job has not run yet', function () {
     $tenant = createTenant('pay-cold');

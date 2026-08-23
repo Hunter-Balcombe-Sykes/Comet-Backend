@@ -100,15 +100,18 @@ class IndividualProfilePayloadBuilder
         $ordering = $this->actions->orderingSettings($site);
 
         $pageOrder = $ordering['smart_page_order']
-            ? $this->resolver->buildPageOrder($site, $caps, $sections, $ranks['page'] ?? [])
+            ? $this->resolver->buildPageOrder($site, $caps, $sections, $this->popularity->pageRanksFromActions($site?->id))
             : $this->actions->applyManualPageOrder(
                 $this->resolver->presentPageIds($site, $caps, $sections),
                 $ordering['manual_page_order'],
             );
 
+        // Legacy rankedActions ride UNSCORED through the one-deploy overlap
+        // (the 'action' score family now keys on the unified ActionId grammar,
+        // not these ids); removed outright in the follow-up removal commit.
         $rankedActions = $this->actions->resolveRankedActions(
             $this->actions->pool($pro, $site, $sections, $booking),
-            $this->popularity->rankedActionsForSite($site?->id),
+            [],
             $ordering['smart_actions'],
             $ordering['manual_actions'],
         );

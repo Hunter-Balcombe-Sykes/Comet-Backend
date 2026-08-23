@@ -58,9 +58,9 @@ it('returns pool, rankedActions and ordering for the authed professional', funct
     $poolIds = collect($data['pool'])->pluck('id')->all();
 
     expect($poolIds)->toBe(['instagram'])
-        // Pool entries carry their stored score when ranked.
-        ->and(collect($data['pool'])->firstWhere('id', 'instagram')['score'])->toBe(0.77)
-        ->and($data['rankedActions'][0]['id'])->toBe('instagram')
+        // Through the one-deploy overlap the legacy list is unscored (the
+        // score family now keys on the unified grammar) — rewritten in A7.
+        ->and(collect($data['pool'])->firstWhere('id', 'instagram')['score'])->toBeNull()
         ->and($data['ordering'])->toMatchArray(['smartPageOrder' => true, 'smartActions' => true]);
 });
 

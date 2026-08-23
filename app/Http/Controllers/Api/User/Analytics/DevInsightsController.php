@@ -72,7 +72,7 @@ class DevInsightsController extends ApiController
         $fresh = $this->freshness->boostsForSite($site);
 
         return $this->success([
-            'pages' => $this->pageScores($site->id, $fresh['page']),
+            'pages' => $this->pageScores($site->id),
             'items' => $this->itemScores($site->id, $fresh['link_item']),
             'daily_series' => [
                 'pages' => $this->pageDailySeries($site->id, $since),
@@ -86,15 +86,17 @@ class DevInsightsController extends ApiController
      * their page via SECTION_KEY_TO_PAGE. A page has no direct events — it is the
      * sum of its sections' section_views (impressions) and link_clicks (clicks).
      *
-     * @param  array<string, float>  $freshness  additive boost per page (ContentFreshness)
-     * @return array<array{page: string, score: float|null, rank: int|null, computed_at: mixed, impressions: int, clicks: int, dwell_seconds: int, freshness: float}>
+     * @return array<array{page: string, score: float|null, rank: int|null, computed_at: mixed, impressions: int, clicks: int, dwell_seconds: int}>
      */
-    private function pageScores(string $siteId, array $freshness = []): array
+    private function pageScores(string $siteId): array
     {
+        // Pages are actions since 2026-08-23: their rows live in the 'action'
+        // family as page:<id>. Stripped here so the dev view keeps page ids.
         $scores = DB::connection('pgsql')->table('analytics.content_popularity_scores')
-            ->where('site_id', $siteId)->where('content_type', 'page')
+            ->where('site_id', $siteId)->where('content_type', 'action')
+            ->where('content_key', 'like', 'page:%')
             ->orderBy('rank')->get(['content_key', 'score', 'rank', 'computed_at'])
-            ->keyBy('content_key');
+            ->keyBy(fn ($row): string => substr((string) $row->content_key, 5));
 
         $impressions = $this->foldToPage(
             DB::connection('pgsql')->table('analytics.section_views')
@@ -124,7 +126,6 @@ class DevInsightsController extends ApiController
             'impressions' => $impressions[$p] ?? 0,
             'clicks' => $clicks[$p] ?? 0,
             'dwell_seconds' => (int) round(($dwellMs[$p] ?? 0) / 1000),
-            'freshness' => round($freshness[$p] ?? 0.0, 2),
         ])->sortBy(fn (array $r): int => $r['rank'] ?? PHP_INT_MAX)->values()->all();
     }
 

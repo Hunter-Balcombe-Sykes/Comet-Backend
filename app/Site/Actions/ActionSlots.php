@@ -119,7 +119,7 @@ final class ActionSlots
             return strcmp((string) $a['id'], (string) $b['id']);
         });
 
-        return array_values($candidates);
+        return $candidates;
     }
 
     /** @param  array<string, mixed>  $c */
