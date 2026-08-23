@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Jobs\Platforms\ShopInitialFillJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\IriCanonicalizer;
 use App\Routing\Placement;
@@ -9,6 +10,9 @@ use App\Routing\SourceReconciler;
 use App\Routing\Verdict;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 // M-9 (matrix run 2, tashsultanamerch live): the linktree's
 // tashsultanamerch.myshopify.com projected straight to shopify.store and
@@ -64,12 +68,12 @@ it('a tenant shop host probes end-to-end: connection + storefront + fill, not a 
     // probe lane, but the probe worker used to REFUSE tenant-scoped hosts
     // ('already_matched') — the projector knew what it was, and the seeder
     // therefore had no path at all. Shop tenant suffixes now probe.
-    \Illuminate\Support\Facades\Http::fake([
-        '*/meta.json' => \Illuminate\Support\Facades\Http::response(['id' => 99110022, 'name' => 'Tash Sultana Merch', 'currency' => 'AUD'], 200),
-        'https://tashsultanamerch.myshopify.com/' => \Illuminate\Support\Facades\Http::response('<html><head><title>Tash Sultana Merch</title></head><body>shop</body></html>', 200, ['Content-Type' => 'text/html']),
-        '*' => \Illuminate\Support\Facades\Http::response('', 404),
+    Http::fake([
+        '*/meta.json' => Http::response(['id' => 99110022, 'name' => 'Tash Sultana Merch', 'currency' => 'AUD'], 200),
+        'https://tashsultanamerch.myshopify.com/' => Http::response('<html><head><title>Tash Sultana Merch</title></head><body>shop</body></html>', 200, ['Content-Type' => 'text/html']),
+        '*' => Http::response('', 404),
     ]);
-    \Illuminate\Support\Facades\Queue::fake();
+    Queue::fake();
     $pro = createTenant('m9-tenant-probe');
 
     app()->call([new CommerceProbeJob((string) $pro->id, 'https://tashsultanamerch.myshopify.com/'), 'handle']);
@@ -78,7 +82,7 @@ it('a tenant shop host probes end-to-end: connection + storefront + fill, not a 
     expect($connection)->not->toBeNull()
         ->and(DB::table('content.storefronts')->where('user_id', $pro->id)->exists())->toBeTrue();
 
-    \Illuminate\Support\Facades\Queue::assertPushed(\App\Jobs\Platforms\ShopInitialFillJob::class);
+    Queue::assertPushed(ShopInitialFillJob::class);
 });
 
 it('a dismissed tenant-store suggestion tombstones BOTH identifier schemes', function () {
@@ -87,7 +91,7 @@ it('a dismissed tenant-store suggestion tombstones BOTH identifier schemes', fun
     // label — a numeric-only tombstone never matched the projector-side
     // check, so every re-scan re-probed the refused store.
     $pro = createTenant('m9-ts-both');
-    $intentId = (string) \Illuminate\Support\Str::uuid();
+    $intentId = (string) Str::uuid();
     DB::table('routing.source_intents')->insert([
         'id' => $intentId,
         'user_id' => $pro->id,

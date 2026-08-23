@@ -3,6 +3,7 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
+use Illuminate\Support\Facades\Queue;
 
 // FI-15 (2026-08-20, T9 live): after seven listing swaps the ST. ALi
 // workplace still carried Kings Domain's description — machine-sourced
@@ -75,7 +76,7 @@ it('takes listing-sourced connections with the listing — machine website_impor
     // ScanPreviousWebsiteContentJob, whose run (sync driver in tests) really
     // fetched kingsdomain.com.au and seeded a real fresha row mid-test.
     // Faking the queue keeps every dispatched job un-run.
-    \Illuminate\Support\Facades\Queue::fake();
+    Queue::fake();
     $pro = createTenant('fi15c-machine', ['account_type' => 'business']);
     $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
 
@@ -96,7 +97,7 @@ it('takes listing-sourced connections with the listing — machine website_impor
 });
 
 it('keeps website_import connections when the previous website was typed by the owner', function () {
-    \Illuminate\Support\Facades\Queue::fake();
+    Queue::fake();
     $pro = createTenant('fi15c-user', ['account_type' => 'business']);
     $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
 

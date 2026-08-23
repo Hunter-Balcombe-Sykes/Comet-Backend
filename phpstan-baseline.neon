@@ -307,12 +307,6 @@ parameters:
 			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
 
 		-
-			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
-
-		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
@@ -1705,12 +1699,6 @@ parameters:
 			path: app/Services/Platforms/FreshaServiceProjector.php
 
 		-
-			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Platforms/GoogleBusinessAutoSync.php
-
-		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
@@ -1729,12 +1717,6 @@ parameters:
 			path: app/Services/Platforms/GoogleBusinessService.php
 
 		-
-			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
@@ -1745,12 +1727,6 @@ parameters:
 			identifier: notIdentical.alwaysTrue
 			count: 1
 			path: app/Services/Platforms/InstagramConnectionSeeder.php
-
-		-
-			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Platforms/InstagramIdentitySync.php
 
 		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
@@ -1961,9 +1937,3 @@ parameters:
 			identifier: method.notFound
 			count: 1
 			path: app/Services/WebsiteScan/PdfLinkDetector.php
-
-		-
-			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 3
-			path: app/Services/WebsiteScan/WorkplaceContentApplier.php

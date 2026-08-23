@@ -17,8 +17,13 @@
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\ConnectionIdentity;
+use App\Routing\IriCanonicalizer;
 use App\Routing\LinkRoutingService;
+use App\Routing\Placement;
 use App\Routing\RoutingContext;
+use App\Routing\SourceReconciler;
+use App\Routing\Verdict;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 
@@ -242,7 +247,7 @@ it('M-7: matches a handle-surface identifier case-insensitively, keeps opaque id
     // connected channel as a suggestion.
     $pro = createTenant('m7-handles');
 
-    $yt = new \App\Models\Core\Site\IntegrationConnection([
+    $yt = new IntegrationConnection([
         'surface_key' => 'youtube.channel', 'routing_class' => 'content',
         'resource_id' => 'thejunglegiants', 'payload' => ['url' => 'https://www.youtube.com/@thejunglegiants'],
         'is_active' => true,
@@ -250,12 +255,12 @@ it('M-7: matches a handle-surface identifier case-insensitively, keeps opaque id
     $yt->user_id = $pro->id;
     $yt->save();
 
-    $identity = app(\App\Routing\ConnectionIdentity::class);
+    $identity = app(ConnectionIdentity::class);
     expect($identity->matchExisting($pro, 'youtube.channel', 'TheJungleGiants'))->toBe((string) $yt->id)
         ->and($identity->matchExisting($pro, 'youtube.channel', 'someoneelse'))->toBeNull();
 
     // Opaque numeric-id surface keeps the exact compare.
-    $ot = new \App\Models\Core\Site\IntegrationConnection([
+    $ot = new IntegrationConnection([
         'surface_key' => 'opentable.reserve', 'routing_class' => 'reservations',
         'resource_id' => '49820', 'payload' => ['url' => 'https://www.opentable.com/restaurant/profile/49820'],
         'is_active' => true,
@@ -278,9 +283,9 @@ it('M-8: a Choose-band alias of an already-connected channel folds instead of pr
         'url' => 'https://www.youtube.com/@thejunglegiants',
     ]);
 
-    $iri = app(\App\Routing\IriCanonicalizer::class)->canonicalize('https://www.youtube.com/@TheJungleGiants');
-    $placement = new \App\Routing\Placement(\App\Routing\Verdict::Choose, 'youtube.channel', 'TheJungleGiants');
-    $out = app(\App\Routing\SourceReconciler::class)->reconcile(
+    $iri = app(IriCanonicalizer::class)->canonicalize('https://www.youtube.com/@TheJungleGiants');
+    $placement = new Placement(Verdict::Choose, 'youtube.channel', 'TheJungleGiants');
+    $out = app(SourceReconciler::class)->reconcile(
         $placement,
         RoutingContext::forUser($pro, 'link_in_bio'),
         $iri,
@@ -307,12 +312,12 @@ it('M-8 reverse order: a Place supersedes an earlier mis-cased proposal for the 
     // live proposals with a case-insensitively equal identifier.
     $pro = createTenant('m8-reverse');
     $ctx = RoutingContext::forUser($pro, 'link_in_bio');
-    $reconciler = app(\App\Routing\SourceReconciler::class);
-    $canon = app(\App\Routing\IriCanonicalizer::class);
+    $reconciler = app(SourceReconciler::class);
+    $canon = app(IriCanonicalizer::class);
 
     // 1. Mis-cased link first, Choose band, no existing row → proposed.
     $reconciler->reconcile(
-        new \App\Routing\Placement(\App\Routing\Verdict::Choose, 'youtube.channel', 'TheJungleGiants'),
+        new Placement(Verdict::Choose, 'youtube.channel', 'TheJungleGiants'),
         $ctx,
         $canon->canonicalize('https://www.youtube.com/@TheJungleGiants'),
     );
@@ -320,7 +325,7 @@ it('M-8 reverse order: a Place supersedes an earlier mis-cased proposal for the 
 
     // 2. The canonical-cased link connects.
     $reconciler->reconcile(
-        new \App\Routing\Placement(\App\Routing\Verdict::Place, 'youtube.channel', 'thejunglegiants'),
+        new Placement(Verdict::Place, 'youtube.channel', 'thejunglegiants'),
         $ctx,
         $canon->canonicalize('https://www.youtube.com/@thejunglegiants'),
     );

@@ -11,6 +11,7 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkProjector;
+use App\Routing\Projection;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
@@ -856,7 +857,6 @@ class GoogleBusinessAutoSync
             // row older than that has no live job left and IS stranded.
             $stranded = $existing->last_refresh_status === 'pending'
                 && $payload->source() === 'google-business'
-                && $existing->updated_at !== null
                 && $existing->updated_at->lt(now()->subMinutes(16));
             if ($stranded) {
                 if (! $this->dispatchInstagram($userId, $username, $autoConnectBooking)) {
@@ -894,7 +894,7 @@ class GoogleBusinessAutoSync
      * stop. Strictly better than the old regex, which extracted "stories"
      * from /stories/<handle>/<id> as a username.
      */
-    private function projectInstagramProfile(string $url): \App\Routing\Projection
+    private function projectInstagramProfile(string $url): Projection
     {
         $projection = $this->projector->project($this->canonicalizer->canonicalize($url));
         if ($projection->surfaceKey === 'instagram.profile') {
@@ -902,7 +902,7 @@ class GoogleBusinessAutoSync
         }
 
         $parts = parse_url($url);
-        $first = explode('/', trim((string) ($parts['path'] ?? ''), '/'))[0] ?? '';
+        $first = explode('/', trim((string) ($parts['path'] ?? ''), '/'))[0];
         if ($first === '' || ! isset($parts['host'])) {
             return $projection;
         }

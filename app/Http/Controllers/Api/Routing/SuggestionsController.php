@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Routing;
 
 use App\Catalog\CompiledCatalog;
+use App\Catalog\Hosts;
 use App\Catalog\LegacyPlatformMap;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
@@ -293,7 +294,7 @@ class SuggestionsController extends ApiController
         // and every re-scan re-probes the refused store. Record the label
         // alias too, derived from the intent's own canonical host.
         $host = strtolower((string) parse_url((string) $intent->canonical_url, PHP_URL_HOST));
-        foreach (\App\Catalog\Hosts::SHOP_TENANT_SUFFIXES as $suffix) {
+        foreach (Hosts::SHOP_TENANT_SUFFIXES as $suffix) {
             if (str_ends_with($host, '.'.$suffix)) {
                 $label = substr($host, 0, -1 * (strlen($suffix) + 1));
                 $label = str_starts_with($label, 'www.') ? substr($label, 4) : $label;
