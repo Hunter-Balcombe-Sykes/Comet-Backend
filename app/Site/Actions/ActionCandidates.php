@@ -22,7 +22,8 @@ use Illuminate\Support\Collection;
  *                    (PlatformDescriptor::isDestination), or a SOURCE whose
  *                    granted page is absent (the fallback keeps Book reachable
  *                    while the services page is off)
- *   item:<uuid>      every item currently served on the sitepage (PoolWire)
+ *   item:<uuid>      every item currently served on the sitepage (PoolWire),
+ *                    except media — the gallery never produces an action (D1)
  *   category:<id>    a menu/services category block of served items
  *
  * Candidate = {id, kind, label, url, thumb, connectedAt, ref, meta}. Every url
@@ -59,9 +60,14 @@ class ActionCandidates
     /** Uncategorised (category-less) platforms that are destinations by routing class. */
     private const DESTINATION_ROUTING = ['ordering', 'social', 'content'];
 
-    /** Pool key => the sitepage the pool's items live on (item page anchors). */
+    /**
+     * Pool key => the sitepage the pool's items live on (item page anchors).
+     * The media pool is NOT here (D1, 2026-08-23): media never produces an
+     * action — no item: entries and no gallery category — it keeps its pool
+     * smart order only.
+     */
     public const POOL_PAGE = [
-        'watch' => 'watch', 'listen' => 'listen', 'media' => 'gallery', 'events' => 'events',
+        'watch' => 'watch', 'listen' => 'listen', 'events' => 'events',
         'services' => 'services', 'shop' => 'shop', 'custom_links' => 'links', 'menus' => 'menu',
     ];
 

@@ -35,6 +35,7 @@ class ItemSeenRequest extends BaseFormRequest
         'menu_item',
         'menu_category',
         'service',
+        'service_category',
         'block',
         'gallery_item',
         'engine_item',

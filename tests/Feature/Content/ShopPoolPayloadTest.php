@@ -184,6 +184,8 @@ it('publishes the collections map beside the items', function () {
             'logo' => 'https://cdn.example.com/logo.png',
             'discountCode' => 'ALEX10',
             'position' => 0,
+            // A storefront never ranks — only menu/service categories do (D2).
+            'popularityRank' => null,
         ]);
 });
 

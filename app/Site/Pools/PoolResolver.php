@@ -74,7 +74,7 @@ class PoolResolver
     /** Public fields of one store card in a pool's `collections` map. */
     public const STORE_KEYS = [
         'externalRef', 'provider', 'url', 'name', 'currency',
-        'favicon', 'logo', 'discountCode', 'position',
+        'favicon', 'logo', 'discountCode', 'position', 'popularityRank',
     ];
 
     /** Public fields of one product variant. */
@@ -269,10 +269,16 @@ class PoolResolver
         $settings = ActionSettings::fromSite($site);
         $mode = in_array($pool, ['events', 'reviews'], true) ? 'manual' : $settings->poolMode($pool);
         $selection = PoolOrdering::order($mode, $selection);
+        $collections = PoolOrdering::orderCollections($mode, $this->collectionsFor($pool, $site, $selection, $stores), $selection);
         if ($mode !== 'manual') {
             // Owner locks (settings.pool_locks) hold items in place while the
-            // mode fills the rest — the dashboard's "Lock in position".
-            $selection = PoolOrdering::applyLocks($selection, $settings->poolLocksFor($pool));
+            // mode fills the rest — the dashboard's "Lock in position". A
+            // category pool (menus / services) displays grouped by category
+            // (D4), so its locks hold a position WITHIN the item's category
+            // and the wire is flattened in category order.
+            $selection = isset(ItemFamily::CATEGORY_FAMILIES[$pool])
+                ? PoolOrdering::applyLocksPerCollection($selection, $settings->poolLocksFor($pool), $collections)
+                : PoolOrdering::applyLocks($selection, $settings->poolLocksFor($pool));
         }
 
         $library = [];
@@ -295,7 +301,7 @@ class PoolResolver
             'latestItemId' => PoolRegistry::carriesLatestTag($pool)
                 ? $this->latestItemId($selection)
                 : null,
-            'collections' => PoolOrdering::orderCollections($mode, $this->collectionsFor($selection, $stores), $selection),
+            'collections' => $collections,
             'stats' => $this->statsFor($pool, $selection),
             'diningModes' => $this->diningModesFor($pool, $site),
             // W8: the platforms a manual link may be added for on this pool —
@@ -1318,9 +1324,15 @@ class PoolResolver
      * @param  Collection<string, object>  $stores
      * @return array<string, array<string, mixed>>
      */
-    private function collectionsFor(array $selection, Collection $stores): array
+    private function collectionsFor(string $pool, Site $site, array $selection, Collection $stores): array
     {
         $referenced = collect($selection)->flatMap(fn (array $i) => $i['collectionIds'] ?? [])->unique();
+        // A category's own rank (menu_category / service_category — the SUM
+        // of its members' scores, D2); null on a storefront or when unranked.
+        $categoryFamily = ItemFamily::CATEGORY_FAMILIES[$pool] ?? null;
+        $categoryRanks = $categoryFamily === null || $referenced->isEmpty()
+            ? []
+            : ($this->popularityRanks($site)[$categoryFamily] ?? []);
 
         $out = [];
         foreach ($referenced as $collectionId) {
@@ -1372,6 +1384,7 @@ class PoolResolver
                 'logo' => $row->logo_url === null ? null : (string) $row->logo_url,
                 'discountCode' => $row->discount_code === null ? null : (string) $row->discount_code,
                 'position' => (int) $row->position,
+                'popularityRank' => $row->provider === null ? ($categoryRanks[(string) $collectionId] ?? null) : null,
             ];
         }
 

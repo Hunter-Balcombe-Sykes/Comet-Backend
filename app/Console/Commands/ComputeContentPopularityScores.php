@@ -25,6 +25,9 @@ use Illuminate\Support\Str;
  *   - item scores  : link_clicks.product_id + item_views, keyed
  *                    (item_type, content.items.id) for EVERY family — the
  *                    pool "smart" order and the item reach term below.
+ *   - category scores: menu_category / service_category, keyed by collection
+ *                    id — the SUM of the served members' item scores (D2),
+ *                    ranked among the pool's categories.
  *   - action scores: content_type='action', keyed by App\Site\Actions\ActionId
  *                    — the unified lander list (pages + destination platforms
  *                    + served items + categories) scored by ActionScorer:
@@ -151,6 +154,8 @@ class ComputeContentPopularityScores extends Command
         'vimeo' => 'watch_item',
         'custom' => 'link_item',
         'other' => 'link_item',
+        'gallery' => 'gallery_item',
+        'media' => 'gallery_item',
     ];
 
     public function __construct(
@@ -299,10 +304,13 @@ class ComputeContentPopularityScores extends Command
         }
 
         // Every stored non-action type joins the union so a type that lost all
-        // signal still fades out (the 'action' type owns its own lifecycle).
+        // signal still fades out (the 'action' type owns its own lifecycle;
+        // the category families are derived from this run's item rows below).
+        $categoryFamilies = array_values(ItemFamily::CATEGORY_FAMILIES);
         $storedTypes = DB::connection('pgsql')->table('analytics.content_popularity_scores')
             ->where('site_id', $site->id)
             ->where('content_type', '!=', ActionScorer::CONTENT_TYPE)
+            ->whereNotIn('content_type', $categoryFamilies)
             ->distinct()
             ->pluck('content_type')
             ->all();
@@ -315,6 +323,28 @@ class ComputeContentPopularityScores extends Command
             $rows = array_merge($rows, $result['rows']);
             if ($result['deletes'] !== []) {
                 $deletes[$type] = $result['deletes'];
+            }
+        }
+
+        // Category families (D2): a served menu / service category scores the
+        // SUM of its members' item scores from THIS run, keyed by collection
+        // id, ranked among the pool's categories.
+        $itemScores = [];
+        foreach ($rows as $row) {
+            $itemScores[(string) $row['content_key']] = max($itemScores[(string) $row['content_key']] ?? 0.0, (float) $row['score']);
+        }
+        foreach (ItemFamily::CATEGORY_FAMILIES as $pool => $family) {
+            $sums = [];
+            foreach (self::categoryMembers((array) ($pools[$pool] ?? [])) as $cid => $memberIds) {
+                $sums[$cid] = 0.0;
+                foreach ($memberIds as $memberId) {
+                    $sums[$cid] += $itemScores[$memberId] ?? 0.0;
+                }
+            }
+            $result = $this->blendAndRank($site, $family, $sums, array_keys($sums));
+            $rows = array_merge($rows, $result['rows']);
+            if ($result['deletes'] !== []) {
+                $deletes[$family] = $result['deletes'];
             }
         }
 
@@ -374,6 +404,34 @@ class ComputeContentPopularityScores extends Command
         } catch (QueryException) {
             return [];
         }
+    }
+
+    /**
+     * Served items per home category for one pool — the first provider-null
+     * collection an item belongs to (a real menu/service category), exactly
+     * as ActionCandidates homes them; items with no category are not members.
+     *
+     * @param  array<string, mixed>  $pool  one PoolWire entry
+     * @return array<string, list<string>> collection id => member item ids
+     */
+    public static function categoryMembers(array $pool): array
+    {
+        $collections = is_array($pool['collections'] ?? null) ? $pool['collections'] : [];
+        $out = [];
+        foreach ((array) ($pool['items'] ?? []) as $item) {
+            if (! is_array($item) || ! is_string($item['id'] ?? null)) {
+                continue;
+            }
+            foreach ((array) ($item['collectionIds'] ?? []) as $cid) {
+                $cid = (string) $cid;
+                if (isset($collections[$cid]) && ($collections[$cid]['provider'] ?? null) === null) {
+                    $out[$cid][] = $item['id'];
+                    break;
+                }
+            }
+        }
+
+        return $out;
     }
 
     /** @return array{clicks: float, impressions: float, dwell: float} */
@@ -514,8 +572,6 @@ class ComputeContentPopularityScores extends Command
      */
     private function scoreAndRank(Site $site, string $contentType, array $agg, array $freshness = []): array
     {
-        $now = now();
-
         // The family's weights over the ALREADY-DECAYED day-bucket sums;
         // freshness is additive with its own per-family decay.
         $w = ItemFamily::weightsFor($contentType);
@@ -526,6 +582,22 @@ class ComputeContentPopularityScores extends Command
                 + $w['dwell'] * $signal['dwell']
                 + ($freshness[$key] ?? 0.0);
         }
+
+        return $this->blendAndRank($site, $contentType, $computed, array_keys($agg));
+    }
+
+    /**
+     * Blend computed scores with the previous run, fade stored keys that
+     * carry no live signal, rank with hysteresis, and shape the rows.
+     *
+     * @param  array<string, float>  $computed  content_key => this run's raw score
+     * @param  list<string>  $liveKeys  keys with live signal (never faded)
+     * @return array{rows: list<array<string, mixed>>, deletes: list<string>}
+     */
+    private function blendAndRank(Site $site, string $contentType, array $computed, array $liveKeys): array
+    {
+        $now = now();
+        $live = array_flip($liveKeys);
 
         // Previous stored score + rank (for blend + rank hysteresis).
         $previous = DB::connection('pgsql')->table('analytics.content_popularity_scores')
@@ -559,7 +631,7 @@ class ComputeContentPopularityScores extends Command
         // deleted; everything else (including still-fading keys) is ranked.
         $deletes = [];
         foreach ($blended as $key => $score) {
-            if (! isset($agg[$key]) && $score < self::SCORE_FLOOR) {
+            if (! isset($live[$key]) && $score < self::SCORE_FLOOR) {
                 $deletes[] = (string) $key;
                 unset($blended[$key]);
             }

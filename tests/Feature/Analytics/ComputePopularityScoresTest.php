@@ -3,6 +3,7 @@
 use App\Console\Commands\ComputeContentPopularityScores;
 use App\Services\Analytics\ActionScorer;
 use App\Services\Content\LinkPoolWriter;
+use App\Services\Content\ServiceCollections;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
@@ -289,6 +290,40 @@ it('splits the gallery page dwell equally across the served media items at 0.05/
 
     expect((float) popularityScoreRow($tenant->site->id, 'gallery_item', $a)->score)->toEqualWithDelta(1.0, 0.05)
         ->and((float) popularityScoreRow($tenant->site->id, 'gallery_item', $b)->score)->toEqualWithDelta(1.0, 0.05);
+});
+
+it('scores a service category as the SUM of its served members and ranks categories by it (D2)', function () {
+    $tenant = createTenant('cmd-category-sum');
+    $ago = now()->subDays(300)->toISOString();
+    $hair = app(ServiceCollections::class)->create($tenant->id, 'Hair');
+    $nails = app(ServiceCollections::class)->create($tenant->id, 'Nails');
+    $cut = ownerServiceItem($tenant->id, ['title' => 'Cut']);
+    $colour = ownerServiceItem($tenant->id, ['title' => 'Colour']);
+    $mani = ownerServiceItem($tenant->id, ['title' => 'Manicure']);
+    app(ServiceCollections::class)->assign($tenant->id, $cut, $hair, null);
+    app(ServiceCollections::class)->assign($tenant->id, $colour, $hair, null);
+    app(ServiceCollections::class)->assign($tenant->id, $mani, $nails, null);
+    DB::table('content.items')->whereIn('id', [$cut, $colour, $mani])->update(['first_seen_at' => $ago]);
+    // Hair: 1 + 1 clicks (3.0 each) = 6.0; Nails: one dish with 1 click = 3.0 — breadth wins.
+    foreach ([$cut, $colour, $mani] as $id) {
+        DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+            'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
+            'section_key' => 'book', 'product_id' => $id, 'url' => 'https://example.com/x',
+            'occurred_at' => now()->toISOString(), 'created_at' => now()->toISOString(),
+        ]);
+    }
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+
+    $hairRow = popularityScoreRow($tenant->site->id, 'service_category', $hair);
+    $nailsRow = popularityScoreRow($tenant->site->id, 'service_category', $nails);
+    expect($hairRow)->not->toBeNull()->and((float) $hairRow->score)->toEqualWithDelta(6.0, 0.05)->and((int) $hairRow->rank)->toBe(1)
+        ->and($nailsRow)->not->toBeNull()->and((float) $nailsRow->score)->toEqualWithDelta(3.0, 0.05)->and((int) $nailsRow->rank)->toBe(2);
+
+    // A category that stops being served fades out like any other stored row.
+    app(ServiceCollections::class)->remove($tenant->id, $nails);
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+    expect((float) popularityScoreRow($tenant->site->id, 'service_category', $nails)->score)->toEqualWithDelta(0.9, 0.05);
 });
 
 it('never writes a row for an event item, even a brand-new one', function () {

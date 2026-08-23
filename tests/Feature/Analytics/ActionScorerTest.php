@@ -144,6 +144,18 @@ it('folds a product\'s shop_product score into reach by its item id (no handle d
     expect($rows['item:'.$productId]['score'] - $rows['item:other']['score'])->toEqualWithDelta(0.30, 0.001);
 });
 
+it('folds a category\'s reach as the SUM of its members, so two small dishes beat one hit (D2)', function () {
+    $site = createTenant('sc-reach-category')->site;
+    $old = now()->subDays(120)->toIso8601String();
+    $rows = scoreRows(app(ActionScorer::class)->computeForSite($site, [
+        scorerCandidate('category:breadth', 'category', $old, ['meta' => ['itemIds' => ['a', 'b', 'c']]]),
+        scorerCandidate('category:onehit', 'category', $old, ['meta' => ['itemIds' => ['d']]]),
+    ], ['a' => 4.0, 'b' => 4.0, 'c' => 4.0, 'd' => 9.0]));
+
+    // breadth = 12 (max), onehit = 9 → reach 1.0 vs 0.75 → 0.30 × 0.25 apart.
+    expect($rows['category:breadth']['score'] - $rows['category:onehit']['score'])->toEqualWithDelta(0.075, 0.001);
+});
+
 it('deletes stale keys and keeps hysteresis: a 5% better newcomer does not overtake the incumbent', function () {
     $site = createTenant('sc-stale')->site;
     $old = now()->subDays(120)->toIso8601String();

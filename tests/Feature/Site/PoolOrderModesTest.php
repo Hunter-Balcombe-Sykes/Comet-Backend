@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\Site;
+use App\Services\Content\ServiceCollections;
 use App\Site\Pools\PoolResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -121,4 +122,69 @@ it('locks hold an item in place under newest; manual ignores locks', function ()
         'pool_locks' => ['watch' => [['position' => 2, 'id' => $ids['old']]]],
     ])]);
     expect(orderModeSelection($siteId, 'watch'))->toBe(['Old', 'Mid', 'New']);
+});
+
+// ── Smart ordering v2 (A3): category pools — collection ranks, smart category
+// order, per-category locks ──
+
+/** Two service categories (Hair: Cut, Colour · Nails: Manicure) + one loose service. */
+function orderModeServices(): array
+{
+    [$pro, $siteId] = poolTenant();
+    $collections = app(ServiceCollections::class);
+    $hair = $collections->create($pro->id, 'Hair');
+    $nails = $collections->create($pro->id, 'Nails');
+    $cut = ownerServiceItem($pro->id, ['title' => 'Cut', 'sort_order' => 0]);
+    $colour = ownerServiceItem($pro->id, ['title' => 'Colour', 'sort_order' => 1]);
+    $mani = ownerServiceItem($pro->id, ['title' => 'Manicure', 'sort_order' => 2]);
+    $loose = ownerServiceItem($pro->id, ['title' => 'Consult', 'sort_order' => 3]);
+    $collections->assign($pro->id, $cut, $hair, null);
+    $collections->assign($pro->id, $colour, $hair, null);
+    $collections->assign($pro->id, $mani, $nails, null);
+
+    return [$pro, $siteId, compact('hair', 'nails', 'cut', 'colour', 'mani', 'loose')];
+}
+
+function orderModeRank(string $siteId, string $family, string $key, int $rank): void
+{
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+        'id' => (string) Str::uuid(), 'site_id' => $siteId, 'content_type' => $family,
+        'content_key' => $key, 'score' => 10.0 / $rank, 'rank' => $rank, 'computed_at' => now()->toISOString(),
+    ]);
+}
+
+it('carries a service category\'s own popularityRank on the collections map, null when unranked', function () {
+    [, $siteId, $ids] = orderModeServices();
+    orderModeRank($siteId, 'service_category', $ids['nails'], 1);
+
+    $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'services');
+
+    expect($out['collections'][$ids['nails']]['popularityRank'])->toBe(1)
+        ->and($out['collections'][$ids['hair']]['popularityRank'])->toBeNull();
+});
+
+it('smart orders categories by their own rank (unranked after, by position) and the wire in category order', function () {
+    [, $siteId, $ids] = orderModeServices();
+    orderModeSite($siteId, ['services' => 'smart']);
+    orderModeRank($siteId, 'service_category', $ids['nails'], 1);
+    orderModeRank($siteId, 'service', $ids['colour'], 1);
+    orderModeRank($siteId, 'service', $ids['cut'], 2);
+
+    $out = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'services');
+
+    expect(array_column($out['collections'], 'position', 'name'))->toBe(['Nails' => 0, 'Hair' => 1])
+        ->and(array_column($out['selection'], 'headline'))->toBe(['Manicure', 'Colour', 'Cut', 'Consult']);
+});
+
+it('a lock on a category pool holds the item at a position WITHIN its category', function () {
+    [, $siteId, $ids] = orderModeServices();
+    orderModeRank($siteId, 'service', $ids['colour'], 1);
+    orderModeRank($siteId, 'service', $ids['cut'], 2);
+    DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->update(['settings' => json_encode([
+        'pool_order' => ['services' => 'smart'],
+        // Cut locked at #0 of Hair — not #0 of the whole pool.
+        'pool_locks' => ['services' => [['position' => 0, 'id' => $ids['cut']]]],
+    ])]);
+
+    expect(orderModeSelection($siteId, 'services'))->toBe(['Cut', 'Colour', 'Manicure', 'Consult']);
 });
