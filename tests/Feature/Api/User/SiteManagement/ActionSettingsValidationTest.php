@@ -121,3 +121,17 @@ it('an actions write advances sites.updated_at so the public payload cache key r
     $after = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('updated_at');
     expect(strtotime((string) $after))->toBeGreaterThan(strtotime($past));
 });
+
+it('accepts pool_locks per pool, replaces the map atomically, and rejects bad shapes', function () {
+    $pro = createTenant('as-locks');
+    patchSettings($pro, ['pool_locks' => ['watch' => [['position' => 0, 'id' => 'item-a'], ['position' => 3, 'id' => 'item-b']], 'listen' => [['position' => 1, 'id' => 'item-c']]]])->assertOk();
+    expect(siteSettings($pro)['pool_locks'])->toBe(['watch' => [['position' => 0, 'id' => 'item-a'], ['position' => 3, 'id' => 'item-b']], 'listen' => [['position' => 1, 'id' => 'item-c']]]);
+
+    patchSettings($pro, ['pool_locks' => ['watch' => []]])->assertOk();
+    expect(siteSettings($pro)['pool_locks'])->toBe(['watch' => []]);
+
+    patchSettings($pro, ['pool_locks' => ['events' => [['position' => 0, 'id' => 'x']]]])->assertStatus(422)->assertJsonValidationErrors(['settings.pool_locks']);
+    patchSettings($pro, ['pool_locks' => ['watch' => [['position' => 0, 'id' => 'a'], ['position' => 0, 'id' => 'b']]]])->assertStatus(422)->assertJsonValidationErrors(['settings.pool_locks.watch.0.position']);
+    patchSettings($pro, ['pool_locks' => ['watch' => [['position' => 0, 'id' => 'a'], ['position' => 1, 'id' => 'a']]]])->assertStatus(422)->assertJsonValidationErrors(['settings.pool_locks.watch.0.id']);
+    patchSettings($pro, ['pool_locks' => ['watch' => [['position' => -1, 'id' => 'a']]]])->assertStatus(422);
+});

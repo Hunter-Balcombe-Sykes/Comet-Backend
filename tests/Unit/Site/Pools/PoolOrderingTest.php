@@ -45,3 +45,15 @@ it('collections follow their best member and are renumbered; manual untouched', 
 
     expect(PoolOrdering::orderCollections('manual', $collections, $ordered))->toBe($collections);
 });
+
+it('locks hold their position while the rest fill around them; unknown locks are skipped', function () {
+    $items = [orderingItem('a', '2026-08-09T00:00:00+00:00'), orderingItem('b', '2026-08-08T00:00:00+00:00'), orderingItem('c', '2026-08-07T00:00:00+00:00'), orderingItem('d', '2026-08-06T00:00:00+00:00')];
+    $out = PoolOrdering::applyLocks($items, [['position' => 0, 'id' => 'd'], ['position' => 2, 'id' => 'gone'], ['position' => 3, 'id' => 'a']]);
+    expect(array_column($out, 'id'))->toBe(['d', 'b', 'c', 'a']);
+});
+
+it('a lock past the end lands last; no locks is a no-op', function () {
+    $items = [orderingItem('a', null), orderingItem('b', null)];
+    expect(array_column(PoolOrdering::applyLocks($items, [['position' => 9, 'id' => 'a']]), 'id'))->toBe(['b', 'a'])
+        ->and(PoolOrdering::applyLocks($items, []))->toBe($items);
+});

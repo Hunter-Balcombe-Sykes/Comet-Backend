@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\DB;
  * @property string $subdomain
  * @property bool $is_published Raw column backing the published accessor/mutator below. Dashboard-level flag, NOT a public-visibility gate on every read path — the profiles route (IndividualProfileController) and SyncSubdomainToKvJob render/route regardless (pre-account sites are public pre-claim by design); PublicSiteResolver, PublicDocumentDownloadController, AnalyticsController and QrCodeController do gate on it. See docs/api.md "Public visibility vs. is_published".
  * @property bool $published Virtual alias for is_published (see getPublishedAttribute/setPublishedAttribute below) — same storage, tolerant boolean parsing on write.
- * @property array<string, mixed> $settings Free-form bag; the 5 FOUND-16 keys (show_branding, charlie_enabled, services_auto_sync_enabled, booking_mode, manual_booking_url) were promoted to real columns and are re-merged at read time (SiteResource) rather than read from here. Known remaining keys: privacy, smart_page_order, manual_page_order, actions, pool_order. settings.design.* is REJECTED on write (site.design_kits is the design-var store).
+ * @property array<string, mixed> $settings Free-form bag; the 5 FOUND-16 keys (show_branding, charlie_enabled, services_auto_sync_enabled, booking_mode, manual_booking_url) were promoted to real columns and are re-merged at read time (SiteResource) rather than read from here. Known remaining keys: privacy, smart_page_order, manual_page_order, actions, pool_order, pool_locks. settings.design.* is REJECTED on write (site.design_kits is the design-var store).
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property Carbon|null $subdomain_changed_at

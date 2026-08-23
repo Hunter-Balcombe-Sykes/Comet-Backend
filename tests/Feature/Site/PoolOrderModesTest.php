@@ -107,3 +107,18 @@ it('events ignore the mode and stay soonest-first', function () {
 
     expect(orderModeSelection($siteId, 'events'))->toBe(['Soon', 'Later']);
 });
+
+it('locks hold an item in place under newest; manual ignores locks', function () {
+    [, $siteId, $ids] = orderModeWatch();
+    DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->update(['settings' => json_encode([
+        'pool_order' => ['watch' => 'newest'],
+        'pool_locks' => ['watch' => [['position' => 0, 'id' => $ids['old']]]],
+    ])]);
+    expect(orderModeSelection($siteId, 'watch'))->toBe(['Old', 'New', 'Mid']);
+
+    DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->update(['settings' => json_encode([
+        'pool_order' => ['watch' => 'manual'],
+        'pool_locks' => ['watch' => [['position' => 2, 'id' => $ids['old']]]],
+    ])]);
+    expect(orderModeSelection($siteId, 'watch'))->toBe(['Old', 'Mid', 'New']);
+});
