@@ -855,11 +855,25 @@ key set is `PoolResolver::ITEM_KEYS`, pinned by `tests/Feature/Content/PoolWireS
 orders the WHOLE selection — pins and auto together — by `publishedAt` desc with dated
 items before undated (a link-pool item counts its `firstSeenAt` as its date: it was
 hand-added); `smart` orders by `popularityRank` asc (ranked before unranked, then the
-newest order); `manual` keeps pins by `sort_key` then the pool's rule order. Category
-blocks (`collections`) follow their best member — `position` is rewritten. `events` is
-always soonest-first and `reviews` never ranks. `popularityRank` is now emitted for EVERY
-item, read family-aware per kind (a product by catalog handle, a link by url, the rest by
-item id).
+newest order); `manual` keeps pins by `sort_key` then the pool's rule order. `events` is
+always soonest-first and `reviews` never ranks. `popularityRank` is emitted for EVERY
+item — its kind's family in `analytics.content_popularity_scores`, **every family keyed
+by the item id** (smart ordering v2, 2026-08-23; the handle / url keys are gone).
+
+**Category pools (`menus`, `services`) display grouped by category (D4, 2026-08-23).**
+Each `collections[<id>]` entry carries `popularityRank` — the category's own rank in the
+`menu_category` / `service_category` family, whose score is the **SUM** of its served
+members' item scores (breadth beats one hit); `null` on a storefront and when unranked.
+In `smart` the categories order by that rank (unranked after, by `position`); in `newest`
+through their newest member; `manual` keeps the Categories sheet's drag. `position` is
+rewritten to the resolved order. The flat `items` list is emitted in category order
+(home = the item's first provider-null collection; uncategorised items last), and a
+`settings.pool_locks` position on these two pools is the index **within** the item's
+category. On every other pool `collections[*].popularityRank` is `null`.
+
+**Media never produces an action (D1, 2026-08-23):** `actions.entries` contains no
+`item:` from the media pool and no gallery category; the gallery keeps its own pool
+smart order (item views + a share of the gallery page's dwell + freshness).
 
 - **`review`** (2026-08-13) — `{rating, text, authorName, authorPhotoUrl, authorUri,
   reviewedAt}` on items of kind `review`, `null` on every other kind. `rating` is always
@@ -969,7 +983,7 @@ HTTP 423 Locked
 - Response (200): `{ "site": { ... } }`
 - Common status codes: 200, 401, 403, 422
 - Banners are managed via `POST /api/uploads` (pool=content) and the frontend picks from `optimized` / `maximized`. No banner fields are accepted on this endpoint.
-- Ordering settings (unified actions, 2026-08-23): `settings.smart_page_order` (bool, default true), `settings.manual_page_order` (list of taxonomy page-ids, distinct, ≤16), `settings.actions` = `{ "mode": "newest|smart|manual", "slots": [ { "position": 0..9, "id": "<kind>:<ref>" } ] }` (≤10 slots, positions and ids distinct; in `smart`/`newest` the slots are LOCKS and may be sparse, in `manual` they ARE the list and must be contiguous from 0; id grammar `^(page|platform|item|category):[A-Za-z0-9_.:/-]{1,160}$`, existence not checked at write time), `settings.pool_order` = `{ "<pool>": "newest|smart|manual" }` over `watch, listen, media, services, shop, custom_links, menus` (`events`/`reviews` 422; absent = newest), `settings.pool_locks` = `{ "<pool>": [ { "position": int, "id": "<item uuid>" } ] }` (same pool keys, ≤50 per pool, positions/ids distinct; applied in `newest`/`smart` only — a locked item holds its position while the mode fills the rest, unknown ids skipped). `actions`, `pool_order` and `pool_locks` REPLACE atomically on write. The retired keys `smart_actions` / `manual_actions` / `manual_order_pools` are stripped silently. The public payload's `pageOrder` / `actions` / pool item order apply these server-side.
+- Ordering settings (unified actions, 2026-08-23): `settings.smart_page_order` (bool, default true), `settings.manual_page_order` (list of taxonomy page-ids, distinct, ≤16), `settings.actions` = `{ "mode": "newest|smart|manual", "slots": [ { "position": 0..9, "id": "<kind>:<ref>" } ] }` (≤10 slots, positions and ids distinct; in `smart`/`newest` the slots are LOCKS and may be sparse, in `manual` they ARE the list and must be contiguous from 0; id grammar `^(page|platform|item|category):[A-Za-z0-9_.:/-]{1,160}$`, existence not checked at write time), `settings.pool_order` = `{ "<pool>": "newest|smart|manual" }` over `watch, listen, media, services, shop, custom_links, menus` (`events`/`reviews` 422; absent = newest), `settings.pool_locks` = `{ "<pool>": [ { "position": int, "id": "<item uuid>" } ] }` (same pool keys, ≤50 per pool, ids distinct, positions distinct except on `menus`/`services` where a position is the index within the item's category; applied in `newest`/`smart` only — a locked item holds its position while the mode fills the rest, unknown ids skipped). `actions`, `pool_order` and `pool_locks` REPLACE atomically on write. The retired keys `smart_actions` / `manual_actions` / `manual_order_pools` are stripped silently. The public payload's `pageOrder` / `actions` / pool item order apply these server-side.
 
 ### `GET /api/site/actions`
 
@@ -982,7 +996,8 @@ HTTP 423 Locked
 - Candidates (spec §2): `page:<id>` for the six destination-of-intent pages (`services, reservations, menu, shop, events, contact`) when present; `platform:<key>` for every connection whose platform is a public destination (socials, music/video/podcast profiles, online ordering) — a SOURCE platform (booking, store, ticketing) folds into its page and only appears as `platform:<key>` while that page is absent; `item:<uuid>` for every item currently served on the sitepage; `category:<collectionId>` for a menu/services category block. `reviews` never ranks.
 - Writes go through `PATCH /api/site` `settings.actions`. This read does a full pool hydration per call — owner-only, uncached.
 - The public profile payload (`GET /api/public/profiles/{handle}`) carries top-level `actions` = `{ "mode", "entries": [ActionEntry] }` (≤10, always present, `entries: []` when nothing resolves); every `ref` resolves against the served `pools`. `pageOrder` reflects `manual_page_order` when `smart_page_order` is false, else the `page:*` action scores. The legacy `rankedActions` + `ordering` keys ride beside `actions` for one deploy and are then removed.
-- Scoring: `analytics:compute-popularity` (15-min) writes `content_type='action'` rows keyed by action id — `0.45·demandRate + 0.30·reach + 0.25·freshness + prior` (see `App\Services\Analytics\ActionScorer`). Beacons `POST /api/public/analytics/action-seen|action-tap` take the `<kind>:<ref>` id.
+- Scoring: `analytics:compute-popularity` (15-min) writes `content_type='action'` rows keyed by action id — `0.45·demandRate + 0.30·reach + 0.25·freshness + prior` (see `App\Services\Analytics\ActionScorer`; a category's reach is the SUM of its members' item scores). Beacons `POST /api/public/analytics/action-seen|action-tap` take the `<kind>:<ref>` id; a tap on an `item:<id>` also counts as one click in that item's family (D7).
+- Item families (pool smart order, 2026-08-23): one formula with per-family weights from `config/partna.php` `pools.smart` — `Σ_days (w_click·clicks + w_view·views + w_dwell·dwell_s)·2^(−age/90) + w_fresh·2^(−ageSince(publishedAt ?? firstSeenAt)/half_life)`; every family keyed by `content.items.id`; events never score; `item_type` beacons accept `service_category` alongside `menu_category`. The sweep scopes in sites with traffic OR changed content in the last hour (D6).
 
 ### `PATCH /api/site/visibility`
 

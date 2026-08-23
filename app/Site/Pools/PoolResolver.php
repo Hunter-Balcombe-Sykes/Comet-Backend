@@ -4,6 +4,7 @@ namespace App\Site\Pools;
 
 use App\Models\Core\Site\Site;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Analytics\ItemFamily;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Content\ContentItemSlugAllocator;
@@ -33,11 +34,10 @@ use Illuminate\Support\Facades\DB;
  * located / priced facets (null off events), the public URL slug + its 301
  * aliases, and the full per-platform link set (synced source links +
  * hand-saved item_links).
- * popularityRank carries a real rank for products (analytics.content_popularity_scores,
- * content_type='shop_product', keyed by f_catalog.handle — slice 5b, inherited
- * from the retiring /integrations wire); on every other kind it is null until
- * watch_item/listen_item beacons compute. The wire carries the field either
- * way so the shape doesn't change under the FE.
+ * popularityRank carries the item's rank in its kind's family
+ * (analytics.content_popularity_scores, keyed by item id for every family
+ * since 2026-08-23), null until the scoring job has ranked it. The wire
+ * carries the field either way so the shape doesn't change under the FE.
  */
 class PoolResolver
 {
@@ -74,7 +74,7 @@ class PoolResolver
     /** Public fields of one store card in a pool's `collections` map. */
     public const STORE_KEYS = [
         'externalRef', 'provider', 'url', 'name', 'currency',
-        'favicon', 'logo', 'discountCode', 'position',
+        'favicon', 'logo', 'discountCode', 'position', 'popularityRank',
     ];
 
     /** Public fields of one product variant. */
@@ -269,10 +269,16 @@ class PoolResolver
         $settings = ActionSettings::fromSite($site);
         $mode = in_array($pool, ['events', 'reviews'], true) ? 'manual' : $settings->poolMode($pool);
         $selection = PoolOrdering::order($mode, $selection);
+        $collections = PoolOrdering::orderCollections($mode, $this->collectionsFor($pool, $site, $selection, $stores), $selection);
         if ($mode !== 'manual') {
             // Owner locks (settings.pool_locks) hold items in place while the
-            // mode fills the rest — the dashboard's "Lock in position".
-            $selection = PoolOrdering::applyLocks($selection, $settings->poolLocksFor($pool));
+            // mode fills the rest — the dashboard's "Lock in position". A
+            // category pool (menus / services) displays grouped by category
+            // (D4), so its locks hold a position WITHIN the item's category
+            // and the wire is flattened in category order.
+            $selection = isset(ItemFamily::CATEGORY_FAMILIES[$pool])
+                ? PoolOrdering::applyLocksPerCollection($selection, $settings->poolLocksFor($pool), $collections)
+                : PoolOrdering::applyLocks($selection, $settings->poolLocksFor($pool));
         }
 
         $library = [];
@@ -295,7 +301,7 @@ class PoolResolver
             'latestItemId' => PoolRegistry::carriesLatestTag($pool)
                 ? $this->latestItemId($selection)
                 : null,
-            'collections' => PoolOrdering::orderCollections($mode, $this->collectionsFor($selection, $stores), $selection),
+            'collections' => $collections,
             'stats' => $this->statsFor($pool, $selection),
             'diningModes' => $this->diningModesFor($pool, $site),
             // W8: the platforms a manual link may be added for on this pool —
@@ -476,10 +482,9 @@ class PoolResolver
         $catalog = collect();
         $variantsByItem = collect();
         // Popularity ranks for EVERY item (2026-08-23, pool smart order): one
-        // cached read of every item family. The lookup is FAMILY-AWARE — a
-        // product reads shop_product by handle, a link reads link_item by url,
-        // everything else reads its kind's family by item id — so a watch_item
-        // row keyed by a slug can never leak onto a product sharing it.
+        // cached read of every item family, each keyed by item id. The lookup
+        // is FAMILY-AWARE — an item only reads its own kind's family — so a
+        // watch_item row can never leak onto a product.
         $ranks = $this->popularityRanks($site);
         $linkMode = (string) ($site->shop_link_mode ?? 'checkout');
 
@@ -1036,7 +1041,7 @@ class PoolResolver
                 // then disagree with the price it sits next to.
                 'availability' => $offers[$itemId]->availability ?? null,
                 'links' => $links,
-                'popularityRank' => self::rankFor($ranks, (string) $item->kind, $itemId, $handle, $primary['url'] ?? null),
+                'popularityRank' => self::rankFor($ranks, (string) $item->kind, $itemId),
                 // Additive and nullable on EVERY item, never a kind-shaped
                 // sub-object — the same contract startsAt / venue / price
                 // already follow, so the wire shape does not vary with kind.
@@ -1169,33 +1174,20 @@ class PoolResolver
             || ($settings['reviews'] ?? true) === false;
     }
 
-    /** Item kind => the content_popularity_scores family that ranks it. */
-    private const KIND_RANK_FAMILY = [
-        'product' => 'shop_product', 'link' => 'link_item', 'video' => 'watch_item',
-        'track' => 'listen_item', 'release' => 'listen_item', 'episode' => 'listen_item',
-        'menu_item' => 'menu_item', 'service' => 'service', 'media' => 'gallery_item',
-        'event' => 'engine_item',
-    ];
-
     /**
-     * The rank an item carries on the wire: its kind's family, keyed the way
-     * that family keys (handle / url / id). Null when unranked.
+     * The rank an item carries on the wire: its kind's family, keyed by the
+     * item id (every family, 2026-08-23). Null when unranked.
      *
-     * @param  array<string, array<string, int>>  $ranks  family => key => rank
+     * @param  array<string, array<string, int>>  $ranks  family => item id => rank
      */
-    private static function rankFor(array $ranks, string $kind, string $itemId, string $handle, ?string $url): ?int
+    private static function rankFor(array $ranks, string $kind, string $itemId): ?int
     {
-        $family = self::KIND_RANK_FAMILY[$kind] ?? null;
-        if ($family === null || ! isset($ranks[$family])) {
+        $family = ItemFamily::forKind($kind);
+        if ($family === null || $itemId === '') {
             return null;
         }
-        $key = match ($kind) {
-            'product' => $handle,
-            'link' => (string) $url,
-            default => $itemId,
-        };
 
-        return $key !== '' ? ($ranks[$family][$key] ?? null) : null;
+        return $ranks[$family][$itemId] ?? null;
     }
 
     /**
@@ -1332,9 +1324,15 @@ class PoolResolver
      * @param  Collection<string, object>  $stores
      * @return array<string, array<string, mixed>>
      */
-    private function collectionsFor(array $selection, Collection $stores): array
+    private function collectionsFor(string $pool, Site $site, array $selection, Collection $stores): array
     {
         $referenced = collect($selection)->flatMap(fn (array $i) => $i['collectionIds'] ?? [])->unique();
+        // A category's own rank (menu_category / service_category — the SUM
+        // of its members' scores, D2); null on a storefront or when unranked.
+        $categoryFamily = ItemFamily::CATEGORY_FAMILIES[$pool] ?? null;
+        $categoryRanks = $categoryFamily === null || $referenced->isEmpty()
+            ? []
+            : ($this->popularityRanks($site)[$categoryFamily] ?? []);
 
         $out = [];
         foreach ($referenced as $collectionId) {
@@ -1386,6 +1384,7 @@ class PoolResolver
                 'logo' => $row->logo_url === null ? null : (string) $row->logo_url,
                 'discountCode' => $row->discount_code === null ? null : (string) $row->discount_code,
                 'position' => (int) $row->position,
+                'popularityRank' => $row->provider === null ? ($categoryRanks[(string) $collectionId] ?? null) : null,
             ];
         }
 

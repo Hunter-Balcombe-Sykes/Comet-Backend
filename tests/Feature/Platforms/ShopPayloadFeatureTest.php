@@ -135,12 +135,10 @@ it('shop selection returns the compat flat view of the first brand with products
         ]]);
 });
 
-it('shop selection surfaces a seeded popularityRank keyed by product handle', function () {
-    // Covers the dashboard route (shop_product ranks were ALREADY correctly
-    // keyed by handle — the rule ShopContentReader::brandMap() owns now that
-    // ShopBrand::toBrandArray() is gone — unlike custom/links' resource_id
-    // mismatch, RANK-1). ShopRelationalStorageTest pins the same keying on the
-    // PUBLIC wire only; this is the /api/platforms/shop/selection half.
+it('shop selection surfaces a seeded popularityRank keyed by the product item id', function () {
+    // Covers the dashboard route: shop_product ranks key by content.items.id
+    // (every family, 2026-08-23); ShopController::productRanksFor re-keys
+    // them by handle for the legacy catalogue shape, which carries no item id.
     setupContentPopularityScoresTable();
     $user = shopPayloadUser('shp4');
     $siteId = (string) Str::uuid();
@@ -154,15 +152,16 @@ it('shop selection surfaces a seeded popularityRank keyed by product handle', fu
     $brand = shopPayloadStore($user, 'full', [
         'url' => 'https://f', 'discountCode' => 'SAVE', 'position' => 0,
     ]);
-    // handle='mug' round-trips through content.f_catalog, which is where
-    // brandMap() looks the rank up.
+    // handle='mug' round-trips through content.f_catalog, which is how the
+    // id-keyed rank is mapped back onto the handle-keyed catalogue.
     makeShopStoreProduct($brand, ['productId' => 'p1', 'handle' => 'mug', 'url' => 'https://f/p1']);
+    $itemId = (string) DB::table('content.f_catalog')->where('handle', 'mug')->value('item_id');
 
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
         'content_type' => 'shop_product',
-        'content_key' => 'mug',
+        'content_key' => $itemId,
         'score' => 8.0,
         'rank' => 1,
         'computed_at' => now()->toDateTimeString(),

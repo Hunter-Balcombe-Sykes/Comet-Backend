@@ -136,8 +136,9 @@ class ActionScorer
     }
 
     /**
-     * An item's pool engagement (its stored item-family score) folded into
-     * reach; a category takes the max of its members.
+     * An item's pool engagement (its stored item-family score, keyed by item
+     * id for every kind) folded into reach; a category is the SUM of its
+     * members (D2 — breadth beats one hit).
      *
      * @param  array<string, mixed>  $c
      * @param  array<string, float>  $itemScores
@@ -147,12 +148,12 @@ class ActionScorer
         if ($c['kind'] === 'item') {
             return $itemScores[(string) ($c['ref']['itemId'] ?? '')] ?? 0.0;
         }
-        $best = 0.0;
+        $sum = 0.0;
         foreach ((array) ($c['meta']['itemIds'] ?? []) as $itemId) {
-            $best = max($best, $itemScores[(string) $itemId] ?? 0.0);
+            $sum += $itemScores[(string) $itemId] ?? 0.0;
         }
 
-        return $best;
+        return $sum;
     }
 
     /** @return array{exposures: array<string, float>, taps: array<string, float>} */

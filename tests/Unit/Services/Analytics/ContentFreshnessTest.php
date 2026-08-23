@@ -9,9 +9,9 @@ use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
 
-// ContentFreshness — the additive, 14d-half-life boost per content grain,
-// aged from the owning row's created_at. See the service docblock for which
-// grains are eligible and why.
+// ContentFreshness — the additive boost per item family (config
+// partna.pools.smart weights + half-lives), aged from publishedAt ??
+// firstSeenAt. See the service docblock.
 
 beforeEach(function () {
     tenantHelpersEnsureTables();
@@ -42,21 +42,46 @@ function freshnessSeedConnection(object $tenant, string $platform, string $creat
     return $id;
 }
 
-it('boosts each pool link per URL (f_link.url = the item content_key) at W_ITEM', function () {
+it('boosts each pool link per item id (the item content_key) at W_ITEM', function () {
     // The legacy custom-connection lane was retired 2026-08-19 — links live
     // in the custom_links POOL, and freshness reads content.items directly.
     $tenant = createTenant('fresh-links');
     $writer = app(LinkPoolWriter::class);
     $newId = $writer->add($tenant->refresh(), 'https://example.com/new', enrich: false);
     $oldId = $writer->add($tenant->refresh(), 'https://example.com/older', enrich: false);
+    // Aged from publishedAt ?? firstSeenAt (a link has no publishedAt).
     DB::connection('pgsql')->table('content.items')
-        ->where('id', $oldId)->update(['created_at' => now()->subDays(14)->toISOString()]);
+        ->where('id', $oldId)->update(['first_seen_at' => now()->subDays(14)->toISOString()]);
 
     $boosts = app(ContentFreshness::class)->boostsForSite($tenant->site);
 
     // Pool links also freshen the Links PAGE.
-    expect($boosts['link_item']['https://example.com/new'])->toBeGreaterThan(ContentFreshness::W_ITEM * 0.99);
+    expect($boosts['link_item'][$newId])->toBeGreaterThan(ContentFreshness::W_ITEM * 0.99);
     // 14 days = one half-life → half weight.
-    expect($boosts['link_item']['https://example.com/older'])->toBeGreaterThan(ContentFreshness::W_ITEM * 0.48)
-        ->and($boosts['link_item']['https://example.com/older'])->toBeLessThan(ContentFreshness::W_ITEM * 0.52);
+    expect($boosts['link_item'][$oldId])->toBeGreaterThan(ContentFreshness::W_ITEM * 0.48)
+        ->and($boosts['link_item'][$oldId])->toBeLessThan(ContentFreshness::W_ITEM * 0.52);
+});
+
+it('boosts every scored family from publishedAt ?? firstSeenAt at its own weight, and never an event', function () {
+    $tenant = createTenant('fresh-families');
+    $source = poolSource($tenant->id, null);
+    $video = poolItem($tenant->id, $source, 'video', 'Clip', now()->toISOString());          // published today
+    $track = poolItem($tenant->id, $source, 'track', 'Song', now()->subDays(21)->toISOString()); // one 21d half-life
+    $media = poolItem($tenant->id, $source, 'media', 'Shot', now()->toISOString());
+    $event = poolItem($tenant->id, $source, 'event', 'Gig', now()->toISOString());
+    // A service with no publishedAt ages from first_seen_at (30d half-life).
+    $service = poolItem($tenant->id, $source, 'service', 'Cut', now()->toISOString());
+    DB::connection('pgsql')->table('content.f_published')->where('item_id', $service)->delete();
+    DB::connection('pgsql')->table('content.items')->where('id', $service)->update(['first_seen_at' => now()->subDays(30)->toISOString()]);
+
+    $boosts = app(ContentFreshness::class)->boostsForSite($tenant->site);
+
+    expect($boosts['watch_item'][$video])->toEqualWithDelta(3.0, 0.01)
+        ->and($boosts['listen_item'][$track])->toEqualWithDelta(2.0, 0.01)
+        ->and($boosts['gallery_item'][$media])->toEqualWithDelta(5.0, 0.01)
+        ->and($boosts['service'][$service])->toEqualWithDelta(0.5, 0.01)
+        ->and($boosts)->not->toHaveKey('engine_item');
+    foreach ($boosts as $family) {
+        expect($family)->not->toHaveKey($event);
+    }
 });

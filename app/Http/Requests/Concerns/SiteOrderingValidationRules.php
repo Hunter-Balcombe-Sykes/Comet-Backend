@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Concerns;
 
 use App\Enums\SitepageId;
+use App\Services\Analytics\ItemFamily;
 use App\Site\Actions\ActionId;
 use App\Site\Actions\ActionSettings;
 use Closure;
@@ -53,10 +54,13 @@ trait SiteOrderingValidationRules
 
             // Per-pool locks (2026-08-23, the dashboard's "Lock in position"):
             // { <pool>: [{position, id}] }, applied in newest/smart only.
+            // Positions are distinct within a pool EXCEPT on the category
+            // pools (menus / services), where a position is the index within
+            // the item's category (D4) and two categories may each hold a #0.
             'settings.pool_locks' => ['sometimes', 'array', $this->poolOrderKeysRule()],
-            'settings.pool_locks.*' => ['array', 'max:'.ActionSettings::POOL_LOCKS_MAX],
+            'settings.pool_locks.*' => ['array', 'max:'.ActionSettings::POOL_LOCKS_MAX, $this->poolLockPositionsRule()],
             'settings.pool_locks.*.*' => ['array:position,id'],
-            'settings.pool_locks.*.*.position' => ['required', 'integer', 'min:0', 'max:999', 'distinct'],
+            'settings.pool_locks.*.*.position' => ['required', 'integer', 'min:0', 'max:999'],
             'settings.pool_locks.*.*.id' => ['required', 'string', 'max:64', 'distinct'],
         ];
     }
@@ -105,6 +109,35 @@ trait SiteOrderingValidationRules
     }
 
     /** Every pool_order key must be a pool that accepts a mode. */
+    /**
+     * Lock positions are distinct per pool, except on a category pool where
+     * they are per-category (PoolOrdering::applyLocksPerCollection).
+     */
+    private function poolLockPositionsRule(): Closure
+    {
+        return static function (string $attribute, mixed $value, Closure $fail): void {
+            if (! is_array($value)) {
+                return;
+            }
+            $pool = substr($attribute, strrpos($attribute, '.') + 1);
+            if (isset(ItemFamily::CATEGORY_FAMILIES[$pool])) {
+                return;
+            }
+            $seen = [];
+            foreach ($value as $lock) {
+                $position = is_array($lock) ? ($lock['position'] ?? null) : null;
+                if ($position !== null && isset($seen[(string) $position])) {
+                    $fail("Lock positions must be distinct within the [{$pool}] pool.");
+
+                    return;
+                }
+                if ($position !== null) {
+                    $seen[(string) $position] = true;
+                }
+            }
+        };
+    }
+
     private function poolOrderKeysRule(): Closure
     {
         return static function (string $attribute, mixed $value, Closure $fail): void {

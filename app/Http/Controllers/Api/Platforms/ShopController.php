@@ -41,6 +41,7 @@ use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
 use App\Site\Documents\BuildState;
 use App\Site\Pools\AutoSyncSetting;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -1237,17 +1238,38 @@ class ShopController extends ApiController
     }
 
     /**
-     * shop_product ranks (keyed by product HANDLE), the same annotation the
-     * public wire carries — the dashboard's Smart order switch sorts on
-     * popularityRank, and until 2026-08-04 the dashboard path omitted the
-     * key entirely, so "engagement order" silently meant "stored order".
-     * Fail-open: a read fault degrades to null ranks. Every caller must pass an
-     * array (never null) so popularityRank stays PRESENT (not omitted) on every
-     * dashboard read, matching ShopContentReader::brandMap()'s own contract.
+     * shop_product ranks re-keyed by product HANDLE for the legacy catalogue
+     * shape (ShopContentReader carries handle, not item id). The stored rows
+     * key by content.items.id since 2026-08-23, so the id → handle map comes
+     * from f_catalog. Fail-open: a read fault degrades to null ranks. Every
+     * caller must pass an array (never null) so popularityRank stays PRESENT
+     * (not omitted) on every dashboard read, matching brandMap()'s contract.
+     *
+     * @return array<string, int> handle => rank
      */
     private function productRanksFor(User $user): array
     {
-        return $this->popularity->forSite($user->site?->id)['shop_product'] ?? [];
+        $byId = $this->popularity->forSite($user->site?->id)['shop_product'] ?? [];
+        if ($byId === []) {
+            return [];
+        }
+        $out = [];
+        try {
+            DB::table('content.items as i')
+                ->join('content.f_catalog as fc', 'fc.item_id', '=', 'i.id')
+                ->where('i.user_id', (string) $user->id)
+                ->where('i.kind', 'product')
+                ->whereIn('i.id', array_keys($byId))
+                ->whereNotNull('fc.handle')
+                ->get(['i.id', 'fc.handle'])
+                ->each(function ($row) use (&$out, $byId): void {
+                    $out[(string) $row->handle] ??= $byId[(string) $row->id];
+                });
+        } catch (QueryException) {
+            return [];
+        }
+
+        return $out;
     }
 
     /**

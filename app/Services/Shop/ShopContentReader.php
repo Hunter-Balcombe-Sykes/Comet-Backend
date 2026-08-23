@@ -66,10 +66,12 @@ use Illuminate\Support\Facades\DB;
  *    report, Fix round 1, for why the parity fixture's expectations moved
  *    to match.
  *
- * 4. popularityRank is keyed by product HANDLE (content_popularity_scores'
- *    own scoring-pipeline convention). Since gap 2 above, `handle` is populated once an item has
- *    synced since the Finding 3 migration, so the rank lookup can hit for
- *    up-to-date items — same backfill-lag caveat, not a permanent miss.
+ * 4. popularityRank is looked up by product HANDLE on this legacy shape (it
+ *    carries no item id). content_popularity_scores keys by content.items.id
+ *    since 2026-08-23, so ShopController::productRanksFor re-keys the ranks
+ *    by handle before passing them here. Since gap 2 above, `handle` is
+ *    populated once an item has synced since the Finding 3 migration, so
+ *    the lookup can hit for up-to-date items — backfill-lag caveat only.
  *    ShopController's own private brandMap() (the pre-Task-7 path this
  *    class replaces for brands()/brandProducts()/selection()) ALWAYS passes
  *    a ranks array — never null — so

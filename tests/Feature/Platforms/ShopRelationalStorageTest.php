@@ -420,11 +420,12 @@ it('makes ZERO popularity reads on the public platforms endpoint and publishes n
         'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
     ]], null);
 
-    // content_popularity_scores keys shop_product by product HANDLE (test at
-    // "keys public popularityRank by product HANDLE" above pins this).
+    // content_popularity_scores keys shop_product by content.items.id
+    // (every family, 2026-08-23).
+    $mugId = (string) DB::table('content.f_catalog')->where('handle', 'mug')->value('item_id');
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
         'id' => (string) Str::uuid(), 'site_id' => $site->id, 'content_type' => 'shop_product',
-        'content_key' => 'mug', 'score' => 9.5, 'rank' => 1, 'computed_at' => now()->toDateTimeString(),
+        'content_key' => $mugId, 'score' => 9.5, 'rank' => 1, 'computed_at' => now()->toDateTimeString(),
     ]);
 
     DB::connection('pgsql')->enableQueryLog();
@@ -439,7 +440,7 @@ it('makes ZERO popularity reads on the public platforms endpoint and publishes n
     expect($first->getContent())->not->toContain('popularityRank');
 
     // The rank row is real and would have been found: content.* holds the
-    // product it is keyed to, by handle.
+    // product it is keyed to.
     expect(DB::table('content.f_catalog')->where('handle', 'mug')->exists())->toBeTrue();
 
     // The proof: content_popularity_scores is not read AT ALL by this endpoint

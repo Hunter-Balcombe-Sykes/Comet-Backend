@@ -24,13 +24,16 @@ function candidatePools(): array
         'services' => ['items' => [
             ['id' => 's-1', 'kind' => 'service', 'headline' => 'Haircut', 'url' => null, 'thumbnail' => null, 'publishedAt' => null, 'firstSeenAt' => '2026-08-05T00:00:00+00:00', 'collectionIds' => []],
         ]],
+        'media' => ['items' => [
+            ['id' => 'm-1', 'kind' => 'media', 'headline' => 'Shot', 'url' => null, 'thumbnail' => 'https://img/m.jpg', 'publishedAt' => '2026-08-20T00:00:00+00:00', 'firstSeenAt' => '2026-08-20T00:00:00+00:00', 'collectionIds' => []],
+        ]],
         'reviews' => ['items' => [
             ['id' => 'r-1', 'kind' => 'review', 'headline' => 'Great', 'url' => null, 'thumbnail' => null, 'publishedAt' => null, 'firstSeenAt' => '2026-08-05T00:00:00+00:00', 'collectionIds' => []],
         ]],
     ];
 }
 
-it('derives item and category candidates from the pool wire, never from reviews', function () {
+it('derives item and category candidates from the pool wire, never from reviews or media (D1)', function () {
     $out = collect(ActionCandidates::fromPools(candidatePools()))->keyBy('id');
 
     expect($out->keys()->all())->toEqualCanonicalizing(['item:v-old', 'item:v-new', 'category:cat-starters', 'item:d-loose', 'item:s-1']);
@@ -57,6 +60,16 @@ it('homes dishes in the first provider-null category; provider-only dishes float
         'kind' => 'category', 'label' => 'Starters', 'url' => '/menu#cat-starters', 'thumb' => 'https://img/b.jpg',
         'connectedAt' => '2026-08-12T00:00:00+00:00', 'ref' => null,
     ])->and($out['category:cat-starters']['meta'])->toMatchArray(['pool' => 'menus', 'collectionId' => 'cat-starters', 'itemIds' => ['d-1', 'd-2']]);
+});
+
+it('never produces an action from the media pool — no item and no gallery category (D1)', function () {
+    $pools = ['media' => [
+        'items' => [
+            ['id' => 'm-1', 'kind' => 'media', 'headline' => 'Shot', 'url' => null, 'thumbnail' => 'https://img/m.jpg', 'publishedAt' => '2026-08-20T00:00:00+00:00', 'firstSeenAt' => '2026-08-20T00:00:00+00:00', 'collectionIds' => ['album']],
+        ],
+        'collections' => ['album' => ['name' => 'Album', 'provider' => null, 'position' => 0]],
+    ]];
+    expect(ActionCandidates::fromPools($pools))->toBe([]);
 });
 
 it('drops an item whose outbound url is not http(s)', function () {
