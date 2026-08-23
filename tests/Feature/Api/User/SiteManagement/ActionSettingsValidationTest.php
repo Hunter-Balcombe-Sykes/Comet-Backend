@@ -38,7 +38,7 @@ it('accepts and persists actions (mode + locks) and pool_order', function () {
         ->and($s['pool_order'])->toBe(['watch' => 'smart', 'custom_links' => 'manual']);
 });
 
-it('replaces actions and pool_order atomically — a shorter write wins, an empty write clears', function () {
+it('replaces actions atomically (a shorter write wins, an empty write clears) but merges pool_order BY POOL', function () {
     $pro = createTenant('as-atomic');
     patchSettings($pro, ['actions' => ['mode' => 'manual', 'slots' => [['position' => 0, 'id' => 'page:services'], ['position' => 1, 'id' => 'page:menu']]]])->assertOk();
     patchSettings($pro, ['actions' => ['mode' => 'manual', 'slots' => [['position' => 0, 'id' => 'page:menu']]]])->assertOk();
@@ -47,9 +47,12 @@ it('replaces actions and pool_order atomically — a shorter write wins, an empt
     patchSettings($pro, ['actions' => ['mode' => 'newest', 'slots' => []]])->assertOk();
     expect(siteSettings($pro)['actions'])->toBe(['mode' => 'newest', 'slots' => []]);
 
+    // pool_order is a map keyed by pool and the ordering fieldset PATCHes one
+    // pool at a time — a sparse write must not reset the others (2026-08-24:
+    // it did, and saving services → manual silently put watch back on newest).
     patchSettings($pro, ['pool_order' => ['watch' => 'smart', 'listen' => 'smart']])->assertOk();
     patchSettings($pro, ['pool_order' => ['listen' => 'manual']])->assertOk();
-    expect(siteSettings($pro)['pool_order'])->toBe(['listen' => 'manual']);
+    expect(siteSettings($pro)['pool_order'])->toBe(['watch' => 'smart', 'listen' => 'manual']);
 });
 
 it('rejects a bad mode, a missing mode, and a slot count over the cap', function () {

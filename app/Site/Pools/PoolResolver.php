@@ -640,9 +640,10 @@ class PoolResolver
             $sourceLinks[$itemId] = ($sourceLinks[$itemId] ?? collect())->concat($rows);
         }
 
-        // A connection-fed item with NO url of its own (a Fresha service —
-        // the vendor has no per-service page, only the venue's booking page)
-        // still came FROM a platform: derive it from the item's live
+        // A connection-fed item with NO url of its own (a connection whose
+        // connector lands no per-item link; Fresha services HAVE one since
+        // 2026-08-24 — FreshaConnector::bookingDeepLink — so they no longer
+        // reach this) still came FROM a platform: derive it from the item's live
         // connection source so the source badge and the item sheet's platform
         // row can name it, and lend the connection's own url as the link
         // (overnight 2026-08-18 W6). Highest-priority connection wins.

@@ -28,7 +28,10 @@ class StaffReorderServiceLayoutRequest extends BaseFormRequest
             // ReorderServiceLayoutRequest (the owner twin) on purpose: the two
             // surfaces gate the same payload and must not drift.
             'categories.*.service_ids' => ['present', 'array'],
-            'categories.*.service_ids.*' => ['required', 'uuid', 'distinct'],
+            // No cross-block `distinct` (2026-08-24) — same reasoning as the
+            // user request: a multi-category service would 422 the layout.
+            // Per-block uniqueness is the controller's check.
+            'categories.*.service_ids.*' => ['required', 'uuid'],
         ];
     }
 }

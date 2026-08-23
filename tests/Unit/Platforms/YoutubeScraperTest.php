@@ -245,3 +245,46 @@ it('stays silent on a 304 Not Modified — a normal outcome on every healthy pol
     expect($cond->notModified)->toBeTrue();
     Log::shouldNotHaveReceived('warning');
 });
+
+// ── fetchChannelProfile() — the channel's own id AND avatar off one page fetch ──
+
+it('reads the channel id and avatar off the channel page', function () {
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')->once()->andReturn([
+        'status' => 200,
+        'body' => '{"externalId":"UCocwhL8eTz6tfV9_crX_nJQ","avatar":{"thumbnails":[{"url":"https://yt3.googleusercontent.com/abc=s88-c-k","width":88},{"url":"https://yt3.googleusercontent.com/abc=s900-c-k","width":900}]}}',
+        'finalUrl' => 'https://www.youtube.com/@dvlpmnt',
+        'contentType' => 'text/html',
+    ]);
+
+    $profile = youtubeScraperWith($fetcher)->fetchChannelProfile('dvlpmnt');
+
+    expect($profile)->toBe([
+        'id' => 'UCocwhL8eTz6tfV9_crX_nJQ',
+        'avatar' => 'https://yt3.googleusercontent.com/abc=s900-c-k',
+    ]);
+});
+
+it('returns a null avatar when the page has an id but no avatar block', function () {
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')->once()->andReturn([
+        'status' => 200,
+        'body' => '{"externalId":"UCocwhL8eTz6tfV9_crX_nJQ"}',
+        'finalUrl' => 'https://www.youtube.com/@dvlpmnt',
+        'contentType' => 'text/html',
+    ]);
+
+    expect(youtubeScraperWith($fetcher)->fetchChannelProfile('dvlpmnt'))
+        ->toBe(['id' => 'UCocwhL8eTz6tfV9_crX_nJQ', 'avatar' => null]);
+});
+
+it('returns null from fetchChannelProfile when the channel page 404s', function () {
+    Log::spy();
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')->once()->andReturn([
+        'status' => 404, 'body' => '', 'finalUrl' => 'https://www.youtube.com/@nope', 'contentType' => 'text/html',
+    ]);
+
+    expect(youtubeScraperWith($fetcher)->fetchChannelProfile('nope'))->toBeNull();
+    Log::shouldHaveReceived('warning')->once();
+});

@@ -214,6 +214,38 @@ it('rejects a reorder naming an item outside the pool', function () {
 
 // ── The library delete ──────────────────────────────────────────────────────
 
+it('removing a pinned item keeps it off the site — an exclusion, not a bare un-pin', function () {
+    [$pro, $siteId] = poolTenant();
+    poolOrderMode($siteId, 'watch', 'manual');
+    $pro = $pro->fresh(['site']);
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $a = poolItem($pro->id, $source, 'video', 'A', now()->subDays(2)->toDateTimeString());
+    $b = poolItem($pro->id, $source, 'video', 'B', now()->subDay()->toDateTimeString());
+
+    // A drag commit pins every listed row — the state every remove after a
+    // reorder starts from (owner, 2026-08-23: "why do I keep seeing this").
+    $order = Request::create('/api/content/pools/watch/order', 'PUT', ['itemIds' => [$b, $a]]);
+    $order->attributes->set('professional', $pro);
+    app(PoolController::class)->reorder($order, 'watch');
+
+    $remove = Request::create("/api/content/pools/watch/selection/{$b}", 'DELETE');
+    $remove->attributes->set('professional', $pro);
+    $data = app(PoolController::class)->deselect($remove, 'watch', $b)->getData(true);
+
+    // Gone from the selection in the SAME response the dashboard reads —
+    // not re-emitted by the kind_is rule the instant its pin disappeared.
+    expect(poolHeadlines($data))->toBe(['A']);
+    expect(DB::connection('pgsql')->table('site.section_items')
+        ->where('item_id', $b)->value('state'))->toBe('excluded');
+
+    // And it still comes back when the owner re-adds it.
+    $readd = Request::create("/api/content/pools/watch/selection/{$b}", 'POST');
+    $readd->attributes->set('professional', $pro);
+    $back = app(PoolController::class)->select($readd, 'watch', $b)->getData(true);
+    expect(poolHeadlines($back))->toContain('B');
+});
+
 it('removes an item from selection and library via removed_at', function () {
     [$pro] = poolTenant();
     $source = poolSource($pro->id, poolConnection($pro->id));

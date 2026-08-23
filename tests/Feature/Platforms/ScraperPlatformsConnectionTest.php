@@ -62,7 +62,12 @@ it('connects a YouTube channel scoped to the authenticated user', function () {
 
     $this->mock(YoutubeScraper::class, function ($m) {
         $m->shouldReceive('normalizeHandle')->andReturn('mychannel');
-        $m->shouldReceive('fetchRecentVideos')->andReturn([
+        // One page fetch resolves id + avatar; the feed is then reached by
+        // the raw UC… id (2026-08-23) — the strategy must hand the ID on,
+        // not the handle, or the scraper would fetch the page twice.
+        $m->shouldReceive('fetchChannelProfile')->with('mychannel')->once()
+            ->andReturn(['id' => 'UCocwhL8eTz6tfV9_crX_nJQ', 'avatar' => 'https://yt3.googleusercontent.com/x=s900']);
+        $m->shouldReceive('fetchRecentVideos')->with('UCocwhL8eTz6tfV9_crX_nJQ')->once()->andReturn([
             ['videoId' => 'v1', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't'],
         ]);
     });
@@ -72,7 +77,11 @@ it('connects a YouTube channel scoped to the authenticated user', function () {
         ->assertJsonPath('handle', 'mychannel')
         ->assertJsonPath('latest.videoId', 'v1');
 
-    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'youtube')->exists())->toBeTrue();
+    $connection = IntegrationConnection::where('user_id', $user->id)->where('platform', 'youtube')->first();
+    expect($connection)->not->toBeNull();
+    // The channel's own face is stored so the dashboard's connect summary and
+    // connections table show it rather than the latest video's 16:9 frame.
+    expect($connection->payload['avatarUrl'] ?? null)->toBe('https://yt3.googleusercontent.com/x=s900');
 });
 
 it('requires auth, queues connect per-user (202), and allows immediate re-connect on Instagram', function () {
