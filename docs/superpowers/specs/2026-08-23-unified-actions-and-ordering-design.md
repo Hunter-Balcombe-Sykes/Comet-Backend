@@ -68,7 +68,7 @@ content lane (a `QueryException` on `content.*` yields no item candidates, never
 
 ## 3. Public wire
 
-`GET /api/public/profiles/{handle}` → `data.profile.actions` (always present):
+`GET /api/public/profiles/{handle}` → top-level `data.actions` (a sibling of `pageOrder`, where `rankedActions` lived; always present):
 
 ```json
 {
@@ -127,7 +127,7 @@ settings.pool_order = { '<pool>': 'newest' | 'smart' | 'manual' }   // sparse; a
 
 ### 5.1 Ranking inputs
 
-- **newest**: `connectedAt` desc, nulls last, tiebreak id asc.
+- **newest**: dated candidates before undated (X5 — a synced item whose only timestamp is when we first saw it never outranks one with a real date; a link-pool item is hand-added, so its first-seen counts as its date), then `connectedAt` desc, nulls last, tiebreak id asc.
 - **smart**: stored action score desc (§6), unscored candidates after scored ones
   ordered by `connectedAt` desc, tiebreak id asc.
 
@@ -164,7 +164,7 @@ the **whole** pool — pinned and auto together:
 
 | mode | order |
 |---|---|
-| `newest` | `publishedAt ?? firstSeenAt` desc, dated before undated, id desc |
+| `newest` | dated (`publishedAt`) first by `publishedAt` desc, then undated by `firstSeenAt` desc, id desc; a link-pool item counts `firstSeenAt` as its date |
 | `smart` | item score desc (`content_popularity_scores`, item families); unscored after scored by the newest order |
 | `manual` | today's behaviour: pins by `sort_key`, then auto by the pool's `order_by` |
 
@@ -291,18 +291,17 @@ the lockstep test in `apps/pages`; `smartActions` and `manualOrderPools` in the
 dashboard (`design-page.tsx`, `lib/queries/me.ts`, `lib/data/user.ts`, dev
 showcase pages that reference them).
 
-**Deploy order** (commit order ≠ deploy order):
+**Deploy order** (revised at build time — commit order ≠ deploy order):
 
-1. Backend ships `profile.actions` **beside** `rankedActions`/`ordering` (one
-   deploy), with scoring, settings, pools, the dashboard endpoint, and the
-   settings-strip migration (`supabase db push`).
-2. Pages switches to `profile.actions`; deploy.
-3. Backend removal commit (drops `rankedActions`/`ordering`, `SiteActionsService`,
-   `ActionVocabulary`); deploy.
-4. Dashboard: `/actions` page, pool fieldsets, design-page card; deploy on push.
-
-Step 3 is a separate commit on the same branch so the overlap is one deploy
-window, not a lingering shim.
+1. **Pages first** (`npm run deploy`): its resolver tolerates the old wire —
+   a payload without `actions` hydrates to an empty stack and the header nav
+   derives from `content.pages` — so it can go out before the backend.
+2. **Backend** (merge `feat/unified-actions-2026-08-23` → `development`, then
+   `supabase db push` for the two migration files): ships `actions`, scoring,
+   settings, pool order, the dashboard endpoint, AND the removal of
+   `rankedActions`/`ordering`/`SiteActionsService`/`ActionVocabulary` in one go.
+   No overlap deploy is needed because of step 1.
+3. **Dashboard** deploys on push.
 
 ## 10. Error handling and degradation
 
