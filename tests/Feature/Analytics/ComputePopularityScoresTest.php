@@ -326,6 +326,27 @@ it('scores a service category as the SUM of its served members and ranks categor
     expect((float) popularityScoreRow($tenant->site->id, 'service_category', $nails)->score)->toEqualWithDelta(0.9, 0.05);
 });
 
+it('counts a lander tap on item:<id> as a click in that item\'s family (D7)', function () {
+    $tenant = createTenant('cmd-lander-tap');
+    $source = popularityTenantSource($tenant);
+    $ago = now()->subDays(300)->toISOString();
+    $video = poolItem($tenant->id, $source, 'video', 'Clip', $ago);
+    DB::table('content.items')->where('id', $video)->update(['first_seen_at' => $ago]);
+    // Three taps from ONE session count once; one more session → 2 clicks × w_click(watch 2.0) = 4.0.
+    $session = (string) Str::uuid();
+    foreach ([$session, $session, $session, (string) Str::uuid()] as $sid) {
+        DB::connection('pgsql')->table('analytics.action_events')->insert([
+            'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
+            'action_id' => 'item:'.$video, 'event' => 'tap', 'session_id' => $sid,
+            'occurred_at' => now()->toISOString(), 'created_at' => now()->toISOString(),
+        ]);
+    }
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+
+    expect((float) popularityScoreRow($tenant->site->id, 'watch_item', $video)->score)->toEqualWithDelta(4.0, 0.05);
+});
+
 it('never writes a row for an event item, even a brand-new one', function () {
     $tenant = createTenant('cmd-no-events');
     $source = popularityTenantSource($tenant);
@@ -380,10 +401,13 @@ it('processes a site with a recent event but skips a published site with none, i
         'created_at' => now()->toISOString(),
     ]);
 
-    // Idle site: no events at all, but it DOES have a fresh platform connection —
-    // pre-fix, the full sweep would still process it and seed a freshness-only
-    // score. Post-fix it must be skipped entirely (zero rows, any content_type).
+    // Idle site: no events at all, and its only item was added TWO HOURS ago
+    // (outside the window — a content change inside it would scope the site
+    // in, D6). The item is still fresh enough to seed a freshness-only score
+    // if the site were processed, so zero rows proves the skip.
     $poolItemId = app(LinkPoolWriter::class)->add($idle->refresh(), 'https://example.com/idle', enrich: false);
+    DB::connection('pgsql')->table('content.items')->where('id', $poolItemId)
+        ->update(['created_at' => now()->subHours(2)->toDateTimeString(), 'updated_at' => now()->subHours(2)->toDateTimeString()]);
 
     // No --site — the periodic scheduled full sweep.
     $this->artisan('analytics:compute-popularity')->assertExitCode(0);
@@ -394,6 +418,20 @@ it('processes a site with a recent event but skips a published site with none, i
     expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')
         ->where('site_id', $idle->site->id)
         ->count())->toBe(0);
+});
+
+it('scopes a site with a NEW item and no traffic into the full sweep (D6)', function () {
+    $quiet = createTenant('scale3-new-item');
+    $source = popularityTenantSource($quiet);
+    // Created now, no events at all — the content change alone scopes it in.
+    $video = poolItem($quiet->id, $source, 'video', 'Fresh clip', now()->toISOString());
+    DB::table('content.items')->where('id', $video)->update(['first_seen_at' => now()->toISOString()]);
+
+    $this->artisan('analytics:compute-popularity')->assertExitCode(0);
+
+    // Cold start: watch_item freshness 3.0 at day 0.
+    $row = popularityScoreRow($quiet->site->id, 'watch_item', $video);
+    expect($row)->not->toBeNull()->and((float) $row->score)->toEqualWithDelta(3.0, 0.05);
 });
 
 it('treats an event older than the recent-events window as no signal in a full sweep', function () {

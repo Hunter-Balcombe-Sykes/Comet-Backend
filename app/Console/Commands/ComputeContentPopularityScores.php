@@ -251,18 +251,21 @@ class ComputeContentPopularityScores extends Command
     }
 
     /**
-     * Distinct site ids with at least one raw event since $since, across the same
-     * three tables this command already reads (section_views/link_clicks/item_views
-     * — see the class docblock). PHP-side union of three DISTINCT plucks rather
-     * than a cross-table SQL UNION so the query stays a plain per-table filter,
-     * identical on Postgres and the SQLite test schema.
+     * Distinct site ids with at least one raw event since $since, across the
+     * four event tables this command reads (section_views / link_clicks /
+     * item_views / action_events), UNION sites whose pool content changed in
+     * the window (D6, 2026-08-23): a content.items row created or updated,
+     * or an f_published row updated — so a brand-new item cold-starts by
+     * freshness without waiting for traffic. PHP-side union of DISTINCT
+     * plucks rather than a cross-table SQL UNION so each query stays a plain
+     * per-table filter, identical on Postgres and the SQLite test schema.
      *
      * @return list<string>
      */
     private function siteIdsWithRecentEvents(Carbon $since): array
     {
         $ids = [];
-        foreach (['analytics.section_views', 'analytics.link_clicks', 'analytics.item_views'] as $table) {
+        foreach (['analytics.section_views', 'analytics.link_clicks', 'analytics.item_views', 'analytics.action_events'] as $table) {
             foreach (
                 DB::connection('pgsql')->table($table)
                     ->where('occurred_at', '>=', $since->toISOString())
@@ -271,6 +274,43 @@ class ComputeContentPopularityScores extends Command
             ) {
                 $ids[(string) $siteId] = true;
             }
+        }
+
+        try {
+            // content.* timestamps are written in Carbon's default
+            // 'Y-m-d H:i:s' form (the analytics tables use ISO-8601), so the
+            // bound must match that form for the SQLite lane's string compare.
+            $sinceSql = $since->toDateTimeString();
+            $userIds = [];
+            foreach (
+                DB::connection('pgsql')->table('content.items')
+                    ->where('created_at', '>=', $sinceSql)
+                    ->orWhere('updated_at', '>=', $sinceSql)
+                    ->distinct()
+                    ->pluck('user_id') as $userId
+            ) {
+                $userIds[(string) $userId] = true;
+            }
+            foreach (
+                DB::connection('pgsql')->table('content.f_published as fp')
+                    ->join('content.items as i', 'i.id', '=', 'fp.item_id')
+                    ->where('fp.updated_at', '>=', $sinceSql)
+                    ->distinct()
+                    ->pluck('i.user_id') as $userId
+            ) {
+                $userIds[(string) $userId] = true;
+            }
+            if ($userIds !== []) {
+                foreach (
+                    DB::connection('pgsql')->table('site.sites')
+                        ->whereIn('user_id', array_keys($userIds))
+                        ->pluck('id') as $siteId
+                ) {
+                    $ids[(string) $siteId] = true;
+                }
+            }
+        } catch (QueryException) {
+            // content.* lane absent — traffic scope only.
         }
 
         return array_keys($ids);
@@ -500,6 +540,28 @@ class ComputeContentPopularityScores extends Command
                 $bump($type, $key, $this->dayWeight((string) $r->day, $now) * (int) $r->clicks, 0.0);
             });
 
+        // Lander taps on an item: action (D7) — a session-distinct, day-bucketed
+        // tap on `item:<id>` counts as one click in that item's family (kind
+        // from content.items.kind).
+        $kinds = $this->itemKinds($site);
+        if ($kinds !== []) {
+            DB::connection('pgsql')->table('analytics.action_events')
+                ->where('site_id', $site->id)
+                ->where('event', 'tap')
+                ->where('action_id', 'like', 'item:%')
+                ->selectRaw("action_id, {$day} as day, COUNT(DISTINCT COALESCE(session_id, visitor_id, id)) as sessions")
+                ->groupByRaw("action_id, {$day}")
+                ->get()
+                ->each(function ($r) use ($bump, $now, $kinds): void {
+                    $itemId = substr((string) $r->action_id, 5);
+                    $family = isset($kinds[$itemId]) ? ItemFamily::forKind($kinds[$itemId]) : null;
+                    if ($family === null) {
+                        return;
+                    }
+                    $bump($family, $itemId, $this->dayWeight((string) $r->day, $now) * (int) $r->sessions, 0.0);
+                });
+        }
+
         // Media dwell approximation: the gallery page's section dwell (seconds,
         // day-bucketed, decayed) shared equally by every served media item.
         if ($mediaIds !== []) {
@@ -523,6 +585,27 @@ class ComputeContentPopularityScores extends Command
         }
 
         return $items;
+    }
+
+    /**
+     * content.items.id => kind for the site's live items (the family a lander
+     * tap lands in). [] when the content lane is absent.
+     *
+     * @return array<string, string>
+     */
+    private function itemKinds(Site $site): array
+    {
+        try {
+            return DB::connection('pgsql')->table('content.items')
+                ->where('user_id', $site->user_id)
+                ->whereNull('removed_at')
+                ->whereIn('kind', array_keys(ItemFamily::KIND_TO_FAMILY))
+                ->pluck('kind', 'id')
+                ->map(static fn ($kind): string => (string) $kind)
+                ->all();
+        } catch (QueryException) {
+            return [];
+        }
     }
 
     /**
