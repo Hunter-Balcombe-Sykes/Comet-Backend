@@ -14,10 +14,14 @@ use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Design\ProfileDesignPresets;
 use App\Services\Site\SitePolicyResolver;
+use App\Site\Actions\ActionCandidates;
+use App\Site\Actions\ActionSettings;
+use App\Site\Actions\ActionSlots;
 use App\Site\Pools\PoolWire;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Pure projection helper — assembles the §28.8 public profile payload from a
@@ -70,6 +74,7 @@ class IndividualProfilePayloadBuilder
         private readonly SiteActionsService $actions,
         private readonly SitePolicyResolver $policies,
         private readonly PoolWire $poolWire,
+        private readonly ActionCandidates $candidates,
     ) {}
 
     /**
@@ -122,6 +127,11 @@ class IndividualProfilePayloadBuilder
         $publicContact = $this->buildPublicContact($pro, $sections);
         $workplace = $this->buildWorkplace($site, $sections);
 
+        // ONE pool hydration feeds both the wire pools and the action
+        // candidate set, so every action ref resolves against what is served.
+        $pools = $this->buildPools($site);
+        $actions = $this->buildActions($pro, $site, $sections, $pools);
+
         return (new IndividualProfileResource($pro, [
             'site_id' => $site?->id,
             'design_kit' => $this->loadDesignKit($site, $pro),
@@ -136,8 +146,14 @@ class IndividualProfilePayloadBuilder
             // smart_actions is off); ordering carries the raw preferences.
             'ranked_actions' => $rankedActions,
             'ordering' => $this->actions->orderingWire($ordering),
+            // The unified action list (spec §3): top-N of pages + destination
+            // platforms + served items + categories, in the owner's mode with
+            // their locks applied. Always present; entries [] when nothing
+            // resolves. Replaces rankedActions/ordering after the lander
+            // switches (one-deploy overlap).
+            'actions' => $actions,
             // Engine outputs — flat, camelCase, no envelope wrapper.
-            'pools' => $this->buildPools($site),
+            'pools' => $pools,
             // Brand logos (owner ruling 2026-08-17): the design singletons
             // regain a public projection — slice 7 unit E deleted `siteImages`
             // wholesale, which took the logos down with the noise. Just the
@@ -219,6 +235,32 @@ class IndividualProfilePayloadBuilder
             'contactEmail' => $data['contact_email'] ?? null,
             'website' => $data['website'] ?? null,
         ];
+    }
+
+    /**
+     * `actions` — ActionCandidates (over the already-built pools) → stored
+     * smart scores → ActionSlots. Fail-open like every other section: a
+     * candidate/score fault yields an empty list, never a 500.
+     *
+     * @param  array<string, array<string, mixed>>  $pools
+     * @return array{mode: string, entries: list<array<string, mixed>>}
+     */
+    private function buildActions(User $pro, ?Site $site, Collection $sections, array $pools): array
+    {
+        $settings = ActionSettings::fromSite($site);
+        if ($site === null) {
+            return ['mode' => $settings->mode, 'entries' => []];
+        }
+        try {
+            $candidates = $this->candidates->forSite($pro, $site, $sections, $pools);
+        } catch (QueryException $e) {
+            Log::warning('sitepage.actions_candidates_failed', ['site_id' => $site->id, 'error' => $e->getMessage()]);
+            $candidates = [];
+        }
+        $scores = $settings->mode === 'smart' ? $this->popularity->actionScoresForSite($site->id) : [];
+        $resolved = ActionSlots::resolve($candidates, $scores, $settings, (int) config('partna.actions.slots', 10));
+
+        return ['mode' => $settings->mode, 'entries' => $resolved['entries']];
     }
 
     /**

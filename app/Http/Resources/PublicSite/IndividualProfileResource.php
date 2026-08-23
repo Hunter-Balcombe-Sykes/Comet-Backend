@@ -50,6 +50,7 @@ class IndividualProfileResource extends ApiResource
      *     public_config?: array<string, mixed>,
      *     page_order?: list<string>,
      *     ranked_actions?: list<array<string, mixed>>,
+     *     actions?: array{mode: string, entries: list<array<string, mixed>>},
      *     ordering?: array<string, mixed>,
      *     links?: list<array<string, mixed>>,
      *     pools?: array<string, array{items: list<array<string, mixed>>, latestItemId: string|null}>,
@@ -61,6 +62,7 @@ class IndividualProfileResource extends ApiResource
      *     publicContact?: array{email: string|null, phone: string|null}|null,
      *     bio?: string|null,
      *     workplace?: array<string, mixed>|null,
+     *     policies?: array<string, mixed>|null,
      * }  $sections
      */
     public function __construct(
@@ -131,6 +133,8 @@ class IndividualProfileResource extends ApiResource
             // the owner disabled smart actions this IS their manual list, customs
             // included) — consumers render, never re-derive. Always an array.
             'rankedActions' => $this->sections['ranked_actions'] ?? [],
+            // Unified action list (2026-08-23) — always present, entries may be [].
+            'actions' => $this->sections['actions'] ?? ['mode' => 'newest', 'entries' => []],
 
             // Ordering preferences (defaults applied server-side): {smartPageOrder,
             // manualPageOrder, smartActions, manualActions}. pageOrder/rankedActions

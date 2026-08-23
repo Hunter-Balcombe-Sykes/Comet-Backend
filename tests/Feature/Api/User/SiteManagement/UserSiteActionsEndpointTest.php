@@ -1,15 +1,14 @@
 <?php
 
+use App\Catalog\LegacyPlatformMap;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-// GET /api/site/actions — the dashboard picker data source for the design
-// page's "Smart actionable lander" toggle + manual reorder dialog: live pool
-// + currently-served rankedActions + ordering settings (2026-07-23 rebuild:
-// fixed-vocabulary pool, entries keyed by ActionVocabulary id).
+// GET /api/site/actions — the dashboard /actions page data source (spec §7).
 
 beforeEach(function () {
-    config(['partna.throttle.enabled' => false]);
+    config(['partna.throttle.enabled' => false, 'partna.actions.slots' => 10]);
     setupBlocksTable();
     setupServicesTable();
     setupSectionViewsTable();
@@ -17,55 +16,70 @@ beforeEach(function () {
     setupItemViewsTable();
     setupActionEventsTable();
     setupContentPopularityScoresTable();
-    // SiteActionsService reads the `custom_links` pool for the `custom:`
-    // action family (convergence Phase 6), so site.sections must exist.
     setupSectionsTables();
+    setupIngestTables();
+    setupContentTables();
+    setupSiteMediaTable();
+    setupDesignKitsTable();
 });
 
-it('returns pool, rankedActions and ordering for the authed professional', function () {
-    $pro = createTenant('actions-endpoint');
-    DB::connection('pgsql')->table('site.blocks')->insert([
+function endpointConnection(object $tenant, string $platform, array $payload = []): void
+{
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $pro->site->id,
-        'block_group' => 'links',
-        'block_type' => 'link',
-        'title' => 'Instagram',
-        'url' => 'https://instagram.com/x',
-        'sort_order' => 0,
+        'user_id' => $tenant->id,
+        'surface_key' => $surface = (LegacyPlatformMap::surfaceFor($platform) ?? $platform),
+        'routing_class' => LegacyPlatformMap::routingClassFor($surface),
+        'resource_id' => 'r-'.Str::random(8),
+        'payload' => json_encode($payload),
         'is_active' => 1,
-        'is_enabled' => 1,
-        'category' => 'social',
-        'platform' => 'instagram',
-        'settings' => json_encode([]),
         'created_at' => now()->toISOString(),
         'updated_at' => now()->toISOString(),
     ]);
+}
+
+it('returns mode, slots (with unavailable), entries and scored candidates', function () {
+    $pro = createTenant('sa-shape');
+    endpointConnection($pro, 'instagram', ['username' => 'maha']);
+    endpointConnection($pro, 'tiktok', ['url' => 'https://tiktok.com/@maha']);
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
-        'id' => (string) Str::uuid(),
-        'site_id' => $pro->site->id,
-        'content_type' => 'action',
-        'content_key' => 'instagram',
-        'score' => 0.77,
-        'rank' => 1,
-        'computed_at' => now()->toISOString(),
+        'id' => (string) Str::uuid(), 'site_id' => $pro->site->id, 'content_type' => 'action',
+        'content_key' => 'platform:tiktok', 'score' => 0.8, 'rank' => 1, 'computed_at' => now()->toISOString(),
     ]);
+    DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->update(['settings' => json_encode([
+        'actions' => ['mode' => 'smart', 'slots' => [['position' => 0, 'id' => 'platform:instagram'], ['position' => 3, 'id' => 'item:gone']]],
+    ])]);
 
-    $response = actingAsUser($pro)->getJson('/api/site/actions')->assertOk();
+    $data = actingAsUser($pro->fresh(['site']))->getJson('/api/site/actions')->assertOk()->json();
 
-    // success() responds with the body directly — no data envelope.
-    $data = $response->json();
-    $poolIds = collect($data['pool'])->pluck('id')->all();
+    expect($data['mode'])->toBe('smart')
+        ->and($data['slots'])->toBe([
+            ['position' => 0, 'id' => 'platform:instagram', 'unavailable' => false],
+            ['position' => 3, 'id' => 'item:gone', 'unavailable' => true],
+        ])
+        ->and(array_column($data['entries'], 'id'))->toBe(['platform:instagram', 'platform:tiktok'])
+        ->and($data['entries'][0]['locked'])->toBeTrue()
+        ->and(array_column($data['candidates'], 'id'))->toBe(['platform:tiktok', 'platform:instagram'])
+        ->and($data['candidates'][0])->toMatchArray(['score' => 0.8, 'scoreShare' => 1.0, 'kind' => 'platform', 'label' => 'TikTok'])
+        ->and($data['candidates'][1]['score'])->toBeNull()
+        ->and(array_keys($data['candidates'][0]))->toBe(['id', 'kind', 'label', 'url', 'thumb', 'connectedAt', 'score', 'scoreShare', 'ref', 'meta']);
+});
 
-    expect($poolIds)->toBe(['instagram'])
-        // Through the one-deploy overlap the legacy list is unscored (the
-        // score family now keys on the unified grammar) — rewritten in A7.
-        ->and(collect($data['pool'])->firstWhere('id', 'instagram')['score'])->toBeNull()
-        ->and($data['ordering'])->toMatchArray(['smartPageOrder' => true, 'smartActions' => true]);
+it('entries are identical to the public payload resolution for the same state (no drift)', function () {
+    $pro = createTenant('sa-drift');
+    endpointConnection($pro, 'instagram', ['username' => 'maha']);
+    endpointConnection($pro, 'youtube', ['handle' => 'maha']);
+    DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->update(['settings' => json_encode([
+        'actions' => ['mode' => 'newest', 'slots' => [['position' => 0, 'id' => 'platform:youtube']]],
+    ])]);
+
+    $endpoint = actingAsUser($pro->fresh(['site']))->getJson('/api/site/actions')->assertOk()->json('entries');
+    $fresh = $pro->fresh(['site']);
+    $public = app(IndividualProfilePayloadBuilder::class)->build($fresh, $fresh->site)['actions']['entries'];
+
+    expect($endpoint)->toBe($public)->and($endpoint)->not->toBe([]);
 });
 
 it('requires authentication', function () {
-    createTenant('actions-noauth');
-
     $this->getJson('/api/site/actions')->assertStatus(401);
 });

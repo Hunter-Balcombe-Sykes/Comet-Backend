@@ -901,12 +901,6 @@ parameters:
 			path: app/Http/Resources/PublicSite/IndividualProfileResource.php
 
 		-
-			message: '#^Offset ''policies'' on array\{site_id\?\: string\|null, design_kit\?\: array\<string, mixed\>, architecture_id\?\: string\|null, public_config\?\: array\<string, mixed\>, page_order\?\: list\<string\>, ranked_actions\?\: list\<array\<string, mixed\>\>, ordering\?\: array\<string, mixed\>, links\?\: list\<array\<string, mixed\>\>, \.\.\.\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Resources/PublicSite/IndividualProfileResource.php
-
-		-
 			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 2

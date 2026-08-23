@@ -52,7 +52,7 @@ it('emits exactly the documented top-level and profile-nested key set', function
     // Slice 7 unit E deleted designMedia / siteImages / profile.gallery /
     // profile.curatedGallery outright (owner ruling 2026-08-14).
     expect(array_keys($array))->toBe([
-        'profile', 'pageOrder', 'rankedActions', 'ordering',
+        'profile', 'pageOrder', 'rankedActions', 'actions', 'ordering',
         'designKit', 'architectureId', 'publicConfig', 'policies',
     ]);
 
@@ -95,7 +95,7 @@ it('coerces empty designKit/publicConfig sections to an object, not an array, in
     $array = (new IndividualProfileResource($pro, []))->resolve(Request::create('/'));
 
     expect(array_keys($array))->toBe([
-        'profile', 'pageOrder', 'rankedActions', 'ordering',
+        'profile', 'pageOrder', 'rankedActions', 'actions', 'ordering',
         'designKit', 'architectureId', 'publicConfig', 'policies',
     ]);
 
