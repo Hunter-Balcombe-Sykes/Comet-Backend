@@ -343,30 +343,6 @@ parameters:
 			path: app/Http/Requests/Api/Staff/Segments/StoreSegmentRequest.php
 
 		-
-			message: '#^Offset ''label'' on non\-empty\-array on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php
-
-		-
-			message: '#^Offset ''url'' on non\-empty\-array on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php
-
-		-
-			message: '#^Offset ''label'' on non\-empty\-array on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Requests/Api/User/Site/UpdateSiteRequest.php
-
-		-
-			message: '#^Offset ''url'' on non\-empty\-array on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Requests/Api/User/Site/UpdateSiteRequest.php
-
-		-
 			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
