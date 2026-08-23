@@ -137,7 +137,7 @@ Route::post('/public/analytics/item-seen', [AnalyticsController::class, 'itemSee
     ->middleware('throttle:analytics');
 // Action exposure/tap ingest (2026-07-23 actions rebuild) — one beacon per
 // action doorway entering the viewport / receiving a tap; feeds
-// analytics.action_events + RankedActionsComputer's demand-rate scoring.
+// analytics.action_events + ActionScorer's composite scoring.
 Route::post('/public/analytics/action-seen', [AnalyticsController::class, 'actionSeen'])
     ->middleware('throttle:analytics');
 Route::post('/public/analytics/action-tap', [AnalyticsController::class, 'actionTap'])
