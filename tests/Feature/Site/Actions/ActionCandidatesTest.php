@@ -22,7 +22,7 @@ beforeEach(function () {
     setupServicesTable();
 });
 
-function seedConnection(object $tenant, string $platform, array $payload = [], array $attrs = []): string
+function candidateConnection(object $tenant, string $platform, array $payload = [], array $attrs = []): string
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('site.platform_connections')->insert(array_merge([
@@ -55,8 +55,8 @@ it('a bare site has no candidates', function () {
 
 it('a destination platform yields platform:<key> with its profile url and label', function () {
     $tenant = createTenant('ac-insta');
-    seedConnection($tenant, 'instagram', ['username' => 'maha']);
-    seedConnection($tenant, 'spotify', ['url' => 'https://open.spotify.com/artist/maha']);
+    candidateConnection($tenant, 'instagram', ['username' => 'maha']);
+    candidateConnection($tenant, 'spotify', ['url' => 'https://open.spotify.com/artist/maha']);
 
     $out = collect(candidatesFor($tenant))->keyBy('id');
 
@@ -68,7 +68,7 @@ it('a destination platform yields platform:<key> with its profile url and label'
 
 it('fold: a booking source with the services page present yields page:services and NO platform entry', function () {
     $tenant = createTenant('ac-fold');
-    seedConnection($tenant, 'fresha', ['url' => 'https://fresha.com/a/maha']);
+    candidateConnection($tenant, 'fresha', ['url' => 'https://fresha.com/a/maha']);
     ownerServiceItem($tenant->id, ['title' => 'Haircut']);
 
     $out = collect(candidatesFor($tenant))->keyBy('id');
@@ -81,7 +81,7 @@ it('fold: a booking source with the services page present yields page:services a
 
 it('source fallback: a booking source whose services page is absent yields platform:fresha with the booking url', function () {
     $tenant = createTenant('ac-fallback');
-    seedConnection($tenant, 'fresha', ['url' => 'https://fresha.com/a/maha']);
+    candidateConnection($tenant, 'fresha', ['url' => 'https://fresha.com/a/maha']);
 
     $out = collect(candidatesFor($tenant))->keyBy('id');
 
@@ -92,7 +92,7 @@ it('source fallback: a booking source whose services page is absent yields platf
 
 it('a platform that is both source and destination (youtube) keeps its platform action', function () {
     $tenant = createTenant('ac-yt');
-    seedConnection($tenant, 'youtube', ['handle' => 'maha']);
+    candidateConnection($tenant, 'youtube', ['handle' => 'maha']);
 
     $out = collect(candidatesFor($tenant))->keyBy('id');
 
@@ -101,8 +101,8 @@ it('a platform that is both source and destination (youtube) keeps its platform 
 
 it('one platform action per platform key — the earliest connection wins', function () {
     $tenant = createTenant('ac-dupe');
-    seedConnection($tenant, 'tiktok', ['url' => 'https://tiktok.com/@first'], ['created_at' => now()->subDay()->toISOString()]);
-    seedConnection($tenant, 'tiktok', ['url' => 'https://tiktok.com/@second']);
+    candidateConnection($tenant, 'tiktok', ['url' => 'https://tiktok.com/@first'], ['created_at' => now()->subDay()->toISOString()]);
+    candidateConnection($tenant, 'tiktok', ['url' => 'https://tiktok.com/@second']);
 
     $out = collect(candidatesFor($tenant))->keyBy('id');
 
@@ -111,8 +111,8 @@ it('one platform action per platform key — the earliest connection wins', func
 
 it('every candidate id passes the grammar and every url passes UrlSafety', function () {
     $tenant = createTenant('ac-safe');
-    seedConnection($tenant, 'instagram', ['username' => 'maha']);
-    seedConnection($tenant, 'facebook', ['url' => 'javascript:alert(1)']);
+    candidateConnection($tenant, 'instagram', ['username' => 'maha']);
+    candidateConnection($tenant, 'facebook', ['url' => 'javascript:alert(1)']);
     ownerServiceItem($tenant->id, ['title' => 'Haircut']);
 
     $out = candidatesFor($tenant);
