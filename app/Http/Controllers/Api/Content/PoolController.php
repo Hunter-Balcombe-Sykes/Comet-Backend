@@ -109,24 +109,27 @@ class PoolController extends ApiController
 
         $section = $this->provisioner->ensure($site, $pool);
 
+        // Remove means REMOVE, whatever the row was (owner, 2026-08-23). A
+        // pinned row used to be deleted rather than excluded, which only
+        // un-pinned it — and on every pool whose rule is a bare kind_is the
+        // resolver re-emitted it as an auto candidate in this same response,
+        // so the dashboard's "did it actually come off?" check failed and
+        // toasted "still being published automatically". Since PUT /order
+        // pins the whole list, that bit every remove after any drag. One
+        // write for both states: excluded, sort key cleared. select() already
+        // flips excluded → pinned, so a re-add still works.
         $row = SectionItem::query()
             ->where('section_id', $section->id)
             ->where('item_id', $item->id)
-            ->first();
-
-        if ($row !== null && $row->state === SectionItem::STATE_PINNED) {
-            $row->delete();
-        } else {
-            $row ??= new SectionItem;
-            $row->section_id = (string) $section->id;
-            $row->item_id = (string) $item->id;
-            $row->state = SectionItem::STATE_EXCLUDED;
-            $row->sort_key = null;
-            if (! $row->exists) {
-                $row->created_at = now();
-            }
-            $row->save();
+            ->first() ?? new SectionItem;
+        $row->section_id = (string) $section->id;
+        $row->item_id = (string) $item->id;
+        $row->state = SectionItem::STATE_EXCLUDED;
+        $row->sort_key = null;
+        if (! $row->exists) {
+            $row->created_at = now();
         }
+        $row->save();
 
         $this->poolChanged($site);
 
