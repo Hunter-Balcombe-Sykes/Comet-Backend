@@ -190,9 +190,44 @@ class PoolResolver
      */
     public function resolve(Site $site, string $pool): array
     {
-        $section = $this->provisioner->ensure($site, $pool);
+        // plan → hydrate → assemble (split 2026-08-24 for the actions
+        // endpoint): a single pool resolves exactly as it always did, and
+        // PoolWire::forSite runs the SAME three steps with every pool's ids
+        // in ONE hydrate pass — ~20 facet queries total instead of ~20 per
+        // pool, which is what took GET /site/actions past 60s of round trips
+        // on a high-latency link (measured 2026-08-24: 244 queries, 58.8s of
+        // it pools hydration).
+        $plan = $this->plan($site, $pool);
+        [$payloads, $stores] = $this->itemPayloads(
+            $site,
+            array_values(array_unique([...$plan['selectionIds'], ...$plan['libraryIds']])),
+        );
 
-        $curation = DB::connection('pgsql')->table('site.section_items')
+        return $this->assemble($site, $pool, $plan, $payloads, $stores);
+    }
+
+    /**
+     * Step 1 of resolve(): which item ids this pool would publish and list —
+     * curation, rule candidates, the library, live-pin filtering. No item
+     * hydration happens here, so a caller batching several pools can union
+     * the ids and hydrate once.
+     *
+     * @return array{
+     *   pinned: list<string>,
+     *   ruleIds: list<string>,
+     *   autoSet: array<string, int>,
+     *   selectionIds: list<string>,
+     *   libraryIds: list<string>,
+     * }
+     */
+    public function plan(Site $site, string $pool, ?object $section = null, ?Collection $curation = null): array
+    {
+        // Both pre-reads are injectable so a batching caller (PoolWire) can
+        // supply every pool's sections and curation from two shared queries;
+        // a lone resolve() fetches its own exactly as before.
+        $section ??= $this->provisioner->ensure($site, $pool);
+
+        $curation ??= DB::connection('pgsql')->table('site.section_items')
             ->where('section_id', $section->id)
             ->get();
 
@@ -239,13 +274,88 @@ class PoolResolver
             }
         }
 
-        // Tuple, not a private property: collectionsFor() needs the store rows
-        // itemPayloads() already fetched, and stashing them on $this would make
-        // resolve() order-dependent (and unsafe under a reused instance).
-        [$payloads, $stores] = $this->itemPayloads(
-            $site,
-            array_values(array_unique([...$selectionIds, ...$libraryIds])),
-        );
+        return [
+            'pinned' => $pinned,
+            'ruleIds' => $ruleIds,
+            'autoSet' => $autoSet,
+            'selectionIds' => $selectionIds,
+            'libraryIds' => $libraryIds,
+        ];
+    }
+
+    /**
+     * The batched pre-reads plan() accepts (2026-08-24): every pool's section
+     * in one ensureMany, and every section's curation rows in one whereIn —
+     * PoolWire's per-pool loop stops paying a round trip apiece for them.
+     *
+     * @param  list<string>  $pools
+     * @return array<string, object> keyed by pool
+     */
+    public function preloadSections(Site $site, array $pools): array
+    {
+        return $this->provisioner->ensureMany($site, $pools);
+    }
+
+    /**
+     * @param  array<string, object>  $sections  keyed by pool (preloadSections)
+     * @return array<string, Collection<int, object>> curation rows keyed by SECTION id
+     */
+    public function preloadCuration(array $sections): array
+    {
+        $ids = array_values(array_unique(array_map(
+            static fn (object $section): string => (string) $section->id,
+            $sections,
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        return DB::connection('pgsql')->table('site.section_items')
+            ->whereIn('section_id', $ids)
+            ->get()
+            ->groupBy('section_id')
+            ->all();
+    }
+
+    /**
+     * Step 2, exposed for batching: render-ready payloads for a set of item
+     * ids spanning ANY number of pools — itemPayloads() is pool-agnostic (it
+     * gates its shop/menu-only reads on the kinds actually present).
+     * Tuple, not a private property: collectionsFor() needs the store rows
+     * this already fetched, and stashing them on $this would make resolve()
+     * order-dependent (and unsafe under a reused instance).
+     *
+     * @param  list<string>  $ids
+     * @return array{array<string, array<string, mixed>>, Collection<string, object>}
+     */
+    public function hydrateItems(Site $site, array $ids): array
+    {
+        return $this->itemPayloads($site, $ids);
+    }
+
+    /**
+     * Step 3 of resolve(): the pool's wire shape from its plan and an
+     * (possibly shared) payload map. Only reads $payloads entries for its own
+     * plan's ids, so a superset map from a batched hydrate changes nothing.
+     *
+     * @param  array{pinned: list<string>, ruleIds: list<string>, autoSet: array<string, int>, selectionIds: list<string>, libraryIds: list<string>}  $plan
+     * @param  array<string, array<string, mixed>>  $payloads
+     * @param  Collection<string, object>  $stores
+     * @return array{
+     *   selection: list<array<string, mixed>>,
+     *   library: list<array<string, mixed>>,
+     *   latestItemId: string|null,
+     *   collections: array<string, array<string, mixed>>,
+     *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null,
+     *   diningModes: list<string>|null,
+     * }
+     */
+    public function assemble(Site $site, string $pool, array $plan, array $payloads, Collection $stores): array
+    {
+        $pinned = $plan['pinned'];
+        $autoSet = $plan['autoSet'];
+        $selectionIds = $plan['selectionIds'];
+        $libraryIds = $plan['libraryIds'];
 
         $selectedSet = array_flip($selectionIds);
 
