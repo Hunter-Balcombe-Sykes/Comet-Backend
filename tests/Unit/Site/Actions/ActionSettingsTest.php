@@ -25,3 +25,13 @@ it('reads pool modes sparsely with newest default; events and unknown pools are 
         ->and(ActionSettings::fromSite($site)->poolMode('watch'))->toBe('smart')
         ->and(ActionSettings::fromSite($site)->poolMode('listen'))->toBe('newest');
 });
+
+it('reads pool locks per pool sorted by position, dropping malformed rows and unknown pools', function () {
+    $site = new Site(['settings' => ['pool_locks' => [
+        'watch' => [['position' => 2, 'id' => 'b'], ['position' => 0, 'id' => 'a'], ['id' => 'x'], 'junk'],
+        'events' => [['position' => 0, 'id' => 'e']],
+    ]]]);
+    expect(ActionSettings::poolLocks($site))->toBe(['watch' => [['position' => 0, 'id' => 'a'], ['position' => 2, 'id' => 'b']]])
+        ->and(ActionSettings::fromSite($site)->poolLocksFor('watch'))->toHaveCount(2)
+        ->and(ActionSettings::fromSite($site)->poolLocksFor('listen'))->toBe([]);
+});

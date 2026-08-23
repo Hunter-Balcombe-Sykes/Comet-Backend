@@ -52,6 +52,56 @@ final class PoolOrdering
     }
 
     /**
+     * Owner locks laid over a mode-ordered selection (newest/smart only —
+     * PoolResolver never calls this in manual): a locked item holds its
+     * position and the rest fill around it in their mode order, exactly like
+     * ActionSlots. A lock whose item is not in the selection is skipped.
+     * Positions are renumbered contiguously, so a lock past the end lands last.
+     *
+     * @param  list<array<string, mixed>>  $items  mode-ordered selection
+     * @param  list<array{position: int, id: string}>  $locks
+     * @return list<array<string, mixed>>
+     */
+    public static function applyLocks(array $items, array $locks): array
+    {
+        if ($locks === [] || $items === []) {
+            return $items;
+        }
+        $byId = [];
+        foreach ($items as $item) {
+            $byId[(string) ($item['id'] ?? '')] = $item;
+        }
+        $placed = [];
+        foreach ($locks as $lock) {
+            if (isset($byId[$lock['id']]) && ! isset($placed[$lock['position']])) {
+                $placed[$lock['position']] = $lock['id'];
+            }
+        }
+        if ($placed === []) {
+            return $items;
+        }
+        $lockedIds = array_flip($placed);
+        $fill = array_values(array_filter($items, static fn (array $i): bool => ! isset($lockedIds[(string) ($i['id'] ?? '')])));
+        $out = [];
+        $limit = count($items);
+        for ($p = 0; $p < $limit; $p++) {
+            if (isset($placed[$p])) {
+                $out[] = $byId[$placed[$p]];
+            } elseif ($fill !== []) {
+                $out[] = array_shift($fill);
+            }
+        }
+        // Locks past the selection length: append in position order.
+        foreach ($placed as $position => $id) {
+            if ($position >= $limit) {
+                $out[] = $byId[$id];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Category/collection blocks follow the mode through their best member:
      * `position` is rewritten so a block with the newest (or top-ranked)
      * dish sits first. Untouched in manual.

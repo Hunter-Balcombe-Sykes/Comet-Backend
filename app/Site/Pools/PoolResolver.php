@@ -266,8 +266,14 @@ class PoolResolver
         // Per-pool ordering mode (spec §5.4): pins and auto reorder together
         // in newest/smart; manual keeps pins-then-rule. Events always keep
         // occurrence order; reviews never rank.
-        $mode = in_array($pool, ['events', 'reviews'], true) ? 'manual' : ActionSettings::fromSite($site)->poolMode($pool);
+        $settings = ActionSettings::fromSite($site);
+        $mode = in_array($pool, ['events', 'reviews'], true) ? 'manual' : $settings->poolMode($pool);
         $selection = PoolOrdering::order($mode, $selection);
+        if ($mode !== 'manual') {
+            // Owner locks (settings.pool_locks) hold items in place while the
+            // mode fills the rest — the dashboard's "Lock in position".
+            $selection = PoolOrdering::applyLocks($selection, $settings->poolLocksFor($pool));
+        }
 
         $library = [];
         foreach ($libraryIds as $itemId) {

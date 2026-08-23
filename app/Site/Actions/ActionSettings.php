@@ -9,6 +9,9 @@ use App\Models\Core\Site\Site;
  *
  *   actions    = { mode: newest|smart|manual, slots: [{position, id}] }
  *   pool_order = { <pool>: newest|smart|manual }      (sparse; absent = newest)
+ *   pool_locks = { <pool>: [{position, id}] }          (newest/smart only: items
+ *                                                       held at a position while
+ *                                                       the mode fills the rest)
  *
  * In smart/newest, `slots` are LOCKS (sparse positions the ranking fills
  * around); in manual they ARE the list. Spec §4.
@@ -22,14 +25,21 @@ final class ActionSettings
     /** Pools that accept a mode — events is always soonest-first, reviews never ranks. */
     public const POOL_ORDER_KEYS = ['watch', 'listen', 'media', 'services', 'shop', 'custom_links', 'menus'];
 
+    /** Locks per pool — enough for any real curation, small enough to stay a settings key. */
+    public const POOL_LOCKS_MAX = 50;
+
     /**
      * @param  list<array{position: int, id: string}>  $slots  sorted by position
      * @param  array<string, string>  $poolModes
+     */
+    /**
+     * @param  array<string, list<array{position: int, id: string}>>  $poolLocks
      */
     private function __construct(
         public readonly string $mode,
         public readonly array $slots,
         private readonly array $poolModes,
+        private readonly array $poolLocks,
     ) {}
 
     public static function fromSite(?Site $site): self
@@ -47,7 +57,7 @@ final class ActionSettings
         }
         usort($slots, static fn (array $a, array $b): int => $a['position'] <=> $b['position']);
 
-        return new self($mode, $slots, self::poolModes($site));
+        return new self($mode, $slots, self::poolModes($site), self::poolLocks($site));
     }
 
     /** @return array<string, string> sparse pool => mode */
@@ -68,5 +78,39 @@ final class ActionSettings
     public function poolMode(string $pool): string
     {
         return $this->poolModes[$pool] ?? self::DEFAULT_MODE;
+    }
+
+    /**
+     * @return array<string, list<array{position: int, id: string}>> pool => locks sorted by position
+     */
+    public static function poolLocks(?Site $site): array
+    {
+        $settings = is_array($site?->settings) ? $site->settings : [];
+        $raw = is_array($settings['pool_locks'] ?? null) ? $settings['pool_locks'] : [];
+        $out = [];
+        foreach ($raw as $pool => $locks) {
+            if (! in_array($pool, self::POOL_ORDER_KEYS, true) || ! is_array($locks)) {
+                continue;
+            }
+            $clean = [];
+            foreach ($locks as $lock) {
+                if (! is_array($lock) || ! is_int($lock['position'] ?? null) || ! is_string($lock['id'] ?? null) || $lock['id'] === '') {
+                    continue;
+                }
+                $clean[] = ['position' => $lock['position'], 'id' => $lock['id']];
+            }
+            usort($clean, static fn (array $a, array $b): int => $a['position'] <=> $b['position']);
+            if ($clean !== []) {
+                $out[$pool] = $clean;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return list<array{position: int, id: string}> */
+    public function poolLocksFor(string $pool): array
+    {
+        return $this->poolLocks[$pool] ?? [];
     }
 }

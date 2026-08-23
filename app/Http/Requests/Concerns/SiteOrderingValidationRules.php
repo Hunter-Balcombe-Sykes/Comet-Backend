@@ -50,6 +50,14 @@ trait SiteOrderingValidationRules
 
             'settings.pool_order' => ['sometimes', 'array', $this->poolOrderKeysRule()],
             'settings.pool_order.*' => ['string', Rule::in(ActionSettings::MODES)],
+
+            // Per-pool locks (2026-08-23, the dashboard's "Lock in position"):
+            // { <pool>: [{position, id}] }, applied in newest/smart only.
+            'settings.pool_locks' => ['sometimes', 'array', $this->poolOrderKeysRule()],
+            'settings.pool_locks.*' => ['array', 'max:'.ActionSettings::POOL_LOCKS_MAX],
+            'settings.pool_locks.*.*' => ['array:position,id'],
+            'settings.pool_locks.*.*.position' => ['required', 'integer', 'min:0', 'max:999', 'distinct'],
+            'settings.pool_locks.*.*.id' => ['required', 'string', 'max:64', 'distinct'],
         ];
     }
 
