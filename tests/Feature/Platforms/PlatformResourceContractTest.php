@@ -162,6 +162,7 @@ it('youtube connect returns the canonical tile shape with latest passed through 
     $user = platformContractUser('yt1');
     $this->mock(YoutubeScraper::class, function ($m) {
         $m->shouldReceive('normalizeHandle')->andReturn('mychannel');
+        $m->shouldReceive('fetchChannelProfile')->andReturn(['id' => 'UCocwhL8eTz6tfV9_crX_nJQ', 'avatar' => null]);
         $m->shouldReceive('fetchRecentVideos')->andReturn([
             ['videoId' => 'v1', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'date' => '2026-03-03T00:00:00+00:00', 'thumbnail' => 't'],
         ]);

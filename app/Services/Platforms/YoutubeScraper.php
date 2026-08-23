@@ -226,12 +226,50 @@ class YoutubeScraper extends PlatformScraper
         return ['title' => $feedTitle, 'videos' => $out];
     }
 
+    /**
+     * The channel's own identity off its page: the canonical UC… id and, where
+     * the page carries one, its avatar (the largest `avatar.thumbnails` URL —
+     * YouTube lists them ascending). One fetch; the connect strategy reads
+     * both so the stored connection can show the channel's face rather than
+     * its latest video's frame (owner, 2026-08-23). Null when the page can't
+     * be fetched or holds no id — logged like resolveChannelId().
+     *
+     * @return array{id: string, avatar: ?string}|null
+     */
+    public function fetchChannelProfile(string $handle): ?array
+    {
+        $page = $this->fetchChannelPage($handle, ['User-Agent' => self::USER_AGENT]);
+        if ($page === null) {
+            return null;
+        }
+        $id = $this->channelIdFromPage($page, $handle);
+        if ($id === null) {
+            return null;
+        }
+
+        $avatar = null;
+        if (preg_match('~"avatar":\{"thumbnails":\[(.*?)\]~s', $page, $block)
+            && preg_match_all('~"url":"(https://[^"]+)"~', $block[1], $urls)) {
+            $avatar = str_replace('\/', '/', end($urls[1]));
+        }
+
+        return ['id' => $id, 'avatar' => $avatar];
+    }
+
     // Channel page → the channel's OWN canonical ID. A channel page lists several
     // "channelId" values (featured/related channels, video owners) and the first
     // is NOT reliably the channel itself — so prefer "externalId" / the canonical
     // /channel/<id> URL (both the page owner's ID). Falls back to the first
     // channelId only if neither is present. (Fixes @casey → wrong side-channel.)
     private function resolveChannelId(string $handle, array $headers): ?string
+    {
+        $page = $this->fetchChannelPage($handle, $headers);
+
+        return $page === null ? null : $this->channelIdFromPage($page, $handle);
+    }
+
+    /** The channel page's body on a 200; null (logged) otherwise. */
+    private function fetchChannelPage(string $handle, array $headers): ?string
     {
         $page = $this->fetcher->tryFetch('https://www.youtube.com/@'.rawurlencode($handle), $headers);
         if ($page === null || $page['status'] !== 200) {
@@ -245,9 +283,14 @@ class YoutubeScraper extends PlatformScraper
             return null;
         }
 
-        if (! preg_match('/"externalId":"(UC[A-Za-z0-9_-]{22})"/', $page['body'], $m)
-            && ! preg_match('~/channel/(UC[A-Za-z0-9_-]{22})~', $page['body'], $m)
-            && ! preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $page['body'], $m)) {
+        return $page['body'];
+    }
+
+    private function channelIdFromPage(string $body, string $handle): ?string
+    {
+        if (! preg_match('/"externalId":"(UC[A-Za-z0-9_-]{22})"/', $body, $m)
+            && ! preg_match('~/channel/(UC[A-Za-z0-9_-]{22})~', $body, $m)
+            && ! preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $body, $m)) {
             // LIFE-25: page fetched fine (200) but none of the three id patterns
             // matched — a page-layout change, not a transport failure.
             Log::warning('youtube.channel_resolve_failed', [

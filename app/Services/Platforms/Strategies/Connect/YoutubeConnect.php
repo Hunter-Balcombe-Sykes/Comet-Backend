@@ -48,7 +48,18 @@ class YoutubeConnect implements DeferredConnect
             return ConnectResult::fail();
         }
 
-        $videos = $this->scraper->fetchRecentVideos($handle);
+        // One channel-page fetch for id + avatar; the feed is then reached by
+        // the raw UC… id, which channelIdFrom() short-circuits without a second
+        // page fetch. A pasted /channel/UC… URL already IS the id — no page
+        // exists to read an avatar from, and that is fine: no avatar, no lie.
+        $profile = preg_match('~^UC[A-Za-z0-9_-]{22}$~', $handle)
+            ? ['id' => $handle, 'avatar' => null]
+            : $this->scraper->fetchChannelProfile($handle);
+        if ($profile === null) {
+            return ConnectResult::fail('Could not find that YouTube channel or its latest video.', 404);
+        }
+
+        $videos = $this->scraper->fetchRecentVideos($profile['id']);
         if (empty($videos)) {
             return ConnectResult::fail('Could not find that YouTube channel or its latest video.', 404);
         }
@@ -56,6 +67,10 @@ class YoutubeConnect implements DeferredConnect
 
         return ConnectResult::ok([
             'handle' => $handle,
+            // The channel's own face for the dashboard's connect summary and
+            // connections table (ConnectionDisplayName::avatarFor reads
+            // `avatarUrl` before it falls back to the latest video's thumbnail).
+            ...($profile['avatar'] !== null ? ['avatarUrl' => $profile['avatar']] : []),
             // Flat fields retained for partna-pages + back-compat; nested
             // `latest` is the canonical shape.
             ...$this->flatTileFields($latest, self::FLAT_TILE_FIELDS),
