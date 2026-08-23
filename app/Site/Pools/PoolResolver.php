@@ -33,11 +33,10 @@ use Illuminate\Support\Facades\DB;
  * located / priced facets (null off events), the public URL slug + its 301
  * aliases, and the full per-platform link set (synced source links +
  * hand-saved item_links).
- * popularityRank carries a real rank for products (analytics.content_popularity_scores,
- * content_type='shop_product', keyed by f_catalog.handle — slice 5b, inherited
- * from the retiring /integrations wire); on every other kind it is null until
- * watch_item/listen_item beacons compute. The wire carries the field either
- * way so the shape doesn't change under the FE.
+ * popularityRank carries the item's rank in its kind's family
+ * (analytics.content_popularity_scores, keyed by item id for every family
+ * since 2026-08-23), null until the scoring job has ranked it. The wire
+ * carries the field either way so the shape doesn't change under the FE.
  */
 class PoolResolver
 {
@@ -476,10 +475,9 @@ class PoolResolver
         $catalog = collect();
         $variantsByItem = collect();
         // Popularity ranks for EVERY item (2026-08-23, pool smart order): one
-        // cached read of every item family. The lookup is FAMILY-AWARE — a
-        // product reads shop_product by handle, a link reads link_item by url,
-        // everything else reads its kind's family by item id — so a watch_item
-        // row keyed by a slug can never leak onto a product sharing it.
+        // cached read of every item family, each keyed by item id. The lookup
+        // is FAMILY-AWARE — an item only reads its own kind's family — so a
+        // watch_item row can never leak onto a product.
         $ranks = $this->popularityRanks($site);
         $linkMode = (string) ($site->shop_link_mode ?? 'checkout');
 
@@ -1036,7 +1034,7 @@ class PoolResolver
                 // then disagree with the price it sits next to.
                 'availability' => $offers[$itemId]->availability ?? null,
                 'links' => $links,
-                'popularityRank' => self::rankFor($ranks, (string) $item->kind, $itemId, $handle, $primary['url'] ?? null),
+                'popularityRank' => self::rankFor($ranks, (string) $item->kind, $itemId),
                 // Additive and nullable on EVERY item, never a kind-shaped
                 // sub-object — the same contract startsAt / venue / price
                 // already follow, so the wire shape does not vary with kind.
@@ -1178,24 +1176,19 @@ class PoolResolver
     ];
 
     /**
-     * The rank an item carries on the wire: its kind's family, keyed the way
-     * that family keys (handle / url / id). Null when unranked.
+     * The rank an item carries on the wire: its kind's family, keyed by the
+     * item id (every family, 2026-08-23). Null when unranked.
      *
-     * @param  array<string, array<string, int>>  $ranks  family => key => rank
+     * @param  array<string, array<string, int>>  $ranks  family => item id => rank
      */
-    private static function rankFor(array $ranks, string $kind, string $itemId, string $handle, ?string $url): ?int
+    private static function rankFor(array $ranks, string $kind, string $itemId): ?int
     {
         $family = self::KIND_RANK_FAMILY[$kind] ?? null;
-        if ($family === null || ! isset($ranks[$family])) {
+        if ($family === null || $itemId === '') {
             return null;
         }
-        $key = match ($kind) {
-            'product' => $handle,
-            'link' => (string) $url,
-            default => $itemId,
-        };
 
-        return $key !== '' ? ($ranks[$family][$key] ?? null) : null;
+        return $ranks[$family][$itemId] ?? null;
     }
 
     /**

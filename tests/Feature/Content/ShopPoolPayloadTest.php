@@ -288,8 +288,9 @@ it('takes the freshest source row when two sources describe one product', functi
 // next task deletes the legacy wire that carries it, 34 live dev ranks drop to
 // null, and nothing errors. So it is pinned positively, not just on its null
 // path — the join is analytics.content_popularity_scores.content_key ==
-// f_catalog.handle, NOT the item id.
-it('serves the live shop_product rank for a product, keyed by its catalog handle', function () {
+// content.items.id (every family keys by item id since 2026-08-23; the
+// catalog handle no longer reaches a product).
+it('serves the live shop_product rank for a product, keyed by its item id', function () {
     [$pro, $siteId] = poolTenant();
     $store = shopStore($pro->id);
     $ranked = shopProduct($pro->id, $store, 'Bulwark Jacket');   // handle bulwark-jacket
@@ -297,12 +298,15 @@ it('serves the live shop_product rank for a product, keyed by its catalog handle
 
     DB::table('analytics.content_popularity_scores')->insert([
         ['id' => (string) Str::uuid(), 'site_id' => $siteId, 'content_type' => 'shop_product',
-            'content_key' => 'bulwark-jacket', 'score' => 12.5, 'rank' => 3, 'computed_at' => now()],
-        // Same handle as the unranked product but a DIFFERENT bucket: only the
+            'content_key' => $ranked, 'score' => 12.5, 'rank' => 3, 'computed_at' => now()],
+        // The legacy handle key must NOT reach the product any more.
+        ['id' => (string) Str::uuid(), 'site_id' => $siteId, 'content_type' => 'shop_product',
+            'content_key' => 'plain-cap', 'score' => 50.0, 'rank' => 2, 'computed_at' => now()],
+        // Same id as the unranked product but a DIFFERENT bucket: only the
         // shop_product bucket may reach a product, or a video's rank would
-        // leak onto a tee that shares its slug.
+        // leak onto a tee.
         ['id' => (string) Str::uuid(), 'site_id' => $siteId, 'content_type' => 'watch_item',
-            'content_key' => 'plain-cap', 'score' => 99.0, 'rank' => 1, 'computed_at' => now()],
+            'content_key' => $unranked, 'score' => 99.0, 'rank' => 1, 'computed_at' => now()],
     ]);
 
     $items = collect(app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop')['library'])
@@ -320,7 +324,7 @@ it('leaves popularityRank null when the score belongs to another site', function
     [, $otherSiteId] = poolTenant();
     DB::table('analytics.content_popularity_scores')->insert([
         'id' => (string) Str::uuid(), 'site_id' => $otherSiteId, 'content_type' => 'shop_product',
-        'content_key' => 'bulwark-jacket', 'score' => 12.5, 'rank' => 3, 'computed_at' => now(),
+        'content_key' => $itemId, 'score' => 12.5, 'rank' => 3, 'computed_at' => now(),
     ]);
 
     $item = collect(app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop')['library'])

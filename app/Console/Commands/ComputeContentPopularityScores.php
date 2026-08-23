@@ -8,6 +8,7 @@ use App\Services\Analytics\ContentFreshness;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Site\Actions\ActionCandidates;
 use Illuminate\Console\Command;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -19,8 +20,8 @@ use Illuminate\Support\Str;
  * Reads ONLY raw events (analytics.link_clicks, .item_views, .action_events).
  * Per site it produces:
  *   - item scores  : link_clicks.product_id + item_views, keyed
- *                    (item_type, item_id) — the pool "smart" order and the
- *                    item reach term below.
+ *                    (item_type, content.items.id) for EVERY family — the
+ *                    pool "smart" order and the item reach term below.
  *   - action scores: content_type='action', keyed by App\Site\Actions\ActionId
  *                    — the unified lander list (pages + destination platforms
  *                    + served items + categories) scored by ActionScorer:
@@ -365,7 +366,11 @@ class ComputeContentPopularityScores extends Command
             });
 
         // Clicks from link_clicks.product_id (mirror topItemsBySection); item_type
-        // inferred from the hosting section_key.
+        // inferred from the hosting section_key. Every family is keyed by
+        // content.items.id (2026-08-23): a legacy shop click that stored the
+        // catalog handle, or a link click that stored the url, is resolved to
+        // the item it belongs to; an already-id-keyed click passes through.
+        $aliases = $this->itemIdAliases($site);
         DB::connection('pgsql')->table('analytics.link_clicks')
             ->where('site_id', $site->id)
             ->whereNotNull('product_id')
@@ -373,15 +378,54 @@ class ComputeContentPopularityScores extends Command
             ->selectRaw("product_id, section_key, {$day} as day, COUNT(*) as clicks")
             ->groupByRaw("product_id, section_key, {$day}")
             ->get()
-            ->each(function ($r) use ($bump, $now): void {
+            ->each(function ($r) use ($bump, $now, $aliases): void {
                 $type = self::CLICK_SECTION_TO_ITEM_TYPE[(string) $r->section_key] ?? null;
                 if ($type === null) {
                     return;
                 }
-                $bump($type, (string) $r->product_id, $this->dayWeight((string) $r->day, $now) * (int) $r->clicks, 0.0);
+                $key = (string) $r->product_id;
+                $key = $aliases[$type][$key] ?? $key;
+                $bump($type, $key, $this->dayWeight((string) $r->day, $now) * (int) $r->clicks, 0.0);
             });
 
         return $items;
+    }
+
+    /**
+     * Legacy click keys → item id, per family: shop_product by
+     * content.f_catalog.handle, link_item by content.f_link.url. One query
+     * each per site; absent when the content lane is missing (partial envs).
+     *
+     * @return array<string, array<string, string>> family => alias => item id
+     */
+    private function itemIdAliases(Site $site): array
+    {
+        $out = ['shop_product' => [], 'link_item' => []];
+        try {
+            DB::connection('pgsql')->table('content.items as i')
+                ->join('content.f_catalog as fc', 'fc.item_id', '=', 'i.id')
+                ->where('i.user_id', $site->user_id)
+                ->where('i.kind', 'product')
+                ->whereNull('i.removed_at')
+                ->whereNotNull('fc.handle')
+                ->get(['i.id', 'fc.handle'])
+                ->each(function ($r) use (&$out): void {
+                    $out['shop_product'][(string) $r->handle] ??= (string) $r->id;
+                });
+            DB::connection('pgsql')->table('content.items as i')
+                ->join('content.f_link as fl', 'fl.item_id', '=', 'i.id')
+                ->where('i.user_id', $site->user_id)
+                ->where('i.kind', 'link')
+                ->whereNull('i.removed_at')
+                ->get(['i.id', 'fl.url'])
+                ->each(function ($r) use (&$out): void {
+                    $out['link_item'][(string) $r->url] ??= (string) $r->id;
+                });
+        } catch (QueryException) {
+            // content.* lane absent — clicks keep their stored key.
+        }
+
+        return $out;
     }
 
     /**

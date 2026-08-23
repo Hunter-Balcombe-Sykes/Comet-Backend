@@ -136,8 +136,9 @@ class ActionScorer
     }
 
     /**
-     * An item's pool engagement (its stored item-family score) folded into
-     * reach; a category takes the max of its members.
+     * An item's pool engagement (its stored item-family score, keyed by item
+     * id for every kind) folded into reach; a category takes the max of its
+     * members.
      *
      * @param  array<string, mixed>  $c
      * @param  array<string, float>  $itemScores

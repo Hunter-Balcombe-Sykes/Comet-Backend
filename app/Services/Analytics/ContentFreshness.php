@@ -18,8 +18,8 @@ use Illuminate\Support\Facades\DB;
  * 2026-08-23: pages are actions now and get their freshness from
  * ActionScorer (connectedAt → 2^(-age/14), same half-life), not from here.
  *
- *   - link_item : each pool link keys on f_link.url, byte-stable and equal to
- *                 the item's content_key.
+ *   - link_item : each pool link keys on content.items.id — every item
+ *                 family is keyed by item id (2026-08-23).
  * NOT freshness-eligible: shop_product / listen_item / watch_item (no stable
  * per-item created_at — documented, not half-built).
  *
@@ -52,22 +52,19 @@ class ContentFreshness
                 ->where('i.user_id', $site->user_id)
                 ->where('i.kind', 'link')
                 ->whereNull('i.removed_at')
-                ->get(['fl.url', 'i.created_at'])
+                ->get(['i.id', 'i.created_at'])
                 ->each(function ($row) use (&$linkItems): void {
-                    if (! is_string($row->url) || $row->url === '') {
-                        return;
-                    }
-                    $linkItems[$row->url] = Carbon::parse($row->created_at);
+                    $linkItems[(string) $row->id] = Carbon::parse($row->created_at);
                 });
         } catch (QueryException) {
             // content.* lane absent (partial test envs) — no link boosts.
         }
 
         $links = [];
-        foreach ($linkItems as $url => $createdAt) {
+        foreach ($linkItems as $itemId => $createdAt) {
             $boost = $this->boost(self::W_ITEM, $createdAt, $now);
             if ($boost !== null) {
-                $links[$url] = $boost;
+                $links[$itemId] = $boost;
             }
         }
 

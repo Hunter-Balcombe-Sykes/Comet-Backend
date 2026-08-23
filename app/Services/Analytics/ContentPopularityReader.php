@@ -117,9 +117,8 @@ class ContentPopularityReader
 
     /**
      * Flat item-family scores — content_key => blended score across every
-     * item type (everything except 'action'). Keys are the item id for most
-     * families, the catalog handle for shop_product and the url for link_item;
-     * consumers look up id → handle → url. Collisions keep the max. Fail-open.
+     * item type (everything except 'action'). Every family keys by item id
+     * (2026-08-23); an id present in two families keeps the max. Fail-open.
      *
      * @return array<string, float>
      */

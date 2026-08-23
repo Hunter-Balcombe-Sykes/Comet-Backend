@@ -51,7 +51,7 @@ it('seeds a brand-new link with a freshness-only item score and an action row fo
     expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')
         ->where('site_id', $tenant->site->id)->where('content_type', 'page')->count())->toBe(0);
 
-    $item = popularityScoreRow($tenant->site->id, 'link_item', 'https://example.com/fresh');
+    $item = popularityScoreRow($tenant->site->id, 'link_item', $poolItemId);
     expect($item)->not->toBeNull()
         ->and((float) $item->score)->toBeGreaterThan(2.9)
         ->and((float) $item->score)->toBeLessThanOrEqual(3.0)
@@ -104,6 +104,38 @@ it('decays each day\'s events with a 90-day true half-life', function () {
     expect($row)->not->toBeNull()
         ->and((float) $row->score)->toBeGreaterThan(2.85)
         ->and((float) $row->score)->toBeLessThan(3.15);
+});
+
+it('keys a legacy handle-keyed shop click and a url-keyed link click by the item id', function () {
+    $tenant = createTenant('cmd-idkey');
+    $store = shopStore($tenant->id);
+    $productId = shopProduct($tenant->id, $store, 'Bulwark Jacket'); // handle bulwark-jacket
+    $linkId = app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/keyed', enrich: false);
+    DB::connection('pgsql')->table('content.items')->where('id', $linkId)->update(['created_at' => now()->subDays(200)->toISOString()]);
+
+    foreach ([['shop', 'bulwark-jacket'], ['shop', $productId], ['custom', 'https://example.com/keyed']] as [$section, $key]) {
+        DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+            'id' => (string) Str::uuid(),
+            'user_id' => $tenant->id,
+            'site_id' => $tenant->site->id,
+            'section_key' => $section,
+            'product_id' => $key,
+            'url' => 'https://example.com/'.Str::random(4),
+            'occurred_at' => now()->toISOString(),
+            'created_at' => now()->toISOString(),
+        ]);
+    }
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+
+    // Both shop clicks (handle + id) fold onto ONE id-keyed row: 2 × W_CLICK.
+    $product = popularityScoreRow($tenant->site->id, 'shop_product', $productId);
+    expect($product)->not->toBeNull()->and((float) $product->score)->toEqualWithDelta(6.0, 0.05);
+    expect(popularityScoreRow($tenant->site->id, 'shop_product', 'bulwark-jacket'))->toBeNull();
+
+    $link = popularityScoreRow($tenant->site->id, 'link_item', $linkId);
+    expect($link)->not->toBeNull()->and((float) $link->score)->toEqualWithDelta(3.0, 0.05);
+    expect(popularityScoreRow($tenant->site->id, 'link_item', 'https://example.com/keyed'))->toBeNull();
 });
 
 it('does not let one fresh event resurrect stale history to full weight', function () {
@@ -188,7 +220,7 @@ it('reports (but does not throw) when the action layer fails, and still writes i
         ->assertExitCode(0);
 
     Exceptions::assertReported(fn (RuntimeException $e) => $e->getMessage() === 'action scoring exploded');
-    expect(popularityScoreRow($tenant->site->id, 'link_item', 'https://example.com/obs3'))->not->toBeNull();
+    expect(popularityScoreRow($tenant->site->id, 'link_item', $poolItemId))->not->toBeNull();
     expect(popularityScoreRow($tenant->site->id, 'action', 'item:'.$poolItemId))->toBeNull();
 });
 
@@ -256,7 +288,7 @@ it('an explicit --site bypasses the recent-events scope even with zero recent ev
 
     // Explicit --site always processes the named site, matching the
     // pre-existing contract (every test above this block relies on it).
-    expect(popularityScoreRow($idle->site->id, 'link_item', 'https://example.com/explicit'))->not->toBeNull();
+    expect(popularityScoreRow($idle->site->id, 'link_item', $poolItemId))->not->toBeNull();
 });
 
 // ── OBS-5: an explicit $timeout ceiling on this every-15-min sweep ──

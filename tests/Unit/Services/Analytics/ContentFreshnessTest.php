@@ -42,7 +42,7 @@ function freshnessSeedConnection(object $tenant, string $platform, string $creat
     return $id;
 }
 
-it('boosts each pool link per URL (f_link.url = the item content_key) at W_ITEM', function () {
+it('boosts each pool link per item id (the item content_key) at W_ITEM', function () {
     // The legacy custom-connection lane was retired 2026-08-19 — links live
     // in the custom_links POOL, and freshness reads content.items directly.
     $tenant = createTenant('fresh-links');
@@ -55,8 +55,8 @@ it('boosts each pool link per URL (f_link.url = the item content_key) at W_ITEM'
     $boosts = app(ContentFreshness::class)->boostsForSite($tenant->site);
 
     // Pool links also freshen the Links PAGE.
-    expect($boosts['link_item']['https://example.com/new'])->toBeGreaterThan(ContentFreshness::W_ITEM * 0.99);
+    expect($boosts['link_item'][$newId])->toBeGreaterThan(ContentFreshness::W_ITEM * 0.99);
     // 14 days = one half-life → half weight.
-    expect($boosts['link_item']['https://example.com/older'])->toBeGreaterThan(ContentFreshness::W_ITEM * 0.48)
-        ->and($boosts['link_item']['https://example.com/older'])->toBeLessThan(ContentFreshness::W_ITEM * 0.52);
+    expect($boosts['link_item'][$oldId])->toBeGreaterThan(ContentFreshness::W_ITEM * 0.48)
+        ->and($boosts['link_item'][$oldId])->toBeLessThan(ContentFreshness::W_ITEM * 0.52);
 });
