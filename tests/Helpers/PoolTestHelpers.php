@@ -275,3 +275,14 @@ if (! function_exists('poolPin')) {
         ]);
     }
 }
+
+if (! function_exists('poolOrderMode')) {
+    /** settings.pool_order[pool] — the per-pool ordering mode (2026-08-23). */
+    function poolOrderMode(string $siteId, string $pool, string $mode): void
+    {
+        $raw = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('settings');
+        $settings = is_string($raw) ? (array) json_decode($raw, true) : [];
+        $settings['pool_order'] = array_merge((array) ($settings['pool_order'] ?? []), [$pool => $mode]);
+        DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->update(['settings' => json_encode($settings)]);
+    }
+}

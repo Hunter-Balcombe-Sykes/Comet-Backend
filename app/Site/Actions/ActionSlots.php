@@ -81,8 +81,9 @@ final class ActionSlots
     }
 
     /**
-     * score desc (scored before unscored) → connectedAt desc (dated before
-     * undated) → id asc. Deterministic for equal inputs.
+     * score desc (scored before unscored) → dated before undated (X5: an
+     * item whose only timestamp is when we first saw it never outranks one
+     * with a real date) → connectedAt desc (nulls last) → id asc.
      *
      * @param  list<array<string, mixed>>  $candidates
      * @param  array<string, float>  $scores
@@ -102,6 +103,11 @@ final class ActionSlots
                 }
 
                 return $sb <=> $sa;
+            }
+            $ua = (bool) ($a['meta']['undated'] ?? false);
+            $ub = (bool) ($b['meta']['undated'] ?? false);
+            if ($ua !== $ub) {
+                return $ua ? 1 : -1;
             }
             $ta = $a['connectedAt'] ?? null;
             $tb = $b['connectedAt'] ?? null;

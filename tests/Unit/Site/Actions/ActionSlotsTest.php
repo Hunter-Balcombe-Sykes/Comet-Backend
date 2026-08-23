@@ -111,3 +111,11 @@ it('entries carry the wire shape and nothing else', function () {
     $r = ActionSlots::resolve(array_slice(slotCandidates(), 0, 1), [], settingsOf(['mode' => 'newest']));
     expect(array_keys($r['entries'][0]))->toBe(['position', 'id', 'kind', 'label', 'url', 'thumb', 'locked', 'ref']);
 });
+
+it('newest puts undated synced items after dated ones even when seen more recently (X5)', function () {
+    $dated = slotCandidates()[5]; // connectedAt 2026-08-15
+    $undated = slotCandidates()[0]; // connectedAt 2026-08-20 but flagged undated
+    $undated['meta']['undated'] = true;
+    $r = ActionSlots::resolve([$undated, $dated], [], settingsOf(['mode' => 'newest']));
+    expect(ids($r['entries']))->toBe(['item:c5', 'item:c0']);
+});

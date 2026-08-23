@@ -65,3 +65,12 @@ it('drops an item whose outbound url is not http(s)', function () {
     ]]];
     expect(ActionCandidates::fromPools($pools))->toBe([]);
 });
+
+it('flags synced items without a publishedAt as undated, but never a hand-added link', function () {
+    $pools = [
+        'watch' => ['items' => [['id' => 'v', 'kind' => 'video', 'headline' => 'x', 'url' => 'https://y/v', 'thumbnail' => null, 'publishedAt' => null, 'firstSeenAt' => '2026-08-20T00:00:00+00:00', 'collectionIds' => []]]],
+        'custom_links' => ['items' => [['id' => 'l', 'kind' => 'link', 'headline' => 'x', 'url' => 'https://y/l', 'thumbnail' => null, 'publishedAt' => null, 'firstSeenAt' => '2026-08-20T00:00:00+00:00', 'collectionIds' => []]]],
+    ];
+    $out = collect(ActionCandidates::fromPools($pools))->keyBy('id');
+    expect($out['item:v']['meta']['undated'])->toBeTrue()->and($out['item:l']['meta']['undated'])->toBeFalse();
+});

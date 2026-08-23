@@ -218,9 +218,11 @@ class ActionCandidates
             foreach ($grouped as $cid => $members) {
                 $memberIds = [];
                 $newest = null;
+                $dated = false;
                 $thumb = null;
                 foreach ($members as $member) {
                     $memberIds[] = (string) ($member['id'] ?? '');
+                    $dated = $dated || self::isDated($member);
                     $at = self::connectedAt($member);
                     if ($at !== null && ($newest === null || strcmp($at, $newest) > 0)) {
                         $newest = $at;
@@ -235,7 +237,7 @@ class ActionCandidates
                     'thumb' => $thumb,
                     'connectedAt' => $newest,
                     'ref' => null,
-                    'meta' => ['pool' => $pool, 'collectionId' => (string) $cid, 'itemIds' => $memberIds],
+                    'meta' => ['pool' => $pool, 'collectionId' => (string) $cid, 'itemIds' => $memberIds, 'undated' => ! $dated],
                 ];
             }
         }
@@ -264,8 +266,24 @@ class ActionCandidates
             'thumb' => is_string($item['thumbnail'] ?? null) && $item['thumbnail'] !== '' ? $item['thumbnail'] : null,
             'connectedAt' => self::connectedAt($item),
             'ref' => ['pool' => $pool, 'itemId' => $id],
-            'meta' => ['pool' => $pool],
+            // undated: the timestamp is when WE first saw it, not a release
+            // date (X5) — newest order puts every dated candidate first.
+            'meta' => ['pool' => $pool, 'undated' => ! self::isDated($item)],
         ];
+    }
+
+    /**
+     * Dated = carries a real publishedAt, OR is a link-pool item — those are
+     * hand-added by definition, so "first seen" IS the add date. Every other
+     * item without a publishedAt is undated (X5: synced-but-undated content
+     * never outranks dated content on the strength of when we saw it).
+     *
+     * @param  array<string, mixed>  $item
+     */
+    private static function isDated(array $item): bool
+    {
+        return (is_string($item['publishedAt'] ?? null) && $item['publishedAt'] !== '')
+            || ($item['kind'] ?? null) === 'link';
     }
 
     /** @param  array<string, mixed>  $item */
