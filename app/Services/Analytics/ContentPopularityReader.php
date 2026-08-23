@@ -21,12 +21,12 @@ use Illuminate\Support\Facades\Log;
 class ContentPopularityReader
 {
     /**
-     * All popularity ranks for a site, grouped by content_type then keyed by
-     * content_key → rank. content_type ∈ page|shop_product|menu_item|
-     * menu_category|service|block|gallery_item|engine_item. The derived
-     * 'action' rows are excluded — they have their own reader
-     * (rankedActionsForSite) and their own wire key (rankedActions), so the
-     * popularity map stays a pure content-rank surface.
+     * All ITEM popularity ranks for a site, grouped by content_type then keyed
+     * by content_key → rank. content_type ∈ shop_product|menu_item|
+     * menu_category|service|block|gallery_item|engine_item|listen_item|
+     * watch_item|link_item. The 'action' rows are excluded — they have their
+     * own readers (actionScoresForSite / pageRanksFromActions) and their own
+     * wire key (actions), so this map stays a pure content-rank surface.
      *
      * @return array<string, array<string, int>>
      */

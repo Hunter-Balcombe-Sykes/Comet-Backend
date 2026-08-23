@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolWriter;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\Cache;
@@ -190,17 +191,12 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     // — but we still confirm it serialises as an object.
     expect($raw)->toContain('"publicConfig":{');
 
-    // Link block surfaces as a `custom:` ranked action — not as a raw
-    // `blocks[]` JSONB blob (the old shape), and not as `profile.links`
-    // (left the wire 2026-08-19).
+    // Legacy link BLOCKS no longer reach the wire at all (2026-08-23): not as
+    // `blocks[]`, not as `profile.links` (left 2026-08-19), and not as an
+    // action — the unified list draws items from the content pools only.
     expect($raw)->not->toContain('"blocks":');
-    $custom = collect($data['rankedActions'])->first(fn (array $a) => str_starts_with((string) $a['id'], 'custom:'));
-    expect($custom)->not->toBeNull();
-    expect($custom)->toMatchArray([
-        'label' => 'Example',
-        'url' => 'https://example.test',
-        'kind' => 'external',
-    ]);
+    expect($data['actions'])->toBe(['mode' => 'newest', 'entries' => []]);
+    expect(array_keys($data))->not->toContain('rankedActions', 'ordering');
 });
 
 it('flags publicConfig.claim.unclaimed for a published pre-account (unclaimed) profile', function () {
@@ -367,48 +363,20 @@ it('excludes brand-only and commerce fields', function () {
     }
 });
 
-it('link projection emits only the structured shape (no extra JSONB leaks)', function () {
+it('action projection emits only the structured entry shape (no extra JSONB leaks)', function () {
     $pro = seedIndividualProfile('solo3');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-
-    // Phase 2: platform is a promoted column; getLinks reads it from the column.
-    // Sensitive keys in settings still must not leak to the wire.
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'link',
-        'block_group' => 'links',
-        'title' => 'Sensitive',
-        'url' => 'https://example.test',
-        'sort_order' => 0,
-        'platform' => 'instagram',
-        // Sensitive keys MUST NOT appear in the wire payload — the controller
-        // doesn't read these into the structured link row.
-        'settings' => json_encode([
-            'admin_token' => 'sk_live_secret',
-            'internal_note' => 'staging only',
-        ]),
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
+    // A pool link (content.items kind=link) is the ONLY way an owner-authored
+    // url reaches the public payload now — as an `item:` action entry.
+    app(LinkPoolWriter::class)->add($pro->fresh(), 'https://example.test', 'Example', enrich: false);
 
     $res = $this->getJson('/api/public/profiles/solo3')->assertOk();
-    // `profile.links` left the wire 2026-08-19 — a link block reaches the
-    // public payload ONLY as a `custom:` ranked action now, so that is the
-    // projection under test.
-    // A platform-tagged block surfaces as that platform's action.
-    $action = collect($res->json('data.rankedActions'))->first(fn (array $a) => $a['url'] === 'https://example.test');
+    $action = collect($res->json('data.actions.entries'))->first(fn (array $a) => $a['url'] === 'https://example.test');
 
-    // Only the action's projected keys exist — no admin_token / internal_note
-    // ever surfaces because they're not part of the typed projection.
+    // Only the entry's projected keys exist — nothing internal ever surfaces
+    // because the wire is a typed projection, never a row dump.
     expect($action)->not->toBeNull();
-    expect(array_keys($action))->toEqual(['id', 'kind', 'label', 'pageId', 'url', 'platform', 'score']);
-    expect($action['platform'])->toBe('instagram');
-    expect($res->getContent())->not->toContain('sk_live_secret');
-    expect($res->getContent())->not->toContain('internal_note');
+    expect(array_keys($action))->toEqual(['position', 'id', 'kind', 'label', 'url', 'thumb', 'locked', 'ref']);
+    expect($action['kind'])->toBe('item');
 });
 
 it('emits no legacy engine keys: profile.links / profile.services / popularity are gone (2026-08-19)', function () {
@@ -962,61 +930,27 @@ it('handles a race where the site is deleted between resolve and payload cache r
 // href. UrlSafety::safeHref() gates SitepageDataResolverService::getLinks()
 // and ::getBooking() — these prove the gate at the actual public wire.
 
-it('drops a link block whose url has a non-http(s) scheme', function () {
+it('NEGATIVE: a pool link with a javascript: url never becomes an action', function () {
     $pro = seedIndividualProfile('links-xss');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $itemId = app(LinkPoolWriter::class)->add($pro->fresh(), 'https://placeholder.example/x', 'Malicious', enrich: false);
+    // Forge the stored url past the writer's own validation — the emit-path
+    // gate (UrlSafety in ActionCandidates) is the defence under test.
+    DB::connection('pgsql')->table('content.f_link')->where('item_id', $itemId)->update(['url' => 'javascript:alert(1)']);
 
-    // Bypasses StoreLinkBlockRequest entirely — simulates a seeder/import
-    // writer or a row that predates the write-side scheme validator.
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'link',
-        'block_group' => 'links',
-        'title' => 'Malicious',
-        'url' => 'javascript:alert(1)',
-        'sort_order' => 1,
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'category' => 'custom',
-        'settings' => json_encode([]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $customs = collect($this->getJson('/api/public/profiles/links-xss')->assertOk()->json('data.rankedActions'))
-        ->filter(fn (array $a) => str_starts_with((string) $a['id'], 'custom:'))->values();
-
-    expect($customs->all())->toBe([]);
+    $entries = collect($this->getJson('/api/public/profiles/links-xss')->assertOk()->json('data.actions.entries'));
+    expect($entries->firstWhere('id', 'item:'.$itemId))->toBeNull();
+    foreach ($entries as $e) {
+        expect(str_starts_with($e['url'], '/') || str_starts_with($e['url'], 'https://') || str_starts_with($e['url'], 'http://'))->toBeTrue();
+    }
 });
 
-it('POSITIVE CONTROL: a link block with an https url survives verbatim', function () {
+it('POSITIVE CONTROL: a pool link with an https url survives verbatim', function () {
     $pro = seedIndividualProfile('links-safe');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $itemId = app(LinkPoolWriter::class)->add($pro->fresh(), 'https://example.com/x', 'Safe', enrich: false);
 
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'link',
-        'block_group' => 'links',
-        'title' => 'Safe',
-        'url' => 'https://example.com/x',
-        'sort_order' => 1,
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'category' => 'custom',
-        'settings' => json_encode([]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $customs = collect($this->getJson('/api/public/profiles/links-safe')->assertOk()->json('data.rankedActions'))
-        ->filter(fn (array $a) => str_starts_with((string) $a['id'], 'custom:'))->values();
-
-    expect($customs)->toHaveCount(1);
-    expect($customs[0]['url'])->toBe('https://example.com/x');
+    $entry = collect($this->getJson('/api/public/profiles/links-safe')->assertOk()->json('data.actions.entries'))->firstWhere('id', 'item:'.$itemId);
+    expect($entry)->not->toBeNull();
+    expect($entry['url'])->toBe('https://example.com/x');
 });
 
 it('does not synthesise a booking link when settings.booking_url has a non-http(s) scheme', function () {
@@ -1042,7 +976,7 @@ it('does not synthesise a booking link when settings.booking_url has a non-http(
     ]);
 
     // `profile.links` left the wire 2026-08-19; the synthesised booking row is
-    // asserted at the resolver, which is what SiteActionsService consumes.
+    // asserted at the resolver, which is what the actions layer consumes.
     $site = Site::query()->find($siteId);
     $resolver = app(SitepageDataResolverService::class);
     $booking = $resolver->getBooking($site, $resolver->loadSections($site));

@@ -57,7 +57,7 @@ class LinkPoolReader
      * The same cards, for a READ path that must not write. `cards()` provisions
      * the section as a side-effect of reading (PoolSectionProvisioner's
      * on-demand design), which is right for a dashboard GET and wrong for
-     * SiteActionsService — that runs on every public profile render, and would
+     * ActionCandidates — that runs on every public profile render, and would
      * insert a page + section row for every site that has never held a link.
      *
      * Returns [] when the section does not exist yet, which is the honest answer:

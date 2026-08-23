@@ -7,7 +7,7 @@ use App\Support\UrlSafety;
 
 /**
  * A connection's public destination URL — the profile / channel / booking
- * page a visitor is sent to. Lifted from SiteActionsService::platformConnectionUrl
+ * page a visitor is sent to. Lifted from the retired SiteActionsService::platformConnectionUrl
  * (2026-08-23): Instagram and YouTube rebuild from the stored handle, every
  * other platform carries `url` (or legacy `link`) in its payload. Always
  * through UrlSafety so a stored javascript:/data: url can never reach the wire.

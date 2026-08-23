@@ -167,7 +167,7 @@ it('bails on the whole lane — and does NOT mark degraded — when the content 
     // test-suite: the first cut of #LIFE-6 treated "content.* does not exist"
     // as "one pool failed" and continued the loop. resolve() provisions a
     // section row as a SIDE EFFECT, so continuing minted a section for every
-    // pool while content.* was absent, and SiteActionsService -> LinkPoolReader
+    // pool while content.* was absent, and ActionCandidates -> PoolWire
     // is not guarded against that pairing: the public profile endpoint went
     // from 200 to 500 in any environment without the content lane.
     //

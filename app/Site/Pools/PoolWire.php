@@ -69,7 +69,7 @@ class PoolWire
                 //    here, and deliberately NOT pool-by-pool: resolve()
                 //    provisions a section row as a SIDE EFFECT, so continuing
                 //    would mint a section for every pool while content.* does
-                //    not exist — and other readers (SiteActionsService ->
+                //    not exist — and other readers (the actions layer ->
                 //    LinkPoolReader) are not guarded against that pairing and
                 //    500 on it. "A missing lane yields no pools, never a 500" is
                 //    the contract this branch has always kept. It is also not a

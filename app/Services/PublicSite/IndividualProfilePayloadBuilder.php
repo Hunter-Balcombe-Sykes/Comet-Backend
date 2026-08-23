@@ -2,6 +2,7 @@
 
 namespace App\Services\PublicSite;
 
+use App\Enums\SitepageId;
 use App\Http\Controllers\Api\PublicSite\IndividualProfileController;
 use App\Http\Resources\PublicSite\IndividualProfileResource;
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
@@ -10,6 +11,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Design\ProfileDesignPresets;
@@ -71,7 +73,6 @@ class IndividualProfilePayloadBuilder
     public function __construct(
         private readonly SitepageDataResolverService $resolver,
         private readonly ContentPopularityReader $popularity,
-        private readonly SiteActionsService $actions,
         private readonly SitePolicyResolver $policies,
         private readonly PoolWire $poolWire,
         private readonly ActionCandidates $candidates,
@@ -89,37 +90,12 @@ class IndividualProfilePayloadBuilder
     public function build(User $pro, ?Site $site): array
     {
         $sections = $this->resolver->loadSections($site);
-        $booking = $this->resolver->getBooking($site, $sections);
         $caps = AccountCapabilities::for($pro);
 
-        // One indexed read of content_popularity_scores per build (behind the 60s
-        // public-profile cache). Ranks ANNOTATE the content arrays + drive
-        // pageOrder — arrays are NEVER reordered (live architectures read them
-        // positionally). Empty maps when scoring hasn't run for the site.
-        $ranks = $this->popularity->forSite($site?->id);
-
-        // Ordering preferences (smart vs manual, defaults = smart) + the
-        // unified ranked-action list. Manual overrides are applied HERE so
-        // pageOrder / rankedActions on the wire are always the final,
-        // render-ready values — consumers never re-derive.
-        $ordering = $this->actions->orderingSettings($site);
-
-        $pageOrder = $ordering['smart_page_order']
-            ? $this->resolver->buildPageOrder($site, $caps, $sections, $this->popularity->pageRanksFromActions($site?->id))
-            : $this->actions->applyManualPageOrder(
-                $this->resolver->presentPageIds($site, $caps, $sections),
-                $ordering['manual_page_order'],
-            );
-
-        // Legacy rankedActions ride UNSCORED through the one-deploy overlap
-        // (the 'action' score family now keys on the unified ActionId grammar,
-        // not these ids); removed outright in the follow-up removal commit.
-        $rankedActions = $this->actions->resolveRankedActions(
-            $this->actions->pool($pro, $site, $sections, $booking),
-            [],
-            $ordering['smart_actions'],
-            $ordering['manual_actions'],
-        );
+        // Page order: presence-gated, ranked by the page:* action scores when
+        // smart_page_order is on (the page-score family retired 2026-08-23),
+        // else the owner's manual order — canonical fallback either way.
+        $pageOrder = $this->pageOrder($site, $caps, $sections);
 
         // Contact + workplace resolved once — the wire keys below reuse them,
         // and the policy resolver personalizes its generated texts from them
@@ -141,16 +117,10 @@ class IndividualProfilePayloadBuilder
             // gated, popularity-ranked (or the owner's manual order when
             // smart_page_order is off), canonical fallback. Top-level key.
             'page_order' => $pageOrder,
-            // Unified ranked actions (page|item|button|custom) — the lander
-            // renders the top 6. Override-applied (manual list when
-            // smart_actions is off); ordering carries the raw preferences.
-            'ranked_actions' => $rankedActions,
-            'ordering' => $this->actions->orderingWire($ordering),
             // The unified action list (spec §3): top-N of pages + destination
             // platforms + served items + categories, in the owner's mode with
             // their locks applied. Always present; entries [] when nothing
-            // resolves. Replaces rankedActions/ordering after the lander
-            // switches (one-deploy overlap).
+            // resolves.
             'actions' => $actions,
             // Engine outputs — flat, camelCase, no envelope wrapper.
             'pools' => $pools,
@@ -235,6 +205,52 @@ class IndividualProfilePayloadBuilder
             'contactEmail' => $data['contact_email'] ?? null,
             'website' => $data['website'] ?? null,
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function pageOrder(?Site $site, AccountCapabilitySet $caps, Collection $sections): array
+    {
+        $settings = is_array($site?->settings) ? $site->settings : [];
+        $smart = filter_var($settings['smart_page_order'] ?? true, FILTER_VALIDATE_BOOL);
+        if ($smart) {
+            return $this->resolver->buildPageOrder($site, $caps, $sections, $this->popularity->pageRanksFromActions($site?->id));
+        }
+        $manual = array_values(array_map(
+            static fn (string $id): string => SitepageId::normalizePageId($id),
+            array_filter(is_array($settings['manual_page_order'] ?? null) ? $settings['manual_page_order'] : [], 'is_string'),
+        ));
+
+        return self::applyManualPageOrder($this->resolver->presentPageIds($site, $caps, $sections), $manual);
+    }
+
+    /**
+     * Manual page order applied against the LIVE present pages: manual ∩
+     * present in manual order (unknown/absent ids dropped), then present
+     * pages missing from the manual list appended in canonical order — every
+     * present page stays reachable.
+     *
+     * @param  list<string>  $present  presence-gated canonical page-ids
+     * @param  list<string>  $manual  the stored manual_page_order
+     * @return list<string>
+     */
+    public static function applyManualPageOrder(array $present, array $manual): array
+    {
+        $presentSet = array_flip($present);
+        $ordered = [];
+        foreach ($manual as $id) {
+            if (isset($presentSet[$id]) && ! in_array($id, $ordered, true)) {
+                $ordered[] = $id;
+            }
+        }
+        foreach ($present as $id) {
+            if (! in_array($id, $ordered, true)) {
+                $ordered[] = $id;
+            }
+        }
+
+        return $ordered;
     }
 
     /**
