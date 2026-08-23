@@ -3,6 +3,7 @@
 namespace App\Routing\Probes;
 
 use App\Catalog\CatalogIntegrityCheck;
+use App\Catalog\Hosts;
 use App\Routing\Iri;
 use App\Services\Http\FetchBudget;
 use Illuminate\Support\Facades\Log;
@@ -217,6 +218,6 @@ class LinkProbeWorker
         // storefront at all. Booking tenants keep the refusal: their
         // seeders need no probe evidence, so re-confirming the detector
         // really is pure waste there.
-        return ! in_array($iri->suffixParent, \App\Catalog\Hosts::SHOP_TENANT_SUFFIXES, true);
+        return ! in_array($iri->suffixParent, Hosts::SHOP_TENANT_SUFFIXES, true);
     }
 }

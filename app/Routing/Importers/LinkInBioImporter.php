@@ -278,7 +278,7 @@ class LinkInBioImporter
     }
 
     /**
-     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, folded:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $seen
      * @param  array<string, true>  $probedHosts
      * @param  array<string, string>  $placedKeys  surface:identifier => first canonical URL
@@ -377,7 +377,7 @@ class LinkInBioImporter
      * router's Issue-M rule, carried).
      *
      * @param  array<string, mixed>  $result
-     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, folded:int, skipped_chrome:int}  $tally
      * @param  array<string, string>  $placedKeys  surface:identifier => first canonical URL
      */
     private function handlePlaced(string $url, array $result, RoutingContext $context, array &$tally, array &$placedKeys): void
@@ -433,7 +433,7 @@ class LinkInBioImporter
      * site's nav exhaust the whole budget (found live 2026-08-10).
      *
      * @param  array<string, mixed>  $result
-     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, folded:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $probedHosts
      * @param  array<string, int>  $droppedReasons  reason => count, for the run detail
      */

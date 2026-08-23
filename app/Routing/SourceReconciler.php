@@ -4,6 +4,7 @@ namespace App\Routing;
 
 use App\Catalog\CompiledCatalog;
 use App\Catalog\LegacyPlatformMap;
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -68,7 +69,7 @@ class SourceReconciler
         // (SuggestionsInboxTest's accept flow caught exactly that).
         if ($routingClass === 'shop' && $placement->verdict === Verdict::Place
             && ! $context->isDirectRequest() && $context->origin !== 'commerce_probe') {
-            \App\Jobs\Platforms\CommerceProbeJob::dispatch(
+            CommerceProbeJob::dispatch(
                 (string) $user->id,
                 $iri->canonical ?? SecretParams::redactUrl($iri->raw) ?? '',
             );

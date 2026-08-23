@@ -156,7 +156,7 @@ class PublicIntegrationConnectionResource extends ApiResource
         // as "Book with {provider}" on the sitepage. Still fail-closed: only
         // explicitly listed keys emit.
         // online-ordering (2026-07-23 actions rebuild): entries now feed the
-        // public ordering:<resource_id> actions (SiteActionsService::pool()
+        // public ordering:<resource_id> actions (ActionCandidates (platform:<key> actions)
         // reads url + name from this exact payload). id/provider/source/data
         // stay private — internal bookkeeping the sitepage doesn't need.
         // ── Named provider cards (registered 265f9aa4, entries added 2026-07-26) ──

@@ -2,88 +2,50 @@
 
 namespace App\Services\Analytics;
 
-use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
-use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Freshness boost — an ADDITIVE, decaying score term for newly-added content,
- * so new pages/items surface before they have earned engagement (cold start),
- * then fade back to pure engagement ranking over ~a month.
+ * Freshness boost — an ADDITIVE, decaying score term for newly-added pool
+ * links, so a new link surfaces before it has earned engagement (cold
+ * start), then fades back to pure engagement ranking over ~a month.
  *
- *   boost = W · 2^(-age_days / HALF_LIFE_DAYS)
+ *   boost = W_ITEM · 2^(-age_days / HALF_LIFE_DAYS)
  *
- * age comes from the owning row's created_at — the only grains with a STABLE
- * per-entity created_at (recon 2026-07-10):
- *   - page      : newest ACTIVE platform connection mapping to the page
- *                 (PLATFORM_TO_PAGE), plus live service content items
- *                 (content.items kind='service', either source) → 'services'.
- *                 Disconnect→reconnect resets created_at, which reads as
- *                 "re-added = fresh again" — acceptable semantics.
- *   - link_item : each custom link is its own connection row; payload.url is
- *                 byte-stable (enrichment never rewrites it) and equals the
- *                 item's content_key.
- * NOT freshness-eligible (no stable per-item created_at — documented, not
- * half-built): shop_product / listen_item / watch_item (items live inside one
- * connection's payload — a uniform boost can't change intra-page order) and
- * Fresha services (payload.selection.services[] is rewritten wholesale on sync).
+ * The page family this used to carry (W_PAGE, PLATFORM_TO_PAGE) was retired
+ * 2026-08-23: pages are actions now and get their freshness from
+ * ActionScorer (connectedAt → 2^(-age/14), same half-life), not from here.
  *
- * Consumed by ComputeContentPopularityScores (score = base·recency + boost;
- * zero-signal keys are seeded so brand-new content ranks at all) and surfaced
- * by DevInsightsController so the boost is visible in the score breakdown.
+ *   - link_item : each pool link keys on f_link.url, byte-stable and equal to
+ *                 the item's content_key.
+ * NOT freshness-eligible: shop_product / listen_item / watch_item (no stable
+ * per-item created_at — documented, not half-built).
+ *
+ * Consumed by ComputeContentPopularityScores (zero-signal keys are seeded so a
+ * brand-new link ranks at all) and surfaced by DevInsightsController.
  */
 class ContentFreshness
 {
     public const HALF_LIFE_DAYS = 14.0;
 
-    // A brand-new PAGE starts at +15 — visible against typical page scores
-    // (~90-420 on an engaged site; dominant on a quiet one, which is the point).
-    public const W_PAGE = 15.0;
-
     // A brand-new ITEM starts at +3 — exactly one click's head start.
     public const W_ITEM = 3.0;
 
-    // Below this the boost is noise; skipping keeps zero-signal seeding bounded
-    // (a connection stops seeding score rows ~4 months after it was added).
+    // Below this the boost is noise; skipping keeps zero-signal seeding bounded.
     private const MIN_BOOST = 0.05;
 
     /**
      * Freshness boosts for one site, keyed like the scoring job's content grains.
      *
-     * @return array{page: array<string, float>, link_item: array<string, float>}
+     * @return array{link_item: array<string, float>}
      */
     public function boostsForSite(Site $site): array
     {
         $now = now();
-
-        // Newest created_at per page from active connections (SoftDeletes global
-        // scope excludes trashed; scopeActive excludes is_active=false).
-        $pageNewest = [];
         $linkItems = [];
 
-        IntegrationConnection::query()
-            ->where('user_id', $site->user_id)
-            ->active()
-            ->get(['platform', 'resource_kind', 'payload', 'created_at'])
-            ->each(function (IntegrationConnection $conn) use (&$pageNewest): void {
-                $page = SitepageDataResolverService::PLATFORM_TO_PAGE[$conn->platform] ?? null;
-                if ($page !== null) {
-                    if (! isset($pageNewest[$page]) || $conn->created_at->gt($pageNewest[$page])) {
-                        $pageNewest[$page] = $conn->created_at;
-                    }
-                }
-
-            });
-
-        // Custom links live in the `custom_links` POOL (content.items kind
-        // 'link' + f_link.url) — the legacy `platform='custom'` connection
-        // rows this arm used to read were retired 2026-08-19 and can no
-        // longer exist. content_key stays the URL (byte-stable). Best-effort
-        // like the rest of this heuristic: a lane without the content tables
-        // (several SQLite suites) simply contributes no link boosts.
         try {
             DB::connection('pgsql')->table('content.items as i')
                 ->join('content.f_link as fl', 'fl.item_id', '=', 'i.id')
@@ -91,47 +53,14 @@ class ContentFreshness
                 ->where('i.kind', 'link')
                 ->whereNull('i.removed_at')
                 ->get(['fl.url', 'i.created_at'])
-                ->each(function ($row) use (&$pageNewest, &$linkItems): void {
+                ->each(function ($row) use (&$linkItems): void {
                     if (! is_string($row->url) || $row->url === '') {
                         return;
                     }
-                    $createdAt = Carbon::parse($row->created_at);
-                    $linkItems[$row->url] = $createdAt;
-                    // A fresh link also freshens the Links PAGE — the role the
-                    // retired custom connection's PLATFORM_TO_PAGE entry played.
-                    if (! isset($pageNewest['links']) || $createdAt->gt($pageNewest['links'])) {
-                        $pageNewest['links'] = $createdAt;
-                    }
+                    $linkItems[$row->url] = Carbon::parse($row->created_at);
                 });
         } catch (QueryException) {
-            // content.* not provisioned — no pool, no boost.
-        }
-
-        // Services are content items with a stable created_at; a newly added
-        // one freshens the Book page. Services cutover (carried open since
-        // 3a): this read moves to content.items and covers BOTH source kinds
-        // — the legacy row's created_at carried exactly this signal, and a
-        // connector-landed service is no less new than an owner-authored one.
-        // A removed item contributes nothing, matching the old is_active bar
-        // closely enough for a freshness heuristic.
-        $newestService = DB::connection('pgsql')->table('content.items')
-            ->where('user_id', $site->user_id)
-            ->where('kind', 'service')
-            ->whereNull('removed_at')
-            ->max('created_at');
-        if ($newestService !== null) {
-            $serviceAt = Carbon::parse($newestService);
-            if (! isset($pageNewest['services']) || $serviceAt->gt($pageNewest['services'])) {
-                $pageNewest['services'] = $serviceAt;
-            }
-        }
-
-        $pages = [];
-        foreach ($pageNewest as $page => $createdAt) {
-            $boost = $this->boost(self::W_PAGE, $createdAt, $now);
-            if ($boost !== null) {
-                $pages[$page] = $boost;
-            }
+            // content.* lane absent (partial test envs) — no link boosts.
         }
 
         $links = [];
@@ -142,7 +71,7 @@ class ContentFreshness
             }
         }
 
-        return ['page' => $pages, 'link_item' => $links];
+        return ['link_item' => $links];
     }
 
     /** Decayed boost, or null once it has faded below MIN_BOOST. */

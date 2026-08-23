@@ -40,7 +40,7 @@
 use App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
 use App\Models\Core\Site\Site;
-use App\Services\Analytics\RankedActionsComputer;
+use App\Services\Analytics\ActionScorer;
 
 /**
  * Read a migration file's contents by basename, from supabase/migrations/ or the
@@ -134,25 +134,22 @@ it('item_views_item_type_check matches ItemSeenRequest::ITEM_TYPES and the hardc
 
 // ─── analytics.content_popularity_scores.content_type (SCHEMA-2) ────────────
 
-it('content_popularity_scores_content_type_check matches the item taxonomy + page + action', function () {
-    // The content_type vocabulary is the full item-type taxonomy plus the two
-    // non-item grains: 'page' (section/page scores) and 'action'
-    // (RankedActionsComputer's derived ranked-action layer).
+it('content_popularity_scores_content_type_check matches the item taxonomy + action', function () {
+    // 2026-08-23: 'page' left the vocabulary — pages are actions (page:<id>
+    // rows in the 'action' family). The CHECK was recreated by the
+    // unified-actions migration, which is the file this reads.
     $expected = [
-        'page', 'action', 'shop_product', 'menu_item', 'menu_category',
+        'action', 'shop_product', 'menu_item', 'menu_category',
         'service', 'block', 'gallery_item', 'engine_item', 'listen_item',
         'watch_item', 'link_item',
     ];
 
-    $sql = lockstepMigrationSql('20260720100300_content_popularity_scores_content_type_check.sql');
+    $sql = lockstepMigrationSql('20260823100000_unified_actions.sql');
     $migrationList = lockstepExtractInList($sql, 'content_type');
-
     lockstepAssertSameSet($migrationList, $expected, 'content_popularity_scores_content_type_check (migration vs hardcoded)');
 
-    // App-side: item taxonomy (ItemSeenRequest) + 'page' + RankedActionsComputer's
-    // owned 'action' type, derived from two independent live sources.
-    $appList = [...ItemSeenRequest::ITEM_TYPES, 'page', RankedActionsComputer::CONTENT_TYPE];
-    lockstepAssertSameSet($appList, $expected, 'item taxonomy + page + action (app vs hardcoded)');
+    $appList = [...ItemSeenRequest::ITEM_TYPES, ActionScorer::CONTENT_TYPE];
+    lockstepAssertSameSet($appList, $expected, 'item taxonomy + action (app vs hardcoded)');
 });
 
 // ─── site.sites.shop_link_mode (SCHEMA-5 / SCHEMA-102) ───────────────────────

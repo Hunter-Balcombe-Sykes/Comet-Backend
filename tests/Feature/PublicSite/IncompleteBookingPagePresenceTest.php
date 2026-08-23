@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    // SiteActionsService reads the `custom_links` pool for the `custom:`
+    // ActionCandidates reads the pools (PoolWire) for item actions,
     // action family (convergence Phase 6), so site.sections must exist.
     setupSectionsTables();
     setupServicesTable();
@@ -68,10 +68,8 @@ it('keeps the services page action for a fresha row that HAS a selection', funct
 
     expect($res->json('data.pageOrder'))->toContain('services');
 
-    $action = collect($res->json('data.rankedActions'))->firstWhere('id', 'booking-services');
-    expect($action)->not->toBeNull()
-        ->and($action['kind'])->toBe('page')
-        ->and($action['pageId'])->toBe('services');
+    $ids = collect($res->json('data.actions.entries'))->pluck('id');
+    expect($ids)->toContain('page:services')->not->toContain('platform:fresha');
 });
 
 it('does not emit a duplicate booking action when the services page is present', function () {
@@ -81,7 +79,7 @@ it('does not emit a duplicate booking action when the services page is present',
 
     $res = $this->getJson("/api/public/profiles/{$user->handle}")->assertOk();
 
-    expect(collect($res->json('data.rankedActions'))->where('id', 'booking-services'))->toHaveCount(1);
+    expect(collect($res->json('data.actions.entries'))->where('id', 'page:services'))->toHaveCount(1);
 });
 
 it('withholds the services page and emits an external Book-now for a selection-less fresha row', function () {
@@ -93,11 +91,13 @@ it('withholds the services page and emits an external Book-now for a selection-l
 
     expect($res->json('data.pageOrder'))->not->toContain('services');
 
-    $action = collect($res->json('data.rankedActions'))->firstWhere('id', 'booking-services');
+    // Source fallback (spec §2.2): the page is absent, so the booking
+    // platform itself is the action, with its own url.
+    $action = collect($res->json('data.actions.entries'))->firstWhere('id', 'platform:fresha');
     expect($action)->not->toBeNull()
-        ->and($action['kind'])->toBe('external')
-        ->and($action['pageId'])->toBeNull()
+        ->and($action['kind'])->toBe('platform')
         ->and($action['url'])->toBe('https://www.fresha.com/a/anseo-studio');
+    expect(collect($res->json('data.actions.entries'))->pluck('id'))->not->toContain('page:services');
 });
 
 it('still exposes the harvested url on /integrations so the renderer can build the button', function () {

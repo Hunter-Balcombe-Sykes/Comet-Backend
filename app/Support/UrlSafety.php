@@ -6,7 +6,7 @@ namespace App\Support;
  * Shared http/https scheme gate for URLs rendered as anchor hrefs or
  * validated on write (#API-1). One implementation for both surfaces so the
  * write-path allowlist (LinkBlockRequestHelpers) and the emit-path gate
- * (SiteActionsService, SitepageDataResolverService) cannot drift apart.
+ * (ActionCandidates, SitepageDataResolverService) cannot drift apart.
  */
 final class UrlSafety
 {

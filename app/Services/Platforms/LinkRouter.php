@@ -539,7 +539,7 @@ class LinkRouter
 
         // Ordering is a MULTI-entry family across brands, so the resource id is
         // url-derived rather than the brand — and it is byte-identical to
-        // OnlineOrderingController::entryResourceId(), because SiteActionsService
+        // OnlineOrderingController::entryResourceId(), because the actions layer
         // emits `ordering:<resource_id>` action ids that users store preferences
         // against. A different shape here would fork those ids by write path.
         $resourceId = 'order-'.substr(sha1(strtolower($url)), 0, 16);

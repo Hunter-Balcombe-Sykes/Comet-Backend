@@ -3,7 +3,7 @@
 /**
  * #API-1 — UrlSafety is the single http/https scheme gate shared by the
  * write path (LinkBlockRequestHelpers::isAllowedScheme) and the emit paths
- * (SiteActionsService, SitepageDataResolverService). Pure function, no app
+ * (ActionCandidates, SitepageDataResolverService). Pure function, no app
  * boot needed.
  */
 

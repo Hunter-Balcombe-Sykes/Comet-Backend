@@ -162,7 +162,9 @@ it('keeps a removed rolling-latest removed until something newer lands', functio
 // ── Hand-picks ──────────────────────────────────────────────────────────────
 
 it('pins survive newer arrivals and order before the auto pick', function () {
-    [$pro] = poolTenant();
+    [$pro, $siteId] = poolTenant();
+    poolOrderMode($siteId, 'watch', 'manual');
+    $pro = $pro->fresh(['site']);
     $source = poolSource($pro->id, poolConnection($pro->id));
 
     $keeper = poolItem($pro->id, $source, 'video', 'Keeper', now()->subDays(20)->toDateTimeString());
@@ -181,7 +183,9 @@ it('pins survive newer arrivals and order before the auto pick', function () {
 });
 
 it('reorder pins every listed item in the given order', function () {
-    [$pro] = poolTenant();
+    [$pro, $siteId] = poolTenant();
+    poolOrderMode($siteId, 'watch', 'manual');
+    $pro = $pro->fresh(['site']);
     $source = poolSource($pro->id, poolConnection($pro->id));
 
     $a = poolItem($pro->id, $source, 'video', 'A', now()->subDays(3)->toDateTimeString());

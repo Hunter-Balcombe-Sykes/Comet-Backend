@@ -981,44 +981,35 @@ return [
         'actor_attempt_timeout_seconds' => (int) env('PARTNA_MENU_ACTOR_ATTEMPT_TIMEOUT_SECONDS', 60),
     ],
 
-    // Unified actions system (2026-07-23 rebuild — fixed 26-action vocabulary,
-    // demand-rate scoring). See App\Services\PublicSite\Actions\ActionVocabulary
-    // + App\Services\Analytics\RankedActionsComputer.
+    // Unified actions (2026-08-23 rebuild — one ranked list of pages,
+    // destination platforms, served items and categories; composite smart
+    // score). See App\Site\Actions\* + App\Services\Analytics\ActionScorer.
     'actions' => [
+        // Slot count — table and lander. Owner-fixed, not a user setting.
+        'slots' => (int) env('PARTNA_ACTIONS_SLOTS', 10),
         // Bayesian smoothing constant: rate = (taps + k·prior) / (exposures + k).
         // k=25 ≈ "the first ~25 real sessions outvote the editorial prior."
         'prior_k' => (int) env('PARTNA_ACTIONS_PRIOR_K', 25),
-        'default_prior' => 0.05,
-        // Plausible click-through-rate per action — the "average viewer intent"
-        // seed. Product knob; tune from real data post-launch. Family entries
-        // ('ordering', 'custom') apply to every dynamic member of that family.
+        'default_prior' => 0.03,
+        // Importance floor per action id (pages) or per kind. Also the
+        // cold-start order: a brand-new site ranks Book > Reserve > Menu >
+        // Shop > Events > Contact > platforms > categories > items, and the
+        // freshness term lifts anything new above its floor for ~2 weeks.
         'priors' => [
-            'reservations' => 0.30,
-            'booking-services' => 0.28,
-            'menu' => 0.28,
-            'ordering' => 0.25,
-            'shop' => 0.15,
-            'events' => 0.14,
-            'contact' => 0.12,
-            'spotify' => 0.08,
-            'soundcloud' => 0.08,
-            'apple-music' => 0.08,
-            'apple-podcasts' => 0.08,
-            'twitch' => 0.08,
-            'shop-tracks' => 0.08,
-            'instagram' => 0.05,
-            'facebook' => 0.05,
-            'linkedin' => 0.05,
-            'youtube' => 0.05,
-            'tiktok' => 0.05,
-            'x' => 0.05,
-            'snapchat' => 0.05,
-            'threads' => 0.05,
-            'discord' => 0.05,
-            'reddit' => 0.05,
-            'telegram' => 0.05,
-            'custom' => 0.05,
+            'page:reservations' => 0.30,
+            'page:services' => 0.28,
+            'page:menu' => 0.28,
+            'page:shop' => 0.15,
+            'page:events' => 0.14,
+            'page:contact' => 0.12,
+            'platform' => 0.05,
+            'category' => 0.04,
+            'item' => 0.03,
         ],
+        // Composite weights — each term is normalised 0..1 within the site
+        // before weighting, so a page and a song compare on one scale.
+        'weights' => ['demand' => 0.45, 'reach' => 0.30, 'fresh' => 0.25],
+        'freshness_half_life_days' => 14.0,
     ],
 
     // `contact` = visitor-submitted contact form (notification_email lives here).

@@ -17,7 +17,7 @@ class AppleSearch extends PlatformScraper
     /**
      * The artist's most-recent albums/releases, newest first, up to $limit.
      *
-     * @return list<array{collectionId:string, name:?string, thumbnail:?string, releaseDate:?string, link:?string}>|null
+     * @return list<array{collectionId:string, name:?string, thumbnail:?string, releaseDate:?string, link:?string, artistName:?string}>|null
      */
     public function fetchAlbums(string $input, int $limit = 15): ?array
     {

@@ -313,7 +313,7 @@ class AnalyticsController extends ApiController
      * Action-tap ingest (unified actions system, demand-rate scoring). Same
      * shape as actionSeen() but a shorter dedup window — repeated taps on the
      * SAME action within a session are a real, distinct signal each time
-     * (matching how RankedActionsComputer counts DISTINCT sessions, not raw
+     * (matching how ActionScorer counts DISTINCT sessions, not raw
      * events — a short window only collapses accidental double-fires, e.g. a
      * fast double-tap or a duplicate sendBeacon retry).
      */

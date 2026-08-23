@@ -2,6 +2,7 @@
 
 namespace App\Services\PublicSite;
 
+use App\Enums\SitepageId;
 use App\Http\Controllers\Api\PublicSite\IndividualProfileController;
 use App\Http\Resources\PublicSite\IndividualProfileResource;
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
@@ -10,12 +11,15 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Design\ProfileDesignPresets;
 use App\Services\Site\SitePolicyResolver;
-use App\Site\Pools\PoolRegistry;
-use App\Site\Pools\PoolResolver;
+use App\Site\Actions\ActionCandidates;
+use App\Site\Actions\ActionSettings;
+use App\Site\Actions\ActionSlots;
+use App\Site\Pools\PoolWire;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -69,9 +73,9 @@ class IndividualProfilePayloadBuilder
     public function __construct(
         private readonly SitepageDataResolverService $resolver,
         private readonly ContentPopularityReader $popularity,
-        private readonly SiteActionsService $actions,
         private readonly SitePolicyResolver $policies,
-        private readonly PoolResolver $pools,
+        private readonly PoolWire $poolWire,
+        private readonly ActionCandidates $candidates,
     ) {}
 
     /**
@@ -86,40 +90,23 @@ class IndividualProfilePayloadBuilder
     public function build(User $pro, ?Site $site): array
     {
         $sections = $this->resolver->loadSections($site);
-        $booking = $this->resolver->getBooking($site, $sections);
         $caps = AccountCapabilities::for($pro);
 
-        // One indexed read of content_popularity_scores per build (behind the 60s
-        // public-profile cache). Ranks ANNOTATE the content arrays + drive
-        // pageOrder — arrays are NEVER reordered (live architectures read them
-        // positionally). Empty maps when scoring hasn't run for the site.
-        $ranks = $this->popularity->forSite($site?->id);
-
-        // Ordering preferences (smart vs manual, defaults = smart) + the
-        // unified ranked-action list. Manual overrides are applied HERE so
-        // pageOrder / rankedActions on the wire are always the final,
-        // render-ready values — consumers never re-derive.
-        $ordering = $this->actions->orderingSettings($site);
-
-        $pageOrder = $ordering['smart_page_order']
-            ? $this->resolver->buildPageOrder($site, $caps, $sections, $ranks['page'] ?? [])
-            : $this->actions->applyManualPageOrder(
-                $this->resolver->presentPageIds($site, $caps, $sections),
-                $ordering['manual_page_order'],
-            );
-
-        $rankedActions = $this->actions->resolveRankedActions(
-            $this->actions->pool($pro, $site, $sections, $booking),
-            $this->popularity->rankedActionsForSite($site?->id),
-            $ordering['smart_actions'],
-            $ordering['manual_actions'],
-        );
+        // Page order: presence-gated, ranked by the page:* action scores when
+        // smart_page_order is on (the page-score family retired 2026-08-23),
+        // else the owner's manual order — canonical fallback either way.
+        $pageOrder = $this->pageOrder($site, $caps, $sections);
 
         // Contact + workplace resolved once — the wire keys below reuse them,
         // and the policy resolver personalizes its generated texts from them
         // (business name, public contact email).
         $publicContact = $this->buildPublicContact($pro, $sections);
         $workplace = $this->buildWorkplace($site, $sections);
+
+        // ONE pool hydration feeds both the wire pools and the action
+        // candidate set, so every action ref resolves against what is served.
+        $pools = $this->buildPools($site);
+        $actions = $this->buildActions($pro, $site, $sections, $pools);
 
         return (new IndividualProfileResource($pro, [
             'site_id' => $site?->id,
@@ -130,13 +117,13 @@ class IndividualProfilePayloadBuilder
             // gated, popularity-ranked (or the owner's manual order when
             // smart_page_order is off), canonical fallback. Top-level key.
             'page_order' => $pageOrder,
-            // Unified ranked actions (page|item|button|custom) — the lander
-            // renders the top 6. Override-applied (manual list when
-            // smart_actions is off); ordering carries the raw preferences.
-            'ranked_actions' => $rankedActions,
-            'ordering' => $this->actions->orderingWire($ordering),
+            // The unified action list (spec §3): top-N of pages + destination
+            // platforms + served items + categories, in the owner's mode with
+            // their locks applied. Always present; entries [] when nothing
+            // resolves.
+            'actions' => $actions,
             // Engine outputs — flat, camelCase, no envelope wrapper.
-            'pools' => $this->buildPools($site),
+            'pools' => $pools,
             // Brand logos (owner ruling 2026-08-17): the design singletons
             // regain a public projection — slice 7 unit E deleted `siteImages`
             // wholesale, which took the logos down with the noise. Just the
@@ -221,115 +208,86 @@ class IndividualProfilePayloadBuilder
     }
 
     /**
-     * Is this failure "the content lane does not exist here" rather than "a
-     * query failed"? The two need opposite handling — see buildPools().
-     *
-     * 42P01 is Postgres's undefined_table. SQLite reports everything as HY000,
-     * so the message is the only signal on the test lane; that arm is test-only
-     * because production is always Postgres.
+     * @return list<string>
      */
-    private function poolLaneAbsent(QueryException $e): bool
+    private function pageOrder(?Site $site, AccountCapabilitySet $caps, Collection $sections): array
     {
-        return $e->getCode() === '42P01'
-            || str_contains($e->getMessage(), 'no such table');
+        $settings = is_array($site?->settings) ? $site->settings : [];
+        $smart = filter_var($settings['smart_page_order'] ?? true, FILTER_VALIDATE_BOOL);
+        if ($smart) {
+            return $this->resolver->buildPageOrder($site, $caps, $sections, $this->popularity->pageRanksFromActions($site?->id));
+        }
+        $manual = array_values(array_map(
+            static fn (string $id): string => SitepageId::normalizePageId($id),
+            array_filter(is_array($settings['manual_page_order'] ?? null) ? $settings['manual_page_order'] : [], 'is_string'),
+        ));
+
+        return self::applyManualPageOrder($this->resolver->presentPageIds($site, $caps, $sections), $manual);
     }
 
     /**
-     * The content pools (platforms-as-sources, 2026-08-05): each pool's
-     * public SELECTION — pins + every auto-source's rolling latest, minus
-     * removals — resolved LIVE by the same PoolResolver the dashboard reads,
-     * so what the owner curates and what a visitor sees cannot diverge. The
-     * library never ships publicly; a pool with nothing selected is simply
-     * absent. Wire: {watch|listen|media: {items, latestItemId}}; shop adds a
-     * sibling `collections` map of the store cards its items belong to.
+     * Manual page order applied against the LIVE present pages: manual ∩
+     * present in manual order (unknown/absent ids dropped), then present
+     * pages missing from the manual list appended in canonical order — every
+     * present page stays reachable.
+     *
+     * @param  list<string>  $present  presence-gated canonical page-ids
+     * @param  list<string>  $manual  the stored manual_page_order
+     * @return list<string>
+     */
+    public static function applyManualPageOrder(array $present, array $manual): array
+    {
+        $presentSet = array_flip($present);
+        $ordered = [];
+        foreach ($manual as $id) {
+            if (isset($presentSet[$id]) && ! in_array($id, $ordered, true)) {
+                $ordered[] = $id;
+            }
+        }
+        foreach ($present as $id) {
+            if (! in_array($id, $ordered, true)) {
+                $ordered[] = $id;
+            }
+        }
+
+        return $ordered;
+    }
+
+    /**
+     * `actions` — ActionCandidates (over the already-built pools) → stored
+     * smart scores → ActionSlots. Fail-open like every other section: a
+     * candidate/score fault yields an empty list, never a 500.
+     *
+     * @param  array<string, array<string, mixed>>  $pools
+     * @return array{mode: string, entries: list<array<string, mixed>>}
+     */
+    private function buildActions(User $pro, ?Site $site, Collection $sections, array $pools): array
+    {
+        $settings = ActionSettings::fromSite($site);
+        if ($site === null) {
+            return ['mode' => $settings->mode, 'entries' => []];
+        }
+        try {
+            $candidates = $this->candidates->forSite($pro, $site, $sections, $pools);
+        } catch (QueryException $e) {
+            Log::warning('sitepage.actions_candidates_failed', ['site_id' => $site->id, 'error' => $e->getMessage()]);
+            $candidates = [];
+        }
+        $scores = $settings->mode === 'smart' ? $this->popularity->actionScoresForSite($site->id) : [];
+        $resolved = ActionSlots::resolve($candidates, $scores, $settings, (int) config('partna.actions.slots', 10));
+
+        return ['mode' => $settings->mode, 'entries' => $resolved['entries']];
+    }
+
+    /**
+     * The content pools — see App\Site\Pools\PoolWire (the hydration moved
+     * there 2026-08-23 so actions and scoring read the same map).
      *
      * @return array<string, array{items: list<array<string, mixed>>, latestItemId: string|null, collections?: array<string, array<string, mixed>>}>
      */
     private function buildPools(?Site $site): array
     {
-        if (! $site) {
-            return [];
-        }
-
-        $out = [];
-        foreach (array_keys(PoolRegistry::POOLS) as $pool) {
-            try {
-                $resolved = $this->pools->resolve($site, $pool);
-            } catch (QueryException $e) {
-                // TWO different failures used to share one `return []`, and
-                // #LIFE-6 is only about the second of them.
-                //
-                // 1. THE LANE IS ABSENT. Partial test envs may not provision the
-                //    content/sections tables (the getContentMedia precedent); in
-                //    production they always exist. Still bail on the whole lane
-                //    here, and deliberately NOT pool-by-pool: resolve()
-                //    provisions a section row as a SIDE EFFECT, so continuing
-                //    would mint a section for every pool while content.* does
-                //    not exist — and other readers (SiteActionsService ->
-                //    LinkPoolReader) are not guarded against that pairing and
-                //    500 on it. "A missing lane yields no pools, never a 500" is
-                //    the contract this branch has always kept. It is also not a
-                //    degradation — the schema is missing, not unwell — so the
-                //    flag stays off and the payload caches normally.
-                if ($this->poolLaneAbsent($e)) {
-                    return [];
-                }
-
-                // 2. A POOL QUERY FAILED (#LIFE-6, also #CCH-3 and #API-3 — one
-                //    defect, three ids). This used to take the same `return []`,
-                //    throwing away EVERY pool because one threw — including the
-                //    ones already built above — and then letting that empty
-                //    result cache for the full 60s payload TTL. Most likely to
-                //    fire under database load, i.e. exactly when a page is
-                //    popular. Now: drop THIS pool, keep the ones that resolved,
-                //    and mark the build degraded so the controller rewrites both
-                //    cache keys at the 10s degraded TTL and the page heals
-                //    seconds after the database does.
-                Log::warning('sitepage.pool_query_failed', [
-                    'pool' => $pool,
-                    'site_id' => $site->id,
-                    'user_id' => $site->user_id,
-                    'error' => $e->getMessage(),
-                ]);
-                $this->resolver->markDegraded();
-
-                continue;
-            }
-            if ($resolved['selection'] === []) {
-                continue;
-            }
-            $out[$pool] = [
-                'items' => array_map(
-                    // The dashboard-only flags stay off the public wire.
-                    static function (array $item): array {
-                        foreach (PoolResolver::DASHBOARD_ONLY_ITEM_KEYS as $key) {
-                            unset($item[$key]);
-                        }
-
-                        return $item;
-                    },
-                    $resolved['selection'],
-                ),
-                'latestItemId' => $resolved['latestItemId'],
-                // Shop groups its items into store cards; every other pool
-                // returns [] and the key is simply absent from its payload.
-                ...($resolved['collections'] === [] ? [] : ['collections' => $resolved['collections']]),
-                // Slice 6 §5.4: reviews carries its source's aggregates — the
-                // star average, review count and Google's review summary. This
-                // is where `rating`, `reviewCount` and `reviewSummary` went
-                // when they left PublicIntegrationConnectionResource; without
-                // it that retirement drops three published fields on the floor.
-                // Absent when null, the same contract `collections` keeps.
-                ...($resolved['stats'] === null ? [] : ['stats' => $resolved['stats']]),
-                // Slice 4 §7: the menus pool carries its vendor's service modes
-                // (DELIVERY / PICKUP) — store-level metadata, so it sits beside
-                // the dishes rather than on one. Absent when null, the same
-                // additive contract `collections` and `stats` keep.
-                ...($resolved['diningModes'] === null ? [] : ['diningModes' => $resolved['diningModes']]),
-            ];
-        }
-
-        return $out;
+        return $this->poolWire->forSite($site, $this->resolver);
     }
 
     /**
