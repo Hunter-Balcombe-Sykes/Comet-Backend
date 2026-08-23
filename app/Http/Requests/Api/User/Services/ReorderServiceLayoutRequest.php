@@ -25,7 +25,14 @@ class ReorderServiceLayoutRequest extends BaseFormRequest
             // uncategorised bucket. The key must still be sent — an ABSENT
             // service_ids is a malformed block, and `present` still catches it.
             'categories.*.service_ids' => ['present', 'array'],
-            'categories.*.service_ids.*' => ['required', 'uuid', 'distinct'],
+            // No `distinct` here (2026-08-24): Laravel applies it across EVERY
+            // block the wildcard matches, so a service the owner filed under
+            // two categories (multi-category, owner ruling 2026-08-18) made the
+            // whole layout 422 "Validation failed" — the Categories sheet could
+            // not reorder anything. Uniqueness WITHIN a block is the
+            // controller's rule (reorderLayout's seenPerBlock), which is the
+            // one that holds.
+            'categories.*.service_ids.*' => ['required', 'uuid'],
         ];
     }
 }
