@@ -1,0 +1,278 @@
+<?php
+
+namespace App\Site\Actions;
+
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\PublicSite\SitepageDataResolverService;
+use App\Site\Pools\PoolWire;
+use App\Support\UrlSafety;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Collection;
+
+/**
+ * The action candidate set for one site — everything that CAN occupy a
+ * lander slot (spec §2). Four kinds:
+ *
+ *   page:<id>        the six destination-of-intent pages, when present
+ *   platform:<key>   a connection whose platform is a public destination
+ *                    (PlatformDescriptor::isDestination), or a SOURCE whose
+ *                    granted page is absent (the fallback keeps Book reachable
+ *                    while the services page is off)
+ *   item:<uuid>      every item currently served on the sitepage (PoolWire)
+ *   category:<id>    a menu/services category block of served items
+ *
+ * Candidate = {id, kind, label, url, thumb, connectedAt, ref, meta}. Every url
+ * has passed UrlSafety::safeHref; a candidate that can't is not a candidate.
+ * Fail-open on the content lane: no items, never a 500.
+ */
+class ActionCandidates
+{
+    public const PAGE_LABELS = [
+        'services' => 'Book',
+        'reservations' => 'Reserve',
+        'menu' => 'Menu',
+        'shop' => 'Shop',
+        'events' => 'Events',
+        'contact' => 'Contact',
+    ];
+
+    /** Which page a SOURCE platform powers — by descriptor category, then by routing class. */
+    private const CATEGORY_PAGE = [
+        'booking' => 'services',
+        'reservations' => 'reservations',
+        'events' => 'events',
+        'shop' => 'shop',
+        'business' => 'contact',
+    ];
+
+    private const ROUTING_PAGE = [
+        'booking' => 'services',
+        'reservations' => 'reservations',
+        'events' => 'events',
+        'shop' => 'shop',
+    ];
+
+    /** Uncategorised (category-less) platforms that are destinations by routing class. */
+    private const DESTINATION_ROUTING = ['ordering', 'social', 'content'];
+
+    /** Pool key => the sitepage the pool's items live on (item page anchors). */
+    public const POOL_PAGE = [
+        'watch' => 'watch', 'listen' => 'listen', 'media' => 'gallery', 'events' => 'events',
+        'services' => 'services', 'shop' => 'shop', 'custom_links' => 'links', 'menus' => 'menu',
+    ];
+
+    public const CATEGORY_POOLS = ['menus', 'services'];
+
+    public function __construct(
+        private readonly SitepageDataResolverService $resolver,
+        private readonly PlatformRegistry $registry,
+        private readonly PoolWire $poolWire,
+    ) {}
+
+    /**
+     * @param  array<string, array<string, mixed>>|null  $pools  the PoolWire map when the caller already built it
+     * @return list<array<string, mixed>>
+     */
+    public function forSite(User $pro, Site $site, ?Collection $sections = null, ?array $pools = null): array
+    {
+        $sections ??= $this->resolver->loadSections($site);
+        $caps = AccountCapabilities::for($pro);
+        $present = array_flip($this->resolver->presentPageIds($site, $caps, $sections));
+
+        $connections = IntegrationConnection::query()
+            ->where('user_id', $pro->id)
+            ->where('is_active', true)
+            ->orderBy('created_at')
+            ->get(['id', 'user_id', 'platform', 'surface_key', 'routing_class', 'resource_id', 'payload', 'created_at']);
+
+        $pageNewest = [];
+        $platforms = [];
+        foreach ($connections as $conn) {
+            $key = strtolower((string) $conn->platform);
+            if ($key === '') {
+                continue;
+            }
+            $descriptor = $this->registry->forConnection($conn);
+            $category = $descriptor?->getCategory();
+            $page = ($category !== null ? (self::CATEGORY_PAGE[$category->value] ?? null) : null)
+                ?? self::ROUTING_PAGE[(string) $conn->routing_class] ?? null;
+            if ($page !== null && (! isset($pageNewest[$page]) || $conn->created_at->gt($pageNewest[$page]))) {
+                $pageNewest[$page] = $conn->created_at;
+            }
+
+            $destination = $descriptor !== null && $category !== null
+                ? $descriptor->isDestination()
+                : in_array((string) $conn->routing_class, self::DESTINATION_ROUTING, true);
+            // Source fallback: the page it powers is absent, so its own URL is
+            // the right place to send people until the page comes back.
+            $fallback = ! $destination && $page !== null && ! isset($present[$page]);
+            if ((! $destination && ! $fallback) || isset($platforms[$key])) {
+                continue;
+            }
+            $url = ConnectionProfileUrl::for($conn);
+            if ($url === null) {
+                continue;
+            }
+            $platforms[$key] = [
+                'id' => 'platform:'.$key,
+                'kind' => 'platform',
+                'label' => $descriptor?->getLabel() ?: ucfirst($key),
+                'url' => $url,
+                'thumb' => null,
+                'connectedAt' => $conn->created_at->toIso8601String(),
+                'ref' => null,
+                'meta' => ['platformKey' => $key, 'page' => $page, 'fallback' => $fallback],
+            ];
+        }
+
+        $out = [];
+        foreach (self::PAGE_LABELS as $pageId => $label) {
+            if (! isset($present[$pageId])) {
+                continue;
+            }
+            $out[] = [
+                'id' => 'page:'.$pageId,
+                'kind' => 'page',
+                'label' => $label,
+                'url' => '/'.$pageId,
+                'thumb' => null,
+                'connectedAt' => ($pageNewest[$pageId] ?? $site->created_at)->toIso8601String(),
+                'ref' => null,
+                'meta' => ['pageId' => $pageId],
+            ];
+        }
+        foreach ($platforms as $platform) {
+            $out[] = $platform;
+        }
+
+        if ($pools === null) {
+            try {
+                $pools = $this->poolWire->forSite($site, $this->resolver);
+            } catch (QueryException) {
+                $pools = [];
+            }
+        }
+        foreach (self::fromPools($pools) as $candidate) {
+            $out[] = $candidate;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Item + category candidates from the PoolWire map — pure, so "an entry
+     * may only reference an item the payload serves" is structural. Reviews
+     * never rank. Category homing (lifted from the item-feed branch): a dish
+     * belongs to the first served collection with a null provider (a real
+     * menu/service category); provider-bearing collections (order-platform
+     * sidecars) are only a fallback, and a dish with none floats as an item.
+     *
+     * @param  array<string, array<string, mixed>>  $pools
+     * @return list<array<string, mixed>>
+     */
+    public static function fromPools(array $pools): array
+    {
+        $out = [];
+        foreach (self::POOL_PAGE as $pool => $page) {
+            $items = $pools[$pool]['items'] ?? [];
+            if (! is_array($items) || $items === []) {
+                continue;
+            }
+            $collections = is_array($pools[$pool]['collections'] ?? null) ? $pools[$pool]['collections'] : [];
+            if (! in_array($pool, self::CATEGORY_POOLS, true)) {
+                foreach ($items as $item) {
+                    if (($c = self::itemCandidate($pool, $page, $item)) !== null) {
+                        $out[] = $c;
+                    }
+                }
+
+                continue;
+            }
+            $grouped = [];
+            foreach ($items as $item) {
+                $home = null;
+                $fallback = null;
+                foreach ((array) ($item['collectionIds'] ?? []) as $cid) {
+                    $cid = (string) $cid;
+                    if (! isset($collections[$cid])) {
+                        continue;
+                    }
+                    $fallback ??= $cid;
+                    if (($collections[$cid]['provider'] ?? null) === null) {
+                        $home = $cid;
+                        break;
+                    }
+                }
+                if ($home === null) {
+                    if (($c = self::itemCandidate($pool, $page, $item)) !== null) {
+                        $out[] = $c;
+                    }
+                } else {
+                    $grouped[$home][] = $item;
+                }
+            }
+            foreach ($grouped as $cid => $members) {
+                $memberIds = [];
+                $newest = null;
+                $thumb = null;
+                foreach ($members as $member) {
+                    $memberIds[] = (string) ($member['id'] ?? '');
+                    $at = self::connectedAt($member);
+                    if ($at !== null && ($newest === null || strcmp($at, $newest) > 0)) {
+                        $newest = $at;
+                    }
+                    $thumb ??= is_string($member['thumbnail'] ?? null) && $member['thumbnail'] !== '' ? $member['thumbnail'] : null;
+                }
+                $out[] = [
+                    'id' => 'category:'.$cid,
+                    'kind' => 'category',
+                    'label' => (string) ($collections[$cid]['name'] ?? 'Category'),
+                    'url' => '/'.$page.'#'.$cid,
+                    'thumb' => $thumb,
+                    'connectedAt' => $newest,
+                    'ref' => null,
+                    'meta' => ['pool' => $pool, 'collectionId' => (string) $cid, 'itemIds' => $memberIds],
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /** @param  array<string, mixed>  $item */
+    private static function itemCandidate(string $pool, string $page, array $item): ?array
+    {
+        $id = (string) ($item['id'] ?? '');
+        if ($id === '' || ! ActionId::isValid('item:'.$id)) {
+            return null;
+        }
+        $outbound = is_string($item['url'] ?? null) && $item['url'] !== '' ? UrlSafety::safeHref($item['url']) : null;
+        if (is_string($item['url'] ?? null) && $item['url'] !== '' && $outbound === null) {
+            return null; // an unsafe stored url is not a candidate
+        }
+        $label = trim((string) ($item['headline'] ?? ''));
+
+        return [
+            'id' => 'item:'.$id,
+            'kind' => 'item',
+            'label' => $label !== '' ? $label : 'Untitled',
+            'url' => $outbound ?? '/'.$page.'#'.$id,
+            'thumb' => is_string($item['thumbnail'] ?? null) && $item['thumbnail'] !== '' ? $item['thumbnail'] : null,
+            'connectedAt' => self::connectedAt($item),
+            'ref' => ['pool' => $pool, 'itemId' => $id],
+            'meta' => ['pool' => $pool],
+        ];
+    }
+
+    /** @param  array<string, mixed>  $item */
+    private static function connectedAt(array $item): ?string
+    {
+        $at = $item['publishedAt'] ?? $item['firstSeenAt'] ?? null;
+
+        return is_string($at) && $at !== '' ? $at : null;
+    }
+}
