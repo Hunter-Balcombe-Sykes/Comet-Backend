@@ -898,6 +898,25 @@ return [
     // per-connection override is a later slice.
     'pools' => [
         'auto_latest_n' => (int) env('PARTNA_POOL_AUTO_LATEST_N', 5),
+
+        // Per-family smart-score weights (smart ordering v2, 2026-08-23 —
+        // App\Services\Analytics\ItemFamily::weightsFor). click/view/dwell
+        // weight the decayed day-bucket sums (90-day half-life); fresh is the
+        // additive cold-start boost from publishedAt ?? firstSeenAt decaying
+        // at half_life_days. `default` = today's 3/1/0/0 for any unnamed
+        // family. dwell is per SECOND and only media carries it (the gallery
+        // page's section dwell split equally across the served media items —
+        // an approximation until item-grain dwell exists).
+        'smart' => [
+            'default' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 0.0, 'half_life_days' => 14.0],
+            'shop_product' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 2.0, 'half_life_days' => 14.0],
+            'watch_item' => ['click' => 2.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 3.0, 'half_life_days' => 14.0],
+            'listen_item' => ['click' => 2.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 4.0, 'half_life_days' => 21.0],
+            'service' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 1.0, 'half_life_days' => 30.0],
+            'menu_item' => ['click' => 1.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 0.5, 'half_life_days' => 60.0],
+            'gallery_item' => ['click' => 0.5, 'view' => 1.0, 'dwell' => 0.05, 'fresh' => 5.0, 'half_life_days' => 7.0],
+            'link_item' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 3.0, 'half_life_days' => 14.0],
+        ],
     ],
 
     // Paid ingest connectors the scheduler may run (ruling R8). Everything

@@ -68,12 +68,12 @@ class DevInsightsController extends ApiController
         $since = Carbon::now()->utc()->subDays($seriesDays)->startOfDay();
 
         // Same freshness boosts the scoring job applies — surfaced so the score
-        // breakdown can show the additive term per page / link item.
+        // breakdown can show the additive term per item (family => id => boost).
         $fresh = $this->freshness->boostsForSite($site);
 
         return $this->success([
             'pages' => $this->pageScores($site->id),
-            'items' => $this->itemScores($site->id, $fresh['link_item']),
+            'items' => $this->itemScores($site->id, $fresh),
             'daily_series' => [
                 'pages' => $this->pageDailySeries($site->id, $since),
                 'items' => $this->itemDailySeries($site->id, $since),
@@ -152,10 +152,10 @@ class DevInsightsController extends ApiController
      * Item scores grouped by content_type, each with the impressions (item_views)
      * and clicks (link_clicks, attributed by section_key) that feed them.
      *
-     * @param  array<string, float>  $linkFreshness  additive boost per link_item content_key
+     * @param  array<string, array<string, float>>  $freshness  family => item id => additive boost
      * @return array<string, list<array{content_key: string, title: string|null, score: float, rank: int, computed_at: string, impressions: int, clicks: int, freshness: float}>>
      */
-    private function itemScores(string $siteId, array $linkFreshness = []): array
+    private function itemScores(string $siteId, array $freshness = []): array
     {
         $scores = DB::connection('pgsql')->table('analytics.content_popularity_scores')
             ->where('site_id', $siteId)->where('content_type', '!=', 'page')
@@ -201,10 +201,8 @@ class DevInsightsController extends ApiController
                 'computed_at' => $row->computed_at,
                 'impressions' => $impressions[$key] ?? 0,
                 'clicks' => $clicks[$key] ?? 0,
-                // Only link_items carry freshness (per-URL connection rows).
-                'freshness' => $row->content_type === 'link_item'
-                    ? round($linkFreshness[$row->content_key] ?? 0.0, 2)
-                    : 0.0,
+                // Every family carries freshness since 2026-08-23 (ItemFamily weights).
+                'freshness' => round($freshness[$row->content_type][$row->content_key] ?? 0.0, 2),
             ];
         }
 

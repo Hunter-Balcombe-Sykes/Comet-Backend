@@ -6,7 +6,10 @@ use App\Models\Core\Site\Site;
 use App\Services\Analytics\ActionScorer;
 use App\Services\Analytics\ContentFreshness;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Analytics\ItemFamily;
+use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Actions\ActionCandidates;
+use App\Site\Pools\PoolWire;
 use Illuminate\Console\Command;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
@@ -31,14 +34,19 @@ use Illuminate\Support\Str;
  *                    owns its own lifecycle (stale keys deleted per run) and is
  *                    excluded from the generic fade-out union below.
  *
- * Item formula: score = Σ_days (W_CLICK·clicks_d + W_VIEW·impressions_d)
- * · 2^(-age_d / HALF_LIFE_DAYS) + freshness. Every DAY's events carry their
- * own true-half-life decay weight (day buckets, driver-portable SQL), so old
- * engagement fades even while new events arrive.
+ * Item formula (smart ordering v2, per-family weights — ItemFamily):
+ *   score = Σ_days (w_click·clicks_d + w_view·impressions_d + w_dwell·dwell_s_d)
+ *           · 2^(-age_d / HALF_LIFE_DAYS) + freshness
+ * Every DAY's events carry their own true-half-life decay weight (day
+ * buckets, driver-portable SQL), so old engagement fades even while new
+ * events arrive. dwell is carried by media only: the gallery page's
+ * section_views dwell split equally across the served media items (an
+ * approximation — no item-grain dwell exists yet).
  *
- * freshness (ContentFreshness) is an additive, 14-day-half-life boost from the
- * link item's created_at. Zero-signal keys with a live boost are SEEDED into
- * the aggregate so a brand-new link ranks before its first event (cold start).
+ * freshness (ContentFreshness) is an additive boost per family from
+ * publishedAt ?? firstSeenAt at the family's own weight/half-life.
+ * Zero-signal keys with a live boost are SEEDED into the aggregate so a
+ * brand-new item ranks before its first event (cold start).
  *
  * Anti-thrash: the stored score is blended with the previous (0.7·new + 0.3·old)
  * and a row only overtakes the one ranked above it when its blended score beats
@@ -64,10 +72,7 @@ class ComputeContentPopularityScores extends Command
     // the enforced, identically-named property on a ShouldQueue job).
     protected $timeout = 600;
 
-    // Scoring weights + decay. Tune here — the only tuning surface.
-    private const W_CLICK = 3.0;
-
-    private const W_VIEW = 1.0;
+    // Signal weights live in config/partna.php `pools.smart` (ItemFamily).
 
     // TRUE half-life of a day bucket's contribution: a day's events count half
     // after 90 days (2^(-age/90), matching ContentFreshness's decay form). The
@@ -87,6 +92,17 @@ class ComputeContentPopularityScores extends Command
     private const RANK_SWAP_THRESHOLD = 0.10; // must beat the incumbent above by >10%
 
     private const SITE_CHUNK = 200;
+
+    /**
+     * Families that never score: events keep occurrence order (ItemFamily has
+     * no kind for them). Their beacons are dropped; stored rows fade out.
+     *
+     * @var list<string>
+     */
+    private const NEVER_SCORED = ['engine_item'];
+
+    /** The gallery page's analytics section_key (PAGE_TO_SECTION_KEY.gallery). */
+    private const GALLERY_SECTION_KEY = 'gallery';
 
     // SCALE-3: the scheduled (no --site) run used to full-sweep EVERY published
     // site every 15 minutes regardless of whether it had any recent activity.
@@ -117,8 +133,8 @@ class ComputeContentPopularityScores extends Command
         'bandcamp' => 'shop_product',
         'book' => 'service',
         'services' => 'service',
-        'events' => 'engine_item',
-        'attend' => 'engine_item',
+        // events / attend: event items never score (occurrence order is the
+        // only honest order — ItemFamily), so their clicks are not aggregated.
         // ONE item scoring by link-out (2026-07-10): listen tracks, watch videos,
         // and custom links score from clicks in their own page's section. The ONE
         // theme tags each item click with its page's canonical section_key
@@ -142,6 +158,8 @@ class ComputeContentPopularityScores extends Command
         private readonly ActionCandidates $candidates,
         private readonly ActionScorer $scorer,
         private readonly ContentPopularityReader $popularity,
+        private readonly PoolWire $poolWire,
+        private readonly SitepageDataResolverService $resolver,
     ) {
         parent::__construct();
     }
@@ -262,10 +280,22 @@ class ComputeContentPopularityScores extends Command
      */
     private function computeForSite(Site $site): array
     {
+        // The served pools, once: media dwell needs the served media ids and
+        // the action candidates are built from the same map.
+        $pools = $this->servedPools($site);
+        $mediaIds = [];
+        foreach ((array) ($pools['media']['items'] ?? []) as $item) {
+            if (is_array($item) && is_string($item['id'] ?? null) && $item['id'] !== '') {
+                $mediaIds[] = $item['id'];
+            }
+        }
+
         $fresh = $this->freshness->boostsForSite($site);
-        $itemAgg = $this->aggregateItems($site);
-        foreach ($fresh['link_item'] as $key => $_boost) {
-            $itemAgg['link_item'][$key] ??= ['clicks' => 0.0, 'impressions' => 0.0];
+        $itemAgg = $this->aggregateItems($site, $mediaIds);
+        foreach ($fresh as $family => $boosts) {
+            foreach ($boosts as $key => $_boost) {
+                $itemAgg[$family][$key] ??= self::emptySignal();
+            }
         }
 
         // Every stored non-action type joins the union so a type that lost all
@@ -281,7 +311,7 @@ class ComputeContentPopularityScores extends Command
         $rows = [];
         $deletes = [];
         foreach ($types as $type) {
-            $result = $this->scoreAndRank($site, $type, $itemAgg[$type] ?? [], $type === 'link_item' ? $fresh['link_item'] : []);
+            $result = $this->scoreAndRank($site, $type, $itemAgg[$type] ?? [], $fresh[$type] ?? []);
             $rows = array_merge($rows, $result['rows']);
             if ($result['deletes'] !== []) {
                 $deletes[$type] = $result['deletes'];
@@ -291,7 +321,7 @@ class ComputeContentPopularityScores extends Command
         // The unified action layer — fail-open: a candidate/scoring fault is
         // reported and the item families still write.
         try {
-            $actionResult = $this->computeActions($site, $rows);
+            $actionResult = $this->computeActions($site, $rows, $pools);
             $rows = array_merge($rows, $actionResult['rows']);
             if ($actionResult['deletes'] !== []) {
                 $deletes[ActionScorer::CONTENT_TYPE] = $actionResult['deletes'];
@@ -315,7 +345,7 @@ class ComputeContentPopularityScores extends Command
      * @param  list<array<string, mixed>>  $itemRows  this run's item-family rows
      * @return array{rows: list<array<string, mixed>>, deletes: list<string>}
      */
-    private function computeActions(Site $site, array $itemRows): array
+    private function computeActions(Site $site, array $itemRows, array $pools): array
     {
         $pro = $site->user;
         if ($pro === null) {
@@ -326,29 +356,53 @@ class ComputeContentPopularityScores extends Command
             $key = (string) $row['content_key'];
             $itemScores[$key] = max($itemScores[$key] ?? 0.0, (float) $row['score']);
         }
-        $candidates = $this->candidates->forSite($pro, $site);
+        $candidates = $this->candidates->forSite($pro, $site, null, $pools);
 
         return $this->scorer->computeForSite($site, $candidates, $itemScores);
     }
 
     /**
-     * Item-level signal per item_type: item_views (impressions) + link_clicks
-     * (clicks, item_type inferred from section_key), day-bucketed with per-day
-     * half-life weights (decayed floats).
+     * The PoolWire map for a site — fail-open to [] when the content lane is
+     * absent (partial test envs) so the item families still score.
      *
-     * @return array<string, array<string, array{clicks: float, impressions: float}>>
+     * @return array<string, array<string, mixed>>
      */
-    private function aggregateItems(Site $site): array
+    private function servedPools(Site $site): array
+    {
+        try {
+            return $this->poolWire->forSite($site, $this->resolver);
+        } catch (QueryException) {
+            return [];
+        }
+    }
+
+    /** @return array{clicks: float, impressions: float, dwell: float} */
+    private static function emptySignal(): array
+    {
+        return ['clicks' => 0.0, 'impressions' => 0.0, 'dwell' => 0.0];
+    }
+
+    /**
+     * Item-level signal per item_type: item_views (impressions) + link_clicks
+     * (clicks, item_type inferred from section_key) + gallery dwell split
+     * across the served media items, day-bucketed with per-day half-life
+     * weights (decayed floats).
+     *
+     * @param  list<string>  $mediaIds  the served media pool items (dwell recipients)
+     * @return array<string, array<string, array{clicks: float, impressions: float, dwell: float}>>
+     */
+    private function aggregateItems(Site $site, array $mediaIds = []): array
     {
         $items = [];
 
-        $bump = function (string $type, string $id, float $clicks, float $impressions) use (&$items): void {
-            if ($id === '') {
+        $bump = function (string $type, string $id, float $clicks, float $impressions, float $dwell = 0.0) use (&$items): void {
+            if ($id === '' || in_array($type, self::NEVER_SCORED, true)) {
                 return;
             }
-            $items[$type][$id] ??= ['clicks' => 0.0, 'impressions' => 0.0];
+            $items[$type][$id] ??= self::emptySignal();
             $items[$type][$id]['clicks'] += $clicks;
             $items[$type][$id]['impressions'] += $impressions;
+            $items[$type][$id]['dwell'] += $dwell;
         };
 
         $day = $this->dayBucketExpr();
@@ -387,6 +441,28 @@ class ComputeContentPopularityScores extends Command
                 $key = $aliases[$type][$key] ?? $key;
                 $bump($type, $key, $this->dayWeight((string) $r->day, $now) * (int) $r->clicks, 0.0);
             });
+
+        // Media dwell approximation: the gallery page's section dwell (seconds,
+        // day-bucketed, decayed) shared equally by every served media item.
+        if ($mediaIds !== []) {
+            $share = 1.0 / count($mediaIds);
+            DB::connection('pgsql')->table('analytics.section_views')
+                ->where('site_id', $site->id)
+                ->where('section_key', self::GALLERY_SECTION_KEY)
+                ->whereNotNull('duration_ms')
+                ->selectRaw("{$day} as day, SUM(duration_ms) as dwell_ms")
+                ->groupByRaw($day)
+                ->get()
+                ->each(function ($r) use ($bump, $now, $mediaIds, $share): void {
+                    $seconds = $this->dayWeight((string) $r->day, $now) * ((float) $r->dwell_ms / 1000.0) * $share;
+                    if ($seconds <= 0.0) {
+                        return;
+                    }
+                    foreach ($mediaIds as $id) {
+                        $bump('gallery_item', $id, 0.0, 0.0, $seconds);
+                    }
+                });
+        }
 
         return $items;
     }
@@ -432,7 +508,7 @@ class ComputeContentPopularityScores extends Command
      * Score, blend with previous, rank with hysteresis, and shape the upsert
      * rows + faded-key deletions for one content_type on one site.
      *
-     * @param  array<string, array{clicks: float, impressions: float}>  $agg  decayed signals
+     * @param  array<string, array{clicks: float, impressions: float, dwell: float}>  $agg  decayed signals
      * @param  array<string, float>  $freshness  additive boost per content_key (ContentFreshness)
      * @return array{rows: list<array<string, mixed>>, deletes: list<string>}
      */
@@ -440,12 +516,14 @@ class ComputeContentPopularityScores extends Command
     {
         $now = now();
 
-        // Signal weights over the ALREADY-DECAYED day-bucket sums; freshness is
-        // additive with its own (14d) decay.
+        // The family's weights over the ALREADY-DECAYED day-bucket sums;
+        // freshness is additive with its own per-family decay.
+        $w = ItemFamily::weightsFor($contentType);
         $computed = [];
         foreach ($agg as $key => $signal) {
-            $computed[$key] = self::W_CLICK * $signal['clicks']
-                + self::W_VIEW * $signal['impressions']
+            $computed[$key] = $w['click'] * $signal['clicks']
+                + $w['view'] * $signal['impressions']
+                + $w['dwell'] * $signal['dwell']
                 + ($freshness[$key] ?? 0.0);
         }
 

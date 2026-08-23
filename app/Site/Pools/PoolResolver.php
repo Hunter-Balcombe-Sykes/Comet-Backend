@@ -4,6 +4,7 @@ namespace App\Site\Pools;
 
 use App\Models\Core\Site\Site;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Analytics\ItemFamily;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Content\ContentItemSlugAllocator;
@@ -1167,14 +1168,6 @@ class PoolResolver
             || ($settings['reviews'] ?? true) === false;
     }
 
-    /** Item kind => the content_popularity_scores family that ranks it. */
-    private const KIND_RANK_FAMILY = [
-        'product' => 'shop_product', 'link' => 'link_item', 'video' => 'watch_item',
-        'track' => 'listen_item', 'release' => 'listen_item', 'episode' => 'listen_item',
-        'menu_item' => 'menu_item', 'service' => 'service', 'media' => 'gallery_item',
-        'event' => 'engine_item',
-    ];
-
     /**
      * The rank an item carries on the wire: its kind's family, keyed by the
      * item id (every family, 2026-08-23). Null when unranked.
@@ -1183,7 +1176,7 @@ class PoolResolver
      */
     private static function rankFor(array $ranks, string $kind, string $itemId): ?int
     {
-        $family = self::KIND_RANK_FAMILY[$kind] ?? null;
+        $family = ItemFamily::forKind($kind);
         if ($family === null || $itemId === '') {
             return null;
         }

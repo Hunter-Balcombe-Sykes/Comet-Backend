@@ -64,7 +64,8 @@ it('seeds a brand-new link with a freshness-only item score and an action row fo
 it('seeds nothing for an ancient link (boost below the floor) — the action layer still cold-starts, no freshness gate', function () {
     $tenant = createTenant('cmd-ancient');
     $poolItemId = app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/old', 'Old link', enrich: false);
-    DB::connection('pgsql')->table('content.items')->where('id', $poolItemId)->update(['created_at' => now()->subDays(200)->toISOString()]);
+    DB::connection('pgsql')->table('content.items')->where('id', $poolItemId)
+        ->update(['created_at' => now()->subDays(200)->toISOString(), 'first_seen_at' => now()->subDays(200)->toISOString()]);
 
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
@@ -83,7 +84,7 @@ it('seeds nothing for an ancient link (boost below the floor) — the action lay
 
 it('decays each day\'s events with a 90-day true half-life', function () {
     $tenant = createTenant('cmd-decay');
-    // Two item clicks exactly 90 days old on a watch item: 2 × W_CLICK(3.0) × 0.5 = 3.0.
+    // Two item clicks exactly 90 days old on a watch item: 2 × w_click(watch 2.0) × 0.5 = 2.0.
     foreach (range(1, 2) as $i) {
         DB::connection('pgsql')->table('analytics.link_clicks')->insert([
             'id' => (string) Str::uuid(),
@@ -102,8 +103,8 @@ it('decays each day\'s events with a 90-day true half-life', function () {
 
     $row = popularityScoreRow($tenant->site->id, 'watch_item', 'vid-1');
     expect($row)->not->toBeNull()
-        ->and((float) $row->score)->toBeGreaterThan(2.85)
-        ->and((float) $row->score)->toBeLessThan(3.15);
+        ->and((float) $row->score)->toBeGreaterThan(1.9)
+        ->and((float) $row->score)->toBeLessThan(2.1);
 });
 
 it('keys a legacy handle-keyed shop click and a url-keyed link click by the item id', function () {
@@ -111,7 +112,11 @@ it('keys a legacy handle-keyed shop click and a url-keyed link click by the item
     $store = shopStore($tenant->id);
     $productId = shopProduct($tenant->id, $store, 'Bulwark Jacket'); // handle bulwark-jacket
     $linkId = app(LinkPoolWriter::class)->add($tenant->refresh(), 'https://example.com/keyed', enrich: false);
-    DB::connection('pgsql')->table('content.items')->where('id', $linkId)->update(['created_at' => now()->subDays(200)->toISOString()]);
+    // Age both items out of their freshness window so the score is clicks only.
+    DB::connection('pgsql')->table('content.items')->whereIn('id', [$linkId, $productId])
+        ->update(['first_seen_at' => now()->subDays(200)->toISOString()]);
+    DB::connection('pgsql')->table('content.f_published')->where('item_id', $productId)
+        ->update(['published_from' => now()->subDays(200)->toISOString()]);
 
     foreach ([['shop', 'bulwark-jacket'], ['shop', $productId], ['custom', 'https://example.com/keyed']] as [$section, $key]) {
         DB::connection('pgsql')->table('analytics.link_clicks')->insert([
@@ -128,7 +133,7 @@ it('keys a legacy handle-keyed shop click and a url-keyed link click by the item
 
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
 
-    // Both shop clicks (handle + id) fold onto ONE id-keyed row: 2 × W_CLICK.
+    // Both shop clicks (handle + id) fold onto ONE id-keyed row: 2 × w_click(shop 3.0).
     $product = popularityScoreRow($tenant->site->id, 'shop_product', $productId);
     expect($product)->not->toBeNull()->and((float) $product->score)->toEqualWithDelta(6.0, 0.05);
     expect(popularityScoreRow($tenant->site->id, 'shop_product', 'bulwark-jacket'))->toBeNull();
@@ -140,7 +145,7 @@ it('keys a legacy handle-keyed shop click and a url-keyed link click by the item
 
 it('does not let one fresh event resurrect stale history to full weight', function () {
     $tenant = createTenant('cmd-resurrect');
-    // 10 clicks 180 days ago (weight 0.25 each → 7.5) + one fresh impression (1.0).
+    // 10 watch clicks 180 days ago (weight 0.25 × w_click 2.0 each → 5.0) + one fresh impression (1.0).
     foreach (range(1, 10) as $i) {
         DB::connection('pgsql')->table('analytics.link_clicks')->insert([
             'id' => (string) Str::uuid(),
@@ -167,11 +172,11 @@ it('does not let one fresh event resurrect stale history to full weight', functi
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
 
-    // Old model: 31 × 1.0 (decay-since-latest) = 31. New: 7.5 + 1.0 = 8.5.
+    // Old model: 21 × 1.0 (decay-since-latest) = 21. New: 5.0 + 1.0 = 6.0.
     $row = popularityScoreRow($tenant->site->id, 'watch_item', 'vid-1');
     expect($row)->not->toBeNull()
-        ->and((float) $row->score)->toBeGreaterThan(7.5)
-        ->and((float) $row->score)->toBeLessThan(10.0);
+        ->and((float) $row->score)->toBeGreaterThan(5.5)
+        ->and((float) $row->score)->toBeLessThan(7.0);
 });
 
 it('fades stored keys with no remaining signal and deletes them below the floor', function () {
@@ -203,6 +208,104 @@ it('fades stored keys with no remaining signal and deletes them below the floor'
     }
 
     expect(popularityScoreRow($tenant->site->id, 'shop_product', 'ghost-product'))->toBeNull();
+});
+
+// ── Smart ordering v2 (A2): per-family weights, generalised freshness, media dwell ──
+
+function popularityTenantSource(object $tenant): string
+{
+    return DB::table('content.sources')->where('user_id', $tenant->id)->where('kind', 'manual')->value('id')
+        ?? poolSource($tenant->id, null);
+}
+
+it('applies each family\'s own click weight: the same clicks score a product 3.0 and a video 2.0', function () {
+    $tenant = createTenant('cmd-weights');
+    $source = popularityTenantSource($tenant);
+    $ago = now()->subDays(300)->toISOString();
+    $product = poolItem($tenant->id, $source, 'product', 'Tee', $ago);
+    $video = poolItem($tenant->id, $source, 'video', 'Clip', $ago);
+    DB::table('content.items')->whereIn('id', [$product, $video])->update(['first_seen_at' => $ago]);
+    foreach ([['shop', $product], ['watch', $video]] as [$section, $id]) {
+        DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+            'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
+            'section_key' => $section, 'product_id' => $id, 'url' => 'https://example.com/x',
+            'occurred_at' => now()->toISOString(), 'created_at' => now()->toISOString(),
+        ]);
+    }
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+
+    expect((float) popularityScoreRow($tenant->site->id, 'shop_product', $product)->score)->toEqualWithDelta(3.0, 0.05)
+        ->and((float) popularityScoreRow($tenant->site->id, 'watch_item', $video)->score)->toEqualWithDelta(2.0, 0.05);
+});
+
+it('seeds a zero-signal media item on freshness alone (5.0 at day 0) and lets it fade below a clicked one by day 21', function () {
+    $tenant = createTenant('cmd-media-fresh');
+    $source = popularityTenantSource($tenant);
+    $fresh = poolItem($tenant->id, $source, 'media', 'New shot', now()->toISOString());
+    DB::table('content.items')->where('id', $fresh)->update(['first_seen_at' => now()->toISOString()]);
+    $old = poolItem($tenant->id, $source, 'media', 'Old shot', now()->subDays(300)->toISOString());
+    DB::table('content.items')->where('id', $old)->update(['first_seen_at' => now()->subDays(300)->toISOString()]);
+    // The old shot has one impression (w_view 1.0) — a real, small signal.
+    DB::connection('pgsql')->table('analytics.item_views')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
+        'item_type' => 'gallery_item', 'item_id' => $old, 'visitor_id' => (string) Str::uuid(),
+        'occurred_at' => now()->toISOString(), 'created_at' => now()->toISOString(),
+    ]);
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+    $freshRow = popularityScoreRow($tenant->site->id, 'gallery_item', $fresh);
+    expect($freshRow)->not->toBeNull()
+        ->and((float) $freshRow->score)->toEqualWithDelta(5.0, 0.05)
+        ->and((int) $freshRow->rank)->toBe(1);
+
+    // 21 days on (three 7-day half-lives): 5 × 0.125 = 0.625 < the old shot's 1.0.
+    $this->travel(21)->days();
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->where('site_id', $tenant->site->id)->delete();
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+    $freshRow = popularityScoreRow($tenant->site->id, 'gallery_item', $fresh);
+    expect((float) $freshRow->score)->toEqualWithDelta(0.625, 0.05)
+        ->and((int) $freshRow->rank)->toBe(2);
+});
+
+it('splits the gallery page dwell equally across the served media items at 0.05/s', function () {
+    $tenant = createTenant('cmd-media-dwell');
+    $source = popularityTenantSource($tenant);
+    $ago = now()->subDays(300)->toISOString();
+    $a = poolItem($tenant->id, $source, 'media', 'Shot A', $ago);
+    $b = poolItem($tenant->id, $source, 'media', 'Shot B', $ago);
+    DB::table('content.items')->whereIn('id', [$a, $b])->update(['first_seen_at' => $ago]);
+    foreach ([$a, $b] as $id) {
+        poolPin($tenant->site->id, 'media', $id);
+    }
+    // 40 s of gallery dwell today → 20 s each → 1.0 each.
+    DB::connection('pgsql')->table('analytics.section_views')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
+        'section_key' => 'gallery', 'duration_ms' => 40000,
+        'visitor_id' => (string) Str::uuid(), 'occurred_at' => now()->toISOString(), 'created_at' => now()->toISOString(),
+    ]);
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+
+    expect((float) popularityScoreRow($tenant->site->id, 'gallery_item', $a)->score)->toEqualWithDelta(1.0, 0.05)
+        ->and((float) popularityScoreRow($tenant->site->id, 'gallery_item', $b)->score)->toEqualWithDelta(1.0, 0.05);
+});
+
+it('never writes a row for an event item, even a brand-new one', function () {
+    $tenant = createTenant('cmd-no-events');
+    $source = popularityTenantSource($tenant);
+    $event = poolItem($tenant->id, $source, 'event', 'Gig', now()->addDays(3)->toISOString());
+    DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
+        'section_key' => 'events', 'product_id' => $event, 'url' => 'https://example.com/gig',
+        'occurred_at' => now()->toISOString(), 'created_at' => now()->toISOString(),
+    ]);
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+
+    expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')
+        ->where('site_id', $tenant->site->id)->where('content_key', $event)
+        ->where('content_type', '!=', 'action')->count())->toBe(0);
 });
 
 // ── OBS-3: the ranked-actions catch block reports() before logging ──
