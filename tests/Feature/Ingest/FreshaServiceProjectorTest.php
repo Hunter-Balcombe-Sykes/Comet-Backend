@@ -4,6 +4,7 @@ use App\Ingest\Projection\FreshaServiceProjector;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Ingest\Projection\RecordView;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
 use App\Services\Content\FreshaServiceItems;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -243,4 +244,46 @@ it('follows a vendor-side category rename instead of minting a duplicate', funct
 
     expect(collect(app(FreshaServiceItems::class)->selectionServices($userId))->first()['category'])
         ->toBe("Men's Haircuts");
+});
+
+it('lands the record url as the service\'s own link facet', function () {
+    $projection = (new FreshaServiceProjector)->project(new RecordView([
+        'serviceId' => 's:1', 'name' => 'Standard Haircut', 'price' => 'from $48',
+        'url' => 'https://www.fresha.com/a/anseo-studio/booking?employeeId=5182247&offerItemId=s%3A1',
+    ]));
+
+    expect($projection['facets']['f_link'])->toBe([
+        'url' => 'https://www.fresha.com/a/anseo-studio/booking?employeeId=5182247&offerItemId=s%3A1',
+    ]);
+
+    // Records from before the link existed project as they always did.
+    $legacy = (new FreshaServiceProjector)->project(new RecordView([
+        'serviceId' => 's:2', 'name' => 'Beard Trim', 'price' => 'from $20',
+    ]));
+    expect($legacy['facets'])->not->toHaveKey('f_link');
+});
+
+it('serves a Fresha service with its booking deep link on the public pool, not the venue lander', function () {
+    [$userId, , $source, $streamId] = freshaProjectableSource();
+
+    freshaLandRecords($streamId, [
+        [...freshaServiceDoc('s:1', 'Fade', 'Cuts', '3282965', 'A$40'),
+            'url' => 'https://www.fresha.com/a/anseo-studio/booking?employeeId=5182247&offerItemId=s%3A1'],
+    ]);
+    expect(app(ProjectionWriter::class)->projectStream($source, $streamId, 'services')['items'])->toBe(1);
+
+    $pro = User::query()->findOrFail($userId)->fresh(['site']);
+    $data = poolGet($pro, 'services');
+
+    // The item's OWN url — never the connection's venue lander the resolver
+    // lends to link-less items (PoolResolver's sourcePlatforms fallback).
+    expect(poolHeadlines($data, 'library'))->toBe(['Fade']);
+    $item = collect($data['library'])->firstWhere('headline', 'Fade');
+    expect($item['url'])->toBe('https://www.fresha.com/a/anseo-studio/booking?employeeId=5182247&offerItemId=s%3A1');
+    // The link is the item's OWN (f_link via the connection source — the
+    // resolver's `synced` link set), and the source badge still names Fresha.
+    expect($item['links'])->toBe([
+        ['platform' => 'fresha', 'url' => 'https://www.fresha.com/a/anseo-studio/booking?employeeId=5182247&offerItemId=s%3A1', 'source' => 'synced'],
+    ]);
+    expect(collect($item['sources'])->pluck('platform')->all())->toBe(['fresha']);
 });

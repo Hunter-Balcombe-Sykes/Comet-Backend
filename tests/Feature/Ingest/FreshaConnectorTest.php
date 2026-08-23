@@ -127,8 +127,56 @@ it('yields a record per service plus an exhaustive coverage claim, since the who
         ->and($records[0]->key)->toBe('s:1')
         ->and($records[0]->doc['name'])->toBe('Fade')
         ->and($records[0]->doc['category'])->toBe('Cuts')
+        ->and($records[0]->doc['url'])->toBe('https://www.fresha.com/a/invented-salon/booking?offerItemId=s%3A1')
         ->and($covered)->toHaveCount(1)
         ->and($covered[0]->coverage->toArray()['type'])->toBe('exhaustive');
+});
+
+it('deep-links each service to the chosen team member\'s booking flow', function () {
+    $io = freshaIo([
+        'status' => 200,
+        'body' => freshaBookingFlowBody([[
+            'name' => 'Cuts',
+            'items' => [[
+                'name' => 'Fade', 'caption' => '30min', 'price' => ['formatted' => 'A$40'],
+                'primaryAction' => ['id' => '{"catalogId":"s:1"}'],
+            ], [
+                'name' => 'Cut + colour package', 'caption' => '2h', 'price' => ['formatted' => 'A$180'],
+                'primaryAction' => ['id' => 'bookable-1'],
+                'secondaryAction' => ['id' => '{"catalogId":"p:360081"}'],
+            ]],
+        ]]),
+        'headers' => [],
+    ]);
+
+    $pull = freshaPull('services', config: ['selection_ref' => '5182247']);
+    $records = array_values(array_filter(
+        iterator_to_array((new FreshaConnector)->pull($pull, $io)),
+        fn ($m) => $m instanceof Record,
+    ));
+
+    // The shape the design system shipped (platform-sections.ts
+    // buildBookingProviders): venue /booking + employeeId + offerItemId.
+    // Fresha mints the cartId itself. Packages (p:…) deep-link the same way.
+    expect($records[0]->doc['url'])
+        ->toBe('https://www.fresha.com/a/invented-salon/booking?employeeId=5182247&offerItemId=s%3A1')
+        ->and($records[1]->doc['url'])
+        ->toBe('https://www.fresha.com/a/invented-salon/booking?employeeId=5182247&offerItemId=p%3A360081');
+});
+
+it('builds the deep link on the ROTATED slug when Fresha has moved the venue', function () {
+    // The stale slug answers without a menu, the share alias redirects, the
+    // retry lands the menu — the link must name the slug a visitor can open.
+    $io = freshaRotatingIo('stale-salon', 'live-salon-xyz');
+    $pull = freshaPull('services', 'stale-salon', config: ['selection_ref' => 'storewide']);
+
+    $records = array_values(array_filter(
+        iterator_to_array((new FreshaConnector)->pull($pull, $io), false),
+        fn ($m) => $m instanceof Record,
+    ));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->doc['url'])->toBe('https://www.fresha.com/a/live-salon-xyz/booking?offerItemId=s%3A1');
 });
 
 it('reports a non-200 booking-flow response as unavailable', function () {
