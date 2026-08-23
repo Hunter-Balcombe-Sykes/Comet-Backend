@@ -16,7 +16,7 @@ account; stored preferences under the old keys are dropped by migration.
 
 | # | Decision |
 |---|---|
-| D1 | **One list.** Platforms and items rank together. The lander renders the top N of one list, not a buttons row plus an items row. |
+| D1 | **One list.** Platforms and items rank together. The lander renders the top N of one list, not a buttons row plus an items row. **v2 addendum (2026-08-23): media never produces an action** — `ActionCandidates::fromPools` skips the media pool entirely (no `item:` and no gallery category); the gallery keeps its pool smart order. |
 | D2 | **Fold rule.** A connection that *powers* a page (Fresha, Square, Booksy, Calendly, Shopify, Eventbrite, online-ordering…) is represented only by that page's action. Only *destination* platforms (a public profile/channel/artist page) get their own action. A platform that is both source and destination (YouTube, Spotify, SoundCloud, Apple Music, Twitch) gets a platform action. |
 | D3 | **Three modes** for actions and for pools: `newest`, `smart`, `manual`. Default `newest`. |
 | D4 | **Locks in smart/newest.** The owner can lock any action to a slot position; ranking fills the unlocked slots in order. |
@@ -169,12 +169,35 @@ the **whole** pool — pinned and auto together:
 | `manual` | today's behaviour: pins by `sort_key`, then auto by the pool's `order_by` |
 
 Events: always occurrence (soonest first), the mode is ignored and not accepted
-(§4). Reviews: out. Category blocks (menu, services) are ordered among
-themselves by the mode using their newest/top member; members inside a block
-follow the same mode.
+(§4). Reviews: out.
 
-The wire pools map already carries `publishedAt`/`firstSeenAt` on every item and
-`popularityRank` on products; smart order extends the rank to every pool item.
+**Addendum (smart ordering v2, 2026-08-23 — plan
+`docs/superpowers/plans/2026-08-23-smart-ordering-v2-handoff.md`):**
+
+- Every item family in `content_popularity_scores` keys by `content.items.id`
+  (the shop handle / link url keys are gone; migration `20260823120000`).
+- One item formula, per-family weights (`config/partna.php` `pools.smart`,
+  `ItemFamily::weightsFor`): `Σ_days (w_click·clicks + w_view·views +
+  w_dwell·dwell_s)·2^(−age/90) + w_fresh·2^(−ageSince(publishedAt ?? firstSeenAt)
+  / half_life)`. Freshness applies to every family (cold start); media carries
+  the only dwell term — the gallery page's section dwell split equally across
+  the served media items (approximation until item-grain dwell exists). Events
+  never score. A lander tap on `item:<id>` counts as a click in the item's
+  family (D7 of the v2 plan).
+- Category blocks (menus, services) score as the SUM of their served members'
+  item scores — `menu_category` / `service_category` rows keyed by collection
+  id — and in `smart` order among themselves by that rank (unranked after, by
+  position); `newest` keeps the newest-member rule; `manual` is the Categories
+  sheet's drag. The wire's `collections[*]` carries `popularityRank`.
+- Category pools display grouped by category (the dashboard tables and the
+  Book page), items inside ordered by the mode, and `pool_locks` on those two
+  pools hold a position WITHIN the item's category; the flat wire is emitted
+  in category order with uncategorised items last. No category-level locks.
+- The sweep's scope grows to sites whose pool content changed in the window,
+  not only sites with traffic (D6 of the v2 plan).
+
+The wire pools map carries `publishedAt`/`firstSeenAt` and `popularityRank` on
+every item.
 
 ## 6. Scoring (`ActionScorer`, inside `analytics:compute-popularity`)
 
@@ -186,8 +209,9 @@ demandRate = (T + k·prior) / (E + k)        E,T = 90-day true-half-life, day-bu
                                              session-distinct seen/tap from analytics.action_events
                                              keyed by action id; k = partna.actions.prior_k
 reach      = decayedTaps / max(decayedTaps over the site)           0..1
-             decayedTaps = action_events taps + item click/view signal already aggregated
-             for the item (link_clicks.product_id, item_views) for item/category kinds
+             decayedTaps = action_events taps + the item's stored item-family score
+             (keyed by item id) for item kinds; a category adds the SUM of its
+             members' scores (v2: breadth beats one hit)
 freshness  = ContentFreshness boost from connectedAt (14-day half-life)  0..1
 prior      = partna.actions.priors[id] ?? priors[kind] ?? default_prior
 
