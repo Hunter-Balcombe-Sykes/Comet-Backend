@@ -131,7 +131,10 @@ it('accepts pool_locks per pool, replaces the map atomically, and rejects bad sh
     expect(siteSettings($pro)['pool_locks'])->toBe(['watch' => []]);
 
     patchSettings($pro, ['pool_locks' => ['events' => [['position' => 0, 'id' => 'x']]]])->assertStatus(422)->assertJsonValidationErrors(['settings.pool_locks']);
-    patchSettings($pro, ['pool_locks' => ['watch' => [['position' => 0, 'id' => 'a'], ['position' => 0, 'id' => 'b']]]])->assertStatus(422)->assertJsonValidationErrors(['settings.pool_locks.watch.0.position']);
+    patchSettings($pro, ['pool_locks' => ['watch' => [['position' => 0, 'id' => 'a'], ['position' => 0, 'id' => 'b']]]])->assertStatus(422)->assertJsonValidationErrors(['settings.pool_locks.watch']);
+    // Category pools (menus / services): a position is the index WITHIN the
+    // item's category (D4), so two categories may each hold a #0.
+    patchSettings($pro, ['pool_locks' => ['services' => [['position' => 0, 'id' => 'a'], ['position' => 0, 'id' => 'b']]]])->assertOk();
     patchSettings($pro, ['pool_locks' => ['watch' => [['position' => 0, 'id' => 'a'], ['position' => 1, 'id' => 'a']]]])->assertStatus(422)->assertJsonValidationErrors(['settings.pool_locks.watch.0.id']);
     patchSettings($pro, ['pool_locks' => ['watch' => [['position' => -1, 'id' => 'a']]]])->assertStatus(422);
 });
