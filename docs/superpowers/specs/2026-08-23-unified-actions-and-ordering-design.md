@@ -34,7 +34,7 @@ account; stored preferences under the old keys are dropped by migration.
 
 | kind | id | exists when | url | `connectedAt` (newest key) |
 |---|---|---|---|---|
-| `page` | `page:<sitepageId>` — `services`, `order`, `menu`, `shop`, `events`, `contact` | the page is present (presence-via-pools / presence probes, unchanged) | the page path | `created_at` of the newest live connection that grants the page; native-only (manual services, contact card) → the granting row's `created_at` |
+| `page` | `page:<sitepageId>` — `services`, `reservations`, `menu`, `shop`, `events`, `contact` only (pages that are a destination of intent; listen/watch/gallery/links/documents/strava/skool get no page action — their content ranks as items, their platforms as platform actions) | the page is present (presence-via-pools / presence probes, unchanged) | the page path | `created_at` of the newest live connection that grants the page; native-only (manual services, contact card) → the granting row's `created_at` |
 | `platform` | `platform:<platform_key>` | a live connection whose platform registry entry has `destination: true` and yields a profile URL | the profile URL | connection `created_at` |
 | `item` | `item:<content.items.id>` | the item is currently served on the sitepage (pinned or auto-selected; `PoolResolver` output) | outbound URL for tracks / products / videos / links (existing `ShopOutboundUrl` etc.); page anchor for services and dishes | `publishedAt ?? firstSeenAt` |
 | `category` | `category:<collection id>` | a menu or services category with ≥1 served member — one entry, members ordered inside by the pool's mode | page anchor | newest member's key |
@@ -46,8 +46,14 @@ Ids are the analytics keys; they must survive a disconnect/reconnect. `platform:
 A boolean on each platform registry entry (next to class and capability data).
 `true` for every platform whose connection carries a public profile/channel URL
 (socials, music/video/podcast profiles, Substack, Patreon, Twitch, Vimeo, Strava…).
-`false` for pure sources (booking, store, ordering, ticketing, menu, review, Google
-Business). A new platform with a profile URL becomes an action by registry entry
+`false` for pure sources (booking, store, ticketing, menu, review, Google
+Business); `true` for online-ordering platforms (each ordering link is a destination).
+
+**Source fallback:** a source platform whose granted page is *absent* (a booking
+connection whose services page is off or incomplete, a store with no shop page)
+still has a public URL that is the right place to send people. It yields a
+`platform:<key>` action with that URL *only while the page is absent*; the moment
+the page is present the fold rule applies and the platform entry disappears. A new platform with a profile URL becomes an action by registry entry
 alone. The platform's label is the registry label; the url is the connection's
 profile URL resolved by the existing platform-display code.
 
@@ -192,7 +198,7 @@ rank       = previous-rank seed, overtake only when > 10% above the incumbent
 
 - Weights `partna.actions.weights = {demand, reach, fresh}` and priors (per kind,
   per page id) live in `config/partna.php`; defaults are set so a brand-new site
-  ranks `page:services` > `page:order` > `page:shop` > platforms > items, and any
+  ranks `page:services` > `page:reservations` > `page:shop` > platforms > items, and any
   candidate connected/published in the last ~14 days rises into the top few.
 - Stored in `analytics.content_popularity_scores`, `content_type='action'`,
   `content_key=<action id>`; stale keys deleted per run; this class owns the
