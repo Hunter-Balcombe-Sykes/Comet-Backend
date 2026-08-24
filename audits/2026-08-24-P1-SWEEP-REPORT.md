@@ -48,7 +48,7 @@ Per D1, `partna.auth.strong_auth_enforce` stays `false`. The enforced-branch fal
 |---|---|---|
 | CG `#SEC-1` — PII-export strong-auth fail-open | **fixed** (flag flip deferred to you, per D1) | `c29fe2829` |
 | CG `#SEC-2` — `/api/claim` ignored `email_verified` | **fixed** | `c29fe2829` |
-| CG `#SEC-3` — first-come claim squat | **skipped per D2** — note appended, box left unticked | `e0595d23c` |
+| CG `#SEC-3` — first-come claim squat | **skipped per D2** — box left unticked; premise since negated by *Dark Until Claimed*, see below | `e0595d23c`, `0e9429313` |
 | CG `#SEM-1` — LinkedIn/Spotify shape rewritten to a 404 | **fixed** | `16a90f7dd` |
 | UA `#SEC-1` — `reorder()` pinned without the Policy | **fixed** | `b41fed93b` |
 | UA `#SEC-2` — public pool wire skipped `UrlSafety` | **fixed** | `b41fed93b` (+ `1fa4a0fcd` regression fix) |
@@ -88,6 +88,13 @@ Six findings were partly or wholly misdiagnosed. Following them literally would 
 - **`CCH-8`/`CCH-9`**'s stated root cause looks **factually wrong**: `Cache::lock()` on the default store already resolves through `lock_connection` to `cache_locks`. Verify before "fixing" a non-bug.
 - **booksy** and **apple_podcasts** share `#SEM-1`'s defect class (locale/country branches their templates can't rebuild). Lower severity only because those platforms locale-redirect. **They need their own finding — no one has filed it.**
 - **`#SEM-18`** is a genuinely different layer (`app/Catalog/Definitions`), untouched.
+
+## Post-merge addendum (2026-08-25)
+
+`development` moved 22 commits during this run and was merged in (`fe3f4f36d`, full suite 9120 passed). Two consequences for this report:
+
+- **Three claim-gate P2s I'd have called pre-pilot are already fixed** by `b41cfbd71`, under a different campaign's numbering: their `#8` = our `#SEM-2` (staff-deletion un-gates `isOutreach`), `#9`/`#21` = our `#SEM-4` (the dedupe race), `#20` = our `#SEM-3` (the `CLAIM_NOT_INVITED` status oracle). Our boxes still show them open. **Verify before reopening them in a P2 pass.**
+- **`#SEC-3` now overstates its own risk.** *Dark Until Claimed* (`ee1c22784`) makes an unvetted self-serve build unroutable, which negates the finding's load-bearing premise that the handle isn't a secret. The claim code is unchanged — reachability is what closed. `isVisibleWhileUnclaimed()` is a strict subset of `isOutreach()`, so publicly-visible implies email-gated and first-come implies dark; the intersection the attack needed is empty. Residual: handles are guessable from the business name and `/api/claim` is still a throttled probe oracle, so targeted guessing works where passive discovery no longer does. Full note on the finding itself (`0e9429313`). The D2 deferral is unaffected. `CLAUDE.md`'s pre-account doctrine was corrected in `894de8e0b` — it still asserted the dead rule.
 
 ## New follow-ups this run surfaced
 
