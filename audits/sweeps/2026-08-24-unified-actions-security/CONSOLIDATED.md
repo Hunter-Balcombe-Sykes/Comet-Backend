@@ -558,7 +558,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 16 complete
+- P2 Medium: 1 of 16 complete
 - P3 Low: 0 of 8 complete
 
 ---
@@ -937,7 +937,8 @@
         // First platform wins a tie (content priority = Uber Eats over DoorDash).
         ```
 
-- [ ] **SEM-13** · P2 — Manual LinkedIn-connect canonicalizes a company/school URL into a personal `/in/` profile URL
+- [x] **SEM-13** · P2 — Manual LinkedIn-connect canonicalizes a company/school URL into a personal `/in/` profile URL
+    - **SUPERSEDED by claim-gate #SEM-1** — same defect, fixed in `16a90f7dd` (landed on `development` with the P1 sweep). `url_path_extractor` is now `#^/(?<shape>in|company)/…#` with a per-shape `url_templates` map; `school`/`pub` were narrowed OUT of the extractor and fall through the lenient deep-link path, preserved verbatim. Covered by `tests/Feature/Site/SocialLinkNormalizerTest.php:154,167,181,259` and the `SocialLinkNormalizerCorpusTest` differential (`:184-197`, `:263-276`, `:404`).
     - **Where:** config/partna.php:472-483 (`social_platforms.linkedin`); app/Services/Site/SocialLinkNormalizer.php:61-157
     - **Affects:** Any professional connecting their LinkedIn *company* or *school* page (not a personal profile) through the manual social-connect flow — the stored canonical URL points at `/in/<slug>`, a different, likely nonexistent page.
     - **Effort:** S (~0.5–1h)
