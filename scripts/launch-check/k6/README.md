@@ -62,7 +62,7 @@ source; they land in `failed_jobs`) — dispatch a real job class with `->onQueu
 `jobs.js` (and any other script that POSTs an analytics event) must send an `Origin`
 header matching the seeded site's subdomain host (`https://loadtest.partna.au`) —
 `AnalyticsController::originAllowed()` (SEC-1, 2026-07-24) fails closed with 404
-"Site not found" on any pageview/click/etc. write with no Origin/Referer header,
+"Site not found" on any pageview/click/etc. write with no Origin header,
 since `site_id`/`subdomain` are public values and can't authenticate a caller alone.
 `config.js`'s `EDGE_HOST` already resolves to the right value; every write-scenario
 script must include it in its request headers.

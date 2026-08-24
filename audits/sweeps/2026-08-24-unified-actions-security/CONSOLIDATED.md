@@ -81,7 +81,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 15 complete
 - P3 Low: 0 of 2 complete
 
@@ -89,7 +89,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — `PoolController::reorder` pins items without the `pin` Policy check, bypassing the borrowed-media rule
+- [x] **#SEC-1** · P1 — `PoolController::reorder` pins items without the `pin` Policy check, bypassing the borrowed-media rule
     - **Where:** app/Http/Controllers/Api/Content/PoolController.php:145-209
     - **Affects:** Any owner with a "borrowed" (Google-sourced) media item in their pool — the reorder/drag endpoint lets them pin an item the dedicated pin button explicitly refuses.
     - **Effort:** S (~0.5–1h)
@@ -121,7 +121,7 @@
             : true;
         ```
 
-- [ ] **#SEC-2** · P1 — Public pool wire emits stored URLs without `UrlSafety::safeHref`, unlike every sibling emit path
+- [x] **#SEC-2** · P1 — Public pool wire emits stored URLs without `UrlSafety::safeHref`, unlike every sibling emit path
     - **Where:** app/Site/Pools/PoolResolver.php:862-874 (`sourcePlatforms`), 1544-1579 (`linkSet`), 1347 (`imageUrl`), 1107 (`f_link.url`)
     - **Affects:** Every public sitepage visitor viewing pool links, source-platform buttons, or item images sourced from stored owner/third-party URLs.
     - **Effort:** M (~2–4h)
@@ -144,7 +144,7 @@
         'imageUrl' => $row->image_url === null ? null : (string) $row->image_url,
         ```
 
-- [ ] **#SEC-3** · P1 — Referer-header fallback lets a scripted (non-browser) caller forge analytics events for another site
+- [x] **#SEC-3** · P1 — Referer-header fallback lets a scripted (non-browser) caller forge analytics events for another site
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:474-504 (`parseOriginHost`)
     - **Affects:** Every public site's analytics counts — a non-browser caller who knows or scrapes a site's `subdomain` can inject fabricated pageviews/clicks/impressions attributed to that site.
     - **Effort:** S (~0.5–1h)

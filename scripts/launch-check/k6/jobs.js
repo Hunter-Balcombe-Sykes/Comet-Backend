@@ -11,7 +11,7 @@ import { ORIGIN, EDGE_HOST, TEST_SITE_ID, LOAD_HEADERS, THRESHOLDS } from './con
 //
 // Origin header REQUIRED: AnalyticsController::originAllowed() (SEC-1,
 // 2026-07-24) fails closed with 404 "Site not found" on any pageview POST
-// with no Origin/Referer header — site_id/subdomain are public values and
+// with no Origin header — site_id/subdomain are public values and
 // can't authenticate a caller on their own. EDGE_HOST already resolves to
 // https://{TEST_HANDLE}.partna.au, which matches the seeded site's allowed
 // origin exactly (verified against config('partna.public_domain') = partna.au).

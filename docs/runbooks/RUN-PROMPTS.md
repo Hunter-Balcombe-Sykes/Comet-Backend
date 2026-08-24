@@ -238,8 +238,9 @@ Analytics pageview writes feed `QueuedIngestor` → Horizon on dev.
 
 **Trap — the `Origin` header is load-bearing.** `AnalyticsController::originAllowed()`
 (SEC-1, 2026-07-24) fails **closed** with a 404 "Site not found" on any pageview POST with
-no `Origin`/`Referer` matching the site's subdomain — `site_id` and `subdomain` are public
-values and can't authenticate a caller on their own. `jobs.js` already sends
+no `Origin` matching the site's subdomain — `site_id` and `subdomain` are public
+values and can't authenticate a caller on their own. Referer is no longer accepted
+(#SEC-3, 2026-08-24). `jobs.js` already sends
 `Origin: ${EDGE_HOST}` (= `https://loadtest.partna.au`). If you write any new write-path
 scenario, it must too. This invariant is guarded by
 `tests/Feature/Security/TenantIsolation/PublicAnalyticsIdorTest.php`.
@@ -522,9 +523,10 @@ does recovery leave stuck state behind?
 (edge-uncached, straight to Laravel), analytics beacon, and an authed dashboard read. Without
 a before, the after means nothing.
 
-**Trap on the beacon probe:** the analytics write needs an `Origin`/`Referer` header matching
-the site's subdomain. SEC-1 fails **closed** with a 404 "Site not found" otherwise — you'd
-misread your own malformed request as a Redis-down failure.
+**Trap on the beacon probe:** the analytics write needs an `Origin` header matching
+the site's subdomain (Referer is no longer accepted, #SEC-3). SEC-1 fails **closed** with a
+404 "Site not found" otherwise — you'd misread your own malformed request as a Redis-down
+failure.
 
 **Also worth running:** optional Scenario C — Redis *hung*, not down. Hung is the nastier
 production failure (connections block rather than refuse) and often behaves differently from

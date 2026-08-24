@@ -435,15 +435,14 @@ class AnalyticsController extends ApiController
      *   2. site->custom_domain                        — included only when status = 'active'
      *
      * Origin-header precedence:
-     *   Origin header → Referer header host → absent
+     *   Origin header → absent
      *
-     * When Origin AND Referer are both absent: rejected. Every legitimate caller is
-     * the sitepage's own client-side beacon, and a browser always emits one of the two
-     * on a POST. The former fallback authenticated a header-less caller on site_id +
-     * subdomain — both public values published in the page payload — so any scripted
-     * client could forge another site's events (2026-07-24 sweep, SEC-1). A genuine
-     * server-to-server caller must be gated by a shared secret or signed request, never
-     * by public identifiers.
+     * When Origin is absent: rejected. Every legitimate caller is the sitepage's own
+     * client-side beacon, and every ingest route is a POST, on which a browser always
+     * emits Origin. Referer was accepted here until #SEC-3 (2026-08-24) — a non-browser
+     * caller can set it as freely as any other header, so it authenticated nothing. A
+     * genuine server-to-server caller must be gated by a shared secret or signed
+     * request, never by public identifiers.
      */
     private function originAllowed(Request $request, Site $site): bool
     {
@@ -459,7 +458,7 @@ class AnalyticsController extends ApiController
             $allowed[] = strtolower($site->custom_domain);
         }
 
-        // Extract the request's origin host from Origin header, then Referer.
+        // Extract the request's origin host from the Origin header.
         $originHost = $this->parseOriginHost($request);
 
         // No origin signal at all — fail closed (SEC-1). site_id and subdomain are
@@ -472,35 +471,27 @@ class AnalyticsController extends ApiController
     }
 
     /**
-     * Extract a lowercase host from the Origin header, falling back to Referer.
-     * Returns null when neither header is present or parseable.
+     * Extract a lowercase host from the Origin header. Returns null when the
+     * header is absent, is the literal 'null' (sandboxed iframe), or does not
+     * parse to a host.
+     *
+     * #SEC-3: no Referer fallback. Origin is unforgeable from browser JS, which
+     * is the entire basis of originAllowed(); Referer is not — a scripted caller
+     * sets either header freely, and a site's subdomain is public, so accepting
+     * Referer reopened the exact forgery the 2026-07-24 SEC-1 fix closed on the
+     * site_id vector. Every legitimate caller is the sitepage's own beacon, and
+     * all eight ingest routes are POST, on which a browser always sends Origin.
      */
     private function parseOriginHost(Request $request): ?string
     {
-        // Origin is the primary signal — browsers always send it for cross-origin POSTs.
         $origin = $request->headers->get('Origin');
-        if ($origin !== null && $origin !== '') {
-            // Origin may be 'null' (sandboxed iframes) — treat as absent.
-            if ($origin === 'null') {
-                $origin = null;
-            } else {
-                $host = parse_url($origin, PHP_URL_HOST);
-                if (is_string($host) && $host !== '') {
-                    return strtolower($host);
-                }
-            }
+        if ($origin === null || $origin === '' || $origin === 'null') {
+            return null;
         }
 
-        // Fall back to Referer host (less reliable but acceptable as a secondary signal).
-        $referer = $request->headers->get('Referer');
-        if ($referer !== null && $referer !== '') {
-            $host = parse_url($referer, PHP_URL_HOST);
-            if (is_string($host) && $host !== '') {
-                return strtolower($host);
-            }
-        }
+        $host = parse_url($origin, PHP_URL_HOST);
 
-        return null;
+        return is_string($host) && $host !== '' ? strtolower($host) : null;
     }
 
     /**

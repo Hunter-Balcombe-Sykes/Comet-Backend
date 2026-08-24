@@ -174,11 +174,21 @@ class PoolController extends ApiController
             ->whereIn('id', $ids)
             ->whereIn('kind', PoolRegistry::kinds($pool))
             ->whereNull('removed_at')
-            ->pluck('id')
-            ->all();
+            ->get(['id', 'user_id', 'kind']);
 
-        if (count($owned) !== count($ids)) {
+        if ($owned->count() !== count($ids)) {
             return $this->error('That list contains items not in this pool.', 422);
+        }
+
+        // D5 (#SEC-1): the third pin path answers to the same policy the pin
+        // button does — select() gates STATE_PINNED, and a drag writes the
+        // identical state. Before ensure() and the transaction, so one refused
+        // item aborts the whole drag rather than provisioning a section and
+        // half-applying an order the FE is already showing. A foreign id was
+        // already answered 422 above, so the policy's 404 branch is unreachable
+        // here and the only denial that can surface is the borrowed 403.
+        foreach ($owned as $item) {
+            $this->authorizeForUser($user, 'pin', $item);
         }
 
         $section = $this->provisioner->ensure($site, $pool);

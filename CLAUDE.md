@@ -288,7 +288,7 @@ The Content Pool Convergence programme closed on dev 2026-08-17. **`content.*` i
 DIY k6 harness against dev only (README + plan: `docs/superpowers/plans/2026-07-26-k6-load-testing.md`). Its `seed.sql`/`jobs.js` hard-code 3 real invariants that silently broke them once already — touching any of these, re-check the harness:
 - Gallery capped at 6/site (`core.enforce_site_gallery_max6` trigger) — guarded by `tests/Postgres/GalleryMax6TriggerTest.php`.
 - A gallery item needs a matching `site.media_variants` (webp) row or its URL resolves empty — guarded by `tests/Feature/Api/PublicSite/IndividualProfileControllerTest.php`'s gallery-engine tests.
-- Analytics writes need an `Origin`/`Referer` header matching the site's subdomain (SEC-1) — guarded by `tests/Feature/Security/TenantIsolation/PublicAnalyticsIdorTest.php`.
+- Analytics writes need an `Origin` header matching the site's subdomain (SEC-1) — guarded by `tests/Feature/Security/TenantIsolation/PublicAnalyticsIdorTest.php`. The `Referer` fallback was REMOVED 2026-08-24 (#SEC-3): a non-browser caller sets Referer as freely as any other header, so it authenticated nothing. All eight ingest routes are POST, where a browser always sends `Origin` — the harness already does. Do not reinstate it.
 
 ## Do NOT
 

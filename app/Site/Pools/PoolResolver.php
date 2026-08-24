@@ -13,6 +13,7 @@ use App\Services\Platforms\ConnectionDisplayName;
 use App\Services\Platforms\DisplaySettingsFilter;
 use App\Site\Actions\ActionSettings;
 use App\Site\Sections\SectionCandidates;
+use App\Support\UrlSafety;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -869,7 +870,10 @@ class PoolResolver
                 $payload = is_string($row->payload) ? (json_decode($row->payload, true) ?: []) : (array) ($row->payload ?? []);
                 $url = $payload['url'] ?? ($payload['selection']['url'] ?? null);
 
-                return (object) ['platform' => self::wirePlatform($row->platform), 'url' => is_string($url) && preg_match('~^https?://~i', $url) ? $url : null];
+                // #SEC-2: both gates. safeHref is the shared emit-path allowlist; the
+                // anchored regex stays because safeHref accepts the opaque form
+                // (`https:evil`) that has no authority and this fallback needs one.
+                return (object) ['platform' => self::wirePlatform($row->platform), 'url' => is_string($url) && preg_match('~^https?://~i', $url) ? UrlSafety::safeHref($url) : null];
             })
             ->filter();
 
@@ -1104,7 +1108,10 @@ class PoolResolver
                     ? $overrideHeadline
                     : $item->headline_cache,
                 'headlineEdited' => is_string($overrideHeadline) && $overrideHeadline !== '',
-                'url' => $ov('f_link.url', $outboundUrl),
+                // #SEC-2: the last gate before the CDN. f_link.url is hand-overridable
+                // (UpsertManualOverrideRequest validates only `present`), so the owner's
+                // own stored string reaches the public wire here unless it passes.
+                'url' => UrlSafety::safeHref($ov('f_link.url', $outboundUrl)),
                 'platform' => $primary['platform'] ?? null,
                 'creator' => $ov('f_authored.creator', $creators[$itemId]->creator ?? $channels[$itemId]->handle ?? null),
                 'publishedAt' => self::iso($ov('f_published.published_from', $published[$itemId] ?? null)),
@@ -1209,8 +1216,10 @@ class PoolResolver
                     'rating' => $reviews[$itemId]->rating === null ? null : (float) $reviews[$itemId]->rating,
                     'text' => $reviews[$itemId]->text,
                     'authorName' => $reviews[$itemId]->author_name,
-                    'authorPhotoUrl' => $reviews[$itemId]->author_photo_url,
-                    'authorUri' => $reviews[$itemId]->author_uri,
+                    // #SEC-2: authorUri IS an href (the reviewer's Google profile) and is
+                    // third-party-sourced, so it belongs on the same gate as `url`.
+                    'authorPhotoUrl' => UrlSafety::safeHref($reviews[$itemId]->author_photo_url),
+                    'authorUri' => UrlSafety::safeHref($reviews[$itemId]->author_uri),
                     // #API-1 applies here too — content.f_review.reviewed_at is
                     // timestamptz, `review` is a PUBLIC wire field (ITEM_KEYS,
                     // and not dashboard-only), and pdo_pgsql hands it back as
@@ -1344,7 +1353,10 @@ class PoolResolver
                 'sku' => $row->sku === null ? null : (string) $row->sku,
                 // Unverified against real data: image_url is populated on 0 of
                 // 268 dev rows, so this round-trips in tests only.
-                'imageUrl' => $row->image_url === null ? null : (string) $row->image_url,
+                // #SEC-2: same http/https allowlist as every other wire url — UrlSafety has
+                // no image-specific form. Also drops protocol-relative/relative srcs, which
+                // no current writer produces (image_url is populated on 0 of 268 dev rows).
+                'imageUrl' => UrlSafety::safeHref($row->image_url),
                 'availability' => $offer->availability ?? null,
                 'price' => $offer === null ? null : [
                     'amountMinor' => $offer->amount_minor === null ? null : (int) $offer->amount_minor,
@@ -1488,11 +1500,12 @@ class PoolResolver
             $out[(string) $collectionId] = [
                 'externalRef' => $externalRef,
                 'provider' => $row->provider === null ? null : (string) $row->provider,
-                'url' => $row->url === null ? null : (string) $row->url,
+                // #SEC-2: same http/https allowlist as every other wire url.
+                'url' => UrlSafety::safeHref($row->url),
                 'name' => $this->publicCollectionName((string) $row->label, $externalRef, (string) $row->collection_ref),
                 'currency' => $row->currency === null ? null : (string) $row->currency,
-                'favicon' => $row->favicon_url === null ? null : (string) $row->favicon_url,
-                'logo' => $row->logo_url === null ? null : (string) $row->logo_url,
+                'favicon' => UrlSafety::safeHref($row->favicon_url),
+                'logo' => UrlSafety::safeHref($row->logo_url),
                 'discountCode' => $row->discount_code === null ? null : (string) $row->discount_code,
                 'position' => (int) $row->position,
                 'popularityRank' => $row->provider === null ? ($categoryRanks[(string) $collectionId] ?? null) : null,
@@ -1548,7 +1561,13 @@ class PoolResolver
         $seenUrls = [];
 
         foreach ($sourceRows as $row) {
-            $url = (string) $row->url;
+            // #SEC-2: an unsafe stored url is not a link, same rule ActionCandidates
+            // applies — the entry is dropped, never emitted with a null url, because
+            // `links[].url` is a non-null string on the wire.
+            $url = UrlSafety::safeHref($row->url);
+            if ($url === null) {
+                continue;
+            }
             $isOwn = ($row->source_kind ?? null) === 'manual';
             $platform = $row->platform !== null && $row->platform !== '' ? (string) $row->platform : null;
             if ($platform === null && $isOwn) {
@@ -1566,13 +1585,18 @@ class PoolResolver
         }
 
         foreach ($manualRows as $row) {
-            $urlKey = self::linkUrlKey((string) $row->url);
+            // #SEC-2: same drop-not-null rule as the source loop above.
+            $url = UrlSafety::safeHref($row->url);
+            if ($url === null) {
+                continue;
+            }
+            $urlKey = self::linkUrlKey($url);
             if (isset($seen[$row->platform]) || isset($seenUrls[$urlKey])) {
                 continue;
             }
             $seen[$row->platform] = true;
             $seenUrls[$urlKey] = true;
-            $links[] = ['platform' => (string) $row->platform, 'url' => (string) $row->url, 'source' => 'manual'];
+            $links[] = ['platform' => (string) $row->platform, 'url' => $url, 'source' => 'manual'];
         }
 
         return $links;

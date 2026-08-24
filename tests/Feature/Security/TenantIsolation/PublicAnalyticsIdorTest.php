@@ -24,9 +24,16 @@ beforeEach(function () {
 // inject fabricated events. Fix: bind each ingest request to the site's canonical
 // Origin header. Browsers cannot forge Origin from JS.
 //
-// scripts/launch-check/k6/jobs.js depends on this exact contract — it sends an
-// Origin header matching the seeded site's subdomain host for this reason. If
-// this check's behavior changes, that script needs a matching update.
+// #SEC-3 (2026-08-24): the ORIGINAL fix accepted a Referer fallback when Origin
+// was absent. That fallback is gone — Referer is just another header a scripted
+// caller can set freely, and a site's subdomain is public, so accepting it
+// reopened the same forgery this file exists to close, on a second header. Case
+// (h) below used to prove the fallback worked; it now proves the fallback is
+// GONE, and a new case proves a forged Referer naming a victim site is refused.
+//
+// scripts/launch-check/k6/jobs.js depends on Origin, not Referer — it already
+// sends an Origin header matching the seeded site's subdomain host, so #SEC-3
+// does not touch it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Pre-existing IDOR tests (subdomain cross-check path) ─────────────────────
@@ -208,10 +215,12 @@ it('rejects a pageview with no Origin when site_id and subdomain resolve to diff
     expect(DB::connection('pgsql')->table('analytics.site_visits')->where('site_id', $siteB->site->id)->count())->toBe(0);
 });
 
-// (h) Origin absent, Referer present and matching → accepted. Covers the surviving
-// fallback in parseOriginHost(), which would otherwise go untested now that (e)
-// proves site_id+subdomain alone can no longer authenticate a header-less caller.
-it('accepts a pageview when Origin is absent but Referer matches the site host', function () {
+// (h) Origin absent, Referer present and matching → REJECTED (#SEC-3). Used to
+// prove the Referer fallback worked; now proves it is gone — a non-browser
+// caller sets Referer as freely as any other header, so it authenticates
+// nothing. Inverted rather than deleted: a reinstated fallback must turn this
+// red on its own.
+it('rejects a pageview when Origin is absent even if Referer matches the site host (#SEC-3)', function () {
     $tenant = createTenant('idor-match-h');
 
     $response = $this->withHeader('Referer', 'https://idor-match-h.'.config('partna.public_domain').'/some/path')
@@ -222,6 +231,27 @@ it('accepts a pageview when Origin is absent but Referer matches the site host',
             'visitor_id' => (string) Str::uuid(),
         ]);
 
-    $response->assertStatus(201);
-    expect(DB::connection('pgsql')->table('analytics.site_visits')->where('site_id', $tenant->site->id)->count())->toBe(1);
+    $response->assertStatus(404);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->where('site_id', $tenant->site->id)->count())->toBe(0);
+});
+
+// The attack #SEC-3 closes: a forged Referer naming a VICTIM site, with no
+// Origin at all. Under the old fallback this authenticated a header-less
+// caller purely off two public identifiers (site_id, subdomain) — exactly the
+// vector the Origin-binding fix exists to close. No row for either tenant.
+it('rejects a forged Referer naming a victim site when Origin is absent (#SEC-3)', function () {
+    $victim = createTenant('idor-forged-victim');
+    $attacker = createTenant('idor-forged-attacker');
+
+    $response = $this->withHeader('Referer', 'https://idor-forged-victim.'.config('partna.public_domain').'/some/path')
+        ->postJson('/api/public/analytics/pageviews', [
+            'site_id' => $victim->site->id,
+            'subdomain' => 'idor-forged-victim',
+            'session_id' => (string) Str::uuid(),
+            'visitor_id' => (string) Str::uuid(),
+        ]);
+
+    $response->assertStatus(404);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->where('site_id', $victim->site->id)->count())->toBe(0);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->where('site_id', $attacker->site->id)->count())->toBe(0);
 });
