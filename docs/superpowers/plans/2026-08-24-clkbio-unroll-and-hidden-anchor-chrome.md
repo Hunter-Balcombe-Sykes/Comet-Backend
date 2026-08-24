@@ -293,6 +293,26 @@ git add app/Services/Platforms/WebsiteLinkHarvester.php tests/Feature/Platforms/
 git commit -m "fix(platforms): drop hidden anchors from the link harvest"
 ```
 
+- [ ] **Step 6 (added during execution): extend the rule to framework display utilities**
+
+Measured against the Task 4 fixture *after* Steps 1-5 landed: 4 of Lnk.Bio's 5 SEO backlinks were gone, but `calcio.dev` still leaked — it carries `class="d-none"` with **no inline style**. The inline-style rule alone therefore leaves exactly one junk card on the user's page, which is the defect this task exists to close.
+
+Add to the class, above `SOCIAL_HOSTS`:
+
+```php
+    /** Utility classes that mean display:none on their own — Bootstrap, Tailwind. */
+    private const HIDDEN_CLASSES = ['d-none', 'hidden'];
+
+    /** A breakpoint utility that re-shows what HIDDEN_CLASSES hid. */
+    private const RESHOWN_CLASS = '~^(d-(sm|md|lg|xl|xxl)-(?!none)[a-z-]+|(sm|md|lg|xl|2xl):(block|flex|grid|inline|inline-block|inline-flex|table))$~';
+```
+
+Change `isHiddenAnchor()` to fall through to a class check, and add `hiddenByUtilityClass()` beside it (see the committed source — the key constraint is that `d-none d-md-block` means "visible on desktop" and must NOT count as hidden, and that no class outside `HIDDEN_CLASSES` is guessed at).
+
+Cover it with two datasets in the same test file: `d-none` / `lnkbio-promo d-none` / `hidden` drop, and `d-none d-md-block` / `hidden md:block` survive. Re-measure the fixture afterwards — expect `harvested=23`, `classified=4`, zero promo leaks.
+
+**Why this is a scope extension and not scope creep:** it is the same rule ("a link no visitor can see"), applied to the same page, closing the same defect. It was found by the fixture in Task 4, which is exactly what the fixture is for.
+
 ---
 
 ### Task 3: Widen the share/intent widget guard

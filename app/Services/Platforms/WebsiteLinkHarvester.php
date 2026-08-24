@@ -31,6 +31,12 @@ use App\Services\Shop\ShopConnections;
 // Keys are present only when something was found.
 class WebsiteLinkHarvester
 {
+    /** Utility classes that mean display:none on their own — Bootstrap, Tailwind. */
+    private const HIDDEN_CLASSES = ['d-none', 'hidden'];
+
+    /** A breakpoint utility that re-shows what HIDDEN_CLASSES hid. */
+    private const RESHOWN_CLASS = '~^(d-(sm|md|lg|xl|xxl)-(?!none)[a-z-]+|(sm|md|lg|xl|2xl):(block|flex|grid|inline|inline-block|inline-flex|table))$~';
+
     /** Host-pattern → socials key. First match per key wins (homepage order). */
     private const SOCIAL_HOSTS = [
         'instagram' => '~(^|\.)instagram\.com$~',
@@ -750,9 +756,38 @@ class WebsiteLinkHarvester
         }
 
         $style = $a->getAttribute('style');
+        if ($style !== '' && preg_match('~(display\s*:\s*none|visibility\s*:\s*hidden)~i', $style) === 1) {
+            return true;
+        }
 
-        return $style !== ''
-            && preg_match('~(display\s*:\s*none|visibility\s*:\s*hidden)~i', $style) === 1;
+        return $this->hiddenByUtilityClass($a->getAttribute('class'));
+    }
+
+    /**
+     * Bootstrap's `d-none` and Tailwind's `hidden` mean display:none with no
+     * stylesheet needed to read them. Lnk.Bio hides four of its five SEO
+     * backlinks with an inline style and the fifth with `d-none` alone, so the
+     * inline-style rule on its own leaves exactly one leak.
+     *
+     * Both frameworks also pair the class with a breakpoint that re-shows the
+     * element — "d-none d-md-block" is VISIBLE on desktop — so that
+     * combination must not count as hidden. No other class is guessed at: a
+     * bare `.promo` says nothing without the CSS we never fetched.
+     */
+    private function hiddenByUtilityClass(string $class): bool
+    {
+        $classes = preg_split('~\s+~', trim($class), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if (array_intersect($classes, self::HIDDEN_CLASSES) === []) {
+            return false;
+        }
+
+        foreach ($classes as $one) {
+            if (preg_match(self::RESHOWN_CLASS, $one) === 1) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** Resolve relative hrefs against the page URL; null for non-http(s) schemes. */

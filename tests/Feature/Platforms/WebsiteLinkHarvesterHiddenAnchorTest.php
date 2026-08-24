@@ -39,3 +39,33 @@ it('keeps a visible anchor nested inside a hidden container', function () {
 
     expect($links)->toBe(['https://example.org/nav']);
 });
+
+// Lnk.Bio hides four of its five SEO backlinks with an inline style and the
+// fifth with Bootstrap's d-none alone (measured on the recorded fixture,
+// 2026-08-24) — the class carries the same meaning with no stylesheet needed.
+it('drops an anchor hidden by a framework display utility class', function (string $class) {
+    $links = app(WebsiteLinkHarvester::class)->allOutboundLinks(
+        '<html><body><a href="https://calcio.dev/" class="'.$class.'">pc calcio 7 trainer</a></body></html>',
+        'https://clk.bio/TheMetaPunter'
+    );
+
+    expect($links)->toBe([]);
+})->with([
+    'bootstrap' => 'd-none',
+    'bootstrap with siblings' => 'lnkbio-promo d-none',
+    'tailwind' => 'hidden',
+]);
+
+// "d-none d-md-block" is Bootstrap for "hidden on phones, VISIBLE on desktop".
+// Reading the d-none half alone would delete a link most visitors can see.
+it('keeps an anchor a breakpoint class re-shows', function (string $class) {
+    $links = app(WebsiteLinkHarvester::class)->allOutboundLinks(
+        '<html><body><a href="https://example.org/desktop" class="'.$class.'">Desktop</a></body></html>',
+        'https://clk.bio/TheMetaPunter'
+    );
+
+    expect($links)->toBe(['https://example.org/desktop']);
+})->with([
+    'bootstrap' => 'd-none d-md-block',
+    'tailwind' => 'hidden md:block',
+]);

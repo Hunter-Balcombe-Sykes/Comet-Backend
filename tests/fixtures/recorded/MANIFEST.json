@@ -36,6 +36,13 @@
             "captured_by": "fixtures:capture",
             "notes": "Linktree, tattoo studio; IG+Fresha+FB+Pinterest+Bluesky+canva.link mix (wave R2 source). __NEXT_DATA__ is invalid JSON post-redaction (bare account id → unquoted [redacted-phone]) — do not json_decode this blob. The anchors and hrefs in the body ARE intact and faithful."
         },
+        "linkinbio/lnkbio.clkbio.html": {
+            "source_url": "https://clk.bio/TheMetaPunter",
+            "captured_at": "2026-08-24T12:40:10+00:00",
+            "sha256": "439b6980c90154ab8c7d913afe8780a2420ea52018aa36bb75aedbe1c971c8bf",
+            "captured_by": "fixtures:capture",
+            "notes": "Lnk.Bio via its clk.bio mirror (themetapunter, 2026-08-24). 32 anchors: 4 owner links (rel=external nofollow ugc), 7 share widgets, 5 display:none SEO backlinks to Lnk.Bio's own portfolio. lnk.bio/TheMetaPunter answers 403 for the same content."
+        },
         "shop/abovetheground-homepage.html": {
             "source_url": "https://abovetheground.com.au/",
             "captured_at": "2026-07-11",
