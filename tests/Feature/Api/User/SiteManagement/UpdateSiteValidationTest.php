@@ -66,18 +66,17 @@ it('rejects an out-of-vocabulary selection on every selection column', function 
 // needs the seeded information_schema mirror, because a request that passes
 // validation goes on to run writeDesignKit().
 
-it('ignores architecture_id entirely and never lets it reach the column', function () {
-    // architecture_id left the wire 2026-08-20 — now an unknown key, accepted
-    // and dropped. The column is what matters: an ignored field must not be
-    // able to write a value sites_architecture_id_check would reject.
-    $pro = createTenant('skel-pro');
+it('writes a valid architecture_id to the column', function () {
+    // Back on the wire 2026-08-24 (reopens the 2026-08-20 lockdown): a
+    // recognised value — 'scroll', the second architecture — now persists.
+    $pro = createTenant('scroll-pro');
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['architecture_id' => 'skeleton-9'])
+        ->patchJson('/api/site', ['architecture_id' => 'scroll'])
         ->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('staple');
+        ->toBe('scroll');
 });
 
 it('rejects a reserved subdomain', function () {
@@ -128,27 +127,33 @@ it('accepts a valid architecture and settings (negative tests are not over-rejec
         ->toBe('staple');
 });
 
-it('drops a genuinely unknown architecture id instead of persisting it', function () {
+it('rejects a genuinely unknown architecture id with a 422', function () {
+    // Rule::in(Site::ARCHITECTURE_IDS) is the tooth: an out-of-vocabulary
+    // value 422s rather than silently getting dropped, so a typo in a client
+    // never reads back as a quiet no-op.
     $pro = createTenant('unknown-architecture');
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['architecture_id' => 'brutalist'])
-        ->assertOk();
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['architecture_id']);
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
         ->toBe('staple');
 });
 
-it('ignores retired legacy architecture ids and the dropped skeleton_id field', function () {
+it('rejects retired legacy architecture ids, still ignores the dropped skeleton_id field', function () {
     // The skeleton_id field alias and LEGACY_ARCHITECTURE_IDS collapse were
-    // removed 2026-08-05; architecture_id itself left the wire 2026-08-20.
-    // Both the legacy VALUE and the legacy FIELD are now unknown keys —
-    // accepted and dropped, and neither can move the column.
+    // removed 2026-08-05 and stay gone — 'skeleton_id' is still an unknown
+    // key, accepted and dropped. A legacy VALUE under the real field name is
+    // different now (2026-08-24): architecture_id is validated again, so an
+    // old id like 'bento' 422s instead of silently no-op'ing.
     $pro = createTenant('legacy-architecture-pro');
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['architecture_id' => 'bento'])
-        ->assertOk();
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['architecture_id']);
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['skeleton_id' => 'bento'])

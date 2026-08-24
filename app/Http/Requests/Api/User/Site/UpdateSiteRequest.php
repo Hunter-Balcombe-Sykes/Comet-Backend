@@ -94,8 +94,10 @@ class UpdateSiteRequest extends BaseFormRequest
                 },
             ],
 
-            // Architecture — always 'staple' (every legacy id normalized to it
-            // in prepareForValidation; only genuinely unknown strings 422).
+            // Architecture selection (owner, 2026-08-24 — reopens the
+            // 2026-08-20 lockdown): which code-side layout partna-pages
+            // renders. Top-level column, not a settings/design_kit key.
+            'architecture_id' => ['sometimes', 'string', Rule::in(Site::ARCHITECTURE_IDS)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
             // this class and StaffUpdateSiteRequest share a single source of truth
