@@ -2,11 +2,14 @@
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
+use App\Jobs\Platforms\ShopInitialFillJob;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Platforms\ShopBrandProfiler;
+use App\Services\Platforms\ShopCatalog;
+use App\Services\Shop\ShopAutoSelector;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
@@ -292,6 +295,42 @@ it('a stale job cannot clobber an already-settled store (P1 compare-and-set)', f
     expect($storefront->connect_status)->toBeNull();
     // No purge is owed — nothing about the store's public-facing content changed.
     Bus::assertNotDispatched(CloudflareCachePurgeJob::class);
+    // Nor is a fill owed — the settle never landed, so the $settled gate above
+    // returns before the dispatch site is reached at all.
+    Bus::assertNotDispatched(ShopInitialFillJob::class);
+});
+
+// SCALE-4 — the fill + auto-select tail moved off this job's own 75s $timeout
+// onto ShopInitialFillJob's 240s one (T5/T7, 2026-08-20: a measured 70-80s
+// fill killed the worker between fill and select). Proves the tail is
+// DISPATCHED, never run inline, by asserting the two services it used to call
+// directly are never touched.
+it('dispatches ShopInitialFillJob for the fill/auto-select tail instead of running it inline (SCALE-4)', function () {
+    $user = sbcjUserWithSite('dispatchtail');
+    [, $collectionId] = sbcjStore($user, ['externalRef' => 'dispatchtail-brand']);
+
+    // Faked AFTER the fixture, and its own unique lock cleared — same trap the
+    // stale-clobber test above documents: IntegrationConnection::create()
+    // already dispatched its own purge via wasRecentlyCreated, and that stale
+    // lock would otherwise swallow this job's own dispatches.
+    Bus::fake();
+    Cache::getStore()->locks = [];
+
+    $this->mock(ShopBrandProfiler::class, fn ($m) => $m->shouldReceive('forRow')->once()->andReturn([
+        'id' => 'dispatchtail-brand', 'name' => 'Dispatch Tail Store', 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
+    ]));
+    $this->mock(ShopCatalog::class, fn ($m) => $m->shouldNotReceive('syncLatest'));
+    $this->mock(ShopAutoSelector::class, fn ($m) => $m->shouldNotReceive('selectInitial'));
+
+    $job = new ShopBrandConnectJob($collectionId);
+    app()->call([$job, 'handle']);
+
+    // The settle actually landed — proves handle() reached the dispatch site
+    // rather than short-circuiting before it.
+    expect(sbcjStorefront($collectionId)->connect_status)->toBeNull();
+
+    Bus::assertDispatched(ShopInitialFillJob::class, fn (ShopInitialFillJob $dispatched) => $dispatched->collectionId === $collectionId);
+    Bus::assertDispatchedTimes(ShopInitialFillJob::class, 1);
 });
 
 it('a late failure cannot un-settle an already-settled store (P1 compare-and-set on markTerminal)', function () {

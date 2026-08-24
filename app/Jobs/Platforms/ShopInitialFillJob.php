@@ -71,9 +71,13 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
         // fetch is not a failed connect, and the fetch gate/circuit machinery
         // owns retries. The auto-select still runs — selectInitial() treats an
         // empty catalogue as "no stamp", so a later reconnect gets its chance.
+        // Best-effort means no retry, not no alert — report() still fires so
+        // Nightwatch sees it; a prior version of this exact gap (Log::warning
+        // only, no report()) already reached production once.
         try {
             $catalog->syncLatest($store, (string) $store->userId);
         } catch (Throwable $e) {
+            report($e);
             Log::warning('shop.initial_fill_job.fill_failed', [
                 'collection_id' => $this->collectionId,
                 'user_id' => $store->userId,
@@ -84,6 +88,7 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
         try {
             $selector->selectInitial($this->collectionId);
         } catch (Throwable $e) {
+            report($e);
             Log::warning('shop.initial_fill_job.auto_select_failed', [
                 'collection_id' => $this->collectionId,
                 'user_id' => $store->userId,

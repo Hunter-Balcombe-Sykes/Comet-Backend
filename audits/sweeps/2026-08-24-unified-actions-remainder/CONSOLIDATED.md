@@ -335,7 +335,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 4 complete
+- P1 High: 1 of 4 complete
 - P2 Medium: 0 of 8 complete
 - P3 Low: 0 of 5 complete
 
@@ -428,7 +428,7 @@
             ->each(function ($r) use (&$exposures, &$taps, $now): void {
         ```
 
-- [ ] **SCALE-4** · P1 — ShopBrandConnectJob's 75s timeout does not cover the inline catalogue fill it performs after settle, and this exact failure has already occurred live
+- [x] **SCALE-4** · P1 — ShopBrandConnectJob's 75s timeout does not cover the inline catalogue fill it performs after settle, and this exact failure has already occurred live
     - **Where:** app/Jobs/Platforms/ShopBrandConnectJob.php:58, 216-241
     - **Affects:** Every shop connect that reaches the post-settle initial catalogue fill and auto-select; the job can be killed mid-fill, leaving an empty or partially filled product library and stranding the once-only auto-select.
     - **Effort:** M (~2–4h)
@@ -1149,7 +1149,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
+- P1 High: 2 of 2 complete
 - P2 Medium: 0 of 1 complete
 - P3 Low: 0 of 0 complete
 
@@ -1157,7 +1157,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#JOB-1** · P1 — ShopInitialFillJob's fill/auto-select failures are logged only, with no `report()` call, silently regressing a bug that already shipped once
+- [x] **#JOB-1** · P1 — ShopInitialFillJob's fill/auto-select failures are logged only, with no `report()` call, silently regressing a bug that already shipped once
     - **Where:** app/Jobs/Platforms/ShopInitialFillJob.php:74-92
     - **Affects:** Newly connected Shop stores in the scan-suggested lane; a transient `ShopCatalog::syncLatest()` failure leaves the product library empty (and the first-connect auto-select with nothing to pick) until the 6-hourly scheduled `ShopFetch`, with zero alerting anywhere.
     - **Effort:** S (~0.5–1h)
@@ -1189,7 +1189,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         }
         ```
 
-- [ ] **#JOB-2** · P1 — ShopBrandConnectJob's fill/auto-select catches have the same log-only pattern as JOB-1, same root cause
+- [x] **#JOB-2** · P1 — ShopBrandConnectJob's fill/auto-select catches have the same log-only pattern as JOB-1, same root cause
     - **Where:** app/Jobs/Platforms/ShopBrandConnectJob.php:216-241
     - **Affects:** Every store connect through the primary `addBrand` lane; a failed initial catalogue fill or auto-select is invisible to Nightwatch, reverting the exact "fresh connect ends with zero products" regression the surrounding comment says this code was written to fix.
     - **Effort:** S (~0.5–1h)
