@@ -98,6 +98,33 @@ class PreAccountBuild extends BaseModel
         return $this->belongsTo(PartnaStaff::class, 'built_by_staff_id');
     }
 
+    /**
+     * Was this build made FOR someone, rather than BY them?
+     *
+     * An outreach build carries a real business's name, photos and hours,
+     * scraped before that business has ever heard of Partna — so it must only
+     * ever be claimed by an invited address, never first-come.
+     *
+     * Keyed on WHO CREATED THE ROW, not on `built_via`. `built_via` is derived
+     * from the caller (PreAccountBuildService: `$builtVia ?? ($staff ?
+     * VIA_STAFF : VIA_SIGNUP)`), and the public unauthenticated build endpoint
+     * passes neither — so every row it creates reads `signup`, and anything
+     * exempting `signup` would exempt an attacker's scrape of a real business.
+     * `built_by_staff_id` cannot be set from a public request.
+     *
+     * VIA_EARLY_ACCESS is trustworthy here only because the public
+     * early-access form no longer builds synchronously (see
+     * EarlyAccessService): the sole remaining writer of an early-access build
+     * is ApproveEarlyAccessBuildJob, behind staff approval. If that ever
+     * changes, this arm must go — an anonymous caller able to set `built_via`
+     * would use it to exempt themselves.
+     */
+    public function isOutreach(): bool
+    {
+        return $this->built_by_staff_id !== null
+            || $this->built_via === self::VIA_EARLY_ACCESS;
+    }
+
     /** Live = not yet claimed (the partial-unique-index predicate). */
     public function scopeLive(Builder $query): Builder
     {

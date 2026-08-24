@@ -34,6 +34,15 @@ $blockTypes = [
 ];
 
 return [
+
+    'auth' => [
+        // Enforce RequireStrongAuth (see the middleware). Ships FALSE: it is a
+        // new denial on a live route and the real amr distribution is unknown.
+        // Read `auth.strong_auth.would_deny` in the logs, confirm no legitimate
+        // cohort is caught, then flip.
+        'strong_auth_enforce' => env('AUTH_STRONG_AUTH_ENFORCE', false),
+    ],
+
     // Shared-secret token for GET /api/internal/env-check. Required to enable
     // the endpoint. When unset, the endpoint returns 503 — fail-closed by default
     // so a fresh deploy never accidentally exposes the env-var report.

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Staff\UserSiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Requests\Api\Staff\UserSite\StaffAttachContactEmailRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffBatchPreAccountBuildRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffCreatePreAccountBuildRequest;
 use App\Http\Resources\PreAccountBuildStatusResource;
@@ -55,6 +56,57 @@ class StaffPreAccountBuildController extends ApiController
             (new PreAccountBuildStatusResource($result['build']))->resolve(),
             $result['reused'] ? 200 : 202,
         );
+    }
+
+    // PATCH /api/staff/builds/{build}/contact-email — attach or correct the
+    // invited address.
+    //
+    // PREREQUISITE for the 2026-08-24 invite-gate, not a convenience: an
+    // outreach build with no contact_email is now unclaimable
+    // (ClaimSiteService -> CLAIM_NOT_INVITED). Without this endpoint every such
+    // build would be permanently stranded, because the create path never
+    // updates contact_email on an existing row (PreAccountBuildService returns
+    // on the dedupe branch before the create block writes it).
+    //
+    // Deliberately allowed on an ALREADY-INVITED build: the common reason to
+    // reach for this is that the first address was wrong. Re-pointing clears
+    // invited_at so the invite can genuinely be re-sent — otherwise `invite`
+    // would answer ALREADY_INVITED forever and the new address would never
+    // hear from us.
+    public function attachContactEmail(
+        StaffAttachContactEmailRequest $request,
+        PreAccountBuild $build
+    ): JsonResponse {
+        $staff = request()->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffCreate', PreAccountBuild::class);
+
+        if ($build->claimed_at !== null) {
+            return $this->error(
+                'This build has already been claimed — its owner controls the address now.',
+                409,
+                [],
+                ['code' => 'ALREADY_CLAIMED']
+            );
+        }
+
+        $email = mb_strtolower(trim($request->validated()['contact_email']));
+        $changed = mb_strtolower(trim((string) $build->contact_email)) !== $email;
+
+        // contact_email / invited_at are not fillable — this is a trusted
+        // staff-only lifecycle write, so forceFill rather than widening $fillable.
+        $build->forceFill([
+            'contact_email' => $email,
+            'invited_at' => $changed ? null : $build->invited_at,
+        ])->save();
+
+        Log::info('pre_account.contact_email.attached', [
+            'build_id' => $build->id,
+            'staff_id' => $staff?->id,
+            'changed' => $changed,
+            're_invitable' => $changed && $build->invited_at === null,
+        ]);
+
+        return $this->success((new StaffPreAccountBuildResource($build->fresh('user.site')))->resolve());
     }
 
     // POST /api/staff/builds/{build}/invite — manual send for auto_invite=false

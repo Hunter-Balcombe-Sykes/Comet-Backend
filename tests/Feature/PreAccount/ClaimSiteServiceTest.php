@@ -269,6 +269,80 @@ it('falls back display_name to the handle when the provisional user has none, an
         ->and(Site::query()->where('user_id', $user->id)->first()->is_published)->toBeTrue();
 });
 
+// ── Invite-gate (owner decision, 2026-08-24) ────────────────────────────────
+// An OUTREACH build carries a real business's name, photos and hours, scraped
+// before they have heard of Partna. The email-gate's "absent contact_email =
+// first-come" arm was written for SELF-SERVE builds, where the claimer is the
+// person who just built it. On an outreach row that arm hands a stranger a real
+// business's site. These tests pin the split.
+
+it('INVITE-GATE: refuses an outreach build that has nobody to invite', function () {
+    [$user, $site, $build] = makeReadyBuild();
+    $staff = \App\Models\Core\Staff\PartnaStaff::factory()->create();
+    $build->builtByStaff()->associate($staff);
+    $build->forceFill(['contact_email' => null])->save();
+
+    expect(fn () => app(ClaimSiteService::class)
+        ->claim('auth-uid-1', 'anyone@example.com', 'janedoe'))
+        ->toThrow(RuntimeException::class, 'CLAIM_NOT_INVITED');
+
+    // And nothing was half-written on the way out.
+    expect($user->fresh()->auth_user_id)->toBeNull()
+        ->and($user->fresh()->status)->toBe('unclaimed')
+        ->and($build->fresh()->claimed_at)->toBeNull();
+});
+
+it('INVITE-GATE: treats an early-access build as outreach too', function () {
+    [$user, $site, $build] = makeReadyBuild();
+    $build->forceFill(['built_via' => PreAccountBuild::VIA_EARLY_ACCESS, 'contact_email' => null])->save();
+
+    expect(fn () => app(ClaimSiteService::class)
+        ->claim('auth-uid-1', 'anyone@example.com', 'janedoe'))
+        ->toThrow(RuntimeException::class, 'CLAIM_NOT_INVITED');
+});
+
+it('INVITE-GATE: a blank-string contact_email is treated as absent, not as a gate', function () {
+    // Guards the shape where a CSV import writes '' rather than NULL. Without
+    // trimming, `'' !== null` would satisfy the invite gate AND then fail the
+    // email gate for everyone — a site nobody could ever claim.
+    [$user, $site, $build] = makeReadyBuild();
+    $staff = \App\Models\Core\Staff\PartnaStaff::factory()->create();
+    $build->builtByStaff()->associate($staff);
+    $build->forceFill(['contact_email' => '   '])->save();
+
+    expect(fn () => app(ClaimSiteService::class)
+        ->claim('auth-uid-1', 'anyone@example.com', 'janedoe'))
+        ->toThrow(RuntimeException::class, 'CLAIM_NOT_INVITED');
+});
+
+it('INVITE-GATE: an INVITED outreach build still claims normally for the invited address', function () {
+    Mail::fake();
+    [$user, $site, $build] = makeReadyBuild();
+    $staff = \App\Models\Core\Staff\PartnaStaff::factory()->create();
+    $build->builtByStaff()->associate($staff);
+    $build->forceFill(['contact_email' => 'Owner@Example.com'])->save();
+
+    // Case-insensitive, as before.
+    $result = app(ClaimSiteService::class)->claim('auth-uid-1', 'owner@example.com', 'janedoe');
+
+    expect($result['professional']->id)->toBe($user->id)
+        ->and($user->fresh()->status)->toBe('active');
+});
+
+it('INVITE-GATE: a SELF-SERVE build with no contact_email is untouched by the gate', function () {
+    // The person claiming is the person who just built it, in the same session.
+    // Blocking this would break every self-serve signup.
+    Mail::fake();
+    [$user, $site, $build] = makeReadyBuild();
+    $build->forceFill(['built_via' => PreAccountBuild::VIA_SIGNUP, 'contact_email' => null])->save();
+    expect($build->fresh()->built_by_staff_id)->toBeNull();
+
+    $result = app(ClaimSiteService::class)->claim('auth-uid-1', 'whoever@example.com', 'janedoe');
+
+    expect($result['professional']->id)->toBe($user->id)
+        ->and($user->fresh()->status)->toBe('active');
+});
+
 it('rejects a claim whose verified email does not match an email-gated build', function () {
     [$user, $site, $build] = makeReadyBuild();
     $build->forceFill(['contact_email' => 'owner@example.com'])->save();

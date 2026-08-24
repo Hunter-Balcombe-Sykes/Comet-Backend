@@ -11,6 +11,7 @@ use App\Http\Middleware\AddPublicCacheHeaders;
 use App\Http\Middleware\Auth\EnsurePartnaAdmin;
 use App\Http\Middleware\Auth\EnsurePartnaStaff;
 use App\Http\Middleware\Auth\RequireAal2;
+use App\Http\Middleware\Auth\RequireStrongAuth;
 use App\Http\Middleware\Auth\RequireEmailVerified;
 use App\Http\Middleware\Auth\RequireVerifiedRevocation;
 use App\Http\Middleware\Auth\VerifyResendWebhookSignature;
@@ -154,6 +155,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'feature' => FeatureGate::class,
             'bot.token' => VerifyBotToken::class,
             'require.aal2' => RequireAal2::class,
+            'require.strong_auth' => RequireStrongAuth::class,
             // Selective fail-closed revocation. NOT redundant with require.aal2:
             // that reads a JWT claim and proves MFA happened at LOGIN; this
             // proves the session has not been revoked SINCE. Different questions,

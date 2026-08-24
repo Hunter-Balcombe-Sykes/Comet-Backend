@@ -37,7 +37,7 @@ class ClaimSiteService
     /**
      * @return array{professional: User, site: Site, is_new_claim?: bool}
      *
-     * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_FAILED|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED|CLAIM_EMAIL_MISMATCH
+     * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_FAILED|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED|CLAIM_EMAIL_MISMATCH|CLAIM_NOT_INVITED
      */
     public function claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false): array
     {
@@ -71,11 +71,28 @@ class ClaimSiteService
                 throw new RuntimeException('BUILD_FAILED');
             }
 
+            // Invite-gate (owner decision, 2026-08-24). An OUTREACH build was
+            // made FOR a business that has never heard of Partna — it carries
+            // their name, photos and hours. The email-gate below only bites
+            // when contact_email is set, and its "absent = first-come" arm was
+            // written for self-serve builds, where the person claiming IS the
+            // person who just built it. On an outreach row that same arm hands
+            // a real business's site to whoever guesses the handle.
+            //
+            // So: an outreach build with nobody to invite is not claimable at
+            // all until staff attach an address (StaffPreAccountBuildController
+            // ::attachContactEmail). Self-serve builds are untouched.
+            $contactEmail = trim((string) $build->contact_email);
+            if ($build->isOutreach() && $contactEmail === '') {
+                throw new RuntimeException('CLAIM_NOT_INVITED');
+            }
+
             // Email-gate (spec §3.2): a build carrying a contact_email may only be
             // claimed by someone who verified control of THAT inbox via Supabase OTP.
-            // Absent contact_email = first-come (unchanged). Case-insensitive.
-            if ($build->contact_email !== null
-                && strtolower(trim($verifiedEmail)) !== strtolower(trim($build->contact_email))) {
+            // Absent contact_email = first-come (self-serve only, per the gate above).
+            // Case-insensitive.
+            if ($contactEmail !== ''
+                && strtolower(trim($verifiedEmail)) !== strtolower($contactEmail)) {
                 throw new RuntimeException('CLAIM_EMAIL_MISMATCH');
             }
 

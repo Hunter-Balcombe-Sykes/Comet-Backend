@@ -264,9 +264,16 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // revoked session here is a complete data exfiltration rather than a
         // recoverable edit. Fails closed (503) when Redis cannot confirm the
         // session is live.
+        // `require.strong_auth`: one call returns the whole PII bundle, and since
+        // /auth/confirm shipped a magic link establishes a full aal1 session with
+        // no password — so mailbox access alone must not be enough to exfiltrate
+        // it. NOT `require.aal2`, which would deny every user with no factor
+        // enrolled and break GDPR portability for most of them. Ships in SHADOW
+        // (logs `auth.strong_auth.would_deny`, allows) until
+        // partna.auth.strong_auth_enforce is turned on.
         Route::post('/me/data-export', [UserDataExportController::class, 'store'])
             ->withoutMiddleware([EnforcePendingDeletionReadOnly::class])
-            ->middleware(['throttle:1,1440', 'revocation.strict']);
+            ->middleware(['throttle:1,1440', 'revocation.strict', 'require.strong_auth']);
         // MFA self-service — fresh AAL2 enforced inside the controller (tighter
         // 60s window than session-level aal2). No require.aal2 middleware here.
         // `revocation.strict` because stripping a factor is a credential

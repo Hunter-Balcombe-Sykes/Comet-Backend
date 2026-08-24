@@ -68,6 +68,34 @@ class PreAccountBuildService
         // (spec §4.1); e.g. a claim-flow retry can legitimately arrive with a
         // different (even mismatched) account_type than the build was created with.
         if ($existing = $this->findLive($sourceType, $refLc)) {
+            // A staff request carrying an address for an existing live build must
+            // not have it silently dropped. This early return sits ABOVE the
+            // create block that writes contact_email, so before 2026-08-24 a CSV
+            // row naming an already-built source left staff believing they had
+            // gated a site that was in fact wide open — and after the invite-gate
+            // landed, believing they had UNBLOCKED one that was still stranded.
+            //
+            // Staff only. A public caller must never be able to write
+            // contact_email onto an existing row: that is the field deciding who
+            // may claim it, so an anonymous write would be a takeover primitive.
+            if ($staff !== null && $contactEmail !== null && trim($contactEmail) !== '') {
+                $incoming = mb_strtolower(trim($contactEmail));
+                $current = mb_strtolower(trim((string) $existing->contact_email));
+
+                if ($current === '') {
+                    // contact_email is not fillable — trusted staff lifecycle write.
+                    $existing->forceFill(['contact_email' => $incoming])->save();
+                } elseif ($current !== $incoming) {
+                    // Loudly, not silently: two different addresses claiming the
+                    // same business is a human question, and picking either one
+                    // automatically can hand the site to the wrong person.
+                    throw new PreAccountBuildException(
+                        PreAccountBuildException::CONTACT_EMAIL_CONFLICT,
+                        "A build for this source already exists with a different contact email. Use PATCH /staff/builds/{$existing->id}/contact-email to change it deliberately."
+                    );
+                }
+            }
+
             return ['build' => $this->reserve($existing), 'reused' => true];
         }
 

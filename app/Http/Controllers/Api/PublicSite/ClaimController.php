@@ -51,6 +51,17 @@ class ClaimController extends ApiController
                 'ACCOUNT_EXISTS' => $this->error('Your account already has a site.', 409, [], ['code' => 'ACCOUNT_EXISTS']),
                 'EMAIL_ALREADY_REGISTERED' => $this->error('This email is already registered.', 409, [], ['code' => 'EMAIL_ALREADY_REGISTERED']),
                 'CLAIM_EMAIL_MISMATCH' => $this->error('This site is reserved for a different email address.', 409, [], ['code' => 'CLAIM_EMAIL_MISMATCH']),
+                // Outreach build with no invited address: staff must attach one
+                // before anyone can claim it. Deliberately does NOT confirm the
+                // site exists in any way a bare 404 wouldn't — it is reachable
+                // only by handle, which is public anyway, and it must not become
+                // an oracle for "this handle is a staff-built site worth taking".
+                'CLAIM_NOT_INVITED' => $this->error(
+                    "This site isn't open for claiming yet. If it's yours, reply to the email we sent you or contact support.",
+                    409,
+                    [],
+                    ['code' => 'CLAIM_NOT_INVITED']
+                ),
                 default => throw $e,
             };
         }
