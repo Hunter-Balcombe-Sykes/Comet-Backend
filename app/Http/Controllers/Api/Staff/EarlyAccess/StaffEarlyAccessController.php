@@ -180,7 +180,7 @@ class StaffEarlyAccessController extends ApiController
         $staff = request()->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $signup);
 
-        ApproveEarlyAccessBuildJob::dispatch($signup->id, $this->buildSourceType($signup));
+        ApproveEarlyAccessBuildJob::dispatch($signup->id, $this->buildSourceType($signup), $staff?->id);
 
         return $this->success(['ok' => true], 202);
     }
@@ -211,24 +211,30 @@ class StaffEarlyAccessController extends ApiController
             // (and reports) each row once — the previous whereIn() deduped implicitly.
             foreach (array_unique($data['ids']) as $id) {
                 $row = $rows->get($id);
-                if ($row === null || $row->user_id === null) {
-                    $skipped[] = $id; // missing (raced a delete) or no build to approve
+                // user_id === null is no longer "nothing to approve": since
+                // 2026-08-24 the public form captures the lead without building,
+                // and the job creates the build on approval. Only a genuinely
+                // missing row is skipped.
+                if ($row === null) {
+                    $skipped[] = $id; // missing (raced a delete)
 
                     continue;
                 }
-                ApproveEarlyAccessBuildJob::dispatch($row->id, $this->buildSourceType($row));
+                ApproveEarlyAccessBuildJob::dispatch($row->id, $this->buildSourceType($row), $staff?->id);
                 $dispatched[] = $row->id;
             }
         } elseif (! empty($data['all_waitlisted'])) {
             // No explicit selection to reconcile against — dispatch every
             // build-linked waitlisted row; unbuilt waitlist rows are simply out
             // of scope here, not a per-row "skip".
+            // No whereNotNull('user_id') any more: since the public form stopped
+            // building, every new row has a null user_id and this filter matched
+            // nothing — approve-bulk silently returned dispatched:0.
             EarlyAccessSignup::query()
-                ->whereNotNull('user_id')
                 ->where('status', EarlyAccessSignup::STATUS_WAITLIST)
                 ->lazyById()
-                ->each(function (EarlyAccessSignup $s) use (&$dispatched) {
-                    ApproveEarlyAccessBuildJob::dispatch($s->id, $this->buildSourceType($s));
+                ->each(function (EarlyAccessSignup $s) use (&$dispatched, $staff) {
+                    ApproveEarlyAccessBuildJob::dispatch($s->id, $this->buildSourceType($s), $staff?->id);
                     $dispatched[] = $s->id;
                 });
         } else {

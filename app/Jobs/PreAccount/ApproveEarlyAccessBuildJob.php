@@ -5,8 +5,10 @@ namespace App\Jobs\PreAccount;
 use App\Jobs\Concerns\ThrottlesPreAccountScraping;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimNotifier;
+use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
 use Illuminate\Bus\Queueable;
@@ -52,6 +54,9 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
     public function __construct(
         public readonly string $signupId,
         public readonly string $sourceType,
+        /** Staff who approved — stamped onto a build created here, so the claim
+         *  invite-gate (PreAccountBuild::isOutreach) recognises it as outreach. */
+        public readonly ?string $approvedByStaffId = null,
     ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
@@ -61,13 +66,80 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
         return $this->signupId;
     }
 
-    public function handle(SourceGeneratorRegistry $registry, ClaimNotifier $notifier): void
-    {
+    public function handle(
+        SourceGeneratorRegistry $registry,
+        ClaimNotifier $notifier,
+        PreAccountBuildService $builds,
+    ): void {
         $signup = EarlyAccessSignup::find($this->signupId);
-        if ($signup === null || $signup->user_id === null) {
+        if ($signup === null) {
             Log::info('early_access.approve.no_link', ['signup_id' => $this->signupId]);
 
             return;
+        }
+
+        // CREATE the build if the signup has none. Until 2026-08-24 the public
+        // marketing form built one synchronously and this job only FRESHENED
+        // it — but that form was a permanent handle squat (anonymous, no IP
+        // cap, expires_at NULL and therefore never pruned), so it now captures
+        // the lead only. That made this job a silent no-op for every row
+        // created since: staff got 202 {ok:true}, the early-return below fired,
+        // and nothing was ever built or claimable.
+        //
+        // Building HERE is safe where doing it on the public form was not:
+        // this runs behind staff.admin + staffManage, so a human has decided
+        // this lead should get a site, and `staff` is passed so the row carries
+        // built_by_staff_id — which is what PreAccountBuild::isOutreach() reads
+        // and what makes the claim invite-gate apply to it.
+        if ($signup->user_id === null) {
+            if (empty($signup->source_type) || empty($signup->source_ref)) {
+                Log::info('early_access.approve.no_source', ['signup_id' => $signup->id]);
+
+                return;
+            }
+            // Resolved from the id rather than serialised as a model: the job
+            // may run long after dispatch, and a stale serialised staff row is
+            // worse than a null one (null only loses the outreach stamp).
+            $approvingStaff = $this->approvedByStaffId !== null
+                ? PartnaStaff::find($this->approvedByStaffId)
+                : null;
+
+            try {
+                $result = $builds->requestBuild(
+                    accountType: $signup->type,
+                    sourceType: $signup->source_type,
+                    rawSourceRef: $signup->source_ref,
+                    sourceName: null,
+                    ipHash: null,
+                    staff: $approvingStaff,
+                    publish: true,
+                    expiresDays: null,
+                    contactEmail: $signup->email_lc,
+                    builtVia: PreAccountBuild::VIA_EARLY_ACCESS,
+                );
+            } catch (Throwable $e) {
+                Log::warning('early_access.approve.build_failed', [
+                    'signup_id' => $signup->id, 'error' => $e->getMessage(),
+                ]);
+                report($e);
+
+                return;
+            }
+
+            // Same collision guard the public path used to carry: the dedupe in
+            // requestBuild re-serves ANY live build for this source ref. Linking
+            // a signup/staff row here would leave the site NOT email-gated.
+            if ($result['build']->built_via !== PreAccountBuild::VIA_EARLY_ACCESS) {
+                Log::warning('early_access.approve.build_collision', [
+                    'signup_id' => $signup->id,
+                    'built_via' => $result['build']->built_via,
+                ]);
+
+                return;
+            }
+
+            $signup->forceFill(['user_id' => $result['build']->user_id])->save();
+            $signup->refresh();
         }
 
         $build = PreAccountBuild::where('user_id', $signup->user_id)->first();
