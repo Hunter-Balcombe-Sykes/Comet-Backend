@@ -121,6 +121,7 @@ class LinkInBioImporter
         $droppedReasons = [];
         $unavailable = 0;
         $unavailableReasons = [];
+        $unrolled = [];
 
         foreach ($pages as $pageUrl) {
             $response = $this->fetcher->tryFetch($pageUrl);
@@ -146,7 +147,17 @@ class LinkInBioImporter
                 continue;
             }
 
+            // Which PAGE yielded is not derivable from the run-wide
+            // $observations, and the retire below must not treat "some page
+            // unrolled" as "this page unrolled". Record both the requested URL
+            // and the one we landed on: a card may have been floored for
+            // either, depending on which run created it.
+            $before = count($seen);
             $this->unroll($response['finalUrl'], $response['body'], $context, $tally, $seen, $probedHosts, $placedKeys, $droppedReasons);
+            if (count($seen) > $before) {
+                $unrolled[] = $pageUrl;
+                $unrolled[] = $response['finalUrl'];
+            }
         }
 
         $fetched = count($pages) - $unavailable;
@@ -188,7 +199,7 @@ class LinkInBioImporter
             // we have only just learned to read (clk.bio, 2026-08-24), would
             // otherwise leave the owner holding the inert card AND the links
             // that came out of it.
-            $this->retireFloorCards($user, $pages);
+            $this->retireFloorCards($user, $unrolled);
         }
 
         // Every page down is the same failure the single-page path always
@@ -337,16 +348,21 @@ class LinkInBioImporter
      * canonicalised form, so an exact string match would miss its own card.
      * LinkPoolReader::remove() discharges all three cache lanes.
      *
-     * @param  list<string>  $pages
+     * @param  list<string>  $unrolled  pages that actually yielded, not every page in the run
      */
-    private function retireFloorCards(User $user, array $pages): void
+    private function retireFloorCards(User $user, array $unrolled): void
     {
         $keys = [];
-        foreach ($pages as $page) {
+        foreach ($unrolled as $page) {
             $keys[$this->pageKey($page)] = true;
         }
 
-        foreach ($this->linkReader->cards($user) as $card) {
+        // cardsForSite(), never cards(): the latter PROVISIONS the pool section
+        // as a side-effect of reading, which would make this success path
+        // require site.sections where it never did before (it turned
+        // TombstoneResurrectionTest red). No section means no cards means
+        // nothing to retire — the honest answer.
+        foreach ($this->linkReader->cardsForSite($user->site) as $card) {
             $url = $card['url'] ?? null;
             if (is_string($url) && isset($keys[$this->pageKey($url)])) {
                 $this->linkReader->remove($user, $card['id']);

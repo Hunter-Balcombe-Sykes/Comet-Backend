@@ -5,6 +5,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -852,5 +853,36 @@ it('leaves a card the owner holds for some other page alone', function () {
     app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/different');
 
     // The beacons card survives — nothing unrolled THAT url.
+    expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
+});
+
+// A bio_harvest run carries N pages and $observations counts the whole RUN, so
+// "something unrolled" must not be read as "every page unrolled". One page
+// coming back while another is still blocked would otherwise retire the
+// blocked page's card — deleting a link the owner can still see nothing else
+// for.
+it('keeps the card of a page that is still down when a sibling page unrolls', function () {
+    $pro = createTenant('bio-batch');
+    $siblingUp = false;
+    Http::fake(function (Request $request) use (&$siblingUp) {
+        if (str_contains($request->url(), 'linktr.ee/up')) {
+            return $siblingUp
+                ? Http::response('<html><body><a href="https://www.instagram.com/batchup">IG</a></body></html>', 200, ['Content-Type' => 'text/html'])
+                : Http::response('', 403);
+        }
+
+        return Http::response('', 403);
+    });
+
+    // The blocked page gets its floor card on its own run.
+    app(LinkInBioImporter::class)->import($pro, ['https://beacons.ai/stilldown']);
+    expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
+
+    // Now a batch: the sibling reads, the blocked one still 403s.
+    $siblingUp = true;
+    app(LinkInBioImporter::class)->import($pro, ['https://linktr.ee/up', 'https://beacons.ai/stilldown'], 'bio_harvest');
+
+    // beacons.ai never unrolled, so its card is still the only thing standing
+    // for that link.
     expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
 });
