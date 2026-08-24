@@ -13,6 +13,10 @@ it('refuses to read a share widget as somebody\'s profile', function (string $ur
     'facebook' => 'https://www.facebook.com/sharer.php?u=https%3A%2F%2Fclk.bio%2FTheMetaPunter',
     'twitter' => 'https://twitter.com/intent/tweet?text=Check',
     'whatsapp' => 'https://wa.me/?text=Check',
+    // Not on the clk.bio page — found while regression-checking every
+    // social host the guard now covers. Telegram's share endpoint
+    // classified as a real channel before this change.
+    'telegram' => 'https://t.me/share/url?url=https%3A%2F%2Facme.test',
 ]);
 
 // The guard must not swallow the real accounts sitting next to those buttons
