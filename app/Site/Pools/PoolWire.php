@@ -55,10 +55,89 @@ class PoolWire
             return [];
         }
 
-        $out = [];
+        // plan → ONE shared hydrate → assemble (2026-08-24): resolving each
+        // pool independently ran itemPayloads' ~20 facet queries nine times
+        // over. The ids are planned per pool (cheap), hydrated once as a
+        // union, and each pool assembles from the shared payload map — same
+        // rows, same shapes, a fraction of the round trips. Measured on a
+        // real site: 244 queries → ~60, and GET /site/actions' pools phase
+        // from 58.8s to single-digit seconds on a high-latency link.
+        // The shared pre-reads: one sections ensure, one curation query.
+        // Failing here fails every pool at once, so it takes the same two
+        // arms the shared hydrate below does.
+        try {
+            $sections = $this->pools->preloadSections($site, array_keys(PoolRegistry::POOLS));
+            $curationBySection = $this->pools->preloadCuration($sections);
+        } catch (QueryException $e) {
+            if ($this->poolLaneAbsent($e)) {
+                return [];
+            }
+            Log::warning('sitepage.pool_preload_failed', [
+                'site_id' => $site->id,
+                'user_id' => $site->user_id,
+                'error' => $e->getMessage(),
+            ]);
+            $resolver->markDegraded();
+
+            return [];
+        }
+
+        $plans = [];
         foreach (array_keys(PoolRegistry::POOLS) as $pool) {
             try {
-                $resolved = $this->pools->resolve($site, $pool);
+                $section = $sections[$pool];
+                $plans[$pool] = $this->pools->plan(
+                    $site,
+                    $pool,
+                    $section,
+                    $curationBySection[(string) $section->id] ?? collect(),
+                );
+            } catch (QueryException $e) {
+                if ($this->poolLaneAbsent($e)) {
+                    return [];
+                }
+                Log::warning('sitepage.pool_query_failed', [
+                    'pool' => $pool,
+                    'site_id' => $site->id,
+                    'user_id' => $site->user_id,
+                    'error' => $e->getMessage(),
+                ]);
+                $resolver->markDegraded();
+
+                continue;
+            }
+        }
+
+        $allIds = [];
+        foreach ($plans as $plan) {
+            array_push($allIds, ...$plan['selectionIds'], ...$plan['libraryIds']);
+        }
+
+        try {
+            [$payloads, $stores] = $this->pools->hydrateItems($site, array_values(array_unique($allIds)));
+        } catch (QueryException $e) {
+            if ($this->poolLaneAbsent($e)) {
+                return [];
+            }
+            // ONE batch, one fate: the shared hydration failing takes the
+            // whole lane down for this build rather than pool-by-pool — the
+            // degraded flag puts both cache keys on the 10s TTL, so the page
+            // heals seconds after the database does (#LIFE-6's contract,
+            // coarser grain).
+            Log::warning('sitepage.pool_hydration_failed', [
+                'site_id' => $site->id,
+                'user_id' => $site->user_id,
+                'error' => $e->getMessage(),
+            ]);
+            $resolver->markDegraded();
+
+            return [];
+        }
+
+        $out = [];
+        foreach ($plans as $pool => $plan) {
+            try {
+                $resolved = $this->pools->assemble($site, $pool, $plan, $payloads, $stores);
             } catch (QueryException $e) {
                 // TWO different failures used to share one `return []`, and
                 // #LIFE-6 is only about the second of them.

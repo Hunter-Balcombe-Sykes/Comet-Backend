@@ -82,6 +82,45 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
             return ['selection' => [], 'library' => [], 'latestItemId' => null, 'collections' => [], 'diningModes' => null, 'stats' => null];
         }
 
+        // PoolWire runs plan → hydrateItems → assemble since the 2026-08-24
+        // batching, so the per-pool poison moved from resolve() to
+        // assemble() — the per-pool phase — and the shared phases answer
+        // inertly. resolve() keeps the same behaviour for any single-pool
+        // caller.
+        public function preloadSections(Site $site, array $pools): array
+        {
+            $out = [];
+            foreach ($pools as $pool) {
+                $out[$pool] = (object) ['id' => 'section-'.$pool];
+            }
+
+            return $out;
+        }
+
+        public function preloadCuration(array $sections): array
+        {
+            return [];
+        }
+
+        public function plan(Site $site, string $pool, ?object $section = null, ?Illuminate\Support\Collection $curation = null): array
+        {
+            return ['pinned' => [], 'ruleIds' => [], 'autoSet' => [], 'selectionIds' => [], 'libraryIds' => []];
+        }
+
+        public function hydrateItems(Site $site, array $ids): array
+        {
+            return [[], collect()];
+        }
+
+        public function assemble(Site $site, string $pool, array $plan, array $payloads, Illuminate\Support\Collection $stores): array
+        {
+            if ($pool === $this->failingPool) {
+                throw new QueryException('pgsql', 'select * from content.items', [], new RuntimeException('server closed the connection unexpectedly'));
+            }
+
+            return $this->answers[$pool] ?? self::emptyPool();
+        }
+
         public function resolve(Site $site, string $pool): array
         {
             if ($pool === $this->failingPool) {
@@ -182,7 +221,19 @@ it('bails on the whole lane — and does NOT mark degraded — when the content 
     {
         public function __construct() {}
 
+        /** The lane-absent throw fires on the FIRST shared pre-read now
+         * (2026-08-24 batching) — same failure, earliest seam. */
+        public function preloadSections(Site $site, array $pools): array
+        {
+            $this->throwLaneAbsent();
+        }
+
         public function resolve(Site $site, string $pool): array
+        {
+            $this->throwLaneAbsent();
+        }
+
+        private function throwLaneAbsent(): never
         {
             // Exactly what SQLite raises for an unprovisioned lane, and what
             // Postgres raises as SQLSTATE 42P01.
@@ -223,7 +274,18 @@ it('recognises the POSTGRES undefined-table code, not just the SQLite message', 
     {
         public function __construct() {}
 
+        /** Same seam move as the SQLite case above (2026-08-24 batching). */
+        public function preloadSections(Site $site, array $pools): array
+        {
+            $this->throwUndefinedTable();
+        }
+
         public function resolve(Site $site, string $pool): array
+        {
+            $this->throwUndefinedTable();
+        }
+
+        private function throwUndefinedTable(): never
         {
             $previous = new class('SQLSTATE[42P01]: Undefined table: 7 ERROR:  relation "content.items" does not exist') extends PDOException
             {

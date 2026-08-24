@@ -18,6 +18,37 @@ use Illuminate\Support\Str;
  */
 class PoolSectionProvisioner
 {
+    /**
+     * ensure() for a set of pools with ONE existence query (2026-08-24, the
+     * actions-endpoint batching): the steady state — every section already
+     * provisioned — reads them all in a single round trip; only a pool whose
+     * row is genuinely missing takes the per-pool find-or-create slow path.
+     *
+     * @param  list<string>  $pools
+     * @return array<string, object> keyed by pool
+     */
+    public function ensureMany(Site $site, array $pools): array
+    {
+        $keyToPool = [];
+        foreach ($pools as $pool) {
+            $keyToPool[PoolRegistry::sectionKey($pool)] = $pool;
+        }
+
+        $rows = DB::connection('pgsql')->table('site.sections')
+            ->where('site_id', $site->id)
+            ->whereIn('key', array_keys($keyToPool))
+            ->get()
+            ->keyBy('key');
+
+        $out = [];
+        foreach ($pools as $pool) {
+            $row = $rows->get(PoolRegistry::sectionKey($pool));
+            $out[$pool] = $row ?? $this->ensure($site, $pool);
+        }
+
+        return $out;
+    }
+
     /** @return object The site.sections row (raw, as DocumentBuilder reads it). */
     public function ensure(Site $site, string $pool): object
     {
