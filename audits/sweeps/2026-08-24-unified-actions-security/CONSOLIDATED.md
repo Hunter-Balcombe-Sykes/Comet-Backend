@@ -557,7 +557,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 16 complete
 - P3 Low: 0 of 8 complete
 
@@ -565,7 +565,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **SEM-1** · P1 — Fresha service sync deletes valid menu items whenever any row fails to map
+- [x] **SEM-1** · P1 — Fresha service sync deletes valid menu items whenever any row fails to map
     - **Where:** app/Ingest/Connectors/FreshaConnector.php:63-75, 234-282
     - **Affects:** Every Fresha-connected professional whose menu contains at least one item the mapper can't recognise — those items are actively deleted from their live services pool, not just skipped.
     - **Effort:** M (~2–4h)

@@ -235,10 +235,48 @@ it('emits no coverage when categories parse but nothing maps to a real service',
     $pull = freshaPull('services', config: ['selection_ref' => 'storewide']);
     $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io));
 
-    expect($messages)->toHaveCount(1)
+    // Hunk 1 moves unmapped_rows ABOVE the empty_menu early return, so an
+    // all-unreadable batch now carries both — the gap must be on the record
+    // even when it also means "nothing landed".
+    expect($messages)->toHaveCount(2)
         ->and($messages[0])->toBeInstanceOf(Note::class)
-        ->and($messages[0]->code)->toBe('empty_menu')
+        ->and($messages[0]->code)->toBe('unmapped_rows')
+        ->and($messages[1])->toBeInstanceOf(Note::class)
+        ->and($messages[1]->code)->toBe('empty_menu')
         ->and(array_filter($messages, fn ($m) => $m instanceof Covered))->toBeEmpty();
+});
+
+it('claims only unknown coverage when a row could not be mapped, so absence cannot mean deletion', function () {
+    $unmappable = ['name' => 'Mystery', 'primaryAction' => ['id' => '[{"type":"whatever"}]']];
+    $io = freshaIo(freshaResponseWith([[
+        'id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1'), $unmappable],
+    ]]));
+    $pull = freshaPull('services', config: ['selection_ref' => 'storewide']);
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io));
+
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+    $covered = array_values(array_filter($messages, fn ($m) => $m instanceof Covered));
+
+    expect($records)->toHaveCount(1)
+        ->and($covered)->toHaveCount(1)
+        ->and($covered[0]->coverage->toArray()['type'])->toBe('unknown');
+
+    // Ordering is load-bearing: the mapper-gap Note must be on the record
+    // BEFORE the coverage decision it downgrades, so a later refactor can't
+    // silently reorder them and lose the "this is why" trail.
+    $unmappedIndex = null;
+    $coveredIndex = null;
+    foreach ($messages as $i => $message) {
+        if ($message instanceof Note && $message->code === 'unmapped_rows') {
+            $unmappedIndex = $i;
+        }
+        if ($message instanceof Covered) {
+            $coveredIndex = $i;
+        }
+    }
+    expect($unmappedIndex)->not->toBeNull()
+        ->and($coveredIndex)->not->toBeNull()
+        ->and($unmappedIndex)->toBeLessThan($coveredIndex);
 });
 
 it('refuses to post to a host outside its own manifest', function () {
@@ -341,13 +379,16 @@ it('counts rows it could not map instead of dropping them silently', function ()
     ]]));
     $pull = freshaPull('services', 'edward', config: ['selection_ref' => 'storewide']);
 
-    $notes = array_values(array_filter(
-        iterator_to_array((new FreshaConnector)->pull($pull, $io)),
-        fn ($m) => $m instanceof Note,
-    ));
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io));
+    $notes = array_values(array_filter($messages, fn ($m) => $m instanceof Note));
+    $covered = array_values(array_filter($messages, fn ($m) => $m instanceof Covered));
 
     expect($notes)->toHaveCount(1)
-        ->and($notes[0]->code)->toBe('unmapped_rows');
+        ->and($notes[0]->code)->toBe('unmapped_rows')
+        // A row it could not map means the claim below MUST be downgraded —
+        // see 'claims only unknown coverage…' for the full ordering proof.
+        ->and($covered)->toHaveCount(1)
+        ->and($covered[0]->coverage->toArray()['type'])->toBe('unknown');
 });
 
 // ── Slug rotation (live 2026-08-18) ─────────────────────────────────────────

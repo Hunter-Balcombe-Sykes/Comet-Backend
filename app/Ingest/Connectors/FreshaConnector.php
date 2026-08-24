@@ -71,6 +71,8 @@ class FreshaConnector implements Connector
                     orderField: null,
                     // ...but the one call IS the whole menu, so a service the
                     // menu no longer lists is gone (see StreamSpec::mayDelete).
+                    // servicesMessages() only CLAIMS exhaustive when every row
+                    // parsed — this flag is a licence, not a guarantee.
                     deletesOnExhaustive: true,
                 ),
             ],
@@ -246,7 +248,16 @@ class FreshaConnector implements Connector
             // — rides on the record as seeds (F30, 2026-08-18); an owner's
             // reorder in the Categories sheet wins on the next run.
             $position = 0;
-            foreach ((array) ($category['items'] ?? []) as $item) {
+            $rows = $category['items'] ?? null;
+            if (! is_array($rows)) {
+                // A category present but carrying no readable item list is the
+                // same silent narrowing as an unreadable row — count it, or a
+                // rotated shape passes for an empty category the salon has.
+                // `items: []` IS an array and stays uncounted, as it should.
+                $unmapped++;
+                $rows = [];
+            }
+            foreach ($rows as $item) {
                 $mapped = $this->mapServiceItem($item, $categoryName, $categoryId);
                 if ($mapped !== null) {
                     $mapped['url'] = $this->bookingDeepLink($slug, $employeeId, $mapped['serviceId']);
@@ -263,6 +274,14 @@ class FreshaConnector implements Connector
             $categoryPosition++;
         }
 
+        // Recorded BEFORE any coverage claim: a mapper gap is the REASON the
+        // claim below is downgraded, so it must be on the record whichever
+        // way that goes — including the all-rows-unreadable case, which
+        // otherwise reads as "this salon has no services".
+        if ($unmapped > 0) {
+            yield new Note('unmapped_rows', $unmapped.' Fresha row(s) carried no recognisable catalog id and were not landed');
+        }
+
         if ($items === []) {
             yield new Note('empty_menu', 'No services parsed from the Fresha booking-flow response');
 
@@ -273,15 +292,21 @@ class FreshaConnector implements Connector
             yield new Record('services', $item['serviceId'], $item);
         }
 
-        // A parsed menu is the whole menu — Fresha does not paginate this
-        // call, so what came back is everything there is.
-        yield new Covered('services', Coverage::exhaustive());
-
-        if ($unmapped > 0) {
-            // A mapper gap used to be invisible: three of one salon's rows --
-            // 12% of its menu -- vanished with no record and no signal.
-            yield new Note('unmapped_rows', $unmapped.' Fresha row(s) carried no recognisable catalog id and were not landed');
-        }
+        // Exhaustive ONLY when every row was understood. This stream is
+        // deletesOnExhaustive (StreamSpec::mayDelete), so an exhaustive claim
+        // licenses Lander::foldAbsence to tombstone every live key the batch
+        // omits — and a row this mapper could not read is omitted for OUR
+        // reasons, not the salon's. Claiming it anyway is how three of one
+        // salon's rows, 12% of its menu, vanished with no signal (2026-08-18):
+        // 12% clears neither delete-guard threshold, so nothing stopped it.
+        // Coverage::unknown() dominates nothing, so the fold is a no-op for
+        // that run — same idiom as EventbriteConnector's $failed.
+        //
+        // The trade-off, stated plainly: while a mapper gap persists, a service
+        // the salon GENUINELY deleted stays published until the gap is fixed.
+        // That is the intended direction — a stale extra service is recoverable,
+        // silently deleting 12% of a paying salon's menu is not.
+        yield new Covered('services', $unmapped === 0 ? Coverage::exhaustive() : Coverage::unknown());
     }
 
     /**
