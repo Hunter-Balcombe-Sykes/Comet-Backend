@@ -8,6 +8,7 @@ use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
 use App\Routing\ShortLinkExpander;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
@@ -83,6 +84,7 @@ class LinkInBioImporter
         private readonly MediaSeeder $media,
         private readonly ShortLinkExpander $expander,
         private readonly LinkInBioDetector $bioDetector,
+        private readonly LinkPoolReader $linkReader,
     ) {}
 
     /**
@@ -119,6 +121,7 @@ class LinkInBioImporter
         $droppedReasons = [];
         $unavailable = 0;
         $unavailableReasons = [];
+        $unrolled = [];
 
         foreach ($pages as $pageUrl) {
             $response = $this->fetcher->tryFetch($pageUrl);
@@ -144,7 +147,17 @@ class LinkInBioImporter
                 continue;
             }
 
+            // Which PAGE yielded is not derivable from the run-wide
+            // $observations, and the retire below must not treat "some page
+            // unrolled" as "this page unrolled". Record both the requested URL
+            // and the one we landed on: a card may have been floored for
+            // either, depending on which run created it.
+            $before = count($seen);
             $this->unroll($response['finalUrl'], $response['body'], $context, $tally, $seen, $probedHosts, $placedKeys, $droppedReasons);
+            if (count($seen) > $before) {
+                $unrolled[] = $pageUrl;
+                $unrolled[] = $response['finalUrl'];
+            }
         }
 
         $fetched = count($pages) - $unavailable;
@@ -178,6 +191,15 @@ class LinkInBioImporter
         if ($observations === 0) {
             $this->seeder->seedCustom($user, $pages[0]);
             $bioUrlSeeded = true;
+        } else {
+            // The floor's mirror image. A card is only right while the page
+            // yields nothing, and the same URL can be imported again — the
+            // paste lane (RoutingController) dispatches LinkInBioScanJob on
+            // demand — so a host that was rate-limited on the first try, or one
+            // we have only just learned to read (clk.bio, 2026-08-24), would
+            // otherwise leave the owner holding the inert card AND the links
+            // that came out of it.
+            $this->retireFloorCards($user, $unrolled);
         }
 
         // Every page down is the same failure the single-page path always
@@ -316,6 +338,41 @@ class LinkInBioImporter
         }
 
         return false;
+    }
+
+    /**
+     * Drop any custom card standing for a page this run just unrolled.
+     *
+     * Compares scheme-/www-/trailing-slash-insensitively, the same $pageKey
+     * idiom InstagramAutoSync dedupes bio links with — seedCustom() stores a
+     * canonicalised form, so an exact string match would miss its own card.
+     * LinkPoolReader::remove() discharges all three cache lanes.
+     *
+     * @param  list<string>  $unrolled  pages that actually yielded, not every page in the run
+     */
+    private function retireFloorCards(User $user, array $unrolled): void
+    {
+        $keys = [];
+        foreach ($unrolled as $page) {
+            $keys[$this->pageKey($page)] = true;
+        }
+
+        // cardsForSite(), never cards(): the latter PROVISIONS the pool section
+        // as a side-effect of reading, which would make this success path
+        // require site.sections where it never did before (it turned
+        // TombstoneResurrectionTest red). No section means no cards means
+        // nothing to retire — the honest answer.
+        foreach ($this->linkReader->cardsForSite($user->site) as $card) {
+            $url = $card['url'] ?? null;
+            if (is_string($url) && isset($keys[$this->pageKey($url)])) {
+                $this->linkReader->remove($user, $card['id']);
+            }
+        }
+    }
+
+    private function pageKey(string $url): string
+    {
+        return strtolower(rtrim(preg_replace('~^https?://(?:www\.)?~i', '', $url) ?? $url, '/'));
     }
 
     private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen, array &$probedHosts, array &$placedKeys, array &$droppedReasons): void
