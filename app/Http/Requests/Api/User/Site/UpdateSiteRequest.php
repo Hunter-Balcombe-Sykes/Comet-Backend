@@ -35,6 +35,10 @@ class UpdateSiteRequest extends BaseFormRequest
             'settings.show_branding' => ['sometimes', 'boolean'],
             'settings.charlie_enabled' => ['sometimes', 'boolean'],
             'settings.services_auto_sync_enabled' => ['sometimes', 'boolean'],
+            // Owner switch over whether the sitepage carries a Gallery page.
+            // Absent = true (permissive-on-absent, like smart_page_order).
+            // Stored only for now — the resolver gate lands separately.
+            'settings.display_gallery_page' => ['sometimes', 'boolean'],
             'settings.booking_mode' => [
                 'sometimes',
                 'string',

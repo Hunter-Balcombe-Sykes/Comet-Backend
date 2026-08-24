@@ -52,6 +52,7 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'settings.show_branding' => ['sometimes', 'boolean'],
             'settings.charlie_enabled' => ['sometimes', 'boolean'],
             'settings.services_auto_sync_enabled' => ['sometimes', 'boolean'],
+            'settings.display_gallery_page' => ['sometimes', 'boolean'],
             'settings.booking_mode' => [
                 'sometimes',
                 'string',

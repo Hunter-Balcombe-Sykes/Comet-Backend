@@ -110,6 +110,13 @@ it('still accepts the page-order pair and normalises a legacy page id', function
     expect($s['smart_page_order'])->toBeFalse()->and($s['manual_page_order'])->toBe(['services', 'shop', 'links']);
 });
 
+it('accepts and persists display_gallery_page, rejecting non-booleans', function () {
+    $pro = createTenant('as-gallery');
+    patchSettings($pro, ['display_gallery_page' => false])->assertOk();
+    expect(siteSettings($pro)['display_gallery_page'])->toBeFalse();
+    patchSettings($pro, ['display_gallery_page' => 'sometimes'])->assertStatus(422)->assertJsonValidationErrors(['settings.display_gallery_page']);
+});
+
 it('rejects unknown or duplicate page ids in manual_page_order', function () {
     $pro = createTenant('as-badpages');
     patchSettings($pro, ['manual_page_order' => ['services', 'checkout']])->assertStatus(422)->assertJsonValidationErrors(['settings.manual_page_order.1']);
