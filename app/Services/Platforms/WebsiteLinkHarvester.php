@@ -717,6 +717,9 @@ class WebsiteLinkHarvester
             if ($href === '' || str_starts_with($href, '#')) {
                 continue;
             }
+            if ($this->isHiddenAnchor($a)) {
+                continue;
+            }
             $abs = $this->absolutize($href, $baseUrl);
             if ($abs !== null && ! isset($seen[$abs])) {
                 $seen[$abs] = true;
@@ -727,6 +730,29 @@ class WebsiteLinkHarvester
         }
 
         return array_keys($seen);
+    }
+
+    /**
+     * A link no visitor can see is not a link the owner published. Lnk.Bio
+     * ships five display:none backlinks to its own portfolio on every page
+     * (measured on clk.bio/TheMetaPunter, 2026-08-24) and all five had already
+     * reached catalog.unmatched_domains through a harvest.
+     *
+     * Reads the anchor's OWN markup only. An ancestor's style would need the
+     * computed cascade DOMDocument never builds, and a collapsed mobile nav
+     * hides its container while its links are real — so climbing the tree
+     * would eat genuine navigation to catch a footer.
+     */
+    private function isHiddenAnchor(\DOMElement $a): bool
+    {
+        if ($a->hasAttribute('hidden')) {
+            return true;
+        }
+
+        $style = $a->getAttribute('style');
+
+        return $style !== ''
+            && preg_match('~(display\s*:\s*none|visibility\s*:\s*hidden)~i', $style) === 1;
     }
 
     /** Resolve relative hrefs against the page URL; null for non-http(s) schemes. */
