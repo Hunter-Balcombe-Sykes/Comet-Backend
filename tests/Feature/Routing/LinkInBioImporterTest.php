@@ -4,11 +4,13 @@ use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Content\LinkPoolReader;
+use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
+use Tests\Support\Fixtures\Recorded;
 
 // Uses https://example.com as the bio page: SafeUrlFetcher::assertSafe() does
 // a real DNS lookup before the fetch even under Http::fake(), so a
@@ -746,7 +748,7 @@ it('folds a second URL that canonicalizes identically instead of carding it (FI-
 // widgets and five hidden SEO backlinks are not.
 it('unrolls a real Lnk.Bio page to the owner\'s links and nothing else', function () {
     $pro = createTenant('bio-clkbio');
-    bioPage(Tests\Support\Fixtures\Recorded::html('linkinbio/lnkbio.clkbio.html'));
+    bioPage(Recorded::html('linkinbio/lnkbio.clkbio.html'));
 
     $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/TheMetaPunter');
 
@@ -764,7 +766,7 @@ it('unrolls a real Lnk.Bio page to the owner\'s links and nothing else', functio
 // unlike the share widgets they are not "observed and declined", they are gone.
 it('never even observes the bio platform\'s hidden SEO backlinks', function (string $domain) {
     $pro = createTenant('bio-clkbio-hidden-'.substr(md5($domain), 0, 6));
-    bioPage(Tests\Support\Fixtures\Recorded::html('linkinbio/lnkbio.clkbio.html'));
+    bioPage(Recorded::html('linkinbio/lnkbio.clkbio.html'));
 
     app(LinkInBioImporter::class)->import($pro, 'https://example.com/TheMetaPunter');
 
@@ -776,11 +778,11 @@ it('never even observes the bio platform\'s hidden SEO backlinks', function (str
 // that passes for the wrong reason is invisible: this pins that the harvest
 // itself hands the importer 4 classifiable links, not 16.
 it('hands the importer only the links a visitor could click', function () {
-    $harvester = app(App\Services\Platforms\WebsiteLinkHarvester::class);
+    $harvester = app(WebsiteLinkHarvester::class);
 
     $classified = array_values(array_filter(
         $harvester->allOutboundLinks(
-            Tests\Support\Fixtures\Recorded::html('linkinbio/lnkbio.clkbio.html'),
+            Recorded::html('linkinbio/lnkbio.clkbio.html'),
             'https://clk.bio/TheMetaPunter'
         ),
         fn (string $u): bool => $harvester->classify($u) !== null
