@@ -144,6 +144,10 @@
             throw new RuntimeException('CLAIM_EMAIL_MISMATCH');
         }
         ```
+    - **Disposition (2026-08-24):** Deferred by owner 2026-08-24 — design decision, not a
+      defect; CLAIM_TOKEN primitive requires a matching frontend change in partna-monorepo,
+      out of scope for a backend-only run. Left unticked deliberately; do not auto-archive
+      this folder until it is dispositioned.
 
 ## P2 — Should fix
 
