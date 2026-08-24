@@ -158,11 +158,15 @@ it('bulk approve by ids reports dispatched_ids and skips build-less rows honestl
     actingAsStaff(earlyAccessApproveAdminStaff());
     $this->postJson('/api/staff/early-access/approve-bulk', ['ids' => [$withBuild->id, $noBuild->id]])
         ->assertStatus(202)
-        ->assertJsonPath('dispatched', 1)                 // count unchanged (backward compatible)
-        ->assertJsonPath('dispatched_ids', [$withBuild->id])
-        ->assertJsonPath('skipped_ids', [$noBuild->id]);  // was silently dropped before
+        // CONTRACT CHANGED 2026-08-24: a row with no linked build is no longer
+        // "nothing to approve". The public marketing form stopped building
+        // synchronously (it was a permanent handle squat), so EVERY new row has
+        // user_id = null and the build is now created by the approve job. Both
+        // rows are therefore dispatched; only a genuinely missing row is skipped.
+        ->assertJsonPath('dispatched', 2)
+        ->assertJsonPath('skipped_ids', []);
 
-    Queue::assertPushed(ApproveEarlyAccessBuildJob::class, 1);
+    Queue::assertPushed(ApproveEarlyAccessBuildJob::class, 2);
     Queue::assertPushed(ApproveEarlyAccessBuildJob::class, fn ($j) => $j->signupId === $withBuild->id);
 });
 
@@ -187,7 +191,8 @@ it('bulk approve by all_waitlisted reports dispatched_ids with no skips', functi
     actingAsStaff(earlyAccessApproveAdminStaff());
     $this->postJson('/api/staff/early-access/approve-bulk', ['all_waitlisted' => true])
         ->assertStatus(202)
-        ->assertJsonPath('dispatched', 1)
-        ->assertJsonPath('dispatched_ids', [$withBuild->id])
+        // Was whereNotNull('user_id'), which since 2026-08-24 matches nothing —
+        // every waitlisted row is now approvable and gets its build on approval.
+        ->assertJsonPath('dispatched', 2)
         ->assertJsonPath('skipped_ids', []);
 });
