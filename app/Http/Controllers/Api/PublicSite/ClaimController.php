@@ -25,9 +25,21 @@ class ClaimController extends ApiController
             return $this->error('Unauthenticated', 401);
         }
 
+        // SEC-2: an `email` claim is not proof of control — Supabase populates it
+        // from signup input before confirmation, so an unconfirmed session can
+        // carry an address the caller never proved they own, and claiming binds a
+        // real business site to it. Read email_verified from BOTH locations for
+        // the same reason RequireEmailVerified does (root vs user_metadata depends
+        // on project age + provider). Both failure modes share one 422 because the
+        // frontend has one remedy for them — re-run OTP (docs/api.md POST /api/claim).
         $claims = $request->attributes->get('supabase_claims');
-        $verifiedEmail = is_array($claims) ? trim((string) ($claims['email'] ?? '')) : '';
-        if ($verifiedEmail === '') {
+        $claims = is_array($claims) ? $claims : [];
+
+        $userMetadata = is_array($claims['user_metadata'] ?? null) ? $claims['user_metadata'] : [];
+        $emailVerified = (bool) ($claims['email_verified'] ?? $userMetadata['email_verified'] ?? false);
+
+        $verifiedEmail = trim((string) ($claims['email'] ?? ''));
+        if ($verifiedEmail === '' || ! $emailVerified) {
             return $this->error(
                 'A verified email is required to claim your site.',
                 422,

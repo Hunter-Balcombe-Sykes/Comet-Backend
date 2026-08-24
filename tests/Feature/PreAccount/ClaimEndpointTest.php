@@ -53,6 +53,35 @@ it('422s a token with no verified email claim', function () {
         ->assertJsonPath('code', 'EMAIL_VERIFICATION_REQUIRED');
 });
 
+it('422s a token whose email claim is present but unverified', function () {
+    makeReadyBuild();
+
+    // SEC-2: an unconfirmed Supabase session can carry a real `email` claim
+    // that the caller never proved they own. Presence alone must not be
+    // enough to claim a site.
+    actingAsUser(claimJwtUser('auth-uid-5', 'jane@example.com'), ['email_verified' => false]);
+
+    $this->postJson('/api/claim', ['subdomain' => 'janedoe'])
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'EMAIL_VERIFICATION_REQUIRED');
+});
+
+it('claims successfully for the legacy email_verified-in-user_metadata cohort', function () {
+    makeReadyBuild();
+
+    // Legacy Supabase projects only populate email_verified inside
+    // user_metadata, not at the JWT root — the dual-location read must not
+    // lock these real users out.
+    actingAsUser(claimJwtUser('auth-uid-6', 'jane@example.com'), [
+        'email_verified' => null,
+        'user_metadata' => ['email_verified' => true],
+    ]);
+
+    $this->postJson('/api/claim', ['subdomain' => 'janedoe'])
+        ->assertOk()
+        ->assertJsonPath('professional.status', 'active');
+});
+
 it('404s an unknown subdomain', function () {
     actingAsUser(claimJwtUser('auth-uid-4', 'ghost@example.com'));
 

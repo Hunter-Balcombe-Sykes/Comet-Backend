@@ -35,6 +35,8 @@ use Symfony\Component\HttpFoundation\Response;
  * outage. So it logs `auth.strong_auth.would_deny` and lets the request
  * through until `partna.auth.strong_auth_enforce` is turned on. Read the logs,
  * confirm no legitimate cohort appears, THEN enforce.
+ * When enforced, an empty or absent `amr` denies — "the claim did not arrive"
+ * is not evidence of a strong method.
  */
 class RequireStrongAuth
 {
@@ -63,9 +65,10 @@ class RequireStrongAuth
             return $next($request);
         }
 
-        // Fail OPEN on an empty amr rather than denying a session whose token
-        // simply predates amr being populated. Still logged: a sustained run of
-        // empties means the claim is not arriving and this control is asleep.
+        // Once enforcement is on, a blank/absent amr is a DENIAL, not a pass: an
+        // empty claim proves nothing, so honouring it reopens the exact door this
+        // gate exists to close (SEC-1). Shadow mode is unchanged — the staged
+        // rollout in the class docblock still governs when this denies at all.
         $enforce = (bool) config('partna.auth.strong_auth_enforce', false);
 
         Log::warning('auth.strong_auth.would_deny', [
@@ -77,7 +80,7 @@ class RequireStrongAuth
             'enforced' => $enforce,
         ]);
 
-        if (! $enforce || $methods === []) {
+        if (! $enforce) {
             return $next($request);
         }
 

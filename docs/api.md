@@ -257,7 +257,7 @@ All four error bodies put the machine-readable code at the **top level**: `{ "me
 - `409 CLAIM_EMAIL_MISMATCH` — the build has a `contact_email` and the JWT's verified email doesn't match it
 - `409 ACCOUNT_EXISTS` — this Supabase user already owns a different account
 - `409 EMAIL_ALREADY_REGISTERED` — the verified email is already bound to a different auth user
-- `422 EMAIL_VERIFICATION_REQUIRED` — the JWT carries no verified email claim
+- `422 EMAIL_VERIFICATION_REQUIRED` — the JWT carries no email claim, or carries one whose `email_verified` is false
 
 **Common status codes:** 200, 401 (missing `supabase_uid`), 404, 409, 422, 429
 

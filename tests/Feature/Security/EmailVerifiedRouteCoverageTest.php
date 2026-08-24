@@ -26,14 +26,14 @@ const EMAIL_VERIFY_EXEMPT = [
     // returns the caller's own data.
     'POST api/bootstrap',
     // Same OV-A pattern as bootstrap: /claim binds a fresh Supabase auth user
-    // (email OTP, possibly still unverified at the JWT layer) to an unclaimed
-    // pre-account site. ClaimController fails closed itself — it checks for
-    // the PRESENCE of a verified email claim and 422s EMAIL_VERIFICATION_REQUIRED
-    // when absent, rather than reading RequireEmailVerified's `email_verified`
-    // boolean — an OTP-minted JWT can't ordinarily carry an email claim that
-    // isn't verified, so a route-level require.email_verified gate would be
-    // redundant and would block the legitimate unverified-token case this
-    // endpoint exists to handle.
+    // to an unclaimed pre-account site. ClaimController runs
+    // RequireEmailVerified's exact dual-location `email_verified` read
+    // inline (SEC-2 — a present `email` claim is not proof of control, it's
+    // populated from signup input before confirmation) and answers 422
+    // EMAIL_VERIFICATION_REQUIRED when the claim is missing or unverified.
+    // The route-level gate is not applied because it answers 403
+    // email_verification_required, which is not in this endpoint's
+    // published error contract (docs/api.md: 200/401/404/409/422/429).
     'POST api/claim',
 ];
 

@@ -59,14 +59,14 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 2 of 3 complete
 - P2 Medium: 0 of 2 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — GDPR PII-export strong-auth gate ships shadow-only and stays fail-open even once enforced
+- [x] **#SEC-1** · P1 — GDPR PII-export strong-auth gate ships shadow-only and stays fail-open even once enforced
     - **Where:** app/Http/Middleware/Auth/RequireStrongAuth.php:69-82
     - **Affects:** Whatever route this middleware guards (the GDPR full-PII-export path per its own docblock) — any authenticated Supabase session, including one created purely by clicking a magic/invite link, can pull the complete personal-data bundle.
     - **Effort:** S (~0.5–1h)
@@ -93,8 +93,17 @@
             return $next($request);
         }
         ```
+    - **Resolution (2026-08-24):** Fixed the enforced-branch fall-through only — the guard is now
+      `if (! $enforce)`, so a blank/absent `amr` DENIES once enforcement is on. Shadow mode is
+      byte-unchanged (same `auth.strong_auth.would_deny` log, still passes through). New
+      `tests/Feature/Auth/RequireStrongAuthMiddlewareTest.php` pins all four corners; the
+      empty-amr-enforced case was proved failing against the unpatched middleware.
+      **Deferred to the owner: flipping `partna.auth.strong_auth_enforce` to `true`.** The staged
+      rollout is deliberate and the `would_deny` shadow logs are still unread — read them (the
+      `amr_empty` field now discriminates the newly-denied cohort), confirm no legitimate cohort
+      appears, THEN flip. Until that flip this control still denies nothing in any environment.
 
-- [ ] **#SEC-2** · P1 — `/api/claim` treats the JWT's `email` field as proof of ownership without checking `email_verified`
+- [x] **#SEC-2** · P1 — `/api/claim` treats the JWT's `email` field as proof of ownership without checking `email_verified`
     - **Where:** app/Http/Controllers/Api/PublicSite/ClaimController.php:28-37; routes/api.php:66
     - **Affects:** The site-first-signup claim flow — a self-serve unclaimed business site can be bound to an email the caller typed but never proved control of.
     - **Effort:** S (~0.5–1h)
