@@ -31,6 +31,22 @@ use App\Services\Shop\ShopConnections;
 // Keys are present only when something was found.
 class WebsiteLinkHarvester
 {
+    /** Utility classes that mean display:none on their own — Bootstrap, Tailwind. */
+    private const HIDDEN_CLASSES = ['d-none', 'hidden'];
+
+    /**
+     * A breakpoint utility that re-shows what HIDDEN_CLASSES hid.
+     *
+     * Deliberately generous on both arms, and matches any breakpoint name so a
+     * project's custom `tablet:`/`3xl:` screens count. An earlier version
+     * enumerated seven Tailwind display values and so read `hidden
+     * md:table-cell` as hidden — dropping a link most visitors CAN see. That is
+     * the expensive direction: harvest() feeds GoogleBusinessAutoSync::seed(),
+     * so a lost anchor is a business's missing social account, whereas an
+     * over-generous match merely keeps a link we might have dropped.
+     */
+    private const RESHOWN_CLASS = '~^(d-[a-z0-9]+-(?!none$)[a-z0-9-]+|[a-z0-9]+:(?!hidden$)[a-z0-9!:._/-]+)$~';
+
     /** Host-pattern → socials key. First match per key wins (homepage order). */
     private const SOCIAL_HOSTS = [
         'instagram' => '~(^|\.)instagram\.com$~',
@@ -384,7 +400,7 @@ class WebsiteLinkHarvester
             }
 
             foreach (self::SOCIAL_HOSTS as $key => $pattern) {
-                if (! isset($socials[$key]) && preg_match($pattern, $host) && $this->looksLikeProfile($key, $url)) {
+                if (! isset($socials[$key]) && preg_match($pattern, $host) && $this->looksLikeProfile($url)) {
                     $socials[$key] = $url;
 
                     continue 2;
@@ -488,7 +504,7 @@ class WebsiteLinkHarvester
             // No isset() guard needed: SOCIAL_PLATFORM is hand-maintained with the
             // exact same 7 keys as SOCIAL_HOSTS, so the lookup below can never
             // miss for a $key drawn from this loop.
-            if (preg_match($pattern, $host) && $this->looksLikeProfile($key, $url)) {
+            if (preg_match($pattern, $host) && $this->looksLikeProfile($url)) {
                 [$platform, $label] = self::SOCIAL_PLATFORM[$key];
 
                 return ['platform' => $platform, 'category' => 'social', 'label' => $label];
@@ -717,6 +733,9 @@ class WebsiteLinkHarvester
             if ($href === '' || str_starts_with($href, '#')) {
                 continue;
             }
+            if ($this->isHiddenAnchor($a)) {
+                continue;
+            }
             $abs = $this->absolutize($href, $baseUrl);
             if ($abs !== null && ! isset($seen[$abs])) {
                 $seen[$abs] = true;
@@ -727,6 +746,58 @@ class WebsiteLinkHarvester
         }
 
         return array_keys($seen);
+    }
+
+    /**
+     * A link no visitor can see is not a link the owner published. Lnk.Bio
+     * ships five display:none backlinks to its own portfolio on every page
+     * (measured on clk.bio/TheMetaPunter, 2026-08-24) and all five had already
+     * reached catalog.unmatched_domains through a harvest.
+     *
+     * Reads the anchor's OWN markup only. An ancestor's style would need the
+     * computed cascade DOMDocument never builds, and a collapsed mobile nav
+     * hides its container while its links are real — so climbing the tree
+     * would eat genuine navigation to catch a footer.
+     */
+    private function isHiddenAnchor(\DOMElement $a): bool
+    {
+        if ($a->hasAttribute('hidden')) {
+            return true;
+        }
+
+        $style = $a->getAttribute('style');
+        if ($style !== '' && preg_match('~(display\s*:\s*none|visibility\s*:\s*hidden)~i', $style) === 1) {
+            return true;
+        }
+
+        return $this->hiddenByUtilityClass($a->getAttribute('class'));
+    }
+
+    /**
+     * Bootstrap's `d-none` and Tailwind's `hidden` mean display:none with no
+     * stylesheet needed to read them. Lnk.Bio hides four of its five SEO
+     * backlinks with an inline style and the fifth with `d-none` alone, so the
+     * inline-style rule on its own leaves exactly one leak.
+     *
+     * Both frameworks also pair the class with a breakpoint that re-shows the
+     * element — "d-none d-md-block" is VISIBLE on desktop — so that
+     * combination must not count as hidden. No other class is guessed at: a
+     * bare `.promo` says nothing without the CSS we never fetched.
+     */
+    private function hiddenByUtilityClass(string $class): bool
+    {
+        $classes = preg_split('~\s+~', trim($class), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if (array_intersect($classes, self::HIDDEN_CLASSES) === []) {
+            return false;
+        }
+
+        foreach ($classes as $one) {
+            if (preg_match(self::RESHOWN_CLASS, $one) === 1) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** Resolve relative hrefs against the page URL; null for non-http(s) schemes. */
@@ -760,12 +831,18 @@ class WebsiteLinkHarvester
     /**
      * A profile link, not a share/intent widget ("facebook.com/sharer",
      * "twitter.com/intent") — the classic false positives on business sites.
+     *
+     * Host-agnostic since 2026-08-24: the old facebook/twitter allowlist let
+     * linkedin.com/sharing/share-offsite and reddit.com/submit through as real
+     * profiles on the live clk.bio page, and a per-host list guarantees the
+     * next vendor's share button repeats the defect. A share endpoint carries
+     * the page it shares in its QUERY, so no owner's handle is lost by reading
+     * these paths as non-profiles — the worst case is an inert custom card.
      */
-    private function looksLikeProfile(string $key, string $url): bool
+    private function looksLikeProfile(string $url): bool
     {
         $path = strtolower((string) parse_url($url, PHP_URL_PATH));
-        if (in_array($key, ['facebook', 'twitter'], true)
-            && preg_match('~^/(sharer|share|intent|dialog)~', $path)) {
+        if (preg_match('~^/(sharer|share|sharing|intent|intents|dialog|submit)(/|\.|$)~', $path) === 1) {
             return false;
         }
 

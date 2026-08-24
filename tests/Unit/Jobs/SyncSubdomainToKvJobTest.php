@@ -789,7 +789,7 @@ it('passes a permanent alias (null expires_at) with null expiration_ttl in bulkP
 
 // --- Task 15: unclaimed routability + TTL (spec §4) ---
 
-it('writes a TTL-bearing individual entry for an unclaimed owner with a live build', function () {
+it('writes a TTL-bearing individual entry for an unclaimed, staff-built owner with a live build', function () {
     setupUsersTable();
     setupHandleAliasesTable();
     setupSitesTable();
@@ -805,6 +805,9 @@ it('writes a TTL-bearing individual entry for an unclaimed owner with a live bui
     Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe']);
     $build = PreAccountBuild::factory()->make(['expires_at' => now()->addDays(30)]);
     $build->user()->associate($user);
+    // Dark Until Claimed: only a VETTED unclaimed build is routable at all —
+    // staff-built here. Not fillable, direct property set (test-only).
+    $build->built_by_staff_id = (string) Str::uuid();
     $build->save();
 
     $kv = Mockery::mock(CloudflareKvService::class);
@@ -816,6 +819,75 @@ it('writes a TTL-bearing individual entry for an unclaimed owner with a live bui
             && $ttl !== null && $ttl > 60 && $ttl <= 30 * 86400;
     });
     $kv->shouldReceive('bulkPut')->once()->with([]);
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($user->id))->handle($kv);
+});
+
+// Dark Until Claimed (2026-08-24): a self-serve build (the factory default,
+// VIA_SIGNUP) is not vetted, so it must be retired even with a live,
+// non-expired build — the OLD behavior (put with a TTL) is exactly the
+// exposure this closes: a real business getting scraped and made publicly
+// routable before anyone at Partna, or the business itself, has any say.
+it('retires an unclaimed, unvetted self-serve owner even with a live build', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+    setupPreAccountBuildsTable();
+
+    $user = User::factory()->create(['status' => 'unclaimed', 'handle' => 'selfserve1', 'handle_lc' => 'selfserve1']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'selfserve1']);
+    $build = PreAccountBuild::factory()->make(['expires_at' => now()->addDays(30)]); // built_via defaults to VIA_SIGNUP
+    $build->user()->associate($user);
+    $build->save();
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldReceive('delete')->once()->with('selfserve1');
+    $kv->shouldNotReceive('put');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($user->id))->handle($kv);
+});
+
+it('writes an unclaimed, staff-approved early-access owner', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+    setupPreAccountBuildsTable();
+
+    $user = User::factory()->create(['status' => 'unclaimed', 'handle' => 'earlyapproved1', 'handle_lc' => 'earlyapproved1']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'earlyapproved1']);
+    // ApproveEarlyAccessBuildJob re-stamps a real expiry on approval — that IS
+    // the "staff approved this" signal (requestBuild gives every early-access
+    // build a null expiry at creation).
+    $build = PreAccountBuild::factory()->make(['built_via' => PreAccountBuild::VIA_EARLY_ACCESS, 'expires_at' => now()->addDays(30)]);
+    $build->user()->associate($user);
+    $build->save();
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('delete');
+    $kv->shouldReceive('put')->once();
+    $kv->shouldReceive('bulkPut')->once()->with([]);
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($user->id))->handle($kv);
+});
+
+it('retires an unclaimed, unapproved early-access owner (no expiry yet)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+    setupPreAccountBuildsTable();
+
+    $user = User::factory()->create(['status' => 'unclaimed', 'handle' => 'earlyunapproved1', 'handle_lc' => 'earlyunapproved1']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'earlyunapproved1']);
+    $build = PreAccountBuild::factory()->make(['built_via' => PreAccountBuild::VIA_EARLY_ACCESS, 'expires_at' => null]);
+    $build->user()->associate($user);
+    $build->save();
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldReceive('delete')->once()->with('earlyunapproved1');
+    $kv->shouldNotReceive('put');
     app()->instance(CloudflareKvService::class, $kv);
 
     (new SyncSubdomainToKvJob($user->id))->handle($kv);

@@ -44,10 +44,13 @@ class StaffPreAccountBuildController extends ApiController
             );
         } catch (PreAccountBuildException $e) {
             // The staff surface has no waitlist/IP-cap paths (requestBuild skips
-            // the cap entirely when $staff is set) — every thrown code here is a
-            // bad source/pairing, so a flat 422 (unlike the public controller's
-            // cap-vs-pairing status split) is correct.
-            return $this->error($e->getMessage(), 422, [], ['code' => $e->errorCode]);
+            // the cap entirely when $staff is set), so SOURCE_PAIRING_INVALID
+            // and SOURCE_REF_INVALID are the only bad-input codes here — 422 is
+            // correct for those. CONTACT_EMAIL_CONFLICT is not bad input: it's
+            // an existing row disagreeing with this request, which is a 409.
+            $status = $e->errorCode === PreAccountBuildException::CONTACT_EMAIL_CONFLICT ? 409 : 422;
+
+            return $this->error($e->getMessage(), $status, [], ['code' => $e->errorCode]);
         }
 
         $result['build']->loadMissing('user.site');
@@ -78,7 +81,7 @@ class StaffPreAccountBuildController extends ApiController
         PreAccountBuild $build
     ): JsonResponse {
         $staff = request()->attributes->get('partna_staff');
-        $this->authorizeForUser($staff, 'staffCreate', PreAccountBuild::class);
+        $this->authorizeForUser($staff, 'staffAttachContactEmail', PreAccountBuild::class);
 
         if ($build->claimed_at !== null) {
             return $this->error(

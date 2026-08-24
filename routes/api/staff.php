@@ -80,13 +80,6 @@ Route::prefix('staff')
         Route::post('/builds/{build}/invite', [StaffPreAccountBuildController::class, 'invite'])
             ->whereUuid('build');
 
-        // Attach/correct the invited address. PREREQUISITE for the 2026-08-24
-        // invite-gate: an outreach build with no contact_email is unclaimable
-        // (CLAIM_NOT_INVITED), and the create path never updates the column on
-        // an existing row, so without this such a build is stranded for good.
-        Route::patch('/builds/{build}/contact-email', [StaffPreAccountBuildController::class, 'attachContactEmail'])
-            ->whereUuid('build');
-
         // CSV batch marketing builds (spec §6): one requestBuild per row.
         Route::post('/builds/batch', [StaffPreAccountBuildController::class, 'batch']);
 
@@ -318,6 +311,17 @@ Route::prefix('staff')
         // build, open its claim window, notify (Task 7, spec Flow 3).
         Route::post('/early-access/{signup}/approve', [StaffEarlyAccessController::class, 'approve'])->whereUuid('signup');
         Route::post('/early-access/approve-bulk', [StaffEarlyAccessController::class, 'approveBulk']);
+
+        // Attach/correct the invited address (admin only — re-pointing this on
+        // an outreach build hands control of the invite to whoever's address
+        // is set; PreAccountBuildPolicy::staffAttachContactEmail adds the
+        // authorization check, this middleware is defence-in-depth).
+        // PREREQUISITE for the 2026-08-24 invite-gate: an outreach build with
+        // no contact_email is unclaimable (CLAIM_NOT_INVITED), and the create
+        // path never updates the column on an existing row, so without this
+        // such a build is stranded for good.
+        Route::patch('/builds/{build}/contact-email', [StaffPreAccountBuildController::class, 'attachContactEmail'])
+            ->whereUuid('build');
 
         // Feedback — junk/spam removal (soft delete; purged after 30 days).
         // FeedbackPolicy::staffDelete adds defence-in-depth on top of staff.admin.

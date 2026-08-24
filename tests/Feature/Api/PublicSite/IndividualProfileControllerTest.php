@@ -27,6 +27,7 @@ beforeEach(function () {
     // that never touch a service.
     setupIngestTables();
     setupContentTables();
+    setupPreAccountBuildsTable();
 
     // Architecture column shim — production has architecture_id with a CHECK
     // enum default 'staple', and the SitepageDataResolverService reads it via
@@ -109,6 +110,25 @@ function seedIndividualProfile(string $handle, ?string $architectureId = null, s
     DB::connection('pgsql')->table('site.sites')->insert($siteRow);
 
     return User::query()->findOrFail($proId);
+}
+
+/** Dark Until Claimed: attach a pre_account_builds row so an unclaimed
+ *  profile can be marked vetted (staff-built / staff-approved early-access)
+ *  or left unvetted (self-serve, the ordinary signup case). */
+function attachPreAccountBuild(string $userId, ?string $builtByStaffId = null, ?string $builtVia = null, bool $expires = false): void
+{
+    DB::connection('pgsql')->table('core.pre_account_builds')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
+        'source_type' => 'instagram',
+        'source_ref' => 'seed',
+        'source_ref_lc' => 'seed',
+        'built_via' => $builtVia,
+        'built_by_staff_id' => $builtByStaffId,
+        'expires_at' => $expires ? now()->addDays(30)->toDateTimeString() : null,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
 }
 
 it('returns 200 with the skeleton-system envelope shape for an individual', function () {
@@ -199,15 +219,46 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     expect(array_keys($data))->not->toContain('rankedActions', 'ordering');
 });
 
-it('flags publicConfig.claim.unclaimed for a published pre-account (unclaimed) profile', function () {
-    // Unclaimed pre-account sites render publicly once published (PublicSiteResolver
-    // whereIn(['active', 'unclaimed'])) — the pages app otherwise has no signal to
-    // distinguish this from a claimed profile (2026-07-22 signup-flows handoff).
-    seedIndividualProfile('unclaimed1', null, 'unclaimed');
+it('flags publicConfig.claim.unclaimed for a published, VETTED pre-account (unclaimed) profile', function () {
+    // Dark Until Claimed (2026-08-24): an unclaimed pre-account site renders
+    // publicly pre-claim only if it's been vetted — staff-built here. The
+    // pages app otherwise has no signal to distinguish this from a claimed
+    // profile (2026-07-22 signup-flows handoff).
+    $pro = seedIndividualProfile('unclaimed1', null, 'unclaimed');
+    attachPreAccountBuild($pro->id, builtByStaffId: (string) Str::uuid());
     $data = $this->getJson('/api/public/profiles/unclaimed1')->assertOk()->json('data');
 
     expect($data['publicConfig'])->toHaveKey('claim');
     expect($data['publicConfig']['claim'])->toBe(['unclaimed' => true]);
+});
+
+it('404s an unclaimed self-serve profile with no vetted build (Dark Until Claimed)', function () {
+    $pro = seedIndividualProfile('darkclaim1', null, 'unclaimed');
+    attachPreAccountBuild($pro->id, builtVia: 'signup');
+
+    $this->getJson('/api/public/profiles/darkclaim1')->assertNotFound();
+});
+
+it('404s an unclaimed early-access profile whose build is not yet staff-approved', function () {
+    $pro = seedIndividualProfile('darkclaim2', null, 'unclaimed');
+    // requestBuild() gives every early-access build expires_at = NULL until
+    // ApproveEarlyAccessBuildJob approves it — expires_at IS the signal.
+    attachPreAccountBuild($pro->id, builtVia: 'early_access', expires: false);
+
+    $this->getJson('/api/public/profiles/darkclaim2')->assertNotFound();
+});
+
+it('serves an unclaimed, staff-approved early-access profile', function () {
+    $pro = seedIndividualProfile('darkclaim3', null, 'unclaimed');
+    attachPreAccountBuild($pro->id, builtVia: 'early_access', expires: true);
+
+    $this->getJson('/api/public/profiles/darkclaim3')->assertOk();
+});
+
+it('404s an unclaimed profile with no pre-account build row at all', function () {
+    seedIndividualProfile('darkclaim4', null, 'unclaimed');
+
+    $this->getJson('/api/public/profiles/darkclaim4')->assertNotFound();
 });
 
 it('omits publicConfig.claim entirely for a claimed (active) profile', function () {

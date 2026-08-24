@@ -80,23 +80,46 @@ class PreAccountBuildService
             // may claim it, so an anonymous write would be a takeover primitive.
             if ($staff !== null && $contactEmail !== null && trim($contactEmail) !== '') {
                 $incoming = mb_strtolower(trim($contactEmail));
-                $current = mb_strtolower(trim((string) $existing->contact_email));
 
-                if ($current === '') {
-                    // contact_email is not fillable — trusted staff lifecycle write.
-                    $existing->forceFill(['contact_email' => $incoming])->save();
-                } elseif ($current !== $incoming) {
-                    // Loudly, not silently: two different addresses claiming the
-                    // same business is a human question, and picking either one
-                    // automatically can hand the site to the wrong person.
-                    throw new PreAccountBuildException(
-                        PreAccountBuildException::CONTACT_EMAIL_CONFLICT,
-                        "A build for this source already exists with a different contact email. Use PATCH /staff/builds/{$existing->id}/contact-email to change it deliberately."
-                    );
-                }
+                // Locked read-modify-write: without lockForUpdate, two concurrent
+                // requests for the same source (e.g. two CSV rows, or a retry
+                // racing a CSV import) can both read an empty contact_email and
+                // both write, one silently overwriting the other with no conflict
+                // ever detected.
+                $existing = DB::connection('pgsql')->transaction(function () use ($existing, $incoming) {
+                    /** @var PreAccountBuild $locked */
+                    $locked = PreAccountBuild::query()->whereKey($existing->id)->lockForUpdate()->firstOrFail();
+                    $current = mb_strtolower(trim((string) $locked->contact_email));
+
+                    if ($current === '') {
+                        // Self-serve builds have contact_email NULL by
+                        // construction — an empty current value on a build that
+                        // is NOT outreach means a real person is mid-signup on
+                        // their own source. A staff CSV/import naming the same
+                        // source must not attach its address here: that would
+                        // silently hand the build's invite-gate to staff's
+                        // address and lock the actual signer-upper out.
+                        if ($locked->isOutreach()) {
+                            // contact_email is not fillable — trusted staff
+                            // lifecycle write.
+                            $locked->forceFill(['contact_email' => $incoming])->save();
+                        }
+                    } elseif ($current !== $incoming) {
+                        // Loudly, not silently: two different addresses claiming
+                        // the same business is a human question, and picking
+                        // either one automatically can hand the site to the
+                        // wrong person.
+                        throw new PreAccountBuildException(
+                            PreAccountBuildException::CONTACT_EMAIL_CONFLICT,
+                            "A build for this source already exists with a different contact email. Use PATCH /staff/builds/{$locked->id}/contact-email to change it deliberately."
+                        );
+                    }
+
+                    return $locked;
+                });
             }
 
-            return ['build' => $this->reserve($existing), 'reused' => true];
+            return ['build' => $this->reserve($existing, $staff, $ipHash), 'reused' => true];
         }
 
         // ONE config map decides which account type may build from which source —
@@ -195,7 +218,7 @@ class PreAccountBuildService
             // request's build is the canonical one; re-serve it (spec §4.1).
             $existing = $this->findLive($sourceType, $refLc);
             if ($existing) {
-                return ['build' => $this->reserve($existing), 'reused' => true];
+                return ['build' => $this->reserve($existing, $staff, $ipHash), 'reused' => true];
             }
             throw new PreAccountBuildException(
                 PreAccountBuildException::SOURCE_REF_INVALID,
@@ -289,19 +312,44 @@ class PreAccountBuildService
      * ShouldBeUnique window, so a fresh dispatch here is never dropped by the
      * unique lock nor races a still-legitimately-running job.
      */
-    private function reserve(PreAccountBuild $build): PreAccountBuild
+    private function reserve(PreAccountBuild $build, ?PartnaStaff $staff = null, ?string $ipHash = null): PreAccountBuild
     {
         $stuckSla = (int) config('partna.pre_account.stuck_build_sla_minutes', 30);
         $isStuck = in_array($build->build_state, [PreAccountBuild::STATE_PENDING, PreAccountBuild::STATE_BUILDING], true)
             && $build->updated_at->lt(now()->subMinutes($stuckSla));
 
-        if ($build->build_state === PreAccountBuild::STATE_FAILED || $isStuck) {
+        if ($build->build_state !== PreAccountBuild::STATE_FAILED && ! $isStuck) {
+            return $build;
+        }
+
+        // F4: a re-serve dispatches the SAME paid Apify scrape a new build would
+        // (GeneratePreAccountSiteJob), and this method is reached from the dedupe
+        // early-return that sits ABOVE the per-IP cap guarding new builds — so a
+        // public caller repeatedly re-serving a failed/stuck build never counted
+        // against anything. Meter it with the identical cap: a caller already at
+        // their outstanding-unclaimed-build limit may not consume another paid
+        // scrape via re-serve either. Staff are exempt, same as new-build creation
+        // (requestBuild skips the cap entirely when $staff is set).
+        DB::connection('pgsql')->transaction(function () use ($build, $staff, $ipHash) {
+            if ($staff === null && $ipHash !== null) {
+                DB::connection('pgsql')->select('select pg_advisory_xact_lock(hashtext(?))', ["pre_account_build_ip:{$ipHash}"]);
+                $cap = (int) config('partna.pre_account.max_unclaimed_per_ip', 3);
+                $outstanding = PreAccountBuild::live()->where('created_ip_hash', $ipHash)->count();
+                if ($outstanding >= $cap) {
+                    throw new PreAccountBuildException(
+                        PreAccountBuildException::IP_BUILD_CAP,
+                        'Too many unclaimed builds from this address. Claim one first.'
+                    );
+                }
+            }
+
             // SEC-4: build_state/failure_code are no longer fillable — forceFill so
             // this re-serve write isn't a silent no-op (a dropped write here would
             // leave the build stuck in 'failed' forever).
             $build->forceFill(['build_state' => PreAccountBuild::STATE_PENDING, 'failure_code' => null])->save();
-            GeneratePreAccountSiteJob::dispatch($build->id, $build->source_type, false)->afterCommit();
-        }
+        });
+
+        GeneratePreAccountSiteJob::dispatch($build->id, $build->source_type, false)->afterCommit();
 
         return $build;
     }

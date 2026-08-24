@@ -22,6 +22,11 @@ class LinkInBioDetector
         // M-1 (2026-08-21, industrybeans live): Sprout Social's link-in-bio.
         // Client-rendered shell, unrolled via LinkInBioApiUnroller::sprout().
         'sprout.link',
+        // 2026-08-24 (themetapunter live): Lnk.Bio serves the same page on two
+        // hostnames and only one of them is reachable — lnk.bio answers 403
+        // behind Cloudflare, clk.bio answers 200 with the anchors intact. A
+        // vendor's blocked-host verdict does not transfer to its own mirror.
+        'clk.bio',
     ];
 
     public function matches(string $url): bool

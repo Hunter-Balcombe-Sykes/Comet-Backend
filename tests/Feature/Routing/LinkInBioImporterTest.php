@@ -4,11 +4,14 @@ use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Content\LinkPoolReader;
+use App\Services\Platforms\WebsiteLinkHarvester;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
+use Tests\Support\Fixtures\Recorded;
 
 // Uses https://example.com as the bio page: SafeUrlFetcher::assertSafe() does
 // a real DNS lookup before the fetch even under Http::fake(), so a
@@ -739,4 +742,147 @@ it('folds a second URL that canonicalizes identically instead of carding it (FI-
         ->and($result['noted'])->toBe(0);
     expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0)
         ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
+});
+
+// The whole chain against the page that exposed it (themetapunter, 2026-08-24):
+// clk.bio is recognised, its four owner links are PLACED, its seven share
+// widgets and five hidden SEO backlinks are not.
+it('unrolls a real Lnk.Bio page to the owner\'s links and nothing else', function () {
+    $pro = createTenant('bio-clkbio');
+    bioPage(Recorded::html('linkinbio/lnkbio.clkbio.html'));
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/TheMetaPunter');
+
+    $placed = DB::table('routing.link_observations')
+        ->where('source', 'link_in_bio')->where('verdict', 'place')
+        ->pluck('surface_key')->sort()->values()->all();
+
+    expect($result['outcome'])->toBe('ok')
+        ->and($placed)->toBe(['instagram.profile', 'kick.channel', 'tiktok.profile', 'youtube.channel']);
+
+    // "Nothing else" has to mean CARDS too, not just placed surfaces. Before
+    // the vendor-chrome and share-widget rules this page seeded EIGHT junk
+    // cards — Lnk.Bio's own "Get Lnk.Bio" referral link plus all seven share
+    // buttons — while the placed-surface assertion above stayed green.
+    expect(DB::table('content.items')->where('kind', 'link')->count())->toBe(0);
+    expect(DB::table('routing.link_observations')->count())->toBe(4);
+});
+
+// Split from the routing assertion above: a chained expect() aborts on its
+// first failure, so bundling these would prove only whichever ran first.
+// Lnk.Bio's five display:none backlinks must never reach the harvest at all —
+// unlike the share widgets they are not "observed and declined", they are gone.
+it('never even observes the bio platform\'s hidden SEO backlinks', function (string $domain) {
+    $pro = createTenant('bio-clkbio-hidden-'.substr(md5($domain), 0, 6));
+    bioPage(Recorded::html('linkinbio/lnkbio.clkbio.html'));
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/TheMetaPunter');
+
+    expect(DB::table('routing.link_observations')->pluck('registrable_key')->all())
+        ->not->toContain($domain);
+})->with(['cruciverba.io', 'petrolprice.sg', 'mediakit.bio', 'menoo.me', 'calcio.dev']);
+
+// Independent of the routing assertions above, because a negative assertion
+// that passes for the wrong reason is invisible. Asserted on the RAW harvest
+// count, which is the number the hidden-anchor rule actually moves: 28 anchors
+// on the page, 23 after its five display:none SEO backlinks are dropped.
+// (An earlier draft counted classify()-able links instead and read 4 either
+// way — those backlinks classify as nothing, so the rule was invisible to it.)
+it('keeps the bio platform\'s hidden anchors out of the harvest entirely', function () {
+    $links = app(WebsiteLinkHarvester::class)->allOutboundLinks(
+        Recorded::html('linkinbio/lnkbio.clkbio.html'),
+        'https://clk.bio/TheMetaPunter'
+    );
+
+    expect($links)->toHaveCount(23);
+});
+
+// A floor card is only correct while the page yields nothing. A user can
+// re-paste the same aggregator through POST /routing/links (RoutingController
+// dispatches LinkInBioScanJob), so a host that was rate-limited on the first
+// try — or one we have only just learned to read, as clk.bio was on
+// 2026-08-24 — leaves the owner holding BOTH the inert card and the links it
+// contains.
+//
+// The fake is a CLOSURE over a flag, not two Http::fake() calls: repeated
+// fake(['*' => …]) stacks stubs and the first match wins, so the 403 would
+// answer both runs. A fakeSequence() is wrong too — SafeUrlFetcher retries a
+// 403 with a second User-Agent, so one logical fetch eats two entries.
+it('retires the floor card once the same page finally unrolls', function () {
+    $pro = createTenant('bio-refloor');
+    $readable = false;
+    $html = '<html><body>
+        <a href="https://www.instagram.com/refloor">IG</a>
+        <a href="https://open.spotify.com/artist/3TVXtAsR1Inumwj472S9r4">Spotify</a>
+    </body></html>';
+    // NB `use (&$readable)`: an arrow fn captures by VALUE, so fn() would
+    // freeze the flag at false and answer 403 to both runs.
+    Http::fake(function () use (&$readable, $html) {
+        return $readable
+            ? Http::response($html, 200, ['Content-Type' => 'text/html'])
+            : Http::response('', 403);
+    });
+
+    $first = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/refloor');
+
+    expect($first['outcome'])->toBe('unavailable')
+        ->and($first['bio_url_seeded'])->toBeTrue()
+        ->and(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
+
+    $readable = true;
+    $second = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/refloor');
+
+    expect($second['outcome'])->toBe('ok');
+    expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(0);
+});
+
+// The retire is keyed on the page we just unrolled, not "tidy up the pool".
+it('leaves a card the owner holds for some other page alone', function () {
+    $pro = createTenant('bio-keepother');
+    $unrollable = false;
+    Http::fake(function () use (&$unrollable) {
+        return $unrollable
+            ? Http::response('<html><body><a href="https://www.instagram.com/keepother">IG</a></body></html>', 200, ['Content-Type' => 'text/html'])
+            : Http::response('', 403);
+    });
+
+    app(LinkInBioImporter::class)->import($pro, 'https://beacons.ai/keepother');
+    expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
+
+    $unrollable = true;
+    app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/different');
+
+    // The beacons card survives — nothing unrolled THAT url.
+    expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
+});
+
+// A bio_harvest run carries N pages and $observations counts the whole RUN, so
+// "something unrolled" must not be read as "every page unrolled". One page
+// coming back while another is still blocked would otherwise retire the
+// blocked page's card — deleting a link the owner can still see nothing else
+// for.
+it('keeps the card of a page that is still down when a sibling page unrolls', function () {
+    $pro = createTenant('bio-batch');
+    $siblingUp = false;
+    Http::fake(function (Request $request) use (&$siblingUp) {
+        if (str_contains($request->url(), 'linktr.ee/up')) {
+            return $siblingUp
+                ? Http::response('<html><body><a href="https://www.instagram.com/batchup">IG</a></body></html>', 200, ['Content-Type' => 'text/html'])
+                : Http::response('', 403);
+        }
+
+        return Http::response('', 403);
+    });
+
+    // The blocked page gets its floor card on its own run.
+    app(LinkInBioImporter::class)->import($pro, ['https://beacons.ai/stilldown']);
+    expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
+
+    // Now a batch: the sibling reads, the blocked one still 403s.
+    $siblingUp = true;
+    app(LinkInBioImporter::class)->import($pro, ['https://linktr.ee/up', 'https://beacons.ai/stilldown'], 'bio_harvest');
+
+    // beacons.ai never unrolled, so its card is still the only thing standing
+    // for that link.
+    expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
 });

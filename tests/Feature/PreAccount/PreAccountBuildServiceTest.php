@@ -90,6 +90,36 @@ it('retries a failed live build on dedupe hit (F3)', function () {
     Queue::assertPushed(GeneratePreAccountSiteJob::class, 2);
 });
 
+// Task 4: reserve() re-dispatches a paid scrape for a failed/stuck build,
+// reached from the dedupe early-return that sits ABOVE the per-IP cap — so a
+// public caller re-serving a failed build never counted against anything.
+it('meters re-serving a failed build against the same per-IP cap as new builds', function () {
+    config(['partna.pre_account.max_unclaimed_per_ip' => 1]);
+    $svc = app(PreAccountBuildService::class);
+    $ip = hash('sha256', 'reserve-cap-ip');
+
+    $result = $svc->requestBuild('partna', 'instagram', 'reservecap', null, $ip);
+    $result['build']->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => 'scrape_failed'])->save();
+
+    // This caller is already at the cap (their one build, now failed but
+    // still "live" — claimed_at is what drops it, not build_state) — the
+    // re-serve must be metered exactly like a new build would be.
+    $svc->requestBuild('partna', 'instagram', 'reservecap', null, $ip);
+})->throws(PreAccountBuildException::class);
+
+it('does not meter a staff re-serve of a failed build', function () {
+    $staff = makePartnaStaff();
+    $svc = app(PreAccountBuildService::class);
+    $result = $svc->requestBuild('partna', 'instagram', 'staffreservecap', null, null, staff: $staff);
+    $result['build']->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => 'scrape_failed'])->save();
+
+    config(['partna.pre_account.max_unclaimed_per_ip' => 0]); // would block ANY public caller
+    $second = $svc->requestBuild('partna', 'instagram', 'staffreservecap', null, null, staff: $staff);
+
+    expect($second['reused'])->toBeTrue()
+        ->and($second['build']->fresh()->build_state)->toBe(PreAccountBuild::STATE_PENDING);
+});
+
 it('rejects a wrong account_type/source_type pairing from the config map', function () {
     app(PreAccountBuildService::class)->requestBuild('partna', 'google_business', 'x', 'Cafe', hash('sha256', 'a'));
 })->throws(PreAccountBuildException::class);
@@ -112,6 +142,59 @@ it('staff builds record the staff id, skip the IP cap, and honour expires_days',
     expect($result['build']->built_via)->toBe(PreAccountBuild::VIA_STAFF)
         ->and($result['build']->built_by_staff_id)->toBe($staff->id)
         ->and($result['build']->expires_at->isAfter(now()->addDays(59)))->toBeTrue();
+});
+
+// Finding 9: a self-serve build has contact_email NULL by construction — a
+// person mid-signup on their own source. A staff CSV/import naming the same
+// source (e.g. a coincidental duplicate) must not attach its address here:
+// that would silently hand the build's invite-gate to staff's address and
+// lock the actual signer-upper out.
+it('does not attach a staff-provided contact_email to a self-serve build on dedupe', function () {
+    $svc = app(PreAccountBuildService::class);
+    $selfServe = $svc->requestBuild('partna', 'instagram', 'selfserve', null, hash('sha256', 'x'));
+    expect($selfServe['build']->built_via)->toBe(PreAccountBuild::VIA_SIGNUP);
+
+    $reused = $svc->requestBuild(
+        'partna', 'instagram', 'selfserve', null, null,
+        staff: makePartnaStaff(), contactEmail: 'staff@example.com',
+    );
+
+    expect($reused['reused'])->toBeTrue()
+        ->and($reused['build']->id)->toBe($selfServe['build']->id)
+        ->and($reused['build']->fresh()->contact_email)->toBeNull();
+});
+
+it('attaches a staff-provided contact_email to an outreach build on dedupe', function () {
+    $staff = makePartnaStaff();
+    $svc = app(PreAccountBuildService::class);
+    $outreach = $svc->requestBuild('partna', 'instagram', 'outreach1', null, null, staff: $staff);
+    expect($outreach['build']->contact_email)->toBeNull();
+
+    $reused = $svc->requestBuild(
+        'partna', 'instagram', 'outreach1', null, null,
+        staff: $staff, contactEmail: 'lead@example.com',
+    );
+
+    expect($reused['build']->fresh()->contact_email)->toBe('lead@example.com');
+});
+
+it('throws CONTACT_EMAIL_CONFLICT when a staff request disagrees with the address on file', function () {
+    $staff = makePartnaStaff();
+    $svc = app(PreAccountBuildService::class);
+    $svc->requestBuild(
+        'partna', 'instagram', 'outreach2', null, null,
+        staff: $staff, contactEmail: 'first@example.com',
+    );
+
+    try {
+        $svc->requestBuild(
+            'partna', 'instagram', 'outreach2', null, null,
+            staff: $staff, contactEmail: 'second@example.com',
+        );
+        expect(false)->toBeTrue('Expected a PreAccountBuildException.');
+    } catch (PreAccountBuildException $e) {
+        expect($e->errorCode)->toBe(PreAccountBuildException::CONTACT_EMAIL_CONFLICT);
+    }
 });
 
 // LIFE-2: the IP abuse-cap check now runs INSIDE the build transaction, guarded by

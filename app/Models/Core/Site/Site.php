@@ -27,7 +27,7 @@ use Illuminate\Support\Facades\DB;
  * @property Carbon $updated_at
  * @property Carbon|null $subdomain_changed_at
  * @property Carbon|null $unpublished_at
- * @property string $architecture_id Vestigial single-value column, CHECK-constrained to 'staple' (sites_architecture_id_check) — plain string, NOT an enum (see class comment below). NOT fillable and NOT on the dashboard wire since 2026-08-20: it is written only by the DB default. The public payload still derives architectureId/skeletonId from it (IndividualProfileResource) until that wire change lands.
+ * @property string $architecture_id One of ARCHITECTURE_IDS ('staple'|'scroll'), CHECK-constrained (sites_architecture_id_check) — plain string, NOT a Postgres enum (see class comment below). Fillable and on the dashboard wire again since 2026-08-24 (reopens the 2026-08-20 lockdown — see UpdateSiteRequest). The public payload derives architectureId/skeletonId from it (IndividualProfileResource).
  * @property string $moderation_state One of 'active'|'warned'|'hidden' (sites_moderation_state_check).
  * @property string|null $custom_domain Lowercase-unique connected FQDN (Cloudflare for SaaS).
  * @property string|null $custom_domain_status One of 'pending'|'active'|'error', or NULL (sites_custom_domain_status_check).
@@ -50,9 +50,10 @@ use Illuminate\Support\Facades\DB;
 // A user's public-facing site. Owns blocks, media, architecture selection, and publish state. One site per user.
 // `architecture_id` is a TEXT enum. An "architecture" is how the sitepage is
 // laid out / how its pages connect — the renderer (partna-pages) picks a
-// code-side architecture from that value. Vestigial: the DB CHECK constrains it
-// to 'staple' (replaced 'one' 2026-07-15) and every write collapses historical
-// ids to 'staple' (single-architecture platform). Per-user design vars live in
+// code-side architecture from that value. TWO architectures exist as of
+// 2026-08-24 ('staple', the platform's original and every account's default,
+// and 'scroll', a second one added empty — see ARCHITECTURE_IDS); the DB
+// CHECK constrains the column to that pair. Per-user design vars live in
 // site.design_kits (separate table).
 class Site extends BaseModel
 {
@@ -60,6 +61,15 @@ class Site extends BaseModel
 
     /** Default architecture when none has been explicitly chosen. Must match the DB CHECK constraint. */
     public const DEFAULT_ARCHITECTURE_ID = 'staple';
+
+    /**
+     * Allowed architecture ids — mirrors the sites_architecture_id_check DB
+     * CHECK constraint. Referenced by UpdateSiteRequest so validation and the
+     * DB constraint share a single source of truth, the same convention
+     * BOOKING_MODES below follows. Adding an architecture = add here + widen
+     * the CHECK (see migration 20260824140000).
+     */
+    public const ARCHITECTURE_IDS = ['staple', 'scroll'];
 
     /**
      * Allowed GLOBAL shop link modes — mirrors the value the shop-settings
@@ -107,6 +117,7 @@ class Site extends BaseModel
         'unpublished_at',
         'settings',
         'moderation_state',
+        'architecture_id',
         // FOUND-16: 5 promoted columns (were settings.* sub-keys). Columns are
         // the source of truth; UpdateSiteAction hoists them out of settings.
         'show_branding',
