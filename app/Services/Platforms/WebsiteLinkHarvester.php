@@ -384,7 +384,7 @@ class WebsiteLinkHarvester
             }
 
             foreach (self::SOCIAL_HOSTS as $key => $pattern) {
-                if (! isset($socials[$key]) && preg_match($pattern, $host) && $this->looksLikeProfile($key, $url)) {
+                if (! isset($socials[$key]) && preg_match($pattern, $host) && $this->looksLikeProfile($url)) {
                     $socials[$key] = $url;
 
                     continue 2;
@@ -488,7 +488,7 @@ class WebsiteLinkHarvester
             // No isset() guard needed: SOCIAL_PLATFORM is hand-maintained with the
             // exact same 7 keys as SOCIAL_HOSTS, so the lookup below can never
             // miss for a $key drawn from this loop.
-            if (preg_match($pattern, $host) && $this->looksLikeProfile($key, $url)) {
+            if (preg_match($pattern, $host) && $this->looksLikeProfile($url)) {
                 [$platform, $label] = self::SOCIAL_PLATFORM[$key];
 
                 return ['platform' => $platform, 'category' => 'social', 'label' => $label];
@@ -786,12 +786,18 @@ class WebsiteLinkHarvester
     /**
      * A profile link, not a share/intent widget ("facebook.com/sharer",
      * "twitter.com/intent") — the classic false positives on business sites.
+     *
+     * Host-agnostic since 2026-08-24: the old facebook/twitter allowlist let
+     * linkedin.com/sharing/share-offsite and reddit.com/submit through as real
+     * profiles on the live clk.bio page, and a per-host list guarantees the
+     * next vendor's share button repeats the defect. A share endpoint carries
+     * the page it shares in its QUERY, so no owner's handle is lost by reading
+     * these paths as non-profiles — the worst case is an inert custom card.
      */
-    private function looksLikeProfile(string $key, string $url): bool
+    private function looksLikeProfile(string $url): bool
     {
         $path = strtolower((string) parse_url($url, PHP_URL_PATH));
-        if (in_array($key, ['facebook', 'twitter'], true)
-            && preg_match('~^/(sharer|share|intent|dialog)~', $path)) {
+        if (preg_match('~^/(sharer|share|sharing|intent|intents|dialog|submit)(/|\.|$)~', $path) === 1) {
             return false;
         }
 
