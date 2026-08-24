@@ -758,6 +758,13 @@ it('unrolls a real Lnk.Bio page to the owner\'s links and nothing else', functio
 
     expect($result['outcome'])->toBe('ok')
         ->and($placed)->toBe(['instagram.profile', 'kick.channel', 'tiktok.profile', 'youtube.channel']);
+
+    // "Nothing else" has to mean CARDS too, not just placed surfaces. Before
+    // the vendor-chrome and share-widget rules this page seeded EIGHT junk
+    // cards — Lnk.Bio's own "Get Lnk.Bio" referral link plus all seven share
+    // buttons — while the placed-surface assertion above stayed green.
+    expect(DB::table('content.items')->where('kind', 'link')->count())->toBe(0);
+    expect(DB::table('routing.link_observations')->count())->toBe(4);
 });
 
 // Split from the routing assertion above: a chained expect() aborts on its
@@ -775,18 +782,16 @@ it('never even observes the bio platform\'s hidden SEO backlinks', function (str
 })->with(['cruciverba.io', 'petrolprice.sg', 'mediakit.bio', 'menoo.me', 'calcio.dev']);
 
 // Independent of the routing assertions above, because a negative assertion
-// that passes for the wrong reason is invisible: this pins that the harvest
-// itself hands the importer 4 classifiable links, not 16.
-it('hands the importer only the links a visitor could click', function () {
-    $harvester = app(WebsiteLinkHarvester::class);
+// that passes for the wrong reason is invisible. Asserted on the RAW harvest
+// count, which is the number the hidden-anchor rule actually moves: 28 anchors
+// on the page, 23 after its five display:none SEO backlinks are dropped.
+// (An earlier draft counted classify()-able links instead and read 4 either
+// way — those backlinks classify as nothing, so the rule was invisible to it.)
+it('keeps the bio platform\'s hidden anchors out of the harvest entirely', function () {
+    $links = app(WebsiteLinkHarvester::class)->allOutboundLinks(
+        Recorded::html('linkinbio/lnkbio.clkbio.html'),
+        'https://clk.bio/TheMetaPunter'
+    );
 
-    $classified = array_values(array_filter(
-        $harvester->allOutboundLinks(
-            Recorded::html('linkinbio/lnkbio.clkbio.html'),
-            'https://clk.bio/TheMetaPunter'
-        ),
-        fn (string $u): bool => $harvester->classify($u) !== null
-    ));
-
-    expect($classified)->toHaveCount(4);
+    expect($links)->toHaveCount(23);
 });

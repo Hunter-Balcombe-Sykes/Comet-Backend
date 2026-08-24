@@ -13,6 +13,7 @@ use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\LinkInBioApiUnroller;
+use App\Services\Platforms\LinkInBioDetector;
 use App\Services\Platforms\LinkInBioInlinePayloadReader;
 use App\Services\Platforms\MediaSeeder;
 use App\Services\Platforms\WebsiteLinkHarvester;
@@ -81,6 +82,7 @@ class LinkInBioImporter
         private readonly EventsSeeder $events,
         private readonly MediaSeeder $media,
         private readonly ShortLinkExpander $expander,
+        private readonly LinkInBioDetector $bioDetector,
     ) {}
 
     /**
@@ -284,6 +286,38 @@ class LinkInBioImporter
      * @param  array<string, string>  $placedKeys  surface:identifier => first canonical URL
      * @param  array<string, int>  $droppedReasons
      */
+    /**
+     * A "share this page" button, identified by the page's own URL appearing in
+     * the candidate's query string.
+     *
+     * Keyed on the page URL rather than a host or path list because the seven
+     * on one Lnk.Bio page agree on nothing else: facebook.com/sharer.php?u=,
+     * wa.me/?text=, twitter.com/intent/tweet?text=,
+     * social-plugins.line.me/lineit/share?url=, story.kakao.com/share?url=,
+     * reddit.com/submit?url=, linkedin.com/sharing/share-offsite/?url=. Three
+     * different path shapes, two hosts with no path at all, and five hosts the
+     * harvester has no rule for — but every one of them carries the page it
+     * shares. Matching on both the raw and encoded form covers either style.
+     */
+    private function isShareWidget(string $url, string $baseUrl): bool
+    {
+        $query = (string) parse_url($url, PHP_URL_QUERY);
+        if ($query === '' || preg_match_all('~https?://[^\s&"\']+~i', urldecode($query), $m) === 0) {
+            return false;
+        }
+
+        $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
+
+        foreach ($m[0] as $embedded) {
+            $host = strtolower((string) parse_url($embedded, PHP_URL_HOST));
+            if ($host !== '' && ($host === $ownHost || $this->bioDetector->matches($embedded))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen, array &$probedHosts, array &$placedKeys, array &$droppedReasons): void
     {
         $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
@@ -336,6 +370,30 @@ class LinkInBioImporter
             // The chrome rule. Same host as the bio page itself = the
             // platform's own navigation, not the user's link.
             if ($ownHost !== '' && strtolower((string) parse_url($url, PHP_URL_HOST)) === $ownHost) {
+                $tally['skipped_chrome']++;
+
+                continue;
+            }
+
+            // Same-host is not enough for a vendor that serves one page on two
+            // hostnames. Lnk.Bio renders at clk.bio but puts its navbar brand
+            // and its "Get Lnk.Bio" referral link on lnk.bio, so the rule above
+            // saw a third-party domain and carded the vendor's SIGNUP link onto
+            // the owner's page (measured 2026-08-24, the clk.bio fixture).
+            // An aggregator host inside an aggregator page is furniture.
+            if ($this->bioDetector->matches($url)) {
+                $tally['skipped_chrome']++;
+
+                continue;
+            }
+
+            // A share widget carries THIS page's URL in its own query string —
+            // "post my Lnk.Bio to Facebook" is the page's furniture, not a link
+            // the owner published. Seven of them on the clk.bio page (facebook,
+            // whatsapp, twitter, line, kakao, reddit, linkedin) each seeded a
+            // junk card. Keyed on the page URL rather than a host or path list
+            // because line.me/lineit/share and wa.me/?text= share neither.
+            if ($this->isShareWidget($url, $baseUrl)) {
                 $tally['skipped_chrome']++;
 
                 continue;

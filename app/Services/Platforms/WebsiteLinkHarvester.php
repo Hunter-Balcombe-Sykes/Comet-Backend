@@ -34,8 +34,18 @@ class WebsiteLinkHarvester
     /** Utility classes that mean display:none on their own — Bootstrap, Tailwind. */
     private const HIDDEN_CLASSES = ['d-none', 'hidden'];
 
-    /** A breakpoint utility that re-shows what HIDDEN_CLASSES hid. */
-    private const RESHOWN_CLASS = '~^(d-(sm|md|lg|xl|xxl)-(?!none)[a-z-]+|(sm|md|lg|xl|2xl):(block|flex|grid|inline|inline-block|inline-flex|table))$~';
+    /**
+     * A breakpoint utility that re-shows what HIDDEN_CLASSES hid.
+     *
+     * Deliberately generous on both arms, and matches any breakpoint name so a
+     * project's custom `tablet:`/`3xl:` screens count. An earlier version
+     * enumerated seven Tailwind display values and so read `hidden
+     * md:table-cell` as hidden — dropping a link most visitors CAN see. That is
+     * the expensive direction: harvest() feeds GoogleBusinessAutoSync::seed(),
+     * so a lost anchor is a business's missing social account, whereas an
+     * over-generous match merely keeps a link we might have dropped.
+     */
+    private const RESHOWN_CLASS = '~^(d-[a-z0-9]+-(?!none$)[a-z0-9-]+|[a-z0-9]+:(?!hidden$)[a-z0-9!:._/-]+)$~';
 
     /** Host-pattern → socials key. First match per key wins (homepage order). */
     private const SOCIAL_HOSTS = [

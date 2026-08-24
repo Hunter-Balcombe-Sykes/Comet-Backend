@@ -67,5 +67,31 @@ it('keeps an anchor a breakpoint class re-shows', function (string $class) {
     expect($links)->toBe(['https://example.org/desktop']);
 })->with([
     'bootstrap' => 'd-none d-md-block',
+    'bootstrap other util' => 'd-none d-lg-inline',
     'tailwind' => 'hidden md:block',
+    // The Tailwind arm was originally an enumeration of seven display values
+    // and dropped every link below. Dropping a VISIBLE link is the costly
+    // direction — harvest() feeds GoogleBusinessAutoSync::seed(), so a lost
+    // anchor is a business's missing social account — so any breakpoint class
+    // other than the hidden token itself counts as re-showing.
+    'tailwind table-cell' => 'hidden md:table-cell',
+    'tailwind list-item' => 'hidden lg:list-item',
+    'tailwind inline-grid' => 'hidden md:inline-grid',
+    'tailwind contents' => 'hidden sm:contents',
+    'tailwind important' => 'hidden md:!block',
+    'custom breakpoint' => 'hidden tablet:block',
+    'numeric breakpoint' => 'hidden 3xl:block',
+]);
+
+// The one thing a breakpoint class must NOT do is re-show when it also hides.
+it('still drops an anchor hidden at every breakpoint', function (string $class) {
+    $links = app(WebsiteLinkHarvester::class)->allOutboundLinks(
+        '<html><body><a href="https://calcio.dev/" class="'.$class.'">Promo</a></body></html>',
+        'https://clk.bio/TheMetaPunter'
+    );
+
+    expect($links)->toBe([]);
+})->with([
+    'bootstrap' => 'd-none d-md-none',
+    'tailwind' => 'hidden md:hidden',
 ]);
