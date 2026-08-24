@@ -598,6 +598,20 @@ class IndividualProfilePayloadBuilder
         // Nothing about the affiliate composition becomes public here.
         $config['shopLinkMode'] = $pro->site?->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE;
 
+        // displayGalleryPage (2026-08-24): the owner's Site → "Display a
+        // gallery page?" switch. It has been accepted and stored since
+        // UpdateSiteRequest grew the rule ("Stored only for now — the
+        // resolver gate lands separately"); this is that gate, published
+        // rather than applied here.
+        //
+        // It has to reach the RENDERER rather than just drop 'gallery' from
+        // pageOrder, because the sitepage re-adds Gallery on its own when the
+        // media pool is stocked (PLACEHOLDER_PAGE_IDS) — a pageOrder-only
+        // removal would be silently overridden and the switch would look
+        // broken. Absent = true, matching the request rule's
+        // permissive-on-absent default.
+        $config['displayGalleryPage'] = ($pro->site?->settings['display_gallery_page'] ?? true) !== false;
+
         if ($pro->isUnclaimed()) {
             $config['claim'] = ['unclaimed' => true];
         }
