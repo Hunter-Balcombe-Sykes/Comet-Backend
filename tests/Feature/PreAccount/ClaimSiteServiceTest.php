@@ -7,6 +7,7 @@ use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Mail\Account\WelcomeMail;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
@@ -278,7 +279,7 @@ it('falls back display_name to the handle when the provisional user has none, an
 
 it('INVITE-GATE: refuses an outreach build that has nobody to invite', function () {
     [$user, $site, $build] = makeReadyBuild();
-    $staff = \App\Models\Core\Staff\PartnaStaff::factory()->create();
+    $staff = PartnaStaff::factory()->create();
     $build->builtByStaff()->associate($staff);
     $build->forceFill(['contact_email' => null])->save();
 
@@ -306,7 +307,7 @@ it('INVITE-GATE: a blank-string contact_email is treated as absent, not as a gat
     // trimming, `'' !== null` would satisfy the invite gate AND then fail the
     // email gate for everyone — a site nobody could ever claim.
     [$user, $site, $build] = makeReadyBuild();
-    $staff = \App\Models\Core\Staff\PartnaStaff::factory()->create();
+    $staff = PartnaStaff::factory()->create();
     $build->builtByStaff()->associate($staff);
     $build->forceFill(['contact_email' => '   '])->save();
 
@@ -318,7 +319,7 @@ it('INVITE-GATE: a blank-string contact_email is treated as absent, not as a gat
 it('INVITE-GATE: an INVITED outreach build still claims normally for the invited address', function () {
     Mail::fake();
     [$user, $site, $build] = makeReadyBuild();
-    $staff = \App\Models\Core\Staff\PartnaStaff::factory()->create();
+    $staff = PartnaStaff::factory()->create();
     $build->builtByStaff()->associate($staff);
     $build->forceFill(['contact_email' => 'Owner@Example.com'])->save();
 
